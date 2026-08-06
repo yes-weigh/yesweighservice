@@ -102,8 +102,6 @@ const BLOCKED_ZOHO_EDIT_STATUSES = new Set([
   'invoiced',
 ]);
 
-const DRAFT_ZOHO_EDIT_STATUSES = new Set(['draft', 'pending']);
-
 const OPEN_ZOHO_EDIT_STATUSES = new Set([
   'draft',
   'pending',
@@ -116,7 +114,7 @@ export function normalizeSalesOrderZohoStatus(status: string | null | undefined)
   return String(status || '').toLowerCase().replace(/\s+/g, '_');
 }
 
-/** Whether lines/shipping on a portal SO can still be edited. */
+/** Whether lines/shipping on a portal SO can still be edited (until payment is submitted). */
 export function canEditSalesOrderDraft(input: {
   role?: string | null;
   yesOneStage?: string | null;
@@ -128,11 +126,8 @@ export function canEditSalesOrderDraft(input: {
   const zoho = normalizeSalesOrderZohoStatus(input.zohoStatus);
   if (BLOCKED_ZOHO_EDIT_STATUSES.has(zoho)) return false;
 
-  if (input.role === 'super_admin' && stage === 'ready_for_payment') {
-    return OPEN_ZOHO_EDIT_STATUSES.has(zoho) || !zoho;
-  }
-
-  return DRAFT_ZOHO_EDIT_STATUSES.has(zoho);
+  // review + ready_for_payment: edit/add lines until the dealer submits payment.
+  return OPEN_ZOHO_EDIT_STATUSES.has(zoho) || !zoho;
 }
 
 export interface SalesOrderWorkflowDetail extends AdminSalesOrderDetail {

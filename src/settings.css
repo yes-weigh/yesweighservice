@@ -2211,6 +2211,197 @@
   margin-top: 0.25rem;
 }
 
+.settings-logistics__partner-status {
+  display: flex;
+  flex-direction: column;
+  gap: 0.55rem;
+  margin: 0 0 1rem;
+  padding: 0.75rem 0.85rem;
+  border-radius: 10px;
+  border: 1px solid rgba(148, 163, 184, 0.16);
+  background: rgba(15, 23, 42, 0.35);
+}
+
+.settings-logistics__partner-status-head {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+}
+
+.settings-logistics__partner-status-head strong {
+  font-size: 0.75rem;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: #fdba74;
+}
+
+.settings-logistics__partner-status-head em,
+.settings-logistics__partner-status-legend {
+  font-style: normal;
+  font-size: 0.75rem;
+  line-height: 1.45;
+  color: #94a3b8;
+}
+
+.settings-logistics__status-chip {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.08rem 0.4rem;
+  border-radius: 999px;
+  font-size: 0.68rem;
+  font-weight: 750;
+  letter-spacing: 0.02em;
+  line-height: 1.2;
+  vertical-align: 0.05em;
+}
+
+.settings-logistics__status-chip--active,
+.settings-logistics__partner-status-select--active {
+  color: #bbf7d0;
+  background: rgba(22, 163, 74, 0.22);
+  border-color: rgba(74, 222, 128, 0.45);
+}
+
+.settings-logistics__status-chip--manual,
+.settings-logistics__partner-status-select--manual {
+  color: #fde68a;
+  background: rgba(217, 119, 6, 0.22);
+  border-color: rgba(251, 191, 36, 0.5);
+}
+
+.settings-logistics__status-chip--inactive,
+.settings-logistics__partner-status-select--inactive {
+  color: #cbd5e1;
+  background: rgba(100, 116, 139, 0.28);
+  border-color: rgba(148, 163, 184, 0.4);
+}
+
+.settings-logistics__partner-status-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(16rem, 1fr));
+  gap: 0.45rem 0.75rem;
+}
+
+.settings-logistics__partner-status-row {
+  display: grid;
+  grid-template-columns: 1.75rem minmax(0, 1fr) 7rem;
+  gap: 0.45rem;
+  align-items: center;
+  min-width: 0;
+  padding: 0.35rem 0.4rem;
+  border-radius: 8px;
+  border: 1px solid transparent;
+}
+
+.settings-logistics__partner-status-row--active {
+  background: rgba(22, 163, 74, 0.08);
+  border-color: rgba(74, 222, 128, 0.18);
+}
+
+.settings-logistics__partner-status-row--manual {
+  background: rgba(217, 119, 6, 0.08);
+  border-color: rgba(251, 191, 36, 0.2);
+}
+
+.settings-logistics__partner-status-row--inactive {
+  background: rgba(100, 116, 139, 0.1);
+  border-color: rgba(148, 163, 184, 0.16);
+}
+
+.settings-logistics__partner-status-logo,
+.settings-logistics__partner-status-logo-fallback {
+  width: 1.75rem;
+  height: 1.75rem;
+  border-radius: 6px;
+  object-fit: contain;
+  background: #0b0b0b;
+  border: 1px solid #262626;
+}
+
+.settings-logistics__partner-status-name {
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: #e2e8f0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.settings-logistics__partner-status-select {
+  width: 100%;
+  min-height: 2rem;
+  padding: 0.25rem 0.4rem;
+  border-radius: 6px;
+  border: 1px solid #334155;
+  background: #0b0b0b;
+  color: #f8fafc;
+  font: inherit;
+  font-size: 0.75rem;
+  font-weight: 700;
+}
+
+.settings-logistics__partner-status-select--active {
+  color: #bbf7d0;
+  background: rgba(6, 78, 59, 0.55);
+}
+
+.settings-logistics__partner-status-select--manual {
+  color: #fde68a;
+  background: rgba(120, 53, 15, 0.55);
+}
+
+.settings-logistics__partner-status-select--inactive {
+  color: #cbd5e1;
+  background: rgba(51, 65, 85, 0.75);
+}
+
+.settings-logistics__partner-status-select:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.settings-courier-rates__status-panel {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 7.5rem;
+  gap: 0.75rem;
+  align-items: center;
+  margin: 0 0 1rem;
+  padding: 0.65rem 0.85rem;
+  border-radius: 10px;
+  border: 1px solid transparent;
+}
+
+.settings-courier-rates__status-copy {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+  min-width: 0;
+}
+
+.settings-courier-rates__status-copy strong {
+  font-size: 0.75rem;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: #fdba74;
+}
+
+.settings-courier-rates__status-copy em {
+  font-style: normal;
+  font-size: 0.75rem;
+  line-height: 1.45;
+  color: #94a3b8;
+}
+
+.settings-courier-rates__partner-copy .settings-logistics__status-chip {
+  align-self: flex-start;
+  margin-top: 0.1rem;
+}
+
 .settings-logistics__rule-actions {
   display: flex;
   flex-wrap: wrap;
@@ -2252,6 +2443,8 @@
 
 .settings-logistics__rules-grid-cell {
   min-width: 0;
+  padding: 0.2rem;
+  border-radius: 10px;
 }
 
 .settings-logistics__rule-region {
@@ -2259,8 +2452,51 @@
   font-weight: 700;
   color: #e2e8f0;
   white-space: nowrap;
-  padding-top: 0.55rem;
+  padding: 0.55rem 0.45rem 0.2rem;
   line-height: 1.2;
+  border-radius: 8px;
+}
+
+.settings-logistics__rule-region--kerala,
+.settings-logistics__rules-grid-cell--kerala {
+  background: rgba(16, 185, 129, 0.08);
+}
+
+.settings-logistics__rule-region--kerala {
+  color: #6ee7b7;
+}
+
+.settings-logistics__rule-region--tamil_nadu_pondy,
+.settings-logistics__rules-grid-cell--tamil_nadu_pondy {
+  background: rgba(59, 130, 246, 0.1);
+}
+
+.settings-logistics__rule-region--tamil_nadu_pondy {
+  color: #93c5fd;
+}
+
+.settings-logistics__rule-region--other_states,
+.settings-logistics__rules-grid-cell--other_states {
+  background: rgba(249, 115, 22, 0.1);
+}
+
+.settings-logistics__rule-region--other_states {
+  color: #fdba74;
+}
+
+.settings-logistics__rules-grid-cell--kerala .settings-logistics__rule-trigger {
+  border-color: rgba(52, 211, 153, 0.28);
+  background: linear-gradient(180deg, rgba(6, 78, 59, 0.45) 0%, rgba(15, 23, 42, 0.72) 100%);
+}
+
+.settings-logistics__rules-grid-cell--tamil_nadu_pondy .settings-logistics__rule-trigger {
+  border-color: rgba(96, 165, 250, 0.3);
+  background: linear-gradient(180deg, rgba(30, 58, 138, 0.42) 0%, rgba(15, 23, 42, 0.72) 100%);
+}
+
+.settings-logistics__rules-grid-cell--other_states .settings-logistics__rule-trigger {
+  border-color: rgba(251, 146, 60, 0.32);
+  background: linear-gradient(180deg, rgba(124, 45, 18, 0.4) 0%, rgba(15, 23, 42, 0.72) 100%);
 }
 
 .settings-logistics__rule-trigger {
@@ -2278,6 +2514,24 @@
   cursor: pointer;
   text-align: left;
   transition: border-color 0.15s ease, box-shadow 0.15s ease, transform 0.15s ease;
+}
+
+.settings-logistics__rules-grid-cell--kerala .settings-logistics__rule-trigger:hover:not(:disabled),
+.settings-logistics__rules-grid-cell--kerala .settings-logistics__rule-trigger.is-open {
+  border-color: rgba(52, 211, 153, 0.65);
+  box-shadow: 0 0 0 2px rgba(16, 185, 129, 0.16);
+}
+
+.settings-logistics__rules-grid-cell--tamil_nadu_pondy .settings-logistics__rule-trigger:hover:not(:disabled),
+.settings-logistics__rules-grid-cell--tamil_nadu_pondy .settings-logistics__rule-trigger.is-open {
+  border-color: rgba(96, 165, 250, 0.7);
+  box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.18);
+}
+
+.settings-logistics__rules-grid-cell--other_states .settings-logistics__rule-trigger:hover:not(:disabled),
+.settings-logistics__rules-grid-cell--other_states .settings-logistics__rule-trigger.is-open {
+  border-color: rgba(251, 146, 60, 0.7);
+  box-shadow: 0 0 0 2px rgba(249, 115, 22, 0.16);
 }
 
 .settings-logistics__rule-trigger:hover:not(:disabled) {

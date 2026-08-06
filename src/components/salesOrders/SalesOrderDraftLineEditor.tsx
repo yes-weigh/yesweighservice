@@ -39,6 +39,7 @@ import { inferStCourierZone, type StCourierDestination } from '../../lib/stCouri
 import type { CatalogProduct } from '../../types/catalog';
 import type { LogisticsCourierRates } from '../../types/logistics-courier-rates';
 import type { LogisticsDeliveryRulesMatrix } from '../../types/logistics-delivery-rules';
+import type { LogisticsPartnerStatuses } from '../../types/logistics-partner-status';
 
 export interface DraftEditLine {
   /** Stable row id — same product can appear with/without stamping. */
@@ -128,7 +129,7 @@ function sameGatcKey(a: string | null | undefined, b: string | null | undefined)
   return (a?.trim() || null) === (b?.trim() || null);
 }
 
-function toDraftLine(
+export function draftEditLineFromProduct(
   product: CatalogProduct,
   quantity = 1,
   choice?: GatcStampingChoice,
@@ -190,6 +191,7 @@ export const SalesOrderDraftLineEditor: React.FC<SalesOrderDraftLineEditorProps>
   const [freightAmountManual, setFreightAmountManual] = useState(false);
   const [courierRates, setCourierRates] = useState<LogisticsCourierRates | null>(null);
   const [deliveryRules, setDeliveryRules] = useState<LogisticsDeliveryRulesMatrix | null>(null);
+  const [partnerStatuses, setPartnerStatuses] = useState<LogisticsPartnerStatuses | null>(null);
   const [spareFreightMinimumInr, setSpareFreightMinimumInr] = useState(0);
   const [courierBySite, setCourierBySite] = useState<Partial<Record<InventorySite, LogisticsPartnerId>>>({});
   const freightHydratedRef = useRef(false);
@@ -241,6 +243,7 @@ export const SalesOrderDraftLineEditor: React.FC<SalesOrderDraftLineEditorProps>
         if (cancelled) return;
         setCourierRates(rates);
         setDeliveryRules(settings.deliveryRules);
+        setPartnerStatuses(settings.partnerStatuses);
         setSpareFreightMinimumInr(settings.spareFreightMinimumInr);
       })
       .catch(() => { /* estimate optional */ });
@@ -254,13 +257,16 @@ export const SalesOrderDraftLineEditor: React.FC<SalesOrderDraftLineEditorProps>
   const blueDartPin = useBlueDartPincode(shippingDestination?.zip);
 
   const freightEstimate = useMemo((): StCourierCartFreightEstimate | null => {
-    if (!allowFreight || !courierRates || !deliveryRules || productLines.length === 0) return null;
+    if (!allowFreight || !courierRates || !deliveryRules || !partnerStatuses || productLines.length === 0) {
+      return null;
+    }
     if (!shippingDestination || !inferredFreightZone) return null;
     return estimateStCourierCartFreight({
       lines: cartLinesForFreightEstimate(productLines, catalogById),
       destination: shippingDestination,
       rates: courierRates,
       deliveryRules,
+      partnerStatuses,
       spareFreightMinimumInr,
       courierBySite,
       blueDartPin,
@@ -269,6 +275,7 @@ export const SalesOrderDraftLineEditor: React.FC<SalesOrderDraftLineEditorProps>
     allowFreight,
     courierRates,
     deliveryRules,
+    partnerStatuses,
     spareFreightMinimumInr,
     productLines,
     catalogById,
@@ -431,7 +438,7 @@ export const SalesOrderDraftLineEditor: React.FC<SalesOrderDraftLineEditorProps>
           : line
       )));
     } else {
-      const nextLine = toDraftLine(product, 1, choice);
+      const nextLine = draftEditLineFromProduct(product, 1, choice);
       const afterId = String(insertAfterLineId ?? '').trim();
       if (afterId) {
         const afterIndex = lines.findIndex(line => line.lineId === afterId);

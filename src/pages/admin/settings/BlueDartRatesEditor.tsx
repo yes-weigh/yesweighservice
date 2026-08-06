@@ -38,12 +38,20 @@ import {
   BLUE_DART_SERVICE_META,
   type BlueDartServiceId,
 } from '../../../types/logistics-courier-rates';
+import type { LogisticsPartnerStatus } from '../../../types/logistics-partner-status';
+import { PartnerStatusControl } from './PartnerStatusControl';
 
 type Props = {
   config: BlueDartConfig;
   service: BlueDartServiceId;
   onServiceChange: (service: BlueDartServiceId) => void;
   onChange: (next: BlueDartConfig) => void;
+  /** Sales-order status per Blue Dart service (Air / Surface / Domestic). */
+  serviceStatuses: Record<BlueDartServiceId, LogisticsPartnerStatus>;
+  onServiceStatusChange: (
+    service: BlueDartServiceId,
+    next: LogisticsPartnerStatus,
+  ) => void;
 };
 
 const MONTH_OPTIONS: Array<{ value: number; label: string }> = [
@@ -1303,9 +1311,15 @@ export const BlueDartRatesEditor: React.FC<Props> = ({
   service,
   onServiceChange,
   onChange,
+  serviceStatuses,
+  onServiceStatusChange,
 }) => {
   const shared = config.shared;
   const [tab, setTab] = useState<BlueDartServiceId>(service);
+
+  useEffect(() => {
+    setTab(service);
+  }, [service]);
 
   const patchShared = (patch: Partial<BlueDartConfig['shared']>) => {
     onChange({ ...config, shared: { ...shared, ...patch } });
@@ -1330,12 +1344,24 @@ export const BlueDartRatesEditor: React.FC<Props> = ({
     onServiceChange(next);
   };
 
+  const activeTabMeta = TABS.find(item => item.id === tab) ?? TABS[0]!;
+  const statusControl = (
+    <PartnerStatusControl
+      status={serviceStatuses[tab]}
+      ariaLabel={`Status for Blue Dart ${activeTabMeta.label}`}
+      onChange={next => {
+        onServiceStatusChange(tab, next);
+      }}
+    />
+  );
+
   return (
     <div className="settings-bluedart">
       <p className="settings-bluedart__intro">
         Quotes use the dealer’s shipping <strong>pincode + state</strong>
         {' '}
         (ship-from SOUTH). Surface is laid out in charge order; Air &amp; DP share Fuel / CAF.
+        Each service has its own Active / Inactive / Manual status for sales orders.
       </p>
 
       <div
@@ -1374,6 +1400,7 @@ export const BlueDartRatesEditor: React.FC<Props> = ({
 
       {tab === 'surface' ? (
         <div className="settings-bluedart__tab-panel" role="tabpanel">
+          {statusControl}
           <SurfaceRatesEditor
             rates={config.surface}
             shared={shared}
@@ -1385,6 +1412,7 @@ export const BlueDartRatesEditor: React.FC<Props> = ({
 
       {tab === 'air' ? (
         <div className="settings-bluedart__tab-panel" role="tabpanel">
+          {statusControl}
           <SharedChargesEditor shared={shared} onPatch={patchShared} />
           <AirRatesEditor
             rates={config.air}
@@ -1396,6 +1424,7 @@ export const BlueDartRatesEditor: React.FC<Props> = ({
 
       {tab === 'domestic_priority' ? (
         <div className="settings-bluedart__tab-panel" role="tabpanel">
+          {statusControl}
           <SharedChargesEditor shared={shared} onPatch={patchShared} />
           <p className="settings-bluedart__panel-blurb">
             {SERVICE_BLURB.domestic_priority}

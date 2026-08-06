@@ -8,6 +8,7 @@ import {
 } from '../constants/logisticsPartners';
 import type { BlueDartPincodeDoc } from '../types/blue-dart-rates';
 import type { LogisticsDeliveryRulesMatrix } from '../types/logistics-delivery-rules';
+import type { LogisticsPartnerStatuses } from '../types/logistics-partner-status';
 import {
   ST_COURIER_ZONE_LABELS,
   isCourierRatePartnerId,
@@ -393,6 +394,8 @@ export function estimateStCourierCartFreight(input: {
   destination: StCourierDestination | null | undefined;
   rates: LogisticsCourierRates;
   deliveryRules: LogisticsDeliveryRulesMatrix;
+  /** Active / Inactive / Manual — Inactive partners omitted from SO options. */
+  partnerStatuses?: LogisticsPartnerStatuses | null;
   spareFreightMinimumInr?: number;
   /** Selected courier per ship-from site. Missing sites use default. */
   courierBySite?: Partial<Record<InventorySite, LogisticsPartnerId>>;
@@ -487,6 +490,7 @@ export function estimateStCourierCartFreight(input: {
       destination: input.destination,
       rates: input.rates,
       spareOnly: hasSpare && !hasProduct,
+      partnerStatuses: input.partnerStatuses,
     });
 
     const allParcels = acc.productLines.flatMap(row => row.parcels);
@@ -701,7 +705,7 @@ export function estimateStCourierCartFreight(input: {
       }
     }
 
-    const allowsManual = partnerAllowsManualFreightRate(partnerId);
+    const allowsManual = partnerAllowsManualFreightRate(partnerId, input.partnerStatuses);
     const hasConfiguredRate = isBlueDart
       ? !bdQuoted?.rateMissing
       : (Boolean(originRates) && boxPerKg > 0);

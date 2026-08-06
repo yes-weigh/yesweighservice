@@ -385,7 +385,6 @@ function yesOneStageOf(data) {
 
 const BLOCKED_YESONE_EDIT_STAGES = new Set(['payment_submitted', 'completed', 'void']);
 const BLOCKED_ZOHO_EDIT_STATUSES = new Set(['void', 'cancelled', 'canceled', 'closed', 'invoiced']);
-const DRAFT_ZOHO_EDIT_STATUSES = new Set(['draft', 'pending']);
 const OPEN_ZOHO_EDIT_STATUSES = new Set(['draft', 'pending', 'open', 'confirmed', 'approved']);
 
 function canEditSalesOrderContent(user, data) {
@@ -395,11 +394,8 @@ function canEditSalesOrderContent(user, data) {
   const zohoStatus = normalizeZohoStatus(data.status);
   if (BLOCKED_ZOHO_EDIT_STATUSES.has(zohoStatus)) return false;
 
-  if (user.role === 'super_admin' && stage === 'ready_for_payment') {
-    return OPEN_ZOHO_EDIT_STATUSES.has(zohoStatus) || !zohoStatus;
-  }
-
-  return DRAFT_ZOHO_EDIT_STATUSES.has(zohoStatus);
+  // review + ready_for_payment: edit/add lines until payment is submitted.
+  return OPEN_ZOHO_EDIT_STATUSES.has(zohoStatus) || !zohoStatus;
 }
 
 function assertCanEditSalesOrder(user, data, action = 'edited') {

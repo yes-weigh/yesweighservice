@@ -46,6 +46,7 @@ import { homePathForRole } from '../../types';
 import type { CatalogProduct } from '../../types/catalog';
 import type { LogisticsCourierRates } from '../../types/logistics-courier-rates';
 import type { LogisticsDeliveryRulesMatrix } from '../../types/logistics-delivery-rules';
+import type { LogisticsPartnerStatuses } from '../../types/logistics-partner-status';
 
 export const OrdersPage: React.FC = () => {
   const { user } = useAuth();
@@ -84,6 +85,7 @@ const DealerCartPage: React.FC = () => {
   const [catalogById, setCatalogById] = useState<Record<string, CatalogProduct>>({});
   const [courierRates, setCourierRates] = useState<LogisticsCourierRates | null>(null);
   const [deliveryRules, setDeliveryRules] = useState<LogisticsDeliveryRulesMatrix | null>(null);
+  const [partnerStatuses, setPartnerStatuses] = useState<LogisticsPartnerStatuses | null>(null);
   const [spareFreightMinimumInr, setSpareFreightMinimumInr] = useState(0);
   const [courierBySite, setCourierBySite] = useState<Partial<Record<InventorySite, LogisticsPartnerId>>>({});
 
@@ -107,6 +109,7 @@ const DealerCartPage: React.FC = () => {
         if (cancelled) return;
         setCourierRates(rates);
         setDeliveryRules(settings.deliveryRules);
+        setPartnerStatuses(settings.partnerStatuses);
         setSpareFreightMinimumInr(settings.spareFreightMinimumInr);
       })
       .catch(() => { /* freight preview optional */ });
@@ -135,13 +138,14 @@ const DealerCartPage: React.FC = () => {
   }, [items]);
 
   const freightEstimate = useMemo((): StCourierCartFreightEstimate | null => {
-    if (!courierRates || !deliveryRules || items.length === 0) return null;
+    if (!courierRates || !deliveryRules || !partnerStatuses || items.length === 0) return null;
     if (!shippingDestination || !inferredFreightZone) return null;
     return estimateStCourierCartFreight({
       lines: cartLinesForFreightEstimate(items, catalogById),
       destination: shippingDestination,
       rates: courierRates,
       deliveryRules,
+      partnerStatuses,
       spareFreightMinimumInr,
       courierBySite,
       blueDartPin,
@@ -149,6 +153,7 @@ const DealerCartPage: React.FC = () => {
   }, [
     courierRates,
     deliveryRules,
+    partnerStatuses,
     spareFreightMinimumInr,
     items,
     shippingDestination,

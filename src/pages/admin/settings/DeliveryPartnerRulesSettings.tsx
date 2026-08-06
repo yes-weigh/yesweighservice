@@ -19,8 +19,10 @@ import {
   DEFAULT_LOGISTICS_DELIVERY_RULES,
   rulePartnerShortLabel,
 } from '../../../constants/logisticsDeliveryRules';
-import { logisticsPartnerLabel } from '../../../constants/logisticsPartners';
-import type { LogisticsPartnerId } from '../../../constants/logisticsPartners';
+import {
+  logisticsPartnerLabel,
+  type LogisticsPartnerId,
+} from '../../../constants/logisticsPartners';
 import {
   deliveryRulesEqual,
   patchDeliveryRuleCell,
@@ -35,7 +37,7 @@ import {
 
 type DeliveryPartnerRulesSettingsProps = {
   rules: LogisticsDeliveryRulesMatrix;
-  onSaved: (rules: LogisticsDeliveryRulesMatrix) => void;
+  onSaved: (next: LogisticsDeliveryRulesMatrix) => void;
   onError: (message: string) => void;
   updatedBy?: string | null;
 };
@@ -374,7 +376,9 @@ export const DeliveryPartnerRulesSettings: React.FC<DeliveryPartnerRulesSettings
         <div>
           <h4 className="settings-logistics__title">Delivery partner rules</h4>
           <p className="settings-logistics__rule-hint text-muted text-sm">
-            Tap any cell to set or change partners. Order is preference — first ships first.
+            Assign partners to each state × ship-from cell. Active / Manual / Inactive is set on
+            each partner under Delivery Partners. Sales orders only offer Active or Manual partners
+            from the rule.
           </p>
         </div>
         <div className="settings-logistics__rule-actions">
@@ -409,11 +413,18 @@ export const DeliveryPartnerRulesSettings: React.FC<DeliveryPartnerRulesSettings
 
         {LOGISTICS_DESTINATION_REGIONS.map(region => (
           <React.Fragment key={region}>
-            <div className="settings-logistics__rule-region" role="rowheader">
+            <div
+              className={`settings-logistics__rule-region settings-logistics__rule-region--${region}`}
+              role="rowheader"
+            >
               {LOGISTICS_DESTINATION_REGION_LABELS[region]}
             </div>
             {STAFF_LOGISTICS_SITES.map(site => (
-              <div key={`${region}-${site}`} className="settings-logistics__rules-grid-cell" role="gridcell">
+              <div
+                key={`${region}-${site}`}
+                className={`settings-logistics__rules-grid-cell settings-logistics__rules-grid-cell--${region}`}
+                role="gridcell"
+              >
                 <RuleCell
                   region={region}
                   site={site}

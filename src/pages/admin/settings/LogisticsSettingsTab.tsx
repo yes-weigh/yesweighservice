@@ -23,6 +23,7 @@ import {
 import { StCourierRatesSettings } from './StCourierRatesSettings';
 import { DeliveryPartnerRulesSettings } from './DeliveryPartnerRulesSettings';
 import type { LogisticsDeliveryRulesMatrix } from '../../../types/logistics-delivery-rules';
+import type { LogisticsPartnerStatuses } from '../../../types/logistics-partner-status';
 
 function autosizeTextarea(el: HTMLTextAreaElement | null) {
   if (!el) return;
@@ -53,6 +54,7 @@ export const LogisticsSettingsTab: React.FC = () => {
     head_office: '',
   });
   const [deliveryRules, setDeliveryRules] = useState<LogisticsDeliveryRulesMatrix | null>(null);
+  const [partnerStatuses, setPartnerStatuses] = useState<LogisticsPartnerStatuses | null>(null);
   const [spareFreightMinimumInr, setSpareFreightMinimumInr] = useState(0);
   const [draftSpareFreightMinimumInr, setDraftSpareFreightMinimumInr] = useState(0);
   const [staff, setStaff] = useState<UserRecord[]>([]);
@@ -74,6 +76,7 @@ export const LogisticsSettingsTab: React.FC = () => {
       setFromAddresses(settings.fromAddresses);
       setDraftFromAddresses(settings.fromAddresses);
       setDeliveryRules(settings.deliveryRules);
+      setPartnerStatuses(settings.partnerStatuses);
       setSpareFreightMinimumInr(settings.spareFreightMinimumInr);
       setDraftSpareFreightMinimumInr(settings.spareFreightMinimumInr);
       setStaff(staffUsers);
@@ -319,8 +322,13 @@ export const LogisticsSettingsTab: React.FC = () => {
           />
         )}
 
-        {subTab === 'courier-rates' && deliveryRules && (
-          <StCourierRatesSettings deliveryRules={deliveryRules} onError={setError} />
+        {subTab === 'courier-rates' && deliveryRules && partnerStatuses && (
+          <StCourierRatesSettings
+            deliveryRules={deliveryRules}
+            partnerStatuses={partnerStatuses}
+            onPartnerStatusesSaved={setPartnerStatuses}
+            onError={setError}
+          />
         )}
 
         {subTab === 'staff' && (

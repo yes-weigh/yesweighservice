@@ -445,9 +445,9 @@ export function buildDealerAutoFreightLines({
         totalInr = quoted.totalInr;
       }
       const manualAmt = Number(manualFreightAmountInr);
+      /** Any Manual-status partner may send freight ₹ from the client when quote is 0. */
       if (
-        partnerId === 'delhivery'
-        && Number.isFinite(manualAmt)
+        Number.isFinite(manualAmt)
         && manualAmt >= 0
         && !(totalInr > 0)
       ) {

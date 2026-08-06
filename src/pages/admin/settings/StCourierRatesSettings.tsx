@@ -4,10 +4,13 @@ import { useAuth } from '../../../context/AuthContext';
 import { defaultLogisticsCourierRates } from '../../../constants/logisticsCourierRates';
 import {
   BLUEDART_LOGISTICS_PARTNER_IDS,
+  BLUEDART_SERVICE_TO_PARTNER,
   LOGISTICS_PARTNERS,
   logisticsPartnerImage,
+  logisticsPartnerLabel,
   type LogisticsPartnerId,
 } from '../../../constants/logisticsPartners';
+import { partnerStatusesEqual } from '../../../constants/logisticsPartnerStatus';
 import {
   originsUsingPartnerInDeliveryRules,
   partnersUsedInDeliveryRules,
@@ -19,8 +22,13 @@ import {
   saveBlueDartConfig,
   saveCourierOriginRates,
 } from '../../../lib/logisticsCourierRates';
+import { saveLogisticsPartnerStatuses } from '../../../lib/logisticsSettings';
 import type { BlueDartConfig } from '../../../types/blue-dart-rates';
 import type { LogisticsDeliveryRulesMatrix } from '../../../types/logistics-delivery-rules';
+import type {
+  LogisticsPartnerStatus,
+  LogisticsPartnerStatuses,
+} from '../../../types/logistics-partner-status';
 import {
   STAFF_LOGISTICS_SITES,
   STAFF_LOGISTICS_SITE_LABELS,
@@ -39,12 +47,19 @@ import {
   type StCourierZone,
 } from '../../../types/logistics-courier-rates';
 import { BlueDartRatesEditor } from './BlueDartRatesEditor';
+import { PartnerStatusControl } from './PartnerStatusControl';
 
 type SaveStatus = 'idle' | 'pending' | 'saving' | 'saved' | 'error';
 
-const LIVE_SAVE_MS = 550;
+type ZoneRatePartnerId = Extract<CourierRatePartnerId, 'st_courier' | 'trackon' | 'delhivery'>;
 
+const LIVE_SAVE_MS = 550;
+const STATUS_SAVE_KEY = 'partnerStatuses';
 const RATE_PARTNER_ORDER = COURIER_RATE_PARTNER_IDS;
+
+function isZoneRatePartnerId(id: CourierRatePartnerId): id is ZoneRatePartnerId {
+  return id === 'st_courier' || id === 'trackon' || id === 'delhivery';
+}
 
 function ratesEqual(a: StCourierOriginRates, b: StCourierOriginRates): boolean {
   if (
@@ -62,6 +77,13 @@ function ratesEqual(a: StCourierOriginRates, b: StCourierOriginRates): boolean {
 }
 
 function partnerMeta(id: CourierRatePartnerId) {
+  if (id === 'bluedart') {
+    return {
+      label: 'Blue Dart',
+      tagline: 'Air · Surface · Domestic Priority',
+      image: '/logistics/bluedart-surface.webp' as string | null,
+    };
+  }
   const partner = LOGISTICS_PARTNERS.find(p => p.id === id);
   return {
     label: partner?.label ?? id,
@@ -76,12 +98,14 @@ function partnerLabel(id: CourierRatePartnerId): string {
 
 type Props = {
   deliveryRules: LogisticsDeliveryRulesMatrix;
+  partnerStatuses: LogisticsPartnerStatuses;
+  onPartnerStatusesSaved: (next: LogisticsPartnerStatuses) => void;
   onError: (message: string) => void;
 };
 
 function withPartnerRates(
   prev: LogisticsCourierRates,
-  partner: CourierRatePartnerId,
+  partner: ZoneRatePartnerId,
   site: StaffLogisticsSite,
   nextRates: StCourierOriginRates,
 ): LogisticsCourierRates {
@@ -94,41 +118,60 @@ function withPartnerRates(
       },
     };
   }
-  if (partner === 'bluedart') return prev;
   return {
     ...prev,
     [partner]: nextRates,
   };
 }
 
-export const StCourierRatesSettings: React.FC<Props> = ({ deliveryRules, onError }) => {
+export const StCourierRatesSettings: React.FC<Props> = ({
+  deliveryRules,
+  partnerStatuses,
+  onPartnerStatusesSaved,
+  onError,
+}) => {
   const { user } = useAuth();
   const [partnerId, setPartnerId] = useState<CourierRatePartnerId>('st_courier');
   const [blueDartService, setBlueDartService] = useState<BlueDartServiceId>('surface');
   const [origin, setOrigin] = useState<StaffLogisticsSite>('head_office');
   const [saved, setSaved] = useState<LogisticsCourierRates>(defaultLogisticsCourierRates);
   const [draft, setDraft] = useState<LogisticsCourierRates>(defaultLogisticsCourierRates);
+  const [statusDraft, setStatusDraft] = useState<LogisticsPartnerStatuses>(() => ({
+    ...partnerStatuses,
+  }));
   const [loading, setLoading] = useState(true);
   const [saveStatus, setSaveStatus] = useState<SaveStatus>('idle');
   const draftRef = useRef(draft);
   const savedRef = useRef(saved);
+  const statusDraftRef = useRef(statusDraft);
+  const statusSavedRef = useRef(partnerStatuses);
   const saveTimersRef = useRef<Partial<Record<string, ReturnType<typeof setTimeout>>>>({});
   const saveEpochRef = useRef(0);
   const userUid = user?.uid ?? null;
 
   draftRef.current = draft;
   savedRef.current = saved;
+  statusDraftRef.current = statusDraft;
+  statusSavedRef.current = partnerStatuses;
 
   const visiblePartners = RATE_PARTNER_ORDER;
+  const isZonePartner = isZoneRatePartnerId(partnerId);
+  const blueDartServiceStatuses = useMemo(() => ({
+    air: statusDraft.bluedart_air,
+    surface: statusDraft.bluedart_surface,
+    domestic_priority: statusDraft.bluedart_domestic,
+  }), [statusDraft]);
 
   const visibleOrigins = useMemo(() => {
-    if (!partnerUsesOriginRates(partnerId)) return [] as StaffLogisticsSite[];
+    if (!isZonePartner || !partnerUsesOriginRates(partnerId)) {
+      return [] as StaffLogisticsSite[];
+    }
     const sites = originsUsingPartnerInDeliveryRules(
       deliveryRules,
       partnerId as LogisticsPartnerId,
     );
     return sites.length ? sites : [...STAFF_LOGISTICS_SITES];
-  }, [deliveryRules, partnerId]);
+  }, [deliveryRules, isZonePartner, partnerId]);
 
   useEffect(() => {
     if (!visiblePartners.includes(partnerId)) {
@@ -137,12 +180,16 @@ export const StCourierRatesSettings: React.FC<Props> = ({ deliveryRules, onError
   }, [visiblePartners, partnerId]);
 
   useEffect(() => {
-    if (!partnerUsesOriginRates(partnerId)) return;
+    if (!isZonePartner || !partnerUsesOriginRates(partnerId)) return;
     if (!visibleOrigins.length) return;
     if (!visibleOrigins.includes(origin)) {
       setOrigin(visibleOrigins[0]);
     }
-  }, [visibleOrigins, origin, partnerId]);
+  }, [visibleOrigins, origin, partnerId, isZonePartner]);
+
+  useEffect(() => {
+    setStatusDraft({ ...partnerStatuses });
+  }, [partnerStatuses]);
 
   const loadRates = useCallback(async () => {
     setLoading(true);
@@ -169,10 +216,9 @@ export const StCourierRatesSettings: React.FC<Props> = ({ deliveryRules, onError
   }, []);
 
   const queueLiveSave = useCallback((
-    partner: CourierRatePartnerId,
+    partner: ZoneRatePartnerId,
     site: StaffLogisticsSite,
   ) => {
-    if (partner === 'bluedart') return;
     const key = partner === 'st_courier' ? `st_courier:${site}` : partner;
     const existing = saveTimersRef.current[key];
     if (existing) clearTimeout(existing);
@@ -237,23 +283,54 @@ export const StCourierRatesSettings: React.FC<Props> = ({ deliveryRules, onError
     }, LIVE_SAVE_MS);
   }, [onError, userUid]);
 
-  const activeRates = originRatesForPartner(draft, partnerId, origin);
+  const queueStatusSave = useCallback(() => {
+    const existing = saveTimersRef.current[STATUS_SAVE_KEY];
+    if (existing) clearTimeout(existing);
+    setSaveStatus('pending');
+    saveTimersRef.current[STATUS_SAVE_KEY] = setTimeout(() => {
+      const next = statusDraftRef.current;
+      const prev = statusSavedRef.current;
+      if (partnerStatusesEqual(next, prev)) {
+        setSaveStatus(s => (s === 'pending' ? 'idle' : s));
+        return;
+      }
+      const epoch = ++saveEpochRef.current;
+      setSaveStatus('saving');
+      onError('');
+      void saveLogisticsPartnerStatuses(next, userUid)
+        .then(normalized => {
+          setStatusDraft(normalized);
+          onPartnerStatusesSaved(normalized);
+          if (epoch === saveEpochRef.current) setSaveStatus('saved');
+        })
+        .catch(err => {
+          if (epoch !== saveEpochRef.current) return;
+          setSaveStatus('error');
+          onError(err instanceof Error ? err.message : 'Could not save partner status.');
+        });
+    }, LIVE_SAVE_MS);
+  }, [onError, onPartnerStatusesSaved, userUid]);
 
-  const ratesWarning = useMemo(() => (
-    partnerId !== 'bluedart'
-    && ST_COURIER_ZONES.every(zone => (
+  const activeRates = isZonePartner
+    ? originRatesForPartner(draft, partnerId, origin)
+    : null;
+
+  const ratesWarning = useMemo(() => {
+    if (!activeRates) return false;
+    return ST_COURIER_ZONES.every(zone => (
       activeRates.zones[zone].envelopeFixedInr === 0
       && activeRates.zones[zone].boxPerKgInr === 0
-    ))
-  ), [activeRates, partnerId]);
+    ));
+  }, [activeRates]);
 
   const patchOrigin = (patch: Partial<StCourierOriginRates>) => {
-    if (partnerId === 'bluedart') return;
+    if (!isZonePartner) return;
+    const partner = partnerId;
     setDraft(prev => {
-      const current = originRatesForPartner(prev, partnerId, origin);
-      return withPartnerRates(prev, partnerId, origin, { ...current, ...patch });
+      const current = originRatesForPartner(prev, partner, origin);
+      return withPartnerRates(prev, partner, origin, { ...current, ...patch });
     });
-    queueLiveSave(partnerId, origin);
+    queueLiveSave(partner, origin);
   };
 
   const patchZone = (
@@ -261,10 +338,11 @@ export const StCourierRatesSettings: React.FC<Props> = ({ deliveryRules, onError
     field: 'envelopeFixedInr' | 'boxPerKgInr',
     value: number,
   ) => {
-    if (partnerId === 'bluedart') return;
+    if (!isZonePartner) return;
+    const partner = partnerId;
     setDraft(prev => {
-      const current = originRatesForPartner(prev, partnerId, origin);
-      return withPartnerRates(prev, partnerId, origin, {
+      const current = originRatesForPartner(prev, partner, origin);
+      return withPartnerRates(prev, partner, origin, {
         ...current,
         zones: {
           ...current.zones,
@@ -275,12 +353,23 @@ export const StCourierRatesSettings: React.FC<Props> = ({ deliveryRules, onError
         },
       });
     });
-    queueLiveSave(partnerId, origin);
+    queueLiveSave(partner, origin);
   };
 
   const patchBlueDart = (next: BlueDartConfig) => {
     setDraft(prev => ({ ...prev, bluedart: next }));
     queueBlueDartSave();
+  };
+
+  const setLogisticsPartnerStatus = (
+    id: LogisticsPartnerId,
+    next: LogisticsPartnerStatus,
+  ) => {
+    if (id === 'personal_collection') return;
+    const updated = { ...statusDraftRef.current, [id]: next };
+    statusDraftRef.current = updated;
+    setStatusDraft(updated);
+    queueStatusSave();
   };
 
   const partnerInDeliveryRules = useMemo(() => {
@@ -300,6 +389,11 @@ export const StCourierRatesSettings: React.FC<Props> = ({ deliveryRules, onError
         ? 'Save failed'
         : 'Changes save automatically';
 
+  const showOriginPicker = isZonePartner && partnerUsesOriginRates(partnerId);
+  const showSharedRateNote = partnerId !== 'bluedart'
+    && isZonePartner
+    && !partnerUsesOriginRates(partnerId);
+
   return (
     <div className="settings-logistics__default panel settings-courier-rates">
       <div className="settings-logistics__default-head">
@@ -307,7 +401,8 @@ export const StCourierRatesSettings: React.FC<Props> = ({ deliveryRules, onError
           <h4 className="settings-logistics__title">Delivery Partners</h4>
           <p className="text-muted text-sm">
             ST Courier rates differ by ship-from site. Other partners use one shared card for all
-            origins. Blue Dart uses Air / Surface / Domestic Priority tariffs with pin-based quotes.
+            origins. Blue Dart uses Air / Surface / Domestic Priority tariffs — each with its own
+            sales-order status.
           </p>
         </div>
         {!loading ? (
@@ -368,7 +463,7 @@ export const StCourierRatesSettings: React.FC<Props> = ({ deliveryRules, onError
         })}
       </div>
 
-      {partnerId === 'bluedart' ? null : partnerUsesOriginRates(partnerId) ? (
+      {showOriginPicker ? (
         <div className="settings-courier-rates__hierarchy">
           <div className="settings-courier-rates__level">
             <span className="settings-courier-rates__level-label">Ship from</span>
@@ -392,14 +487,16 @@ export const StCourierRatesSettings: React.FC<Props> = ({ deliveryRules, onError
             </div>
           </div>
         </div>
-      ) : (
+      ) : null}
+      {showSharedRateNote ? (
         <p className="settings-courier-rates__shared-note text-muted text-sm">
           One rate card for all ship-from sites.
         </p>
-      )}
+      ) : null}
       {!partnerInDeliveryRules ? (
         <p className="settings-courier-rates__empty-partners text-muted text-sm">
-          {partnerLabel(partnerId)} is not in Delivery rules yet — rates still save automatically.
+          {partnerLabel(partnerId)} is not in Delivery rules yet — status and rates still save
+          automatically.
         </p>
       ) : null}
 
@@ -413,9 +510,21 @@ export const StCourierRatesSettings: React.FC<Props> = ({ deliveryRules, onError
           service={blueDartService}
           onServiceChange={setBlueDartService}
           onChange={patchBlueDart}
+          serviceStatuses={blueDartServiceStatuses}
+          onServiceStatusChange={(service, next) => {
+            setLogisticsPartnerStatus(BLUEDART_SERVICE_TO_PARTNER[service], next);
+          }}
         />
-      ) : (
+      ) : isZonePartner && activeRates ? (
         <>
+          <PartnerStatusControl
+            status={statusDraft[partnerId]}
+            ariaLabel={`Status for ${logisticsPartnerLabel(partnerId)}`}
+            onChange={next => {
+              setLogisticsPartnerStatus(partnerId, next);
+            }}
+          />
+
           {ratesWarning && (
             <p className="settings-courier-rates__warn text-sm">
               All destinations are ₹0 — enter rates below (or leave as placeholder).
@@ -554,7 +663,7 @@ export const StCourierRatesSettings: React.FC<Props> = ({ deliveryRules, onError
             </div>
           </fieldset>
         </>
-      )}
+      ) : null}
     </div>
   );
 };

@@ -9,7 +9,13 @@ import {
   logisticsPartnerLabel,
   partnerIdForBlueDartService,
 } from '../constants/logisticsPartners';
+import {
+  defaultLogisticsPartnerStatuses,
+  partnerStatusAllowsManualFreight,
+  partnerStatusSelectableOnSalesOrder,
+} from '../constants/logisticsPartnerStatus';
 import type { LogisticsDeliveryRulesMatrix } from '../types/logistics-delivery-rules';
+import type { LogisticsPartnerStatuses } from '../types/logistics-partner-status';
 import {
   BLUE_DART_SERVICE_IDS,
   BLUE_DART_SERVICE_META,
@@ -87,11 +93,15 @@ export function partnerHasZoneRate(
 }
 
 /**
- * Partners that stay selectable with empty rate cards so staff/admin can enter
- * freight ₹ on the sales order until a tariff or API is wired.
+ * Partners with Manual status stay selectable with empty rate cards so staff
+ * can enter freight ₹ on the sales order.
  */
-export function partnerAllowsManualFreightRate(partnerId: LogisticsPartnerId): boolean {
-  return partnerId === 'delhivery';
+export function partnerAllowsManualFreightRate(
+  partnerId: LogisticsPartnerId,
+  partnerStatuses?: LogisticsPartnerStatuses | null,
+): boolean {
+  const statuses = partnerStatuses ?? defaultLogisticsPartnerStatuses();
+  return partnerStatusAllowsManualFreight(statuses[partnerId]);
 }
 
 export type OrderCourierOption = {
@@ -122,7 +132,13 @@ export function listOrderCourierOptions(input: {
   rates: LogisticsCourierRates;
   /** When true, spare-only site can use rate-card partners even if zone ₹/kg is 0. */
   spareOnly?: boolean;
+  /**
+   * Active / Inactive / Manual map from logistics settings.
+   * Inactive partners are omitted from SO options (still allowed in rules).
+   */
+  partnerStatuses?: LogisticsPartnerStatuses | null;
 }): { zone: StCourierZone | null; options: OrderCourierOption[]; defaultPartnerId: LogisticsPartnerId } {
+  const statuses = input.partnerStatuses ?? defaultLogisticsPartnerStatuses();
   const zone = inferStCourierZone(input.destination);
   const region = inferLogisticsDestinationRegion(
     input.destination?.state ?? input.destination?.city ?? '',
@@ -135,6 +151,9 @@ export function listOrderCourierOptions(input: {
   const seen = new Set<LogisticsPartnerId>();
   for (const id of fromRules) {
     if (!isLogisticsPartnerId(id) || seen.has(id)) continue;
+    if (!isPickupPartner(id) && !partnerStatusSelectableOnSalesOrder(statuses[id])) {
+      continue;
+    }
     seen.add(id);
     ordered.push(id);
   }
@@ -154,9 +173,11 @@ export function listOrderCourierOptions(input: {
         disabledReason: null,
       };
     }
+    const status = statuses[partnerId];
+    const allowManual = partnerStatusAllowsManualFreight(status);
     const isRatePartner = isCourierRatePartnerId(partnerId)
       || isBlueDartLogisticsPartnerId(partnerId);
-    if (!isRatePartner) {
+    if (!isRatePartner && !allowManual) {
       return {
         partnerId,
         label: logisticsPartnerLabel(partnerId),
@@ -169,12 +190,11 @@ export function listOrderCourierOptions(input: {
     const hasRate = zone
       ? partnerHasZoneRate(input.rates, partnerId, input.site, zone)
       : false;
-    const allowManual = partnerAllowsManualFreightRate(partnerId);
     if (hasRate || input.spareOnly || (allowManual && Boolean(zone))) {
       return {
         partnerId,
         label: logisticsPartnerLabel(partnerId),
-        freightSku,
+        freightSku: freightSku ?? 'FRC',
         preferred: false,
         enabled: true,
         disabledReason: null,
@@ -184,7 +204,7 @@ export function listOrderCourierOptions(input: {
     return {
       partnerId,
       label: logisticsPartnerLabel(partnerId),
-      freightSku,
+      freightSku: freightSku ?? 'FRC',
       preferred: false,
       enabled: false,
       disabledReason: zone
@@ -193,10 +213,12 @@ export function listOrderCourierOptions(input: {
     };
   });
 
-  // Fix preferred flag: first rule partner
-  const preferredId = fromRules[0] && isLogisticsPartnerId(fromRules[0])
-    ? fromRules[0]
-    : PICKUP_PARTNER_ID;
+  // Preferred = first rule partner that is still offered (active/manual).
+  const preferredId = fromRules.find(id => (
+    isLogisticsPartnerId(id)
+    && (isPickupPartner(id) || partnerStatusSelectableOnSalesOrder(statuses[id]))
+    && options.some(o => o.partnerId === id)
+  )) ?? PICKUP_PARTNER_ID;
   for (const opt of options) {
     opt.preferred = opt.partnerId === preferredId;
   }

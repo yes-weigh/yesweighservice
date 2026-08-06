@@ -26,6 +26,7 @@ import { inferStCourierZone, type StCourierDestination } from '../../lib/stCouri
 import type { CatalogProduct } from '../../types/catalog';
 import type { LogisticsCourierRates } from '../../types/logistics-courier-rates';
 import type { LogisticsDeliveryRulesMatrix } from '../../types/logistics-delivery-rules';
+import type { LogisticsPartnerStatuses } from '../../types/logistics-partner-status';
 import type { DraftEditLine } from './SalesOrderDraftLineEditor';
 import { isFreightDraftEditLine } from './SalesOrderDraftLineEditor';
 
@@ -77,6 +78,7 @@ export const SoFreightExpandPanel: React.FC<Props> = ({
   );
   const [courierRates, setCourierRates] = useState<LogisticsCourierRates | null>(null);
   const [deliveryRules, setDeliveryRules] = useState<LogisticsDeliveryRulesMatrix | null>(null);
+  const [partnerStatuses, setPartnerStatuses] = useState<LogisticsPartnerStatuses | null>(null);
   const [spareFreightMinimumInr, setSpareFreightMinimumInr] = useState(0);
   const [courierBySite, setCourierBySite] = useState<Partial<Record<InventorySite, LogisticsPartnerId>>>({});
   const [freightSku, setFreightSku] = useState<string | null>(null);
@@ -92,6 +94,7 @@ export const SoFreightExpandPanel: React.FC<Props> = ({
         if (cancelled) return;
         setCourierRates(rates);
         setDeliveryRules(settings.deliveryRules);
+        setPartnerStatuses(settings.partnerStatuses);
         setSpareFreightMinimumInr(settings.spareFreightMinimumInr);
       })
       .catch(() => { /* optional */ });
@@ -120,13 +123,14 @@ export const SoFreightExpandPanel: React.FC<Props> = ({
   const blueDartPin = useBlueDartPincode(shippingDestination?.zip);
 
   const freightEstimate = useMemo((): StCourierCartFreightEstimate | null => {
-    if (!courierRates || !deliveryRules || productLines.length === 0) return null;
+    if (!courierRates || !deliveryRules || !partnerStatuses || productLines.length === 0) return null;
     if (!shippingDestination || !inferredZone) return null;
     return estimateStCourierCartFreight({
       lines: cartLinesForFreightEstimate(productLines, catalogById),
       destination: shippingDestination,
       rates: courierRates,
       deliveryRules,
+      partnerStatuses,
       spareFreightMinimumInr,
       courierBySite,
       blueDartPin,
@@ -134,6 +138,7 @@ export const SoFreightExpandPanel: React.FC<Props> = ({
   }, [
     courierRates,
     deliveryRules,
+    partnerStatuses,
     spareFreightMinimumInr,
     productLines,
     catalogById,
@@ -217,7 +222,7 @@ export const SoFreightExpandPanel: React.FC<Props> = ({
             shippingDestination?.city,
             shippingDestination?.state,
           ].filter(Boolean).join(', ') || null}
-          footerNote="One freight line per draft SO. Rate-card partners calculate automatically; Delhivery needs a manual ₹ until rates are set."
+          footerNote="One freight line per draft SO. Active partners quote from rates; Manual partners need a freight ₹ when no rate card applies."
           onManualFreightAmountChange={next => {
             const sku = freightSku
               || freightSkuForPartner(freightEstimate.sites[0]?.partnerId)

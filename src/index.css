@@ -39378,6 +39378,11 @@ button.invoice-detail-top__card {
   line-height: 1.35;
 }
 
+.so-detail__add-picker {
+  margin-top: 0.85rem;
+  margin-bottom: 0.25rem;
+}
+
 .so-detail__doc-hint {
   margin: 0 0 0.65rem;
   padding: 0 0.15rem;

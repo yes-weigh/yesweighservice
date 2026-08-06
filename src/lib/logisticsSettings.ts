@@ -5,8 +5,13 @@ import {
   LOGISTICS_SETTINGS_DOC_ID,
 } from '../constants/logisticsSettings';
 import { DEFAULT_LOGISTICS_DELIVERY_RULES } from '../constants/logisticsDeliveryRules';
+import {
+  defaultLogisticsPartnerStatuses,
+  normalizeLogisticsPartnerStatuses,
+} from '../constants/logisticsPartnerStatus';
 import { normalizeLogisticsDeliveryRules } from './logisticsDeliveryRules';
 import type { LogisticsDeliveryRulesMatrix } from '../types/logistics-delivery-rules';
+import type { LogisticsPartnerStatuses } from '../types/logistics-partner-status';
 import type { FirestoreUserDoc, UserRecord } from '../types';
 import { normalizeRole } from '../types';
 import {
@@ -38,6 +43,11 @@ export interface LogisticsSettings {
   /** Destination region × ship-from site → ordered delivery partners. */
   deliveryRules: LogisticsDeliveryRulesMatrix;
   /**
+   * Per-partner Active / Inactive / Manual.
+   * Rules may list any partner; SO freight only offers Active or Manual.
+   */
+  partnerStatuses: LogisticsPartnerStatuses;
+  /**
    * Flat spare-parts freight (₹) added to each spare draft SO on dealer checkout.
    * Staff/admin can edit the line when reviewing. 0 = placeholder line at ₹0.
    */
@@ -60,6 +70,7 @@ export async function loadLogisticsSettings(): Promise<LogisticsSettings> {
         defaultStaffLogisticsSite: DEFAULT_STAFF_LOGISTICS_SITE,
         fromAddresses: EMPTY_FROM_ADDRESSES(),
         deliveryRules: structuredClone(DEFAULT_LOGISTICS_DELIVERY_RULES),
+        partnerStatuses: defaultLogisticsPartnerStatuses(),
         spareFreightMinimumInr: 0,
         updatedAt: '',
       };
@@ -72,6 +83,7 @@ export async function loadLogisticsSettings(): Promise<LogisticsSettings> {
         : DEFAULT_STAFF_LOGISTICS_SITE,
       fromAddresses: parseFromAddresses(data as Record<string, unknown>),
       deliveryRules: normalizeLogisticsDeliveryRules(data.deliveryRules),
+      partnerStatuses: normalizeLogisticsPartnerStatuses(data.partnerStatuses),
       spareFreightMinimumInr: parseSpareFreightMinimumInr(data.spareFreightMinimumInr),
       updatedAt: typeof data.updatedAt === 'string' ? data.updatedAt : '',
       updatedBy: typeof data.updatedBy === 'string' ? data.updatedBy : null,
@@ -81,6 +93,7 @@ export async function loadLogisticsSettings(): Promise<LogisticsSettings> {
       defaultStaffLogisticsSite: DEFAULT_STAFF_LOGISTICS_SITE,
       fromAddresses: EMPTY_FROM_ADDRESSES(),
       deliveryRules: structuredClone(DEFAULT_LOGISTICS_DELIVERY_RULES),
+      partnerStatuses: defaultLogisticsPartnerStatuses(),
       spareFreightMinimumInr: 0,
       updatedAt: '',
     };
@@ -147,6 +160,49 @@ export async function saveLogisticsDeliveryRules(
     { merge: true },
   );
   return normalized;
+}
+
+export async function saveLogisticsPartnerStatuses(
+  partnerStatuses: LogisticsPartnerStatuses,
+  updatedBy?: string | null,
+): Promise<LogisticsPartnerStatuses> {
+  const normalized = normalizeLogisticsPartnerStatuses(partnerStatuses);
+  const updatedAt = new Date().toISOString();
+  await setDoc(
+    doc(db, 'appSettings', LOGISTICS_SETTINGS_DOC_ID),
+    {
+      partnerStatuses: normalized,
+      updatedAt,
+      ...(updatedBy ? { updatedBy } : {}),
+    },
+    { merge: true },
+  );
+  return normalized;
+}
+
+/** Save delivery-rule matrix and partner Active/Inactive/Manual together. */
+export async function saveLogisticsDeliveryRulesAndPartnerStatuses(
+  deliveryRules: LogisticsDeliveryRulesMatrix,
+  partnerStatuses: LogisticsPartnerStatuses,
+  updatedBy?: string | null,
+): Promise<{
+  deliveryRules: LogisticsDeliveryRulesMatrix;
+  partnerStatuses: LogisticsPartnerStatuses;
+}> {
+  const nextRules = normalizeLogisticsDeliveryRules(deliveryRules);
+  const nextStatuses = normalizeLogisticsPartnerStatuses(partnerStatuses);
+  const updatedAt = new Date().toISOString();
+  await setDoc(
+    doc(db, 'appSettings', LOGISTICS_SETTINGS_DOC_ID),
+    {
+      deliveryRules: nextRules,
+      partnerStatuses: nextStatuses,
+      updatedAt,
+      ...(updatedBy ? { updatedBy } : {}),
+    },
+    { merge: true },
+  );
+  return { deliveryRules: nextRules, partnerStatuses: nextStatuses };
 }
 
 export async function saveSpareFreightMinimumInr(

@@ -18,11 +18,13 @@ import type { GatcStampingChoice } from '../../components/catalog/GatcStampingCh
 import { InvoiceDocumentBody } from '../../components/invoices/InvoiceDocumentBody';
 import { ShippingAddressPicker } from '../../components/orders/ShippingAddressPicker';
 import {
+  draftEditLineFromProduct,
   draftLinesFingerprint,
   draftLinesFromSalesOrderItems,
   isFreightDraftEditLine,
   type DraftEditLine,
 } from '../../components/salesOrders/SalesOrderDraftLineEditor';
+import { SoAddProductPicker } from '../../components/salesOrders/SoAddProductPicker';
 import { SoFreightExpandPanel } from '../../components/salesOrders/SoFreightExpandPanel';
 import { SoLineEditSheet } from '../../components/salesOrders/SoLineEditSheet';
 import { SoLineInlineEditor } from '../../components/salesOrders/SoLineInlineEditor';
@@ -43,6 +45,7 @@ import {
   listProductsMissingFreightPackageInfo,
 } from '../../lib/stCourierCartFreight';
 import { hasStaffPermission } from '../../lib/staffAccess';
+import { classifyOrderLineSegment } from '../../lib/salesOrderSegments';
 import {
   submitSalesOrderPayment,
   canEditSalesOrderDraft,
@@ -114,6 +117,9 @@ export const AdminSalesOrderDocumentPage: React.FC = () => {
   const [savingShip, setSavingShip] = useState(false);
   const [catalogDescByItemId, setCatalogDescByItemId] = useState<Record<string, string>>({});
   const [catalogById, setCatalogById] = useState<Record<string, CatalogProduct>>({});
+  const [catalogProducts, setCatalogProducts] = useState<CatalogProduct[]>([]);
+  const [catalogLoading, setCatalogLoading] = useState(false);
+  const [catalogError, setCatalogError] = useState('');
   const [salespersonStaffUid, setSalespersonStaffUid] = useState('');
   const [showPaymentProof, setShowPaymentProof] = useState(false);
   const [sharing, setSharing] = useState(false);
@@ -140,8 +146,9 @@ export const AdminSalesOrderDocumentPage: React.FC = () => {
   const pdfPath = `${listPath}/${salesOrderId}/view`;
 
   useEffect(() => {
-    if (!salesOrder?.lineItems?.length) return;
+    if (!salesOrder?.lineItems?.length && !canEditLines) return;
     let cancelled = false;
+    setCatalogLoading(true);
     void fetchCatalog()
       .then(res => {
         if (cancelled) return;
@@ -154,12 +161,20 @@ export const AdminSalesOrderDocumentPage: React.FC = () => {
           nextDesc[product.id] = desc;
           if (product.sku) nextDesc[`sku:${product.sku}`] = desc;
         }
+        setCatalogProducts(res.items);
         setCatalogById(nextById);
         setCatalogDescByItemId(nextDesc);
+        setCatalogError('');
       })
-      .catch(() => { /* keep SO usable without catalog specs */ });
+      .catch(err => {
+        if (cancelled) return;
+        setCatalogError(err instanceof Error ? err.message : 'Could not load catalog.');
+      })
+      .finally(() => {
+        if (!cancelled) setCatalogLoading(false);
+      });
     return () => { cancelled = true; };
-  }, [salesOrder?.lineItems]);
+  }, [salesOrder?.lineItems, canEditLines]);
 
   const hasFreightLine = useMemo(
     () => Boolean(salesOrder?.lineItems?.some(line => isFreightInvoiceLineItem(line))),
@@ -508,6 +523,52 @@ export const AdminSalesOrderDocumentPage: React.FC = () => {
       return copy;
     });
   };
+
+  const addProductMatchesOrderCategory = useCallback((product: CatalogProduct): boolean => {
+    const category = salesOrder?.salesOrderCategory;
+    if (!category || category === 'service' || category === 'gatc') return true;
+    const segment = classifyOrderLineSegment(product);
+    if (category === 'software_key') return segment === 'software';
+    if (category === 'spare') return segment === 'spare';
+    if (category === 'product') return segment === 'product';
+    return true;
+  }, [salesOrder?.salesOrderCategory]);
+
+  const addCatalogProduct = (product: CatalogProduct) => {
+    if (!canEditLines) return;
+    const ensure = editLines.length > 0 ? Promise.resolve(editLines) : hydrateEditLines();
+    void ensure.then(rows => {
+      const current = rows ?? editLines;
+      const existing = current.find(
+        line => line.productId === product.id && !line.gatcStampingPriceId,
+      );
+      if (existing) {
+        setEditLines(prev => prev.map(line => (
+          line.lineId === existing.lineId
+            ? { ...line, quantity: line.quantity + 1 }
+            : line
+        )));
+      } else {
+        const nextLine = draftEditLineFromProduct(product, 1);
+        setEditLines(prev => {
+          const freightIdx = prev.findIndex(isFreightDraftEditLine);
+          if (freightIdx < 0) return [...prev, nextLine];
+          const copy = [...prev];
+          copy.splice(freightIdx, 0, nextLine);
+          return copy;
+        });
+      }
+      setExpandedLineId(null);
+      setCatalogById(prev => (
+        prev[product.id] ? prev : { ...prev, [product.id]: product }
+      ));
+    });
+  };
+
+  const selectedProductIds = useMemo(
+    () => new Set(editLines.filter(line => !isFreightDraftEditLine(line)).map(line => line.productId)),
+    [editLines],
+  );
 
   const renderLineEditor = (item: DealerInvoiceLineItem): React.ReactNode => {
     if (!salesOrder) return null;
@@ -923,8 +984,8 @@ export const AdminSalesOrderDocumentPage: React.FC = () => {
             {linesHydrating
               ? 'Loading items…'
               : isMobile
-                ? 'Tap a product or freight to edit in a popup.'
-                : 'Tap a product to edit it. Tap freight to see the full splitup and fix packaging.'}
+                ? 'Tap a product or freight to edit in a popup. Search below to add items.'
+                : 'Tap a product to edit it. Tap freight to see the full splitup and fix packaging. Search below to add items.'}
           </p>
         ) : null}
         <InvoiceDocumentBody
@@ -937,6 +998,17 @@ export const AdminSalesOrderDocumentPage: React.FC = () => {
           onSelectLineItem={canEditLines ? handleSelectLineItem : undefined}
           renderExpanded={canEditLines && !isMobile ? renderLineEditor : undefined}
         />
+        {canEditLines ? (
+          <SoAddProductPicker
+            products={catalogProducts}
+            loading={catalogLoading || linesHydrating}
+            error={catalogError}
+            disabled={savingLines}
+            selectedProductIds={selectedProductIds}
+            productFilter={addProductMatchesOrderCategory}
+            onAdd={addCatalogProduct}
+          />
+        ) : null}
       </section>
 
       {showPriceChanges ? (
