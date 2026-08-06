@@ -1,6 +1,7 @@
 import { getFunctions, httpsCallable } from 'firebase/functions';
 import { collection, doc, getDoc, getDocs, query, where } from 'firebase/firestore';
 import { app, db } from '../firebase';
+import { isFreightProductId, isFreightSku } from '../constants/freightLines';
 import { compressImageForUpload } from './compressImage';
 import type {
   CatalogCategory,
@@ -95,11 +96,20 @@ export function isGenericSparePartsCategory(category: Pick<CatalogCategory, 'nam
   );
 }
 
+/** Freight charge Zoho lines — never shown as catalogue spare parts. */
+export function isCatalogFreightChargeProduct(product: {
+  id?: string | null;
+  sku?: string | null;
+}): boolean {
+  return isFreightProductId(product.id) || isFreightSku(product.sku);
+}
+
 /** True when a Zoho item belongs on the Spare parts tab (not shop Categories). */
 export function isCatalogSparePartProduct(
-  product: Pick<CatalogProduct, 'categoryId' | 'categoryName'>,
+  product: Pick<CatalogProduct, 'categoryId' | 'categoryName'> & Partial<Pick<CatalogProduct, 'id' | 'sku'>>,
   categories: CatalogCategory[] = [],
 ): boolean {
+  if (isCatalogFreightChargeProduct(product)) return false;
   const genericCategoryIds = new Set(
     categories.filter(isGenericSparePartsCategory).map(c => c.id),
   );
@@ -111,7 +121,11 @@ export function isCatalogSparePartProduct(
   return false;
 }
 
-/** Spare parts tab — Generic spare parts category and uncategorized Zoho items only. */
+/**
+ * Spare parts tab / Spare pricing — same visible pool:
+ * generic spare parts + uncategorized Zoho items, excluding hidden-from-catalogue
+ * and hardcoded freight charge SKUs.
+ */
 export function getCatalogSparePartsPool(
   products: CatalogProduct[],
   categories: CatalogCategory[] = [],

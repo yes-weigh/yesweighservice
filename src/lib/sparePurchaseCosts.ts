@@ -30,6 +30,13 @@ export type PurchaseItemCost = {
   syncedAt: string | null;
 };
 
+/** Latest PO line + highest INR/USD lines for one catalog item. */
+export type PurchaseItemCostSet = {
+  latest: PurchaseItemCost | null;
+  highestInr: PurchaseItemCost | null;
+  highestUsd: PurchaseItemCost | null;
+};
+
 export type SparePurchaseCostOverride = {
   productId: string;
   amount: number;
@@ -57,18 +64,52 @@ function poSortKey(date: string | null, syncedAt: string | null): string {
 function isNewerPo(
   nextDate: string | null,
   nextSyncedAt: string | null,
-  prev: PurchaseItemCost | undefined,
+  prev: PurchaseItemCost | null | undefined,
 ): boolean {
   if (!prev) return true;
   return poSortKey(nextDate, nextSyncedAt) > poSortKey(prev.date, prev.syncedAt);
 }
 
+function isHigherAmount(
+  next: PurchaseItemCost,
+  prev: PurchaseItemCost | null | undefined,
+): boolean {
+  if (!prev) return true;
+  if (next.amount !== prev.amount) return next.amount > prev.amount;
+  // Tie-break: newer PO preferred when amounts match.
+  return isNewerPo(next.date, next.syncedAt, prev);
+}
+
+export function purchaseCostToInr(cost: Pick<PurchaseItemCost, 'amount' | 'currencyCode'>, usdToInrRate: number): number {
+  const amount = Number(cost.amount) || 0;
+  if (normalizeCurrency(cost.currencyCode) === 'USD') {
+    return amount * (Number(usdToInrRate) || 0);
+  }
+  return amount;
+}
+
+export function pickHighestPurchaseCost(
+  set: PurchaseItemCostSet | undefined,
+  usdToInrRate: number,
+): PurchaseItemCost | null {
+  if (!set) return null;
+  const candidates = [set.highestInr, set.highestUsd].filter(
+    (row): row is PurchaseItemCost => Boolean(row),
+  );
+  if (!candidates.length) return set.latest;
+  return candidates.reduce((best, row) => (
+    purchaseCostToInr(row, usdToInrRate) > purchaseCostToInr(best, usdToInrRate) ? row : best
+  ));
+}
+
 /**
- * Scan all mirrored purchase orders and keep the latest unit rate per Zoho item id.
- * Currency comes from the PO header (never converted).
+ * Scan mirrored purchase orders and keep, per Zoho item id:
+ * - latest line (by PO date / syncedAt)
+ * - highest INR line amount
+ * - highest USD line amount
  */
-export async function loadLatestPurchaseCostsByItemId(): Promise<Map<string, PurchaseItemCost>> {
-  const byItemId = new Map<string, PurchaseItemCost>();
+export async function loadLatestPurchaseCostsByItemId(): Promise<Map<string, PurchaseItemCostSet>> {
+  const byItemId = new Map<string, PurchaseItemCostSet>();
   let cursor: QueryDocumentSnapshot<DocumentData> | null = null;
   let loaded = 0;
 
@@ -104,16 +145,31 @@ export async function loadLatestPurchaseCostsByItemId(): Promise<Map<string, Pur
         const itemId = String(line.itemId ?? '').trim();
         if (!itemId) continue;
         const amount = clampMoney(line.rate);
-        const prev = byItemId.get(itemId);
-        if (!isNewerPo(date, syncedAt, prev)) continue;
-        byItemId.set(itemId, {
+        const entry: PurchaseItemCost = {
           amount,
           currencyCode,
           purchaseOrderId: docSnap.id,
           purchaseOrderNumber,
           date,
           syncedAt,
-        });
+        };
+
+        const prev = byItemId.get(itemId) ?? {
+          latest: null,
+          highestInr: null,
+          highestUsd: null,
+        };
+
+        if (isNewerPo(date, syncedAt, prev.latest)) {
+          prev.latest = entry;
+        }
+        if (currencyCode === 'USD') {
+          if (isHigherAmount(entry, prev.highestUsd)) prev.highestUsd = entry;
+        } else if (isHigherAmount(entry, prev.highestInr)) {
+          prev.highestInr = entry;
+        }
+
+        byItemId.set(itemId, prev);
       }
     }
 
@@ -178,26 +234,55 @@ export type ResolvedPurchaseCost = {
   amount: number;
   currencyCode: string;
   source: 'override' | 'purchase_order' | 'none';
+  /** True when PO-derived cost is the highest historical buy, not the latest PO rate. */
+  notFromLatest: boolean;
+  latestAmount: number | null;
+  latestCurrencyCode: string | null;
+  purchaseOrderNumber: string | null;
 };
 
 export function resolvePurchaseCost(
   _productId: string,
   override: SparePurchaseCostOverride | undefined,
-  fromPo: PurchaseItemCost | undefined,
+  fromPo: PurchaseItemCostSet | undefined,
+  usdToInrRate = 0,
 ): ResolvedPurchaseCost {
   if (override) {
     return {
       amount: override.amount,
       currencyCode: override.currencyCode,
       source: 'override',
+      notFromLatest: false,
+      latestAmount: fromPo?.latest?.amount ?? null,
+      latestCurrencyCode: fromPo?.latest?.currencyCode ?? null,
+      purchaseOrderNumber: null,
     };
   }
-  if (fromPo) {
+
+  const highest = pickHighestPurchaseCost(fromPo, usdToInrRate);
+  if (highest) {
+    const latest = fromPo?.latest ?? null;
+    const notFromLatest = !latest
+      || highest.amount !== latest.amount
+      || normalizeCurrency(highest.currencyCode) !== normalizeCurrency(latest.currencyCode);
     return {
-      amount: fromPo.amount,
-      currencyCode: fromPo.currencyCode,
+      amount: highest.amount,
+      currencyCode: highest.currencyCode,
       source: 'purchase_order',
+      notFromLatest,
+      latestAmount: latest?.amount ?? null,
+      latestCurrencyCode: latest?.currencyCode ?? null,
+      purchaseOrderNumber: highest.purchaseOrderNumber,
     };
   }
-  return { amount: 0, currencyCode: 'INR', source: 'none' };
+
+  return {
+    amount: 0,
+    currencyCode: 'INR',
+    source: 'none',
+    notFromLatest: false,
+    latestAmount: null,
+    latestCurrencyCode: null,
+    purchaseOrderNumber: null,
+  };
 }

@@ -13,15 +13,87 @@ import type {
   PriceLevelsDoc,
 } from '../types/priceLevels';
 import {
+  DEFAULT_DEALER_PRICE_LEVEL_ID,
+  DEFAULT_DEALER_PRICE_LEVEL_NAME,
   SPARE_PRICE_LEVEL_CATEGORY_ID,
   SPARE_PRICE_LEVEL_CATEGORY_NAME,
 } from '../types/priceLevels';
 
 export const PRICE_LEVELS_DOC_ID = 'priceLevels';
-export { SPARE_PRICE_LEVEL_CATEGORY_ID, SPARE_PRICE_LEVEL_CATEGORY_NAME };
+export {
+  DEFAULT_DEALER_PRICE_LEVEL_ID,
+  DEFAULT_DEALER_PRICE_LEVEL_NAME,
+  SPARE_PRICE_LEVEL_CATEGORY_ID,
+  SPARE_PRICE_LEVEL_CATEGORY_NAME,
+};
 
 export function isSparePriceLevelCategoryId(id: string | null | undefined): boolean {
   return String(id ?? '').trim() === SPARE_PRICE_LEVEL_CATEGORY_ID;
+}
+
+export function isDefaultDealerPriceLevel(
+  level: Pick<PriceLevel, 'id'> | string | null | undefined,
+): boolean {
+  const id = typeof level === 'string' || level == null
+    ? String(level ?? '').trim()
+    : String(level.id ?? '').trim();
+  return id === DEFAULT_DEALER_PRICE_LEVEL_ID;
+}
+
+export function createDefaultDealerPriceLevel(sortOrder = 9999): PriceLevel {
+  return {
+    id: DEFAULT_DEALER_PRICE_LEVEL_ID,
+    name: DEFAULT_DEALER_PRICE_LEVEL_NAME,
+    dealerIds: [],
+    categoryRules: [],
+    sortOrder,
+    updatedAt: null,
+  };
+}
+
+/**
+ * Ensure the catch-all "Dealers" level always exists.
+ * Promotes a legacy level named "Dealers" when the built-in id is missing.
+ */
+export function ensureDefaultDealerPriceLevel(levels: PriceLevel[]): PriceLevel[] {
+  const list = [...levels];
+  const byDefaultId = list.findIndex(l => isDefaultDealerPriceLevel(l));
+  if (byDefaultId >= 0) {
+    const current = list[byDefaultId];
+    list[byDefaultId] = {
+      ...current,
+      id: DEFAULT_DEALER_PRICE_LEVEL_ID,
+      name: DEFAULT_DEALER_PRICE_LEVEL_NAME,
+      dealerIds: [],
+    };
+  } else {
+    const legacyIdx = list.findIndex(
+      l => l.name.trim().toLowerCase() === DEFAULT_DEALER_PRICE_LEVEL_NAME.toLowerCase(),
+    );
+    if (legacyIdx >= 0) {
+      const legacy = list[legacyIdx];
+      list[legacyIdx] = {
+        ...legacy,
+        id: DEFAULT_DEALER_PRICE_LEVEL_ID,
+        name: DEFAULT_DEALER_PRICE_LEVEL_NAME,
+        dealerIds: [],
+      };
+    } else {
+      const maxOrder = list.reduce((max, l) => Math.max(max, l.sortOrder), -1);
+      list.push(createDefaultDealerPriceLevel(maxOrder + 1));
+    }
+  }
+
+  // Keep catch-all last in the list for UI; other levels keep relative order.
+  const defaultLevel = list.find(isDefaultDealerPriceLevel)!;
+  const others = list
+    .filter(l => !isDefaultDealerPriceLevel(l))
+    .sort((a, b) => a.sortOrder - b.sortOrder || a.name.localeCompare(b.name))
+    .map((level, index) => ({ ...level, sortOrder: index }));
+  return [
+    ...others,
+    { ...defaultLevel, sortOrder: others.length },
+  ];
 }
 
 /** Uncategorized or Generic Spare Parts — uses the synthetic spare price-level bucket. */
@@ -192,16 +264,20 @@ function normalizeLevel(raw: unknown, index: number): PriceLevel | null {
 }
 
 export function normalizePriceLevelsDoc(raw: unknown): PriceLevelsDoc {
-  if (!raw || typeof raw !== 'object') return emptyPriceLevelsDoc();
+  if (!raw || typeof raw !== 'object') {
+    return {
+      ...emptyPriceLevelsDoc(),
+      levels: ensureDefaultDealerPriceLevel([]),
+    };
+  }
   const row = raw as Record<string, unknown>;
   const levels = Array.isArray(row.levels)
     ? row.levels
       .map((level, i) => normalizeLevel(level, i))
       .filter((level): level is PriceLevel => Boolean(level))
-      .sort((a, b) => a.sortOrder - b.sortOrder || a.name.localeCompare(b.name))
     : [];
   return {
-    levels,
+    levels: ensureDefaultDealerPriceLevel(levels),
     updatedAt: row.updatedAt != null ? String(row.updatedAt) : null,
     updatedByUid: row.updatedByUid != null ? String(row.updatedByUid) : null,
   };
@@ -252,7 +328,11 @@ export function categoryRuleHasEffect(rule: PriceLevelCategoryRule): boolean {
 /** Ensure each dealer id appears in at most one level (keeps the first occurrence). */
 export function enforceUniqueDealerAssignments(levels: PriceLevel[]): PriceLevel[] {
   const seen = new Set<string>();
-  return levels.map(level => {
+  return ensureDefaultDealerPriceLevel(levels).map(level => {
+    // Catch-all never stores explicit dealer ids.
+    if (isDefaultDealerPriceLevel(level)) {
+      return { ...level, dealerIds: [] };
+    }
     const dealerIds: string[] = [];
     for (const id of level.dealerIds) {
       if (seen.has(id)) continue;
@@ -287,7 +367,11 @@ export function findPriceLevelForDealer(
 ): PriceLevel | null {
   const id = String(dealerId ?? '').trim();
   if (!id) return null;
-  return levels.find(level => level.dealerIds.includes(id)) ?? null;
+  const assigned = levels.find(
+    level => !isDefaultDealerPriceLevel(level) && level.dealerIds.includes(id),
+  );
+  if (assigned) return assigned;
+  return levels.find(isDefaultDealerPriceLevel) ?? null;
 }
 
 function nonePrice(

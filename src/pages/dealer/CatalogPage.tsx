@@ -2181,7 +2181,36 @@ export const CatalogPage: React.FC = () => {
       )}
 
       {focus === 'spare-pricing' && canSparePricing && (
-        <SparePricingView spares={spareParts} />
+        <SparePricingView
+          spares={spareParts}
+          onProductRatesSaved={updates => {
+            const byId = new Map(updates.map(row => [row.productId, row.rate]));
+            setCatalog(prev => {
+              if (!prev) return prev;
+              return {
+                ...prev,
+                items: prev.items.map(item => (
+                  byId.has(item.id)
+                    ? { ...item, rate: byId.get(item.id)! }
+                    : item
+                )),
+              };
+            });
+          }}
+          onProductHidden={productId => {
+            setCatalog(prev => {
+              if (!prev) return prev;
+              return {
+                ...prev,
+                items: prev.items.map(item => (
+                  item.id === productId
+                    ? { ...item, hiddenFromCatalog: true }
+                    : item
+                )),
+              };
+            });
+          }}
+        />
       )}
 
       {batchLinkItems && (

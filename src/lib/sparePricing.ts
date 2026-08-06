@@ -2,19 +2,54 @@ import { doc, getDoc, setDoc } from 'firebase/firestore';
 import { db } from '../firebase';
 import {
   DEFAULT_CD_PERCENT,
+  DEFAULT_FREIGHT_PERCENT,
+  DEFAULT_MARKUP_FEE_INR,
   DEFAULT_USD_TO_INR_RATE,
   SPARE_PRICING_DOC_ID,
   SPARE_PRICING_LIVE_SAVE_MS,
   USD_INR_RATE_API_URL,
 } from '../constants/sparePricing';
-import type { SparePricingSettings, UsdInrFetchResult } from '../types/sparePricing';
+import type {
+  SparePricingSettings,
+  SparePricingSettingsDraft,
+  UsdInrFetchResult,
+} from '../types/sparePricing';
 
 export { SPARE_PRICING_DOC_ID, SPARE_PRICING_LIVE_SAVE_MS, USD_INR_RATE_API_URL };
+
+/**
+ * Landing cost in INR.
+ * - INR purchase: same amount
+ * - USD purchase: (amount × exchangeRate + markupFee) × (1 + (CD% + freight%) / 100)
+ */
+export function computeSpareLandingCostInr(
+  purchase: { amount: number; currencyCode: string },
+  settings: Pick<SparePricingSettings, 'usdToInrRate' | 'markupFeeInr' | 'cdPercent' | 'freightPercent'>,
+): number {
+  const amount = Number(purchase.amount);
+  if (!Number.isFinite(amount) || amount <= 0) return 0;
+  const code = String(purchase.currencyCode ?? '').trim().toUpperCase();
+  if (code !== 'USD') {
+    return Math.round(amount * 100) / 100;
+  }
+  const rate = Number(settings.usdToInrRate);
+  const markup = Number(settings.markupFeeInr);
+  const cd = Number(settings.cdPercent);
+  const freight = Number(settings.freightPercent);
+  const baseInr = amount * (Number.isFinite(rate) && rate > 0 ? rate : 0);
+  const withMarkup = baseInr + (Number.isFinite(markup) && markup > 0 ? markup : 0);
+  const dutyFreightPct = (Number.isFinite(cd) && cd > 0 ? cd : 0)
+    + (Number.isFinite(freight) && freight > 0 ? freight : 0);
+  const landing = withMarkup * (1 + dutyFreightPct / 100);
+  return Math.round(landing * 100) / 100;
+}
 
 export function emptySparePricingSettings(): SparePricingSettings {
   return {
     usdToInrRate: DEFAULT_USD_TO_INR_RATE,
+    markupFeeInr: DEFAULT_MARKUP_FEE_INR,
     cdPercent: DEFAULT_CD_PERCENT,
+    freightPercent: DEFAULT_FREIGHT_PERCENT,
     exchangeRateFetchedAt: null,
     exchangeRateDate: null,
     updatedAt: null,
@@ -26,6 +61,12 @@ function clampRate(raw: unknown): number {
   const n = Number(raw);
   if (!Number.isFinite(n) || n < 0) return 0;
   return Math.round(Math.min(n, 1_000_000) * 10000) / 10000;
+}
+
+function clampInr(raw: unknown): number {
+  const n = Number(raw);
+  if (!Number.isFinite(n) || n < 0) return 0;
+  return Math.round(Math.min(n, 1_000_000) * 100) / 100;
 }
 
 function clampPercent(raw: unknown): number {
@@ -40,7 +81,9 @@ export function normalizeSparePricingSettings(raw: unknown): SparePricingSetting
   const data = raw as Record<string, unknown>;
   return {
     usdToInrRate: clampRate(data.usdToInrRate ?? data.exchangeRate ?? data.usdInr),
+    markupFeeInr: clampInr(data.markupFeeInr ?? data.markupFee ?? data.markup),
     cdPercent: clampPercent(data.cdPercent ?? data.cd ?? data.customsDutyPercent),
+    freightPercent: clampPercent(data.freightPercent ?? data.freight ?? data.freightPct),
     exchangeRateFetchedAt: typeof data.exchangeRateFetchedAt === 'string'
       ? data.exchangeRateFetchedAt
       : null,
@@ -53,11 +96,13 @@ export function normalizeSparePricingSettings(raw: unknown): SparePricingSetting
 }
 
 export function sparePricingSettingsEqual(
-  a: Pick<SparePricingSettings, 'usdToInrRate' | 'cdPercent' | 'exchangeRateFetchedAt' | 'exchangeRateDate'>,
-  b: Pick<SparePricingSettings, 'usdToInrRate' | 'cdPercent' | 'exchangeRateFetchedAt' | 'exchangeRateDate'>,
+  a: SparePricingSettingsDraft,
+  b: SparePricingSettingsDraft,
 ): boolean {
   return a.usdToInrRate === b.usdToInrRate
+    && a.markupFeeInr === b.markupFeeInr
     && a.cdPercent === b.cdPercent
+    && a.freightPercent === b.freightPercent
     && a.exchangeRateFetchedAt === b.exchangeRateFetchedAt
     && a.exchangeRateDate === b.exchangeRateDate;
 }
@@ -69,7 +114,7 @@ export async function loadSparePricingSettings(): Promise<SparePricingSettings> 
 }
 
 export async function saveSparePricingSettings(
-  next: Pick<SparePricingSettings, 'usdToInrRate' | 'cdPercent' | 'exchangeRateFetchedAt' | 'exchangeRateDate'>,
+  next: SparePricingSettingsDraft,
   updatedByUid: string | null,
 ): Promise<SparePricingSettings> {
   const normalized = normalizeSparePricingSettings(next);

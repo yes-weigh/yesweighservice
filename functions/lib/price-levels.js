@@ -7,6 +7,63 @@
 /** Virtual category id for spare-pool rules (not a Zoho category). */
 export const SPARE_PRICE_LEVEL_CATEGORY_ID = '__spare_parts__';
 
+/** Built-in catch-all: every dealer not assigned to another level. */
+export const DEFAULT_DEALER_PRICE_LEVEL_ID = '__default_dealers__';
+export const DEFAULT_DEALER_PRICE_LEVEL_NAME = 'Dealers';
+
+export function isDefaultDealerPriceLevel(level) {
+  const id = typeof level === 'string' || level == null
+    ? String(level ?? '').trim()
+    : String(level.id ?? '').trim();
+  return id === DEFAULT_DEALER_PRICE_LEVEL_ID;
+}
+
+function ensureDefaultDealerPriceLevel(levels) {
+  const list = Array.isArray(levels) ? [...levels] : [];
+  const byDefaultId = list.findIndex(l => isDefaultDealerPriceLevel(l));
+  if (byDefaultId >= 0) {
+    const current = list[byDefaultId];
+    list[byDefaultId] = {
+      ...current,
+      id: DEFAULT_DEALER_PRICE_LEVEL_ID,
+      name: DEFAULT_DEALER_PRICE_LEVEL_NAME,
+      dealerIds: [],
+    };
+  } else {
+    const legacyIdx = list.findIndex(
+      l => String(l?.name ?? '').trim().toLowerCase() === DEFAULT_DEALER_PRICE_LEVEL_NAME.toLowerCase(),
+    );
+    if (legacyIdx >= 0) {
+      const legacy = list[legacyIdx];
+      list[legacyIdx] = {
+        ...legacy,
+        id: DEFAULT_DEALER_PRICE_LEVEL_ID,
+        name: DEFAULT_DEALER_PRICE_LEVEL_NAME,
+        dealerIds: [],
+      };
+    } else {
+      const maxOrder = list.reduce((max, l) => Math.max(max, Number(l.sortOrder) || 0), -1);
+      list.push({
+        id: DEFAULT_DEALER_PRICE_LEVEL_ID,
+        name: DEFAULT_DEALER_PRICE_LEVEL_NAME,
+        dealerIds: [],
+        categoryRules: [],
+        sortOrder: maxOrder + 1,
+      });
+    }
+  }
+
+  const defaultLevel = list.find(isDefaultDealerPriceLevel);
+  const others = list
+    .filter(l => !isDefaultDealerPriceLevel(l))
+    .sort((a, b) => (a.sortOrder - b.sortOrder) || String(a.name).localeCompare(String(b.name)))
+    .map((level, index) => ({ ...level, sortOrder: index }));
+  return [
+    ...others,
+    { ...defaultLevel, sortOrder: others.length, dealerIds: [] },
+  ];
+}
+
 function clampPercent(raw) {
   const n = Number(raw);
   if (!Number.isFinite(n) || n < 0) return 0;
@@ -140,12 +197,13 @@ function normalizeLevel(raw, index) {
 }
 
 export function normalizePriceLevelsDoc(raw) {
-  if (!raw || typeof raw !== 'object') return { levels: [] };
+  if (!raw || typeof raw !== 'object') {
+    return { levels: ensureDefaultDealerPriceLevel([]) };
+  }
   const levels = Array.isArray(raw.levels)
     ? raw.levels.map((level, i) => normalizeLevel(level, i)).filter(Boolean)
-      .sort((a, b) => a.sortOrder - b.sortOrder || a.name.localeCompare(b.name))
     : [];
-  return { levels };
+  return { levels: ensureDefaultDealerPriceLevel(levels) };
 }
 
 export function applyPriceLevelPercent(listRate, mode, percent) {
@@ -161,7 +219,12 @@ export function applyPriceLevelPercent(listRate, mode, percent) {
 export function findPriceLevelForDealer(levels, dealerId) {
   const id = String(dealerId ?? '').trim();
   if (!id) return null;
-  return levels.find(level => level.dealerIds.includes(id)) || null;
+  const list = Array.isArray(levels) ? levels : [];
+  const assigned = list.find(
+    level => !isDefaultDealerPriceLevel(level) && (level.dealerIds || []).includes(id),
+  );
+  if (assigned) return assigned;
+  return list.find(isDefaultDealerPriceLevel) || null;
 }
 
 function nonePrice(listRate, level, categoryId, itemOverride = false) {

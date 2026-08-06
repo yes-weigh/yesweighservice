@@ -37,6 +37,7 @@ import {
   createEmptyPriceLevel,
   emptyCategoryRule,
   enforceUniqueDealerAssignments,
+  isDefaultDealerPriceLevel,
   isSparePriceLevelCategoryId,
   loadPriceLevels,
   normalizePriceLevelSlabs,
@@ -207,6 +208,17 @@ export const PriceLevelSettingsTab: React.FC = () => {
     () => levels.find(l => l.id === selectedId) ?? null,
     [levels, selectedId],
   );
+
+  const selectedIsDefault = selected ? isDefaultDealerPriceLevel(selected) : false;
+
+  const unassignedDealerCount = useMemo(() => {
+    const assigned = new Set(
+      levels
+        .filter(level => !isDefaultDealerPriceLevel(level))
+        .flatMap(level => level.dealerIds),
+    );
+    return allDealers.filter(d => d.id && !assigned.has(d.id)).length;
+  }, [levels, allDealers]);
 
   useEffect(() => {
     setRuleCategoryId(null);
@@ -404,6 +416,7 @@ export const PriceLevelSettingsTab: React.FC = () => {
   };
 
   const removeLevel = (id: string) => {
+    if (isDefaultDealerPriceLevel(id)) return;
     patchLevels(prev => prev.filter(l => l.id !== id));
     setSelectedId(prev => {
       if (prev !== id) return prev;
@@ -414,11 +427,23 @@ export const PriceLevelSettingsTab: React.FC = () => {
 
   const updateSelected = (patch: Partial<PriceLevel>) => {
     if (!selectedId) return;
-    patchLevels(prev => prev.map(l => (l.id === selectedId ? { ...l, ...patch } : l)));
+    patchLevels(prev => prev.map(l => {
+      if (l.id !== selectedId) return l;
+      if (isDefaultDealerPriceLevel(l)) {
+        // Catch-all: pricing rules only — name/dealers are fixed.
+        return {
+          ...l,
+          ...(patch.categoryRules !== undefined ? { categoryRules: patch.categoryRules } : {}),
+          ...(patch.updatedAt !== undefined ? { updatedAt: patch.updatedAt } : {}),
+          dealerIds: [],
+        };
+      }
+      return { ...l, ...patch };
+    }));
   };
 
   const addDealer = (dealer: ZohoDealer) => {
-    if (!selected) return;
+    if (!selected || isDefaultDealerPriceLevel(selected)) return;
     setDealerNames(prev => ({ ...prev, [dealer.id]: dealerLabel(dealer) }));
     patchLevels(prev => prev.map(level => {
       if (level.id === selected.id) {
@@ -434,7 +459,7 @@ export const PriceLevelSettingsTab: React.FC = () => {
   };
 
   const removeDealer = (dealerId: string) => {
-    if (!selected) return;
+    if (!selected || isDefaultDealerPriceLevel(selected)) return;
     updateSelected({
       dealerIds: selected.dealerIds.filter(id => id !== dealerId),
     });
@@ -664,13 +689,10 @@ export const PriceLevelSettingsTab: React.FC = () => {
             Add
           </button>
         </div>
-        {levels.length === 0 ? (
-          <p className="text-muted text-sm price-levels-tab__empty">
-            No levels yet. Add one (e.g. Directors, Agents, Dealers).
-          </p>
-        ) : (
-          <ul className="price-levels-tab__level-list" role="tablist" aria-label="Price levels">
-            {levels.map(level => (
+        <ul className="price-levels-tab__level-list" role="tablist" aria-label="Price levels">
+          {levels.map(level => {
+            const isDefault = isDefaultDealerPriceLevel(level);
+            return (
               <li key={level.id}>
                 <button
                   type="button"
@@ -678,29 +700,34 @@ export const PriceLevelSettingsTab: React.FC = () => {
                   aria-selected={level.id === selectedId}
                   className={`price-levels-tab__level-btn ${
                     level.id === selectedId ? 'is-active' : ''
-                  }`}
+                  }${isDefault ? ' is-default' : ''}`}
                   onClick={() => setSelectedId(level.id)}
                 >
                   <Users size={14} aria-hidden />
                   <span className="price-levels-tab__level-name">{level.name}</span>
                   <span className="price-levels-tab__level-meta">
-                    {level.dealerIds.length} ·{' '}
+                    {isDefault
+                      ? `All others${allDealers.length ? ` (${unassignedDealerCount})` : ''}`
+                      : `${level.dealerIds.length} dealer${level.dealerIds.length === 1 ? '' : 's'}`}
+                    {' · '}
                     {level.categoryRules.filter(categoryRuleHasEffect).length} rules
                   </span>
                 </button>
-                <button
-                  type="button"
-                  className="price-levels-tab__level-delete"
-                  title="Delete level"
-                  aria-label={`Delete ${level.name}`}
-                  onClick={() => removeLevel(level.id)}
-                >
-                  <Trash2 size={13} aria-hidden />
-                </button>
+                {isDefault ? null : (
+                  <button
+                    type="button"
+                    className="price-levels-tab__level-delete"
+                    title="Delete level"
+                    aria-label={`Delete ${level.name}`}
+                    onClick={() => removeLevel(level.id)}
+                  >
+                    <Trash2 size={13} aria-hidden />
+                  </button>
+                )}
               </li>
-            ))}
-          </ul>
-        )}
+            );
+          })}
+        </ul>
       </div>
 
       <section className="price-levels-tab__detail">
@@ -718,7 +745,9 @@ export const PriceLevelSettingsTab: React.FC = () => {
                   <Users size={15} aria-hidden />
                   <span>Level name & dealers</span>
                   <span className="price-levels-tab__meta-summary">
-                    {selected.dealerIds.length} dealer{selected.dealerIds.length === 1 ? '' : 's'}
+                    {selectedIsDefault
+                      ? `All unassigned${allDealers.length ? ` (${unassignedDealerCount})` : ''}`
+                      : `${selected.dealerIds.length} dealer${selected.dealerIds.length === 1 ? '' : 's'}`}
                   </span>
                   <ChevronDown size={16} aria-hidden />
                 </button>
@@ -731,73 +760,91 @@ export const PriceLevelSettingsTab: React.FC = () => {
                         value={selected.name}
                         onChange={e => updateSelected({ name: e.target.value })}
                         placeholder="e.g. Directors"
+                        disabled={selectedIsDefault}
+                        readOnly={selectedIsDefault}
                       />
                     </label>
 
-                    <div className="price-levels-tab__block">
-                      <h4>
-                        <UserPlus size={16} aria-hidden />
-                        Dealers in this level
-                      </h4>
-                      <div className="price-levels-tab__dealer-search">
-                        <Search size={16} aria-hidden />
-                        <input
-                          type="search"
-                          value={dealerQuery}
-                          onChange={e => setDealerQuery(e.target.value)}
-                          placeholder="Search dealers by name, company, phone…"
-                          autoComplete="off"
-                        />
-                        {dealersLoading ? <Loader2 size={14} className="spin-icon" aria-hidden /> : null}
+                    {selectedIsDefault ? (
+                      <div className="price-levels-tab__block">
+                        <h4>
+                          <Users size={16} aria-hidden />
+                          Default catch-all
+                        </h4>
+                        <p className="text-muted text-sm">
+                          Covers every dealer who is not assigned to another level
+                          {allDealers.length
+                            ? ` (${unassignedDealerCount} of ${allDealers.length} right now)`
+                            : ''}
+                          . Assign dealers to Directors / Agents / etc. to exclude them from this level.
+                        </p>
                       </div>
-                      {dealerSearchError ? (
-                        <p className="price-levels-tab__error text-sm">{dealerSearchError}</p>
-                      ) : null}
-                      {dealerQuery.trim().length >= 2 && !dealersLoading && dealerHits.length === 0
-                        && !dealerSearchError ? (
-                        <p className="text-muted text-sm">No matching dealers.</p>
-                      ) : null}
-                      {dealerHits.length > 0 ? (
-                        <ul className="price-levels-tab__dealer-hits">
-                          {dealerHits.map(d => {
-                            const already = selected.dealerIds.includes(d.id);
-                            return (
-                              <li key={d.id}>
+                    ) : (
+                      <div className="price-levels-tab__block">
+                        <h4>
+                          <UserPlus size={16} aria-hidden />
+                          Dealers in this level
+                        </h4>
+                        <div className="price-levels-tab__dealer-search">
+                          <Search size={16} aria-hidden />
+                          <input
+                            type="search"
+                            value={dealerQuery}
+                            onChange={e => setDealerQuery(e.target.value)}
+                            placeholder="Search dealers by name, company, phone…"
+                            autoComplete="off"
+                          />
+                          {dealersLoading ? <Loader2 size={14} className="spin-icon" aria-hidden /> : null}
+                        </div>
+                        {dealerSearchError ? (
+                          <p className="price-levels-tab__error text-sm">{dealerSearchError}</p>
+                        ) : null}
+                        {dealerQuery.trim().length >= 2 && !dealersLoading && dealerHits.length === 0
+                          && !dealerSearchError ? (
+                          <p className="text-muted text-sm">No matching dealers.</p>
+                        ) : null}
+                        {dealerHits.length > 0 ? (
+                          <ul className="price-levels-tab__dealer-hits">
+                            {dealerHits.map(d => {
+                              const already = selected.dealerIds.includes(d.id);
+                              return (
+                                <li key={d.id}>
+                                  <button
+                                    type="button"
+                                    disabled={already}
+                                    onClick={() => addDealer(d)}
+                                  >
+                                    <strong>{dealerLabel(d)}</strong>
+                                    <span className="text-muted text-sm">
+                                      {[d.contactName, d.phone || d.mobile].filter(Boolean).join(' · ')}
+                                    </span>
+                                    {already ? <span className="text-muted">Added</span> : null}
+                                  </button>
+                                </li>
+                              );
+                            })}
+                          </ul>
+                        ) : null}
+                        {selected.dealerIds.length === 0 ? (
+                          <p className="text-muted text-sm">No dealers assigned yet.</p>
+                        ) : (
+                          <ul className="price-levels-tab__dealer-chips">
+                            {selected.dealerIds.map(id => (
+                              <li key={id}>
+                                <span>{dealerNames[id] || id}</span>
                                 <button
                                   type="button"
-                                  disabled={already}
-                                  onClick={() => addDealer(d)}
+                                  aria-label={`Remove ${dealerNames[id] || id}`}
+                                  onClick={() => removeDealer(id)}
                                 >
-                                  <strong>{dealerLabel(d)}</strong>
-                                  <span className="text-muted text-sm">
-                                    {[d.contactName, d.phone || d.mobile].filter(Boolean).join(' · ')}
-                                  </span>
-                                  {already ? <span className="text-muted">Added</span> : null}
+                                  <X size={14} aria-hidden />
                                 </button>
                               </li>
-                            );
-                          })}
-                        </ul>
-                      ) : null}
-                      {selected.dealerIds.length === 0 ? (
-                        <p className="text-muted text-sm">No dealers assigned yet.</p>
-                      ) : (
-                        <ul className="price-levels-tab__dealer-chips">
-                          {selected.dealerIds.map(id => (
-                            <li key={id}>
-                              <span>{dealerNames[id] || id}</span>
-                              <button
-                                type="button"
-                                aria-label={`Remove ${dealerNames[id] || id}`}
-                                onClick={() => removeDealer(id)}
-                              >
-                                <X size={14} aria-hidden />
-                              </button>
-                            </li>
-                          ))}
-                        </ul>
-                      )}
-                    </div>
+                            ))}
+                          </ul>
+                        )}
+                      </div>
+                    )}
                   </div>
                 ) : null}
               </div>

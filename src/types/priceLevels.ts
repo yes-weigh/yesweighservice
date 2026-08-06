@@ -17,6 +17,14 @@ export const SPARE_PRICE_LEVEL_CATEGORY_ID = '__spare_parts__';
 
 export const SPARE_PRICE_LEVEL_CATEGORY_NAME = 'Spare parts';
 
+/**
+ * Built-in catch-all level: covers every Zoho dealer not assigned to another level.
+ * Always present; dealerIds are ignored (membership is implicit).
+ */
+export const DEFAULT_DEALER_PRICE_LEVEL_ID = '__default_dealers__';
+
+export const DEFAULT_DEALER_PRICE_LEVEL_NAME = 'Dealers';
+
 export type PriceLevelRuleMode = 'discount' | 'increment';
 
 /** Item override inside a category rule. */

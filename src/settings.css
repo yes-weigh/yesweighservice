@@ -4989,6 +4989,10 @@
   flex-shrink: 0;
 }
 
+.price-levels-tab__level-btn.is-default:not(.is-active) {
+  border-color: rgba(245, 130, 32, 0.28);
+}
+
 .price-levels-tab__level-btn.is-active {
   background: rgba(245, 130, 32, 0.16);
   border-color: rgba(245, 130, 32, 0.45);
