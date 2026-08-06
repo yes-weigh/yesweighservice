@@ -461,6 +461,59 @@
         { "fieldPath": "status", "order": "ASCENDING" },
         { "fieldPath": "date", "order": "DESCENDING" }
       ]
+    },
+    {
+      "collectionGroup": "salesOrders",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "yesOneStage", "order": "ASCENDING" },
+        { "fieldPath": "date", "order": "DESCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "salesOrders",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "yesOneStage", "order": "ASCENDING" },
+        { "fieldPath": "syncedAt", "order": "DESCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "salesOrders",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "categories", "arrayConfig": "CONTAINS" },
+        { "fieldPath": "yesOneStage", "order": "ASCENDING" },
+        { "fieldPath": "date", "order": "DESCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "salesOrders",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "salespersonId", "order": "ASCENDING" },
+        { "fieldPath": "yesOneStage", "order": "ASCENDING" },
+        { "fieldPath": "date", "order": "DESCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "salesOrders",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "salespersonId", "order": "ASCENDING" },
+        { "fieldPath": "yesOneStage", "order": "ASCENDING" },
+        { "fieldPath": "syncedAt", "order": "DESCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "salesOrders",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "salespersonId", "order": "ASCENDING" },
+        { "fieldPath": "categories", "arrayConfig": "CONTAINS" },
+        { "fieldPath": "yesOneStage", "order": "ASCENDING" },
+        { "fieldPath": "date", "order": "DESCENDING" }
+      ]
     }
   ],
   "fieldOverrides": [

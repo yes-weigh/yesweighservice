@@ -30,6 +30,7 @@ import {
 import { hasStaffPermission } from '../../lib/staffAccess';
 import {
   aggregateAdminSalesOrdersByDealer,
+  countAdminSalesOrdersByYesOneStages,
   countZohoRowsByCategory,
   fetchAdminSalesOrderDealerLifetimeAggregates,
   fetchAdminSalesOrdersForCustomers,
@@ -66,6 +67,7 @@ import {
 import type { InvoiceCategory, SalesRangePreset } from '../../types/invoices';
 import { SALES_RANGE_OPTIONS } from '../../types/invoices';
 import type { YesOneStageFilter } from '../../lib/salesOrderWorkflow';
+import type { SalesOrderStageCounts } from '../../components/salesOrders/SalesOrderStageFilterBlocks';
 
 const LIST_PAGE_SIZE = 25;
 const SEARCH_FETCH_SIZE = 100;
@@ -328,6 +330,7 @@ export const AdminUnifiedSalesOrdersPage: React.FC = () => {
   const [zohoCategoryCounts, setZohoCategoryCounts] = useState<AdminSalesOrderCategoryCounts>(
     EMPTY_CATEGORY_COUNTS,
   );
+  const [serverStageCounts, setServerStageCounts] = useState<SalesOrderStageCounts>(EMPTY_STAGE_COUNTS);
   const [customerLocations, setCustomerLocations] = useState(
     () => new Map<string, { district: string | null; state: string | null }>(),
   );
@@ -410,7 +413,7 @@ export const AdminUnifiedSalesOrdersPage: React.FC = () => {
     setPageCursorVersion(v => v + 1);
   }, [search, rangePreset, category, stageFilter, sort, selectedCustomerKey, useAggregate, salespersonScopeKey]);
 
-  // Server category counts (org-wide rollups when available).
+  // Server category + YesOne stage counts (org-wide rollups when available).
   useEffect(() => {
     let cancelled = false;
     if (dealerScoped) {
@@ -418,16 +421,25 @@ export const AdminUnifiedSalesOrdersPage: React.FC = () => {
       return;
     }
     setCountsLoading(true);
-    void loadAdminSalesOrderKpis({
-      dateStart,
-      dateEnd,
-      category,
-      salespersonIds,
-    })
-      .then(kpi => {
+    void Promise.all([
+      loadAdminSalesOrderKpis({
+        dateStart,
+        dateEnd,
+        category,
+        salespersonIds,
+      }),
+      countAdminSalesOrdersByYesOneStages({
+        dateStart,
+        dateEnd,
+        category,
+        salespersonIds,
+      }),
+    ])
+      .then(([kpi, stages]) => {
         if (cancelled) return;
         setZohoCategoryCounts(kpi.categoryCounts);
         setZohoTotal(kpi.orderCount);
+        setServerStageCounts(stages);
       })
       .catch(err => {
         if (!cancelled) setError(invoiceErrorMessage(err));
@@ -539,6 +551,7 @@ export const AdminUnifiedSalesOrdersPage: React.FC = () => {
     }
 
     const cursor = pageStartCursors.current[page - 1] ?? null;
+    const yesOneStage = stageFilter !== 'all' ? stageFilter : null;
 
     void fetchAdminSalesOrdersPageDetailed({
       sort,
@@ -548,6 +561,7 @@ export const AdminUnifiedSalesOrdersPage: React.FC = () => {
       dateStart,
       dateEnd,
       statusIn: null,
+      yesOneStage,
       salespersonIds,
     })
       .then(result => {
@@ -580,6 +594,7 @@ export const AdminUnifiedSalesOrdersPage: React.FC = () => {
     dateStart,
     dateEnd,
     searchActive,
+    stageFilter,
     salespersonIds,
     salespersonScopeKey,
   ]);
@@ -637,17 +652,22 @@ export const AdminUnifiedSalesOrdersPage: React.FC = () => {
     sort,
   ]);
 
-  const stageCounts = useMemo(
-    () => (mappedRows.length ? countYesOneStages(mappedRows) : EMPTY_STAGE_COUNTS),
-    [mappedRows],
-  );
+  /** Server stage query already applied for org list; keep client filter for dealer/aggregate. */
+  const serverStageQuery = !dealerScoped && !useAggregate && stageFilter !== 'all';
+
+  const stageCounts = useMemo(() => {
+    if (searchActive || dealerScoped || useAggregate) {
+      return mappedRows.length ? countYesOneStages(mappedRows) : EMPTY_STAGE_COUNTS;
+    }
+    return serverStageCounts;
+  }, [searchActive, dealerScoped, useAggregate, mappedRows, serverStageCounts]);
 
   const zohoRows = useMemo(() => {
-    if (stageFilter === 'all') return mappedRows;
+    if (serverStageQuery || stageFilter === 'all') return mappedRows;
     return filterUnifiedSalesOrders(mappedRows, { yesOneStage: stageFilter });
-  }, [mappedRows, stageFilter]);
+  }, [mappedRows, stageFilter, serverStageQuery]);
 
-  const clientPaged = searchActive || dealerScoped || useAggregate || stageFilter !== 'all';
+  const clientPaged = searchActive || dealerScoped || useAggregate;
 
   const pageRows = useMemo(() => {
     if (clientPaged) {
@@ -659,8 +679,9 @@ export const AdminUnifiedSalesOrdersPage: React.FC = () => {
 
   const filteredTotal = useMemo(() => {
     if (clientPaged) return zohoRows.length;
+    if (serverStageQuery) return stageCounts[stageFilter] || 0;
     return zohoTotal;
-  }, [clientPaged, zohoRows.length, zohoTotal]);
+  }, [clientPaged, zohoRows.length, zohoTotal, serverStageQuery, stageCounts, stageFilter]);
 
   const totalPages = useMemo(() => {
     if (clientPaged) {

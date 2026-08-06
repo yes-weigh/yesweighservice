@@ -53,6 +53,8 @@ export type AdminSalesOrderListQuery = {
   /** Inclusive YYYY-MM-DD */
   dateEnd?: string | null;
   statusIn?: readonly string[] | null;
+  /** YesOne workflow stage (`review`, `payment_submitted`, …). */
+  yesOneStage?: string | null;
   /**
    * When set, restrict to these Zoho salesperson ids.
    * Empty array → no results. Omit / null → org-wide (super admin).
@@ -252,6 +254,7 @@ export function buildAdminSalesOrdersQuery(options: AdminSalesOrderListQuery) {
   const dateStart = options.dateStart?.trim() || null;
   const dateEnd = options.dateEnd?.trim() || null;
   const statusIn = options.statusIn?.length ? [...options.statusIn] : null;
+  const yesOneStage = options.yesOneStage?.trim() || null;
   const constraints: QueryConstraint[] = [];
 
   if (appendSalespersonIdConstraint(constraints, options.salespersonIds) === 'empty') {
@@ -264,6 +267,9 @@ export function buildAdminSalesOrdersQuery(options: AdminSalesOrderListQuery) {
   }
   if (statusIn) {
     constraints.push(where('status', 'in', statusIn.slice(0, 10)));
+  }
+  if (yesOneStage) {
+    constraints.push(where('yesOneStage', '==', yesOneStage));
   }
 
   // Date range forces orderBy('date') so inequality + orderBy stay on the same field.
@@ -356,6 +362,7 @@ export async function countAdminSalesOrders(
   const dateStart = options.dateStart?.trim() || null;
   const dateEnd = options.dateEnd?.trim() || null;
   const statusIn = options.statusIn?.length ? [...options.statusIn] : null;
+  const yesOneStage = options.yesOneStage?.trim() || null;
   const constraints: QueryConstraint[] = [];
 
   if (appendSalespersonIdConstraint(constraints, options.salespersonIds) === 'empty') {
@@ -366,6 +373,9 @@ export async function countAdminSalesOrders(
   }
   if (statusIn) {
     constraints.push(where('status', 'in', statusIn.slice(0, 10)));
+  }
+  if (yesOneStage) {
+    constraints.push(where('yesOneStage', '==', yesOneStage));
   }
   if (dateStart || dateEnd) {
     if (dateStart) constraints.push(where('date', '>=', dateStart));
@@ -380,6 +390,36 @@ export async function countAdminSalesOrders(
   const countQuery = query(collection(db, 'salesOrders'), ...constraints);
   const snap = await getCountFromServer(countQuery);
   return snap.data().count;
+}
+
+export type AdminSalesOrderYesOneStageCounts = {
+  review: number;
+  ready_for_payment: number;
+  payment_submitted: number;
+  completed: number;
+};
+
+export async function countAdminSalesOrdersByYesOneStages(options: {
+  category?: InvoiceCategory | 'all';
+  dateStart?: string | null;
+  dateEnd?: string | null;
+  salespersonIds?: string[] | null;
+}): Promise<AdminSalesOrderYesOneStageCounts> {
+  const base = {
+    category: options.category ?? 'all',
+    dateStart: options.dateStart ?? null,
+    dateEnd: options.dateEnd ?? null,
+    salespersonIds: options.salespersonIds ?? null,
+  } as const;
+
+  const [review, ready_for_payment, payment_submitted, completed] = await Promise.all([
+    countAdminSalesOrders({ ...base, yesOneStage: 'review' }),
+    countAdminSalesOrders({ ...base, yesOneStage: 'ready_for_payment' }),
+    countAdminSalesOrders({ ...base, yesOneStage: 'payment_submitted' }),
+    countAdminSalesOrders({ ...base, yesOneStage: 'completed' }),
+  ]);
+
+  return { review, ready_for_payment, payment_submitted, completed };
 }
 
 export async function countAdminSalesOrdersByUnifiedStages(options: {
