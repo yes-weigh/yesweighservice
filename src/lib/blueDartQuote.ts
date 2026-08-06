@@ -14,16 +14,16 @@
  *     base → festival% on base → docket → FOV
  *     → diesel FS% on that subtotal (no CAF, no IDC)
  *     → EFSS% on after-FS
- *     → OS/OW flat ₹ → RAS ₹/kg → EDL → ceil
+ *     → OS/OW flat ₹ → RAS ₹/kg → ECC (Delhi) → EDL → ceil
  *
- * Skipped VAS (not wired): FOD, DOD, DG, demurrage, appointment/SEZ, laptop box, ECC.
+ * Skipped VAS (not wired): FOD, DOD, DG, demurrage, appointment/SEZ, laptop box.
  * Keep server mirror in functions/lib/blue-dart-quote.js in sync.
  */
 import {
   blueDartSurfaceEffectiveDieselFsPercent,
   resolveBlueDartOversizeAmountInr,
 } from '../constants/blueDartRates';
-import { isRasDestination, resolveBlueDartRegion } from './blueDartPlace';
+import { isBlueDartEccDestination, isRasDestination, resolveBlueDartRegion } from './blueDartPlace';
 import { resolveBlueDartAirZone, resolveBlueDartDpZone } from './blueDartZone';
 import { ceilCourierChargeInr } from './stCourierQuote';
 import type {
@@ -65,6 +65,8 @@ export type BlueDartQuoteBreakdown = {
   efssInr: number;
   rasInr: number;
   fovInr: number;
+  /** Environment Compensation Charge — Surface, Delhi dest only. */
+  eccInr: number;
   edlInr: number;
   subtotalExGstInr: number;
   gstInr: number;
@@ -296,6 +298,10 @@ function quoteKgService(input: {
   const ras = isRasDestination(input.destState, input.config.shared.rasStates)
     ? rasRate * input.chargeableKg
     : 0;
+  const ecc = input.service === 'surface'
+    && isBlueDartEccDestination(input.destState)
+    ? nonNeg(input.config.surface.eccPerShipmentInr)
+    : 0;
   const edl = computeBlueDartEdlInr({
     shared: input.config.shared,
     destState: input.destState,
@@ -316,8 +322,8 @@ function quoteKgService(input: {
     fuel = fsBase * (fs / 100);
     const afterFuel = fsBase + fuel;
     efss = afterFuel * (nonNeg(rates.efssPercent) / 100);
-    /** OS/OW + RAS + EDL are VAS — after % stack (sample calc omits them). */
-    subtotal = afterFuel + efss + oversize + ras + edl;
+    /** OS/OW + RAS + ECC + EDL are VAS — after % stack. */
+    subtotal = afterFuel + efss + oversize + ras + ecc + edl;
   } else {
     const afterPssIdc = base + pss + idc;
     const { fs, caf } = resolveFsCaf(
@@ -347,6 +353,7 @@ function quoteKgService(input: {
     efssInr: efss,
     rasInr: ras,
     fovInr: fov,
+    eccInr: ecc,
     edlInr: edl,
     subtotalExGstInr: subtotal,
     gstInr: 0,
@@ -395,6 +402,7 @@ function quoteDomesticPriority(input: {
     efssInr: efss,
     rasInr: 0,
     fovInr: 0,
+    eccInr: 0,
     edlInr: 0,
     subtotalExGstInr: subtotal,
     gstInr: 0,
@@ -437,6 +445,7 @@ export function quoteBlueDartShipment(input: {
     efssInr: 0,
     rasInr: 0,
     fovInr: 0,
+    eccInr: 0,
     edlInr: 0,
     subtotalExGstInr: 0,
     gstInr: 0,
@@ -594,6 +603,7 @@ export type BlueDartSurfaceStackPreview = {
   docketFeeInr: number;
   rasInr: number;
   fovInr: number;
+  eccInr: number;
   edlInr: number;
   totalInr: number;
   rateMissing: boolean;
@@ -680,6 +690,7 @@ export function previewBlueDartSurfaceStack(input: {
     docketFeeInr: q.docketFeeInr,
     rasInr: q.rasInr,
     fovInr: q.fovInr,
+    eccInr: q.eccInr,
     edlInr: q.edlInr,
     totalInr: q.totalInr,
     rateMissing: q.rateMissing,

@@ -200,6 +200,11 @@ export interface BlueDartSurfaceRates extends BlueDartKgServiceRates {
    * Effective FS = max(0, published − discount), e.g. 37 − 10 = 27.
    */
   dieselB2bDiscountPercent: number;
+  /**
+   * Environment Compensation Charge — flat ₹ per AWB when destination is Delhi
+   * (Surface rates.xlsx: delivered into Delhi / booked from Delhi / transiting Delhi).
+   */
+  eccPerShipmentInr: number;
 }
 
 /** Domestic Priority 500g slab card. */

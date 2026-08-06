@@ -249,6 +249,8 @@ export function defaultBlueDartSurfaceRates(): BlueDartSurfaceRates {
     festivalSeasonEndMonth: 12,
     oversizeSlabs: DEFAULT_BLUE_DART_OVERSIZE_SLABS.map(s => ({ ...s })),
     dieselB2bDiscountPercent: 10,
+    /** Surface rates.xlsx — ECC ₹125 / shipment for Delhi. */
+    eccPerShipmentInr: 125,
   };
 }
 

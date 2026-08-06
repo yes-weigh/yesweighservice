@@ -173,6 +173,7 @@ function defaultBlueDartConfig() {
         { upToKg: 701, amountInr: 3500 },
       ],
       dieselB2bDiscountPercent: 10,
+      eccPerShipmentInr: 125,
     },
     domestic_priority: {
       first500gInr: { A1: 28, A: 36, B: 41, C: 46 },

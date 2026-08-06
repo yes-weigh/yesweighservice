@@ -31,11 +31,11 @@ sheetSurface.surface.festivalSurchargePercent = 0;
 // Sheet core = Basic + Docket + FOV + FS(27%) + EFSS(7%). Our stack then adds OS/OW ₹300.
 {
   const cases = [
-    { state: 'Karnataka', core: 1345.311 },
-    { state: 'Maharashtra', core: 1481.201 },
-    { state: 'Delhi', core: 1752.981 },
-    { state: 'West Bengal', core: 1888.871 },
-    { state: 'Assam', core: 2840.101 },
+    { state: 'Karnataka', core: 1345.311, ecc: 0 },
+    { state: 'Maharashtra', core: 1481.201, ecc: 0 },
+    { state: 'Delhi', core: 1752.981, ecc: 125 },
+    { state: 'West Bengal', core: 1888.871, ecc: 0 },
+    { state: 'Assam', core: 2840.101, ecc: 0 },
   ];
   for (const s of cases) {
     const q = quoteBlueDartParcels({
@@ -48,12 +48,14 @@ sheetSurface.surface.festivalSurchargePercent = 0;
     });
     assert(!q.notServiceable && !q.rateMissing, `Surface ${s.state} should quote`);
     assert(q.chargeableKg === 100, `Surface ${s.state} chargeable 100 got ${q.chargeableKg}`);
-    const expectedTotal = Math.ceil(s.core + 300);
+    const expectedTotal = Math.ceil(s.core + 300 + s.ecc);
     assert(
       q.totalInr === expectedTotal,
-      `Surface ${s.state} total ${q.totalInr} != ${expectedTotal} (sheet ${s.core} + OS 300)`,
+      `Surface ${s.state} total ${q.totalInr} != ${expectedTotal} (sheet ${s.core} + OS 300 + ECC ${s.ecc})`,
     );
-    console.log(`Surface 100kg ${s.state}: total ${q.totalInr} (sheet ${s.core} + OS 300)`);
+    console.log(
+      `Surface 100kg ${s.state}: total ${q.totalInr} (sheet ${s.core} + OS 300${s.ecc ? ` + ECC ${s.ecc}` : ''})`,
+    );
   }
 }
 

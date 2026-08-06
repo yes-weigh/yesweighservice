@@ -45,3 +45,13 @@ export function isKeralaState(state: string | null | undefined): boolean {
   const key = normalizeBlueDartPlace(state);
   return key === 'kerala' || key === 'kl' || key.includes('kerala');
 }
+
+/** Delhi / NCT — Surface ECC (Environment Compensation Charge) destinations. */
+export function isBlueDartEccDestination(state: string | null | undefined): boolean {
+  const key = normalizeBlueDartPlace(state);
+  if (!key) return false;
+  return key === 'delhi'
+    || key === 'nct of delhi'
+    || key === 'new delhi'
+    || key.includes('delhi');
+}

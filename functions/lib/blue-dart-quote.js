@@ -191,6 +191,7 @@ function defaultSurface() {
     festivalSeasonEndMonth: 12,
     oversizeSlabs: DEFAULT_OVERSIZE_SLABS.map((s) => ({ ...s })),
     dieselB2bDiscountPercent: 10,
+    eccPerShipmentInr: 125,
   };
 }
 
@@ -393,6 +394,7 @@ function parseSurface(raw) {
       100,
       nonNeg(Number(raw.dieselB2bDiscountPercent), defaults.dieselB2bDiscountPercent),
     ),
+    eccPerShipmentInr: nonNeg(Number(raw.eccPerShipmentInr), defaults.eccPerShipmentInr),
   };
 }
 
@@ -425,6 +427,15 @@ function isRas(state, rasStates) {
     const ras = normalizePlace(raw);
     return ras && (key === ras || key.includes(ras) || ras.includes(key));
   });
+}
+
+function isEccDestination(state) {
+  const key = normalizePlace(state);
+  if (!key) return false;
+  return key === 'delhi'
+    || key === 'nct of delhi'
+    || key === 'new delhi'
+    || key.includes('delhi');
 }
 
 function isKerala(state) {
@@ -603,6 +614,9 @@ export function quoteBlueDartParcels({
     : 0;
   const rasRate = rates.rasPerKgInr != null ? nonNeg(rates.rasPerKgInr) : nonNeg(cfg.shared.rasPerKgInr);
   const ras = isRas(destState, cfg.shared.rasStates) ? rasRate * kg : 0;
+  const ecc = service === 'surface' && isEccDestination(destState)
+    ? nonNeg(cfg.surface?.eccPerShipmentInr)
+    : 0;
   const fovRule = rates.fov || cfg.shared.fov;
   const fov = Math.max(
     nonNeg(fovRule.minInr),
@@ -617,7 +631,7 @@ export function quoteBlueDartParcels({
     const fuel = fsBase * (fs / 100);
     const afterFuel = fsBase + fuel;
     const efss = afterFuel * (nonNeg(rates.efssPercent) / 100);
-    subtotal = afterFuel + efss + oversize + ras + edl;
+    subtotal = afterFuel + efss + oversize + ras + ecc + edl;
   } else {
     const after = base + pss + idc;
     const { fs, caf } = fsCaf(cfg.shared, rates.fuelSurchargePercent, rates.cafPercent);

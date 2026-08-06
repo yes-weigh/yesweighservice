@@ -664,13 +664,19 @@ function SurfaceChargeStack(props: {
               tip: 'Remote Area Surcharge. ₹ per chargeable kg when the destination state is in the RAS list (e.g. Bihar, Jharkhand, Kerala, J&K, Ladakh).',
             },
             {
+              text: 'ECC',
+              tip: 'Environment Compensation Charge — ₹125 per AWB when destination is Delhi (Surface rates.xlsx).',
+            },
+            {
               text: 'EDL',
               tip: 'Extra Delivery Location charge when the pincode is outside Blue Dart’s standard coverage (flat, NE/J&K, or distance rules).',
             },
           ]}
           join=" · "
           detail={`flat VAS · ${oversizeSummary || 'OS —'}`}
-          value={formatStackInr(preview.oversizeInr + preview.rasInr + preview.edlInr)}
+          value={formatStackInr(
+            preview.oversizeInr + preview.rasInr + preview.eccInr + preview.edlInr,
+          )}
         />
         <SurfaceStackRow
           kind="total"
@@ -1150,6 +1156,13 @@ function SurfaceRatesEditor(props: {
             onChange={percentOfInvoice => onPatchShared({
               fov: { ...shared.fov, percentOfInvoice },
             })}
+          />
+          <InrInput
+            label="ECC (Delhi)"
+            tip="Environment Compensation Charge — flat ₹ per AWB when destination is Delhi / NCT of Delhi (Surface rates.xlsx)."
+            value={rates.eccPerShipmentInr}
+            hint="₹ / shipment · Delhi only"
+            onChange={eccPerShipmentInr => onPatchRates({ eccPerShipmentInr })}
           />
         </div>
       </SurfaceStep>

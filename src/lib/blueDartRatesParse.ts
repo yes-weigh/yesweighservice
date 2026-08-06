@@ -242,6 +242,7 @@ function parseSurfaceService(raw: unknown): BlueDartSurfaceRates {
       100,
       finiteNonNeg(data.dieselB2bDiscountPercent, defaults.dieselB2bDiscountPercent),
     ),
+    eccPerShipmentInr: finiteNonNeg(data.eccPerShipmentInr, defaults.eccPerShipmentInr),
   };
 }
 
