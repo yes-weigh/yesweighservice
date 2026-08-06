@@ -2973,6 +2973,162 @@
   gap: 0.55rem;
 }
 
+.settings-bluedart__surface {
+  gap: 0.85rem;
+}
+
+.settings-bluedart__stack {
+  border: 1px solid rgba(253, 186, 116, 0.28);
+  border-radius: 10px;
+  background: linear-gradient(180deg, rgba(255, 122, 0, 0.08), #101010 42%);
+  overflow: hidden;
+}
+
+.settings-bluedart__stack-head {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+  padding: 0.7rem 0.85rem 0.55rem;
+  border-bottom: 1px solid rgba(148, 163, 184, 0.14);
+}
+
+.settings-bluedart__stack-head strong {
+  font-size: 0.75rem;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: #fdba74;
+}
+
+.settings-bluedart__stack-head em {
+  font-style: normal;
+  font-size: 0.75rem;
+  line-height: 1.4;
+  color: #94a3b8;
+}
+
+.settings-bluedart__stack-body {
+  display: flex;
+  flex-direction: column;
+  padding: 0.35rem 0;
+}
+
+.settings-bluedart__stack-row {
+  display: grid;
+  grid-template-columns: minmax(9rem, 1.1fr) minmax(0, 1.6fr) auto;
+  gap: 0.35rem 0.75rem;
+  align-items: baseline;
+  padding: 0.28rem 0.85rem;
+  font-size: 0.8125rem;
+  line-height: 1.35;
+}
+
+.settings-bluedart__stack-row--subtotal {
+  margin-top: 0.15rem;
+  background: rgba(148, 163, 184, 0.08);
+  border-top: 1px dashed rgba(148, 163, 184, 0.22);
+  border-bottom: 1px dashed rgba(148, 163, 184, 0.22);
+  color: #e2e8f0;
+  font-weight: 600;
+}
+
+.settings-bluedart__stack-row--total {
+  margin-top: 0.2rem;
+  background: rgba(255, 122, 0, 0.14);
+  color: #fff7ed;
+  font-weight: 700;
+}
+
+.settings-bluedart__stack-label {
+  color: #f1f5f9;
+}
+
+.settings-bluedart__stack-detail {
+  color: #94a3b8;
+  font-size: 0.75rem;
+}
+
+.settings-bluedart__stack-value {
+  justify-self: end;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+  font-weight: 700;
+  color: #fdba74;
+  font-size: 0.75rem;
+}
+
+.settings-bluedart__stack-row--subtotal .settings-bluedart__stack-label,
+.settings-bluedart__stack-row--total .settings-bluedart__stack-label {
+  letter-spacing: 0.01em;
+}
+
+.settings-bluedart__stack-footnote {
+  margin: 0.15rem 0 0;
+  padding: 0.4rem 0.55rem;
+  border-radius: 6px;
+  background: rgba(148, 163, 184, 0.08);
+  color: #cbd5e1;
+  font-size: 0.75rem;
+  font-weight: 600;
+  line-height: 1.35;
+}
+
+.settings-bluedart__surface-step {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  padding-top: 0.15rem;
+}
+
+.settings-bluedart__surface-step-head {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.55rem;
+}
+
+.settings-bluedart__surface-step-n {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.45rem;
+  height: 1.45rem;
+  border-radius: 999px;
+  background: rgba(255, 122, 0, 0.16);
+  border: 1px solid rgba(255, 122, 0, 0.45);
+  color: #fdba74;
+  font-size: 0.75rem;
+  font-weight: 800;
+  line-height: 1;
+}
+
+.settings-bluedart__surface-step-head strong {
+  display: block;
+  font-size: 0.8125rem;
+  font-weight: 700;
+  color: #f8fafc;
+}
+
+.settings-bluedart__surface-step-head em {
+  display: block;
+  margin-top: 0.1rem;
+  font-style: normal;
+  font-size: 0.75rem;
+  line-height: 1.35;
+  color: #94a3b8;
+}
+
+@media (max-width: 720px) {
+  .settings-bluedart__stack-row {
+    grid-template-columns: 1fr;
+    gap: 0.1rem;
+  }
+
+  .settings-bluedart__stack-value {
+    justify-self: start;
+  }
+}
+
 .settings-bluedart__tabs {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));

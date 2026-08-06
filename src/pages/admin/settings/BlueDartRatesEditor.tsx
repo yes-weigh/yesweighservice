@@ -1,7 +1,9 @@
 /**
  * Super-admin Blue Dart tariff editor (Settings → Delivery Partners → Blue Dart).
  * Live-saves `appSettings/logisticsCourierRates.bluedart` via saveBlueDartConfig.
- * Tabs: Surface | Air | Domestic Priority (shared surcharges/EDL appear on each).
+ * Tabs: Surface | Air | Domestic Priority.
+ * Surface is a single flat editor in quote charge order.
+ * Air / DP reuse shared Fuel·CAF·RAS·FOV·EDL + service-specific rates.
  * Does NOT edit blueDartPincodes or zone/EDL matrices (re-seed those from Excel).
  * Zoho product IDs are hardcoded in freightLines.ts — intentionally not shown here.
  * Full architecture notes: src/types/blue-dart-rates.ts
@@ -154,41 +156,30 @@ function InrInput(props: {
 
 function SharedChargesEditor(props: {
   shared: BlueDartConfig['shared'];
-  /** Surface uses diesel FS only — hide shared Fuel / CAF on that tab. */
-  forService: BlueDartServiceId;
   onPatch: (patch: Partial<BlueDartConfig['shared']>) => void;
 }) {
-  const { shared, onPatch, forService } = props;
-  const surfaceTab = forService === 'surface';
+  const { shared, onPatch } = props;
   return (
     <div className="settings-bluedart__shared-block">
       <div className="settings-bluedart__shared-head">
-        <strong>Charges for all services</strong>
-        <em>
-          {surfaceTab
-            ? 'RAS, insurance, and EDL apply here. Surface fuel is Diesel FS below (no CAF).'
-            : 'Fuel, CAF, RAS, insurance, and EDL apply to Air and Domestic Priority (ex-GST).'}
-        </em>
+        <strong>Shared charges</strong>
+        <em>Fuel, CAF, RAS, insurance, and EDL for Air &amp; Domestic Priority (ex-GST).</em>
       </div>
 
-      <div className="settings-bluedart__subhead">Everyday surcharges</div>
+      <div className="settings-bluedart__subhead">Fuel &amp; tax add-ons</div>
       <div className="settings-courier-rates__inline-fields settings-bluedart__grid">
-        {!surfaceTab ? (
-          <>
-            <PctInput
-              label="Fuel (FS)"
-              tip="Fuel Surcharge — absolute % you bill (e.g. 92). Not used for Surface."
-              value={shared.fuelSurchargePercent}
-              onChange={fuelSurchargePercent => onPatch({ fuelSurchargePercent })}
-            />
-            <PctInput
-              label="CAF"
-              tip="Currency Adjustment Factor — absolute % (e.g. 22). Not used for Surface."
-              value={shared.cafPercent}
-              onChange={cafPercent => onPatch({ cafPercent })}
-            />
-          </>
-        ) : null}
+        <PctInput
+          label="Fuel (FS)"
+          tip="Fuel Surcharge — absolute % you bill (e.g. 92)."
+          value={shared.fuelSurchargePercent}
+          onChange={fuelSurchargePercent => onPatch({ fuelSurchargePercent })}
+        />
+        <PctInput
+          label="CAF"
+          tip="Currency Adjustment Factor — absolute % (e.g. 22)."
+          value={shared.cafPercent}
+          onChange={cafPercent => onPatch({ cafPercent })}
+        />
         <InrInput
           label="Remote area (RAS)"
           tip="Remote Area Surcharge — ₹/kg for Bihar, Jharkhand, Kerala, J&K, Ladakh."
@@ -233,7 +224,6 @@ function SharedChargesEditor(props: {
       <div className="settings-bluedart__subhead">Extra delivery locations (EDL)</div>
       <p className="settings-bluedart__panel-blurb">
         Used when the pincode is outside Blue Dart’s standard coverage.
-        Set a flat ₹ if you do not store hub distance.
       </p>
       <div className="settings-courier-rates__inline-fields settings-bluedart__grid">
         <Field
@@ -254,7 +244,6 @@ function SharedChargesEditor(props: {
           label="EDL flat ₹"
           tip="Charged for EDL pins when hub-km is unknown."
           value={shared.edlFlatFallbackInr}
-          hint="Main gap-fill field"
           onChange={edlFlatFallbackInr => onPatch({ edlFlatFallbackInr })}
         />
         <InrInput
@@ -286,32 +275,144 @@ function SharedChargesEditor(props: {
   );
 }
 
-function KgServiceEditor(props: {
-  service: 'air' | 'surface';
-  rates: BlueDartKgServiceRates | BlueDartSurfaceRates;
-  shared: BlueDartSharedRules;
-  onPatch: (patch: Partial<BlueDartSurfaceRates>) => void;
+/** Surface-only editor — fields in quote charge order (ex-GST, no CAF). */
+function SurfaceStackRow(props: {
+  kind: 'line' | 'subtotal' | 'total';
+  label: string;
+  detail?: string;
+  value?: string;
 }) {
-  const { rates, onPatch, service, shared } = props;
-  const surfaceRates = service === 'surface' ? rates as BlueDartSurfaceRates : null;
+  return (
+    <div className={`settings-bluedart__stack-row settings-bluedart__stack-row--${props.kind}`}>
+      <span className="settings-bluedart__stack-label">{props.label}</span>
+      {props.detail ? (
+        <span className="settings-bluedart__stack-detail">{props.detail}</span>
+      ) : (
+        <span className="settings-bluedart__stack-detail" aria-hidden />
+      )}
+      {props.value ? (
+        <span className="settings-bluedart__stack-value">{props.value}</span>
+      ) : null}
+    </div>
+  );
+}
+
+/** Live map of how Surface % compound — mirrors Air sheet style, without CAF. */
+function SurfaceChargeStack(props: { rates: BlueDartSurfaceRates }) {
+  const { rates } = props;
+  const diesel = rates.fuelSurchargePercent ?? 0;
+  const seasonLabel = `${MONTH_OPTIONS.find(m => m.value === rates.festivalSeasonStartMonth)?.label?.slice(0, 3) ?? '?'}–${MONTH_OPTIONS.find(m => m.value === rates.festivalSeasonEndMonth)?.label?.slice(0, 3) ?? '?'}`;
+
+  return (
+    <div className="settings-bluedart__stack" aria-label="Surface rate calculation order">
+      <div className="settings-bluedart__stack-head">
+        <strong>How Surface adds up</strong>
+        <em>
+          Same stacking idea as Air (basic → % on basic → fuel on that subtotal → next %),
+          but Surface uses Festival instead of PSS, Diesel FS instead of Air fuel, and no CAF.
+        </em>
+      </div>
+      <div className="settings-bluedart__stack-body">
+        <SurfaceStackRow
+          kind="line"
+          label="Basic freight"
+          detail="₹/kg × chargeable kg (min weight / min freight)"
+        />
+        <SurfaceStackRow
+          kind="line"
+          label={`+ Festival ${rates.festivalSurchargePercent}%`}
+          detail={`of basic · in season only (${seasonLabel})`}
+          value={`${rates.festivalSurchargePercent}% of basic`}
+        />
+        <SurfaceStackRow
+          kind="line"
+          label={`+ IDC ${rates.idcPercent}%`}
+          detail="of basic freight"
+          value={`${rates.idcPercent}% of basic`}
+        />
+        <SurfaceStackRow
+          kind="subtotal"
+          label="= Subtotal A"
+          detail="Basic + Festival + IDC"
+        />
+        <SurfaceStackRow
+          kind="line"
+          label={`+ Diesel FS ${diesel}%`}
+          detail="of Subtotal A (not of docket / RAS / FOV)"
+          value={`${diesel}% of A`}
+        />
+        <SurfaceStackRow
+          kind="subtotal"
+          label="= Subtotal B"
+          detail="Subtotal A + Diesel FS"
+        />
+        <SurfaceStackRow
+          kind="line"
+          label={`+ EFSS ${rates.efssPercent}%`}
+          detail="of Subtotal B"
+          value={`${rates.efssPercent}% of B`}
+        />
+        <SurfaceStackRow
+          kind="line"
+          label={`+ Docket ₹${rates.docketFeeInr}`}
+          detail="flat · after percentages"
+        />
+        <SurfaceStackRow
+          kind="line"
+          label="+ RAS · FOV · EDL"
+          detail="flat / conditional · after percentages"
+        />
+        <SurfaceStackRow
+          kind="total"
+          label="= Quote total"
+          detail="ceil to whole ₹ · ex-GST"
+        />
+      </div>
+    </div>
+  );
+}
+
+function SurfaceStep(props: {
+  n: number;
+  title: string;
+  applies?: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <section className="settings-bluedart__surface-step">
+      <header className="settings-bluedart__surface-step-head">
+        <span className="settings-bluedart__surface-step-n">{props.n}</span>
+        <div>
+          <strong>{props.title}</strong>
+          {props.applies ? <em>{props.applies}</em> : null}
+        </div>
+      </header>
+      {props.children}
+    </section>
+  );
+}
+
+function SurfaceRatesEditor(props: {
+  rates: BlueDartSurfaceRates;
+  shared: BlueDartSharedRules;
+  onPatchRates: (patch: Partial<BlueDartSurfaceRates>) => void;
+  onPatchShared: (patch: Partial<BlueDartConfig['shared']>) => void;
+}) {
+  const { rates, shared, onPatchRates, onPatchShared } = props;
   const statesByZone = useMemo(() => blueDartStatesByAirZone(shared), [shared]);
   const [dieselFetchBusy, setDieselFetchBusy] = useState(false);
   const [dieselFetchNote, setDieselFetchNote] = useState<string | null>(null);
   const [dieselFetchError, setDieselFetchError] = useState<string | null>(null);
 
-  const surfaceDieselPercent = surfaceRates?.fuelSurchargePercent ?? 0;
-
   const handleFetchDieselFs = async () => {
-    if (!surfaceRates || dieselFetchBusy) return;
+    if (dieselFetchBusy) return;
     setDieselFetchBusy(true);
     setDieselFetchError(null);
     setDieselFetchNote(null);
     try {
       const result = await fetchBlueDartDieselFuelSurcharge();
-      onPatch({ fuelSurchargePercent: result.percent, cafPercent: null });
-      setDieselFetchNote(
-        `Applied ${result.percent}% (effective ${result.effectiveLabel}).`,
-      );
+      onPatchRates({ fuelSurchargePercent: result.percent, cafPercent: null });
+      setDieselFetchNote(`Applied ${result.percent}% · ${result.effectiveLabel}`);
     } catch (err) {
       setDieselFetchError(
         err instanceof Error ? err.message : 'Could not fetch diesel fuel surcharge.',
@@ -321,68 +422,336 @@ function KgServiceEditor(props: {
     }
   };
 
-  return (
-    <div className="settings-bluedart__service-block">
-      <div className="settings-bluedart__subhead">
-        {service === 'air' ? 'Air rates' : 'Surface rates'}
-      </div>
-      <p className="settings-bluedart__panel-blurb">{SERVICE_BLURB[service]}</p>
+  const dieselPct = rates.fuelSurchargePercent ?? 0;
 
-      {surfaceRates ? (
-        <>
-          <div className="settings-bluedart__subhead">Diesel fuel surcharge</div>
-          <p className="settings-bluedart__panel-blurb">
-            Surface fuel charge (no shared Fuel / CAF). Fetch from Blue Dart’s published table.
-            {' '}
+  return (
+    <div className="settings-bluedart__service-block settings-bluedart__surface">
+      <SurfaceChargeStack rates={rates} />
+
+      <SurfaceStep
+        n={1}
+        title="Basic freight"
+        applies="Starting amount before any %"
+      >
+        <div className="settings-courier-rates__zone-table-wrap">
+          <table className="settings-courier-rates__zone-table settings-bluedart__zone-table">
+            <thead>
+              <tr>
+                <th scope="col">Zone</th>
+                <th scope="col">Destination states</th>
+                <th scope="col">₹ / kg</th>
+              </tr>
+            </thead>
+            <tbody>
+              {BLUE_DART_AIR_ZONES.map((z: BlueDartAirZone) => {
+                const states = statesByZone[z];
+                return (
+                  <tr key={z}>
+                    <th scope="row">Zone {z}</th>
+                    <td className="settings-bluedart__zone-states">
+                      {states.length > 0 ? states.join(', ') : '—'}
+                    </td>
+                    <td>
+                      <DecimalAmountInput
+                        min={0}
+                        decimals={2}
+                        value={rates.perKgInr[z]}
+                        aria-label={`Zone ${z} rupees per kg`}
+                        onChange={next => {
+                          if (next == null) return;
+                          onPatchRates({ perKgInr: { ...rates.perKgInr, [z]: next } });
+                        }}
+                      />
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+        <div className="settings-courier-rates__inline-fields settings-bluedart__grid">
+          <Field label="Min weight (kg)" tip="Chargeable weight floor.">
+            <DecimalAmountInput
+              min={0}
+              decimals={1}
+              value={rates.minimumChargeableWeightKg}
+              onChange={next => {
+                if (next == null) return;
+                onPatchRates({ minimumChargeableWeightKg: next });
+              }}
+            />
+          </Field>
+          <InrInput
+            label="Min freight"
+            tip="Floor for basic freight before % surcharges."
+            value={rates.minimumFreightInr}
+            onChange={minimumFreightInr => onPatchRates({ minimumFreightInr })}
+          />
+          <Field
+            label="Volumetric divisor"
+            tip="Volumetric kg = L × B × H (cm) ÷ divisor."
+          >
+            <DecimalAmountInput
+              min={1}
+              decimals={0}
+              value={rates.volumetricDivisor}
+              onChange={next => {
+                if (next == null) return;
+                onPatchRates({ volumetricDivisor: next });
+              }}
+            />
+          </Field>
+        </div>
+      </SurfaceStep>
+
+      <SurfaceStep
+        n={2}
+        title="% on basic freight"
+        applies="Like Air PSS + IDC — each % × basic only (not on each other)"
+      >
+        <div className="settings-courier-rates__inline-fields settings-bluedart__grid">
+          <PctInput
+            label="Festival"
+            tip="Replaces Air PSS on Surface. % of basic freight, only inside the season."
+            value={rates.festivalSurchargePercent}
+            hint="of basic · season only"
+            onChange={festivalSurchargePercent => onPatchRates({ festivalSurchargePercent })}
+          />
+          <Field label="Season starts" tip="First month of festival season.">
+            <select
+              className="settings-bluedart__select"
+              value={rates.festivalSeasonStartMonth}
+              onChange={e => onPatchRates({
+                festivalSeasonStartMonth: Number(e.target.value),
+              })}
+            >
+              {MONTH_OPTIONS.map(month => (
+                <option key={month.value} value={month.value}>{month.label}</option>
+              ))}
+            </select>
+          </Field>
+          <Field label="Season ends" tip="Last month (inclusive; may wrap year).">
+            <select
+              className="settings-bluedart__select"
+              value={rates.festivalSeasonEndMonth}
+              onChange={e => onPatchRates({
+                festivalSeasonEndMonth: Number(e.target.value),
+              })}
+            >
+              {MONTH_OPTIONS.map(month => (
+                <option key={month.value} value={month.value}>{month.label}</option>
+              ))}
+            </select>
+          </Field>
+          <PctInput
+            label="IDC"
+            tip="Infrastructure Development Charge — % of basic freight only."
+            value={rates.idcPercent}
+            hint="of basic"
+            onChange={idcPercent => onPatchRates({ idcPercent })}
+          />
+        </div>
+        <p className="settings-bluedart__stack-footnote">
+          → Subtotal A = Basic + Festival + IDC
+        </p>
+      </SurfaceStep>
+
+      <SurfaceStep
+        n={3}
+        title="Diesel fuel surcharge"
+        applies={`% of Subtotal A · currently ${dieselPct}%`}
+      >
+        <div className="settings-courier-rates__inline-fields settings-bluedart__grid settings-bluedart__diesel-row">
+          <PctInput
+            label="Diesel FS"
+            tip="Published Blue Dart diesel FS. Applied to Subtotal A (basic + festival + IDC). No CAF on Surface."
+            value={dieselPct}
+            hint="of Subtotal A"
+            onChange={fuelSurchargePercent => onPatchRates({
+              fuelSurchargePercent,
+              cafPercent: null,
+            })}
+          />
+          <div className="settings-bluedart__diesel-actions">
+            <button
+              type="button"
+              className="btn btn-secondary btn-sm"
+              disabled={dieselFetchBusy}
+              onClick={() => void handleFetchDieselFs()}
+            >
+              {dieselFetchBusy
+                ? <Loader2 size={14} className="spin-icon" aria-hidden />
+                : <RefreshCw size={14} aria-hidden />}
+              {dieselFetchBusy ? 'Fetching…' : 'Fetch current'}
+            </button>
             <a
               href={BLUE_DART_DIESEL_FUEL_SURCHARGE_URL}
               target="_blank"
               rel="noreferrer"
               className="settings-bluedart__inline-link"
             >
-              bluedart.com/diesel-fuel-surcharge
+              Source
               <ExternalLink size={12} aria-hidden />
             </a>
-          </p>
-          <div className="settings-courier-rates__inline-fields settings-bluedart__grid settings-bluedart__diesel-row">
-            <PctInput
-              label="Diesel FS"
-              tip="Published Diesel Fuel Surcharge % for Surface only."
-              value={surfaceDieselPercent}
-              onChange={fuelSurchargePercent => onPatch({
-                fuelSurchargePercent,
-                cafPercent: null,
-              })}
-            />
-            <div className="settings-bluedart__diesel-actions">
-              <button
-                type="button"
-                className="btn btn-secondary btn-sm"
-                disabled={dieselFetchBusy}
-                onClick={() => void handleFetchDieselFs()}
-              >
-                {dieselFetchBusy
-                  ? <Loader2 size={14} className="spin-icon" aria-hidden />
-                  : <RefreshCw size={14} aria-hidden />}
-                {dieselFetchBusy ? 'Fetching…' : 'Fetch current'}
-              </button>
-            </div>
           </div>
-          {dieselFetchNote ? (
-            <p className="settings-bluedart__diesel-note text-sm">{dieselFetchNote}</p>
-          ) : null}
-          {dieselFetchError ? (
-            <p className="settings-bluedart__diesel-error text-sm" role="alert">{dieselFetchError}</p>
-          ) : null}
-        </>
-      ) : null}
+        </div>
+        {dieselFetchNote ? (
+          <p className="settings-bluedart__diesel-note text-sm">{dieselFetchNote}</p>
+        ) : null}
+        {dieselFetchError ? (
+          <p className="settings-bluedart__diesel-error text-sm" role="alert">{dieselFetchError}</p>
+        ) : null}
+        <p className="settings-bluedart__stack-footnote">
+          → Subtotal B = Subtotal A + Diesel FS · (Air would add CAF next; Surface skips CAF)
+        </p>
+      </SurfaceStep>
+
+      <SurfaceStep
+        n={4}
+        title="EFSS"
+        applies={`% of Subtotal B · currently ${rates.efssPercent}%`}
+      >
+        <div className="settings-courier-rates__inline-fields settings-bluedart__grid">
+          <PctInput
+            label="EFSS"
+            tip="Elevated Freight Stability Surcharge — % of Subtotal B (after diesel FS)."
+            value={rates.efssPercent}
+            hint="of Subtotal B"
+            onChange={efssPercent => onPatchRates({ efssPercent })}
+          />
+        </div>
+      </SurfaceStep>
+
+      <SurfaceStep
+        n={5}
+        title="Flat adds after %"
+        applies="Not inside Diesel FS / EFSS bases"
+      >
+        <div className="settings-courier-rates__inline-fields settings-bluedart__grid">
+          <InrInput
+            label="Docket fee"
+            tip="Fixed AWB fee. Added after percentages (unlike the Air sample sheet where docket sits before fuel)."
+            value={rates.docketFeeInr}
+            hint="flat ₹"
+            onChange={docketFeeInr => onPatchRates({ docketFeeInr })}
+          />
+          <InrInput
+            label="RAS ₹ / kg"
+            tip="Remote Area Surcharge for listed states × chargeable kg."
+            value={shared.rasPerKgInr}
+            hint="when dest is RAS state"
+            onChange={rasPerKgInr => onPatchShared({ rasPerKgInr })}
+          />
+          <InrInput
+            label="Insurance min (FOV)"
+            tip="Minimum insurance ₹ per AWB."
+            value={shared.fov.minInr}
+            hint="flat floor"
+            onChange={minInr => onPatchShared({ fov: { ...shared.fov, minInr } })}
+          />
+          <PctInput
+            label="Insurance % of invoice"
+            tip="FOV billed as max(min ₹, this % of invoice)."
+            value={shared.fov.percentOfInvoice}
+            hint="of invoice · not of freight"
+            onChange={percentOfInvoice => onPatchShared({
+              fov: { ...shared.fov, percentOfInvoice },
+            })}
+          />
+        </div>
+      </SurfaceStep>
+
+      <SurfaceStep
+        n={6}
+        title="Extra delivery (EDL)"
+        applies="Only when pin is outside standard coverage · after %"
+      >
+        <div className="settings-courier-rates__inline-fields settings-bluedart__grid">
+          <Field label="EDL mode" tip="How to charge pins outside standard coverage.">
+            <select
+              className="settings-bluedart__select"
+              value={shared.edlMode}
+              onChange={e => onPatchShared({ edlMode: e.target.value as BlueDartEdlMode })}
+            >
+              {BLUE_DART_EDL_MODES.map(m => (
+                <option key={m} value={m}>{m}</option>
+              ))}
+            </select>
+          </Field>
+          <InrInput
+            label="EDL flat ₹"
+            tip="When hub-km is unknown."
+            value={shared.edlFlatFallbackInr}
+            onChange={edlFlatFallbackInr => onPatchShared({ edlFlatFallbackInr })}
+          />
+          <InrInput
+            label="NE / J&K ₹ / kg"
+            tip="Special EDL for North-East and J&K."
+            value={shared.edlNeJkPerKgInr}
+            onChange={edlNeJkPerKgInr => onPatchShared({ edlNeJkPerKgInr })}
+          />
+          <InrInput
+            label="NE / J&K min ₹"
+            tip="Floor for NE / J&K EDL."
+            value={shared.edlNeJkFloorInr}
+            onChange={edlNeJkFloorInr => onPatchShared({ edlNeJkFloorInr })}
+          />
+          <InrInput
+            label="Beyond 500 km ₹/km"
+            tip="When pin has edlKm stored."
+            value={shared.edlBeyond500KmPerKmInr}
+            onChange={edlBeyond500KmPerKmInr => onPatchShared({ edlBeyond500KmPerKmInr })}
+          />
+          <InrInput
+            label="Beyond 1500 kg ₹/kg"
+            tip="Heavy EDL when distance is known."
+            value={shared.edlBeyond1500KgPerKgInr}
+            onChange={edlBeyond1500KgPerKgInr => onPatchShared({ edlBeyond1500KgPerKgInr })}
+          />
+        </div>
+      </SurfaceStep>
+
+      <SurfaceStep n={7} title="Pin rules">
+        <div className="settings-courier-rates__inline-fields settings-bluedart__grid">
+          <label className="settings-courier-rates__toggle">
+            <input
+              type="checkbox"
+              checked={shared.hideTemPer}
+              onChange={e => onPatchShared({ hideTemPer: e.target.checked })}
+            />
+            <span>
+              <span
+                className="settings-bluedart__label-tip"
+                data-tip="TEM = temporary exclusion, PER = permanent."
+                tabIndex={0}
+              >
+                Hide TEM / PER pins
+              </span>
+              <em>Skip pins Blue Dart marked unavailable</em>
+            </span>
+          </label>
+        </div>
+      </SurfaceStep>
+    </div>
+  );
+}
+
+function AirRatesEditor(props: {
+  rates: BlueDartKgServiceRates;
+  shared: BlueDartSharedRules;
+  onPatch: (patch: Partial<BlueDartKgServiceRates>) => void;
+}) {
+  const { rates, onPatch, shared } = props;
+  const statesByZone = useMemo(() => blueDartStatesByAirZone(shared), [shared]);
+
+  return (
+    <div className="settings-bluedart__service-block">
+      <div className="settings-bluedart__subhead">Air rates</div>
+      <p className="settings-bluedart__panel-blurb">{SERVICE_BLURB.air}</p>
 
       <div className="settings-bluedart__subhead">Weight &amp; fees</div>
       <div className="settings-courier-rates__inline-fields settings-bluedart__grid">
-        <Field
-          label="Min weight (kg)"
-          tip="If the parcel is lighter, billing still uses this floor."
-        >
+        <Field label="Min weight (kg)" tip="Chargeable weight floor.">
           <DecimalAmountInput
             min={0}
             decimals={1}
@@ -401,13 +770,13 @@ function KgServiceEditor(props: {
         />
         <InrInput
           label="Docket fee"
-          tip="Fixed AWB fee added once per shipment."
+          tip="Fixed AWB fee once per shipment."
           value={rates.docketFeeInr}
           onChange={docketFeeInr => onPatch({ docketFeeInr })}
         />
         <Field
           label="Volumetric divisor"
-          tip="Volumetric kg = L × B × H (cm) ÷ divisor. Chargeable = max(actual, volumetric)."
+          tip="Volumetric kg = L × B × H (cm) ÷ divisor."
         >
           <DecimalAmountInput
             min={1}
@@ -431,75 +800,21 @@ function KgServiceEditor(props: {
         />
         <PctInput
           label="EFSS"
-          tip={service === 'surface'
-            ? 'Elevated Freight Stability Surcharge — % after diesel FS.'
-            : 'Elevated Freight Stability Surcharge — % after CAF.'}
+          tip="Elevated Freight Stability Surcharge — % after CAF."
           value={rates.efssPercent}
           onChange={efssPercent => onPatch({ efssPercent })}
         />
-        {service === 'air' ? (
-          <PctInput
-            label="PSS"
-            tip="Peak Season Surcharge — % on base freight."
-            value={rates.pssPercent}
-            onChange={pssPercent => onPatch({ pssPercent })}
-          />
-        ) : null}
+        <PctInput
+          label="PSS"
+          tip="Peak Season Surcharge — % on base freight."
+          value={rates.pssPercent}
+          onChange={pssPercent => onPatch({ pssPercent })}
+        />
       </div>
-
-      {surfaceRates ? (
-        <>
-          <div className="settings-bluedart__subhead">Festival surcharge</div>
-          <p className="settings-bluedart__panel-blurb">
-            Applied on base freight only when the quote month falls in the festival season
-            (inclusive). Season can wrap the year — e.g. October → January.
-          </p>
-          <div className="settings-courier-rates__inline-fields settings-bluedart__grid">
-            <PctInput
-              label="Festival %"
-              tip="Festival surcharge — % of base freight during the season below."
-              value={surfaceRates.festivalSurchargePercent}
-              onChange={festivalSurchargePercent => onPatch({ festivalSurchargePercent })}
-            />
-            <Field
-              label="Season starts"
-              tip="First calendar month of the festival season."
-            >
-              <select
-                className="settings-bluedart__select"
-                value={surfaceRates.festivalSeasonStartMonth}
-                onChange={e => onPatch({
-                  festivalSeasonStartMonth: Number(e.target.value),
-                })}
-              >
-                {MONTH_OPTIONS.map(month => (
-                  <option key={month.value} value={month.value}>{month.label}</option>
-                ))}
-              </select>
-            </Field>
-            <Field
-              label="Season ends"
-              tip="Last calendar month of the festival season (inclusive)."
-            >
-              <select
-                className="settings-bluedart__select"
-                value={surfaceRates.festivalSeasonEndMonth}
-                onChange={e => onPatch({
-                  festivalSeasonEndMonth: Number(e.target.value),
-                })}
-              >
-                {MONTH_OPTIONS.map(month => (
-                  <option key={month.value} value={month.value}>{month.label}</option>
-                ))}
-              </select>
-            </Field>
-          </div>
-        </>
-      ) : null}
 
       <div className="settings-bluedart__subhead">Base rate by destination zone</div>
       <p className="settings-bluedart__panel-blurb">
-        Zone comes from ship-from SOUTH (Kerala) × destination state.
+        Zone from ship-from SOUTH × destination state.
       </p>
       <div className="settings-courier-rates__zone-table-wrap">
         <table className="settings-courier-rates__zone-table settings-bluedart__zone-table">
@@ -576,19 +891,12 @@ export const BlueDartRatesEditor: React.FC<Props> = ({
     onServiceChange(next);
   };
 
-  const sharedEditor = (
-    <SharedChargesEditor
-      shared={shared}
-      forService={tab}
-      onPatch={patchShared}
-    />
-  );
-
   return (
     <div className="settings-bluedart">
       <p className="settings-bluedart__intro">
-        Quotes use the dealer’s shipping <strong>pincode + state</strong>.
-        Open Air, Surface, or Domestic Priority to edit that service’s rates and the charges that apply to all of them.
+        Quotes use the dealer’s shipping <strong>pincode + state</strong>
+        {' '}
+        (ship-from SOUTH). Surface is laid out in charge order; Air &amp; DP share Fuel / CAF.
       </p>
 
       <div
@@ -625,21 +933,31 @@ export const BlueDartRatesEditor: React.FC<Props> = ({
         })}
       </div>
 
-      {tab === 'air' || tab === 'surface' ? (
+      {tab === 'surface' ? (
         <div className="settings-bluedart__tab-panel" role="tabpanel">
-          {sharedEditor}
-          <KgServiceEditor
-            service={tab}
-            rates={config[tab]}
+          <SurfaceRatesEditor
+            rates={config.surface}
             shared={shared}
-            onPatch={patch => patchKg(tab, patch)}
+            onPatchRates={patch => patchKg('surface', patch)}
+            onPatchShared={patchShared}
+          />
+        </div>
+      ) : null}
+
+      {tab === 'air' ? (
+        <div className="settings-bluedart__tab-panel" role="tabpanel">
+          <SharedChargesEditor shared={shared} onPatch={patchShared} />
+          <AirRatesEditor
+            rates={config.air}
+            shared={shared}
+            onPatch={patch => patchKg('air', patch)}
           />
         </div>
       ) : null}
 
       {tab === 'domestic_priority' ? (
         <div className="settings-bluedart__tab-panel" role="tabpanel">
-          {sharedEditor}
+          <SharedChargesEditor shared={shared} onPatch={patchShared} />
           <p className="settings-bluedart__panel-blurb">
             {SERVICE_BLURB.domestic_priority}
             {' '}
