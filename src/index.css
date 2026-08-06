@@ -14297,14 +14297,97 @@ body:has(.confirm-inline-bar) .confirm-inline-bar {
 }
 
 .order-freight-panel__calc-head {
+  display: flex;
+  align-items: center;
+  margin: 0;
+}
+
+.order-freight-panel__calc-toggle {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.65rem;
+  width: 100%;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: #ff7a00;
+  cursor: pointer;
+  text-align: left;
+}
+
+.order-freight-panel__calc-toggle:focus-visible {
+  outline: 2px solid rgba(255, 122, 0, 0.55);
+  outline-offset: 2px;
+  border-radius: 6px;
+}
+
+.order-freight-panel__calc-head-main {
   display: inline-flex;
   align-items: center;
-  gap: 0.4rem;
+  flex-wrap: wrap;
+  gap: 0.4rem 0.55rem;
+  min-width: 0;
   font-size: 0.75rem;
   font-weight: 800;
   letter-spacing: 0.05em;
   text-transform: uppercase;
   color: #ff7a00;
+}
+
+.order-freight-panel__calc-partner {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  min-width: 0;
+  padding: 0.15rem 0.4rem 0.15rem 0.2rem;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(148, 163, 184, 0.2);
+}
+
+.order-freight-panel__calc-partner-logo {
+  width: 18px;
+  height: 18px;
+  object-fit: contain;
+  border-radius: 3px;
+  background: #fff;
+  flex-shrink: 0;
+}
+
+.order-freight-panel__calc-partner em {
+  font-style: normal;
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  text-transform: none;
+  color: #e2e8f0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 10rem;
+}
+
+.order-freight-panel__calc-chevron {
+  flex-shrink: 0;
+  color: #94a3b8;
+  transition: transform 0.15s ease;
+}
+
+.order-freight-panel__calc-chevron.is-open {
+  transform: rotate(180deg);
+  color: #ff7a00;
+}
+
+.order-freight-panel__calc-body {
+  display: flex;
+  flex-direction: column;
+  gap: 0.65rem;
+}
+
+.order-freight-panel__calc-card.is-collapsed {
+  gap: 0.4rem;
 }
 
 .order-freight-panel__calc-item-title {
@@ -14313,6 +14396,21 @@ body:has(.confirm-inline-bar) .confirm-inline-bar {
   font-weight: 750;
   color: #f8fafc;
   line-height: 1.25;
+}
+
+.order-freight-panel__calc-item-title--collapsed {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+
+.order-freight-panel__calc-item-title--truncated em {
+  font-style: normal;
+  font-size: 0.85rem;
+  font-weight: 750;
+  color: #ff7a00;
+  flex-shrink: 0;
 }
 
 .order-freight-panel__calc-item-sub {

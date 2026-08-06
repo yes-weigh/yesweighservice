@@ -34,6 +34,7 @@ import {
   type OrderSegment,
 } from './salesOrderSegments';
 import {
+  ceilChargeableKg,
   ceilCourierChargeInr,
   stCourierVolumetricKg,
   type StCourierQuoteDims,
@@ -308,8 +309,10 @@ export function quoteStCourierParcels(input: {
     const base = perBoxRates.useChargeableWeight
       ? Math.max(parcel.actualKg, vol)
       : parcel.actualKg;
-    perParcelChargeableKg.push(base);
-    chargeableBeforeMin += base;
+    // Per-parcel chargeable always rounds up (LBH / actual).
+    const parcelChg = ceilChargeableKg(base);
+    perParcelChargeableKg.push(parcelChg);
+    chargeableBeforeMin += parcelChg;
   }
 
   const minKg = typeof input.rates.minimumChargeableWeightKg === 'number'
@@ -317,7 +320,7 @@ export function quoteStCourierParcels(input: {
     && input.rates.minimumChargeableWeightKg > 0
     ? input.rates.minimumChargeableWeightKg
     : 0;
-  const chargeableKg = Math.max(chargeableBeforeMin, minKg);
+  const chargeableKg = ceilChargeableKg(Math.max(chargeableBeforeMin, minKg));
   const boxPerKgInr = Number(input.rates.zones[input.zone]?.boxPerKgInr) || 0;
   const freightInr = boxPerKgInr * chargeableKg;
   const fuelPct = Number(input.rates.fuelSurchargePercent) || 0;

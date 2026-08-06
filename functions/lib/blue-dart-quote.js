@@ -459,19 +459,25 @@ function allowed(pin, service, hideTemPer) {
   return { ok: false, edl: false };
 }
 
+function ceilChargeableKg(value) {
+  const n = Number(value);
+  if (!Number.isFinite(n) || n <= 0) return 0;
+  return Math.ceil(n);
+}
+
 function volumetricKg(dims, divisor) {
   const l = nonNeg(dims?.lengthCm);
   const w = nonNeg(dims?.widthCm);
   const h = nonNeg(dims?.heightCm);
   const d = divisor > 0 ? divisor : 5000;
   if (!l || !w || !h) return 0;
-  return (l * w * h) / d;
+  return ceilChargeableKg((l * w * h) / d);
 }
 
 function chargeableKg(actualKg, dims, divisor, minKg) {
   const raw = Math.max(nonNeg(actualKg), volumetricKg(dims, divisor));
   const min = nonNeg(minKg);
-  return min > 0 ? Math.max(raw, min) : raw;
+  return ceilChargeableKg(min > 0 ? Math.max(raw, min) : raw);
 }
 
 function edlInr(shared, destState, isEdl, kg, edlKm) {

@@ -43,9 +43,16 @@ export function ceilCourierChargeInr(value: number | null | undefined): number {
   return Math.ceil(n);
 }
 
+/** Round chargeable / LBH (volumetric) kg up to the next whole kilogram (2.1 → 3). */
+export function ceilChargeableKg(value: number | null | undefined): number {
+  const n = Number(value);
+  if (!Number.isFinite(n) || n <= 0) return 0;
+  return Math.ceil(n);
+}
+
 /**
- * Volumetric weight for the given dims and divisor.
- * Returns 0 when any dimension is missing/zero.
+ * Volumetric (LBH) weight for the given dims and divisor.
+ * Returns 0 when any dimension is missing/zero. Always rounded up.
  */
 export function stCourierVolumetricKg(
   dims: StCourierQuoteDims | undefined,
@@ -56,7 +63,7 @@ export function stCourierVolumetricKg(
   const heightCm = nonNeg(dims?.heightCm);
   const d = divisor > 0 ? divisor : DEFAULT_ST_COURIER_VOLUMETRIC_DIVISOR;
   if (!lengthCm || !widthCm || !heightCm) return 0;
-  return (lengthCm * widthCm * heightCm) / d;
+  return ceilChargeableKg((lengthCm * widthCm * heightCm) / d);
 }
 
 /**
@@ -65,6 +72,7 @@ export function stCourierVolumetricKg(
  * Box + LBH on: max(actual, volumetric, minimumChargeableWeightKg).
  * Box + LBH off: max(actual, minimumChargeableWeightKg).
  * minimumChargeableWeightKg of 0 means no floor.
+ * Always rounded up to the next whole kg.
  */
 export function stCourierChargeableKg(input: {
   mode: ShipmentMode;
@@ -86,7 +94,7 @@ export function stCourierChargeableKg(input: {
     ? Math.max(actualKg, volumetricKg)
     : actualKg;
 
-  return { volumetricKg, chargeableKg: Math.max(baseKg, minKg) };
+  return { volumetricKg, chargeableKg: ceilChargeableKg(Math.max(baseKg, minKg)) };
 }
 
 /**

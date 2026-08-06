@@ -112,13 +112,19 @@ export function blueDartSurfaceFestivalPercent(
     : 0;
 }
 
+/** Round LBH / chargeable kg up to the next whole kilogram (2.1 → 3). */
+function ceilChargeableKg(value: number): number {
+  if (!Number.isFinite(value) || value <= 0) return 0;
+  return Math.ceil(value);
+}
+
 export function blueDartVolumetricKg(dims: BlueDartQuoteDims, divisor: number): number {
   const l = nonNeg(dims.lengthCm);
   const w = nonNeg(dims.widthCm);
   const h = nonNeg(dims.heightCm);
   const d = divisor > 0 ? divisor : 5000;
   if (!l || !w || !h) return 0;
-  return (l * w * h) / d;
+  return ceilChargeableKg((l * w * h) / d);
 }
 
 export function blueDartChargeableKg(input: {
@@ -131,7 +137,7 @@ export function blueDartChargeableKg(input: {
   const vol = blueDartVolumetricKg(input.dims, input.volumetricDivisor);
   const raw = Math.max(actual, vol);
   const min = nonNeg(input.minimumChargeableWeightKg);
-  return min > 0 ? Math.max(raw, min) : raw;
+  return ceilChargeableKg(min > 0 ? Math.max(raw, min) : raw);
 }
 
 function parseServiceability(raw: unknown): BlueDartServiceability | string {

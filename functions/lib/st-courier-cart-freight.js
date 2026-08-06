@@ -83,13 +83,19 @@ function cartonOk(carton) {
     .every(v => typeof v === 'number' && Number.isFinite(v) && v > 0);
 }
 
+function ceilChargeableKg(value) {
+  const n = Number(value);
+  if (!Number.isFinite(n) || n <= 0) return 0;
+  return Math.ceil(n);
+}
+
 function volumetricKg(dims, divisor) {
   const lengthCm = nonNeg(dims?.lengthCm);
   const widthCm = nonNeg(dims?.widthCm);
   const heightCm = nonNeg(dims?.heightCm);
   const d = divisor > 0 ? divisor : DEFAULT_DIVISOR;
   if (!lengthCm || !widthCm || !heightCm) return 0;
-  return (lengthCm * widthCm * heightCm) / d;
+  return ceilChargeableKg((lengthCm * widthCm * heightCm) / d);
 }
 
 function defaultZoneTable() {
@@ -243,10 +249,10 @@ function quoteParcels(zone, rates, parcels) {
     const base = rates.useChargeableWeight
       ? Math.max(parcel.actualKg, vol)
       : parcel.actualKg;
-    chargeableBeforeMin += base;
+    chargeableBeforeMin += ceilChargeableKg(base);
   }
   const minKg = nonNeg(rates.minimumChargeableWeightKg);
-  const chargeableKg = Math.max(chargeableBeforeMin, minKg);
+  const chargeableKg = ceilChargeableKg(Math.max(chargeableBeforeMin, minKg));
   const boxPerKgInr = nonNeg(rates.zones?.[zone]?.boxPerKgInr);
   const freightInr = boxPerKgInr * chargeableKg;
   const fuelSurchargeInr = freightInr * (nonNeg(rates.fuelSurchargePercent) / 100);

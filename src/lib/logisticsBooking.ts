@@ -116,9 +116,11 @@ export function draftBoxesHaveRequiredPhotos(
   );
 }
 
-/** Per-box chargeable weight = max(actual, volumetric). */
+/** Per-box chargeable weight = max(actual, volumetric), always rounded up. */
 export function boxChargeableWeight(box: Pick<ShipmentBox, 'weightKg' | 'volumetricWeightKg'>): number {
-  return Math.max(box.weightKg || 0, box.volumetricWeightKg || 0);
+  const raw = Math.max(box.weightKg || 0, box.volumetricWeightKg || 0);
+  if (!Number.isFinite(raw) || raw <= 0) return 0;
+  return Math.ceil(raw);
 }
 
 /**
@@ -152,7 +154,9 @@ export function computeVolumetricWeight(
   heightCm: number | null,
 ): number {
   if (!lengthCm || !widthCm || !heightCm) return 0;
-  return (lengthCm * widthCm * heightCm) / VOLUMETRIC_WEIGHT_DIVISOR;
+  const raw = (lengthCm * widthCm * heightCm) / VOLUMETRIC_WEIGHT_DIVISOR;
+  if (!Number.isFinite(raw) || raw <= 0) return 0;
+  return Math.ceil(raw);
 }
 
 export type BookCourierStep =
