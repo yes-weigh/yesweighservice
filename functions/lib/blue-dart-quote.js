@@ -372,6 +372,8 @@ function parseSurface(raw) {
   return {
     ...base,
     cafPercent: null,
+    /** Surface tariff has no IDC (Air/DP only). */
+    idcPercent: 0,
     festivalSurchargePercent: nonNeg(
       Number(raw.festivalSurchargePercent),
       defaults.festivalSurchargePercent,
@@ -593,7 +595,9 @@ export function quoteBlueDartParcels({
   const pss = service === 'surface'
     ? 0
     : base * (nonNeg(rates.pssPercent) / 100);
-  const idc = base * (nonNeg(rates.idcPercent) / 100);
+  const idc = service === 'surface'
+    ? 0
+    : base * (nonNeg(rates.idcPercent) / 100);
   const oversize = service === 'surface'
     ? resolveOversizeAmountInr(cfg.surface?.oversizeSlabs, kg)
     : 0;
@@ -608,7 +612,7 @@ export function quoteBlueDartParcels({
 
   let subtotal = 0;
   if (service === 'surface') {
-    const fsBase = base + festival + idc + docket + fov;
+    const fsBase = base + festival + docket + fov;
     const { fs } = surfaceFsCaf(cfg.surface);
     const fuel = fsBase * (fs / 100);
     const afterFuel = fsBase + fuel;

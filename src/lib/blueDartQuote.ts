@@ -11,8 +11,8 @@
  * v1 charge stack (HARDCODED order — change here + functions/lib/blue-dart-quote.js):
  *   Air: base → PSS% + IDC% → FS% → CAF% → EFSS% → docket → RAS → FOV → EDL → ceil
  *   Surface (matches Surface rates.xlsx sample):
- *     base → festival% + IDC% on base → docket → FOV
- *     → diesel FS% on that subtotal (no CAF)
+ *     base → festival% on base → docket → FOV
+ *     → diesel FS% on that subtotal (no CAF, no IDC)
  *     → EFSS% on after-FS
  *     → OS/OW flat ₹ → RAS ₹/kg → EDL → ceil
  *
@@ -279,7 +279,10 @@ function quoteKgService(input: {
   const pss = input.service === 'surface'
     ? 0
     : base * (nonNeg(rates.pssPercent) / 100);
-  const idc = base * (nonNeg(rates.idcPercent) / 100);
+  /** Surface has no IDC — Air only here. */
+  const idc = input.service === 'surface'
+    ? 0
+    : base * (nonNeg(rates.idcPercent) / 100);
   const oversize = input.service === 'surface'
     ? resolveBlueDartOversizeAmountInr(
       input.config.surface.oversizeSlabs,
@@ -307,8 +310,8 @@ function quoteKgService(input: {
   let subtotal = 0;
 
   if (input.service === 'surface') {
-    /** Sample sheet: FS on Basic + Docket + FOV (+ festival/IDC when in season). */
-    const fsBase = base + festival + idc + docket + fov;
+    /** Sample sheet: FS on Basic + Docket + FOV (+ festival when in season). */
+    const fsBase = base + festival + docket + fov;
     const { fs } = resolveSurfaceFsCaf(input.config.surface);
     fuel = fsBase * (fs / 100);
     const afterFuel = fsBase + fuel;
@@ -583,7 +586,7 @@ export type BlueDartSurfaceStackPreview = {
   festivalSurchargeInr: number;
   idcInr: number;
   oversizeInr: number;
-  /** Basic + Festival + IDC + Docket + FOV — diesel FS base (Surface rates sample). */
+  /** Basic + Festival + Docket + FOV — diesel FS base (Surface rates sample). */
   subtotalAInr: number;
   fuelSurchargeInr: number;
   subtotalBInr: number;
@@ -653,7 +656,6 @@ export function previewBlueDartSurfaceStack(input: {
   });
   const subtotalAInr = q.baseFreightInr
     + q.festivalSurchargeInr
-    + q.idcInr
     + q.docketFeeInr
     + q.fovInr;
   const subtotalBInr = subtotalAInr + q.fuelSurchargeInr;

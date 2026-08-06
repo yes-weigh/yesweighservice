@@ -221,6 +221,8 @@ function parseSurfaceService(raw: unknown): BlueDartSurfaceRates {
     ...base,
     /** Surface never uses CAF; diesel FS is stored on fuelSurchargePercent. */
     cafPercent: null,
+    /** Surface tariff has no IDC (Air/DP only). */
+    idcPercent: 0,
     festivalSurchargePercent: finiteNonNeg(
       data.festivalSurchargePercent,
       defaults.festivalSurchargePercent,

@@ -589,17 +589,6 @@ function SurfaceChargeStack(props: {
           kind="line"
           prefix="+"
           names={[{
-            text: 'IDC',
-            tip: 'Infrastructure Development Charge. % of basic freight only.',
-          }]}
-          suffix={`${rates.idcPercent}%`}
-          detail="of basic freight"
-          value={formatStackInr(preview.idcInr)}
-        />
-        <SurfaceStackRow
-          kind="line"
-          prefix="+"
-          names={[{
             text: 'Docket',
             tip: 'Fixed AWB / docket fee. Included in the diesel FS base (Surface rates sample).',
           }]}
@@ -621,9 +610,9 @@ function SurfaceChargeStack(props: {
           prefix="="
           names={[{
             text: 'Subtotal A',
-            tip: 'Basic + Festival + IDC + Docket + FOV. Diesel FS is calculated on this subtotal (Surface rates.xlsx sample).',
+            tip: 'Basic + Festival + Docket + FOV. Diesel FS is calculated on this subtotal (Surface rates.xlsx sample). Surface has no IDC.',
           }]}
-          detail="Basic + Festival + IDC + Docket + FOV"
+          detail="Basic + Festival + Docket + FOV"
           value={formatStackInr(preview.subtotalAInr)}
         />
         <SurfaceStackRow
@@ -687,7 +676,7 @@ function SurfaceChargeStack(props: {
           kind="total"
           prefix="="
           names={[{
-            text: 'Quote total',
+            text: 'Total',
             tip: 'Sum of the stack above, rounded up to a whole rupee. Quoted ex-GST — tax is applied on the sales order, not here.',
           }]}
           detail="ceil to whole ₹ · ex-GST"
@@ -982,8 +971,8 @@ function SurfaceRatesEditor(props: {
 
       <SurfaceStep
         n={2}
-        title="% on basic freight"
-        applies="Like Air PSS + IDC — each % × basic only (not on each other)"
+        title="Festival / peak season"
+        applies="% of basic freight only · Sep–Dec by default · no IDC on Surface"
       >
         <div className="settings-courier-rates__inline-fields settings-bluedart__grid">
           <PctInput
@@ -1019,13 +1008,6 @@ function SurfaceRatesEditor(props: {
               ))}
             </select>
           </Field>
-          <PctInput
-            label="IDC"
-            tip="Infrastructure Development Charge — % of basic freight only."
-            value={rates.idcPercent}
-            hint="of basic"
-            onChange={idcPercent => onPatchRates({ idcPercent })}
-          />
         </div>
         <p className="settings-bluedart__stack-footnote">
           → then Docket + FOV join Subtotal A (FS base)
@@ -1393,7 +1375,15 @@ export const BlueDartRatesEditor: React.FC<Props> = ({
     svc: 'air' | 'surface',
     patch: Partial<BlueDartKgServiceRates> | Partial<BlueDartSurfaceRates>,
   ) => {
-    onChange({ ...config, [svc]: { ...config[svc], ...patch } });
+    onChange({
+      ...config,
+      [svc]: {
+        ...config[svc],
+        ...patch,
+        /** Surface never stores/applies IDC. */
+        ...(svc === 'surface' ? { idcPercent: 0 } : null),
+      },
+    });
   };
 
   const patchDp = (patch: Partial<BlueDartConfig['domestic_priority']>) => {
