@@ -39051,8 +39051,23 @@ button.invoice-detail-top__card {
 
 .so-detail__doc-toolbar {
   display: flex;
-  justify-content: flex-end;
-  padding: 0.75rem 1rem 0;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  padding: 0 0.15rem 0.65rem;
+}
+
+.so-detail__doc-toolbar .so-detail__doc-hint {
+  margin: 0;
+  flex: 1;
+  min-width: 0;
+}
+
+.so-detail__add-item-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  flex-shrink: 0;
 }
 
 .so-detail__edit-btn {
@@ -39378,14 +39393,100 @@ button.invoice-detail-top__card {
   line-height: 1.35;
 }
 
-.so-detail__add-picker {
-  margin-top: 0.85rem;
-  margin-bottom: 0.25rem;
-}
-
 .so-detail__doc-hint {
   margin: 0 0 0.65rem;
   padding: 0 0.15rem;
+}
+
+.so-detail-catalog-add {
+  position: fixed;
+  inset: 0;
+  z-index: 80;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg, #0f1115);
+  overflow: hidden;
+}
+
+.so-detail-catalog-add__bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  padding: 0.65rem 0.85rem;
+  border-radius: 0;
+  border-left: 0;
+  border-right: 0;
+  border-top: 0;
+  flex-shrink: 0;
+}
+
+.so-detail-catalog-add__hint {
+  margin: 0;
+  flex: 1;
+  min-width: 0;
+}
+
+.so-detail-catalog-add__cart-btn {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  flex-shrink: 0;
+}
+
+.so-detail-catalog-add__cart-badge {
+  min-width: 1.15rem;
+  height: 1.15rem;
+  padding: 0 0.3rem;
+  border-radius: 999px;
+  background: rgba(0, 0, 0, 0.25);
+  font-size: 0.7rem;
+  font-weight: 700;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.so-detail-catalog-add__body {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding: 0.5rem 0.65rem 1rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.55rem;
+}
+
+.so-detail-catalog-add__chips {
+  padding: 0.55rem 0.75rem 0.35rem;
+  overflow: hidden;
+  flex-shrink: 0;
+}
+
+.so-detail-catalog-add__footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  padding: 0.75rem 1rem;
+  border-radius: 0;
+  border-left: 0;
+  border-right: 0;
+  border-bottom: 0;
+  flex-shrink: 0;
+}
+
+.so-detail-catalog-add__footer .btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+}
+
+@media (max-width: 640px) {
+  .so-detail-catalog-add__hint {
+    display: none;
+  }
 }
 
 .so-detail__actions--edit-dock {

@@ -35,7 +35,6 @@ import {
   type StaffLogisticsSite,
 } from '../../../types/staff-logistics';
 import {
-  COURIER_RATE_PARTNER_IDS,
   ST_COURIER_ZONES,
   ST_COURIER_ZONE_LABELS,
   isCourierRatePartnerId,
@@ -53,12 +52,35 @@ type SaveStatus = 'idle' | 'pending' | 'saving' | 'saved' | 'error';
 
 type ZoneRatePartnerId = Extract<CourierRatePartnerId, 'st_courier' | 'trackon' | 'delhivery'>;
 
+/** Partner tabs: rate cards + Blue Dart tile, then status-only logistics partners. */
+type DeliveryPartnerTabId =
+  | CourierRatePartnerId
+  | Exclude<LogisticsPartnerId, typeof BLUEDART_LOGISTICS_PARTNER_IDS[number]>;
+
 const LIVE_SAVE_MS = 550;
 const STATUS_SAVE_KEY = 'partnerStatuses';
-const RATE_PARTNER_ORDER = COURIER_RATE_PARTNER_IDS;
 
-function isZoneRatePartnerId(id: CourierRatePartnerId): id is ZoneRatePartnerId {
+/** Partner picker order: Blue Dart first, then major couriers, then the rest. */
+const DETAIL_PARTNER_ORDER: DeliveryPartnerTabId[] = [
+  'bluedart',
+  'delhivery',
+  'st_courier',
+  'trackon',
+  'dtdc',
+  'ecosafe',
+  'aps',
+  'personal_collection',
+  'own_vehicle',
+];
+
+function isZoneRatePartnerId(id: DeliveryPartnerTabId): id is ZoneRatePartnerId {
   return id === 'st_courier' || id === 'trackon' || id === 'delhivery';
+}
+
+function isStatusOnlyPartnerId(
+  id: DeliveryPartnerTabId,
+): id is Exclude<LogisticsPartnerId, typeof BLUEDART_LOGISTICS_PARTNER_IDS[number]> {
+  return !isCourierRatePartnerId(id);
 }
 
 function ratesEqual(a: StCourierOriginRates, b: StCourierOriginRates): boolean {
@@ -76,7 +98,7 @@ function ratesEqual(a: StCourierOriginRates, b: StCourierOriginRates): boolean {
   ));
 }
 
-function partnerMeta(id: CourierRatePartnerId) {
+function partnerMeta(id: DeliveryPartnerTabId) {
   if (id === 'bluedart') {
     return {
       label: 'Blue Dart',
@@ -92,7 +114,7 @@ function partnerMeta(id: CourierRatePartnerId) {
   };
 }
 
-function partnerLabel(id: CourierRatePartnerId): string {
+function partnerLabel(id: DeliveryPartnerTabId): string {
   return partnerMeta(id).label;
 }
 
@@ -131,7 +153,7 @@ export const StCourierRatesSettings: React.FC<Props> = ({
   onError,
 }) => {
   const { user } = useAuth();
-  const [partnerId, setPartnerId] = useState<CourierRatePartnerId>('st_courier');
+  const [partnerId, setPartnerId] = useState<DeliveryPartnerTabId>('st_courier');
   const [blueDartService, setBlueDartService] = useState<BlueDartServiceId>('surface');
   const [origin, setOrigin] = useState<StaffLogisticsSite>('head_office');
   const [saved, setSaved] = useState<LogisticsCourierRates>(defaultLogisticsCourierRates);
@@ -154,8 +176,9 @@ export const StCourierRatesSettings: React.FC<Props> = ({
   statusDraftRef.current = statusDraft;
   statusSavedRef.current = partnerStatuses;
 
-  const visiblePartners = RATE_PARTNER_ORDER;
+  const visiblePartners = DETAIL_PARTNER_ORDER;
   const isZonePartner = isZoneRatePartnerId(partnerId);
+  const isStatusOnlyPartner = isStatusOnlyPartnerId(partnerId);
   const blueDartServiceStatuses = useMemo(() => ({
     air: statusDraft.bluedart_air,
     surface: statusDraft.bluedart_surface,
@@ -380,7 +403,6 @@ export const StCourierRatesSettings: React.FC<Props> = ({
     return used.includes(partnerId as LogisticsPartnerId);
   }, [deliveryRules, partnerId]);
 
-  const canEditRates = isCourierRatePartnerId(partnerId);
   const saveStatusLabel = saveStatus === 'pending' || saveStatus === 'saving'
     ? 'Saving…'
     : saveStatus === 'saved'
@@ -390,9 +412,7 @@ export const StCourierRatesSettings: React.FC<Props> = ({
         : 'Changes save automatically';
 
   const showOriginPicker = isZonePartner && partnerUsesOriginRates(partnerId);
-  const showSharedRateNote = partnerId !== 'bluedart'
-    && isZonePartner
-    && !partnerUsesOriginRates(partnerId);
+  const showSharedRateNote = isZonePartner && !partnerUsesOriginRates(partnerId);
 
   return (
     <div className="settings-logistics__default panel settings-courier-rates">
@@ -400,9 +420,9 @@ export const StCourierRatesSettings: React.FC<Props> = ({
         <div>
           <h4 className="settings-logistics__title">Delivery Partners</h4>
           <p className="text-muted text-sm">
-            ST Courier rates differ by ship-from site. Other partners use one shared card for all
-            origins. Blue Dart uses Air / Surface / Domestic Priority tariffs — each with its own
-            sales-order status.
+            Set Active / Inactive / Manual on each partner. ST Courier rates differ by ship-from
+            site; Trackon and Delhivery share one card. Blue Dart keeps Air / Surface / Domestic
+            Priority tabs — each with its own status. Other partners are status-only.
           </p>
         </div>
         {!loading ? (
@@ -493,10 +513,16 @@ export const StCourierRatesSettings: React.FC<Props> = ({
           One rate card for all ship-from sites.
         </p>
       ) : null}
+      {isStatusOnlyPartner ? (
+        <p className="settings-courier-rates__shared-note text-muted text-sm">
+          No rate card for this partner — status still controls whether it appears on sales orders
+          when assigned in Delivery rules.
+        </p>
+      ) : null}
       {!partnerInDeliveryRules ? (
         <p className="settings-courier-rates__empty-partners text-muted text-sm">
-          {partnerLabel(partnerId)} is not in Delivery rules yet — status and rates still save
-          automatically.
+          {partnerLabel(partnerId)} is not in Delivery rules yet — status
+          {isStatusOnlyPartner ? '' : ' and rates'} still save automatically.
         </p>
       ) : null}
 
@@ -504,7 +530,7 @@ export const StCourierRatesSettings: React.FC<Props> = ({
         <div className="settings-locations__loading settings-courier-rates__loading">
           <div className="loader-ring" />
         </div>
-      ) : !canEditRates ? null : partnerId === 'bluedart' ? (
+      ) : partnerId === 'bluedart' ? (
         <BlueDartRatesEditor
           config={draft.bluedart}
           service={blueDartService}
@@ -513,6 +539,20 @@ export const StCourierRatesSettings: React.FC<Props> = ({
           serviceStatuses={blueDartServiceStatuses}
           onServiceStatusChange={(service, next) => {
             setLogisticsPartnerStatus(BLUEDART_SERVICE_TO_PARTNER[service], next);
+          }}
+        />
+      ) : isStatusOnlyPartner ? (
+        <PartnerStatusControl
+          status={statusDraft[partnerId]}
+          ariaLabel={`Status for ${logisticsPartnerLabel(partnerId)}`}
+          disabled={partnerId === 'personal_collection'}
+          title={
+            partnerId === 'personal_collection'
+              ? 'Customer Pickup stays available on every sales order'
+              : undefined
+          }
+          onChange={next => {
+            setLogisticsPartnerStatus(partnerId, next);
           }}
         />
       ) : isZonePartner && activeRates ? (

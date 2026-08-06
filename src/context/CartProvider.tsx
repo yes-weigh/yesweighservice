@@ -146,9 +146,17 @@ function dealerPortalId(user: { role?: string; zohoCustomerId?: string } | null)
   return user.zohoCustomerId?.trim() || null;
 }
 
-export const CartProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
+export const CartProvider: React.FC<{
+  children: React.ReactNode;
+  /** When false, cart stays in-memory only (nested SO edit sheet). Default true. */
+  persist?: boolean;
+  /** Seed lines when persist is false (remount to refresh). */
+  initialItems?: CartItem[];
+}> = ({ children, persist = true, initialItems }) => {
   const { user } = useAuth();
-  const [items, setItems] = useState<CartItem[]>([]);
+  const [items, setItems] = useState<CartItem[]>(() => (
+    !persist && initialItems ? initialItems : []
+  ));
   const [remarks, setRemarksState] = useState('');
   const [priceLevels, setPriceLevels] = useState<PriceLevel[]>([]);
   const priceLevelsRef = useRef<PriceLevel[]>([]);
@@ -156,6 +164,7 @@ export const CartProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const dealerId = dealerPortalId(user);
 
   useEffect(() => {
+    if (!persist) return;
     if (user?.uid) {
       const stored = readStoredCart(user.uid);
       setItems(stored.items);
@@ -164,7 +173,7 @@ export const CartProvider: React.FC<{ children: React.ReactNode }> = ({ children
       setItems([]);
       setRemarksState('');
     }
-  }, [user?.uid]);
+  }, [persist, user?.uid]);
 
   useEffect(() => {
     if (!dealerId) {
@@ -222,10 +231,9 @@ export const CartProvider: React.FC<{ children: React.ReactNode }> = ({ children
   }, [dealerId, priceLevels]);
 
   useEffect(() => {
-    if (user?.uid) {
-      writeStoredCart(user.uid, items, remarks);
-    }
-  }, [items, remarks, user?.uid]);
+    if (!persist || !user?.uid) return;
+    writeStoredCart(user.uid, items, remarks);
+  }, [persist, items, remarks, user?.uid]);
 
   const addItem = useCallback((
     product: CatalogProduct,

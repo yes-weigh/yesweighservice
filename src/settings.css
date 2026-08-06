@@ -2850,9 +2850,15 @@
 }
 
 .settings-courier-rates__partner-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(10.5rem, 1fr));
+  display: flex;
+  flex-wrap: nowrap;
   gap: 0.65rem;
+  overflow-x: auto;
+  overflow-y: hidden;
+  padding-bottom: 0.35rem;
+  scroll-snap-type: x proximity;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: thin;
 }
 
 .settings-courier-rates__service-grid {
@@ -2920,6 +2926,8 @@
   flex-direction: column;
   align-items: center;
   justify-content: center;
+  flex: 0 0 10.5rem;
+  width: 10.5rem;
   gap: 0.65rem;
   min-height: 7.5rem;
   margin: 0;
@@ -2930,6 +2938,7 @@
   color: #e2e8f0;
   cursor: pointer;
   text-align: center;
+  scroll-snap-align: start;
   transition: border-color 0.15s ease, background-color 0.15s ease, box-shadow 0.15s ease, transform 0.15s ease;
 }
 
@@ -3000,16 +3009,11 @@
 }
 
 @media (max-width: 520px) {
-  .settings-courier-rates__partner-grid {
-    grid-template-columns: 1fr;
-  }
-
   .settings-courier-rates__partner-card {
-    flex-direction: row;
-    justify-content: flex-start;
-    text-align: left;
-    min-height: 0;
-    padding: 0.75rem 0.85rem;
+    flex: 0 0 9.25rem;
+    width: 9.25rem;
+    min-height: 6.75rem;
+    padding: 0.75rem 0.65rem 0.7rem;
   }
 
   .settings-courier-rates__partner-logo-wrap {

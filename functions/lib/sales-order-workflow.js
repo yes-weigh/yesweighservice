@@ -663,11 +663,19 @@ export async function initYesOneSalesOrderWorkflow(salesOrderId, extras = {}) {
 
 export async function updateDraftSalesOrderLines(uid, role, payload = {}, secrets, orgId) {
   const user = await loadUser(uid);
-  requireOrdersManage(user);
-
   const { ref, id, data } = await loadSoOrThrow(payload.salesOrderId);
   assertCanEditSalesOrder(user, data, 'edited');
 
+  if (OPS_ROLES.has(user.role)) {
+    requireOrdersManage(user);
+  } else if (DEALER_ROLES.has(user.role)) {
+    await assertDealerOwnsSo(user, data);
+  } else {
+    throw new HttpsError('permission-denied', 'You do not have permission to edit this sales order.');
+  }
+
+  // Dealers may add/edit lines until payment (UI hides rate edit; rates come from
+  // hydrated SO lines + catalog for new products).
   const { lines, priceChanges } = await buildLinesFromInput(payload.lines, {
     allowOutOfStock: true,
     allowRateOverride: true,

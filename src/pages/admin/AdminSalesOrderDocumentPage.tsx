@@ -8,6 +8,7 @@ import {
   ImageIcon,
   IndianRupee,
   Pencil,
+  Plus,
   Trash2,
   UserRound,
 } from 'lucide-react';
@@ -18,13 +19,12 @@ import type { GatcStampingChoice } from '../../components/catalog/GatcStampingCh
 import { InvoiceDocumentBody } from '../../components/invoices/InvoiceDocumentBody';
 import { ShippingAddressPicker } from '../../components/orders/ShippingAddressPicker';
 import {
-  draftEditLineFromProduct,
   draftLinesFingerprint,
   draftLinesFromSalesOrderItems,
   isFreightDraftEditLine,
   type DraftEditLine,
 } from '../../components/salesOrders/SalesOrderDraftLineEditor';
-import { SoAddProductPicker } from '../../components/salesOrders/SoAddProductPicker';
+import { SoDetailCatalogAddSheet } from '../../components/salesOrders/SoDetailCatalogAddSheet';
 import { SoFreightExpandPanel } from '../../components/salesOrders/SoFreightExpandPanel';
 import { SoLineEditSheet } from '../../components/salesOrders/SoLineEditSheet';
 import { SoLineInlineEditor } from '../../components/salesOrders/SoLineInlineEditor';
@@ -45,7 +45,6 @@ import {
   listProductsMissingFreightPackageInfo,
 } from '../../lib/stCourierCartFreight';
 import { hasStaffPermission } from '../../lib/staffAccess';
-import { classifyOrderLineSegment } from '../../lib/salesOrderSegments';
 import {
   submitSalesOrderPayment,
   canEditSalesOrderDraft,
@@ -117,9 +116,8 @@ export const AdminSalesOrderDocumentPage: React.FC = () => {
   const [savingShip, setSavingShip] = useState(false);
   const [catalogDescByItemId, setCatalogDescByItemId] = useState<Record<string, string>>({});
   const [catalogById, setCatalogById] = useState<Record<string, CatalogProduct>>({});
-  const [catalogProducts, setCatalogProducts] = useState<CatalogProduct[]>([]);
-  const [catalogLoading, setCatalogLoading] = useState(false);
-  const [catalogError, setCatalogError] = useState('');
+  const [showCatalogAdd, setShowCatalogAdd] = useState(false);
+  const [catalogAddSession, setCatalogAddSession] = useState(0);
   const [salespersonStaffUid, setSalespersonStaffUid] = useState('');
   const [showPaymentProof, setShowPaymentProof] = useState(false);
   const [sharing, setSharing] = useState(false);
@@ -129,15 +127,21 @@ export const AdminSalesOrderDocumentPage: React.FC = () => {
   const warmPromiseRef = useRef<Promise<PreparedScreenshot | null> | null>(null);
 
   const stage = String(salesOrder?.yesOneStage || '');
-  const canEditDraft = isOps
-    && (user?.role === 'super_admin' || canManageOrders)
-    && canEditSalesOrderDraft({
-      role: user?.role,
-      yesOneStage: stage,
-      zohoStatus: salesOrder?.status,
-    });
+  const workflowEditable = canEditSalesOrderDraft({
+    role: user?.role,
+    yesOneStage: stage,
+    zohoStatus: salesOrder?.status,
+  });
+  const canEditDraft = workflowEditable && (
+    (isOps && (user?.role === 'super_admin' || canManageOrders))
+    || isDealer
+  );
   const canEditLines = canEditDraft;
-  const canEditShipping = canEditDraft && Boolean(salesOrder?.customerId?.trim());
+  /** Staff/admin only — dealers keep the shipping chosen at order create. */
+  const canEditShipping = isOps
+    && canEditDraft
+    && Boolean(salesOrder?.customerId?.trim());
+  const allowRateEdit = isOps && canEditLines;
   const canPay = (
     (isDealer || canManageOrders)
     && (stage === 'ready_for_payment' || stage === 'payment_submitted')
@@ -146,9 +150,8 @@ export const AdminSalesOrderDocumentPage: React.FC = () => {
   const pdfPath = `${listPath}/${salesOrderId}/view`;
 
   useEffect(() => {
-    if (!salesOrder?.lineItems?.length && !canEditLines) return;
+    if (!salesOrder?.lineItems?.length) return;
     let cancelled = false;
-    setCatalogLoading(true);
     void fetchCatalog()
       .then(res => {
         if (cancelled) return;
@@ -161,20 +164,12 @@ export const AdminSalesOrderDocumentPage: React.FC = () => {
           nextDesc[product.id] = desc;
           if (product.sku) nextDesc[`sku:${product.sku}`] = desc;
         }
-        setCatalogProducts(res.items);
         setCatalogById(nextById);
         setCatalogDescByItemId(nextDesc);
-        setCatalogError('');
       })
-      .catch(err => {
-        if (cancelled) return;
-        setCatalogError(err instanceof Error ? err.message : 'Could not load catalog.');
-      })
-      .finally(() => {
-        if (!cancelled) setCatalogLoading(false);
-      });
+      .catch(() => { /* keep SO usable without catalog specs */ });
     return () => { cancelled = true; };
-  }, [salesOrder?.lineItems, canEditLines]);
+  }, [salesOrder?.lineItems]);
 
   const hasFreightLine = useMemo(
     () => Boolean(salesOrder?.lineItems?.some(line => isFreightInvoiceLineItem(line))),
@@ -524,51 +519,24 @@ export const AdminSalesOrderDocumentPage: React.FC = () => {
     });
   };
 
-  const addProductMatchesOrderCategory = useCallback((product: CatalogProduct): boolean => {
-    const category = salesOrder?.salesOrderCategory;
-    if (!category || category === 'service' || category === 'gatc') return true;
-    const segment = classifyOrderLineSegment(product);
-    if (category === 'software_key') return segment === 'software';
-    if (category === 'spare') return segment === 'spare';
-    if (category === 'product') return segment === 'product';
-    return true;
-  }, [salesOrder?.salesOrderCategory]);
-
-  const addCatalogProduct = (product: CatalogProduct) => {
+  const openCatalogAdd = () => {
     if (!canEditLines) return;
     const ensure = editLines.length > 0 ? Promise.resolve(editLines) : hydrateEditLines();
     void ensure.then(rows => {
-      const current = rows ?? editLines;
-      const existing = current.find(
-        line => line.productId === product.id && !line.gatcStampingPriceId,
-      );
-      if (existing) {
-        setEditLines(prev => prev.map(line => (
-          line.lineId === existing.lineId
-            ? { ...line, quantity: line.quantity + 1 }
-            : line
-        )));
-      } else {
-        const nextLine = draftEditLineFromProduct(product, 1);
-        setEditLines(prev => {
-          const freightIdx = prev.findIndex(isFreightDraftEditLine);
-          if (freightIdx < 0) return [...prev, nextLine];
-          const copy = [...prev];
-          copy.splice(freightIdx, 0, nextLine);
-          return copy;
-        });
-      }
+      if (!rows && editLines.length === 0) return;
+      setCatalogAddSession(key => key + 1);
+      setShowCatalogAdd(true);
       setExpandedLineId(null);
-      setCatalogById(prev => (
-        prev[product.id] ? prev : { ...prev, [product.id]: product }
-      ));
     });
   };
 
-  const selectedProductIds = useMemo(
-    () => new Set(editLines.filter(line => !isFreightDraftEditLine(line)).map(line => line.productId)),
-    [editLines],
-  );
+  const applyCatalogAdd = (productLines: DraftEditLine[]) => {
+    setEditLines(prev => {
+      const freight = prev.filter(isFreightDraftEditLine);
+      return [...productLines, ...freight];
+    });
+    setShowCatalogAdd(false);
+  };
 
   const renderLineEditor = (item: DealerInvoiceLineItem): React.ReactNode => {
     if (!salesOrder) return null;
@@ -588,7 +556,7 @@ export const AdminSalesOrderDocumentPage: React.FC = () => {
           onChangeLines={setEditLines}
           catalogById={catalogById}
           shippingDestination={freightDestination}
-          canEditPackage
+          canEditPackage={isOps}
           disabled={savingLines}
           onPackageInfoSaved={(productId, info) => {
             setCatalogById(prev => {
@@ -607,7 +575,7 @@ export const AdminSalesOrderDocumentPage: React.FC = () => {
         line={draft}
         catalogProduct={catalogById[draft.productId]}
         siblingLines={editLines.filter(line => !isFreightDraftEditLine(line))}
-        allowRateEdit
+        allowRateEdit={allowRateEdit}
         disabled={savingLines}
         onChange={updateDraftLine}
         onRemove={() => removeDraftLine(draft.lineId)}
@@ -980,13 +948,24 @@ export const AdminSalesOrderDocumentPage: React.FC = () => {
       {/* Products + totals — tap a line to edit; tap freight for splitup */}
       <section className="so-detail__doc">
         {canEditLines ? (
-          <p className="so-detail__doc-hint text-muted text-sm" data-capture-ignore="1">
-            {linesHydrating
-              ? 'Loading items…'
-              : isMobile
-                ? 'Tap a product or freight to edit in a popup. Search below to add items.'
-                : 'Tap a product to edit it. Tap freight to see the full splitup and fix packaging. Search below to add items.'}
-          </p>
+          <div className="so-detail__doc-toolbar" data-capture-ignore="1">
+            <p className="so-detail__doc-hint text-muted text-sm">
+              {linesHydrating
+                ? 'Loading items…'
+                : isMobile
+                  ? 'Tap a product or freight to edit in a popup.'
+                  : 'Tap a product to edit it. Tap freight to see the full splitup and fix packaging.'}
+            </p>
+            <button
+              type="button"
+              className="btn btn-secondary btn-sm so-detail__add-item-btn"
+              disabled={savingLines || linesHydrating}
+              onClick={openCatalogAdd}
+            >
+              <Plus size={16} aria-hidden />
+              Add item
+            </button>
+          </div>
         ) : null}
         <InvoiceDocumentBody
           invoice={documentInvoice ?? salesOrder}
@@ -998,18 +977,18 @@ export const AdminSalesOrderDocumentPage: React.FC = () => {
           onSelectLineItem={canEditLines ? handleSelectLineItem : undefined}
           renderExpanded={canEditLines && !isMobile ? renderLineEditor : undefined}
         />
-        {canEditLines ? (
-          <SoAddProductPicker
-            products={catalogProducts}
-            loading={catalogLoading || linesHydrating}
-            error={catalogError}
-            disabled={savingLines}
-            selectedProductIds={selectedProductIds}
-            productFilter={addProductMatchesOrderCategory}
-            onAdd={addCatalogProduct}
-          />
-        ) : null}
       </section>
+
+      {canEditLines ? (
+        <SoDetailCatalogAddSheet
+          open={showCatalogAdd}
+          sessionKey={catalogAddSession}
+          seedLines={editLines}
+          orderCategory={salesOrder.salesOrderCategory}
+          onClose={() => setShowCatalogAdd(false)}
+          onApply={applyCatalogAdd}
+        />
+      ) : null}
 
       {showPriceChanges ? (
         <section className="so-detail__price-changes panel glass">
