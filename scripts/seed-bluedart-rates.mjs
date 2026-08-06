@@ -33,20 +33,31 @@ const pinsOnly = args.has('--pins-only');
 const ratesOnly = args.has('--rates-only');
 const overwriteRates = args.has('--overwrite-rates');
 
-function initAdmin() {
+function resolveCredentialsPath() {
+  const fromEnv = process.env.GOOGLE_APPLICATION_CREDENTIALS?.trim();
+  if (fromEnv && fs.existsSync(fromEnv)) return fromEnv;
   const adc = path.join(ROOT, 'functions', '.firebase-adc.json');
-  const credentialsPath = process.env.GOOGLE_APPLICATION_CREDENTIALS?.trim();
-  if (!credentialsPath && fs.existsSync(adc)) {
-    process.env.GOOGLE_APPLICATION_CREDENTIALS = adc;
+  if (fs.existsSync(adc)) return adc;
+  const secretsDir = path.join(ROOT, 'secrets');
+  if (fs.existsSync(secretsDir)) {
+    const sa = fs.readdirSync(secretsDir)
+      .filter(name => name.endsWith('.json') && name.includes('firebase-adminsdk'))
+      .sort()[0];
+    if (sa) return path.join(secretsDir, sa);
   }
-  if (process.env.GOOGLE_APPLICATION_CREDENTIALS?.trim()) {
-    const sa = JSON.parse(
-      fs.readFileSync(process.env.GOOGLE_APPLICATION_CREDENTIALS, 'utf8'),
-    );
+  return null;
+}
+
+function initAdmin() {
+  const credentialsPath = resolveCredentialsPath();
+  if (credentialsPath) {
+    process.env.GOOGLE_APPLICATION_CREDENTIALS = credentialsPath;
+    const sa = JSON.parse(fs.readFileSync(credentialsPath, 'utf8'));
     initializeApp({ credential: cert(sa), projectId: sa.project_id || 'yesweigh-service' });
-  } else {
-    initializeApp({ credential: applicationDefault(), projectId: 'yesweigh-service' });
+    console.log(`Using credentials: ${path.relative(ROOT, credentialsPath)}`);
+    return;
   }
+  initializeApp({ credential: applicationDefault(), projectId: 'yesweigh-service' });
 }
 
 /** Mirrors src/constants/blueDartRates.ts defaults. */

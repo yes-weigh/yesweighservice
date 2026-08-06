@@ -8,7 +8,7 @@
  * Zoho product IDs are hardcoded in freightLines.ts — intentionally not shown here.
  * Full architecture notes: src/types/blue-dart-rates.ts
  */
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { ExternalLink, Loader2, Plus, RefreshCw, Trash2 } from 'lucide-react';
 import { DecimalAmountInput } from '../../../components/DecimalAmountInput';
 import {
@@ -718,6 +718,154 @@ function SurfaceStep(props: {
   );
 }
 
+type OversizeEditorRow = BlueDartOversizeSlab & { id: string };
+
+let oversizeRowSeq = 0;
+function nextOversizeRowId(): string {
+  oversizeRowSeq += 1;
+  return `os-row-${oversizeRowSeq}`;
+}
+
+function rowsFromSlabs(slabs: BlueDartOversizeSlab[]): OversizeEditorRow[] {
+  return normalizeBlueDartOversizeSlabs(slabs).map(s => ({
+    id: nextOversizeRowId(),
+    upToKg: s.upToKg,
+    amountInr: s.amountInr,
+  }));
+}
+
+/**
+ * Edit OS/OW slabs without re-sorting on every keystroke.
+ * (Sorting/dedupe by upToKg used to jump the typed row to the top mid-edit.)
+ */
+function OversizeSlabsEditor(props: {
+  slabs: BlueDartOversizeSlab[];
+  onChange: (next: BlueDartOversizeSlab[]) => void;
+}) {
+  const [rows, setRows] = useState<OversizeEditorRow[]>(() => rowsFromSlabs(props.slabs));
+  const editingRef = useRef(false);
+  const propsSig = useMemo(
+    () => JSON.stringify(normalizeBlueDartOversizeSlabs(props.slabs)),
+    [props.slabs],
+  );
+  const lastSyncedSig = useRef(propsSig);
+
+  useEffect(() => {
+    if (editingRef.current) return;
+    if (propsSig === lastSyncedSig.current) return;
+    lastSyncedSig.current = propsSig;
+    setRows(rowsFromSlabs(props.slabs));
+  }, [props.slabs, propsSig]);
+
+  const commit = (next: OversizeEditorRow[]) => {
+    setRows(next);
+    const payload = next.map(({ upToKg, amountInr }) => ({ upToKg, amountInr }));
+    lastSyncedSig.current = JSON.stringify(normalizeBlueDartOversizeSlabs(payload));
+    props.onChange(payload);
+  };
+
+  return (
+    <div className="settings-bluedart__oversize">
+      <table className="settings-bluedart__oversize-table">
+        <thead>
+          <tr>
+            <th scope="col">Under kg</th>
+            <th scope="col">Flat ₹</th>
+            <th scope="col">
+              <span className="sr-only">Remove</span>
+            </th>
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((row, idx) => (
+            <tr key={row.id}>
+              <td>
+                <div className="settings-courier-rates__suffix-input">
+                  <DecimalAmountInput
+                    min={0.1}
+                    decimals={1}
+                    value={row.upToKg}
+                    aria-label={`Oversize slab ${idx + 1} under kg`}
+                    onFocus={() => {
+                      editingRef.current = true;
+                    }}
+                    onChange={next => {
+                      if (next == null) return;
+                      editingRef.current = true;
+                      const copy = rows.map(r => ({ ...r }));
+                      copy[idx] = { ...copy[idx], upToKg: next };
+                      commit(copy);
+                    }}
+                    onBlur={() => {
+                      editingRef.current = false;
+                    }}
+                  />
+                  <span aria-hidden>kg</span>
+                </div>
+              </td>
+              <td>
+                <div className="settings-courier-rates__suffix-input">
+                  <DecimalAmountInput
+                    min={0}
+                    decimals={2}
+                    value={row.amountInr}
+                    aria-label={`Oversize slab ${idx + 1} amount`}
+                    onFocus={() => {
+                      editingRef.current = true;
+                    }}
+                    onChange={next => {
+                      if (next == null) return;
+                      editingRef.current = true;
+                      const copy = rows.map(r => ({ ...r }));
+                      copy[idx] = { ...copy[idx], amountInr: next };
+                      commit(copy);
+                    }}
+                    onBlur={() => {
+                      editingRef.current = false;
+                    }}
+                  />
+                  <span aria-hidden>₹</span>
+                </div>
+              </td>
+              <td>
+                <button
+                  type="button"
+                  className="btn btn-ghost btn-sm settings-bluedart__oversize-remove"
+                  disabled={rows.length <= 1}
+                  aria-label={`Remove oversize slab ${idx + 1}`}
+                  title={rows.length <= 1 ? 'Keep at least one slab' : 'Remove slab'}
+                  onClick={() => {
+                    editingRef.current = false;
+                    commit(rows.filter((_, i) => i !== idx));
+                  }}
+                >
+                  <Trash2 size={14} aria-hidden />
+                </button>
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+      <button
+        type="button"
+        className="btn btn-secondary btn-sm"
+        onClick={() => {
+          editingRef.current = false;
+          const last = rows[rows.length - 1];
+          const nextUpTo = Math.max(32, (last?.upToKg ?? 32) + 10);
+          commit([
+            ...rows,
+            { id: nextOversizeRowId(), upToKg: nextUpTo, amountInr: 0 },
+          ]);
+        }}
+      >
+        <Plus size={14} aria-hidden />
+        Add slab
+      </button>
+    </div>
+  );
+}
+
 function SurfaceRatesEditor(props: {
   rates: BlueDartSurfaceRates;
   shared: BlueDartSharedRules;
@@ -751,11 +899,6 @@ function SurfaceRatesEditor(props: {
   const dieselPct = rates.fuelSurchargePercent ?? 0;
   const dieselB2bDiscountPct = rates.dieselB2bDiscountPercent ?? 0;
   const dieselEffectivePct = blueDartSurfaceEffectiveDieselFsPercent(rates);
-  const oversizeSlabs = normalizeBlueDartOversizeSlabs(rates.oversizeSlabs);
-
-  const patchOversizeSlabs = (next: BlueDartOversizeSlab[]) => {
-    onPatchRates({ oversizeSlabs: normalizeBlueDartOversizeSlabs(next) });
-  };
 
   return (
     <div className="settings-bluedart__service-block settings-bluedart__surface">
@@ -885,99 +1028,21 @@ function SurfaceRatesEditor(props: {
           />
         </div>
         <p className="settings-bluedart__stack-footnote">
-          → then Oversize (if weight is under a slab) joins Subtotal A
+          → then Docket + FOV join Subtotal A (FS base)
         </p>
       </SurfaceStep>
 
       <SurfaceStep
         n={3}
         title="Oversize shipment"
-        applies="Flat ₹ when chargeable kg is under the slab · first match wins"
+        applies="Flat ₹ when chargeable kg is under the slab · first match wins (sorted at quote time)"
       >
-        <div className="settings-bluedart__oversize">
-          <table className="settings-bluedart__oversize-table">
-            <thead>
-              <tr>
-                <th scope="col">Under kg</th>
-                <th scope="col">Flat ₹</th>
-                <th scope="col">
-                  <span className="sr-only">Remove</span>
-                </th>
-              </tr>
-            </thead>
-            <tbody>
-              {oversizeSlabs.map((slab, idx) => (
-                <tr key={`oversize-${slab.upToKg}-${idx}`}>
-                  <td>
-                    <div className="settings-courier-rates__suffix-input">
-                      <DecimalAmountInput
-                        min={0.1}
-                        decimals={1}
-                        value={slab.upToKg}
-                        aria-label={`Oversize slab ${idx + 1} under kg`}
-                        onChange={next => {
-                          if (next == null) return;
-                          const copy = oversizeSlabs.map(s => ({ ...s }));
-                          copy[idx] = { ...copy[idx], upToKg: next };
-                          patchOversizeSlabs(copy);
-                        }}
-                      />
-                      <span aria-hidden>kg</span>
-                    </div>
-                  </td>
-                  <td>
-                    <div className="settings-courier-rates__suffix-input">
-                      <DecimalAmountInput
-                        min={0}
-                        decimals={2}
-                        value={slab.amountInr}
-                        aria-label={`Oversize slab ${idx + 1} amount`}
-                        onChange={next => {
-                          if (next == null) return;
-                          const copy = oversizeSlabs.map(s => ({ ...s }));
-                          copy[idx] = { ...copy[idx], amountInr: next };
-                          patchOversizeSlabs(copy);
-                        }}
-                      />
-                      <span aria-hidden>₹</span>
-                    </div>
-                  </td>
-                  <td>
-                    <button
-                      type="button"
-                      className="btn btn-ghost btn-sm settings-bluedart__oversize-remove"
-                      disabled={oversizeSlabs.length <= 1}
-                      aria-label={`Remove oversize slab ${idx + 1}`}
-                      title={oversizeSlabs.length <= 1 ? 'Keep at least one slab' : 'Remove slab'}
-                      onClick={() => {
-                        patchOversizeSlabs(oversizeSlabs.filter((_, i) => i !== idx));
-                      }}
-                    >
-                      <Trash2 size={14} aria-hidden />
-                    </button>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-          <button
-            type="button"
-            className="btn btn-secondary btn-sm"
-            onClick={() => {
-              const last = oversizeSlabs[oversizeSlabs.length - 1];
-              const nextUpTo = Math.max(32, (last?.upToKg ?? 32) + 10);
-              patchOversizeSlabs([
-                ...oversizeSlabs,
-                { upToKg: nextUpTo, amountInr: 0 },
-              ]);
-            }}
-          >
-            <Plus size={14} aria-hidden />
-            Add slab
-          </button>
-        </div>
+        <OversizeSlabsEditor
+          slabs={rates.oversizeSlabs}
+          onChange={oversizeSlabs => onPatchRates({ oversizeSlabs })}
+        />
         <p className="settings-bluedart__stack-footnote">
-          → Subtotal A = Basic + Festival + IDC + Oversize
+          → OS/OW is a flat VAS after EFSS (not inside Subtotal A / Diesel FS)
         </p>
       </SurfaceStep>
 

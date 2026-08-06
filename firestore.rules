@@ -203,6 +203,21 @@ service cloud.firestore {
       );
     }
 
+    // Sales + admin departments see dealers by default; custom/role modes use permissions.
+    function staffDepartmentGrantsDealersView() {
+      return userDoc().staffDepartment == 'sales'
+        || userDoc().staffDepartment == 'admin';
+    }
+
+    function staffHasDealersView() {
+      return isStaff() && (
+        (staffUsesExplicitPermissions() && (
+          staffHasPermission('dealers.view') || staffHasPermission('dealers.edit')
+        ))
+        || (!staffUsesExplicitPermissions() && staffDepartmentGrantsDealersView())
+      );
+    }
+
     match /appSettings/{docId} {
       allow read: if signedIn();
       allow write: if signedIn() && (
@@ -210,7 +225,7 @@ service cloud.firestore {
         || (docId == 'productSettings' && isFullSuperAdmin())
         || (docId == 'logisticsSettings' && isFullSuperAdmin())
         || (docId == 'logisticsCourierRates' && isFullSuperAdmin())
-        || (docId == 'priceLevels' && isFullSuperAdmin())
+        || (docId == 'priceLevels' && (isFullSuperAdmin() || staffHasDealersView()))
         || (docId == 'sparePricing' && isFullSuperAdmin())
         || (docId == 'localPrinterSettings' && isFullSuperAdmin())
         || (docId == 'labelStudio' && isFullSuperAdmin())

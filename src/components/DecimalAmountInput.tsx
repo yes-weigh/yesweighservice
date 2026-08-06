@@ -15,6 +15,8 @@ export type DecimalAmountInputProps = {
   autoFocus?: boolean;
   'aria-label'?: string;
   id?: string;
+  onFocus?: React.FocusEventHandler<HTMLInputElement>;
+  onBlur?: React.FocusEventHandler<HTMLInputElement>;
 };
 
 function roundTo(n: number, decimals: number): number {
@@ -117,6 +119,8 @@ export const DecimalAmountInput: React.FC<DecimalAmountInputProps> = ({
   autoFocus,
   'aria-label': ariaLabel,
   id,
+  onFocus,
+  onBlur,
 }) => {
   const [editing, setEditing] = useState(false);
   const [text, setText] = useState(() => formatAmount(value, decimals));
@@ -162,10 +166,12 @@ export const DecimalAmountInput: React.FC<DecimalAmountInputProps> = ({
       onFocus={e => {
         setEditing(true);
         e.target.select();
+        onFocus?.(e);
       }}
-      onBlur={() => {
+      onBlur={e => {
         setEditing(false);
         commit(text);
+        onBlur?.(e);
       }}
       onChange={e => {
         const next = e.target.value;

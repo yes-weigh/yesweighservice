@@ -13,7 +13,6 @@ import { FetchingLoader } from '../../components/FetchingLoader';
 import { DealerStatusCell } from '../../components/dealers/DealerStatusCell';
 import { DealerTile } from '../../components/dealers/DealerTile';
 import { DealerStatusLegend } from '../../components/dealers/DealerStatusLegend';
-import { DealerStaffLinkingPanel } from '../../components/dealers/DealerStaffLinkingPanel';
 import { ZohoSalespersonsPanel } from '../../components/dealers/ZohoSalespersonsPanel';
 import { useAuth } from '../../context/AuthContext';
 import { useConfirm } from '../../context/ConfirmContext';
@@ -33,11 +32,12 @@ import {
 import { type AssignableStaffOption, type DealerListParams, type ZohoDealer } from '../../types/dealers';
 import { homePathForRole, type Role } from '../../types';
 import { hasStaffPermission } from '../../lib/staffAccess';
+import { PriceLevelSettingsTab } from '../admin/settings/PriceLevelSettingsTab';
 
-type DealersMainTab = 'roster' | 'linking' | 'salespersons';
+type DealersMainTab = 'roster' | 'price-levels' | 'salespersons';
 
 function parseDealersTab(value: string | null): DealersMainTab {
-  if (value === 'linking' || value === 'salespersons') return value;
+  if (value === 'price-levels' || value === 'salespersons') return value;
   return 'roster';
 }
 
@@ -60,10 +60,9 @@ export function ZohoDealersPage() {
   const [searchParams, setSearchParams] = useSearchParams();
   const { user } = useAuth();
   const dealersBase = user ? dealersListBase(user.role) : '/staff/dealers';
-  const isSuperAdmin = user?.role === 'super_admin';
   const canSyncDealers = hasStaffPermission(user, 'dealers.sync');
   const canEditDealers = hasStaffPermission(user, 'dealers.edit');
-  const mainTab = isSuperAdmin ? parseDealersTab(searchParams.get('tab')) : 'roster';
+  const mainTab = parseDealersTab(searchParams.get('tab'));
   const setMainTab = (tab: DealersMainTab) => {
     if (tab === 'roster') {
       setSearchParams({}, { replace: true });
@@ -345,41 +344,39 @@ export function ZohoDealersPage() {
 
   return (
     <div className="page-content fade-in dealers-page">
-      {isSuperAdmin ? (
-        <div className="dealers-page-tabs" role="tablist" aria-label="Dealers sections">
-          <button
-            type="button"
-            role="tab"
-            className={`dealers-page-tabs__tab${mainTab === 'roster' ? ' dealers-page-tabs__tab--active' : ''}`}
-            aria-selected={mainTab === 'roster'}
-            onClick={() => setMainTab('roster')}
-          >
-            Dealer roster
-          </button>
-          <button
-            type="button"
-            role="tab"
-            className={`dealers-page-tabs__tab${mainTab === 'linking' ? ' dealers-page-tabs__tab--active' : ''}`}
-            aria-selected={mainTab === 'linking'}
-            onClick={() => setMainTab('linking')}
-          >
-            Dealer linking check
-          </button>
-          <button
-            type="button"
-            role="tab"
-            className={`dealers-page-tabs__tab${mainTab === 'salespersons' ? ' dealers-page-tabs__tab--active' : ''}`}
-            aria-selected={mainTab === 'salespersons'}
-            onClick={() => setMainTab('salespersons')}
-          >
-            Salespersons
-          </button>
-        </div>
-      ) : null}
+      <div className="dealers-page-tabs" role="tablist" aria-label="Dealers sections">
+        <button
+          type="button"
+          role="tab"
+          className={`dealers-page-tabs__tab${mainTab === 'roster' ? ' dealers-page-tabs__tab--active' : ''}`}
+          aria-selected={mainTab === 'roster'}
+          onClick={() => setMainTab('roster')}
+        >
+          Dealer
+        </button>
+        <button
+          type="button"
+          role="tab"
+          className={`dealers-page-tabs__tab${mainTab === 'price-levels' ? ' dealers-page-tabs__tab--active' : ''}`}
+          aria-selected={mainTab === 'price-levels'}
+          onClick={() => setMainTab('price-levels')}
+        >
+          Price level
+        </button>
+        <button
+          type="button"
+          role="tab"
+          className={`dealers-page-tabs__tab${mainTab === 'salespersons' ? ' dealers-page-tabs__tab--active' : ''}`}
+          aria-selected={mainTab === 'salespersons'}
+          onClick={() => setMainTab('salespersons')}
+        >
+          Salesperson
+        </button>
+      </div>
 
-      {isSuperAdmin && mainTab === 'linking' ? (
-        <DealerStaffLinkingPanel />
-      ) : isSuperAdmin && mainTab === 'salespersons' ? (
+      {mainTab === 'price-levels' ? (
+        <PriceLevelSettingsTab />
+      ) : mainTab === 'salespersons' ? (
         <ZohoSalespersonsPanel />
       ) : (
       <>

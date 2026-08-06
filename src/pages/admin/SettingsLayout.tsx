@@ -1,6 +1,6 @@
 import React, { useEffect } from 'react';
 import { Link, Outlet, useLocation, useNavigate } from 'react-router-dom';
-import { Box, CalendarRange, Layers, Package, Percent, Printer, Tag, Truck, UserCircle } from 'lucide-react';
+import { Box, CalendarRange, Layers, Package, Printer, Tag, Truck, UserCircle } from 'lucide-react';
 import { isLocalhostDev } from '../../lib/isLocalhost';
 
 const baseTabs = [
@@ -9,7 +9,6 @@ const baseTabs = [
   { id: 'store-room', label: 'Store room', path: '/super-admin/settings/store-room', icon: <Box size={16} /> },
   { id: 'audit-cycles', label: 'Audit', path: '/super-admin/settings/audit-cycles', icon: <CalendarRange size={16} /> },
   { id: 'product', label: 'Product settings', path: '/super-admin/settings/product', icon: <Package size={16} /> },
-  { id: 'price-levels', label: 'Price level setting', path: '/super-admin/settings/price-levels', icon: <Percent size={16} /> },
   { id: 'logistics', label: 'Logistics', path: '/super-admin/settings/logistics', icon: <Truck size={16} /> },
   { id: 'local-printers', label: 'Label printing', path: '/super-admin/settings/local-printers', icon: <Printer size={16} /> },
 ] as const;
@@ -60,8 +59,8 @@ export const SettingsLayout: React.FC = () => {
           <h2>Settings</h2>
           <p className="text-muted text-sm">
             {showSkuCorrection
-              ? 'Account profile, warehouse zones, store room layout, audit, product settings, price levels, SKU correction, logistics, and label printing.'
-              : 'Account profile, warehouse zones, store room layout, audit, product settings, price levels, logistics, and label printing.'}
+              ? 'Account profile, warehouse zones, store room layout, audit, product settings, SKU correction, logistics, and label printing.'
+              : 'Account profile, warehouse zones, store room layout, audit, product settings, logistics, and label printing.'}
           </p>
         </div>
       </header>
