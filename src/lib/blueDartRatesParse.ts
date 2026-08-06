@@ -134,9 +134,8 @@ function parseShared(raw: unknown): BlueDartSharedRules {
   const edlMode: BlueDartEdlMode = isBlueDartEdlMode(data.edlMode)
     ? data.edlMode
     : defaults.edlMode;
-  const originRegion: BlueDartRegion = isBlueDartRegion(data.originRegion)
-    ? data.originRegion
-    : defaults.originRegion;
+  /** Ship-from is always SOUTH (Kerala warehouses) — not configurable. */
+  const originRegion: BlueDartRegion = 'SOUTH';
   const productIdsRaw = data.productIds && typeof data.productIds === 'object'
     ? data.productIds as Record<string, unknown>
     : {};
@@ -147,7 +146,8 @@ function parseShared(raw: unknown): BlueDartSharedRules {
   return {
     fuelSurchargePercent: finiteNonNeg(data.fuelSurchargePercent, defaults.fuelSurchargePercent),
     cafPercent: finiteNonNeg(data.cafPercent, defaults.cafPercent),
-    gstPercent: finiteNonNeg(data.gstPercent, defaults.gstPercent),
+    /** Always 0 — Blue Dart freight is quoted ex-GST; tax is on the SO. */
+    gstPercent: 0,
     originRegion,
     edlMode,
     edlFlatFallbackInr: finiteNonNeg(data.edlFlatFallbackInr, defaults.edlFlatFallbackInr),
@@ -218,6 +218,8 @@ function parseSurfaceService(raw: unknown): BlueDartSurfaceRates {
   const data = raw as Record<string, unknown>;
   return {
     ...base,
+    /** Surface never uses CAF; diesel FS is stored on fuelSurchargePercent. */
+    cafPercent: null,
     festivalSurchargePercent: finiteNonNeg(
       data.festivalSurchargePercent,
       defaults.festivalSurchargePercent,

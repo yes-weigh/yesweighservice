@@ -111,7 +111,7 @@ export function defaultBlueDartSharedRules(): BlueDartSharedRules {
   return {
     fuelSurchargePercent: 92,
     cafPercent: 22,
-    gstPercent: 18,
+    gstPercent: 0,
     originRegion: 'SOUTH',
     edlMode: 'flat_fallback',
     edlFlatFallbackInr: 0,

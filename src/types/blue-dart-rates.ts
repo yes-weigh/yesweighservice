@@ -118,7 +118,9 @@ export const BLUE_DART_EDL_WEIGHT_BAND_LABELS = [
 export interface BlueDartSharedRules {
   fuelSurchargePercent: number;
   cafPercent: number;
+  /** Always 0 — freight quoted ex-GST; tax is applied on the sales order. */
   gstPercent: number;
+  /** Always SOUTH (Kerala). Kept on the config for quotes/zone matrix; not editable in UI. */
   originRegion: BlueDartRegion;
   edlMode: BlueDartEdlMode;
   /** Used when pin is EDL and hub-km unknown (mode flat_fallback / matrix_when_km). */

@@ -7,7 +7,7 @@
  * Full architecture notes: src/types/blue-dart-rates.ts
  */
 import React, { useMemo, useState } from 'react';
-import { ChevronDown, ExternalLink, Loader2, RefreshCw } from 'lucide-react';
+import { ExternalLink, Loader2, RefreshCw } from 'lucide-react';
 import { DecimalAmountInput } from '../../../components/DecimalAmountInput';
 import {
   BLUE_DART_DIESEL_FUEL_SURCHARGE_URL,
@@ -18,13 +18,11 @@ import {
   BLUE_DART_AIR_ZONES,
   BLUE_DART_DP_ZONES,
   BLUE_DART_EDL_MODES,
-  BLUE_DART_REGIONS,
   type BlueDartAirZone,
   type BlueDartConfig,
   type BlueDartDpZone,
   type BlueDartEdlMode,
   type BlueDartKgServiceRates,
-  type BlueDartRegion,
   type BlueDartSharedRules,
   type BlueDartSurfaceRates,
 } from '../../../types/blue-dart-rates';
@@ -156,53 +154,41 @@ function InrInput(props: {
 
 function SharedChargesEditor(props: {
   shared: BlueDartConfig['shared'];
-  showAdvancedEdl: boolean;
-  onShowAdvancedEdl: (next: boolean) => void;
+  /** Surface uses diesel FS only — hide shared Fuel / CAF on that tab. */
+  forService: BlueDartServiceId;
   onPatch: (patch: Partial<BlueDartConfig['shared']>) => void;
 }) {
-  const { shared, onPatch } = props;
-  const [open, setOpen] = useState(false);
+  const { shared, onPatch, forService } = props;
+  const surfaceTab = forService === 'surface';
   return (
-    <div className={`settings-bluedart__shared-block${open ? ' is-open' : ' is-collapsed'}`}>
-      <button
-        type="button"
-        className="settings-bluedart__shared-toggle"
-        aria-expanded={open}
-        onClick={() => setOpen(v => !v)}
-      >
-        <span>
-          <strong>Charges for all services</strong>
-          <em>
-            {open
-              ? 'Fuel, CAF, GST, RAS, insurance, and EDL apply to Air, Surface, and Domestic Priority.'
-              : 'Fuel, CAF, GST, RAS, insurance, EDL — expand to edit'}
-          </em>
-        </span>
-        <ChevronDown size={16} aria-hidden />
-      </button>
+    <div className="settings-bluedart__shared-block">
+      <div className="settings-bluedart__shared-head">
+        <strong>Charges for all services</strong>
+        <em>
+          {surfaceTab
+            ? 'RAS, insurance, and EDL apply here. Surface fuel is Diesel FS below (no CAF).'
+            : 'Fuel, CAF, RAS, insurance, and EDL apply to Air and Domestic Priority (ex-GST).'}
+        </em>
+      </div>
 
-      {open ? (
-        <>
       <div className="settings-bluedart__subhead">Everyday surcharges</div>
       <div className="settings-courier-rates__inline-fields settings-bluedart__grid">
-        <PctInput
-          label="Fuel (FS)"
-          tip="Fuel Surcharge — absolute % you bill (e.g. 92)."
-          value={shared.fuelSurchargePercent}
-          onChange={fuelSurchargePercent => onPatch({ fuelSurchargePercent })}
-        />
-        <PctInput
-          label="CAF"
-          tip="Currency Adjustment Factor — absolute % (e.g. 22)."
-          value={shared.cafPercent}
-          onChange={cafPercent => onPatch({ cafPercent })}
-        />
-        <PctInput
-          label="GST"
-          tip="Tax % on freight subtotal. Set 0 to quote exclusive of GST."
-          value={shared.gstPercent}
-          onChange={gstPercent => onPatch({ gstPercent })}
-        />
+        {!surfaceTab ? (
+          <>
+            <PctInput
+              label="Fuel (FS)"
+              tip="Fuel Surcharge — absolute % you bill (e.g. 92). Not used for Surface."
+              value={shared.fuelSurchargePercent}
+              onChange={fuelSurchargePercent => onPatch({ fuelSurchargePercent })}
+            />
+            <PctInput
+              label="CAF"
+              tip="Currency Adjustment Factor — absolute % (e.g. 22). Not used for Surface."
+              value={shared.cafPercent}
+              onChange={cafPercent => onPatch({ cafPercent })}
+            />
+          </>
+        ) : null}
         <InrInput
           label="Remote area (RAS)"
           tip="Remote Area Surcharge — ₹/kg for Bihar, Jharkhand, Kerala, J&K, Ladakh."
@@ -225,22 +211,6 @@ function SharedChargesEditor(props: {
             fov: { ...shared.fov, percentOfInvoice },
           })}
         />
-        <Field
-          label="Ship-from region"
-          tip="Used with destination state to pick Zone 1–5. Keep SOUTH for Kerala warehouses."
-        >
-          <select
-            className="settings-bluedart__select"
-            value={shared.originRegion}
-            onChange={e => onPatch({
-              originRegion: e.target.value as BlueDartRegion,
-            })}
-          >
-            {BLUE_DART_REGIONS.map(r => (
-              <option key={r} value={r}>{r}</option>
-            ))}
-          </select>
-        </Field>
         <label className="settings-courier-rates__toggle">
           <input
             type="checkbox"
@@ -273,11 +243,7 @@ function SharedChargesEditor(props: {
           <select
             className="settings-bluedart__select"
             value={shared.edlMode}
-            onChange={e => {
-              const edlMode = e.target.value as BlueDartEdlMode;
-              onPatch({ edlMode });
-              if (edlMode === 'matrix_when_km') props.onShowAdvancedEdl(true);
-            }}
+            onChange={e => onPatch({ edlMode: e.target.value as BlueDartEdlMode })}
           >
             {BLUE_DART_EDL_MODES.map(m => (
               <option key={m} value={m}>{m}</option>
@@ -303,35 +269,19 @@ function SharedChargesEditor(props: {
           value={shared.edlNeJkFloorInr}
           onChange={edlNeJkFloorInr => onPatch({ edlNeJkFloorInr })}
         />
+        <InrInput
+          label="Beyond 500 km ₹/km"
+          tip="Only when pin has edlKm stored."
+          value={shared.edlBeyond500KmPerKmInr}
+          onChange={edlBeyond500KmPerKmInr => onPatch({ edlBeyond500KmPerKmInr })}
+        />
+        <InrInput
+          label="Beyond 1500 kg ₹/kg"
+          tip="Heavy EDL shipments when distance is known."
+          value={shared.edlBeyond1500KgPerKgInr}
+          onChange={edlBeyond1500KgPerKgInr => onPatch({ edlBeyond1500KgPerKgInr })}
+        />
       </div>
-
-      <button
-        type="button"
-        className="settings-bluedart__linkish"
-        onClick={() => props.onShowAdvancedEdl(!props.showAdvancedEdl)}
-      >
-        {props.showAdvancedEdl ? 'Hide' : 'Show'}
-        {' '}
-        rare EDL distance rules
-      </button>
-      {props.showAdvancedEdl ? (
-        <div className="settings-courier-rates__inline-fields settings-bluedart__grid">
-          <InrInput
-            label="Beyond 500 km ₹/km"
-            tip="Only when pin has edlKm stored."
-            value={shared.edlBeyond500KmPerKmInr}
-            onChange={edlBeyond500KmPerKmInr => onPatch({ edlBeyond500KmPerKmInr })}
-          />
-          <InrInput
-            label="Beyond 1500 kg ₹/kg"
-            tip="Heavy EDL shipments when distance is known."
-            value={shared.edlBeyond1500KgPerKgInr}
-            onChange={edlBeyond1500KgPerKgInr => onPatch({ edlBeyond1500KgPerKgInr })}
-          />
-        </div>
-      ) : null}
-        </>
-      ) : null}
     </div>
   );
 }
@@ -349,8 +299,7 @@ function KgServiceEditor(props: {
   const [dieselFetchNote, setDieselFetchNote] = useState<string | null>(null);
   const [dieselFetchError, setDieselFetchError] = useState<string | null>(null);
 
-  const surfaceDieselPercent = surfaceRates?.fuelSurchargePercent;
-  const usingSharedDiesel = surfaceDieselPercent == null;
+  const surfaceDieselPercent = surfaceRates?.fuelSurchargePercent ?? 0;
 
   const handleFetchDieselFs = async () => {
     if (!surfaceRates || dieselFetchBusy) return;
@@ -359,7 +308,7 @@ function KgServiceEditor(props: {
     setDieselFetchNote(null);
     try {
       const result = await fetchBlueDartDieselFuelSurcharge();
-      onPatch({ fuelSurchargePercent: result.percent });
+      onPatch({ fuelSurchargePercent: result.percent, cafPercent: null });
       setDieselFetchNote(
         `Applied ${result.percent}% (effective ${result.effectiveLabel}).`,
       );
@@ -383,7 +332,7 @@ function KgServiceEditor(props: {
         <>
           <div className="settings-bluedart__subhead">Diesel fuel surcharge</div>
           <p className="settings-bluedart__panel-blurb">
-            Surface uses Blue Dart’s published diesel FS (overrides shared Fuel when set).
+            Surface fuel charge (no shared Fuel / CAF). Fetch from Blue Dart’s published table.
             {' '}
             <a
               href={BLUE_DART_DIESEL_FUEL_SURCHARGE_URL}
@@ -398,10 +347,12 @@ function KgServiceEditor(props: {
           <div className="settings-courier-rates__inline-fields settings-bluedart__grid settings-bluedart__diesel-row">
             <PctInput
               label="Diesel FS"
-              tip="Published Diesel Fuel Surcharge % for Surface. Leave empty to use shared Fuel (FS)."
-              value={surfaceDieselPercent ?? shared.fuelSurchargePercent}
-              hint={usingSharedDiesel ? `Using shared Fuel (${shared.fuelSurchargePercent}%)` : 'Surface override'}
-              onChange={fuelSurchargePercent => onPatch({ fuelSurchargePercent })}
+              tip="Published Diesel Fuel Surcharge % for Surface only."
+              value={surfaceDieselPercent}
+              onChange={fuelSurchargePercent => onPatch({
+                fuelSurchargePercent,
+                cafPercent: null,
+              })}
             />
             <div className="settings-bluedart__diesel-actions">
               <button
@@ -415,19 +366,6 @@ function KgServiceEditor(props: {
                   : <RefreshCw size={14} aria-hidden />}
                 {dieselFetchBusy ? 'Fetching…' : 'Fetch current'}
               </button>
-              {!usingSharedDiesel ? (
-                <button
-                  type="button"
-                  className="btn btn-sm"
-                  disabled={dieselFetchBusy}
-                  onClick={() => {
-                    onPatch({ fuelSurchargePercent: null });
-                    setDieselFetchNote('Cleared Surface override — using shared Fuel.');
-                  }}
-                >
-                  Use shared Fuel
-                </button>
-              ) : null}
             </div>
           </div>
           {dieselFetchNote ? (
@@ -493,7 +431,9 @@ function KgServiceEditor(props: {
         />
         <PctInput
           label="EFSS"
-          tip="Elevated Freight Stability Surcharge — % after CAF."
+          tip={service === 'surface'
+            ? 'Elevated Freight Stability Surcharge — % after diesel FS.'
+            : 'Elevated Freight Stability Surcharge — % after CAF.'}
           value={rates.efssPercent}
           onChange={efssPercent => onPatch({ efssPercent })}
         />
@@ -559,10 +499,7 @@ function KgServiceEditor(props: {
 
       <div className="settings-bluedart__subhead">Base rate by destination zone</div>
       <p className="settings-bluedart__panel-blurb">
-        Zone comes from origin region × destination state (ship-from:
-        {' '}
-        {shared.originRegion}
-        ).
+        Zone comes from ship-from SOUTH (Kerala) × destination state.
       </p>
       <div className="settings-courier-rates__zone-table-wrap">
         <table className="settings-courier-rates__zone-table settings-bluedart__zone-table">
@@ -615,9 +552,6 @@ export const BlueDartRatesEditor: React.FC<Props> = ({
 }) => {
   const shared = config.shared;
   const [tab, setTab] = useState<BlueDartServiceId>(service);
-  const [showAdvancedEdl, setShowAdvancedEdl] = useState(
-    shared.edlMode === 'matrix_when_km' || shared.edlFlatFallbackInr > 0,
-  );
 
   const patchShared = (patch: Partial<BlueDartConfig['shared']>) => {
     onChange({ ...config, shared: { ...shared, ...patch } });
@@ -645,8 +579,7 @@ export const BlueDartRatesEditor: React.FC<Props> = ({
   const sharedEditor = (
     <SharedChargesEditor
       shared={shared}
-      showAdvancedEdl={showAdvancedEdl}
-      onShowAdvancedEdl={setShowAdvancedEdl}
+      forService={tab}
       onPatch={patchShared}
     />
   );

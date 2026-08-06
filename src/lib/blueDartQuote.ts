@@ -17,8 +17,7 @@
  *   → RAS ₹/kg if dest in rasStates
  *   → FOV max(min, % of invoice)
  *   → EDL (NE/J&K special, else flat_fallback / matrix_when_km)
- *   → GST% on subtotal
- *   → ceilCourierChargeInr
+ *   → ceilCourierChargeInr (ex-GST; tax is applied on the sales order)
  *
  * Skipped VAS (not wired): FOD, DOD, DG, demurrage, appointment/SEZ, laptop box, ECC.
  * Keep server mirror in functions/lib/blue-dart-quote.js in sync.
@@ -235,6 +234,16 @@ function resolveFsCaf(
   };
 }
 
+/** Surface: diesel FS only (no shared Fuel / CAF). */
+function resolveSurfaceFsCaf(surface: BlueDartSurfaceRates): { fs: number; caf: number } {
+  return {
+    fs: surface.fuelSurchargePercent != null && Number.isFinite(surface.fuelSurchargePercent)
+      ? nonNeg(surface.fuelSurchargePercent)
+      : 0,
+    caf: 0,
+  };
+}
+
 function fovInr(
   shared: BlueDartSharedRules,
   serviceFov: { minInr: number; percentOfInvoice: number } | null,
@@ -270,7 +279,9 @@ function quoteKgService(input: {
     : base * (nonNeg(rates.pssPercent) / 100);
   const idc = base * (nonNeg(rates.idcPercent) / 100);
   const afterPssIdc = base + pss + festival + idc;
-  const { fs, caf } = resolveFsCaf(input.config.shared, rates.fuelSurchargePercent, rates.cafPercent);
+  const { fs, caf } = input.service === 'surface'
+    ? resolveSurfaceFsCaf(input.config.surface)
+    : resolveFsCaf(input.config.shared, rates.fuelSurchargePercent, rates.cafPercent);
   const fuel = afterPssIdc * (fs / 100);
   const afterFuel = afterPssIdc + fuel;
   const cafInr = afterFuel * (caf / 100);
@@ -291,8 +302,7 @@ function quoteKgService(input: {
     edlKm: input.edlKm,
   });
   const subtotal = afterCaf + efss + docket + ras + fov + edl;
-  const gst = subtotal * (nonNeg(input.config.shared.gstPercent) / 100);
-  const total = ceilCourierChargeInr(subtotal + gst);
+  const total = ceilCourierChargeInr(subtotal);
   return {
     chargeableKg: input.chargeableKg,
     baseFreightInr: base,
@@ -307,7 +317,7 @@ function quoteKgService(input: {
     fovInr: fov,
     edlInr: edl,
     subtotalExGstInr: subtotal,
-    gstInr: gst,
+    gstInr: 0,
     totalInr: total,
     rateMissing,
   };
@@ -340,7 +350,6 @@ function quoteDomesticPriority(input: {
   const afterCaf = afterFuel + cafInr;
   const efss = afterCaf * (nonNeg(rates.efssPercent) / 100);
   const subtotal = afterCaf + efss;
-  const gst = subtotal * (nonNeg(input.config.shared.gstPercent) / 100);
   return {
     chargeableKg: input.chargeableKg,
     baseFreightInr: base,
@@ -355,8 +364,8 @@ function quoteDomesticPriority(input: {
     fovInr: 0,
     edlInr: 0,
     subtotalExGstInr: subtotal,
-    gstInr: gst,
-    totalInr: ceilCourierChargeInr(subtotal + gst),
+    gstInr: 0,
+    totalInr: ceilCourierChargeInr(subtotal),
     rateMissing,
   };
 }

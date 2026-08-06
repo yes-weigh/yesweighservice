@@ -83,10 +83,8 @@ export function resolveBlueDartAirZone(input: {
 export function blueDartStatesByAirZone(
   shared: BlueDartSharedRules,
 ): Record<BlueDartAirZone, string[]> {
-  const origin = shared.originRegion in shared.zoneMatrix
-    ? shared.originRegion
-    : 'SOUTH';
-  const row = shared.zoneMatrix[origin];
+  const row = shared.zoneMatrix.SOUTH;
+
   const byZone: Record<BlueDartAirZone, string[]> = {
     1: [],
     2: [],

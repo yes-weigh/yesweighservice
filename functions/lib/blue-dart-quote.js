@@ -96,7 +96,7 @@ function defaultShared() {
   return {
     fuelSurchargePercent: 92,
     cafPercent: 22,
-    gstPercent: 18,
+    gstPercent: 0,
     originRegion: 'SOUTH',
     edlMode: 'flat_fallback',
     edlFlatFallbackInr: 0,
@@ -275,8 +275,8 @@ function parseShared(raw) {
     ...raw,
     fuelSurchargePercent: nonNeg(Number(raw.fuelSurchargePercent), defaults.fuelSurchargePercent),
     cafPercent: nonNeg(Number(raw.cafPercent), defaults.cafPercent),
-    gstPercent: nonNeg(Number(raw.gstPercent), defaults.gstPercent),
-    originRegion: REGIONS.includes(raw.originRegion) ? raw.originRegion : defaults.originRegion,
+    gstPercent: 0,
+    originRegion: 'SOUTH',
     edlMode: ['off', 'ne_jk_only', 'flat_fallback', 'matrix_when_km'].includes(raw.edlMode)
       ? raw.edlMode
       : defaults.edlMode,
@@ -322,6 +322,7 @@ function parseSurface(raw) {
   }
   return {
     ...base,
+    cafPercent: null,
     festivalSurchargePercent: nonNeg(
       Number(raw.festivalSurchargePercent),
       defaults.festivalSurchargePercent,
@@ -434,6 +435,16 @@ function fsCaf(shared, serviceFs, serviceCaf) {
   };
 }
 
+/** Surface: diesel FS only (no shared Fuel / CAF). */
+function surfaceFsCaf(surface) {
+  return {
+    fs: surface?.fuelSurchargePercent != null
+      ? nonNeg(Number(surface.fuelSurchargePercent))
+      : 0,
+    caf: 0,
+  };
+}
+
 export function quoteBlueDartParcels({
   config,
   service = 'surface',
@@ -491,9 +502,8 @@ export function quoteBlueDartParcels({
     const afterCaf = afterFuel + cafInr;
     const efss = afterCaf * (nonNeg(rates.efssPercent) / 100);
     const subtotal = afterCaf + efss;
-    const gst = subtotal * (nonNeg(cfg.shared.gstPercent) / 100);
     return {
-      totalInr: ceilInr(subtotal + gst),
+      totalInr: ceilInr(subtotal),
       chargeableKg: kg,
       sku,
       rateMissing: false,
@@ -531,7 +541,9 @@ export function quoteBlueDartParcels({
     : base * (nonNeg(rates.pssPercent) / 100);
   const idc = base * (nonNeg(rates.idcPercent) / 100);
   const after = base + pss + festival + idc;
-  const { fs, caf } = fsCaf(cfg.shared, rates.fuelSurchargePercent, rates.cafPercent);
+  const { fs, caf } = service === 'surface'
+    ? surfaceFsCaf(cfg.surface)
+    : fsCaf(cfg.shared, rates.fuelSurchargePercent, rates.cafPercent);
   const fuel = after * (fs / 100);
   const afterFuel = after + fuel;
   const cafInr = afterFuel * (caf / 100);
@@ -546,9 +558,8 @@ export function quoteBlueDartParcels({
   );
   const edl = edlInr(cfg.shared, destState, access.edl, kg, pin?.edlKm ?? null);
   const subtotal = afterCaf + efss + docket + ras + fov + edl;
-  const gst = subtotal * (nonNeg(cfg.shared.gstPercent) / 100);
   return {
-    totalInr: ceilInr(subtotal + gst),
+    totalInr: ceilInr(subtotal),
     chargeableKg: kg,
     sku,
     rateMissing: false,
