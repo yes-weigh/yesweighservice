@@ -28,19 +28,23 @@ function RelatedCatalogCartControls({
   const { items, addItem, getQuantity, setQuantity } = useCart();
   const { flyToCart } = useCartFly();
 
-  if (!enableCart) return null;
+  if (!enableCart) {
+    return (
+      <div className="related-catalog__actions related-catalog__actions--muted">
+        <span className="related-catalog__cart-unavailable">New order needed</span>
+      </div>
+    );
+  }
 
   const outOfStock = item.stockStatus === 'out_of_stock'
     && !catalogProductIgnoresStockForCart(item);
   const cartQty = getQuantity(item.id);
-  // Prefer without-stamping line for qty stepper when multiple stamp variants exist.
   const primaryLine = items.find(line => line.productId === item.id && !line.gatcStampingPriceId)
     ?? items.find(line => line.productId === item.id);
 
   const handleAdd = (event: React.MouseEvent<HTMLButtonElement>) => {
     event.stopPropagation();
     if (outOfStock) return;
-    // Stampable items add without stamping; dealer configures in cart.
     if (addItem(item, 1)) {
       flyToCart(event.currentTarget, { imageUrl: item.imageUrl });
     }
@@ -48,15 +52,15 @@ function RelatedCatalogCartControls({
 
   if (outOfStock) {
     return (
-      <div className="related-catalog__cart related-catalog__cart--disabled" aria-label="Out of stock">
-        <span className="related-catalog__cart-unavailable text-sm">Out of stock</span>
+      <div className="related-catalog__actions related-catalog__actions--muted">
+        <span className="related-catalog__cart-unavailable">Out of stock</span>
       </div>
     );
   }
 
   if (cartQty === 0 || !primaryLine) {
     return (
-      <div className="related-catalog__cart">
+      <div className="related-catalog__actions">
         <button
           type="button"
           className="related-catalog__add-cart"
@@ -71,7 +75,7 @@ function RelatedCatalogCartControls({
   }
 
   return (
-    <div className="related-catalog__cart" aria-label={`Quantity in cart: ${cartQty}`}>
+    <div className="related-catalog__actions" aria-label={`Quantity in cart: ${cartQty}`}>
       <QuantityStepper
         value={primaryLine.quantity}
         onChange={next => {
@@ -122,47 +126,28 @@ export const RelatedCatalogItems: React.FC<{
 }) => {
   const navigate = useNavigate();
   const [unlinkMode, setUnlinkMode] = useState(false);
-  const canUnlink = Boolean(onUnlink);
-  const showUnlinkButtons = canUnlink && unlinkMode;
-  const canNavigate = !disableNavigation && Boolean(detailBasePath);
+  const canNavigate = Boolean(detailBasePath) && !disableNavigation;
+  const showUnlinkButtons = Boolean(onUnlink) && unlinkMode;
 
-  const toggleUnlinkMode = () => setUnlinkMode(prev => !prev);
-
-  const unlinkModeSwitch = canUnlink ? (
-    <div className="related-catalog__unlink-mode">
-      <button
-        type="button"
-        className="related-catalog__unlink-mode-label"
-        id="related-catalog-unlink-mode-label"
-        onClick={toggleUnlinkMode}
-      >
-        Unlink mode
-      </button>
-      <button
-        type="button"
-        role="switch"
-        aria-checked={unlinkMode}
-        aria-labelledby="related-catalog-unlink-mode-label"
-        className={[
-          'related-catalog__unlink-mode-switch',
-          unlinkMode ? 'related-catalog__unlink-mode-switch--on' : '',
-        ]
-          .filter(Boolean)
-          .join(' ')}
-        onClick={toggleUnlinkMode}
-      >
-        <span className="related-catalog__unlink-mode-knob" />
-      </button>
+  const headerControls = (headerAction || onUnlink) ? (
+    <div className="related-catalog__header-actions">
+      {headerAction}
+      {onUnlink ? (
+        <label className="related-catalog__unlink-mode">
+          <span className="related-catalog__unlink-mode-label">Unlink</span>
+          <button
+            type="button"
+            role="switch"
+            aria-checked={unlinkMode}
+            className={`related-catalog__unlink-mode-switch${unlinkMode ? ' related-catalog__unlink-mode-switch--on' : ''}`}
+            onClick={() => setUnlinkMode(prev => !prev)}
+          >
+            <span className="related-catalog__unlink-mode-knob" />
+          </button>
+        </label>
+      ) : null}
     </div>
   ) : null;
-
-  const headerControls =
-    headerAction || unlinkModeSwitch ? (
-      <div className="related-catalog__header-actions">
-        {headerAction}
-        {unlinkModeSwitch}
-      </div>
-    ) : null;
 
   if (loading) {
     return (
@@ -202,6 +187,7 @@ export const RelatedCatalogItems: React.FC<{
         <ul className="related-catalog__list">
           {items.map(item => {
             const unlinking = unlinkingId === item.id;
+            const itemCartable = !isCartable || isCartable(item);
             const mainBody = (
               <>
                 <div className="related-catalog__media">
@@ -216,6 +202,10 @@ export const RelatedCatalogItems: React.FC<{
                 <div className="related-catalog__info">
                   {item.sku && <span className="related-catalog__sku">{item.sku}</span>}
                   <span className="related-catalog__name">{formatProductTitle(item.name)}</span>
+                  <div className="related-catalog__price">
+                    <IndianRupee size={13} strokeWidth={2.5} aria-hidden />
+                    <span>{item.rate.toLocaleString('en-IN')}</span>
+                  </div>
                   {item.categoryName && (
                     <span className="related-catalog__category text-muted text-sm">
                       {item.categoryName}
@@ -230,15 +220,11 @@ export const RelatedCatalogItems: React.FC<{
                     />
                   )}
                 </div>
-                <div className="related-catalog__price">
-                  <IndianRupee size={13} strokeWidth={2.5} aria-hidden />
-                  <span>{item.rate.toLocaleString('en-IN')}</span>
-                </div>
               </>
             );
             return (
               <li key={item.id}>
-                <div className={`related-catalog__item ${enableCart ? 'related-catalog__item--cart' : ''}`}>
+                <div className={`related-catalog__item${enableCart ? ' related-catalog__item--cart' : ''}`}>
                   {canNavigate ? (
                     <button
                       type="button"
@@ -268,10 +254,12 @@ export const RelatedCatalogItems: React.FC<{
                       {unlinking ? 'Unlinking…' : 'Unlink'}
                     </button>
                   )}
-                  <RelatedCatalogCartControls
-                    item={item}
-                    enableCart={enableCart && (!isCartable || isCartable(item))}
-                  />
+                  {enableCart ? (
+                    <RelatedCatalogCartControls
+                      item={item}
+                      enableCart={itemCartable}
+                    />
+                  ) : null}
                 </div>
               </li>
             );

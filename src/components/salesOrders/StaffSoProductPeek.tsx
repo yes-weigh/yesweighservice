@@ -39,7 +39,7 @@ function PeekCartControls({
   if (!canCart) {
     return (
       <p className="text-muted text-sm staff-so-product-peek__cart-note">
-        Not available for this order type
+        New order needed
       </p>
     );
   }

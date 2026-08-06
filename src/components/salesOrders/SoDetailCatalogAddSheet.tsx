@@ -115,13 +115,22 @@ const SoDetailCatalogAddBody: React.FC<{
     ? `${segmentLabel(resolvedSegment)} · ${inventorySiteLabel(resolvedSite)}`
     : null;
 
-  /** Strict create/submit bucket: segment × inventory site only. */
+  /** Strict create/submit bucket: segment × inventory site (use full catalog row for warehouses). */
+  const catalogById = useMemo(() => {
+    const map = new Map<string, CatalogProduct>();
+    for (const product of catalogProducts) map.set(product.id, product);
+    return map;
+  }, [catalogProducts]);
+
   const isCartable = useMemo(
-    () => (product: CatalogProduct) => productMatchesSalesOrderBucket(product, {
-      segment: resolvedSegment,
-      site: resolvedSite,
-    }),
-    [resolvedSegment, resolvedSite],
+    () => (product: CatalogProduct) => {
+      const full = catalogById.get(product.id) ?? product;
+      return productMatchesSalesOrderBucket(full, {
+        segment: resolvedSegment,
+        site: resolvedSite,
+      });
+    },
+    [catalogById, resolvedSegment, resolvedSite],
   );
 
   /**
@@ -205,7 +214,7 @@ const SoDetailCatalogAddBody: React.FC<{
   const apply = () => {
     const allowed = items.filter(item => {
       if (seedProductIds.has(item.productId)) return true;
-      const catalog = catalogProducts.find(product => product.id === item.productId);
+      const catalog = catalogById.get(item.productId);
       return productMatchesSalesOrderBucket(
         catalog ?? {
           id: item.productId,

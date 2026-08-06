@@ -400,15 +400,24 @@ function canEditSalesOrderContent(user, data) {
   const stage = yesOneStageOf(data);
   if (BLOCKED_YESONE_EDIT_STAGES.has(stage)) return false;
 
+  // Payment due: dealers cannot alter lines/shipping; ops may still edit.
+  if (DEALER_ROLES.has(user?.role) && stage === 'ready_for_payment') return false;
+
   const zohoStatus = normalizeZohoStatus(data.status);
   if (BLOCKED_ZOHO_EDIT_STATUSES.has(zohoStatus)) return false;
 
-  // review + ready_for_payment: edit/add lines until payment is submitted.
   return OPEN_ZOHO_EDIT_STATUSES.has(zohoStatus) || !zohoStatus;
 }
 
 function assertCanEditSalesOrder(user, data, action = 'edited') {
   if (!canEditSalesOrderContent(user, data)) {
+    const stage = yesOneStageOf(data);
+    if (DEALER_ROLES.has(user?.role) && stage === 'ready_for_payment') {
+      throw new HttpsError(
+        'failed-precondition',
+        'This sales order is payment due and can no longer be changed. Submit payment instead.',
+      );
+    }
     throw new HttpsError('failed-precondition', `This sales order cannot be ${action}.`);
   }
 }

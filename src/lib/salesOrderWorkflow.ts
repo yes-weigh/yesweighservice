@@ -114,7 +114,7 @@ export function normalizeSalesOrderZohoStatus(status: string | null | undefined)
   return String(status || '').toLowerCase().replace(/\s+/g, '_');
 }
 
-/** Whether lines/shipping on a portal SO can still be edited (until payment is submitted). */
+/** Whether lines/shipping on a portal SO can still be edited. */
 export function canEditSalesOrderDraft(input: {
   role?: string | null;
   yesOneStage?: string | null;
@@ -123,10 +123,14 @@ export function canEditSalesOrderDraft(input: {
   const stage = String(input.yesOneStage || '').trim();
   if (BLOCKED_YESONE_EDIT_STAGES.has(stage)) return false;
 
+  const role = String(input.role || '').trim();
+  const isDealer = role === 'dealer' || role === 'dealer_staff';
+  // Payment due: dealers are locked; staff/admin may still adjust the draft.
+  if (isDealer && stage === 'ready_for_payment') return false;
+
   const zoho = normalizeSalesOrderZohoStatus(input.zohoStatus);
   if (BLOCKED_ZOHO_EDIT_STATUSES.has(zoho)) return false;
 
-  // review + ready_for_payment: edit/add lines until the dealer submits payment.
   return OPEN_ZOHO_EDIT_STATUSES.has(zoho) || !zoho;
 }
 
