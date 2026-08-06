@@ -7,6 +7,7 @@ import {
   defaultBlueDartSharedRules,
   defaultBlueDartSurfaceRates,
   defaultBlueDartZoneMatrix,
+  normalizeBlueDartOversizeSlabs,
 } from '../constants/blueDartRates';
 import type {
   BlueDartAirZone,
@@ -231,6 +232,9 @@ function parseSurfaceService(raw: unknown): BlueDartSurfaceRates {
     festivalSeasonEndMonth: clampMonth(
       data.festivalSeasonEndMonth,
       defaults.festivalSeasonEndMonth,
+    ),
+    oversizeSlabs: normalizeBlueDartOversizeSlabs(
+      data.oversizeSlabs ?? defaults.oversizeSlabs,
     ),
   };
 }

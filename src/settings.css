@@ -3043,6 +3043,54 @@
   color: #f1f5f9;
 }
 
+.settings-bluedart__stack-prefix,
+.settings-bluedart__stack-join,
+.settings-bluedart__stack-suffix {
+  color: inherit;
+}
+
+.settings-bluedart__stack-tip {
+  position: relative;
+  display: inline;
+  border-bottom: 1px dotted #94a3b8;
+  cursor: help;
+}
+
+.settings-bluedart__stack-tip::before {
+  content: attr(data-tip);
+  position: absolute;
+  left: 0;
+  bottom: calc(100% + 0.4rem);
+  z-index: 30;
+  width: min(20rem, 72vw);
+  padding: 0.55rem 0.65rem;
+  border-radius: 8px;
+  border: 1px solid #334155;
+  background: #0b1220;
+  color: #e2e8f0;
+  font-size: 0.72rem;
+  font-weight: 500;
+  line-height: 1.4;
+  white-space: normal;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45);
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+  transform: translateY(4px);
+  transition: opacity 0.12s ease, transform 0.12s ease, visibility 0.12s ease;
+}
+
+.settings-bluedart__stack-tip:hover::before,
+.settings-bluedart__stack-tip:focus-visible::before {
+  opacity: 1;
+  visibility: visible;
+  transform: translateY(0);
+}
+
+.settings-bluedart__stack-row--total .settings-bluedart__stack-tip {
+  border-bottom-color: rgba(253, 186, 116, 0.7);
+}
+
 .settings-bluedart__stack-detail {
   color: #94a3b8;
   font-size: 0.75rem;
@@ -3116,6 +3164,44 @@
   font-size: 0.75rem;
   line-height: 1.35;
   color: #94a3b8;
+}
+
+.settings-bluedart__oversize {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.55rem;
+}
+
+.settings-bluedart__oversize-table {
+  width: 100%;
+  max-width: 28rem;
+  border-collapse: collapse;
+  font-size: 0.8125rem;
+}
+
+.settings-bluedart__oversize-table th,
+.settings-bluedart__oversize-table td {
+  padding: 0.35rem 0.4rem;
+  text-align: left;
+  vertical-align: middle;
+  border-bottom: 1px solid rgba(148, 163, 184, 0.14);
+}
+
+.settings-bluedart__oversize-table th {
+  color: #94a3b8;
+  font-weight: 600;
+  font-size: 0.75rem;
+}
+
+.settings-bluedart__oversize-table td:last-child {
+  width: 2.5rem;
+  text-align: right;
+}
+
+.settings-bluedart__oversize-remove:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
 }
 
 @media (max-width: 720px) {
@@ -4424,6 +4510,17 @@
 /* —— Price level setting —— */
 .price-levels-tab {
   padding: 1rem 1.1rem 1.25rem;
+}
+
+.price-levels-tab input[type='number'] {
+  appearance: textfield;
+  -moz-appearance: textfield;
+}
+
+.price-levels-tab input[type='number']::-webkit-outer-spin-button,
+.price-levels-tab input[type='number']::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
 }
 
 .price-levels-tab--loading {

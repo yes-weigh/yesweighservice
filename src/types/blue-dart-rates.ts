@@ -168,9 +168,22 @@ export interface BlueDartKgServiceRates {
 }
 
 /**
+ * Surface oversize surcharge band.
+ * If chargeable kg is under upToKg, that slab’s % of basic applies
+ * (first matching band when sorted ascending). At/above every band → last slab.
+ */
+export interface BlueDartOversizeSlab {
+  /** Exclusive upper weight (kg): applies when chargeable kg < upToKg. */
+  upToKg: number;
+  /** % of basic freight. */
+  percent: number;
+}
+
+/**
  * Surface Band 13 — same ₹/kg card plus festival surcharge.
  * Festival % applies only when the quote month is in the configured season
  * (inclusive start→end; wraps year when start > end, e.g. Oct→Jan).
+ * Oversize slabs: under upToKg → that % of basic (first match).
  */
 export interface BlueDartSurfaceRates extends BlueDartKgServiceRates {
   /** % of base freight during festival season. */
@@ -179,6 +192,8 @@ export interface BlueDartSurfaceRates extends BlueDartKgServiceRates {
   festivalSeasonStartMonth: number;
   /** Calendar month 1–12. */
   festivalSeasonEndMonth: number;
+  /** Sorted unique upToKg ceilings; default under 32 kg → 0%. */
+  oversizeSlabs: BlueDartOversizeSlab[];
 }
 
 /** Domestic Priority 500g slab card. */

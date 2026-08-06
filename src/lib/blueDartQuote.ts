@@ -11,7 +11,8 @@
  * v1 charge stack (HARDCODED order — change here + functions/lib/blue-dart-quote.js):
  *   base (₹/kg or 500g slabs, with min freight/weight)
  *   → PSS% (Air/DP) or festival surcharge % (Surface, in-season only) + IDC% on base
- *   → FS% then CAF% (shared, or per-service override)
+ *   → Surface oversize % on base (first slab where chargeable kg is under upToKg)
+ *   → FS% then CAF% (shared, or per-service override; Surface: diesel FS, no CAF)
  *   → EFSS%
  *   → docket (Air/Surface)
  *   → RAS ₹/kg if dest in rasStates
@@ -22,6 +23,7 @@
  * Skipped VAS (not wired): FOD, DOD, DG, demurrage, appointment/SEZ, laptop box, ECC.
  * Keep server mirror in functions/lib/blue-dart-quote.js in sync.
  */
+import { resolveBlueDartOversizePercent } from '../constants/blueDartRates';
 import { isRasDestination, resolveBlueDartRegion } from './blueDartPlace';
 import { resolveBlueDartAirZone, resolveBlueDartDpZone } from './blueDartZone';
 import { ceilCourierChargeInr } from './stCourierQuote';
@@ -57,6 +59,7 @@ export type BlueDartQuoteBreakdown = {
   docketFeeInr: number;
   pssInr: number;
   festivalSurchargeInr: number;
+  oversizeInr: number;
   idcInr: number;
   fuelSurchargeInr: number;
   cafInr: number;
@@ -278,7 +281,14 @@ function quoteKgService(input: {
     ? 0
     : base * (nonNeg(rates.pssPercent) / 100);
   const idc = base * (nonNeg(rates.idcPercent) / 100);
-  const afterPssIdc = base + pss + festival + idc;
+  const oversizePct = input.service === 'surface'
+    ? resolveBlueDartOversizePercent(
+      input.config.surface.oversizeSlabs,
+      input.chargeableKg,
+    )
+    : 0;
+  const oversize = base * (oversizePct / 100);
+  const afterPssIdc = base + pss + festival + idc + oversize;
   const { fs, caf } = input.service === 'surface'
     ? resolveSurfaceFsCaf(input.config.surface)
     : resolveFsCaf(input.config.shared, rates.fuelSurchargePercent, rates.cafPercent);
@@ -309,6 +319,7 @@ function quoteKgService(input: {
     docketFeeInr: docket,
     pssInr: pss,
     festivalSurchargeInr: festival,
+    oversizeInr: oversize,
     idcInr: idc,
     fuelSurchargeInr: fuel,
     cafInr,
@@ -356,6 +367,7 @@ function quoteDomesticPriority(input: {
     docketFeeInr: 0,
     pssInr: pss,
     festivalSurchargeInr: 0,
+    oversizeInr: 0,
     idcInr: idc,
     fuelSurchargeInr: fuel,
     cafInr,
@@ -397,6 +409,7 @@ export function quoteBlueDartShipment(input: {
     docketFeeInr: 0,
     pssInr: 0,
     festivalSurchargeInr: 0,
+    oversizeInr: 0,
     idcInr: 0,
     fuelSurchargeInr: 0,
     cafInr: 0,

@@ -359,6 +359,8 @@ export function buildDealerAutoFreightLines({
   blueDartPin = null,
   blueDartService = 'surface',
   invoiceValueInr = 0,
+  /** Manual ₹ for partners without a rate card (currently Delhivery). */
+  manualFreightAmountInr = null,
 }) {
   const rates = parseLogisticsCourierRates(courierRates);
   const { zone } = resolveFreightZone(destination, freightZone);
@@ -421,6 +423,15 @@ export function buildDealerAutoFreightLines({
           ? quoteParcels(zone, originRates, parcels)
           : { totalInr: 0 };
         totalInr = quoted.totalInr;
+      }
+      const manualAmt = Number(manualFreightAmountInr);
+      if (
+        partnerId === 'delhivery'
+        && Number.isFinite(manualAmt)
+        && manualAmt >= 0
+        && !(totalInr > 0)
+      ) {
+        totalInr = ceilCourierChargeInr(manualAmt);
       }
       freightLines.push(makeFreightLine({
         sku,

@@ -292,6 +292,7 @@ export const StaffCreateSalesOrderPage: React.FC = () => {
   const [deliveryRules, setDeliveryRules] = useState<LogisticsDeliveryRulesMatrix | null>(null);
   const [spareFreightMinimumInr, setSpareFreightMinimumInr] = useState(0);
   const [courierBySite, setCourierBySite] = useState<Partial<Record<InventorySite, LogisticsPartnerId>>>({});
+  const [manualFreightAmount, setManualFreightAmount] = useState<number | null>(null);
 
   const activeSegments = allowedSegments;
 
@@ -493,10 +494,30 @@ export const StaffCreateSalesOrderPage: React.FC = () => {
 
   const segmentPreview = useMemo(() => summarizeSegmentSiteBuckets(submitLines), [submitLines]);
 
-  const freightSubtotal = useMemo(
-    () => (freightAllowed && freightEstimate?.usable ? freightEstimate.totalInr : 0),
-    [freightAllowed, freightEstimate],
-  );
+  const selectedFreightUsesManualRate = useMemo(() => {
+    if (!freightEstimate?.usable) return false;
+    return freightEstimate.sites.some(site => {
+      const opt = site.courierOptions.find(o => o.partnerId === site.partnerId);
+      return Boolean(opt?.manualRate);
+    });
+  }, [freightEstimate]);
+
+  const freightSubtotal = useMemo(() => {
+    if (!freightAllowed || !freightEstimate?.usable) return 0;
+    if (
+      selectedFreightUsesManualRate
+      && manualFreightAmount != null
+      && Number.isFinite(manualFreightAmount)
+    ) {
+      return Math.round(manualFreightAmount * 100) / 100;
+    }
+    return freightEstimate.totalInr;
+  }, [
+    freightAllowed,
+    freightEstimate,
+    selectedFreightUsesManualRate,
+    manualFreightAmount,
+  ]);
 
   const subtotal = useMemo(
     () => lines.reduce((sum, line) => sum + line.rate * line.quantity, 0) + freightSubtotal,
@@ -1012,6 +1033,12 @@ export const StaffCreateSalesOrderPage: React.FC = () => {
           (freightEstimate?.sites ?? []).map(site => [site.site, site.partnerId]),
         ),
         ...(inferredFreightZone ? { freightZone: inferredFreightZone } : {}),
+        ...(selectedFreightUsesManualRate
+          && manualFreightAmount != null
+          && Number.isFinite(manualFreightAmount)
+          && manualFreightAmount >= 0
+          ? { manualFreightAmountInr: Math.round(manualFreightAmount * 100) / 100 }
+          : {}),
         ...(needsSalespersonPicker
           ? { salespersonId: salespersonId.trim() }
           : {}),
@@ -1019,6 +1046,7 @@ export const StaffCreateSalesOrderPage: React.FC = () => {
       clearCart();
       setRateOverrides({});
       setCourierBySite({});
+      setManualFreightAmount(null);
       const salesOrders = Array.isArray(result.salesOrders) && result.salesOrders.length > 0
         ? result.salesOrders
         : (result.zohoSalesOrderId
@@ -1607,12 +1635,15 @@ export const StaffCreateSalesOrderPage: React.FC = () => {
                 <OrderFreightPanel
                   estimate={freightEstimate}
                   canEditPackage
+                  allowManualFreightEntry
+                  manualFreightAmount={manualFreightAmount}
                   catalogById={catalogById}
                   destinationLabel={[
                     shippingDestination?.city,
                     shippingDestination?.state,
                   ].filter(Boolean).join(', ') || null}
-                  footerNote="One freight line per draft SO. Amounts are calculated from rate cards and package data."
+                  footerNote="One freight line per draft SO. Rate-card partners calculate automatically; Delhivery needs a manual ₹ until rates are set."
+                  onManualFreightAmountChange={setManualFreightAmount}
                   onCourierChange={(site, partnerId) => {
                     setCourierBySite(prev => ({ ...prev, [site]: partnerId }));
                   }}

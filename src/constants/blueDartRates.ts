@@ -17,11 +17,53 @@ import type {
   BlueDartDomesticPriorityRates,
   BlueDartEdlDistanceRow,
   BlueDartKgServiceRates,
+  BlueDartOversizeSlab,
   BlueDartRegion,
   BlueDartSharedRules,
   BlueDartSurfaceRates,
 } from '../types/blue-dart-rates';
 import { BLUE_DART_AIR_ZONES, BLUE_DART_DP_ZONES, BLUE_DART_REGIONS } from '../types/blue-dart-rates';
+
+/** Default Surface oversize: under 32 kg → 0% (add higher ceilings in Settings). */
+export const DEFAULT_BLUE_DART_OVERSIZE_SLABS: BlueDartOversizeSlab[] = [
+  { upToKg: 32, percent: 0 },
+];
+
+/** Normalize, dedupe by upToKg (last wins), sort ascending. Empty → default under 32 kg / 0%. */
+export function normalizeBlueDartOversizeSlabs(raw: unknown): BlueDartOversizeSlab[] {
+  const list = Array.isArray(raw) ? raw : [];
+  const byUpTo = new Map<number, number>();
+  for (const row of list) {
+    if (!row || typeof row !== 'object') continue;
+    const record = row as { upToKg?: unknown; minKg?: unknown; percent?: unknown };
+    /** Accept legacy minKg (old “from kg” field) as upToKg. */
+    const upToKg = Number(record.upToKg ?? record.minKg);
+    const percent = Number(record.percent);
+    if (!Number.isFinite(upToKg) || upToKg <= 0) continue;
+    if (!Number.isFinite(percent) || percent < 0) continue;
+    byUpTo.set(Math.round(upToKg * 1000) / 1000, percent);
+  }
+  if (byUpTo.size === 0) return DEFAULT_BLUE_DART_OVERSIZE_SLABS.map(s => ({ ...s }));
+  return [...byUpTo.entries()]
+    .sort((a, b) => a[0] - b[0])
+    .map(([upToKg, percent]) => ({ upToKg, percent }));
+}
+
+/**
+ * First slab where chargeable kg is under upToKg.
+ * If weight is at/above every ceiling, use the last slab’s %.
+ */
+export function resolveBlueDartOversizePercent(
+  slabs: BlueDartOversizeSlab[] | unknown,
+  chargeableKg: number,
+): number {
+  const kg = typeof chargeableKg === 'number' && Number.isFinite(chargeableKg) ? chargeableKg : 0;
+  const list = normalizeBlueDartOversizeSlabs(slabs);
+  for (const slab of list) {
+    if (kg < slab.upToKg) return slab.percent;
+  }
+  return list[list.length - 1]?.percent ?? 0;
+}
 
 /** Surface Band 13 volumetric: (L×B×H)/27000 CFT × 6 kg = LBH/4500. */
 export const BLUE_DART_SURFACE_VOLUMETRIC_DIVISOR = 4500;
@@ -178,6 +220,7 @@ export function defaultBlueDartSurfaceRates(): BlueDartSurfaceRates {
     festivalSurchargePercent: 0,
     festivalSeasonStartMonth: 10,
     festivalSeasonEndMonth: 1,
+    oversizeSlabs: DEFAULT_BLUE_DART_OVERSIZE_SLABS.map(s => ({ ...s })),
   };
 }
 

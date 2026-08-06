@@ -192,6 +192,11 @@ export async function createStaffSalesOrder(input: {
   /** Freight charge plan zone (kerala / tamil_nadu_pondy / other_states). */
   freightZone?: string;
   freightZoneOverrideReason?: string;
+  /**
+   * Manual freight ₹ for partners without a rate card (e.g. Delhivery TBD).
+   * Applied only when a manual-rate partner is selected.
+   */
+  manualFreightAmountInr?: number;
 }): Promise<{
   zohoSalesOrderId: string | null;
   zohoSalesOrderNumber: string | null;
@@ -231,6 +236,11 @@ export async function createStaffSalesOrder(input: {
         ...(input.freightZone ? { freightZone: input.freightZone } : {}),
         ...(input.freightZoneOverrideReason?.trim()
           ? { freightZoneOverrideReason: input.freightZoneOverrideReason.trim() }
+          : {}),
+        ...(input.manualFreightAmountInr != null
+          && Number.isFinite(input.manualFreightAmountInr)
+          && input.manualFreightAmountInr >= 0
+          ? { manualFreightAmountInr: Math.round(input.manualFreightAmountInr * 100) / 100 }
           : {}),
       },
       180_000,

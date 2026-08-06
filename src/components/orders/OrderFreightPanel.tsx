@@ -24,6 +24,7 @@ import type {
 import type { InventorySite } from '../../lib/salesOrderSegments';
 import type { CatalogProduct } from '../../types/catalog';
 import { ST_COURIER_ZONE_LABELS } from '../../types/logistics-courier-rates';
+import { DecimalAmountInput } from '../DecimalAmountInput';
 import { ProductPackageInfo } from '../catalog/ProductPackageInfo';
 
 type Props = {
@@ -41,6 +42,14 @@ type Props = {
   /** Footer note under the calc card. */
   footerNote?: string | null;
   catalogById?: Record<string, CatalogProduct | undefined>;
+  /**
+   * Staff/admin: show ₹ input on partners without a rate card (e.g. Delhivery TBD).
+   * Dealers keep read-only TBD.
+   */
+  allowManualFreightEntry?: boolean;
+  /** Manual freight ₹ for the selected manual-rate partner. */
+  manualFreightAmount?: number | null;
+  onManualFreightAmountChange?: (amount: number | null) => void;
   onCourierChange: (site: InventorySite, partnerId: LogisticsPartnerId) => void;
   onPackageInfoChange?: (productId: string, info: NonNullable<CatalogProduct['packageInfo']>) => void;
 };
@@ -187,15 +196,31 @@ function CourierOptionCard({
   selected,
   name,
   amountInr,
+  allowManualFreightEntry,
+  manualFreightAmount,
+  onManualFreightAmountChange,
   onSelect,
 }: {
   opt: OrderCourierOption;
   selected: boolean;
   name: string;
   amountInr: number;
+  allowManualFreightEntry?: boolean;
+  manualFreightAmount?: number | null;
+  onManualFreightAmountChange?: (amount: number | null) => void;
   onSelect: () => void;
 }) {
   const logo = logisticsPartnerImage(opt.partnerId);
+  const showManualInput = Boolean(
+    opt.enabled
+    && opt.manualRate
+    && allowManualFreightEntry
+    && onManualFreightAmountChange,
+  );
+  const displayAmount = showManualInput && selected && manualFreightAmount != null && manualFreightAmount > 0
+    ? manualFreightAmount
+    : amountInr;
+
   return (
     <label
       className={`order-freight-panel__courier${selected ? ' is-selected' : ''}${opt.enabled ? '' : ' is-disabled'}`}
@@ -224,16 +249,41 @@ function CourierOptionCard({
         {opt.preferred ? (
           <em className="order-freight-panel__courier-preferred">Preferred</em>
         ) : null}
-        {opt.enabled && opt.manualRate ? <em>Enter ₹ on sales order</em> : null}
+        {opt.enabled && opt.manualRate ? (
+          <em>{showManualInput ? 'Enter freight ₹' : 'Enter ₹ on sales order'}</em>
+        ) : null}
         {!opt.enabled && opt.disabledReason ? <em>{opt.disabledReason}</em> : null}
       </span>
-      <strong className="order-freight-panel__courier-amt">
-        {!opt.enabled
-          ? '—'
-          : opt.manualRate && !(amountInr > 0)
-            ? 'TBD'
-            : formatCurrency(amountInr)}
-      </strong>
+      {showManualInput ? (
+        <span
+          className="order-freight-panel__courier-manual"
+          onClick={event => event.stopPropagation()}
+          onKeyDown={event => event.stopPropagation()}
+        >
+          <span className="order-freight-panel__courier-manual-prefix" aria-hidden>₹</span>
+          <DecimalAmountInput
+            className="order-freight-panel__courier-manual-input"
+            min={0}
+            decimals={2}
+            allowEmpty
+            placeholder="0.00"
+            value={selected ? (manualFreightAmount ?? null) : null}
+            aria-label={`${opt.label} freight amount`}
+            onChange={next => {
+              if (!selected) onSelect();
+              onManualFreightAmountChange?.(next);
+            }}
+          />
+        </span>
+      ) : (
+        <strong className="order-freight-panel__courier-amt">
+          {!opt.enabled
+            ? '—'
+            : opt.manualRate && !(displayAmount > 0)
+              ? 'TBD'
+              : formatCurrency(displayAmount)}
+        </strong>
+      )}
     </label>
   );
 }
@@ -472,6 +522,9 @@ export const OrderFreightPanel: React.FC<Props> = ({
   destinationLabel = null,
   footerNote = null,
   catalogById = {},
+  allowManualFreightEntry = false,
+  manualFreightAmount = null,
+  onManualFreightAmountChange,
   onCourierChange,
   onPackageInfoChange,
 }) => {
@@ -523,6 +576,25 @@ export const OrderFreightPanel: React.FC<Props> = ({
     && estimate.sites.every(site => site.partnerId === estimate.sites[0].partnerId)
     ? estimate.sites[0].partnerId
     : null;
+
+  const selectedUsesManualRate = useMemo(() => {
+    if (!estimate.usable) return false;
+    if (clubSites) {
+      const opt = clubCourierOptions.find(o => o.partnerId === clubSelectedPartner);
+      return Boolean(opt?.manualRate);
+    }
+    return estimate.sites.some(site => {
+      const opt = site.courierOptions.find(o => o.partnerId === site.partnerId);
+      return Boolean(opt?.manualRate);
+    });
+  }, [estimate, clubSites, clubCourierOptions, clubSelectedPartner]);
+
+  const displayTotalInr = allowManualFreightEntry
+    && selectedUsesManualRate
+    && manualFreightAmount != null
+    && Number.isFinite(manualFreightAmount)
+    ? Math.round(manualFreightAmount * 100) / 100
+    : estimate.totalInr;
 
   const clubItemCalcs = useMemo(() => {
     if (!clubSites) return [] as ItemFreightCalcView[];
@@ -632,7 +704,7 @@ export const OrderFreightPanel: React.FC<Props> = ({
               <Eye size={15} aria-hidden />
             </button>
           ) : null}
-          <em>{formatCurrency(estimate.totalInr)}</em>
+          <em>{formatCurrency(displayTotalInr)}</em>
         </div>
       </header>
 
@@ -647,6 +719,9 @@ export const OrderFreightPanel: React.FC<Props> = ({
                   selected={clubSelectedPartner === opt.partnerId}
                   name="courier-clubbed"
                   amountInr={opt.estimatedTotalInr ?? 0}
+                  allowManualFreightEntry={allowManualFreightEntry}
+                  manualFreightAmount={manualFreightAmount}
+                  onManualFreightAmountChange={onManualFreightAmountChange}
                   onSelect={() => {
                     for (const site of estimate.sites) {
                       onCourierChange(site.site, opt.partnerId);
@@ -671,9 +746,13 @@ export const OrderFreightPanel: React.FC<Props> = ({
             <div className="order-freight-panel__calc-rounded">
               <div>
                 <strong>Total freight (rounded)</strong>
-                <span>Final amount for this shipment</span>
+                <span>
+                  {selectedUsesManualRate && allowManualFreightEntry
+                    ? 'Manual freight for this shipment'
+                    : 'Final amount for this shipment'}
+                </span>
               </div>
-              <em>{formatCurrency(estimate.totalInr)}</em>
+              <em>{formatCurrency(displayTotalInr)}</em>
             </div>
           ) : null}
           {splitupPopup}
@@ -707,6 +786,9 @@ export const OrderFreightPanel: React.FC<Props> = ({
                     selected={opt.partnerId === site.partnerId}
                     name={`courier-${site.site}`}
                     amountInr={opt.estimatedTotalInr ?? 0}
+                    allowManualFreightEntry={allowManualFreightEntry}
+                    manualFreightAmount={manualFreightAmount}
+                    onManualFreightAmountChange={onManualFreightAmountChange}
                     onSelect={() => onCourierChange(site.site, opt.partnerId)}
                   />
                 ))}

@@ -794,7 +794,25 @@ export const SalesOrderDraftLineEditor: React.FC<SalesOrderDraftLineEditorProps>
             <OrderFreightPanel
               estimate={freightEstimate}
               canEditPackage={canEditPackage}
+              allowManualFreightEntry={!saving}
+              manualFreightAmount={(() => {
+                const trimmed = freightAmount.trim();
+                if (!trimmed) return null;
+                const n = Number(trimmed);
+                return Number.isFinite(n) ? n : null;
+              })()}
               catalogById={catalogById}
+              onManualFreightAmountChange={next => {
+                const sku = freightSku
+                  || freightSkuForPartner(freightEstimate.sites[0]?.partnerId)
+                  || null;
+                if (!sku) return;
+                setFreightAmountManual(true);
+                const value = next == null ? '' : String(next);
+                setFreightSku(sku);
+                setFreightAmount(value);
+                applyFreight(sku, value);
+              }}
               onCourierChange={(site, partnerId) => {
                 setFreightAmountManual(false);
                 lastAutoFreightKeyRef.current = '';
@@ -818,7 +836,9 @@ export const SalesOrderDraftLineEditor: React.FC<SalesOrderDraftLineEditorProps>
                 : 'Shipping address needed to calculate courier freight.'}
             </p>
           )}
-          {freightSku ? (
+          {freightSku && !freightEstimate?.sites.some(site => (
+            site.courierOptions.find(o => o.partnerId === site.partnerId)?.manualRate
+          )) ? (
             <label className="so-draft-editor__freight-amount">
               <span className="text-muted text-sm">Freight amount (editable)</span>
               <DecimalAmountInput

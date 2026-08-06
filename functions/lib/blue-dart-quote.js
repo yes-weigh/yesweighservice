@@ -134,6 +134,38 @@ function defaultAir() {
   };
 }
 
+const DEFAULT_OVERSIZE_SLABS = [{ upToKg: 32, percent: 0 }];
+
+function normalizeOversizeSlabs(raw) {
+  const list = Array.isArray(raw) ? raw : [];
+  const byUpTo = new Map();
+  for (const row of list) {
+    if (!row || typeof row !== 'object') continue;
+    /** Accept legacy minKg as upToKg. */
+    const upToKg = Number(row.upToKg != null ? row.upToKg : row.minKg);
+    const percent = Number(row.percent);
+    if (!Number.isFinite(upToKg) || upToKg <= 0) continue;
+    if (!Number.isFinite(percent) || percent < 0) continue;
+    byUpTo.set(Math.round(upToKg * 1000) / 1000, percent);
+  }
+  if (byUpTo.size === 0) {
+    return DEFAULT_OVERSIZE_SLABS.map((s) => ({ ...s }));
+  }
+  return [...byUpTo.entries()]
+    .sort((a, b) => a[0] - b[0])
+    .map(([upToKg, percent]) => ({ upToKg, percent }));
+}
+
+/** First slab where kg is under upToKg; else last slab. */
+function resolveOversizePercent(slabs, chargeableKg) {
+  const kg = Number.isFinite(Number(chargeableKg)) ? Number(chargeableKg) : 0;
+  const list = normalizeOversizeSlabs(slabs);
+  for (const slab of list) {
+    if (kg < slab.upToKg) return slab.percent;
+  }
+  return list[list.length - 1]?.percent ?? 0;
+}
+
 function defaultSurface() {
   return {
     perKgInr: { 1: 8, 2: 9, 3: 11, 4: 12, 5: 19 },
@@ -151,6 +183,7 @@ function defaultSurface() {
     festivalSurchargePercent: 0,
     festivalSeasonStartMonth: 10,
     festivalSeasonEndMonth: 1,
+    oversizeSlabs: DEFAULT_OVERSIZE_SLABS.map((s) => ({ ...s })),
   };
 }
 
@@ -334,6 +367,9 @@ function parseSurface(raw) {
     festivalSeasonEndMonth: clampMonth(
       raw.festivalSeasonEndMonth,
       defaults.festivalSeasonEndMonth,
+    ),
+    oversizeSlabs: normalizeOversizeSlabs(
+      raw.oversizeSlabs ?? defaults.oversizeSlabs,
     ),
   };
 }
@@ -540,7 +576,11 @@ export function quoteBlueDartParcels({
     ? 0
     : base * (nonNeg(rates.pssPercent) / 100);
   const idc = base * (nonNeg(rates.idcPercent) / 100);
-  const after = base + pss + festival + idc;
+  const oversizePct = service === 'surface'
+    ? resolveOversizePercent(cfg.surface?.oversizeSlabs, kg)
+    : 0;
+  const oversize = base * (oversizePct / 100);
+  const after = base + pss + festival + idc + oversize;
   const { fs, caf } = service === 'surface'
     ? surfaceFsCaf(cfg.surface)
     : fsCaf(cfg.shared, rates.fuelSurchargePercent, rates.cafPercent);

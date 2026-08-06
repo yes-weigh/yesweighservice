@@ -900,6 +900,10 @@ export async function createStaffSalesOrder(uid, role, payload = {}, secrets, or
 
   const freightConfig = await loadDealerFreightConfig();
   const blueDartPin = await loadBlueDartPinForZip(freightDestination.zip);
+  const manualFreightRaw = Number(payload.manualFreightAmountInr);
+  const manualFreightAmountInr = Number.isFinite(manualFreightRaw) && manualFreightRaw >= 0
+    ? Math.round(manualFreightRaw * 100) / 100
+    : null;
   const freightLines = buildDealerAutoFreightLines({
     lines: goodsLines,
     destination: freightDestination,
@@ -908,6 +912,7 @@ export async function createStaffSalesOrder(uid, role, payload = {}, secrets, or
     courierBySite: payload.courierBySite || {},
     freightZone: freightZoneMeta.zone,
     blueDartPin,
+    manualFreightAmountInr,
   });
   const linesWithFreight = [...goodsLines, ...freightLines];
   const buckets = groupLinesBySegmentAndSite(linesWithFreight);

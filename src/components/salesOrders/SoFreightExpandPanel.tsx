@@ -205,12 +205,30 @@ export const SoFreightExpandPanel: React.FC<Props> = ({
           estimate={freightEstimate}
           canEditPackage={canEditPackage && !disabled}
           showFreightChargePlan
+          allowManualFreightEntry={!disabled}
+          manualFreightAmount={(() => {
+            const trimmed = freightAmount.trim();
+            if (!trimmed) return null;
+            const n = Number(trimmed);
+            return Number.isFinite(n) ? n : null;
+          })()}
           catalogById={catalogById}
           destinationLabel={[
             shippingDestination?.city,
             shippingDestination?.state,
           ].filter(Boolean).join(', ') || null}
-          footerNote="One freight line per draft SO. Amounts are calculated from rate cards and package data."
+          footerNote="One freight line per draft SO. Rate-card partners calculate automatically; Delhivery needs a manual ₹ until rates are set."
+          onManualFreightAmountChange={next => {
+            const sku = freightSku
+              || freightSkuForPartner(freightEstimate.sites[0]?.partnerId)
+              || null;
+            if (!sku) return;
+            setFreightAmountManual(true);
+            const value = next == null ? '' : String(next);
+            setFreightSku(sku);
+            setFreightAmount(value);
+            applyFreight(sku, value);
+          }}
           onCourierChange={(site, partnerId) => {
             setFreightAmountManual(false);
             lastAutoKeyRef.current = '';
@@ -229,7 +247,9 @@ export const SoFreightExpandPanel: React.FC<Props> = ({
             : 'Shipping address needed to calculate courier freight.'}
         </p>
       )}
-      {freightSku ? (
+      {freightSku && !freightEstimate?.sites.some(site => (
+        site.courierOptions.find(o => o.partnerId === site.partnerId)?.manualRate
+      )) ? (
         <label className="so-freight-expand__amount">
           <span className="text-muted text-sm">Freight amount (editable)</span>
           <DecimalAmountInput
