@@ -4067,6 +4067,31 @@ body:has(.confirm-inline-bar) .confirm-inline-bar {
   margin: 0.4rem 0 0;
 }
 
+.spare-pricing__table .spare-pricing__cost-col {
+  width: 9.5rem;
+  min-width: 9.5rem;
+}
+
+.spare-pricing__cost-cell {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  min-width: 0;
+}
+
+.spare-pricing__currency {
+  flex-shrink: 0;
+  min-width: 1rem;
+  color: var(--text-muted, #9aa3b2);
+  font-size: 0.9rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.spare-pricing__cost-input {
+  width: 100%;
+  min-width: 0;
+}
+
 .catalog-smart-bar--admin-tabs {
   gap: 0.35rem;
 }

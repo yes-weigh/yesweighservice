@@ -352,6 +352,12 @@ service cloud.firestore {
       allow write: if false;
     }
 
+    // Manual spare purchase-cost overrides (Spare pricing tab). Defaults come from PO lines.
+    match /sparePurchaseCosts/{productId} {
+      allow read: if isSuperAdmin();
+      allow write: if isFullSuperAdmin();
+    }
+
     match /purchaseOrderMeta/{docId} {
       allow read, write: if false;
     }
