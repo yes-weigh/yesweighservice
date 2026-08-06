@@ -321,8 +321,27 @@ const PARTNER_FREIGHT_SKU = {
   st_courier: 'STFRC',
   trackon: 'TRFRC',
   delhivery: 'DELFRC',
+  bluedart_air: 'BDAIR',
+  bluedart_surface: 'BDFRC',
+  bluedart_domestic: 'BDDP',
+  /** Legacy consolidated partner → Surface. */
   bluedart: 'BDFRC',
 };
+
+const BLUEDART_PARTNER_SERVICE = {
+  bluedart_air: 'air',
+  bluedart_surface: 'surface',
+  bluedart_domestic: 'domestic_priority',
+  bluedart: 'surface',
+};
+
+function isBlueDartPartner(partnerId) {
+  return Boolean(BLUEDART_PARTNER_SERVICE[partnerId]);
+}
+
+function blueDartServiceForPartner(partnerId, fallback = 'surface') {
+  return BLUEDART_PARTNER_SERVICE[partnerId] || fallback;
+}
 
 function normalizeCourierBySite(raw) {
   const out = {};
@@ -335,7 +354,7 @@ function normalizeCourierBySite(raw) {
 }
 
 function partnerOriginRates(rates, partnerId, site) {
-  if (partnerId === 'bluedart') return null;
+  if (isBlueDartPartner(partnerId)) return null;
   if (partnerId === 'st_courier') {
     return rates.st_courier?.[site] || null;
   }
@@ -401,21 +420,22 @@ export function buildDealerAutoFreightLines({
 
     let sku = PARTNER_FREIGHT_SKU[partnerId] || 'STFRC';
     const originRates = partnerOriginRates(rates, partnerId, site) || rates.st_courier[site];
+    const bdService = blueDartServiceForPartner(partnerId, blueDartService);
 
     if (productSites.has(site)) {
       const parcels = productParcelsBySite.get(site) || [];
       let totalInr = 0;
-      if (partnerId === 'bluedart') {
+      if (isBlueDartPartner(partnerId)) {
         const bd = parcels.length
           ? quoteBlueDartParcels({
             config: rates.bluedart,
-            service: blueDartService,
+            service: bdService,
             destState: destination?.state,
             pin: blueDartPin,
             parcels,
             invoiceValueInr,
           })
-          : { totalInr: 0, sku: 'BDFRC' };
+          : { totalInr: 0, sku: PARTNER_FREIGHT_SKU[partnerId] || 'BDFRC' };
         totalInr = bd.totalInr || 0;
         sku = bd.sku || sku;
       } else {

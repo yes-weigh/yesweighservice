@@ -1,6 +1,11 @@
 import type { CatalogPackageCarton, CatalogPackageInfo, CatalogProduct } from '../types/catalog';
 import type { LogisticsPartnerId } from '../constants/logisticsPartners';
-import { logisticsPartnerLabel } from '../constants/logisticsPartners';
+import {
+  blueDartServiceForPartner,
+  isBlueDartLogisticsPartnerId,
+  logisticsPartnerLabel,
+  normalizeLogisticsPartnerId,
+} from '../constants/logisticsPartners';
 import type { BlueDartPincodeDoc } from '../types/blue-dart-rates';
 import type { LogisticsDeliveryRulesMatrix } from '../types/logistics-delivery-rules';
 import {
@@ -344,8 +349,8 @@ function partnerRates(
   partnerId: LogisticsPartnerId,
   site: InventorySite,
 ): StCourierOriginRates | null {
+  if (isBlueDartLogisticsPartnerId(partnerId)) return null;
   if (!isCourierRatePartnerId(partnerId)) return null;
-  if (partnerId === 'bluedart') return null;
   if (partnerId === 'st_courier') {
     return rates.st_courier[site];
   }
@@ -395,7 +400,10 @@ export function estimateStCourierCartFreight(input: {
   zoneOverride?: StCourierZone | null;
   /** Blue Dart pin serviceability (from blueDartPincodes/{zip}). */
   blueDartPin?: BlueDartPincodeDoc | null;
-  /** Default Blue Dart service for cart estimates (Surface). */
+  /**
+   * @deprecated Prefer selecting bluedart_air / bluedart_surface / bluedart_domestic.
+   * Kept only as a last-resort default when a legacy consolidated partner is passed.
+   */
   blueDartService?: BlueDartServiceId;
   /** Invoice / cargo value for FOV. */
   invoiceValueInr?: number;
@@ -483,18 +491,21 @@ export function estimateStCourierCartFreight(input: {
 
     const allParcels = acc.productLines.flatMap(row => row.parcels);
 
-    const bdService = input.blueDartService ?? 'surface';
     const invoiceValueInr = Number(input.invoiceValueInr) || 0;
+
+    const resolveBlueDartService = (partnerId: LogisticsPartnerId): BlueDartServiceId => (
+      blueDartServiceForPartner(partnerId) ?? input.blueDartService ?? 'surface'
+    );
 
     const quotePartnerTotal = (partnerId: LogisticsPartnerId): number => {
       if (isPickupPartner(partnerId)) return 0;
-      if (partnerId === 'bluedart') {
+      if (isBlueDartLogisticsPartnerId(partnerId)) {
         const productFreight = quoteBlueDartPartnerTotal({
           rates: input.rates,
           destination: input.destination,
           pin: input.blueDartPin,
           parcels: allParcels,
-          service: bdService,
+          service: resolveBlueDartService(partnerId),
           invoiceValueInr,
         });
         const spareFreight = hasSpare ? ceilCourierChargeInr(spareMin) : 0;
@@ -514,14 +525,16 @@ export function estimateStCourierCartFreight(input: {
       estimatedTotalInr: quotePartnerTotal(opt.partnerId),
     }));
 
-    const requested = input.courierBySite?.[site];
+    const requested = normalizeLogisticsPartnerId(input.courierBySite?.[site] ?? null)
+      ?? undefined;
     const selectedOpt = optionsWithTotals.find(o => o.partnerId === requested && o.enabled)
       ?? optionsWithTotals.find(o => o.partnerId === defaultPartnerId && o.enabled)
       ?? optionsWithTotals.find(o => o.enabled)
       ?? optionsWithTotals[0];
     const partnerId = selectedOpt?.partnerId ?? defaultPartnerId;
     const isPickup = isPickupPartner(partnerId);
-    const isBlueDart = partnerId === 'bluedart';
+    const isBlueDart = isBlueDartLogisticsPartnerId(partnerId);
+    const bdService = resolveBlueDartService(partnerId);
     const originRates = partnerRates(input.rates, partnerId, site);
 
     const quoted = !isPickup && !isBlueDart && originRates && allParcels.length

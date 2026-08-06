@@ -3,8 +3,10 @@ import { DecimalAmountInput } from '../../../components/DecimalAmountInput';
 import { useAuth } from '../../../context/AuthContext';
 import { defaultLogisticsCourierRates } from '../../../constants/logisticsCourierRates';
 import {
+  BLUEDART_LOGISTICS_PARTNER_IDS,
   LOGISTICS_PARTNERS,
   logisticsPartnerImage,
+  type LogisticsPartnerId,
 } from '../../../constants/logisticsPartners';
 import {
   originsUsingPartnerInDeliveryRules,
@@ -121,7 +123,10 @@ export const StCourierRatesSettings: React.FC<Props> = ({ deliveryRules, onError
 
   const visibleOrigins = useMemo(() => {
     if (!partnerUsesOriginRates(partnerId)) return [] as StaffLogisticsSite[];
-    const sites = originsUsingPartnerInDeliveryRules(deliveryRules, partnerId);
+    const sites = originsUsingPartnerInDeliveryRules(
+      deliveryRules,
+      partnerId as LogisticsPartnerId,
+    );
     return sites.length ? sites : [...STAFF_LOGISTICS_SITES];
   }, [deliveryRules, partnerId]);
 
@@ -278,10 +283,13 @@ export const StCourierRatesSettings: React.FC<Props> = ({ deliveryRules, onError
     queueBlueDartSave();
   };
 
-  const partnerInDeliveryRules = useMemo(
-    () => partnersUsedInDeliveryRules(deliveryRules).includes(partnerId),
-    [deliveryRules, partnerId],
-  );
+  const partnerInDeliveryRules = useMemo(() => {
+    const used = partnersUsedInDeliveryRules(deliveryRules);
+    if (partnerId === 'bluedart') {
+      return BLUEDART_LOGISTICS_PARTNER_IDS.some(id => used.includes(id));
+    }
+    return used.includes(partnerId as LogisticsPartnerId);
+  }, [deliveryRules, partnerId]);
 
   const canEditRates = isCourierRatePartnerId(partnerId);
   const saveStatusLabel = saveStatus === 'pending' || saveStatus === 'saving'

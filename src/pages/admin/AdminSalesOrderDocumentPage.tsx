@@ -789,6 +789,8 @@ export const AdminSalesOrderDocumentPage: React.FC = () => {
           customerName={salesOrder.customerName}
           hideName={isDealer}
           address={salesOrder.shippingAddress}
+          pincode={freightDestination?.zip}
+          highlightPincode
           telHref={isOps ? salesOrder.customerTelHref : null}
           whatsappHref={isOps ? salesOrder.customerWhatsappHref : null}
           emptyAddressLabel="No address on file"

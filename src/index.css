@@ -27560,6 +27560,31 @@ body:has(.confirm-inline-bar) .confirm-inline-bar {
   text-transform: uppercase;
 }
 
+.document-party__pin {
+  display: flex;
+  align-items: baseline;
+  gap: 0.45rem;
+  margin: 0;
+  line-height: 1.3;
+}
+
+.document-party__pin-label {
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: #fb923c;
+  align-self: center;
+}
+
+.document-party__pin-value {
+  font-size: 1.15rem;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.01em;
+  color: #fff7ed;
+}
+
 .document-party__ship {
   display: flex;
   align-items: flex-start;

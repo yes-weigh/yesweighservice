@@ -1,10 +1,13 @@
-import { blueDartConfigHasAnyRate } from '../constants/blueDartRates';
+import { blueDartServiceHasRate } from '../constants/blueDartRates';
 import type { FreightLineSku } from '../constants/freightLines';
 import { FREIGHT_LINE_OPTIONS } from '../constants/freightLines';
 import type { LogisticsPartnerId } from '../constants/logisticsPartners';
 import {
+  blueDartServiceForPartner,
+  isBlueDartLogisticsPartnerId,
   isLogisticsPartnerId,
   logisticsPartnerLabel,
+  partnerIdForBlueDartService,
 } from '../constants/logisticsPartners';
 import type { LogisticsDeliveryRulesMatrix } from '../types/logistics-delivery-rules';
 import {
@@ -30,8 +33,9 @@ const PARTNER_TO_FREIGHT_SKU: Partial<Record<LogisticsPartnerId, FreightLineSku>
   st_courier: 'STFRC',
   trackon: 'TRFRC',
   delhivery: 'DELFRC',
-  /** Default Blue Dart service for freight lines (Surface). */
-  bluedart: 'BDFRC',
+  bluedart_air: 'BDAIR',
+  bluedart_surface: 'BDFRC',
+  bluedart_domestic: 'BDDP',
 };
 
 export function freightSkuForBlueDartService(service: BlueDartServiceId): FreightLineSku {
@@ -51,7 +55,8 @@ export function freightSkuForPartner(partnerId: LogisticsPartnerId): FreightLine
 export function partnerIdForFreightSku(sku: string | null | undefined): LogisticsPartnerId | null {
   const value = String(sku ?? '').trim().toUpperCase();
   if (!value) return null;
-  if (blueDartServiceForFreightSku(value)) return 'bluedart';
+  const bdService = blueDartServiceForFreightSku(value);
+  if (bdService) return partnerIdForBlueDartService(bdService);
   const hit = (Object.entries(PARTNER_TO_FREIGHT_SKU) as Array<[LogisticsPartnerId, FreightLineSku]>)
     .find(([, freightSku]) => freightSku === value);
   return hit?.[0] ?? null;
@@ -61,17 +66,18 @@ export function isPickupPartner(partnerId: LogisticsPartnerId | null | undefined
   return partnerId === PICKUP_PARTNER_ID;
 }
 
-/** Whether this partner has a usable ₹/kg rate for the zone at this origin. */
+/** Whether this partner has a usable rate for the destination at this origin. */
 export function partnerHasZoneRate(
   rates: LogisticsCourierRates,
   partnerId: LogisticsPartnerId,
   site: InventorySite,
   zone: StCourierZone,
 ): boolean {
-  if (!isCourierRatePartnerId(partnerId)) return false;
-  if (partnerId === 'bluedart') {
-    return blueDartConfigHasAnyRate(rates.bluedart);
+  if (isBlueDartLogisticsPartnerId(partnerId)) {
+    const service = blueDartServiceForPartner(partnerId);
+    return service ? blueDartServiceHasRate(rates.bluedart, service) : false;
   }
+  if (!isCourierRatePartnerId(partnerId)) return false;
   if (partnerId === 'st_courier') {
     const boxPerKg = rates.st_courier?.[site]?.zones?.[zone]?.boxPerKgInr;
     return typeof boxPerKg === 'number' && Number.isFinite(boxPerKg) && boxPerKg > 0;
@@ -148,7 +154,9 @@ export function listOrderCourierOptions(input: {
         disabledReason: null,
       };
     }
-    if (!isCourierRatePartnerId(partnerId)) {
+    const isRatePartner = isCourierRatePartnerId(partnerId)
+      || isBlueDartLogisticsPartnerId(partnerId);
+    if (!isRatePartner) {
       return {
         partnerId,
         label: logisticsPartnerLabel(partnerId),

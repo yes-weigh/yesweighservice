@@ -11,6 +11,9 @@ export function logisticsTrackingUrl(
     case 'delhivery':
       return `https://www.delhivery.com/track/package/${encoded}`;
     case 'bluedart':
+    case 'bluedart_air':
+    case 'bluedart_surface':
+    case 'bluedart_domestic':
       return `https://www.bluedart.com/web/guest/trackdartresult?trackFor=0&trackNo=${encoded}`;
     case 'dtdc':
       return `https://www.dtdc.in/tracking.asp?strCnno=${encoded}`;

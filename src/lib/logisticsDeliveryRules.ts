@@ -1,5 +1,5 @@
 import type { LogisticsPartnerId } from '../constants/logisticsPartners';
-import { isLogisticsPartnerId } from '../constants/logisticsPartners';
+import { normalizeLogisticsPartnerId } from '../constants/logisticsPartners';
 import {
   DEFAULT_LOGISTICS_DELIVERY_RULES,
   LOGISTICS_DESTINATION_REGIONS,
@@ -20,8 +20,8 @@ function normalizePartnerList(value: unknown): LogisticsPartnerId[] {
   const seen = new Set<LogisticsPartnerId>();
   const next: LogisticsPartnerId[] = [];
   for (const raw of value) {
-    const id = String(raw ?? '').trim();
-    if (!isLogisticsPartnerId(id) || seen.has(id)) continue;
+    const id = normalizeLogisticsPartnerId(raw);
+    if (!id || seen.has(id)) continue;
     seen.add(id);
     next.push(id);
   }

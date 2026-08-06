@@ -40,7 +40,7 @@ export const FREIGHT_LINE_OPTIONS = [
     name: 'Blue Dart Air',
     label: 'Blue Dart Air',
     tagline: 'Air',
-    image: '/logistics/bluedart.png',
+    image: '/logistics/bluedart-air.webp',
   },
   {
     productId: '99381000031970559',
@@ -48,7 +48,7 @@ export const FREIGHT_LINE_OPTIONS = [
     name: 'Blue Dart Surface',
     label: 'Blue Dart Surface',
     tagline: 'Surface',
-    image: '/logistics/bluedart.png',
+    image: '/logistics/bluedart-surface.webp',
   },
   {
     productId: '99381000031970625',
@@ -56,7 +56,7 @@ export const FREIGHT_LINE_OPTIONS = [
     name: 'Blue Dart Domestic Priority',
     label: 'Blue Dart Domestic Priority',
     tagline: 'Domestic Priority',
-    image: '/logistics/bluedart.png',
+    image: '/logistics/bluedart-domestic-priority.webp',
   },
 ] as const;
 

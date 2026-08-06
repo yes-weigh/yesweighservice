@@ -9,9 +9,29 @@ function WhatsAppIcon({ size = 14 }: { size?: number }) {
   );
 }
 
+/** Prefer the last 6-digit token (typical Indian PIN placement before country). */
+function extractPincode(address: string): string | null {
+  const matches = address.match(/\b\d{6}\b/g);
+  if (!matches?.length) return null;
+  return matches[matches.length - 1] ?? null;
+}
+
+function stripPincode(address: string, pin: string): string {
+  return address
+    .replace(new RegExp(`(^|[,\\s]+)${pin}(?=[,\\s]|$)`, 'g'), '$1')
+    .replace(/,\s*,/g, ',')
+    .replace(/^[,\s]+|[,\s]+$/g, '')
+    .replace(/\s{2,}/g, ' ')
+    .trim();
+}
+
 type Props = {
   customerName?: string | null;
   address?: string | null;
+  /** Explicit PIN; otherwise extracted from address when highlightPincode is on. */
+  pincode?: string | null;
+  /** Show PIN in a large, high-focus style (SO view). */
+  highlightPincode?: boolean;
   telHref?: string | null;
   whatsappHref?: string | null;
   /** Hide the name (e.g. dealer viewing their own order). */
@@ -24,6 +44,8 @@ type Props = {
 export const DocumentPartyBlock: React.FC<Props> = ({
   customerName,
   address,
+  pincode: pincodeProp,
+  highlightPincode = false,
   telHref,
   whatsappHref,
   hideName = false,
@@ -35,23 +57,35 @@ export const DocumentPartyBlock: React.FC<Props> = ({
   const addr = address?.trim() || '';
   const showActions = Boolean(telHref || whatsappHref);
 
+  const fromProp = pincodeProp?.replace(/\D/g, '').slice(0, 6) || '';
+  const pin = highlightPincode
+    ? ((fromProp.length === 6 ? fromProp : null) || (addr ? extractPincode(addr) : null))
+    : null;
+  const shipText = pin && addr ? stripPincode(addr, pin) : addr;
+
   return (
     <div className={`document-party ${className}`.trim()}>
       <div className="document-party__main">
         {!hideName ? (
           <h2 className="document-party__customer">{name}</h2>
         ) : null}
-        {addr ? (
+        {shipText ? (
           <p className="document-party__ship">
             <MapPin size={14} aria-hidden />
-            <span>{addr}</span>
+            <span>{shipText}</span>
           </p>
-        ) : (
+        ) : !pin ? (
           <p className="document-party__ship text-muted">
             <MapPin size={14} aria-hidden />
             <span>{emptyAddressLabel}</span>
           </p>
-        )}
+        ) : null}
+        {pin ? (
+          <p className="document-party__pin" aria-label={`PIN code ${pin}`}>
+            <span className="document-party__pin-label">PIN</span>
+            <span className="document-party__pin-value">{pin}</span>
+          </p>
+        ) : null}
         {children}
       </div>
       {showActions ? (

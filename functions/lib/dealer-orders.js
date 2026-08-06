@@ -579,9 +579,13 @@ async function createSegmentSalesOrders({
         ? 'delhivery'
         : freightSku === 'STFRC'
           ? 'st_courier'
-          : (freightSku === 'BDAIR' || freightSku === 'BDFRC' || freightSku === 'BDDP')
-            ? 'bluedart'
-            : (segmentLines.some(isFreightOrderLine) ? 'st_courier' : 'personal_collection');
+          : freightSku === 'BDAIR'
+            ? 'bluedart_air'
+            : freightSku === 'BDFRC'
+              ? 'bluedart_surface'
+              : freightSku === 'BDDP'
+                ? 'bluedart_domestic'
+                : (segmentLines.some(isFreightOrderLine) ? 'st_courier' : 'personal_collection');
 
     const segmentPriceChanges = filterPriceAuditForLines(
       workflowBase.yesOnePriceChanges,

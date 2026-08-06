@@ -23,6 +23,7 @@ import type {
   BlueDartSurfaceRates,
 } from '../types/blue-dart-rates';
 import { BLUE_DART_AIR_ZONES, BLUE_DART_DP_ZONES, BLUE_DART_REGIONS } from '../types/blue-dart-rates';
+import type { BlueDartServiceId } from '../types/logistics-courier-rates';
 
 /** Default Surface oversize: under 32 kg → 0% (add higher ceilings in Settings). */
 export const DEFAULT_BLUE_DART_OVERSIZE_SLABS: BlueDartOversizeSlab[] = [
@@ -267,13 +268,26 @@ export function defaultBlueDartConfig(): BlueDartConfig {
 }
 
 export function blueDartConfigHasAnyRate(config: BlueDartConfig): boolean {
-  const airOk = BLUE_DART_AIR_ZONES.some(z => config.air.perKgInr[z] > 0);
-  const sfcOk = BLUE_DART_AIR_ZONES.some(z => config.surface.perKgInr[z] > 0);
-  const dpOk = BLUE_DART_DP_ZONES.some(z => (
+  return blueDartServiceHasRate(config, 'air')
+    || blueDartServiceHasRate(config, 'surface')
+    || blueDartServiceHasRate(config, 'domestic_priority');
+}
+
+/** Whether a specific Blue Dart service has usable tariff numbers. */
+export function blueDartServiceHasRate(
+  config: BlueDartConfig,
+  service: BlueDartServiceId,
+): boolean {
+  if (service === 'air') {
+    return BLUE_DART_AIR_ZONES.some(z => config.air.perKgInr[z] > 0);
+  }
+  if (service === 'surface') {
+    return BLUE_DART_AIR_ZONES.some(z => config.surface.perKgInr[z] > 0);
+  }
+  return BLUE_DART_DP_ZONES.some(z => (
     config.domestic_priority.first500gInr[z] > 0
     || config.domestic_priority.addl500gInr[z] > 0
   ));
-  return airOk || sfcOk || dpOk;
 }
 
 export { BLUE_DART_REGIONS };
