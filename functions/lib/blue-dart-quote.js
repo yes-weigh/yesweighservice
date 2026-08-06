@@ -134,7 +134,13 @@ function defaultAir() {
   };
 }
 
-const DEFAULT_OVERSIZE_SLABS = [{ upToKg: 32, percent: 0 }];
+/** ≤32 Nil, 33–70 ₹100, 71–200 ₹300, 201–700 ₹3500 (exclusive upToKg). */
+const DEFAULT_OVERSIZE_SLABS = [
+  { upToKg: 33, amountInr: 0 },
+  { upToKg: 71, amountInr: 100 },
+  { upToKg: 201, amountInr: 300 },
+  { upToKg: 701, amountInr: 3500 },
+];
 
 function normalizeOversizeSlabs(raw) {
   const list = Array.isArray(raw) ? raw : [];
@@ -143,27 +149,27 @@ function normalizeOversizeSlabs(raw) {
     if (!row || typeof row !== 'object') continue;
     /** Accept legacy minKg as upToKg. */
     const upToKg = Number(row.upToKg != null ? row.upToKg : row.minKg);
-    const percent = Number(row.percent);
+    const amountInr = Number(row.amountInr != null ? row.amountInr : row.percent);
     if (!Number.isFinite(upToKg) || upToKg <= 0) continue;
-    if (!Number.isFinite(percent) || percent < 0) continue;
-    byUpTo.set(Math.round(upToKg * 1000) / 1000, percent);
+    if (!Number.isFinite(amountInr) || amountInr < 0) continue;
+    byUpTo.set(Math.round(upToKg * 1000) / 1000, amountInr);
   }
   if (byUpTo.size === 0) {
     return DEFAULT_OVERSIZE_SLABS.map((s) => ({ ...s }));
   }
   return [...byUpTo.entries()]
     .sort((a, b) => a[0] - b[0])
-    .map(([upToKg, percent]) => ({ upToKg, percent }));
+    .map(([upToKg, amountInr]) => ({ upToKg, amountInr }));
 }
 
-/** First slab where kg is under upToKg; else last slab. */
-function resolveOversizePercent(slabs, chargeableKg) {
+/** First slab where kg is under upToKg; else last slab’s flat ₹. */
+function resolveOversizeAmountInr(slabs, chargeableKg) {
   const kg = Number.isFinite(Number(chargeableKg)) ? Number(chargeableKg) : 0;
   const list = normalizeOversizeSlabs(slabs);
   for (const slab of list) {
-    if (kg < slab.upToKg) return slab.percent;
+    if (kg < slab.upToKg) return slab.amountInr;
   }
-  return list[list.length - 1]?.percent ?? 0;
+  return list[list.length - 1]?.amountInr ?? 0;
 }
 
 function defaultSurface() {
@@ -173,18 +179,18 @@ function defaultSurface() {
     minimumFreightInr: 160,
     docketFeeInr: 100,
     volumetricDivisor: 4500,
-    fuelSurchargePercent: null,
+    fuelSurchargePercent: 37,
     cafPercent: null,
     idcPercent: 0,
-    efssPercent: 0,
+    efssPercent: 7,
     pssPercent: 0,
     rasPerKgInr: null,
     fov: null,
-    festivalSurchargePercent: 0,
-    festivalSeasonStartMonth: 10,
-    festivalSeasonEndMonth: 1,
+    festivalSurchargePercent: 3,
+    festivalSeasonStartMonth: 9,
+    festivalSeasonEndMonth: 12,
     oversizeSlabs: DEFAULT_OVERSIZE_SLABS.map((s) => ({ ...s })),
-    dieselB2bDiscountPercent: 0,
+    dieselB2bDiscountPercent: 10,
   };
 }
 
@@ -588,19 +594,9 @@ export function quoteBlueDartParcels({
     ? 0
     : base * (nonNeg(rates.pssPercent) / 100);
   const idc = base * (nonNeg(rates.idcPercent) / 100);
-  const oversizePct = service === 'surface'
-    ? resolveOversizePercent(cfg.surface?.oversizeSlabs, kg)
+  const oversize = service === 'surface'
+    ? resolveOversizeAmountInr(cfg.surface?.oversizeSlabs, kg)
     : 0;
-  const oversize = base * (oversizePct / 100);
-  const after = base + pss + festival + idc + oversize;
-  const { fs, caf } = service === 'surface'
-    ? surfaceFsCaf(cfg.surface)
-    : fsCaf(cfg.shared, rates.fuelSurchargePercent, rates.cafPercent);
-  const fuel = after * (fs / 100);
-  const afterFuel = after + fuel;
-  const cafInr = afterFuel * (caf / 100);
-  const afterCaf = afterFuel + cafInr;
-  const efss = afterCaf * (nonNeg(rates.efssPercent) / 100);
   const rasRate = rates.rasPerKgInr != null ? nonNeg(rates.rasPerKgInr) : nonNeg(cfg.shared.rasPerKgInr);
   const ras = isRas(destState, cfg.shared.rasStates) ? rasRate * kg : 0;
   const fovRule = rates.fov || cfg.shared.fov;
@@ -609,7 +605,25 @@ export function quoteBlueDartParcels({
     nonNeg(invoiceValueInr) * (nonNeg(fovRule.percentOfInvoice) / 100),
   );
   const edl = edlInr(cfg.shared, destState, access.edl, kg, pin?.edlKm ?? null);
-  const subtotal = afterCaf + efss + docket + ras + fov + edl;
+
+  let subtotal = 0;
+  if (service === 'surface') {
+    const fsBase = base + festival + idc + docket + fov;
+    const { fs } = surfaceFsCaf(cfg.surface);
+    const fuel = fsBase * (fs / 100);
+    const afterFuel = fsBase + fuel;
+    const efss = afterFuel * (nonNeg(rates.efssPercent) / 100);
+    subtotal = afterFuel + efss + oversize + ras + edl;
+  } else {
+    const after = base + pss + idc;
+    const { fs, caf } = fsCaf(cfg.shared, rates.fuelSurchargePercent, rates.cafPercent);
+    const fuel = after * (fs / 100);
+    const afterFuel = after + fuel;
+    const cafInr = afterFuel * (caf / 100);
+    const afterCaf = afterFuel + cafInr;
+    const efss = afterCaf * (nonNeg(rates.efssPercent) / 100);
+    subtotal = afterCaf + efss + docket + ras + fov + edl;
+  }
   return {
     totalInr: ceilInr(subtotal),
     chargeableKg: kg,

@@ -21,7 +21,12 @@ except ImportError:
     sys.exit(1)
 
 ROOT = Path(__file__).resolve().parents[1]
-SRC = ROOT / "BdService (32).xlsx"
+# Prefer bddata/; fall back to repo-root copy for older drops.
+_SRC_CANDIDATES = [
+    ROOT / "bddata" / "BdService (32).xlsx",
+    ROOT / "BdService (32).xlsx",
+]
+SRC = next((p for p in _SRC_CANDIDATES if p.exists()), _SRC_CANDIDATES[0])
 OUT = ROOT / "scripts" / "data" / "bluedart-pincodes.jsonl"
 
 

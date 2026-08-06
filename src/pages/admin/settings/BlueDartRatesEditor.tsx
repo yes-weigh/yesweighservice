@@ -365,7 +365,7 @@ function SurfaceChargeStack(props: {
   const seasonLabel = `${MONTH_OPTIONS.find(m => m.value === rates.festivalSeasonStartMonth)?.label?.slice(0, 3) ?? '?'}–${MONTH_OPTIONS.find(m => m.value === rates.festivalSeasonEndMonth)?.label?.slice(0, 3) ?? '?'}`;
   const oversizeSlabs = normalizeBlueDartOversizeSlabs(rates.oversizeSlabs);
   const oversizeSummary = oversizeSlabs
-    .map(s => `under ${s.upToKg} kg → ${s.percent}%`)
+    .map(s => `under ${s.upToKg} kg → ₹${s.amountInr}`)
     .join(' · ');
   const statesByZone = useMemo(() => blueDartStatesByAirZone(shared), [shared]);
 
@@ -575,7 +575,7 @@ function SurfaceChargeStack(props: {
           prefix="+"
           names={[{
             text: 'Festival',
-            tip: 'Festival / peak-season surcharge. % of basic freight only, and only when the quote month falls in the configured season (may wrap year, e.g. Oct–Jan). Surface’s stand-in for Air PSS.',
+            tip: 'Festival / peak-season surcharge. % of basic freight only, and only when the quote month falls in the configured season (default Sep–Dec @ 3%). Surface’s stand-in for Air PSS.',
           }]}
           suffix={`${rates.festivalSurchargePercent}%`}
           detail={
@@ -590,7 +590,7 @@ function SurfaceChargeStack(props: {
           prefix="+"
           names={[{
             text: 'IDC',
-            tip: 'Infrastructure Development Charge. % of basic freight only — not stacked on Festival or Oversize.',
+            tip: 'Infrastructure Development Charge. % of basic freight only.',
           }]}
           suffix={`${rates.idcPercent}%`}
           detail="of basic freight"
@@ -600,21 +600,30 @@ function SurfaceChargeStack(props: {
           kind="line"
           prefix="+"
           names={[{
-            text: 'Oversize',
-            tip: 'Oversize shipment surcharge. If chargeable kg is under a slab’s kg ceiling, apply that slab’s % of basic (first matching band). At or above every ceiling, the last slab applies. Default: under 32 kg → 0%.',
+            text: 'Docket',
+            tip: 'Fixed AWB / docket fee. Included in the diesel FS base (Surface rates sample).',
           }]}
-          suffix={`${preview.oversizePct}%`}
-          detail={`of basic · ${oversizeSummary || '—'}`}
-          value={formatStackInr(preview.oversizeInr)}
+          detail="flat · inside FS base"
+          value={formatStackInr(preview.docketFeeInr)}
+        />
+        <SurfaceStackRow
+          kind="line"
+          prefix="+"
+          names={[{
+            text: 'FOV',
+            tip: 'Freight on Value. Higher of min ₹ and % of invoice. Included in the diesel FS base (Surface rates sample).',
+          }]}
+          detail="flat · inside FS base"
+          value={formatStackInr(preview.fovInr)}
         />
         <SurfaceStackRow
           kind="subtotal"
           prefix="="
           names={[{
             text: 'Subtotal A',
-            tip: 'Running total after all charges that are % of basic: Basic + Festival + IDC + Oversize. Diesel FS is calculated on this subtotal.',
+            tip: 'Basic + Festival + IDC + Docket + FOV. Diesel FS is calculated on this subtotal (Surface rates.xlsx sample).',
           }]}
-          detail="Basic + Festival + IDC + Oversize"
+          detail="Basic + Festival + IDC + Docket + FOV"
           value={formatStackInr(preview.subtotalAInr)}
         />
         <SurfaceStackRow
@@ -622,13 +631,13 @@ function SurfaceChargeStack(props: {
           prefix="+"
           names={[{
             text: 'Diesel FS',
-            tip: 'Diesel fuel surcharge from Blue Dart’s published rate, after B2B discount. Effective % of Subtotal A only — not applied to Docket, RAS, FOV, or EDL. Surface does not use CAF.',
+            tip: 'Published diesel FS after B2B discount. Effective % of Subtotal A. Surface does not use CAF.',
           }]}
           suffix={`${dieselEffective}%`}
           detail={
             b2bDiscount > 0
               ? `effective of Subtotal A · ${dieselPublished}% − ${b2bDiscount}% = ${dieselEffective}%`
-              : 'of Subtotal A (not of docket / RAS / FOV)'
+              : 'of Subtotal A'
           }
           value={formatStackInr(preview.fuelSurchargeInr)}
         />
@@ -637,7 +646,7 @@ function SurfaceChargeStack(props: {
           prefix="="
           names={[{
             text: 'Subtotal B',
-            tip: 'Subtotal A + effective Diesel FS. EFSS is calculated on this amount. (Air would insert CAF here; Surface skips CAF.)',
+            tip: 'Subtotal A + effective Diesel FS. EFSS is calculated on this amount.',
           }]}
           detail="Subtotal A + Diesel FS"
           value={formatStackInr(preview.subtotalBInr)}
@@ -656,33 +665,23 @@ function SurfaceChargeStack(props: {
         <SurfaceStackRow
           kind="line"
           prefix="+"
-          names={[{
-            text: 'Docket',
-            tip: 'Fixed AWB / docket fee per shipment. Flat ₹ added after all percentage surcharges — not inside Diesel FS or EFSS bases.',
-          }]}
-          detail="flat · after percentages"
-          value={formatStackInr(preview.docketFeeInr)}
-        />
-        <SurfaceStackRow
-          kind="line"
-          prefix="+"
           names={[
             {
-              text: 'RAS',
-              tip: 'Remote Area Surcharge. ₹ per chargeable kg when the destination state is in the RAS list (e.g. Bihar, Jharkhand, Kerala, J&K, Ladakh). Added after percentages.',
+              text: 'OS/OW',
+              tip: 'Oversize / overweight flat ₹ per shipment from weight slabs (≤32 Nil, 33–70 ₹100, 71–200 ₹300, 201–700 ₹3500). After % stack — not inside FS/EFSS.',
             },
             {
-              text: 'FOV',
-              tip: 'Freight on Value (insurance). Billed as the higher of the minimum ₹ and % of invoice value. Added after percentages — not % of freight.',
+              text: 'RAS',
+              tip: 'Remote Area Surcharge. ₹ per chargeable kg when the destination state is in the RAS list (e.g. Bihar, Jharkhand, Kerala, J&K, Ladakh).',
             },
             {
               text: 'EDL',
-              tip: 'Extra Delivery Location charge when the pincode is outside Blue Dart’s standard coverage (flat, NE/J&K, or distance rules). Added after percentages.',
+              tip: 'Extra Delivery Location charge when the pincode is outside Blue Dart’s standard coverage (flat, NE/J&K, or distance rules).',
             },
           ]}
           join=" · "
-          detail={`${formatStackInr(preview.rasInr)} + ${formatStackInr(preview.fovInr)} + ${formatStackInr(preview.edlInr)}`}
-          value={formatStackInr(preview.rasInr + preview.fovInr + preview.edlInr)}
+          detail={`flat VAS · ${oversizeSummary || 'OS —'}`}
+          value={formatStackInr(preview.oversizeInr + preview.rasInr + preview.edlInr)}
         />
         <SurfaceStackRow
           kind="total"
@@ -893,14 +892,14 @@ function SurfaceRatesEditor(props: {
       <SurfaceStep
         n={3}
         title="Oversize shipment"
-        applies="% of basic when chargeable kg is under the slab · first match wins"
+        applies="Flat ₹ when chargeable kg is under the slab · first match wins"
       >
         <div className="settings-bluedart__oversize">
           <table className="settings-bluedart__oversize-table">
             <thead>
               <tr>
                 <th scope="col">Under kg</th>
-                <th scope="col">% of basic</th>
+                <th scope="col">Flat ₹</th>
                 <th scope="col">
                   <span className="sr-only">Remove</span>
                 </th>
@@ -931,16 +930,16 @@ function SurfaceRatesEditor(props: {
                       <DecimalAmountInput
                         min={0}
                         decimals={2}
-                        value={slab.percent}
-                        aria-label={`Oversize slab ${idx + 1} percent`}
+                        value={slab.amountInr}
+                        aria-label={`Oversize slab ${idx + 1} amount`}
                         onChange={next => {
                           if (next == null) return;
                           const copy = oversizeSlabs.map(s => ({ ...s }));
-                          copy[idx] = { ...copy[idx], percent: next };
+                          copy[idx] = { ...copy[idx], amountInr: next };
                           patchOversizeSlabs(copy);
                         }}
                       />
-                      <span aria-hidden>%</span>
+                      <span aria-hidden>₹</span>
                     </div>
                   </td>
                   <td>
@@ -969,7 +968,7 @@ function SurfaceRatesEditor(props: {
               const nextUpTo = Math.max(32, (last?.upToKg ?? 32) + 10);
               patchOversizeSlabs([
                 ...oversizeSlabs,
-                { upToKg: nextUpTo, percent: 0 },
+                { upToKg: nextUpTo, amountInr: 0 },
               ]);
             }}
           >

@@ -1,11 +1,11 @@
 /**
  * Default Blue Dart commercials + geo seed (mirrors Excel / tariff images).
  *
- * AGENT: When ops drop new Blue Dart Excels/images:
+ * AGENT: When ops drop new Blue Dart Excels/images under bddata/:
  * 1. Update numbers in this file (defaults) AND scripts/seed-bluedart-rates.mjs
  *    (keep them in sync — seed does not import TS).
- * 2. If BdService pin file changed: update scripts/extract-bluedart-pincodes.py
- *    SRC path if the filename changed, then re-run npm run seed:bluedart.
+ * 2. If BdService pin file changed: point extract script at bddata/, then
+ *    re-run npm run seed:bluedart.
  * 3. Prefer seed with --overwrite-rates only when intentionally replacing
  *    admin UI overrides already saved in Firestore.
  * 4. Keep Zoho productIds in sync with src/constants/freightLines.ts.
@@ -25,45 +25,68 @@ import type {
 import { BLUE_DART_AIR_ZONES, BLUE_DART_DP_ZONES, BLUE_DART_REGIONS } from '../types/blue-dart-rates';
 import type { BlueDartServiceId } from '../types/logistics-courier-rates';
 
-/** Default Surface oversize: under 32 kg → 0% (add higher ceilings in Settings). */
+/**
+ * Default Surface OS/OW (Surface rates sheet):
+ * ≤32 → Nil, 33–70 → ₹100, 71–200 → ₹300, 201–700 → ₹3500.
+ * Ceilings are exclusive (kg < upToKg).
+ */
 export const DEFAULT_BLUE_DART_OVERSIZE_SLABS: BlueDartOversizeSlab[] = [
-  { upToKg: 32, percent: 0 },
+  { upToKg: 33, amountInr: 0 },
+  { upToKg: 71, amountInr: 100 },
+  { upToKg: 201, amountInr: 300 },
+  { upToKg: 701, amountInr: 3500 },
 ];
 
-/** Normalize, dedupe by upToKg (last wins), sort ascending. Empty → default under 32 kg / 0%. */
+/** Normalize, dedupe by upToKg (last wins), sort ascending. */
 export function normalizeBlueDartOversizeSlabs(raw: unknown): BlueDartOversizeSlab[] {
   const list = Array.isArray(raw) ? raw : [];
   const byUpTo = new Map<number, number>();
   for (const row of list) {
     if (!row || typeof row !== 'object') continue;
-    const record = row as { upToKg?: unknown; minKg?: unknown; percent?: unknown };
+    const record = row as {
+      upToKg?: unknown;
+      minKg?: unknown;
+      amountInr?: unknown;
+      percent?: unknown;
+    };
     /** Accept legacy minKg (old “from kg” field) as upToKg. */
     const upToKg = Number(record.upToKg ?? record.minKg);
-    const percent = Number(record.percent);
+    /** Flat ₹; legacy `percent` was misnamed — treat as amountInr when amount missing. */
+    const amountInr = Number(
+      record.amountInr != null ? record.amountInr : record.percent,
+    );
     if (!Number.isFinite(upToKg) || upToKg <= 0) continue;
-    if (!Number.isFinite(percent) || percent < 0) continue;
-    byUpTo.set(Math.round(upToKg * 1000) / 1000, percent);
+    if (!Number.isFinite(amountInr) || amountInr < 0) continue;
+    byUpTo.set(Math.round(upToKg * 1000) / 1000, amountInr);
   }
   if (byUpTo.size === 0) return DEFAULT_BLUE_DART_OVERSIZE_SLABS.map(s => ({ ...s }));
   return [...byUpTo.entries()]
     .sort((a, b) => a[0] - b[0])
-    .map(([upToKg, percent]) => ({ upToKg, percent }));
+    .map(([upToKg, amountInr]) => ({ upToKg, amountInr }));
 }
 
 /**
  * First slab where chargeable kg is under upToKg.
- * If weight is at/above every ceiling, use the last slab’s %.
+ * If weight is at/above every ceiling, use the last slab’s flat ₹.
  */
-export function resolveBlueDartOversizePercent(
+export function resolveBlueDartOversizeAmountInr(
   slabs: BlueDartOversizeSlab[] | unknown,
   chargeableKg: number,
 ): number {
   const kg = typeof chargeableKg === 'number' && Number.isFinite(chargeableKg) ? chargeableKg : 0;
   const list = normalizeBlueDartOversizeSlabs(slabs);
   for (const slab of list) {
-    if (kg < slab.upToKg) return slab.percent;
+    if (kg < slab.upToKg) return slab.amountInr;
   }
-  return list[list.length - 1]?.percent ?? 0;
+  return list[list.length - 1]?.amountInr ?? 0;
+}
+
+/** @deprecated Use resolveBlueDartOversizeAmountInr — OS/OW is flat ₹, not % of basic. */
+export function resolveBlueDartOversizePercent(
+  slabs: BlueDartOversizeSlab[] | unknown,
+  chargeableKg: number,
+): number {
+  return resolveBlueDartOversizeAmountInr(slabs, chargeableKg);
 }
 
 /** Surface Band 13 volumetric: (L×B×H)/27000 CFT × 6 kg = LBH/4500. */
@@ -203,7 +226,10 @@ export function defaultBlueDartAirRates(): BlueDartKgServiceRates {
   };
 }
 
-/** Surface Band 13. Festival season defaults to Oct→Jan (wraps year). */
+/**
+ * Surface Band 13 — from `bddata/Surface rates.xlsx` (Apr 2026 FS note).
+ * Peak season Sep→Dec @ 3%; diesel FS 37% published − 10% B2B = 27% effective; EFSS 7%.
+ */
 export function defaultBlueDartSurfaceRates(): BlueDartSurfaceRates {
   return {
     perKgInr: { 1: 8, 2: 9, 3: 11, 4: 12, 5: 19 },
@@ -211,18 +237,18 @@ export function defaultBlueDartSurfaceRates(): BlueDartSurfaceRates {
     minimumFreightInr: 160,
     docketFeeInr: 100,
     volumetricDivisor: BLUE_DART_SURFACE_VOLUMETRIC_DIVISOR,
-    fuelSurchargePercent: null,
+    fuelSurchargePercent: 37,
     cafPercent: null,
     idcPercent: 0,
-    efssPercent: 0,
+    efssPercent: 7,
     pssPercent: 0,
     rasPerKgInr: null,
     fov: null,
-    festivalSurchargePercent: 0,
-    festivalSeasonStartMonth: 10,
-    festivalSeasonEndMonth: 1,
+    festivalSurchargePercent: 3,
+    festivalSeasonStartMonth: 9,
+    festivalSeasonEndMonth: 12,
     oversizeSlabs: DEFAULT_BLUE_DART_OVERSIZE_SLABS.map(s => ({ ...s })),
-    dieselB2bDiscountPercent: 0,
+    dieselB2bDiscountPercent: 10,
   };
 }
 

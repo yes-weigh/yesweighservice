@@ -9,23 +9,19 @@
  * - DP: Kerala dest (+ Kerala origin) → A1; else pin.dpZone A/B/C
  *
  * v1 charge stack (HARDCODED order — change here + functions/lib/blue-dart-quote.js):
- *   base (₹/kg or 500g slabs, with min freight/weight)
- *   → PSS% (Air/DP) or festival surcharge % (Surface, in-season only) + IDC% on base
- *   → Surface oversize % on base (first slab where chargeable kg is under upToKg)
- *   → FS% then CAF% (shared, or per-service override; Surface: diesel FS, no CAF)
- *   → EFSS%
- *   → docket (Air/Surface)
- *   → RAS ₹/kg if dest in rasStates
- *   → FOV max(min, % of invoice)
- *   → EDL (NE/J&K special, else flat_fallback / matrix_when_km)
- *   → ceilCourierChargeInr (ex-GST; tax is applied on the sales order)
+ *   Air: base → PSS% + IDC% → FS% → CAF% → EFSS% → docket → RAS → FOV → EDL → ceil
+ *   Surface (matches Surface rates.xlsx sample):
+ *     base → festival% + IDC% on base → docket → FOV
+ *     → diesel FS% on that subtotal (no CAF)
+ *     → EFSS% on after-FS
+ *     → OS/OW flat ₹ → RAS ₹/kg → EDL → ceil
  *
  * Skipped VAS (not wired): FOD, DOD, DG, demurrage, appointment/SEZ, laptop box, ECC.
  * Keep server mirror in functions/lib/blue-dart-quote.js in sync.
  */
 import {
   blueDartSurfaceEffectiveDieselFsPercent,
-  resolveBlueDartOversizePercent,
+  resolveBlueDartOversizeAmountInr,
 } from '../constants/blueDartRates';
 import { isRasDestination, resolveBlueDartRegion } from './blueDartPlace';
 import { resolveBlueDartAirZone, resolveBlueDartDpZone } from './blueDartZone';
@@ -284,29 +280,19 @@ function quoteKgService(input: {
     ? 0
     : base * (nonNeg(rates.pssPercent) / 100);
   const idc = base * (nonNeg(rates.idcPercent) / 100);
-  const oversizePct = input.service === 'surface'
-    ? resolveBlueDartOversizePercent(
+  const oversize = input.service === 'surface'
+    ? resolveBlueDartOversizeAmountInr(
       input.config.surface.oversizeSlabs,
       input.chargeableKg,
     )
     : 0;
-  const oversize = base * (oversizePct / 100);
-  const afterPssIdc = base + pss + festival + idc + oversize;
-  const { fs, caf } = input.service === 'surface'
-    ? resolveSurfaceFsCaf(input.config.surface)
-    : resolveFsCaf(input.config.shared, rates.fuelSurchargePercent, rates.cafPercent);
-  const fuel = afterPssIdc * (fs / 100);
-  const afterFuel = afterPssIdc + fuel;
-  const cafInr = afterFuel * (caf / 100);
-  const afterCaf = afterFuel + cafInr;
-  const efss = afterCaf * (nonNeg(rates.efssPercent) / 100);
+  const fov = fovInr(input.config.shared, rates.fov, input.invoiceValueInr);
   const rasRate = rates.rasPerKgInr != null
     ? nonNeg(rates.rasPerKgInr)
     : nonNeg(input.config.shared.rasPerKgInr);
   const ras = isRasDestination(input.destState, input.config.shared.rasStates)
     ? rasRate * input.chargeableKg
     : 0;
-  const fov = fovInr(input.config.shared, rates.fov, input.invoiceValueInr);
   const edl = computeBlueDartEdlInr({
     shared: input.config.shared,
     destState: input.destState,
@@ -314,7 +300,36 @@ function quoteKgService(input: {
     chargeableKg: input.chargeableKg,
     edlKm: input.edlKm,
   });
-  const subtotal = afterCaf + efss + docket + ras + fov + edl;
+
+  let fuel = 0;
+  let cafInr = 0;
+  let efss = 0;
+  let subtotal = 0;
+
+  if (input.service === 'surface') {
+    /** Sample sheet: FS on Basic + Docket + FOV (+ festival/IDC when in season). */
+    const fsBase = base + festival + idc + docket + fov;
+    const { fs } = resolveSurfaceFsCaf(input.config.surface);
+    fuel = fsBase * (fs / 100);
+    const afterFuel = fsBase + fuel;
+    efss = afterFuel * (nonNeg(rates.efssPercent) / 100);
+    /** OS/OW + RAS + EDL are VAS — after % stack (sample calc omits them). */
+    subtotal = afterFuel + efss + oversize + ras + edl;
+  } else {
+    const afterPssIdc = base + pss + idc;
+    const { fs, caf } = resolveFsCaf(
+      input.config.shared,
+      rates.fuelSurchargePercent,
+      rates.cafPercent,
+    );
+    fuel = afterPssIdc * (fs / 100);
+    const afterFuel = afterPssIdc + fuel;
+    cafInr = afterFuel * (caf / 100);
+    const afterCaf = afterFuel + cafInr;
+    efss = afterCaf * (nonNeg(rates.efssPercent) / 100);
+    subtotal = afterCaf + efss + docket + ras + fov + edl;
+  }
+
   const total = ceilCourierChargeInr(subtotal);
   return {
     chargeableKg: input.chargeableKg,
@@ -562,12 +577,13 @@ export type BlueDartSurfaceStackPreview = {
   volumetricKg: number;
   chargeableKg: number;
   festivalPct: number;
-  oversizePct: number;
+  oversizeAmountInr: number;
   dieselEffectivePct: number;
   baseFreightInr: number;
   festivalSurchargeInr: number;
   idcInr: number;
   oversizeInr: number;
+  /** Basic + Festival + IDC + Docket + FOV — diesel FS base (Surface rates sample). */
   subtotalAInr: number;
   fuelSurchargeInr: number;
   subtotalBInr: number;
@@ -602,7 +618,7 @@ export function previewBlueDartSurfaceStack(input: {
   });
   const at = input.at ?? new Date();
   const festivalPct = blueDartSurfaceFestivalPercent(input.surface, at);
-  const oversizePct = resolveBlueDartOversizePercent(
+  const oversizeAmountInr = resolveBlueDartOversizeAmountInr(
     input.surface.oversizeSlabs,
     chargeableKg,
   );
@@ -638,7 +654,8 @@ export function previewBlueDartSurfaceStack(input: {
   const subtotalAInr = q.baseFreightInr
     + q.festivalSurchargeInr
     + q.idcInr
-    + q.oversizeInr;
+    + q.docketFeeInr
+    + q.fovInr;
   const subtotalBInr = subtotalAInr + q.fuelSurchargeInr;
 
   return {
@@ -648,7 +665,7 @@ export function previewBlueDartSurfaceStack(input: {
     volumetricKg,
     chargeableKg,
     festivalPct,
-    oversizePct,
+    oversizeAmountInr,
     dieselEffectivePct,
     baseFreightInr: q.baseFreightInr,
     festivalSurchargeInr: q.festivalSurchargeInr,
