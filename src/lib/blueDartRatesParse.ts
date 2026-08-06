@@ -8,7 +8,6 @@ import {
   defaultBlueDartSurfaceRates,
   defaultBlueDartZoneMatrix,
 } from '../constants/blueDartRates';
-import { parseBlueDartSetupAcknowledgements } from './blueDartSetup';
 import type {
   BlueDartAirZone,
   BlueDartConfig,
@@ -21,6 +20,7 @@ import type {
   BlueDartRegion,
   BlueDartSharedRules,
   BlueDartSourceMeta,
+  BlueDartSurfaceRates,
 } from '../types/blue-dart-rates';
 import {
   BLUE_DART_AIR_ZONES,
@@ -183,6 +183,12 @@ function parseShared(raw: unknown): BlueDartSharedRules {
   };
 }
 
+function clampMonth(value: unknown, fallback: number): number {
+  const n = typeof value === 'number' && Number.isFinite(value) ? Math.round(value) : fallback;
+  if (n < 1 || n > 12) return fallback;
+  return n;
+}
+
 function parseKgService(raw: unknown, defaults: BlueDartKgServiceRates): BlueDartKgServiceRates {
   if (!raw || typeof raw !== 'object') return { ...defaults, perKgInr: { ...defaults.perKgInr } };
   const data = raw as Record<string, unknown>;
@@ -202,6 +208,28 @@ function parseKgService(raw: unknown, defaults: BlueDartKgServiceRates): BlueDar
     pssPercent: finiteNonNeg(data.pssPercent, defaults.pssPercent),
     rasPerKgInr: finiteNonNegOrNull(data.rasPerKgInr),
     fov: data.fov == null ? null : parseFov(data.fov, { minInr: 90, percentOfInvoice: 0.05 }),
+  };
+}
+
+function parseSurfaceService(raw: unknown): BlueDartSurfaceRates {
+  const defaults = defaultBlueDartSurfaceRates();
+  const base = parseKgService(raw, defaults);
+  if (!raw || typeof raw !== 'object') return { ...defaults, ...base, perKgInr: { ...base.perKgInr } };
+  const data = raw as Record<string, unknown>;
+  return {
+    ...base,
+    festivalSurchargePercent: finiteNonNeg(
+      data.festivalSurchargePercent,
+      defaults.festivalSurchargePercent,
+    ),
+    festivalSeasonStartMonth: clampMonth(
+      data.festivalSeasonStartMonth,
+      defaults.festivalSeasonStartMonth,
+    ),
+    festivalSeasonEndMonth: clampMonth(
+      data.festivalSeasonEndMonth,
+      defaults.festivalSeasonEndMonth,
+    ),
   };
 }
 
@@ -262,16 +290,12 @@ export function parseBlueDartConfig(raw: unknown): BlueDartConfig {
   }
 
   const data = raw as Record<string, unknown>;
-  const setupAcknowledgements = parseBlueDartSetupAcknowledgements(data.setupAcknowledgements);
   return {
     shared: parseShared(data.shared),
     air: parseKgService(data.air, defaultBlueDartAirRates()),
-    surface: parseKgService(data.surface, defaultBlueDartSurfaceRates()),
+    surface: parseSurfaceService(data.surface),
     domestic_priority: parseDp(data.domestic_priority),
     source: parseSource(data.source),
-    ...(Object.keys(setupAcknowledgements).length > 0
-      ? { setupAcknowledgements }
-      : {}),
   };
 }
 

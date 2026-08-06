@@ -11,8 +11,56 @@ import type {
   BlueDartRegion,
   BlueDartSharedRules,
 } from '../types/blue-dart-rates';
-import { isBlueDartAirZone, isBlueDartDpZone } from '../types/blue-dart-rates';
+import {
+  BLUE_DART_AIR_ZONES,
+  BLUE_DART_REGIONS,
+  isBlueDartAirZone,
+  isBlueDartDpZone,
+} from '../types/blue-dart-rates';
 import { isKeralaState, resolveBlueDartRegion } from './blueDartPlace';
+
+/** Canonical state labels per Blue Dart region (for Settings zone tables). */
+const BLUE_DART_REGION_STATE_LABELS: Record<BlueDartRegion, readonly string[]> = {
+  NORTH: [
+    'Himachal Pradesh',
+    'Punjab',
+    'Haryana',
+    'Uttarakhand',
+    'Uttar Pradesh',
+    'Rajasthan',
+    'Delhi',
+    'Chandigarh',
+  ],
+  EAST: ['Bihar', 'Odisha', 'West Bengal', 'Jharkhand'],
+  WEST: [
+    'Maharashtra',
+    'Madhya Pradesh',
+    'Gujarat',
+    'Chhattisgarh',
+    'Goa',
+    'Daman & Diu',
+    'Dadra & Nagar Haveli',
+  ],
+  SOUTH: [
+    'Karnataka',
+    'Tamil Nadu',
+    'Kerala',
+    'Andhra Pradesh',
+    'Telangana',
+    'Puducherry',
+  ],
+  NE: [
+    'Assam',
+    'Meghalaya',
+    'Manipur',
+    'Mizoram',
+    'Nagaland',
+    'Tripura',
+    'Arunachal Pradesh',
+    'Sikkim',
+  ],
+  JK: ['Jammu & Kashmir', 'Ladakh'],
+};
 
 export function resolveBlueDartAirZone(input: {
   shared: BlueDartSharedRules;
@@ -26,6 +74,37 @@ export function resolveBlueDartAirZone(input: {
     : input.shared.originRegion;
   const zone = input.shared.zoneMatrix[origin]?.[destRegion];
   return isBlueDartAirZone(zone) ? zone : null;
+}
+
+/**
+ * Destination states (by region) for each Air/Surface zone, using ship-from
+ * `shared.originRegion` × `shared.zoneMatrix`.
+ */
+export function blueDartStatesByAirZone(
+  shared: BlueDartSharedRules,
+): Record<BlueDartAirZone, string[]> {
+  const origin = shared.originRegion in shared.zoneMatrix
+    ? shared.originRegion
+    : 'SOUTH';
+  const row = shared.zoneMatrix[origin];
+  const byZone: Record<BlueDartAirZone, string[]> = {
+    1: [],
+    2: [],
+    3: [],
+    4: [],
+    5: [],
+  };
+  for (const region of BLUE_DART_REGIONS) {
+    const zone = row?.[region];
+    if (!isBlueDartAirZone(zone)) continue;
+    for (const state of BLUE_DART_REGION_STATE_LABELS[region]) {
+      if (!byZone[zone].includes(state)) byZone[zone].push(state);
+    }
+  }
+  for (const zone of BLUE_DART_AIR_ZONES) {
+    byZone[zone].sort((a, b) => a.localeCompare(b));
+  }
+  return byZone;
 }
 
 /**

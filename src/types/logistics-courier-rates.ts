@@ -83,8 +83,8 @@ export interface StCourierRatesByOrigin {
  * SKUs: BDAIR, BDFRC, BDDP.
  */
 export const BLUE_DART_SERVICE_IDS = [
-  'air',
   'surface',
+  'air',
   'domestic_priority',
 ] as const;
 

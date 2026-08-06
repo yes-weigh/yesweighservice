@@ -165,6 +165,20 @@ export interface BlueDartKgServiceRates {
   fov: BlueDartFovRule | null;
 }
 
+/**
+ * Surface Band 13 — same ₹/kg card plus festival surcharge.
+ * Festival % applies only when the quote month is in the configured season
+ * (inclusive start→end; wraps year when start > end, e.g. Oct→Jan).
+ */
+export interface BlueDartSurfaceRates extends BlueDartKgServiceRates {
+  /** % of base freight during festival season. */
+  festivalSurchargePercent: number;
+  /** Calendar month 1–12. */
+  festivalSeasonStartMonth: number;
+  /** Calendar month 1–12. */
+  festivalSeasonEndMonth: number;
+}
+
 /** Domestic Priority 500g slab card. */
 export interface BlueDartDomesticPriorityRates {
   first500gInr: Record<BlueDartDpZone, number>;
@@ -183,34 +197,13 @@ export interface BlueDartSourceMeta {
   files: string[];
 }
 
-/**
- * Keys for Settings setup checklist acknowledgements
- * (see src/lib/blueDartSetup.ts). Value = ISO timestamp when confirmed.
- */
-export type BlueDartSetupAckKey =
-  | 'shared.fuelSurchargePercent'
-  | 'shared.cafPercent'
-  | 'shared.gstPercent'
-  | 'shared.rasPerKgInr'
-  | 'shared.fov'
-  | 'shared.originRegion'
-  | 'shared.edlFlatFallbackInr'
-  | 'air.rates'
-  | 'surface.rates'
-  | 'domestic_priority.rates';
-
 /** Full Blue Dart block under logisticsCourierRates.bluedart */
 export interface BlueDartConfig {
   shared: BlueDartSharedRules;
   air: BlueDartKgServiceRates;
-  surface: BlueDartKgServiceRates;
+  surface: BlueDartSurfaceRates;
   domestic_priority: BlueDartDomesticPriorityRates;
   source: BlueDartSourceMeta | null;
-  /**
-   * Ops confirmed a seeded default (or intentional ₹0 EDL flat).
-   * Cleared items disappear from the Settings checklist.
-   */
-  setupAcknowledgements?: Partial<Record<BlueDartSetupAckKey, string>>;
 }
 
 /** Firestore blueDartPincodes/{pincode} */

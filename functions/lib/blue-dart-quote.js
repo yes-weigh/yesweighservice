@@ -148,7 +148,39 @@ function defaultSurface() {
     pssPercent: 0,
     rasPerKgInr: null,
     fov: null,
+    festivalSurchargePercent: 0,
+    festivalSeasonStartMonth: 10,
+    festivalSeasonEndMonth: 1,
   };
+}
+
+function clampMonth(value, fallback) {
+  const n = Number.isFinite(Number(value)) ? Math.round(Number(value)) : fallback;
+  if (n < 1 || n > 12) return fallback;
+  return n;
+}
+
+function isFestivalSeasonMonth(month, startMonth, endMonth) {
+  const m = Math.round(month);
+  const start = Math.round(startMonth);
+  const end = Math.round(endMonth);
+  if (m < 1 || m > 12 || start < 1 || start > 12 || end < 1 || end > 12) return false;
+  if (start === end) return m === start;
+  if (start < end) return m >= start && m <= end;
+  return m >= start || m <= end;
+}
+
+function surfaceFestivalPercent(surface, at = new Date()) {
+  const pct = nonNeg(surface?.festivalSurchargePercent);
+  if (!(pct > 0)) return 0;
+  const month = at.getMonth() + 1;
+  return isFestivalSeasonMonth(
+    month,
+    surface.festivalSeasonStartMonth,
+    surface.festivalSeasonEndMonth,
+  )
+    ? pct
+    : 0;
 }
 
 function defaultDp() {
@@ -282,13 +314,36 @@ function parseShared(raw) {
   };
 }
 
+function parseSurface(raw) {
+  const defaults = defaultSurface();
+  const base = parseKg(raw, defaults);
+  if (!raw || typeof raw !== 'object') {
+    return { ...defaults, ...base, perKgInr: { ...base.perKgInr } };
+  }
+  return {
+    ...base,
+    festivalSurchargePercent: nonNeg(
+      Number(raw.festivalSurchargePercent),
+      defaults.festivalSurchargePercent,
+    ),
+    festivalSeasonStartMonth: clampMonth(
+      raw.festivalSeasonStartMonth,
+      defaults.festivalSeasonStartMonth,
+    ),
+    festivalSeasonEndMonth: clampMonth(
+      raw.festivalSeasonEndMonth,
+      defaults.festivalSeasonEndMonth,
+    ),
+  };
+}
+
 export function parseBlueDartConfig(raw) {
   const defaults = defaultBlueDartConfig();
   if (!isConfigShape(raw)) return defaults;
   return {
     shared: parseShared(raw.shared),
     air: parseKg(raw.air, defaultAir()),
-    surface: parseKg(raw.surface, defaultSurface()),
+    surface: parseSurface(raw.surface),
     domestic_priority: parseDp(raw.domestic_priority),
     source: raw.source && typeof raw.source === 'object' ? raw.source : null,
   };
@@ -467,9 +522,15 @@ export function quoteBlueDartParcels({
   let base = perKg * kg;
   if (rates.minimumFreightInr > 0) base = Math.max(base, rates.minimumFreightInr);
   const docket = nonNeg(rates.docketFeeInr);
-  const pss = base * (nonNeg(rates.pssPercent) / 100);
+  const festivalPct = service === 'surface'
+    ? surfaceFestivalPercent(cfg.surface)
+    : 0;
+  const festival = base * (festivalPct / 100);
+  const pss = service === 'surface'
+    ? 0
+    : base * (nonNeg(rates.pssPercent) / 100);
   const idc = base * (nonNeg(rates.idcPercent) / 100);
-  const after = base + pss + idc;
+  const after = base + pss + festival + idc;
   const { fs, caf } = fsCaf(cfg.shared, rates.fuelSurchargePercent, rates.cafPercent);
   const fuel = after * (fs / 100);
   const afterFuel = after + fuel;

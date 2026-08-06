@@ -19,6 +19,7 @@ import type {
   BlueDartKgServiceRates,
   BlueDartRegion,
   BlueDartSharedRules,
+  BlueDartSurfaceRates,
 } from '../types/blue-dart-rates';
 import { BLUE_DART_AIR_ZONES, BLUE_DART_DP_ZONES, BLUE_DART_REGIONS } from '../types/blue-dart-rates';
 
@@ -159,8 +160,8 @@ export function defaultBlueDartAirRates(): BlueDartKgServiceRates {
   };
 }
 
-/** Surface Band 13. */
-export function defaultBlueDartSurfaceRates(): BlueDartKgServiceRates {
+/** Surface Band 13. Festival season defaults to Oct→Jan (wraps year). */
+export function defaultBlueDartSurfaceRates(): BlueDartSurfaceRates {
   return {
     perKgInr: { 1: 8, 2: 9, 3: 11, 4: 12, 5: 19 },
     minimumChargeableWeightKg: 10,
@@ -174,6 +175,9 @@ export function defaultBlueDartSurfaceRates(): BlueDartKgServiceRates {
     pssPercent: 0,
     rasPerKgInr: null,
     fov: null,
+    festivalSurchargePercent: 0,
+    festivalSeasonStartMonth: 10,
+    festivalSeasonEndMonth: 1,
   };
 }
 

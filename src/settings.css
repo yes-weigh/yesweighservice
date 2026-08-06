@@ -2992,222 +2992,6 @@
   gap: 0.55rem;
 }
 
-.settings-bluedart__checklist {
-  margin: 0;
-  padding: 0.7rem 0.8rem;
-  border-radius: 12px;
-  border: 1px solid rgba(251, 191, 36, 0.28);
-  background:
-    linear-gradient(135deg, rgba(251, 191, 36, 0.1), transparent 55%),
-    #101010;
-}
-
-.settings-bluedart__checklist--done {
-  display: flex;
-  align-items: center;
-  gap: 0.45rem;
-  border-color: rgba(52, 211, 153, 0.28);
-  background: rgba(16, 185, 129, 0.08);
-  color: #6ee7b7;
-  font-size: 0.8125rem;
-  font-weight: 650;
-}
-
-.settings-bluedart__checklist-toggle {
-  display: grid;
-  grid-template-columns: auto minmax(0, 1fr) auto auto;
-  gap: 0.55rem;
-  align-items: start;
-  width: 100%;
-  margin: 0;
-  padding: 0;
-  border: none;
-  background: transparent;
-  color: inherit;
-  text-align: left;
-  cursor: pointer;
-}
-
-.settings-bluedart__checklist.is-open .settings-bluedart__checklist-toggle {
-  margin-bottom: 0.55rem;
-}
-
-.settings-bluedart__checklist-toggle > svg:first-child {
-  color: #fbbf24;
-  margin-top: 0.15rem;
-}
-
-.settings-bluedart__checklist-toggle > svg:last-child {
-  color: #94a3b8;
-  margin-top: 0.15rem;
-  transition: transform 0.15s ease;
-}
-
-.settings-bluedart__checklist.is-open .settings-bluedart__checklist-toggle > svg:last-child {
-  transform: rotate(180deg);
-}
-
-.settings-bluedart__checklist-toggle strong {
-  display: block;
-  font-size: 0.875rem;
-  color: #fde68a;
-}
-
-.settings-bluedart__checklist-toggle p {
-  margin: 0.2rem 0 0;
-  font-size: 0.75rem;
-  color: #94a3b8;
-  line-height: 1.4;
-}
-
-.settings-bluedart__checklist-count {
-  font-size: 0.6875rem;
-  font-weight: 800;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
-  color: #fbbf24;
-  white-space: nowrap;
-}
-
-.settings-bluedart__checklist-list {
-  list-style: none;
-  margin: 0;
-  padding: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 0.4rem;
-}
-
-.settings-bluedart__checklist-list > li {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  gap: 0.4rem;
-  align-items: stretch;
-}
-
-.settings-bluedart__checklist-item {
-  display: flex;
-  align-items: flex-start;
-  gap: 0.5rem;
-  min-width: 0;
-  text-align: left;
-  border: 1px solid rgba(148, 163, 184, 0.14);
-  border-radius: 10px;
-  background: rgba(2, 6, 23, 0.35);
-  color: inherit;
-  padding: 0.5rem 0.6rem;
-  cursor: pointer;
-}
-
-.settings-bluedart__checklist-item:hover {
-  border-color: rgba(251, 191, 36, 0.35);
-}
-
-.settings-bluedart__checklist-kind {
-  flex-shrink: 0;
-  margin-top: 0.1rem;
-  padding: 0.12rem 0.4rem;
-  border-radius: 999px;
-  font-size: 0.625rem;
-  font-weight: 800;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
-}
-
-.settings-bluedart__checklist-kind.is-gap {
-  background: rgba(248, 113, 113, 0.16);
-  color: #fca5a5;
-}
-
-.settings-bluedart__checklist-kind.is-verify_default {
-  background: rgba(251, 191, 36, 0.16);
-  color: #fde68a;
-}
-
-.settings-bluedart__checklist-copy {
-  min-width: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 0.15rem;
-}
-
-.settings-bluedart__checklist-copy strong {
-  font-size: 0.8125rem;
-}
-
-.settings-bluedart__checklist-copy em {
-  font-style: normal;
-  font-size: 0.72rem;
-  color: #94a3b8;
-  line-height: 1.35;
-}
-
-.settings-bluedart__checklist-ack {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.3rem;
-  border: 1px solid rgba(52, 211, 153, 0.3);
-  border-radius: 10px;
-  background: rgba(16, 185, 129, 0.1);
-  color: #6ee7b7;
-  font-size: 0.75rem;
-  font-weight: 700;
-  padding: 0.45rem 0.65rem;
-  cursor: pointer;
-  white-space: nowrap;
-}
-
-.settings-bluedart__checklist-ack:hover {
-  background: rgba(16, 185, 129, 0.18);
-}
-
-.settings-bluedart__verify-note {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 0.4rem 0.65rem;
-  margin: 0 0 0.4rem;
-  padding: 0.4rem 0.5rem;
-  border-radius: 8px;
-  border: 1px dashed rgba(251, 191, 36, 0.35);
-  background: rgba(251, 191, 36, 0.08);
-}
-
-.settings-bluedart__verify-note p {
-  margin: 0;
-  flex: 1 1 12rem;
-  font-size: 0.72rem;
-  line-height: 1.35;
-  color: #fde68a;
-}
-
-.settings-bluedart__verify-note button {
-  border: 1px solid rgba(52, 211, 153, 0.35);
-  border-radius: 999px;
-  background: rgba(16, 185, 129, 0.12);
-  color: #6ee7b7;
-  font-size: 0.6875rem;
-  font-weight: 750;
-  padding: 0.22rem 0.55rem;
-  cursor: pointer;
-  white-space: nowrap;
-}
-
-.settings-bluedart__verify-note button:hover {
-  background: rgba(16, 185, 129, 0.2);
-}
-
-@media (max-width: 720px) {
-  .settings-bluedart__checklist-list > li {
-    grid-template-columns: 1fr;
-  }
-
-  .settings-bluedart__checklist-ack {
-    justify-content: center;
-  }
-}
-
 .settings-bluedart__tabs {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
@@ -3398,6 +3182,42 @@
   font-weight: 500;
   color: #94a3b8;
   line-height: 1.35;
+}
+
+.settings-bluedart__inline-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  color: #ff9a3c;
+  font-weight: 650;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.settings-bluedart__inline-link:hover {
+  color: #ffb36b;
+}
+
+.settings-bluedart__diesel-row {
+  align-items: end;
+}
+
+.settings-bluedart__diesel-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.45rem;
+  padding-bottom: 0.15rem;
+}
+
+.settings-bluedart__diesel-note {
+  margin: 0.15rem 0 0;
+  color: #6ee7b7;
+}
+
+.settings-bluedart__diesel-error {
+  margin: 0.15rem 0 0;
+  color: #fca5a5;
 }
 
 .settings-bluedart__select,
@@ -3806,6 +3626,20 @@
   font-weight: 700;
   color: #e2e8f0;
   white-space: nowrap;
+}
+
+.settings-bluedart__zone-table th:nth-child(2),
+.settings-bluedart__zone-table td.settings-bluedart__zone-states {
+  min-width: 12rem;
+  max-width: 28rem;
+}
+
+.settings-bluedart__zone-states {
+  font-size: 0.75rem;
+  font-weight: 500;
+  color: #94a3b8;
+  line-height: 1.4;
+  white-space: normal;
 }
 
 .settings-courier-rates__zone-table tbody tr:last-child th,

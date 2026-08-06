@@ -188,6 +188,7 @@ import {
   deleteCatalogMediaFile as removeCatalogMediaFile,
   uploadCatalogMediaFile as storeCatalogMediaFile,
 } from './lib/catalog-media-upload.js';
+import { fetchBlueDartDieselFuelSurcharge } from './lib/blue-dart-diesel-fuel.js';
 import { updatePublicSalaryShare as updatePublicSalaryShareRecord } from './lib/hr-salary-share-update.js';
 import { switchPublicSalarySharePeriod as switchPublicSalarySharePeriodRecord } from './lib/hr-salary-share-switch-period.js';
 import { CI_BUILD_TAG } from './lib/ci-build.js';
@@ -4202,6 +4203,23 @@ export const getYesStorePhotoUrlFn = onCall(
     } catch (err) {
       if (err instanceof HttpsError) throw err;
       throw new HttpsError('internal', err?.message ?? 'Could not load warehouse photo.');
+    }
+  },
+);
+
+/** Scrape Blue Dart published diesel fuel surcharge (Surface FS). Super admin. */
+export const fetchBlueDartDieselFuelSurchargeFn = onCall(
+  { region: 'asia-south1', timeoutSeconds: 60, memory: '256MiB' },
+  async request => {
+    await requireActiveUser(request.auth?.uid, SUPER_ADMIN_ROLES, { allowViewOnly: true });
+    try {
+      return await fetchBlueDartDieselFuelSurcharge();
+    } catch (err) {
+      if (err instanceof HttpsError) throw err;
+      throw new HttpsError(
+        'internal',
+        err?.message ?? 'Could not fetch Blue Dart diesel fuel surcharge.',
+      );
     }
   },
 );

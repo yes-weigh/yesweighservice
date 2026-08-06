@@ -10,7 +10,7 @@
  *
  * v1 charge stack (HARDCODED order — change here + functions/lib/blue-dart-quote.js):
  *   base (₹/kg or 500g slabs, with min freight/weight)
- *   → PSS% + IDC% on base
+ *   → PSS% (Air/DP) or festival surcharge % (Surface, in-season only) + IDC% on base
  *   → FS% then CAF% (shared, or per-service override)
  *   → EFSS%
  *   → docket (Air/Surface)
@@ -35,6 +35,7 @@ import type {
   BlueDartPincodeDoc,
   BlueDartServiceability,
   BlueDartSharedRules,
+  BlueDartSurfaceRates,
 } from '../types/blue-dart-rates';
 import { isBlueDartServiceability } from '../types/blue-dart-rates';
 import type { BlueDartServiceId } from '../types/logistics-courier-rates';
@@ -56,6 +57,7 @@ export type BlueDartQuoteBreakdown = {
   baseFreightInr: number;
   docketFeeInr: number;
   pssInr: number;
+  festivalSurchargeInr: number;
   idcInr: number;
   fuelSurchargeInr: number;
   cafInr: number;
@@ -74,6 +76,37 @@ export type BlueDartQuoteBreakdown = {
 function nonNeg(value: unknown, fallback = 0): number {
   if (typeof value !== 'number' || !Number.isFinite(value) || value < 0) return fallback;
   return value;
+}
+
+/** Month 1–12; season wraps the year when start > end (e.g. 10→1 = Oct–Jan). */
+export function isBlueDartFestivalSeasonMonth(
+  month: number,
+  startMonth: number,
+  endMonth: number,
+): boolean {
+  const m = Math.round(month);
+  const start = Math.round(startMonth);
+  const end = Math.round(endMonth);
+  if (m < 1 || m > 12 || start < 1 || start > 12 || end < 1 || end > 12) return false;
+  if (start === end) return m === start;
+  if (start < end) return m >= start && m <= end;
+  return m >= start || m <= end;
+}
+
+export function blueDartSurfaceFestivalPercent(
+  surface: BlueDartSurfaceRates,
+  at: Date = new Date(),
+): number {
+  const pct = nonNeg(surface.festivalSurchargePercent);
+  if (!(pct > 0)) return 0;
+  const month = at.getMonth() + 1;
+  return isBlueDartFestivalSeasonMonth(
+    month,
+    surface.festivalSeasonStartMonth,
+    surface.festivalSeasonEndMonth,
+  )
+    ? pct
+    : 0;
 }
 
 export function blueDartVolumetricKg(dims: BlueDartQuoteDims, divisor: number): number {
@@ -228,9 +261,15 @@ function quoteKgService(input: {
   let base = perKg * input.chargeableKg;
   if (rates.minimumFreightInr > 0) base = Math.max(base, rates.minimumFreightInr);
   const docket = nonNeg(rates.docketFeeInr);
-  const pss = base * (nonNeg(rates.pssPercent) / 100);
+  const festivalPct = input.service === 'surface'
+    ? blueDartSurfaceFestivalPercent(input.config.surface)
+    : 0;
+  const festival = base * (festivalPct / 100);
+  const pss = input.service === 'surface'
+    ? 0
+    : base * (nonNeg(rates.pssPercent) / 100);
   const idc = base * (nonNeg(rates.idcPercent) / 100);
-  const afterPssIdc = base + pss + idc;
+  const afterPssIdc = base + pss + festival + idc;
   const { fs, caf } = resolveFsCaf(input.config.shared, rates.fuelSurchargePercent, rates.cafPercent);
   const fuel = afterPssIdc * (fs / 100);
   const afterFuel = afterPssIdc + fuel;
@@ -259,6 +298,7 @@ function quoteKgService(input: {
     baseFreightInr: base,
     docketFeeInr: docket,
     pssInr: pss,
+    festivalSurchargeInr: festival,
     idcInr: idc,
     fuelSurchargeInr: fuel,
     cafInr,
@@ -306,6 +346,7 @@ function quoteDomesticPriority(input: {
     baseFreightInr: base,
     docketFeeInr: 0,
     pssInr: pss,
+    festivalSurchargeInr: 0,
     idcInr: idc,
     fuelSurchargeInr: fuel,
     cafInr,
@@ -346,6 +387,7 @@ export function quoteBlueDartShipment(input: {
     baseFreightInr: 0,
     docketFeeInr: 0,
     pssInr: 0,
+    festivalSurchargeInr: 0,
     idcInr: 0,
     fuelSurchargeInr: 0,
     cafInr: 0,

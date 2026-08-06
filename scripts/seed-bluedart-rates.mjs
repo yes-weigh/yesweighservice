@@ -152,6 +152,9 @@ function defaultBlueDartConfig() {
       pssPercent: 0,
       rasPerKgInr: null,
       fov: null,
+      festivalSurchargePercent: 0,
+      festivalSeasonStartMonth: 10,
+      festivalSeasonEndMonth: 1,
     },
     domestic_priority: {
       first500gInr: { A1: 28, A: 36, B: 41, C: 46 },
