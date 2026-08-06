@@ -141,10 +141,15 @@ function CourierOptionCard({
       <span className="order-freight-panel__courier-copy">
         <strong>{opt.label}</strong>
         {opt.preferred ? <em>Preferred</em> : null}
+        {opt.enabled && opt.manualRate ? <em>Enter ₹ on sales order</em> : null}
         {!opt.enabled && opt.disabledReason ? <em>{opt.disabledReason}</em> : null}
       </span>
       <strong className="order-freight-panel__courier-amt">
-        {opt.enabled ? formatCurrency(amountInr) : '—'}
+        {!opt.enabled
+          ? '—'
+          : opt.manualRate && !(amountInr > 0)
+            ? 'TBD'
+            : formatCurrency(amountInr)}
       </strong>
     </label>
   );

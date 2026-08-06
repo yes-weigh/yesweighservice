@@ -25,7 +25,8 @@ export const BLUE_DART_SETUP_ACK_KEYS: readonly BlueDartSetupAckKey[] = [
   'domestic_priority.rates',
 ];
 
-export type BlueDartSetupTab = 'shared' | 'air' | 'surface' | 'domestic_priority';
+/** Service tab that shows the task fields (shared charges live on every service tab). */
+export type BlueDartSetupTab = 'air' | 'surface' | 'domestic_priority';
 
 export type BlueDartSetupTask = {
   key: BlueDartSetupAckKey;
@@ -77,7 +78,7 @@ export function listOpenBlueDartSetupTasks(config: BlueDartConfig): BlueDartSetu
     stillDefault: boolean,
     title: string,
     detail: string,
-    tab: BlueDartSetupTab = 'shared',
+    tab: BlueDartSetupTab = 'air',
   ) => {
     if (isAcked(config, key) || !stillDefault) return;
     open.push({ key, title, detail, tab, kind: 'verify_default' });
@@ -127,7 +128,7 @@ export function listOpenBlueDartSetupTasks(config: BlueDartConfig): BlueDartSetu
       key: 'shared.edlFlatFallbackInr',
       title: 'Set EDL flat ₹ (or keep ₹0 intentionally)',
       detail: 'EDL pins with unknown hub distance currently charge ₹0. Enter a flat amount, or acknowledge if ₹0 is correct.',
-      tab: 'shared',
+      tab: 'air',
       kind: 'gap',
     });
   }

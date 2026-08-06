@@ -16,6 +16,8 @@ import { quoteBlueDartParcels } from './blueDartQuote';
 import {
   isPickupPartner,
   listOrderCourierOptions,
+  partnerAllowsManualFreightRate,
+  partnerHasZoneRate,
   type OrderCourierOption,
 } from './orderFreight';
 import {
@@ -686,11 +688,26 @@ export function estimateStCourierCartFreight(input: {
       }
     }
 
+    const allowsManual = partnerAllowsManualFreightRate(partnerId);
+    const hasConfiguredRate = isBlueDart
+      ? !bdQuoted?.rateMissing
+      : (Boolean(originRates) && boxPerKg > 0);
     const rateMissing = Boolean(
       !isPickup
       && hasProduct
-      && (!originRates || !(boxPerKg > 0)),
+      && !hasConfiguredRate
+      && !allowsManual,
     );
+    if (
+      !isPickup
+      && hasProduct
+      && allowsManual
+      && !partnerHasZoneRate(input.rates, partnerId, site, zone)
+    ) {
+      indications.push(
+        `${logisticsPartnerLabel(partnerId)} — no rate card yet; staff/admin enter freight ₹ on the sales order`,
+      );
+    }
 
     sites.push({
       site,

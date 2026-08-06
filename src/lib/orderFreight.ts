@@ -80,6 +80,14 @@ export function partnerHasZoneRate(
   return typeof boxPerKg === 'number' && Number.isFinite(boxPerKg) && boxPerKg > 0;
 }
 
+/**
+ * Partners that stay selectable with empty rate cards so staff/admin can enter
+ * freight ₹ on the sales order until a tariff or API is wired.
+ */
+export function partnerAllowsManualFreightRate(partnerId: LogisticsPartnerId): boolean {
+  return partnerId === 'delhivery';
+}
+
 export type OrderCourierOption = {
   partnerId: LogisticsPartnerId;
   label: string;
@@ -89,6 +97,10 @@ export type OrderCourierOption = {
   /** Selectable (rates filled, or pickup). */
   enabled: boolean;
   disabledReason: string | null;
+  /**
+   * True when enabled without a zone ₹/kg — quote is ₹0 until staff enter freight.
+   */
+  manualRate?: boolean;
   /** Quoted freight ₹ for this partner at this ship-from (set by cart estimate). */
   estimatedTotalInr?: number;
 };
@@ -149,7 +161,8 @@ export function listOrderCourierOptions(input: {
     const hasRate = zone
       ? partnerHasZoneRate(input.rates, partnerId, input.site, zone)
       : false;
-    if (hasRate || input.spareOnly) {
+    const allowManual = partnerAllowsManualFreightRate(partnerId);
+    if (hasRate || input.spareOnly || (allowManual && Boolean(zone))) {
       return {
         partnerId,
         label: logisticsPartnerLabel(partnerId),
@@ -157,6 +170,7 @@ export function listOrderCourierOptions(input: {
         preferred: false,
         enabled: true,
         disabledReason: null,
+        manualRate: allowManual && !hasRate && !input.spareOnly,
       };
     }
     return {
