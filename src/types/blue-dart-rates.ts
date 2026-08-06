@@ -194,6 +194,11 @@ export interface BlueDartSurfaceRates extends BlueDartKgServiceRates {
   festivalSeasonEndMonth: number;
   /** Sorted unique upToKg ceilings; default under 32 kg → 0%. */
   oversizeSlabs: BlueDartOversizeSlab[];
+  /**
+   * B2B discount off published diesel FS.
+   * Effective FS = published × (1 − discount/100).
+   */
+  dieselB2bDiscountPercent: number;
 }
 
 /** Domestic Priority 500g slab card. */

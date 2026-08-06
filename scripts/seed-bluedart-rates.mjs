@@ -156,6 +156,7 @@ function defaultBlueDartConfig() {
       festivalSeasonStartMonth: 10,
       festivalSeasonEndMonth: 1,
       oversizeSlabs: [{ upToKg: 32, percent: 0 }],
+      dieselB2bDiscountPercent: 0,
     },
     domestic_priority: {
       first500gInr: { A1: 28, A: 36, B: 41, C: 46 },

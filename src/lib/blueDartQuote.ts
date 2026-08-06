@@ -23,7 +23,10 @@
  * Skipped VAS (not wired): FOD, DOD, DG, demurrage, appointment/SEZ, laptop box, ECC.
  * Keep server mirror in functions/lib/blue-dart-quote.js in sync.
  */
-import { resolveBlueDartOversizePercent } from '../constants/blueDartRates';
+import {
+  blueDartSurfaceEffectiveDieselFsPercent,
+  resolveBlueDartOversizePercent,
+} from '../constants/blueDartRates';
 import { isRasDestination, resolveBlueDartRegion } from './blueDartPlace';
 import { resolveBlueDartAirZone, resolveBlueDartDpZone } from './blueDartZone';
 import { ceilCourierChargeInr } from './stCourierQuote';
@@ -237,12 +240,10 @@ function resolveFsCaf(
   };
 }
 
-/** Surface: diesel FS only (no shared Fuel / CAF). */
+/** Surface: diesel FS after B2B discount (no shared Fuel / CAF). */
 function resolveSurfaceFsCaf(surface: BlueDartSurfaceRates): { fs: number; caf: number } {
   return {
-    fs: surface.fuelSurchargePercent != null && Number.isFinite(surface.fuelSurchargePercent)
-      ? nonNeg(surface.fuelSurchargePercent)
-      : 0,
+    fs: blueDartSurfaceEffectiveDieselFsPercent(surface),
     caf: 0,
   };
 }
@@ -266,6 +267,8 @@ function quoteKgService(input: {
   destState: string | null | undefined;
   isEdl: boolean;
   edlKm: number | null | undefined;
+  /** Quote “as of” date — Surface festival season uses this month. */
+  at?: Date;
 }): Omit<BlueDartQuoteBreakdown, 'service' | 'sku' | 'zoneLabel' | 'actualKg' | 'volumetricKg' | 'notServiceable' | 'notServiceableReason'> {
   const rates: BlueDartKgServiceRates = input.config[input.service];
   const perKg = nonNeg(rates.perKgInr[input.zone]);
@@ -274,7 +277,7 @@ function quoteKgService(input: {
   if (rates.minimumFreightInr > 0) base = Math.max(base, rates.minimumFreightInr);
   const docket = nonNeg(rates.docketFeeInr);
   const festivalPct = input.service === 'surface'
-    ? blueDartSurfaceFestivalPercent(input.config.surface)
+    ? blueDartSurfaceFestivalPercent(input.config.surface, input.at ?? new Date())
     : 0;
   const festival = base * (festivalPct / 100);
   const pss = input.service === 'surface'
@@ -549,4 +552,117 @@ export function quoteBlueDartParcels(input: {
       : { lengthCm: maxL, widthCm: maxW, heightCm: sumH },
     invoiceValueInr: input.invoiceValueInr,
   });
+}
+
+/** Settings “try a quote” preview — same Surface stack as live quotes. */
+export type BlueDartSurfaceStackPreview = {
+  zone: BlueDartAirZone;
+  perKgInr: number;
+  actualKg: number;
+  volumetricKg: number;
+  chargeableKg: number;
+  festivalPct: number;
+  oversizePct: number;
+  dieselEffectivePct: number;
+  baseFreightInr: number;
+  festivalSurchargeInr: number;
+  idcInr: number;
+  oversizeInr: number;
+  subtotalAInr: number;
+  fuelSurchargeInr: number;
+  subtotalBInr: number;
+  efssInr: number;
+  docketFeeInr: number;
+  rasInr: number;
+  fovInr: number;
+  edlInr: number;
+  totalInr: number;
+  rateMissing: boolean;
+};
+
+export function previewBlueDartSurfaceStack(input: {
+  shared: BlueDartSharedRules;
+  surface: BlueDartSurfaceRates;
+  zone: BlueDartAirZone;
+  actualKg: number;
+  dims?: BlueDartQuoteDims;
+  invoiceValueInr: number;
+  destState: string | null | undefined;
+  isEdl: boolean;
+  edlKm?: number | null;
+  at?: Date;
+}): BlueDartSurfaceStackPreview {
+  const dims = input.dims ?? { lengthCm: 0, widthCm: 0, heightCm: 0 };
+  const volumetricKg = blueDartVolumetricKg(dims, input.surface.volumetricDivisor);
+  const chargeableKg = blueDartChargeableKg({
+    actualKg: input.actualKg,
+    dims,
+    volumetricDivisor: input.surface.volumetricDivisor,
+    minimumChargeableWeightKg: input.surface.minimumChargeableWeightKg,
+  });
+  const at = input.at ?? new Date();
+  const festivalPct = blueDartSurfaceFestivalPercent(input.surface, at);
+  const oversizePct = resolveBlueDartOversizePercent(
+    input.surface.oversizeSlabs,
+    chargeableKg,
+  );
+  const dieselEffectivePct = blueDartSurfaceEffectiveDieselFsPercent(input.surface);
+  const config = {
+    shared: input.shared,
+    surface: input.surface,
+    air: input.surface,
+    domestic_priority: {
+      first500gInr: { A1: 0, A: 0, B: 0, C: 0 },
+      addl500gInr: { A1: 0, A: 0, B: 0, C: 0 },
+      volumetricDivisor: 5000,
+      fuelSurchargePercent: null,
+      cafPercent: null,
+      idcPercent: 0,
+      efssPercent: 0,
+      pssPercent: 0,
+    },
+    source: null,
+  } satisfies BlueDartConfig;
+
+  const q = quoteKgService({
+    service: 'surface',
+    config,
+    zone: input.zone,
+    chargeableKg,
+    invoiceValueInr: nonNeg(input.invoiceValueInr),
+    destState: input.destState,
+    isEdl: input.isEdl,
+    edlKm: input.edlKm ?? null,
+    at,
+  });
+  const subtotalAInr = q.baseFreightInr
+    + q.festivalSurchargeInr
+    + q.idcInr
+    + q.oversizeInr;
+  const subtotalBInr = subtotalAInr + q.fuelSurchargeInr;
+
+  return {
+    zone: input.zone,
+    perKgInr: nonNeg(input.surface.perKgInr[input.zone]),
+    actualKg: nonNeg(input.actualKg),
+    volumetricKg,
+    chargeableKg,
+    festivalPct,
+    oversizePct,
+    dieselEffectivePct,
+    baseFreightInr: q.baseFreightInr,
+    festivalSurchargeInr: q.festivalSurchargeInr,
+    idcInr: q.idcInr,
+    oversizeInr: q.oversizeInr,
+    subtotalAInr,
+    fuelSurchargeInr: q.fuelSurchargeInr,
+    subtotalBInr,
+    efssInr: q.efssInr,
+    docketFeeInr: q.docketFeeInr,
+    rasInr: q.rasInr,
+    fovInr: q.fovInr,
+    edlInr: q.edlInr,
+    totalInr: q.totalInr,
+    rateMissing: q.rateMissing,
+  };
 }

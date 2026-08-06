@@ -221,7 +221,25 @@ export function defaultBlueDartSurfaceRates(): BlueDartSurfaceRates {
     festivalSeasonStartMonth: 10,
     festivalSeasonEndMonth: 1,
     oversizeSlabs: DEFAULT_BLUE_DART_OVERSIZE_SLABS.map(s => ({ ...s })),
+    dieselB2bDiscountPercent: 0,
   };
+}
+
+/** Published diesel FS after B2B discount (never negative). */
+export function blueDartSurfaceEffectiveDieselFsPercent(
+  surface: Pick<BlueDartSurfaceRates, 'fuelSurchargePercent' | 'dieselB2bDiscountPercent'>,
+): number {
+  const published = surface.fuelSurchargePercent != null
+    && Number.isFinite(surface.fuelSurchargePercent)
+    && surface.fuelSurchargePercent > 0
+    ? surface.fuelSurchargePercent
+    : 0;
+  const discountRaw = surface.dieselB2bDiscountPercent;
+  const discount = typeof discountRaw === 'number' && Number.isFinite(discountRaw)
+    ? Math.min(100, Math.max(0, discountRaw))
+    : 0;
+  const effective = published * (1 - discount / 100);
+  return effective > 0 ? Math.round(effective * 100) / 100 : 0;
 }
 
 /** Domestic Priority slabs. */

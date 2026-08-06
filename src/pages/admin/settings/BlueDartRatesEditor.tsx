@@ -8,14 +8,18 @@
  * Zoho product IDs are hardcoded in freightLines.ts — intentionally not shown here.
  * Full architecture notes: src/types/blue-dart-rates.ts
  */
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { ExternalLink, Loader2, Plus, RefreshCw, Trash2 } from 'lucide-react';
 import { DecimalAmountInput } from '../../../components/DecimalAmountInput';
-import { normalizeBlueDartOversizeSlabs } from '../../../constants/blueDartRates';
+import {
+  blueDartSurfaceEffectiveDieselFsPercent,
+  normalizeBlueDartOversizeSlabs,
+} from '../../../constants/blueDartRates';
 import {
   BLUE_DART_DIESEL_FUEL_SURCHARGE_URL,
   fetchBlueDartDieselFuelSurcharge,
 } from '../../../lib/blueDartDieselFuel';
+import { previewBlueDartSurfaceStack } from '../../../lib/blueDartQuote';
 import { blueDartStatesByAirZone } from '../../../lib/blueDartZone';
 import {
   BLUE_DART_AIR_ZONES,
@@ -334,15 +338,78 @@ function SurfaceStackRow(props: {
   );
 }
 
+function formatStackInr(n: number): string {
+  return `₹${n.toLocaleString('en-IN', {
+    minimumFractionDigits: n % 1 === 0 ? 0 : 2,
+    maximumFractionDigits: 2,
+  })}`;
+}
+
 /** Live map of how Surface % compound — mirrors Air sheet style, without CAF. */
-function SurfaceChargeStack(props: { rates: BlueDartSurfaceRates }) {
-  const { rates } = props;
-  const diesel = rates.fuelSurchargePercent ?? 0;
+function SurfaceChargeStack(props: {
+  rates: BlueDartSurfaceRates;
+  shared: BlueDartSharedRules;
+}) {
+  const { rates, shared } = props;
+  const dieselPublished = rates.fuelSurchargePercent ?? 0;
+  const dieselEffective = blueDartSurfaceEffectiveDieselFsPercent(rates);
+  const b2bDiscount = rates.dieselB2bDiscountPercent ?? 0;
   const seasonLabel = `${MONTH_OPTIONS.find(m => m.value === rates.festivalSeasonStartMonth)?.label?.slice(0, 3) ?? '?'}–${MONTH_OPTIONS.find(m => m.value === rates.festivalSeasonEndMonth)?.label?.slice(0, 3) ?? '?'}`;
   const oversizeSlabs = normalizeBlueDartOversizeSlabs(rates.oversizeSlabs);
   const oversizeSummary = oversizeSlabs
     .map(s => `under ${s.upToKg} kg → ${s.percent}%`)
     .join(' · ');
+  const statesByZone = useMemo(() => blueDartStatesByAirZone(shared), [shared]);
+
+  const [zone, setZone] = useState<BlueDartAirZone>(1);
+  const [actualKg, setActualKg] = useState(10);
+  const [lengthCm, setLengthCm] = useState(0);
+  const [widthCm, setWidthCm] = useState(0);
+  const [heightCm, setHeightCm] = useState(0);
+  const [invoiceValueInr, setInvoiceValueInr] = useState(50000);
+  const [destState, setDestState] = useState('Karnataka');
+  const [isEdl, setIsEdl] = useState(false);
+  const [edlKm, setEdlKm] = useState(0);
+  const [quoteMonth, setQuoteMonth] = useState(() => new Date().getMonth() + 1);
+
+  const zoneStates = statesByZone[zone] ?? [];
+
+  useEffect(() => {
+    if (zoneStates.length === 0) return;
+    if (!zoneStates.includes(destState)) {
+      setDestState(zoneStates[0]);
+    }
+  }, [zone, zoneStates, destState]);
+
+  const preview = useMemo(() => {
+    const at = new Date();
+    at.setMonth(quoteMonth - 1, 15);
+    return previewBlueDartSurfaceStack({
+      shared,
+      surface: rates,
+      zone,
+      actualKg,
+      dims: { lengthCm, widthCm, heightCm },
+      invoiceValueInr,
+      destState,
+      isEdl,
+      edlKm: edlKm > 0 ? edlKm : null,
+      at,
+    });
+  }, [
+    shared,
+    rates,
+    zone,
+    actualKg,
+    lengthCm,
+    widthCm,
+    heightCm,
+    invoiceValueInr,
+    destState,
+    isEdl,
+    edlKm,
+    quoteMonth,
+  ]);
 
   return (
     <div className="settings-bluedart__stack" aria-label="Surface rate calculation order">
@@ -351,9 +418,140 @@ function SurfaceChargeStack(props: { rates: BlueDartSurfaceRates }) {
         <em>
           Same stacking idea as Air (basic → % on basic → fuel on that subtotal → next %),
           but Surface uses Festival instead of PSS, Diesel FS instead of Air fuel, and no CAF.
-          Hover any short name for what it means.
+          Hover any short name for what it means. Use the test area to fill rupee amounts.
         </em>
       </div>
+
+      <div className="settings-bluedart__stack-test">
+        <div className="settings-bluedart__stack-test-head">
+          <strong>Try a quote</strong>
+          <em>
+            Chargeable
+            {' '}
+            {preview.chargeableKg.toLocaleString('en-IN', { maximumFractionDigits: 1 })}
+            {' '}
+            kg
+            {preview.volumetricKg > 0
+              ? ` · vol ${preview.volumetricKg.toLocaleString('en-IN', { maximumFractionDigits: 1 })} kg`
+              : ''}
+            {' · '}
+            ₹
+            {preview.perKgInr}
+            /kg zone
+            {' '}
+            {preview.zone}
+            {preview.rateMissing ? ' · rate missing' : ''}
+          </em>
+        </div>
+        <div className="settings-bluedart__stack-test-fields">
+          <Field label="Zone" tip="Ship-from SOUTH × destination region.">
+            <select
+              className="settings-bluedart__select"
+              value={zone}
+              onChange={e => setZone(Number(e.target.value) as BlueDartAirZone)}
+            >
+              {BLUE_DART_AIR_ZONES.map(z => (
+                <option key={z} value={z}>Zone {z}</option>
+              ))}
+            </select>
+          </Field>
+          <Field label="Dest state" tip="Used for RAS and EDL specials. Options follow the selected zone.">
+            <select
+              className="settings-bluedart__select"
+              value={destState}
+              onChange={e => setDestState(e.target.value)}
+            >
+              {zoneStates.map(state => (
+                <option key={state} value={state}>{state}</option>
+              ))}
+            </select>
+          </Field>
+          <Field label="Actual kg" tip="Actual weight before volumetric / min floors.">
+            <DecimalAmountInput
+              min={0}
+              decimals={1}
+              value={actualKg}
+              onChange={next => {
+                if (next == null) return;
+                setActualKg(next);
+              }}
+            />
+          </Field>
+          <Field label="L × B × H (cm)" tip="Optional. Volumetric kg = L×B×H ÷ divisor.">
+            <div className="settings-bluedart__stack-dims">
+              <DecimalAmountInput
+                min={0}
+                decimals={0}
+                value={lengthCm || null}
+                aria-label="Length cm"
+                onChange={next => setLengthCm(next ?? 0)}
+              />
+              <span aria-hidden>×</span>
+              <DecimalAmountInput
+                min={0}
+                decimals={0}
+                value={widthCm || null}
+                aria-label="Width cm"
+                onChange={next => setWidthCm(next ?? 0)}
+              />
+              <span aria-hidden>×</span>
+              <DecimalAmountInput
+                min={0}
+                decimals={0}
+                value={heightCm || null}
+                aria-label="Height cm"
+                onChange={next => setHeightCm(next ?? 0)}
+              />
+            </div>
+          </Field>
+          <InrInput
+            label="Invoice value"
+            tip="For FOV insurance: max(min ₹, % of invoice)."
+            value={invoiceValueInr}
+            decimals={0}
+            onChange={setInvoiceValueInr}
+          />
+          <Field label="Quote month" tip="Controls whether Festival season applies.">
+            <select
+              className="settings-bluedart__select"
+              value={quoteMonth}
+              onChange={e => setQuoteMonth(Number(e.target.value))}
+            >
+              {MONTH_OPTIONS.map(month => (
+                <option key={month.value} value={month.value}>{month.label}</option>
+              ))}
+            </select>
+          </Field>
+          <label className="settings-courier-rates__toggle settings-bluedart__stack-edl-toggle">
+            <input
+              type="checkbox"
+              checked={isEdl}
+              onChange={e => setIsEdl(e.target.checked)}
+            />
+            <span>
+              <span
+                className="settings-bluedart__label-tip"
+                data-tip="Treat destination pin as Extra Delivery Location."
+                tabIndex={0}
+              >
+                EDL pin
+              </span>
+              <em>Apply EDL after %</em>
+            </span>
+          </label>
+          {isEdl ? (
+            <Field label="EDL hub km" tip="Optional. Enables distance matrix when mode uses km.">
+              <DecimalAmountInput
+                min={0}
+                decimals={0}
+                value={edlKm || null}
+                onChange={next => setEdlKm(next ?? 0)}
+              />
+            </Field>
+          ) : null}
+        </div>
+      </div>
+
       <div className="settings-bluedart__stack-body">
         <SurfaceStackRow
           kind="line"
@@ -361,7 +559,8 @@ function SurfaceChargeStack(props: { rates: BlueDartSurfaceRates }) {
             text: 'Basic freight',
             tip: 'Starting freight: zone ₹/kg × chargeable kg, after min weight and min freight floors. All % below that say “of basic” multiply this amount.',
           }]}
-          detail="₹/kg × chargeable kg (min weight / min freight)"
+          detail={`${formatStackInr(preview.perKgInr)}/kg × ${preview.chargeableKg} kg`}
+          value={formatStackInr(preview.baseFreightInr)}
         />
         <SurfaceStackRow
           kind="line"
@@ -371,8 +570,12 @@ function SurfaceChargeStack(props: { rates: BlueDartSurfaceRates }) {
             tip: 'Festival / peak-season surcharge. % of basic freight only, and only when the quote month falls in the configured season (may wrap year, e.g. Oct–Jan). Surface’s stand-in for Air PSS.',
           }]}
           suffix={`${rates.festivalSurchargePercent}%`}
-          detail={`of basic · in season only (${seasonLabel})`}
-          value={`${rates.festivalSurchargePercent}% of basic`}
+          detail={
+            preview.festivalPct > 0
+              ? `of basic · in season (${seasonLabel})`
+              : `of basic · out of season (${seasonLabel})`
+          }
+          value={formatStackInr(preview.festivalSurchargeInr)}
         />
         <SurfaceStackRow
           kind="line"
@@ -383,7 +586,7 @@ function SurfaceChargeStack(props: { rates: BlueDartSurfaceRates }) {
           }]}
           suffix={`${rates.idcPercent}%`}
           detail="of basic freight"
-          value={`${rates.idcPercent}% of basic`}
+          value={formatStackInr(preview.idcInr)}
         />
         <SurfaceStackRow
           kind="line"
@@ -392,8 +595,9 @@ function SurfaceChargeStack(props: { rates: BlueDartSurfaceRates }) {
             text: 'Oversize',
             tip: 'Oversize shipment surcharge. If chargeable kg is under a slab’s kg ceiling, apply that slab’s % of basic (first matching band). At or above every ceiling, the last slab applies. Default: under 32 kg → 0%.',
           }]}
-          detail={`of basic · under slab kg · ${oversizeSummary || '—'}`}
-          value="slab % of basic"
+          suffix={`${preview.oversizePct}%`}
+          detail={`of basic · ${oversizeSummary || '—'}`}
+          value={formatStackInr(preview.oversizeInr)}
         />
         <SurfaceStackRow
           kind="subtotal"
@@ -403,26 +607,32 @@ function SurfaceChargeStack(props: { rates: BlueDartSurfaceRates }) {
             tip: 'Running total after all charges that are % of basic: Basic + Festival + IDC + Oversize. Diesel FS is calculated on this subtotal.',
           }]}
           detail="Basic + Festival + IDC + Oversize"
+          value={formatStackInr(preview.subtotalAInr)}
         />
         <SurfaceStackRow
           kind="line"
           prefix="+"
           names={[{
             text: 'Diesel FS',
-            tip: 'Diesel fuel surcharge from Blue Dart’s published rate. % of Subtotal A only — not applied to Docket, RAS, FOV, or EDL. Surface does not use CAF.',
+            tip: 'Diesel fuel surcharge from Blue Dart’s published rate, after B2B discount. Effective % of Subtotal A only — not applied to Docket, RAS, FOV, or EDL. Surface does not use CAF.',
           }]}
-          suffix={`${diesel}%`}
-          detail="of Subtotal A (not of docket / RAS / FOV)"
-          value={`${diesel}% of A`}
+          suffix={`${dieselEffective}%`}
+          detail={
+            b2bDiscount > 0
+              ? `effective of Subtotal A · published ${dieselPublished}% − B2B ${b2bDiscount}%`
+              : 'of Subtotal A (not of docket / RAS / FOV)'
+          }
+          value={formatStackInr(preview.fuelSurchargeInr)}
         />
         <SurfaceStackRow
           kind="subtotal"
           prefix="="
           names={[{
             text: 'Subtotal B',
-            tip: 'Subtotal A + Diesel FS. EFSS is calculated on this amount. (Air would insert CAF here; Surface skips CAF.)',
+            tip: 'Subtotal A + effective Diesel FS. EFSS is calculated on this amount. (Air would insert CAF here; Surface skips CAF.)',
           }]}
           detail="Subtotal A + Diesel FS"
+          value={formatStackInr(preview.subtotalBInr)}
         />
         <SurfaceStackRow
           kind="line"
@@ -433,7 +643,7 @@ function SurfaceChargeStack(props: { rates: BlueDartSurfaceRates }) {
           }]}
           suffix={`${rates.efssPercent}%`}
           detail="of Subtotal B"
-          value={`${rates.efssPercent}% of B`}
+          value={formatStackInr(preview.efssInr)}
         />
         <SurfaceStackRow
           kind="line"
@@ -442,8 +652,8 @@ function SurfaceChargeStack(props: { rates: BlueDartSurfaceRates }) {
             text: 'Docket',
             tip: 'Fixed AWB / docket fee per shipment. Flat ₹ added after all percentage surcharges — not inside Diesel FS or EFSS bases.',
           }]}
-          suffix={`₹${rates.docketFeeInr}`}
           detail="flat · after percentages"
+          value={formatStackInr(preview.docketFeeInr)}
         />
         <SurfaceStackRow
           kind="line"
@@ -463,7 +673,8 @@ function SurfaceChargeStack(props: { rates: BlueDartSurfaceRates }) {
             },
           ]}
           join=" · "
-          detail="flat / conditional · after percentages"
+          detail={`${formatStackInr(preview.rasInr)} + ${formatStackInr(preview.fovInr)} + ${formatStackInr(preview.edlInr)}`}
+          value={formatStackInr(preview.rasInr + preview.fovInr + preview.edlInr)}
         />
         <SurfaceStackRow
           kind="total"
@@ -473,6 +684,7 @@ function SurfaceChargeStack(props: { rates: BlueDartSurfaceRates }) {
             tip: 'Sum of the stack above, rounded up to a whole rupee. Quoted ex-GST — tax is applied on the sales order, not here.',
           }]}
           detail="ceil to whole ₹ · ex-GST"
+          value={formatStackInr(preview.totalInr)}
         />
       </div>
     </div>
@@ -530,6 +742,8 @@ function SurfaceRatesEditor(props: {
   };
 
   const dieselPct = rates.fuelSurchargePercent ?? 0;
+  const dieselB2bDiscountPct = rates.dieselB2bDiscountPercent ?? 0;
+  const dieselEffectivePct = blueDartSurfaceEffectiveDieselFsPercent(rates);
   const oversizeSlabs = normalizeBlueDartOversizeSlabs(rates.oversizeSlabs);
 
   const patchOversizeSlabs = (next: BlueDartOversizeSlab[]) => {
@@ -538,7 +752,7 @@ function SurfaceRatesEditor(props: {
 
   return (
     <div className="settings-bluedart__service-block settings-bluedart__surface">
-      <SurfaceChargeStack rates={rates} />
+      <SurfaceChargeStack rates={rates} shared={shared} />
 
       <SurfaceStep
         n={1}
@@ -763,50 +977,71 @@ function SurfaceRatesEditor(props: {
       <SurfaceStep
         n={4}
         title="Diesel fuel surcharge"
-        applies={`% of Subtotal A · currently ${dieselPct}%`}
+        applies="% of Subtotal A · after B2B discount"
       >
-        <div className="settings-courier-rates__inline-fields settings-bluedart__grid settings-bluedart__diesel-row">
-          <PctInput
-            label="Diesel FS"
-            tip="Published Blue Dart diesel FS. Applied to Subtotal A (basic + festival + IDC + oversize). No CAF on Surface."
-            value={dieselPct}
-            hint="of Subtotal A"
-            onChange={fuelSurchargePercent => onPatchRates({
-              fuelSurchargePercent,
-              cafPercent: null,
-            })}
-          />
-          <div className="settings-bluedart__diesel-actions">
-            <button
-              type="button"
-              className="btn btn-secondary btn-sm"
-              disabled={dieselFetchBusy}
-              onClick={() => void handleFetchDieselFs()}
-            >
-              {dieselFetchBusy
-                ? <Loader2 size={14} className="spin-icon" aria-hidden />
-                : <RefreshCw size={14} aria-hidden />}
-              {dieselFetchBusy ? 'Fetching…' : 'Fetch current'}
-            </button>
-            <a
-              href={BLUE_DART_DIESEL_FUEL_SURCHARGE_URL}
-              target="_blank"
-              rel="noreferrer"
-              className="settings-bluedart__inline-link"
-            >
-              Source
-              <ExternalLink size={12} aria-hidden />
-            </a>
+        <div className="settings-bluedart__diesel">
+          <div className="settings-bluedart__diesel-fields">
+            <div className="settings-bluedart__diesel-col">
+              <PctInput
+                label="Diesel FS"
+                tip="Published Blue Dart diesel FS. B2B discount reduces the rate actually applied to Subtotal A. No CAF on Surface."
+                value={dieselPct}
+                hint="published rate"
+                onChange={fuelSurchargePercent => onPatchRates({
+                  fuelSurchargePercent,
+                  cafPercent: null,
+                })}
+              />
+              <div className="settings-bluedart__diesel-actions">
+                <button
+                  type="button"
+                  className="btn btn-secondary btn-sm"
+                  disabled={dieselFetchBusy}
+                  onClick={() => void handleFetchDieselFs()}
+                >
+                  {dieselFetchBusy
+                    ? <Loader2 size={14} className="spin-icon" aria-hidden />
+                    : <RefreshCw size={14} aria-hidden />}
+                  {dieselFetchBusy ? 'Fetching…' : 'Fetch current'}
+                </button>
+                <a
+                  href={BLUE_DART_DIESEL_FUEL_SURCHARGE_URL}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="settings-bluedart__inline-link"
+                >
+                  Source
+                  <ExternalLink size={12} aria-hidden />
+                </a>
+              </div>
+              {dieselFetchNote ? (
+                <p className="settings-bluedart__diesel-note text-sm">{dieselFetchNote}</p>
+              ) : null}
+              {dieselFetchError ? (
+                <p className="settings-bluedart__diesel-error text-sm" role="alert">{dieselFetchError}</p>
+              ) : null}
+            </div>
+            <div className="settings-bluedart__diesel-col">
+              <PctInput
+                label="B2B discount"
+                tip="Percent off the published Diesel FS. Effective FS = published × (1 − B2B/100)."
+                value={dieselB2bDiscountPct}
+                hint="off published FS"
+                onChange={dieselB2bDiscountPercent => onPatchRates({
+                  dieselB2bDiscountPercent: Math.min(100, Math.max(0, dieselB2bDiscountPercent)),
+                })}
+              />
+            </div>
           </div>
+          <p className="settings-bluedart__diesel-effective">
+            Effective Diesel FS: {dieselEffectivePct}%
+            {dieselB2bDiscountPct > 0
+              ? ` = ${dieselPct}% × (1 − ${dieselB2bDiscountPct}%)`
+              : ''}
+          </p>
         </div>
-        {dieselFetchNote ? (
-          <p className="settings-bluedart__diesel-note text-sm">{dieselFetchNote}</p>
-        ) : null}
-        {dieselFetchError ? (
-          <p className="settings-bluedart__diesel-error text-sm" role="alert">{dieselFetchError}</p>
-        ) : null}
         <p className="settings-bluedart__stack-footnote">
-          → Subtotal B = Subtotal A + Diesel FS · (Air would add CAF next; Surface skips CAF)
+          → Subtotal B = Subtotal A + effective Diesel FS · (Air would add CAF next; Surface skips CAF)
         </p>
       </SurfaceStep>
 

@@ -184,7 +184,17 @@ function defaultSurface() {
     festivalSeasonStartMonth: 10,
     festivalSeasonEndMonth: 1,
     oversizeSlabs: DEFAULT_OVERSIZE_SLABS.map((s) => ({ ...s })),
+    dieselB2bDiscountPercent: 0,
   };
+}
+
+function surfaceEffectiveDieselFs(surface) {
+  const published = surface?.fuelSurchargePercent != null
+    ? nonNeg(Number(surface.fuelSurchargePercent))
+    : 0;
+  const discount = Math.min(100, nonNeg(Number(surface?.dieselB2bDiscountPercent)));
+  const effective = published * (1 - discount / 100);
+  return effective > 0 ? Math.round(effective * 100) / 100 : 0;
 }
 
 function clampMonth(value, fallback) {
@@ -371,6 +381,10 @@ function parseSurface(raw) {
     oversizeSlabs: normalizeOversizeSlabs(
       raw.oversizeSlabs ?? defaults.oversizeSlabs,
     ),
+    dieselB2bDiscountPercent: Math.min(
+      100,
+      nonNeg(Number(raw.dieselB2bDiscountPercent), defaults.dieselB2bDiscountPercent),
+    ),
   };
 }
 
@@ -471,12 +485,10 @@ function fsCaf(shared, serviceFs, serviceCaf) {
   };
 }
 
-/** Surface: diesel FS only (no shared Fuel / CAF). */
+/** Surface: diesel FS after B2B discount (no shared Fuel / CAF). */
 function surfaceFsCaf(surface) {
   return {
-    fs: surface?.fuelSurchargePercent != null
-      ? nonNeg(Number(surface.fuelSurchargePercent))
-      : 0,
+    fs: surfaceEffectiveDieselFs(surface),
     caf: 0,
   };
 }

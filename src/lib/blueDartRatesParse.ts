@@ -236,6 +236,10 @@ function parseSurfaceService(raw: unknown): BlueDartSurfaceRates {
     oversizeSlabs: normalizeBlueDartOversizeSlabs(
       data.oversizeSlabs ?? defaults.oversizeSlabs,
     ),
+    dieselB2bDiscountPercent: Math.min(
+      100,
+      finiteNonNeg(data.dieselB2bDiscountPercent, defaults.dieselB2bDiscountPercent),
+    ),
   };
 }
 
