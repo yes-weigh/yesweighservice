@@ -200,13 +200,17 @@ export const SoFreightExpandPanel: React.FC<Props> = ({
 
   return (
     <div className="so-freight-expand" id="so-draft-freight">
-      <h4 className="so-freight-expand__title">Freight splitup</h4>
       {freightEstimate?.usable ? (
         <OrderFreightPanel
           estimate={freightEstimate}
           canEditPackage={canEditPackage && !disabled}
           showFreightChargePlan
           catalogById={catalogById}
+          destinationLabel={[
+            shippingDestination?.city,
+            shippingDestination?.state,
+          ].filter(Boolean).join(', ') || null}
+          footerNote="One freight line per draft SO. Amounts are calculated from rate cards and package data."
           onCourierChange={(site, partnerId) => {
             setFreightAmountManual(false);
             lastAutoKeyRef.current = '';

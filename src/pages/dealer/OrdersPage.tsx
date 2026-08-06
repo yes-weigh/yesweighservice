@@ -541,13 +541,15 @@ const DealerCartPage: React.FC = () => {
                 showFreightChargePlan={false}
                 clubSites
                 catalogById={catalogById}
+                destinationLabel={[
+                  shippingDestination?.city,
+                  shippingDestination?.state,
+                ].filter(Boolean).join(', ') || null}
+                footerNote="Estimated freight for this order. Staff can adjust courier and package data when reviewing."
                 onCourierChange={(site, partnerId) => {
                   setCourierBySite(prev => ({ ...prev, [site]: partnerId }));
                 }}
               />
-              <p className="orders-page__freight-note text-muted text-sm">
-                Estimated freight for this order. Staff can adjust courier and package data when reviewing.
-              </p>
             </>
           ) : !shipping && !addressesLoading ? (
             <p className="orders-page__freight-note text-muted text-sm">

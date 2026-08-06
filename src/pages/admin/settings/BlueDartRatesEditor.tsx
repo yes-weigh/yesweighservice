@@ -185,13 +185,28 @@ function SharedChargesEditor(props: {
   onAck: (key: BlueDartSetupAckKey) => void;
 }) {
   const { shared, onPatch, verifyNoteFor, onAck } = props;
+  const [open, setOpen] = useState(false);
   return (
-    <div className="settings-bluedart__shared-block">
-      <div className="settings-bluedart__subhead">Charges for all services</div>
-      <p className="settings-bluedart__panel-blurb">
-        Fuel, CAF, GST, RAS, insurance, and EDL apply to Air, Surface, and Domestic Priority.
-      </p>
+    <div className={`settings-bluedart__shared-block${open ? ' is-open' : ' is-collapsed'}`}>
+      <button
+        type="button"
+        className="settings-bluedart__shared-toggle"
+        aria-expanded={open}
+        onClick={() => setOpen(v => !v)}
+      >
+        <span>
+          <strong>Charges for all services</strong>
+          <em>
+            {open
+              ? 'Fuel, CAF, GST, RAS, insurance, and EDL apply to Air, Surface, and Domestic Priority.'
+              : 'Fuel, CAF, GST, RAS, insurance, EDL — expand to edit'}
+          </em>
+        </span>
+        <ChevronDown size={16} aria-hidden />
+      </button>
 
+      {open ? (
+        <>
       <div className="settings-bluedart__subhead">Everyday surcharges</div>
       <div className="settings-courier-rates__inline-fields settings-bluedart__grid">
         <PctInput
@@ -355,6 +370,8 @@ function SharedChargesEditor(props: {
             onChange={edlBeyond1500KgPerKgInr => onPatch({ edlBeyond1500KgPerKgInr })}
           />
         </div>
+      ) : null}
+        </>
       ) : null}
     </div>
   );

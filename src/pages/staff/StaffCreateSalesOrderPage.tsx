@@ -24,6 +24,7 @@ import {
 import { GatcStampingInlineControl } from '../../components/catalog/GatcStampingInlineControl';
 import { DocumentLineItemSpec } from '../../components/invoices/DocumentLineItemSpec';
 import { MultiSalesOrderSuccess } from '../../components/salesOrders/MultiSalesOrderSuccess';
+import { StaffSoProductPeek } from '../../components/salesOrders/StaffSoProductPeek';
 import { ThemeSelect } from '../../components/ThemeSelect';
 import { DecimalAmountInput } from '../../components/DecimalAmountInput';
 import { QuantityStepper } from '../../components/QuantityStepper';
@@ -48,10 +49,12 @@ import { useCartFly } from '../../context/useCartFly';
 import {
   excludeHiddenCatalogProducts,
   fetchCatalog,
+  fetchSpareLinkIndex,
   formatCurrency,
   getCategoriesForProducts,
   isHiddenCatalogCategory,
 } from '../../lib/catalog';
+import { canViewCatalogStock } from '../../lib/dealerAccess';
 import { combinedCartRate, productHasLinkedGatc } from '../../lib/gatcCart';
 import {
   ensureDealersCached,
@@ -263,6 +266,9 @@ export const StaffCreateSalesOrderPage: React.FC = () => {
   const [catalogLoading, setCatalogLoading] = useState(false);
   const [catalogError, setCatalogError] = useState('');
   const [browseCategoryId, setBrowseCategoryId] = useState('');
+  const [spareCountByProductId, setSpareCountByProductId] = useState<Map<string, number> | null>(null);
+  const [peekProduct, setPeekProduct] = useState<CatalogProduct | null>(null);
+  const showStockQuantity = canViewCatalogStock(user);
 
   const [dealerQuery, setDealerQuery] = useState('');
   const [dealers, setDealers] = useState<ZohoDealer[]>([]);
@@ -559,10 +565,21 @@ export const StaffCreateSalesOrderPage: React.FC = () => {
       .finally(() => {
         if (!cancelled) setCatalogLoading(false);
       });
+    void fetchSpareLinkIndex()
+      .then(index => {
+        if (!cancelled) setSpareCountByProductId(index.spareCountByProductId);
+      })
+      .catch(() => {
+        if (!cancelled) setSpareCountByProductId(null);
+      });
     return () => {
       cancelled = true;
     };
   }, [step, activeSegments]);
+
+  useEffect(() => {
+    if (step !== 'catalog') setPeekProduct(null);
+  }, [step]);
 
   useEffect(() => {
     if (!needsSalespersonPicker) return;
@@ -1324,7 +1341,7 @@ export const StaffCreateSalesOrderPage: React.FC = () => {
         <section className="staff-create-so-page__catalog">
           <div className="staff-create-so-page__catalog-bar panel glass">
             <p className="text-muted text-sm staff-create-so-page__catalog-hint">
-              Tap the cart icon on an item to add it
+              Tap an item for details & linked spares, or the cart icon to add it
             </p>
             <button
               ref={cartBtnRef}
@@ -1374,7 +1391,9 @@ export const StaffCreateSalesOrderPage: React.FC = () => {
                 flatBrowse={spareOnlyCatalog}
                 showCategoryGrid={!spareOnlyCatalog && !browseCategoryId}
                 searchPlaceholder="Search catalog…"
-                onProductSelect={() => undefined}
+                showStockQuantity={showStockQuantity}
+                spareLinkCountByProductId={spareCountByProductId ?? undefined}
+                onProductSelect={setPeekProduct}
                 managePageHeader={false}
                 activeCategoryId={browseCategoryId}
                 onActiveCategoryChange={setBrowseCategoryId}
@@ -1383,6 +1402,14 @@ export const StaffCreateSalesOrderPage: React.FC = () => {
               />
             </>
           )}
+
+          <StaffSoProductPeek
+            product={peekProduct}
+            categories={catalogCategories}
+            showStockQuantity={showStockQuantity}
+            isCartable={productMatchesActiveSegments}
+            onClose={() => setPeekProduct(null)}
+          />
 
           <div className="staff-create-so-page__catalog-footer panel glass">
             <span className="text-muted text-sm">
@@ -1576,34 +1603,36 @@ export const StaffCreateSalesOrderPage: React.FC = () => {
 
           {freightAllowed ? (
             <section className="panel glass staff-create-so-page__section">
-              <h2>Freight</h2>
               {freightEstimate?.usable ? (
+                <OrderFreightPanel
+                  estimate={freightEstimate}
+                  canEditPackage
+                  catalogById={catalogById}
+                  destinationLabel={[
+                    shippingDestination?.city,
+                    shippingDestination?.state,
+                  ].filter(Boolean).join(', ') || null}
+                  footerNote="One freight line per draft SO. Amounts are calculated from rate cards and package data."
+                  onCourierChange={(site, partnerId) => {
+                    setCourierBySite(prev => ({ ...prev, [site]: partnerId }));
+                  }}
+                  onPackageInfoChange={(productId, info) => {
+                    setCatalogProducts(prev => prev.map(product => (
+                      product.id === productId
+                        ? { ...product, packageInfo: info }
+                        : product
+                    )));
+                  }}
+                />
+              ) : (
                 <>
-                  <OrderFreightPanel
-                    estimate={freightEstimate}
-                    canEditPackage
-                    catalogById={catalogById}
-                    onCourierChange={(site, partnerId) => {
-                      setCourierBySite(prev => ({ ...prev, [site]: partnerId }));
-                    }}
-                    onPackageInfoChange={(productId, info) => {
-                      setCatalogProducts(prev => prev.map(product => (
-                        product.id === productId
-                          ? { ...product, packageInfo: info }
-                          : product
-                      )));
-                    }}
-                  />
-                  <p className="text-muted text-sm" style={{ marginTop: '0.5rem' }}>
-                    One freight line per draft SO. Amounts are calculated from rate cards and package data.
+                  <h2>Freight</h2>
+                  <p className="text-muted text-sm">
+                    {shipping
+                      ? 'Freight will calculate once items and destination rates are available.'
+                      : 'Select a shipping address to see freight and courier options.'}
                   </p>
                 </>
-              ) : (
-                <p className="text-muted text-sm">
-                  {shipping
-                    ? 'Freight will calculate once items and destination rates are available.'
-                    : 'Select a shipping address to see freight and courier options.'}
-                </p>
               )}
             </section>
           ) : null}

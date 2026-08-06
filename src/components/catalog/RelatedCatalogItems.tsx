@@ -90,7 +90,7 @@ export const RelatedCatalogItems: React.FC<{
   items: CatalogProduct[];
   title: string;
   emptyMessage: string;
-  detailBasePath: string;
+  detailBasePath?: string;
   loading?: boolean;
   headerAction?: React.ReactNode;
   showStockQuantity?: boolean;
@@ -102,11 +102,13 @@ export const RelatedCatalogItems: React.FC<{
   /** When set, show Unlink on each tile (staff mapping). */
   onUnlink?: (item: CatalogProduct) => void;
   unlinkingId?: string | null;
+  /** Keep tiles in-place (e.g. sales-order wizard) instead of navigating to detail. */
+  disableNavigation?: boolean;
 }> = ({
   items,
   title,
   emptyMessage,
-  detailBasePath,
+  detailBasePath = '',
   loading = false,
   headerAction,
   showStockQuantity = false,
@@ -116,11 +118,13 @@ export const RelatedCatalogItems: React.FC<{
   embedded = false,
   onUnlink,
   unlinkingId = null,
+  disableNavigation = false,
 }) => {
   const navigate = useNavigate();
   const [unlinkMode, setUnlinkMode] = useState(false);
   const canUnlink = Boolean(onUnlink);
   const showUnlinkButtons = canUnlink && unlinkMode;
+  const canNavigate = !disableNavigation && Boolean(detailBasePath);
 
   const toggleUnlinkMode = () => setUnlinkMode(prev => !prev);
 
@@ -198,49 +202,60 @@ export const RelatedCatalogItems: React.FC<{
         <ul className="related-catalog__list">
           {items.map(item => {
             const unlinking = unlinkingId === item.id;
+            const mainBody = (
+              <>
+                <div className="related-catalog__media">
+                  {item.imageUrl ? (
+                    <div className="related-catalog__visual" aria-hidden>
+                      <CategoryThumbnail src={item.imageUrl} knockout={false} />
+                    </div>
+                  ) : (
+                    <Package size={24} aria-hidden />
+                  )}
+                </div>
+                <div className="related-catalog__info">
+                  {item.sku && <span className="related-catalog__sku">{item.sku}</span>}
+                  <span className="related-catalog__name">{formatProductTitle(item.name)}</span>
+                  {item.categoryName && (
+                    <span className="related-catalog__category text-muted text-sm">
+                      {item.categoryName}
+                    </span>
+                  )}
+                  {showStockQuantity && (
+                    <StockQuantity
+                      stock={item.stock}
+                      unit={item.unit}
+                      status={item.stockStatus}
+                      compact
+                    />
+                  )}
+                </div>
+                <div className="related-catalog__price">
+                  <IndianRupee size={13} strokeWidth={2.5} aria-hidden />
+                  <span>{item.rate.toLocaleString('en-IN')}</span>
+                </div>
+              </>
+            );
             return (
               <li key={item.id}>
                 <div className={`related-catalog__item ${enableCart ? 'related-catalog__item--cart' : ''}`}>
-                  <button
-                    type="button"
-                    className="related-catalog__main"
-                    onClick={() =>
-                      navigate(`${detailBasePath}/${item.id}`, {
-                        state: getLinkState?.(item) ?? { preview: item },
-                      })
-                    }
-                  >
-                    <div className="related-catalog__media">
-                      {item.imageUrl ? (
-                        <div className="related-catalog__visual" aria-hidden>
-                          <CategoryThumbnail src={item.imageUrl} knockout={false} />
-                        </div>
-                      ) : (
-                        <Package size={24} aria-hidden />
-                      )}
+                  {canNavigate ? (
+                    <button
+                      type="button"
+                      className="related-catalog__main"
+                      onClick={() =>
+                        navigate(`${detailBasePath}/${item.id}`, {
+                          state: getLinkState?.(item) ?? { preview: item },
+                        })
+                      }
+                    >
+                      {mainBody}
+                    </button>
+                  ) : (
+                    <div className="related-catalog__main related-catalog__main--static">
+                      {mainBody}
                     </div>
-                    <div className="related-catalog__info">
-                      {item.sku && <span className="related-catalog__sku">{item.sku}</span>}
-                      <span className="related-catalog__name">{formatProductTitle(item.name)}</span>
-                      {item.categoryName && (
-                        <span className="related-catalog__category text-muted text-sm">
-                          {item.categoryName}
-                        </span>
-                      )}
-                      {showStockQuantity && (
-                        <StockQuantity
-                          stock={item.stock}
-                          unit={item.unit}
-                          status={item.stockStatus}
-                          compact
-                        />
-                      )}
-                    </div>
-                    <div className="related-catalog__price">
-                      <IndianRupee size={13} strokeWidth={2.5} aria-hidden />
-                      <span>{item.rate.toLocaleString('en-IN')}</span>
-                    </div>
-                  </button>
+                  )}
                   {showUnlinkButtons && onUnlink && (
                     <button
                       type="button"

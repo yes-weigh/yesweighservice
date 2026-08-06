@@ -1,6 +1,15 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { AlertTriangle, Eye, Package, X } from 'lucide-react';
+import {
+  AlertTriangle,
+  Box,
+  Eye,
+  IndianRupee,
+  Info,
+  Package,
+  Scale,
+  X,
+} from 'lucide-react';
 import { formatCurrency } from '../../lib/catalog';
 import {
   logisticsPartnerImage,
@@ -27,12 +36,31 @@ type Props = {
   clubSites?: boolean;
   /** Staff/admin: LBH + kg + ₹/kg maths under each freight line. */
   showLineDetails?: boolean;
+  /** e.g. "Tamil Nadu, Pondy" for the header. */
+  destinationLabel?: string | null;
+  /** Footer note under the calc card. */
+  footerNote?: string | null;
   catalogById?: Record<string, CatalogProduct | undefined>;
   onCourierChange: (site: InventorySite, partnerId: LogisticsPartnerId) => void;
   onPackageInfoChange?: (productId: string, info: NonNullable<CatalogProduct['packageInfo']>) => void;
 };
 
 type ClubbedLine = FreightLineBreakdown & { site: InventorySite };
+
+type ItemFreightCalcView = {
+  key: string;
+  title: string;
+  subtitle: string | null;
+  boxCount: number;
+  lbhLabel: string | null;
+  actualKg: number;
+  chargeableKg: number;
+  ratePerKg: number | null;
+  rawTotal: number;
+  amountInr: number;
+  isSpare: boolean;
+  needsPackage: boolean;
+};
 
 function packingSummary(b: FreightLineBreakdown): string {
   const parts: string[] = [];
@@ -53,7 +81,10 @@ function packingSummary(b: FreightLineBreakdown): string {
 
 function formatKg(value: number): string {
   if (!Number.isFinite(value)) return '0';
-  return Number.isInteger(value) ? String(value) : value.toFixed(3).replace(/\.?0+$/, '');
+  return value.toLocaleString('en-IN', {
+    minimumFractionDigits: 0,
+    maximumFractionDigits: 3,
+  });
 }
 
 function parcelKindLabel(kind: FreightParcelGroup['kind'], count: number): string {
@@ -101,6 +132,56 @@ function lineCalcSummary(line: FreightLineBreakdown): string | null {
   return parts.join(' · ');
 }
 
+function lineLbhLabel(line: FreightLineBreakdown): string | null {
+  let lbh: string | null = null;
+  let dominant = 0;
+  for (const group of line.parcelGroups ?? []) {
+    if (group.count >= dominant && group.lengthCm > 0) {
+      dominant = group.count;
+      lbh = `${group.lengthCm} × ${group.breadthCm} × ${group.heightCm}`;
+    }
+  }
+  return lbh;
+}
+
+function buildItemCalcView(
+  line: FreightLineBreakdown,
+  key: string,
+  siteLabel?: string | null,
+): ItemFreightCalcView {
+  const boxCount = line.masterCartonCount + line.singleBoxCount;
+  const actualKg = Number(line.actualKg) || 0;
+  const chargeableKg = Number(line.chargeableKg) || 0;
+  const ratePerKg = line.boxPerKgInr != null && line.boxPerKgInr > 0
+    ? line.boxPerKgInr
+    : null;
+  const rawTotal = ratePerKg != null && chargeableKg > 0
+    ? Math.round(ratePerKg * chargeableKg * 100) / 100
+    : line.amountInr;
+  const isSpare = line.indication === 'spare_default';
+  return {
+    key,
+    title: isSpare
+      ? 'Spares'
+      : (line.name || line.sku || 'Item'),
+    subtitle: [
+      line.sku && !isSpare ? line.sku : null,
+      siteLabel || null,
+      isSpare ? 'Spare minimum' : null,
+    ].filter(Boolean).join(' · ') || null,
+    boxCount,
+    lbhLabel: lineLbhLabel(line),
+    actualKg,
+    chargeableKg,
+    ratePerKg,
+    rawTotal,
+    amountInr: line.amountInr,
+    isSpare,
+    needsPackage: line.indication === 'missing_package'
+      || line.indication === 'incomplete_package',
+  };
+}
+
 function CourierOptionCard({
   opt,
   selected,
@@ -140,7 +221,9 @@ function CourierOptionCard({
       ) : null}
       <span className="order-freight-panel__courier-copy">
         <strong>{opt.label}</strong>
-        {opt.preferred ? <em>Preferred</em> : null}
+        {opt.preferred ? (
+          <em className="order-freight-panel__courier-preferred">Preferred</em>
+        ) : null}
         {opt.enabled && opt.manualRate ? <em>Enter ₹ on sales order</em> : null}
         {!opt.enabled && opt.disabledReason ? <em>{opt.disabledReason}</em> : null}
       </span>
@@ -152,6 +235,150 @@ function CourierOptionCard({
             : formatCurrency(amountInr)}
       </strong>
     </label>
+  );
+}
+
+function ItemFreightCalcTile({ calc }: { calc: ItemFreightCalcView }) {
+  if (calc.isSpare) {
+    return (
+      <article className="order-freight-panel__calc-card" aria-label={`Freight calculation · ${calc.title}`}>
+        <header className="order-freight-panel__calc-head">
+          <Package size={15} aria-hidden />
+          <span>Freight calculation</span>
+        </header>
+        <p className="order-freight-panel__calc-item-title">{calc.title}</p>
+        {calc.subtitle ? (
+          <p className="order-freight-panel__calc-item-sub">{calc.subtitle}</p>
+        ) : null}
+        <div className="order-freight-panel__calc-formula order-freight-panel__calc-formula--simple">
+          <div className="order-freight-panel__calc-formula-left">
+            <span>Spare minimum</span>
+            <strong>Flat charge</strong>
+          </div>
+          <span className="order-freight-panel__calc-formula-arrow" aria-hidden>→</span>
+          <div className="order-freight-panel__calc-formula-right">
+            <span>Total freight</span>
+            <strong>{formatCurrency(calc.amountInr)}</strong>
+          </div>
+        </div>
+      </article>
+    );
+  }
+
+  return (
+    <article
+      className={`order-freight-panel__calc-card${calc.needsPackage ? ' is-warn' : ''}`}
+      aria-label={`Freight calculation · ${calc.title}`}
+    >
+      <header className="order-freight-panel__calc-head">
+        <Package size={15} aria-hidden />
+        <span>Freight calculation</span>
+      </header>
+      <p className="order-freight-panel__calc-item-title">{calc.title}</p>
+      {calc.subtitle ? (
+        <p className="order-freight-panel__calc-item-sub">{calc.subtitle}</p>
+      ) : null}
+
+      <div className="order-freight-panel__calc-grid">
+        <div className="order-freight-panel__calc-row">
+          <div className="order-freight-panel__calc-cell">
+            <Box size={16} aria-hidden />
+            <div>
+              <span>Total Boxes</span>
+              <strong>{calc.boxCount}</strong>
+              <em>{calc.boxCount === 1 ? 'Box' : 'Boxes'}</em>
+            </div>
+          </div>
+          <div className="order-freight-panel__calc-cell">
+            <Package size={16} aria-hidden />
+            <div>
+              <span>LBH (cm) (Per Box)</span>
+              <strong>{calc.lbhLabel || '—'}</strong>
+              {calc.lbhLabel ? <em>( L × B × H )</em> : null}
+            </div>
+          </div>
+          <div className="order-freight-panel__calc-cell">
+            <Scale size={16} aria-hidden />
+            <div>
+              <span>Actual Weight (Total)</span>
+              <strong>
+                {formatKg(calc.actualKg)}
+                {' '}
+                kg
+              </strong>
+            </div>
+          </div>
+        </div>
+
+        <div className="order-freight-panel__calc-row">
+          <div className="order-freight-panel__calc-cell">
+            <Scale size={16} aria-hidden />
+            <div>
+              <span>Chargeable Weight</span>
+              <strong>
+                {formatKg(calc.chargeableKg)}
+                {' '}
+                kg
+              </strong>
+            </div>
+          </div>
+          <div className="order-freight-panel__calc-cell">
+            <Scale size={16} aria-hidden />
+            <div>
+              <span>Total Weight (Actual)</span>
+              <strong>
+                {formatKg(calc.actualKg)}
+                {' '}
+                kg
+              </strong>
+            </div>
+          </div>
+          <div className="order-freight-panel__calc-cell">
+            <IndianRupee size={16} aria-hidden />
+            <div>
+              <span>Rate</span>
+              <strong>
+                {calc.ratePerKg != null
+                  ? `${formatCurrency(calc.ratePerKg)} / kg`
+                  : '—'}
+              </strong>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {calc.needsPackage ? (
+        <p className="order-freight-panel__hint">
+          <AlertTriangle size={12} aria-hidden />
+          No LBH/weight — freight ₹0 for these units
+        </p>
+      ) : null}
+
+      <div className="order-freight-panel__calc-formula">
+        <div className="order-freight-panel__calc-formula-labels">
+          <span>Chargeable Weight</span>
+          <span>×</span>
+          <span>Rate</span>
+        </div>
+        <div className="order-freight-panel__calc-formula-values">
+          <strong>
+            {formatKg(calc.chargeableKg)}
+            {' '}
+            kg
+          </strong>
+          <strong>
+            ×
+            {' '}
+            {calc.ratePerKg != null ? `${formatCurrency(calc.ratePerKg)} / kg` : '—'}
+          </strong>
+        </div>
+        <span className="order-freight-panel__calc-formula-arrow" aria-hidden>→</span>
+        <div className="order-freight-panel__calc-formula-right">
+          <span>Total freight</span>
+          <strong>{formatCurrency(calc.rawTotal)}</strong>
+        </div>
+      </div>
+    </article>
   );
 }
 
@@ -241,7 +468,9 @@ export const OrderFreightPanel: React.FC<Props> = ({
   canEditPackage = false,
   showFreightChargePlan = true,
   clubSites = false,
-  showLineDetails,
+  showLineDetails: _showLineDetails,
+  destinationLabel = null,
+  footerNote = null,
   catalogById = {},
   onCourierChange,
   onPackageInfoChange,
@@ -249,8 +478,7 @@ export const OrderFreightPanel: React.FC<Props> = ({
   const [splitupOpen, setSplitupOpen] = useState(false);
 
   const planLabel = ST_COURIER_ZONE_LABELS[estimate.zone] || estimate.inferredZoneLabel;
-  /** Staff/admin default: detailed LBH maths. Dealers (clubbed) stay compact. */
-  const lineDetails = showLineDetails ?? !clubSites;
+  const headerPlace = destinationLabel?.trim() || planLabel;
 
   const clubbedLines = useMemo((): ClubbedLine[] => {
     if (!clubSites || !estimate.usable) return [];
@@ -270,7 +498,6 @@ export const OrderFreightPanel: React.FC<Props> = ({
 
   const clubCourierOptions = useMemo(() => {
     if (!clubSites || !estimate.usable || estimate.sites.length === 0) return [];
-    // Prefer options from the first site; mark disabled if not enabled on every site.
     const primary = estimate.sites[0].courierOptions;
     return primary.map(opt => {
       const enabledEverywhere = estimate.sites.every(site =>
@@ -296,6 +523,16 @@ export const OrderFreightPanel: React.FC<Props> = ({
     && estimate.sites.every(site => site.partnerId === estimate.sites[0].partnerId)
     ? estimate.sites[0].partnerId
     : null;
+
+  const clubItemCalcs = useMemo(() => {
+    if (!clubSites) return [] as ItemFreightCalcView[];
+    return clubbedLines.map(line => buildItemCalcView(
+      line,
+      line.indication === 'spare_default'
+        ? `${line.site}:spare_default`
+        : `${line.site}:${line.productId}:${line.indication}`,
+    ));
+  }, [clubSites, clubbedLines]);
 
   useEffect(() => {
     if (!splitupOpen) return undefined;
@@ -369,21 +606,21 @@ export const OrderFreightPanel: React.FC<Props> = ({
 
   return (
     <div className="order-freight-panel">
-      {showFreightChargePlan ? (
-        <div className="order-freight-panel__zone order-freight-panel__zone--info">
-          <strong>Freight charge plan</strong>
-          <span>{planLabel}</span>
-        </div>
-      ) : null}
-
-      <div className="orders-page__summary-row">
-        <span className="order-freight-panel__title-row">
-          Freight
-          {showFreightChargePlan ? (
-            <span className="orders-page__freight-meta text-muted">
-              {' '}· {planLabel}
+      <header className="order-freight-panel__head">
+        <div className="order-freight-panel__head-copy">
+          <strong>
+            Freight
+            {headerPlace ? ` · ${headerPlace}` : ''}
+          </strong>
+          {showFreightChargePlan && destinationLabel ? (
+            <span className="text-muted text-sm">
+              Charge plan ·
+              {' '}
+              {planLabel}
             </span>
           ) : null}
+        </div>
+        <div className="order-freight-panel__head-total">
           {clubSites && clubbedLines.length > 0 ? (
             <button
               type="button"
@@ -395,9 +632,9 @@ export const OrderFreightPanel: React.FC<Props> = ({
               <Eye size={15} aria-hidden />
             </button>
           ) : null}
-        </span>
-        <strong>{formatCurrency(estimate.totalInr)}</strong>
-      </div>
+          <em>{formatCurrency(estimate.totalInr)}</em>
+        </div>
+      </header>
 
       {clubSites ? (
         <section className="order-freight-panel__site">
@@ -419,51 +656,99 @@ export const OrderFreightPanel: React.FC<Props> = ({
               ))}
             </div>
           ) : null}
+          {estimate.sites.every(site => site.isPickup) ? (
+            <p className="order-freight-panel__calc-pickup text-muted text-sm">
+              Customer pickup — no courier freight.
+            </p>
+          ) : (
+            <div className="order-freight-panel__calc-list">
+              {clubItemCalcs.map(calc => (
+                <ItemFreightCalcTile key={calc.key} calc={calc} />
+              ))}
+            </div>
+          )}
+          {estimate.sites.length > 0 && !estimate.sites.every(site => site.isPickup) ? (
+            <div className="order-freight-panel__calc-rounded">
+              <div>
+                <strong>Total freight (rounded)</strong>
+                <span>Final amount for this shipment</span>
+              </div>
+              <em>{formatCurrency(estimate.totalInr)}</em>
+            </div>
+          ) : null}
           {splitupPopup}
         </section>
       ) : (
-        estimate.sites.map(site => (
-          <section key={site.site} className="order-freight-panel__site">
-            <header className="order-freight-panel__site-head">
-              <strong>{site.siteLabel}</strong>
-              <span className="text-muted text-sm">{formatCurrency(site.totalInr)}</span>
-            </header>
+        estimate.sites.map(site => {
+          const itemCalcs = site.lineBreakdowns.map(line => buildItemCalcView(
+            line,
+            `${site.site}:${line.productId}:${line.indication}`,
+            estimate.sites.length > 1 ? site.siteLabel : null,
+          ));
+          const packageLines = canEditPackage
+            ? site.lineBreakdowns.filter(line => (
+              line.indication === 'missing_package' || line.indication === 'incomplete_package'
+            ))
+            : [];
+          return (
+            <section key={site.site} className="order-freight-panel__site">
+              {estimate.sites.length > 1 ? (
+                <header className="order-freight-panel__site-head">
+                  <strong>{site.siteLabel}</strong>
+                  <span className="text-muted text-sm">{formatCurrency(site.totalInr)}</span>
+                </header>
+              ) : null}
 
-            <div className="order-freight-panel__couriers" role="radiogroup" aria-label={`${site.siteLabel} courier`}>
-              {site.courierOptions.map(opt => (
-                <CourierOptionCard
-                  key={opt.partnerId}
-                  opt={opt}
-                  selected={opt.partnerId === site.partnerId}
-                  name={`courier-${site.site}`}
-                  amountInr={opt.estimatedTotalInr ?? 0}
-                  onSelect={() => onCourierChange(site.site, opt.partnerId)}
-                />
-              ))}
-            </div>
-
-            <ul className="order-freight-panel__lines">
-              {site.lineBreakdowns.map(line => (
-                <FreightLineRow
-                  key={`${site.site}:${line.productId}:${line.indication}`}
-                  line={line}
-                  canEditPackage={canEditPackage}
-                  showLineDetails={lineDetails}
-                  catalog={catalogById[line.productId]}
-                  onPackageInfoChange={onPackageInfoChange}
-                />
-              ))}
-            </ul>
-
-            {site.indications.length > 0 && (
-              <ul className="order-freight-panel__notes text-muted text-sm">
-                {site.indications.map(note => (
-                  <li key={note}>{note}</li>
+              <div className="order-freight-panel__couriers" role="radiogroup" aria-label={`${site.siteLabel} courier`}>
+                {site.courierOptions.map(opt => (
+                  <CourierOptionCard
+                    key={opt.partnerId}
+                    opt={opt}
+                    selected={opt.partnerId === site.partnerId}
+                    name={`courier-${site.site}`}
+                    amountInr={opt.estimatedTotalInr ?? 0}
+                    onSelect={() => onCourierChange(site.site, opt.partnerId)}
+                  />
                 ))}
-              </ul>
-            )}
-          </section>
-        ))
+              </div>
+
+              {site.isPickup ? (
+                <p className="order-freight-panel__calc-pickup text-muted text-sm">
+                  Customer pickup — no courier freight.
+                </p>
+              ) : (
+                <div className="order-freight-panel__calc-list">
+                  {itemCalcs.map(calc => (
+                    <ItemFreightCalcTile key={calc.key} calc={calc} />
+                  ))}
+                </div>
+              )}
+
+              {packageLines.length > 0 ? (
+                <ul className="order-freight-panel__lines">
+                  {packageLines.map(line => (
+                    <FreightLineRow
+                      key={`${site.site}:${line.productId}:${line.indication}`}
+                      line={line}
+                      canEditPackage={canEditPackage}
+                      showLineDetails={false}
+                      catalog={catalogById[line.productId]}
+                      onPackageInfoChange={onPackageInfoChange}
+                    />
+                  ))}
+                </ul>
+              ) : null}
+
+              {site.indications.length > 0 && (
+                <ul className="order-freight-panel__notes text-muted text-sm">
+                  {site.indications.map(note => (
+                    <li key={note}>{note}</li>
+                  ))}
+                </ul>
+              )}
+            </section>
+          );
+        })
       )}
 
       {estimate.warnings.map(warning => (
@@ -471,6 +756,13 @@ export const OrderFreightPanel: React.FC<Props> = ({
           {warning}
         </p>
       ))}
+
+      {footerNote ? (
+        <p className="order-freight-panel__footer-note">
+          <Info size={14} aria-hidden />
+          <span>{footerNote}</span>
+        </p>
+      ) : null}
     </div>
   );
 };
