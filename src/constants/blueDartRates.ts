@@ -225,7 +225,7 @@ export function defaultBlueDartSurfaceRates(): BlueDartSurfaceRates {
   };
 }
 
-/** Published diesel FS after B2B discount (never negative). */
+/** Published diesel FS minus B2B percentage points (never negative). */
 export function blueDartSurfaceEffectiveDieselFsPercent(
   surface: Pick<BlueDartSurfaceRates, 'fuelSurchargePercent' | 'dieselB2bDiscountPercent'>,
 ): number {
@@ -236,9 +236,9 @@ export function blueDartSurfaceEffectiveDieselFsPercent(
     : 0;
   const discountRaw = surface.dieselB2bDiscountPercent;
   const discount = typeof discountRaw === 'number' && Number.isFinite(discountRaw)
-    ? Math.min(100, Math.max(0, discountRaw))
+    ? Math.max(0, discountRaw)
     : 0;
-  const effective = published * (1 - discount / 100);
+  const effective = published - discount;
   return effective > 0 ? Math.round(effective * 100) / 100 : 0;
 }
 

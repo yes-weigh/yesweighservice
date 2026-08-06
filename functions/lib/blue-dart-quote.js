@@ -192,8 +192,8 @@ function surfaceEffectiveDieselFs(surface) {
   const published = surface?.fuelSurchargePercent != null
     ? nonNeg(Number(surface.fuelSurchargePercent))
     : 0;
-  const discount = Math.min(100, nonNeg(Number(surface?.dieselB2bDiscountPercent)));
-  const effective = published * (1 - discount / 100);
+  const discount = nonNeg(Number(surface?.dieselB2bDiscountPercent));
+  const effective = published - discount;
   return effective > 0 ? Math.round(effective * 100) / 100 : 0;
 }
 

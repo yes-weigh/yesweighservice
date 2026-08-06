@@ -195,8 +195,8 @@ export interface BlueDartSurfaceRates extends BlueDartKgServiceRates {
   /** Sorted unique upToKg ceilings; default under 32 kg → 0%. */
   oversizeSlabs: BlueDartOversizeSlab[];
   /**
-   * B2B discount off published diesel FS.
-   * Effective FS = published × (1 − discount/100).
+   * B2B discount in percentage points off published diesel FS.
+   * Effective FS = max(0, published − discount), e.g. 52 − 10 = 42.
    */
   dieselB2bDiscountPercent: number;
 }

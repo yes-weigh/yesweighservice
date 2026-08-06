@@ -619,7 +619,7 @@ function SurfaceChargeStack(props: {
           suffix={`${dieselEffective}%`}
           detail={
             b2bDiscount > 0
-              ? `effective of Subtotal A · published ${dieselPublished}% − B2B ${b2bDiscount}%`
+              ? `effective of Subtotal A · ${dieselPublished}% − ${b2bDiscount}% = ${dieselEffective}%`
               : 'of Subtotal A (not of docket / RAS / FOV)'
           }
           value={formatStackInr(preview.fuelSurchargeInr)}
@@ -1024,11 +1024,11 @@ function SurfaceRatesEditor(props: {
             <div className="settings-bluedart__diesel-col">
               <PctInput
                 label="B2B discount"
-                tip="Percent off the published Diesel FS. Effective FS = published × (1 − B2B/100)."
+                tip="Percentage points subtracted from published Diesel FS. Effective FS = published − B2B (e.g. 52 − 10 = 42)."
                 value={dieselB2bDiscountPct}
-                hint="off published FS"
+                hint="points off published"
                 onChange={dieselB2bDiscountPercent => onPatchRates({
-                  dieselB2bDiscountPercent: Math.min(100, Math.max(0, dieselB2bDiscountPercent)),
+                  dieselB2bDiscountPercent: Math.max(0, dieselB2bDiscountPercent),
                 })}
               />
             </div>
@@ -1036,7 +1036,7 @@ function SurfaceRatesEditor(props: {
           <p className="settings-bluedart__diesel-effective">
             Effective Diesel FS: {dieselEffectivePct}%
             {dieselB2bDiscountPct > 0
-              ? ` = ${dieselPct}% × (1 − ${dieselB2bDiscountPct}%)`
+              ? ` = ${dieselPct}% − ${dieselB2bDiscountPct}%`
               : ''}
           </p>
         </div>
