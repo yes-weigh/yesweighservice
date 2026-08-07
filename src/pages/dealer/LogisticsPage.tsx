@@ -230,11 +230,18 @@ export const LogisticsPage: React.FC = () => {
   const [statusFilter, setStatusFilter] = useState<LogisticsBookingStatus | ''>('');
   const [dateRange, setDateRange] = useState(defaultDateRange);
   const [page, setPage] = useState(1);
+  /** Super-admin only — trash on list/detail stays hidden until enabled in Filters. */
+  const [showDeleteButtons, setShowDeleteButtons] = useState(false);
 
   const isMobile = useIsMobile();
   const isOps = user ? isInternalOpsUser(user) : false;
   const canCreate = user ? canCreateLogisticsBooking(user) : false;
   const canSuperDelete = user ? canDeleteLogisticsBooking(user) : false;
+  const showTileDelete = canSuperDelete && showDeleteButtons;
+
+  useEffect(() => {
+    if (!canSuperDelete && showDeleteButtons) setShowDeleteButtons(false);
+  }, [canSuperDelete, showDeleteButtons]);
 
   const activeBooking = useMemo(
     () => bookings.find(item => item.id === activeBookingId) ?? null,
@@ -679,6 +686,27 @@ export const LogisticsPage: React.FC = () => {
               </select>
             </label>
 
+            {canSuperDelete && (
+              <label className="logistics-filter-supermode">
+                <span className="logistics-filter-supermode__copy">
+                  <strong>Show delete buttons</strong>
+                  <em>Permanently wipe booking + photos from the list</em>
+                </span>
+                <button
+                  type="button"
+                  role="switch"
+                  aria-checked={showDeleteButtons}
+                  className={[
+                    'logistics-filter-supermode__switch',
+                    showDeleteButtons ? 'logistics-filter-supermode__switch--on' : '',
+                  ].filter(Boolean).join(' ')}
+                  onClick={() => setShowDeleteButtons(prev => !prev)}
+                >
+                  <span className="logistics-filter-supermode__knob" />
+                </button>
+              </label>
+            )}
+
             <button
               type="button"
               className="logistics-filter-dropdown__clear"
@@ -709,7 +737,7 @@ export const LogisticsPage: React.FC = () => {
           onUpdate={handleUpdateBooking}
           onAdvanceStatus={status => void handleAdvanceStatus(activeBooking, status)}
           onCancel={() => void handleCancel(activeBooking)}
-          onDelete={canSuperDelete
+          onDelete={showTileDelete
             ? () => void handleDelete(activeBooking.id)
             : undefined}
         />
@@ -850,7 +878,7 @@ export const LogisticsPage: React.FC = () => {
                           </div>
 
                           <div className="logistics-shipment__trail">
-                            {canSuperDelete && (
+                            {showTileDelete && (
                               <button
                                 type="button"
                                 className="logistics-shipment__delete"

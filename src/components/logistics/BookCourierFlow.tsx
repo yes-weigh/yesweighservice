@@ -1813,31 +1813,47 @@ export const BookCourierFlow: React.FC<BookCourierFlowProps> = ({
                 </article>
               </div>
 
-              <button
-                type="button"
-                className="btn btn-primary book-courier__next"
-                disabled={savingDraft}
-                onClick={() => {
-                  void advanceTo('final_photo', {
-                    ...draftRef.current,
-                    labelGenerated: true,
-                  });
-                }}
-              >
-                {savingDraft ? 'Saving…' : 'Next'}
-              </button>
+              <div className="book-courier__final-photo-actions book-courier__label-next-row">
+                <button
+                  type="button"
+                  className="btn btn-secondary book-courier__next"
+                  disabled={saving || savingDraft}
+                  onClick={() => {
+                    void advanceTo('final_photo', {
+                      ...draftRef.current,
+                      labelGenerated: true,
+                    });
+                  }}
+                >
+                  {savingDraft ? 'Saving…' : 'Add outer photo'}
+                </button>
+                <button
+                  type="button"
+                  className="btn btn-primary book-courier__next"
+                  disabled={saving || savingDraft}
+                  onClick={() => {
+                    const next = { ...draftRef.current, labelGenerated: true };
+                    draftRef.current = next;
+                    setDraft(next);
+                    void handleConfirmShipment();
+                  }}
+                >
+                  <CheckCircle2 size={16} aria-hidden />
+                  {saving ? 'Saving…' : 'Skip photo & Mark Shipped'}
+                </button>
+              </div>
             </section>
           )}
 
-          {/* SCREEN 6 — FINAL PACKAGE PHOTO */}
+          {/* SCREEN 6 — FINAL PACKAGE PHOTO (optional) */}
           {step === 'final_photo' && (
             <section className="book-courier__section">
               <h3 className="book-courier__section-title">
                 Capture <span className="accent">Outer</span> Package Photo
               </h3>
               <p className="book-courier__hint text-muted text-sm">
-                Optional — capture proof that the shipping label is pasted correctly.
-                You can skip this and add the photo later from the shipment details.
+                Optional — capture proof that the shipping label is pasted correctly,
+                or skip and mark shipped without it.
               </p>
 
               {draft.finalPackagePhoto ? (
@@ -1887,7 +1903,10 @@ export const BookCourierFlow: React.FC<BookCourierFlowProps> = ({
                 disabled={saving}
                 onClick={() => void handleConfirmShipment()}
               >
-                <CheckCircle2 size={16} aria-hidden /> {saving ? 'Saving…' : 'Confirm & Mark Shipped'}
+                <CheckCircle2 size={16} aria-hidden />
+                {saving
+                  ? 'Saving…'
+                  : (draft.finalPackagePhoto ? 'Confirm & Mark Shipped' : 'Skip photo & Mark Shipped')}
               </button>
             </section>
           )}
