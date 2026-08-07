@@ -93,20 +93,36 @@ export const StCourierTrackDialog: React.FC<StCourierTrackDialogProps> = ({
                 {result.bookedAt && <div><dt>Booked</dt><dd>{result.bookedAt}</dd></div>}
                 {result.deliveredAt && <div><dt>Delivered</dt><dd>{result.deliveredAt}</dd></div>}
               </dl>
-              {result.history.length > 0 && (
+              {result.history.length > 0 ? (
                 <div className="st-track-dialog__history">
-                  <h4>History</h4>
-                  <ul>
+                  <h4>Tracking history</h4>
+                  <ol className="st-track-dialog__timeline">
                     {result.history.map((item, index) => (
-                      <li key={`${item.at}-${index}`}>
-                        <strong>{item.at}</strong>
-                        <span>{item.location}</span>
-                        <span>{item.activity}</span>
+                      <li
+                        key={`${item.at}-${item.activity}-${index}`}
+                        className={index === 0 ? 'is-latest' : undefined}
+                      >
+                        <span className="st-track-dialog__timeline-dot" aria-hidden />
+                        <div className="st-track-dialog__timeline-copy">
+                          <strong>{item.activity || 'Update'}</strong>
+                          {item.location ? (
+                            <span className="st-track-dialog__timeline-location">
+                              {item.location}
+                            </span>
+                          ) : null}
+                          {item.at ? (
+                            <time className="st-track-dialog__timeline-at">{item.at}</time>
+                          ) : null}
+                        </div>
                       </li>
                     ))}
-                  </ul>
+                  </ol>
                 </div>
-              )}
+              ) : result.ok ? (
+                <p className="text-muted text-sm st-track-dialog__history-empty">
+                  Tracking history not available for this AWB.
+                </p>
+              ) : null}
             </>
           )}
         </div>

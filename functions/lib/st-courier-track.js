@@ -38,6 +38,95 @@ function stripTags(html) {
     .trim();
 }
 
+function linesFromHtml(html) {
+  return String(html ?? '')
+    .replace(/<br\s*\/?>/gi, '\n')
+    .replace(/<i[\s\S]*?<\/i>/gi, '')
+    .replace(/<[^>]+>/g, ' ')
+    .replace(/&nbsp;/gi, ' ')
+    .replace(/&amp;/gi, '&')
+    .split('\n')
+    .map(line => line.replace(/\s+/g, ' ').trim())
+    .filter(Boolean);
+}
+
+/**
+ * ST Courier track page renders movement as a vertical timeline (div.tl07),
+ * not a history table. Parse date/time anchors + following status/location.
+ */
+function parseTimelineHistory(source) {
+  const history = [];
+  const seen = new Set();
+  const dateRe =
+    /([A-Z][a-z]{2}\s+\d{1,2},\s+\d{4})\s*<br\s*\/?>\s*(\d{1,2}:\d{2}\s*[AP]M)/gi;
+  let match = dateRe.exec(source);
+  while (match) {
+    const at = `${match[1]} ${match[2]}`.trim();
+    const after = source.slice(
+      match.index + match[0].length,
+      match.index + match[0].length + 1600,
+    );
+    const textRe = /<div[^>]*>\s*([^<\s][^<]*?)<br\s*\/?>\s*([\s\S]*?)<\/div>/gi;
+    let textMatch = textRe.exec(after);
+    let activity = '';
+    let location = '';
+    while (textMatch) {
+      const first = stripTags(textMatch[1]);
+      if (
+        first
+        && !/^[A-Z][a-z]{2}\s+\d{1,2},\s+\d{4}/.test(first)
+        && !/^fa\b/i.test(first)
+      ) {
+        activity = first;
+        location = linesFromHtml(textMatch[2]).join(' · ');
+        break;
+      }
+      textMatch = textRe.exec(after);
+    }
+    if (activity) {
+      const key = `${at}|${activity}|${location}`;
+      if (!seen.has(key)) {
+        seen.add(key);
+        history.push({ at, location, activity });
+      }
+    }
+    match = dateRe.exec(source);
+  }
+  return history;
+}
+
+/** Fallback when date-anchor parse misses — scrape known timeline item class. */
+function parseTimelineHistoryByClass(source) {
+  const history = [];
+  const blockRe =
+    /<div[^>]*class="[^"]*\btl07\b[^"]*"[^>]*>([\s\S]*?)(?=<div[^>]*class="[^"]*\btl07\b[^"]*"|$)/gi;
+  let blockMatch = blockRe.exec(source);
+  while (blockMatch) {
+    const texts = [...blockMatch[1].matchAll(/<div[^>]*>([\s\S]*?)<\/div>/gi)]
+      .map(m => linesFromHtml(m[1]))
+      .filter(lines => lines.length > 0);
+    let at = '';
+    let activity = '';
+    let location = '';
+    for (const lines of texts) {
+      if (
+        /^[A-Z][a-z]{2}\s+\d{1,2},\s+\d{4}$/.test(lines[0] || '')
+        && /\d{1,2}:\d{2}\s*[AP]M/i.test(lines[1] || '')
+      ) {
+        at = `${lines[0]} ${lines[1]}`.trim();
+        continue;
+      }
+      if (!activity && lines[0] && !/^fa\b/i.test(lines[0])) {
+        activity = lines[0];
+        location = lines.slice(1).join(' · ');
+      }
+    }
+    if (at && activity) history.push({ at, location, activity });
+    blockMatch = blockRe.exec(source);
+  }
+  return history;
+}
+
 function collectSetCookies(response, jar) {
   const getSetCookie = response.headers.getSetCookie?.bind(response.headers);
   const list = typeof getSetCookie === 'function'
@@ -92,29 +181,32 @@ export function parseStCourierTrackHtml(html) {
     rowMatch = rowRe.exec(source);
   }
 
-  const history = [];
-  // Common pattern: Date/Time | Location | Activity
-  const histBlock = /(?:Tracking\s*History|Shipment\s*Status|Movement)[\s\S]{0,200}<table[^>]*>([\s\S]*?)<\/table>/i.exec(source);
-  const histHtml = histBlock?.[1] || '';
-  if (histHtml) {
-    const hRowRe = /<tr[^>]*>([\s\S]*?)<\/tr>/gi;
-    let hMatch = hRowRe.exec(histHtml);
-    while (hMatch) {
-      const cells = [...hMatch[1].matchAll(/<t[dh][^>]*>([\s\S]*?)<\/t[dh]>/gi)]
-        .map(m => stripTags(m[1]));
-      if (
-        cells.length >= 3
-        && cells[0]
-        && !/date\/?time/i.test(cells[0])
-        && !/location/i.test(cells[1] || '')
-      ) {
-        history.push({
-          at: cells[0],
-          location: cells[1] || '',
-          activity: cells[2] || cells.slice(2).join(' · '),
-        });
+  // Prefer vertical timeline (current ST site); fall back to history tables.
+  let history = parseTimelineHistory(source);
+  if (!history.length) history = parseTimelineHistoryByClass(source);
+  if (!history.length) {
+    const histBlock = /(?:Tracking\s*History|Shipment\s*Status|Movement)[\s\S]{0,200}<table[^>]*>([\s\S]*?)<\/table>/i.exec(source);
+    const histHtml = histBlock?.[1] || '';
+    if (histHtml) {
+      const hRowRe = /<tr[^>]*>([\s\S]*?)<\/tr>/gi;
+      let hMatch = hRowRe.exec(histHtml);
+      while (hMatch) {
+        const cells = [...hMatch[1].matchAll(/<t[dh][^>]*>([\s\S]*?)<\/t[dh]>/gi)]
+          .map(m => stripTags(m[1]));
+        if (
+          cells.length >= 3
+          && cells[0]
+          && !/date\/?time/i.test(cells[0])
+          && !/location/i.test(cells[1] || '')
+        ) {
+          history.push({
+            at: cells[0],
+            location: cells[1] || '',
+            activity: cells[2] || cells.slice(2).join(' · '),
+          });
+        }
+        hMatch = hRowRe.exec(histHtml);
       }
-      hMatch = hRowRe.exec(histHtml);
     }
   }
 
