@@ -106,6 +106,101 @@ export function emptyShipmentBoxDraft(): ShipmentBoxDraft {
   };
 }
 
+/** Sum actual weights of draft boxes (for combine prefill). */
+export function sumDraftBoxWeightsKg(boxes: ReadonlyArray<Pick<ShipmentBoxDraft, 'weightKg'>>): string {
+  const sum = boxes.reduce((total, box) => total + (Number.parseFloat(box.weightKg) || 0), 0);
+  if (!Number.isFinite(sum) || sum <= 0) return '';
+  return sum.toFixed(2);
+}
+
+function parsePositiveCm(value: string | undefined): number | null {
+  const n = Number.parseFloat(value ?? '');
+  if (!Number.isFinite(n) || n <= 0) return null;
+  return n;
+}
+
+function formatCombineCm(value: number): string {
+  if (!Number.isFinite(value) || value <= 0) return '';
+  const rounded = Math.round(value * 10) / 10;
+  return Number.isInteger(rounded) ? String(rounded) : rounded.toFixed(1);
+}
+
+/**
+ * Suggest outer L×B×H when packing selected boxes into one carton:
+ * orient each box L≥B≥H, then max(L) × max(B) × sum(H).
+ * Returns empty strings when no selected box has full dimensions.
+ */
+export function suggestCombinedBoxDims(
+  boxes: ReadonlyArray<Pick<ShipmentBoxDraft, 'lengthCm' | 'widthCm' | 'heightCm'>>,
+): Pick<ShipmentBoxDraft, 'lengthCm' | 'widthCm' | 'heightCm'> {
+  let maxL = 0;
+  let maxB = 0;
+  let sumH = 0;
+  let counted = 0;
+
+  for (const box of boxes) {
+    const l = parsePositiveCm(box.lengthCm);
+    const b = parsePositiveCm(box.widthCm);
+    const h = parsePositiveCm(box.heightCm);
+    if (l == null || b == null || h == null) continue;
+    const sorted = [l, b, h].sort((a, c) => c - a);
+    maxL = Math.max(maxL, sorted[0]);
+    maxB = Math.max(maxB, sorted[1]);
+    sumH += sorted[2];
+    counted += 1;
+  }
+
+  if (counted === 0) {
+    return { lengthCm: '', widthCm: '', heightCm: '' };
+  }
+
+  return {
+    lengthCm: formatCombineCm(maxL),
+    widthCm: formatCombineCm(maxB),
+    heightCm: formatCombineCm(sumH),
+  };
+}
+
+/**
+ * Replace selected boxes with one combined box (new L×B×H + weight).
+ * Photos from selected boxes are kept in selection order.
+ * Box / label count follow the returned array length.
+ */
+export function combineShipmentBoxDrafts(
+  boxes: readonly ShipmentBoxDraft[],
+  selectedIds: readonly string[],
+  dims: Pick<ShipmentBoxDraft, 'lengthCm' | 'widthCm' | 'heightCm' | 'weightKg'>,
+): ShipmentBoxDraft[] {
+  const idSet = new Set(selectedIds.filter(Boolean));
+  if (idSet.size < 2) return boxes.slice();
+
+  const selected = boxes.filter(box => idSet.has(box.id));
+  if (selected.length < 2) return boxes.slice();
+
+  const combined: ShipmentBoxDraft = {
+    ...emptyShipmentBoxDraft(),
+    lengthCm: dims.lengthCm.trim(),
+    widthCm: dims.widthCm.trim(),
+    heightCm: dims.heightCm.trim(),
+    weightKg: dims.weightKg.trim(),
+    photos: selected.flatMap(box => box.photos),
+  };
+
+  const next: ShipmentBoxDraft[] = [];
+  let inserted = false;
+  for (const box of boxes) {
+    if (!idSet.has(box.id)) {
+      next.push(box);
+      continue;
+    }
+    if (!inserted) {
+      next.push(combined);
+      inserted = true;
+    }
+  }
+  return next;
+}
+
 /** True when every package has at least one inside photo (url or stored path). */
 export function draftBoxesHaveRequiredPhotos(
   boxes: ReadonlyArray<Pick<ShipmentBoxDraft, 'photos'>>,

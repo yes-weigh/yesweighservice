@@ -7,6 +7,7 @@ import {
   CheckCircle2,
   ChevronDown,
   ChevronLeft,
+  Combine,
   Keyboard,
   Lock,
   Mail,
@@ -35,11 +36,14 @@ import {
   BOOK_COURIER_STEPS,
   SHIPMENT_MODES,
   bookStepProgressIndex,
+  combineShipmentBoxDrafts,
   computeVolumetricWeight,
   draftBoxesHaveRequiredPhotos,
   emptyBookingDraft,
   emptyShipmentBoxDraft,
   parseCourierBarcode,
+  suggestCombinedBoxDims,
+  sumDraftBoxWeightsKg,
   type BookCourierStep,
 } from '../../lib/logisticsBooking';
 import {
@@ -304,6 +308,15 @@ export const BookCourierFlow: React.FC<BookCourierFlowProps> = ({
   const [courierSlipPreviewUrl, setCourierSlipPreviewUrl] = useState<string | null>(null);
   const [sharingCourierSlip, setSharingCourierSlip] = useState(false);
   const [courierSlipError, setCourierSlipError] = useState('');
+  const [combineSelectMode, setCombineSelectMode] = useState(false);
+  const [combineSelectedIds, setCombineSelectedIds] = useState<string[]>([]);
+  const [combineFormOpen, setCombineFormOpen] = useState(false);
+  const [combineDims, setCombineDims] = useState({
+    lengthCm: '',
+    widthCm: '',
+    heightCm: '',
+    weightKg: '',
+  });
 
   const selectedDealer = useMemo<LogisticsDealerSnapshot | null>(() => {
     const dealer = dealers.find(item => item.id === draft.zohoCustomerId);
@@ -635,6 +648,11 @@ export const BookCourierFlow: React.FC<BookCourierFlowProps> = ({
         ? prev.boxes.slice(0, 1)
         : (prev.boxes.length ? prev.boxes : [emptyShipmentBoxDraft()]),
     }));
+    if (mode === 'envelope') {
+      setCombineSelectMode(false);
+      setCombineSelectedIds([]);
+      setCombineFormOpen(false);
+    }
   }, []);
 
   const updateBoxField = useCallback((boxId: string, key: BoxNumberField, value: string) => {
@@ -652,7 +670,50 @@ export const BookCourierFlow: React.FC<BookCourierFlowProps> = ({
     setDraft(prev => (prev.boxes.length <= 1
       ? prev
       : { ...prev, boxes: prev.boxes.filter(box => box.id !== boxId) }));
+    setCombineSelectedIds(prev => prev.filter(id => id !== boxId));
   }, []);
+
+  const exitCombineMode = useCallback(() => {
+    setCombineSelectMode(false);
+    setCombineSelectedIds([]);
+    setCombineFormOpen(false);
+    setCombineDims({ lengthCm: '', widthCm: '', heightCm: '', weightKg: '' });
+  }, []);
+
+  const toggleCombineBox = useCallback((boxId: string) => {
+    setCombineSelectedIds(prev => (
+      prev.includes(boxId) ? prev.filter(id => id !== boxId) : [...prev, boxId]
+    ));
+  }, []);
+
+  const openCombineForm = useCallback(() => {
+    const selected = draftRef.current.boxes.filter(box => combineSelectedIds.includes(box.id));
+    if (selected.length < 2) return;
+    const suggested = suggestCombinedBoxDims(selected);
+    setCombineDims({
+      lengthCm: suggested.lengthCm,
+      widthCm: suggested.widthCm,
+      heightCm: suggested.heightCm,
+      weightKg: sumDraftBoxWeightsKg(selected),
+    });
+    setCombineFormOpen(true);
+  }, [combineSelectedIds]);
+
+  const applyCombineBoxes = useCallback(() => {
+    if (combineSelectedIds.length < 2) return;
+    const weight = Number.parseFloat(combineDims.weightKg) || 0;
+    if (weight <= 0) {
+      window.alert('Enter the combined box actual weight (kg).');
+      return;
+    }
+    setDraft(prev => {
+      const nextBoxes = combineShipmentBoxDrafts(prev.boxes, combineSelectedIds, combineDims);
+      const next = { ...prev, boxes: nextBoxes };
+      draftRef.current = next;
+      return next;
+    });
+    exitCombineMode();
+  }, [combineDims, combineSelectedIds, exitCombineMode]);
 
   const applyDraft = useCallback((updater: (prev: LogisticsBookingDraft) => LogisticsBookingDraft) => {
     setDraft(prev => {
@@ -1556,6 +1617,14 @@ export const BookCourierFlow: React.FC<BookCourierFlowProps> = ({
                 )}
               </div>
 
+              {!isEnvelope && (
+                <p className="book-courier__box-count-hint text-muted text-sm">
+                  {draft.boxes.length} box{draft.boxes.length === 1 ? '' : 'es'}
+                  {' · '}
+                  {shippingLabelCount} shipping label{shippingLabelCount === 1 ? '' : 's'}
+                </p>
+              )}
+
               <div className="book-courier__boxes">
                 {draft.boxes.map((box, index) => (
                   <BoxCard
@@ -1563,7 +1632,10 @@ export const BookCourierFlow: React.FC<BookCourierFlowProps> = ({
                     box={box}
                     index={index}
                     isEnvelope={isEnvelope}
-                    canRemove={!isEnvelope && draft.boxes.length > 1}
+                    canRemove={!isEnvelope && draft.boxes.length > 1 && !combineSelectMode}
+                    selectMode={combineSelectMode}
+                    selected={combineSelectedIds.includes(box.id)}
+                    onToggleSelect={() => toggleCombineBox(box.id)}
                     onField={(key, value) => updateBoxField(box.id, key, value)}
                     onAddPhoto={file => void addBoxPhoto(box.id, file)}
                     onRemovePhoto={photoId => removeBoxPhoto(box.id, photoId)}
@@ -1574,15 +1646,165 @@ export const BookCourierFlow: React.FC<BookCourierFlowProps> = ({
               </div>
 
               {!isEnvelope && (
-                <button type="button" className="book-courier__add-box" onClick={addBox}>
-                  <Plus size={16} aria-hidden /> Add another box
-                </button>
+                <div className="book-courier__box-actions">
+                  <button type="button" className="book-courier__add-box" onClick={addBox}>
+                    <Plus size={16} aria-hidden /> Add another box
+                  </button>
+                  {draft.boxes.length >= 2 && !combineSelectMode && (
+                    <button
+                      type="button"
+                      className="book-courier__combine-toggle"
+                      onClick={() => {
+                        setCombineSelectMode(true);
+                        setCombineSelectedIds([]);
+                        setCombineFormOpen(false);
+                      }}
+                    >
+                      <Combine size={16} aria-hidden /> Combine boxes
+                    </button>
+                  )}
+                  {combineSelectMode && (
+                    <div className="book-courier__combine-bar">
+                      <p className="book-courier__combine-bar-copy">
+                        Select 2 or more boxes to pack into one with new L × B × H.
+                        {combineSelectedIds.length > 0 && (
+                          <>
+                            {' '}
+                            <strong>{combineSelectedIds.length} selected</strong>
+                            {combineSelectedIds.length >= 2 && (
+                              <>
+                                {' → '}
+                                {draft.boxes.length - combineSelectedIds.length + 1}
+                                {' '}
+                                box
+                                {draft.boxes.length - combineSelectedIds.length + 1 === 1 ? '' : 'es'}
+                                {' / '}
+                                {draft.boxes.length - combineSelectedIds.length + 1}
+                                {' '}
+                                label
+                                {draft.boxes.length - combineSelectedIds.length + 1 === 1 ? '' : 's'}
+                              </>
+                            )}
+                          </>
+                        )}
+                      </p>
+                      <div className="book-courier__combine-bar-actions">
+                        <button
+                          type="button"
+                          className="btn btn-secondary btn-sm"
+                          onClick={exitCombineMode}
+                        >
+                          Cancel
+                        </button>
+                        <button
+                          type="button"
+                          className="btn btn-primary btn-sm"
+                          disabled={combineSelectedIds.length < 2}
+                          onClick={openCombineForm}
+                        >
+                          <Combine size={14} aria-hidden />
+                          Enter new LBH
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {combineFormOpen && combineSelectedIds.length >= 2 && (
+                <div className="book-courier__combine-form">
+                  <h4 className="book-courier__combine-form-title">
+                    Combined box · new dimensions
+                  </h4>
+                  <p className="book-courier__hint text-muted text-sm">
+                    Replaces {combineSelectedIds.length} boxes with 1.
+                    LBH is suggested as max L × max B × stacked H (editable).
+                    Photos are kept; box and label counts update to match.
+                  </p>
+                  <p className="book-courier__box-label">
+                    Dimensions (cm)
+                    <span className="book-courier__box-opt"> · auto · editable</span>
+                  </p>
+                  <div className="book-courier__dim-cards">
+                    {([
+                      ['Length (L)', 'lengthCm'],
+                      ['Breadth (W)', 'widthCm'],
+                      ['Height (H)', 'heightCm'],
+                    ] as Array<[string, 'lengthCm' | 'widthCm' | 'heightCm']>).map(([label, key]) => (
+                      <label className="book-courier__dim-card" key={key}>
+                        <span className="book-courier__dim-card-title">{label}</span>
+                        <span className="book-courier__dim-card-value">
+                          <DecimalTextInput
+                            value={combineDims[key]}
+                            onChange={next => setCombineDims(prev => ({ ...prev, [key]: next }))}
+                            decimals={1}
+                            placeholder="—"
+                            aria-label={`Combined ${label}`}
+                          />
+                          <em>cm</em>
+                        </span>
+                      </label>
+                    ))}
+                  </div>
+                  <p className="book-courier__box-label book-courier__box-label--tight">Weight</p>
+                  <div className="book-courier__weight-cards">
+                    <label className="book-courier__weight-card">
+                      <span className="book-courier__weight-card-title">
+                        <Lock size={13} aria-hidden /> Actual Weight
+                      </span>
+                      <span className="book-courier__weight-card-value">
+                        <DecimalTextInput
+                          value={combineDims.weightKg}
+                          onChange={next => setCombineDims(prev => ({ ...prev, weightKg: next }))}
+                          placeholder="0.00"
+                          aria-label="Combined actual weight in kg"
+                        />
+                        <em>kg</em>
+                      </span>
+                    </label>
+                    <div className="book-courier__weight-card">
+                      <span className="book-courier__weight-card-title">
+                        <Package size={13} aria-hidden /> Chargeable Weight
+                      </span>
+                      <span className="book-courier__weight-card-value">
+                        <strong>
+                          {Math.max(
+                            Number.parseFloat(combineDims.weightKg) || 0,
+                            computeVolumetricWeight(
+                              combineDims.lengthCm ? Number.parseFloat(combineDims.lengthCm) : null,
+                              combineDims.widthCm ? Number.parseFloat(combineDims.widthCm) : null,
+                              combineDims.heightCm ? Number.parseFloat(combineDims.heightCm) : null,
+                            ),
+                          ).toFixed(2)}
+                        </strong>
+                        <em>kg</em>
+                      </span>
+                    </div>
+                  </div>
+                  <div className="book-courier__combine-form-actions">
+                    <button
+                      type="button"
+                      className="btn btn-secondary"
+                      onClick={() => setCombineFormOpen(false)}
+                    >
+                      Back
+                    </button>
+                    <button
+                      type="button"
+                      className="btn btn-primary"
+                      onClick={applyCombineBoxes}
+                    >
+                      <Check size={16} aria-hidden />
+                      Combine into 1 box
+                    </button>
+                  </div>
+                </div>
               )}
 
               <button
                 type="button"
                 className="btn btn-primary book-courier__next"
-                disabled={!canProceedBox || savingDraft}
+                disabled={!canProceedBox || savingDraft || combineSelectMode}
                 onClick={() => void advanceTo('review')}
               >
                 {savingDraft ? 'Saving photos…' : 'Confirm & Next'}
@@ -1999,6 +2221,9 @@ interface BoxCardProps {
   index: number;
   isEnvelope: boolean;
   canRemove: boolean;
+  selectMode?: boolean;
+  selected?: boolean;
+  onToggleSelect?: () => void;
   onField: (key: BoxNumberField, value: string) => void;
   onAddPhoto: (file: File | undefined) => void;
   onRemovePhoto: (photoId: string) => void;
@@ -2011,6 +2236,9 @@ const BoxCard: React.FC<BoxCardProps> = ({
   index,
   isEnvelope,
   canRemove,
+  selectMode = false,
+  selected = false,
+  onToggleSelect,
   onField,
   onAddPhoto,
   onRemovePhoto,
@@ -2023,9 +2251,22 @@ const BoxCard: React.FC<BoxCardProps> = ({
   const chargeableWeight = Math.max(actualWeight, volumetric);
 
   return (
-    <section className="book-courier__box">
+    <section className={`book-courier__box${selected ? ' is-selected-combine' : ''}`}>
       <div className="book-courier__box-head">
-        <h4>{isEnvelope ? 'Envelope' : `Box ${index + 1}`}</h4>
+        <h4 className="book-courier__box-title">
+          {selectMode && (
+            <button
+              type="button"
+              className={`book-courier__box-check${selected ? ' is-checked' : ''}`}
+              aria-pressed={selected}
+              aria-label={`${selected ? 'Deselect' : 'Select'} box ${index + 1}`}
+              onClick={onToggleSelect}
+            >
+              {selected ? <Check size={14} aria-hidden /> : null}
+            </button>
+          )}
+          {isEnvelope ? 'Envelope' : `Box ${index + 1}`}
+        </h4>
         {canRemove && (
           <button type="button" className="book-courier__box-remove" onClick={onRemoveBox} aria-label={`Remove box ${index + 1}`}>
             <Trash2 size={15} aria-hidden />
