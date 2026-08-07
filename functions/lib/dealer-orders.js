@@ -574,7 +574,7 @@ async function createSegmentSalesOrders({
     const freightOnBucket = segmentLines.find(isFreightOrderLine);
     const freightSku = String(freightOnBucket?.sku ?? '').trim().toUpperCase();
     const courierPartner = freightSku === 'TRFRC'
-      ? 'trackon'
+      ? 'trackon_surface'
       : freightSku === 'DELFRC'
         ? 'delhivery'
         : freightSku === 'STFRC'

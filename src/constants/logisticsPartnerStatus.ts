@@ -1,6 +1,7 @@
 import {
   BLUEDART_LOGISTICS_PARTNER_IDS,
   LOGISTICS_PARTNER_IDS,
+  TRACKON_LOGISTICS_PARTNER_IDS,
   type LogisticsPartnerId,
 } from './logisticsPartners';
 import {
@@ -14,7 +15,7 @@ function defaultStatusForPartner(id: LogisticsPartnerId): LogisticsPartnerStatus
   if (id === 'delhivery') return 'manual';
   if (
     id === 'st_courier'
-    || id === 'trackon'
+    || (TRACKON_LOGISTICS_PARTNER_IDS as readonly string[]).includes(id)
     || (BLUEDART_LOGISTICS_PARTNER_IDS as readonly string[]).includes(id)
   ) {
     return 'active';
@@ -39,6 +40,11 @@ export function normalizeLogisticsPartnerStatuses(raw: unknown): LogisticsPartne
   for (const id of LOGISTICS_PARTNER_IDS) {
     const value = data[id];
     if (isLogisticsPartnerStatus(value)) out[id] = value;
+  }
+  /** Legacy consolidated `trackon` status → both modes when new keys absent. */
+  if (isLogisticsPartnerStatus(data.trackon)) {
+    if (!isLogisticsPartnerStatus(data.trackon_surface)) out.trackon_surface = data.trackon;
+    if (!isLogisticsPartnerStatus(data.trackon_air)) out.trackon_air = data.trackon;
   }
   return out;
 }

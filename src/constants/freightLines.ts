@@ -5,7 +5,6 @@ export const FREIGHT_LINE_OPTIONS = [
     sku: 'STFRC',
     name: 'ST COURIER FREIGHT',
     label: 'ST Courier',
-    tagline: 'Kerala & Tamil Nadu',
     image: '/logistics/st-courier.png',
   },
   {
@@ -13,7 +12,6 @@ export const FREIGHT_LINE_OPTIONS = [
     sku: 'TRFRC',
     name: 'TRACKON COURIER FREIGHT',
     label: 'Trackon',
-    tagline: 'Tamil Nadu',
     image: '/logistics/trackon.png',
   },
   {
@@ -21,7 +19,6 @@ export const FREIGHT_LINE_OPTIONS = [
     sku: 'DELFRC',
     name: 'DELHIVERY COURIER FREIGHT',
     label: 'Delhivery',
-    tagline: 'All India',
     image: '/logistics/delhivery.png',
   },
   {
@@ -29,7 +26,6 @@ export const FREIGHT_LINE_OPTIONS = [
     sku: 'FRC',
     name: 'OTHERS FREIGHT CHARGES',
     label: 'Others',
-    tagline: 'Other freight charges',
     image: '/logistics/own-vehicle.png',
   },
   // Blue Dart Zoho items — HARDCODED (not shown in Settings). Keep in sync with
@@ -39,7 +35,6 @@ export const FREIGHT_LINE_OPTIONS = [
     sku: 'BDAIR',
     name: 'Blue Dart Air',
     label: 'Blue Dart Air',
-    tagline: 'Air',
     image: '/logistics/bluedart-air.webp',
   },
   {
@@ -47,7 +42,6 @@ export const FREIGHT_LINE_OPTIONS = [
     sku: 'BDFRC',
     name: 'Blue Dart Surface',
     label: 'Blue Dart Surface',
-    tagline: 'Surface',
     image: '/logistics/bluedart-surface.webp',
   },
   {
@@ -55,7 +49,6 @@ export const FREIGHT_LINE_OPTIONS = [
     sku: 'BDDP',
     name: 'Blue Dart Domestic Priority',
     label: 'Blue Dart Domestic Priority',
-    tagline: 'Domestic Priority',
     image: '/logistics/bluedart-domestic-priority.webp',
   },
 ] as const;

@@ -1,7 +1,13 @@
 import type { BlueDartConfig } from './blue-dart-rates';
+import type { TrackonConfig, TrackonServiceId } from './trackon-rates';
 import type { StaffLogisticsSite } from './staff-logistics';
 
 export type { BlueDartConfig } from './blue-dart-rates';
+export type { TrackonConfig, TrackonServiceId } from './trackon-rates';
+export {
+  TRACKON_SERVICE_IDS,
+  isTrackonServiceId,
+} from './trackon-rates';
 
 /** Origin site for courier rate cards (same ids as ship-from). */
 export type LogisticsOrigin = StaffLogisticsSite;
@@ -97,36 +103,46 @@ export function isBlueDartServiceId(value: unknown): value is BlueDartServiceId 
 
 export const BLUE_DART_SERVICE_META: Record<BlueDartServiceId, {
   label: string;
-  tagline: string;
   sku: 'BDAIR' | 'BDFRC' | 'BDDP';
 }> = {
   air: {
     label: 'Air',
-    tagline: 'BDAIR · Blue Dart Air',
     sku: 'BDAIR',
   },
   surface: {
     label: 'Surface',
-    tagline: 'BDFRC · Blue Dart Surface',
     sku: 'BDFRC',
   },
   domestic_priority: {
     label: 'Domestic Priority',
-    tagline: 'BDDP · Blue Dart Domestic Priority',
     sku: 'BDDP',
   },
 };
 
 /**
  * Courier rate cards under appSettings/logisticsCourierRates.
- * ST is per origin; other partners share one card for all ship-from sites.
- * Blue Dart uses a dedicated tariff + geo/EDL config (not ST envelope/box).
+ * ST is per origin; Delhivery shares one ST-shaped card.
+ * Blue Dart + Trackon use dedicated multi-mode tariffs (not ST envelope/box).
  */
 export interface LogisticsCourierRates {
   st_courier: StCourierRatesByOrigin;
-  trackon: StCourierOriginRates;
+  trackon: TrackonConfig;
   delhivery: StCourierOriginRates;
   bluedart: BlueDartConfig;
   updatedAt: string;
   updatedBy?: string | null;
 }
+
+export const TRACKON_SERVICE_META: Record<TrackonServiceId, {
+  label: string;
+  sku: 'TRFRC';
+}> = {
+  air: {
+    label: 'Air',
+    sku: 'TRFRC',
+  },
+  surface: {
+    label: 'Surface',
+    sku: 'TRFRC',
+  },
+};

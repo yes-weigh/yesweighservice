@@ -3,8 +3,10 @@ import type { LogisticsPartnerId } from '../constants/logisticsPartners';
 import {
   blueDartServiceForPartner,
   isBlueDartLogisticsPartnerId,
+  isTrackonLogisticsPartnerId,
   logisticsPartnerLabel,
   normalizeLogisticsPartnerId,
+  trackonServiceForPartner,
 } from '../constants/logisticsPartners';
 import type { BlueDartPincodeDoc } from '../types/blue-dart-rates';
 import type { LogisticsDeliveryRulesMatrix } from '../types/logistics-delivery-rules';
@@ -17,8 +19,10 @@ import {
   type LogisticsCourierRates,
   type StCourierOriginRates,
   type StCourierZone,
+  type TrackonServiceId,
 } from '../types/logistics-courier-rates';
 import { quoteBlueDartParcels } from './blueDartQuote';
+import { quoteTrackonParcels } from './trackonQuote';
 import {
   isPickupPartner,
   listOrderCourierOptions,
@@ -353,12 +357,15 @@ function partnerRates(
   partnerId: LogisticsPartnerId,
   site: InventorySite,
 ): StCourierOriginRates | null {
-  if (isBlueDartLogisticsPartnerId(partnerId)) return null;
+  if (isBlueDartLogisticsPartnerId(partnerId) || isTrackonLogisticsPartnerId(partnerId)) {
+    return null;
+  }
   if (!isCourierRatePartnerId(partnerId)) return null;
   if (partnerId === 'st_courier') {
     return rates.st_courier[site];
   }
-  return rates[partnerId];
+  if (partnerId === 'delhivery') return rates.delhivery;
+  return null;
 }
 
 function quoteBlueDartPartnerTotal(input: {
@@ -384,6 +391,30 @@ function quoteBlueDartPartnerTotal(input: {
       },
     })),
     invoiceValueInr: input.invoiceValueInr,
+  });
+  if (quoted.notServiceable || quoted.rateMissing) return 0;
+  return quoted.totalInr;
+}
+
+function quoteTrackonPartnerTotal(input: {
+  rates: LogisticsCourierRates;
+  destination: StCourierDestination | null | undefined;
+  parcels: StCourierParcel[];
+  service: TrackonServiceId;
+}): number {
+  if (!input.parcels.length) return 0;
+  const quoted = quoteTrackonParcels({
+    config: input.rates.trackon,
+    service: input.service,
+    destination: input.destination,
+    parcels: input.parcels.map(p => ({
+      actualKg: p.actualKg,
+      dims: {
+        lengthCm: Number(p.dims.lengthCm) || 0,
+        widthCm: Number(p.dims.widthCm) || 0,
+        heightCm: Number(p.dims.heightCm) || 0,
+      },
+    })),
   });
   if (quoted.notServiceable || quoted.rateMissing) return 0;
   return quoted.totalInr;
@@ -503,6 +534,9 @@ export function estimateStCourierCartFreight(input: {
     const resolveBlueDartService = (partnerId: LogisticsPartnerId): BlueDartServiceId => (
       blueDartServiceForPartner(partnerId) ?? input.blueDartService ?? 'surface'
     );
+    const resolveTrackonService = (partnerId: LogisticsPartnerId): TrackonServiceId => (
+      trackonServiceForPartner(partnerId) ?? 'surface'
+    );
 
     const quotePartnerTotal = (partnerId: LogisticsPartnerId): number => {
       if (isPickupPartner(partnerId)) return 0;
@@ -514,6 +548,16 @@ export function estimateStCourierCartFreight(input: {
           parcels: allParcels,
           service: resolveBlueDartService(partnerId),
           invoiceValueInr,
+        });
+        const spareFreight = hasSpare ? ceilCourierChargeInr(spareMin) : 0;
+        return ceilCourierChargeInr(productFreight + spareFreight);
+      }
+      if (isTrackonLogisticsPartnerId(partnerId)) {
+        const productFreight = quoteTrackonPartnerTotal({
+          rates: input.rates,
+          destination: input.destination,
+          parcels: allParcels,
+          service: resolveTrackonService(partnerId),
         });
         const spareFreight = hasSpare ? ceilCourierChargeInr(spareMin) : 0;
         return ceilCourierChargeInr(productFreight + spareFreight);
@@ -541,10 +585,12 @@ export function estimateStCourierCartFreight(input: {
     const partnerId = selectedOpt?.partnerId ?? defaultPartnerId;
     const isPickup = isPickupPartner(partnerId);
     const isBlueDart = isBlueDartLogisticsPartnerId(partnerId);
+    const isTrackon = isTrackonLogisticsPartnerId(partnerId);
     const bdService = resolveBlueDartService(partnerId);
+    const trackonService = resolveTrackonService(partnerId);
     const originRates = partnerRates(input.rates, partnerId, site);
 
-    const quoted = !isPickup && !isBlueDart && originRates && allParcels.length
+    const quoted = !isPickup && !isBlueDart && !isTrackon && originRates && allParcels.length
       ? quoteStCourierParcels({ zone, rates: originRates, parcels: allParcels })
       : null;
 
@@ -566,17 +612,39 @@ export function estimateStCourierCartFreight(input: {
       })
       : null;
 
-    const boxPerKg = isBlueDart
+    const trackonQuoted = !isPickup && isTrackon && allParcels.length
+      ? quoteTrackonParcels({
+        config: input.rates.trackon,
+        service: trackonService,
+        destination: input.destination,
+        parcels: allParcels.map(p => ({
+          actualKg: p.actualKg,
+          dims: {
+            lengthCm: Number(p.dims.lengthCm) || 0,
+            widthCm: Number(p.dims.widthCm) || 0,
+            heightCm: Number(p.dims.heightCm) || 0,
+          },
+        })),
+      })
+      : null;
+
+    const boxPerKg = isBlueDart || isTrackon
       ? 0
       : (quoted?.quote.boxPerKgInr ?? 0);
     const totalProductChargeable = isBlueDart
       ? (bdQuoted && !bdQuoted.notServiceable ? bdQuoted.chargeableKg : 0)
-      : (quoted?.chargeableKg ?? 0);
+      : isTrackon
+        ? (trackonQuoted && !trackonQuoted.notServiceable ? trackonQuoted.chargeableKg : 0)
+        : (quoted?.chargeableKg ?? 0);
     const totalProductFreight = isPickup
       ? 0
       : isBlueDart
         ? (bdQuoted && !bdQuoted.notServiceable && !bdQuoted.rateMissing ? bdQuoted.totalInr : 0)
-        : (quoted?.quote.totalInr ?? 0);
+        : isTrackon
+          ? (trackonQuoted && !trackonQuoted.notServiceable && !trackonQuoted.rateMissing
+            ? trackonQuoted.totalInr
+            : 0)
+          : (quoted?.quote.totalInr ?? 0);
 
     // Allocate freight to lines by share of chargeable kg
     let parcelOffset = 0;
@@ -585,12 +653,16 @@ export function estimateStCourierCartFreight(input: {
       ? (bdService === 'domestic_priority'
         ? input.rates.bluedart.domestic_priority.volumetricDivisor
         : input.rates.bluedart[bdService].volumetricDivisor)
-      : (originRates && originRates.volumetricDivisor > 0
-        ? originRates.volumetricDivisor
-        : 5000);
+      : isTrackon
+        ? (input.rates.trackon.shared.volumetricDivisor || 5000)
+        : (originRates && originRates.volumetricDivisor > 0
+          ? originRates.volumetricDivisor
+          : 5000);
     const fuelSurchargePercent = isBlueDart
       ? (Number(input.rates.bluedart.shared.fuelSurchargePercent) || 0)
-      : (originRates ? (Number(originRates.fuelSurchargePercent) || 0) : 0);
+      : isTrackon
+        ? (Number(input.rates.trackon.shared.fuelSurchargePercent) || 0)
+        : (originRates ? (Number(originRates.fuelSurchargePercent) || 0) : 0);
 
     for (const row of acc.productLines) {
       let lineKg = 0;
@@ -600,7 +672,7 @@ export function estimateStCourierCartFreight(input: {
 
       for (let i = 0; i < row.parcels.length; i += 1) {
         const parcel = row.parcels[i];
-        const chg = isBlueDart
+        const chg = isBlueDart || isTrackon
           ? (totalProductChargeable > 0 && allParcels.length
             ? totalProductChargeable / allParcels.length
             : 0)
@@ -711,7 +783,9 @@ export function estimateStCourierCartFreight(input: {
     const allowsManual = partnerAllowsManualFreightRate(partnerId, input.partnerStatuses);
     const hasConfiguredRate = isBlueDart
       ? !bdQuoted?.rateMissing
-      : (Boolean(originRates) && boxPerKg > 0);
+      : isTrackon
+        ? Boolean(trackonQuoted && !trackonQuoted.rateMissing && !trackonQuoted.notServiceable)
+        : (Boolean(originRates) && boxPerKg > 0);
     const rateMissing = Boolean(
       !isPickup
       && hasProduct

@@ -6,6 +6,8 @@ import {
   BLUEDART_LOGISTICS_PARTNER_IDS,
   BLUEDART_SERVICE_TO_PARTNER,
   LOGISTICS_PARTNERS,
+  TRACKON_LOGISTICS_PARTNER_IDS,
+  TRACKON_SERVICE_TO_PARTNER,
   logisticsPartnerImage,
   logisticsPartnerLabel,
   type LogisticsPartnerId,
@@ -21,9 +23,12 @@ import {
   originRatesForPartner,
   saveBlueDartConfig,
   saveCourierOriginRates,
+  saveTrackonConfig,
+  trackonConfigsEqual,
 } from '../../../lib/logisticsCourierRates';
 import { saveLogisticsPartnerStatuses } from '../../../lib/logisticsSettings';
 import type { BlueDartConfig } from '../../../types/blue-dart-rates';
+import type { TrackonConfig } from '../../../types/trackon-rates';
 import type { LogisticsDeliveryRulesMatrix } from '../../../types/logistics-delivery-rules';
 import type {
   LogisticsPartnerStatus,
@@ -44,18 +49,24 @@ import {
   type LogisticsCourierRates,
   type StCourierOriginRates,
   type StCourierZone,
+  type TrackonServiceId,
 } from '../../../types/logistics-courier-rates';
 import { BlueDartRatesEditor } from './BlueDartRatesEditor';
+import { TrackonRatesEditor } from './TrackonRatesEditor';
 import { PartnerStatusControl } from './PartnerStatusControl';
 
 type SaveStatus = 'idle' | 'pending' | 'saving' | 'saved' | 'error';
 
-type ZoneRatePartnerId = Extract<CourierRatePartnerId, 'st_courier' | 'trackon' | 'delhivery'>;
+type ZoneRatePartnerId = Extract<CourierRatePartnerId, 'st_courier' | 'delhivery'>;
 
-/** Partner tabs: rate cards + Blue Dart tile, then status-only logistics partners. */
+/** Partner tabs: rate cards + multi-mode tiles, then status-only logistics partners. */
 type DeliveryPartnerTabId =
   | CourierRatePartnerId
-  | Exclude<LogisticsPartnerId, typeof BLUEDART_LOGISTICS_PARTNER_IDS[number]>;
+  | Exclude<
+    LogisticsPartnerId,
+    | typeof BLUEDART_LOGISTICS_PARTNER_IDS[number]
+    | typeof TRACKON_LOGISTICS_PARTNER_IDS[number]
+  >;
 
 const LIVE_SAVE_MS = 550;
 const STATUS_SAVE_KEY = 'partnerStatuses';
@@ -63,9 +74,9 @@ const STATUS_SAVE_KEY = 'partnerStatuses';
 /** Partner picker order: Blue Dart first, then major couriers, then the rest. */
 const DETAIL_PARTNER_ORDER: DeliveryPartnerTabId[] = [
   'bluedart',
+  'trackon',
   'delhivery',
   'st_courier',
-  'trackon',
   'dtdc',
   'ecosafe',
   'aps',
@@ -74,12 +85,16 @@ const DETAIL_PARTNER_ORDER: DeliveryPartnerTabId[] = [
 ];
 
 function isZoneRatePartnerId(id: DeliveryPartnerTabId): id is ZoneRatePartnerId {
-  return id === 'st_courier' || id === 'trackon' || id === 'delhivery';
+  return id === 'st_courier' || id === 'delhivery';
 }
 
 function isStatusOnlyPartnerId(
   id: DeliveryPartnerTabId,
-): id is Exclude<LogisticsPartnerId, typeof BLUEDART_LOGISTICS_PARTNER_IDS[number]> {
+): id is Exclude<
+  LogisticsPartnerId,
+  | typeof BLUEDART_LOGISTICS_PARTNER_IDS[number]
+  | typeof TRACKON_LOGISTICS_PARTNER_IDS[number]
+> {
   return !isCourierRatePartnerId(id);
 }
 
@@ -102,14 +117,18 @@ function partnerMeta(id: DeliveryPartnerTabId) {
   if (id === 'bluedart') {
     return {
       label: 'Blue Dart',
-      tagline: 'Air · Surface · Domestic Priority',
       image: '/logistics/bluedart-surface.webp' as string | null,
+    };
+  }
+  if (id === 'trackon') {
+    return {
+      label: 'Trackon',
+      image: '/logistics/trackon.png' as string | null,
     };
   }
   const partner = LOGISTICS_PARTNERS.find(p => p.id === id);
   return {
     label: partner?.label ?? id,
-    tagline: partner?.tagline ?? '',
     image: logisticsPartnerImage(id) ?? partner?.image ?? null,
   };
 }
@@ -155,6 +174,7 @@ export const StCourierRatesSettings: React.FC<Props> = ({
   const { user } = useAuth();
   const [partnerId, setPartnerId] = useState<DeliveryPartnerTabId>('st_courier');
   const [blueDartService, setBlueDartService] = useState<BlueDartServiceId>('surface');
+  const [trackonService, setTrackonService] = useState<TrackonServiceId>('surface');
   const [origin, setOrigin] = useState<StaffLogisticsSite>('head_office');
   const [saved, setSaved] = useState<LogisticsCourierRates>(defaultLogisticsCourierRates);
   const [draft, setDraft] = useState<LogisticsCourierRates>(defaultLogisticsCourierRates);
@@ -183,6 +203,10 @@ export const StCourierRatesSettings: React.FC<Props> = ({
     air: statusDraft.bluedart_air,
     surface: statusDraft.bluedart_surface,
     domestic_priority: statusDraft.bluedart_domestic,
+  }), [statusDraft]);
+  const trackonServiceStatuses = useMemo(() => ({
+    air: statusDraft.trackon_air,
+    surface: statusDraft.trackon_surface,
   }), [statusDraft]);
 
   const visibleOrigins = useMemo(() => {
@@ -306,6 +330,38 @@ export const StCourierRatesSettings: React.FC<Props> = ({
     }, LIVE_SAVE_MS);
   }, [onError, userUid]);
 
+  const queueTrackonSave = useCallback(() => {
+    const key = 'trackon';
+    const existing = saveTimersRef.current[key];
+    if (existing) clearTimeout(existing);
+    setSaveStatus('pending');
+    saveTimersRef.current[key] = setTimeout(() => {
+      const next = draftRef.current.trackon;
+      const prev = savedRef.current.trackon;
+      if (trackonConfigsEqual(next, prev)) {
+        setSaveStatus(s => (s === 'pending' ? 'idle' : s));
+        return;
+      }
+      const epoch = ++saveEpochRef.current;
+      setSaveStatus('saving');
+      onError('');
+      void saveTrackonConfig(next, userUid)
+        .then(normalized => {
+          setSaved(s => ({ ...s, trackon: normalized }));
+          setDraft(d => {
+            if (!trackonConfigsEqual(d.trackon, next)) return d;
+            return { ...d, trackon: normalized };
+          });
+          if (epoch === saveEpochRef.current) setSaveStatus('saved');
+        })
+        .catch(err => {
+          if (epoch !== saveEpochRef.current) return;
+          setSaveStatus('error');
+          onError(err instanceof Error ? err.message : 'Could not save Trackon rates.');
+        });
+    }, LIVE_SAVE_MS);
+  }, [onError, userUid]);
+
   const queueStatusSave = useCallback(() => {
     const existing = saveTimersRef.current[STATUS_SAVE_KEY];
     if (existing) clearTimeout(existing);
@@ -384,6 +440,11 @@ export const StCourierRatesSettings: React.FC<Props> = ({
     queueBlueDartSave();
   };
 
+  const patchTrackon = (next: TrackonConfig) => {
+    setDraft(prev => ({ ...prev, trackon: next }));
+    queueTrackonSave();
+  };
+
   const setLogisticsPartnerStatus = (
     id: LogisticsPartnerId,
     next: LogisticsPartnerStatus,
@@ -399,6 +460,9 @@ export const StCourierRatesSettings: React.FC<Props> = ({
     const used = partnersUsedInDeliveryRules(deliveryRules);
     if (partnerId === 'bluedart') {
       return BLUEDART_LOGISTICS_PARTNER_IDS.some(id => used.includes(id));
+    }
+    if (partnerId === 'trackon') {
+      return TRACKON_LOGISTICS_PARTNER_IDS.some(id => used.includes(id));
     }
     return used.includes(partnerId as LogisticsPartnerId);
   }, [deliveryRules, partnerId]);
@@ -474,9 +538,6 @@ export const StCourierRatesSettings: React.FC<Props> = ({
               </span>
               <span className="settings-courier-rates__partner-copy">
                 <span className="settings-courier-rates__partner-name">{meta.label}</span>
-                {meta.tagline ? (
-                  <span className="settings-courier-rates__partner-tagline">{meta.tagline}</span>
-                ) : null}
               </span>
             </button>
           );
@@ -539,6 +600,17 @@ export const StCourierRatesSettings: React.FC<Props> = ({
           serviceStatuses={blueDartServiceStatuses}
           onServiceStatusChange={(service, next) => {
             setLogisticsPartnerStatus(BLUEDART_SERVICE_TO_PARTNER[service], next);
+          }}
+        />
+      ) : partnerId === 'trackon' ? (
+        <TrackonRatesEditor
+          config={draft.trackon}
+          service={trackonService}
+          onServiceChange={setTrackonService}
+          onChange={patchTrackon}
+          serviceStatuses={trackonServiceStatuses}
+          onServiceStatusChange={(service, next) => {
+            setLogisticsPartnerStatus(TRACKON_SERVICE_TO_PARTNER[service], next);
           }}
         />
       ) : isStatusOnlyPartner ? (

@@ -8,7 +8,8 @@ export interface CourierPartner {
 
 export const COURIER_PARTNERS: CourierPartner[] = [
   { id: 'st_courier', label: 'ST Courier', image: '/logistics/st-courier.png' },
-  { id: 'trackon', label: 'Trackon', image: '/logistics/trackon.png' },
+  { id: 'trackon_air', label: 'Trackon Air', image: '/logistics/trackon.png' },
+  { id: 'trackon_surface', label: 'Trackon Surface', image: '/logistics/trackon.png' },
   { id: 'delhivery', label: 'Delhivery', image: '/logistics/delhivery.png' },
   { id: 'bluedart_air', label: 'Blue Dart Air', image: '/logistics/bluedart-air.webp' },
   { id: 'bluedart_surface', label: 'Blue Dart Surface', image: '/logistics/bluedart-surface.webp' },

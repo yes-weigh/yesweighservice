@@ -8,12 +8,14 @@ import {
   LOGISTICS_COURIER_RATES_DOC_ID,
 } from '../constants/logisticsCourierRates';
 import { defaultBlueDartConfig } from '../constants/blueDartRates';
+import { defaultTrackonConfig } from '../constants/trackonRates';
 import {
   STAFF_LOGISTICS_SITES,
   isStaffLogisticsSite,
   type StaffLogisticsSite,
 } from '../types/staff-logistics';
 import type { BlueDartConfig } from '../types/blue-dart-rates';
+import type { TrackonConfig } from '../types/trackon-rates';
 import type {
   BlueDartServiceId,
   CourierRatePartnerId,
@@ -31,6 +33,7 @@ import {
   isStCourierZone,
 } from '../types/logistics-courier-rates';
 import { blueDartConfigsEqual, parseBlueDartConfig } from './blueDartRatesParse';
+import { parseTrackonConfig, trackonConfigsEqual } from './trackonRatesParse';
 
 function finiteNonNeg(value: unknown, fallback: number): number {
   if (typeof value !== 'number' || !Number.isFinite(value) || value < 0) return fallback;
@@ -137,7 +140,7 @@ export function parseLogisticsCourierRates(data: Record<string, unknown> | undef
   if (!data) return defaults;
   return {
     st_courier: parseStCourierRatesByOrigin(data.st_courier),
-    trackon: parseSharedPartnerRates(data.trackon),
+    trackon: parseTrackonConfig(data.trackon),
     delhivery: parseSharedPartnerRates(data.delhivery),
     bluedart: parseBlueDartConfig(data.bluedart),
     updatedAt: typeof data.updatedAt === 'string' ? data.updatedAt : '',
@@ -148,7 +151,7 @@ export function parseLogisticsCourierRates(data: Record<string, unknown> | undef
 /**
  * Resolve ST-style rate card for a priced partner.
  * Origin is used only for ST Courier; ignored for shared-card partners.
- * Blue Dart is not ST-shaped — use `blueDartConfigOf` / quoteBlueDart* instead.
+ * Blue Dart / Trackon are not ST-shaped — use their config helpers / quote* instead.
  */
 export function originRatesForPartner(
   rates: LogisticsCourierRates,
@@ -156,7 +159,7 @@ export function originRatesForPartner(
   origin: StaffLogisticsSite,
   _blueDartService: BlueDartServiceId = 'surface',
 ): StCourierOriginRates {
-  if (partnerId === 'bluedart') {
+  if (partnerId === 'bluedart' || partnerId === 'trackon') {
     return defaultStCourierOriginRates();
   }
   if (partnerId === 'st_courier') {
@@ -167,6 +170,10 @@ export function originRatesForPartner(
 
 export function blueDartConfigOf(rates: LogisticsCourierRates): BlueDartConfig {
   return rates.bluedart ?? defaultBlueDartConfig();
+}
+
+export function trackonConfigOf(rates: LogisticsCourierRates): TrackonConfig {
+  return rates.trackon ?? defaultTrackonConfig();
 }
 
 export async function loadLogisticsCourierRates(): Promise<LogisticsCourierRates> {
@@ -191,6 +198,9 @@ export async function saveCourierOriginRates(
   }
   if (partner === 'bluedart') {
     throw new Error('Use saveBlueDartConfig for Blue Dart tariffs.');
+  }
+  if (partner === 'trackon') {
+    throw new Error('Use saveTrackonConfig for Trackon tariffs.');
   }
   if (partner === 'st_courier' && !isStaffLogisticsSite(origin)) {
     throw new Error('Select a valid logistics origin.');
@@ -253,6 +263,28 @@ export async function saveBlueDartConfig(
   return normalized;
 }
 
+export async function saveTrackonConfig(
+  config: TrackonConfig,
+  updatedBy?: string | null,
+): Promise<TrackonConfig> {
+  const normalized = parseTrackonConfig(config);
+  if (normalized.shared.volumetricDivisor <= 0) {
+    throw new Error('Volumetric divisor must be greater than zero.');
+  }
+
+  const updatedAt = new Date().toISOString();
+  await setDoc(
+    doc(db, 'appSettings', LOGISTICS_COURIER_RATES_DOC_ID),
+    {
+      trackon: normalized,
+      updatedAt,
+      ...(updatedBy ? { updatedBy } : {}),
+    },
+    { merge: true },
+  );
+  return normalized;
+}
+
 /** @deprecated Use saveCourierOriginRates('st_courier', …) */
 export async function saveStCourierOriginRates(
   origin: StaffLogisticsSite,
@@ -262,7 +294,12 @@ export async function saveStCourierOriginRates(
   return saveCourierOriginRates('st_courier', origin, rates, updatedBy);
 }
 
-export { COURIER_RATE_PARTNER_IDS, isCourierRatePartnerId, blueDartConfigsEqual };
+export {
+  COURIER_RATE_PARTNER_IDS,
+  isCourierRatePartnerId,
+  blueDartConfigsEqual,
+  trackonConfigsEqual,
+};
 
 export async function saveStCourierRatesByOrigin(
   byOrigin: StCourierRatesByOrigin,

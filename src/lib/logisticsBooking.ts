@@ -13,7 +13,8 @@ import type {
 /** Partners that support the full booking pipeline today. */
 export const ENABLED_LOGISTICS_PARTNER_IDS: ReadonlyArray<LogisticsPartnerId> = [
   'st_courier',
-  'trackon',
+  'trackon_air',
+  'trackon_surface',
 ];
 
 export function isPipelineEnabledPartner(id: string): boolean {
@@ -186,7 +187,8 @@ export function bookStepProgressIndex(step: BookCourierStep): number {
 
 const PARTNER_BRANCH: Record<LogisticsPartnerId, string> = {
   st_courier: 'Kochi Main Branch',
-  trackon: 'Coimbatore Hub',
+  trackon_air: 'Cochin Hub',
+  trackon_surface: 'Cochin Hub',
   delhivery: 'Bangalore DC',
   bluedart_air: 'Kochi Airport Road',
   bluedart_surface: 'Kochi Airport Road',
@@ -200,7 +202,8 @@ const PARTNER_BRANCH: Record<LogisticsPartnerId, string> = {
 
 const PARTNER_SERVICE: Record<LogisticsPartnerId, string> = {
   st_courier: 'Surface',
-  trackon: 'Standard',
+  trackon_air: 'Air',
+  trackon_surface: 'Surface',
   delhivery: 'Express',
   bluedart_air: 'Dart Apex',
   bluedart_surface: 'Surface Band 13',

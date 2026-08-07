@@ -1,11 +1,12 @@
-import type { BlueDartServiceId } from '../types/logistics-courier-rates';
+import type { BlueDartServiceId, TrackonServiceId } from '../types/logistics-courier-rates';
 import type { DeliveryMethodId } from './deliveryMethods';
 import { DELIVERY_METHODS } from './deliveryMethods';
 
 /** Partners shown in logistics booking, delivery rules, and SO freight. */
 export const LOGISTICS_PARTNER_IDS = [
   'st_courier',
-  'trackon',
+  'trackon_air',
+  'trackon_surface',
   'delhivery',
   'bluedart_air',
   'bluedart_surface',
@@ -40,6 +41,24 @@ export const BLUEDART_SERVICE_TO_PARTNER: Record<BlueDartServiceId, BlueDartLogi
   domestic_priority: 'bluedart_domestic',
 };
 
+/** Trackon services as distinct shipping partners (not the rates-doc key `trackon`). */
+export const TRACKON_LOGISTICS_PARTNER_IDS = [
+  'trackon_air',
+  'trackon_surface',
+] as const satisfies readonly LogisticsPartnerId[];
+
+export type TrackonLogisticsPartnerId = typeof TRACKON_LOGISTICS_PARTNER_IDS[number];
+
+export const TRACKON_PARTNER_TO_SERVICE: Record<TrackonLogisticsPartnerId, TrackonServiceId> = {
+  trackon_air: 'air',
+  trackon_surface: 'surface',
+};
+
+export const TRACKON_SERVICE_TO_PARTNER: Record<TrackonServiceId, TrackonLogisticsPartnerId> = {
+  air: 'trackon_air',
+  surface: 'trackon_surface',
+};
+
 const LOGISTICS_LABEL_OVERRIDES: Partial<Record<LogisticsPartnerId, string>> = {
   personal_collection: 'Customer Pickup',
 };
@@ -72,11 +91,16 @@ export function isBlueDartLogisticsPartnerId(id: string): id is BlueDartLogistic
   return (BLUEDART_LOGISTICS_PARTNER_IDS as readonly string[]).includes(id);
 }
 
-/** Map legacy consolidated `bluedart` → Surface; else validate. */
+export function isTrackonLogisticsPartnerId(id: string): id is TrackonLogisticsPartnerId {
+  return (TRACKON_LOGISTICS_PARTNER_IDS as readonly string[]).includes(id);
+}
+
+/** Map legacy consolidated ids → Surface; else validate. */
 export function normalizeLogisticsPartnerId(raw: unknown): LogisticsPartnerId | null {
   const id = String(raw ?? '').trim();
   if (!id) return null;
   if (id === 'bluedart') return 'bluedart_surface';
+  if (id === 'trackon') return 'trackon_surface';
   if (isLogisticsPartnerId(id)) return id;
   return null;
 }
@@ -92,4 +116,17 @@ export function partnerIdForBlueDartService(
   service: BlueDartServiceId,
 ): BlueDartLogisticsPartnerId {
   return BLUEDART_SERVICE_TO_PARTNER[service];
+}
+
+export function trackonServiceForPartner(
+  partnerId: LogisticsPartnerId | string,
+): TrackonServiceId | null {
+  if (!isTrackonLogisticsPartnerId(partnerId)) return null;
+  return TRACKON_PARTNER_TO_SERVICE[partnerId];
+}
+
+export function partnerIdForTrackonService(
+  service: TrackonServiceId,
+): TrackonLogisticsPartnerId {
+  return TRACKON_SERVICE_TO_PARTNER[service];
 }

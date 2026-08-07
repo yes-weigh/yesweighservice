@@ -8,6 +8,10 @@ import {
   quoteBlueDartParcels,
 } from './blue-dart-quote.js';
 import {
+  parseTrackonConfig,
+  quoteTrackonParcels,
+} from './trackon-quote.js';
+import {
   classifyOrderLineSegment,
   resolveLineInventorySite,
   segmentAllowsFreight,
@@ -174,7 +178,7 @@ export function parseLogisticsCourierRates(data) {
   if (!data || typeof data !== 'object') {
     return {
       st_courier: emptyByOrigin(),
-      trackon: parseOriginRates(null),
+      trackon: parseTrackonConfig(null),
       delhivery: parseOriginRates(null),
       bluedart: parseBlueDartConfig(null),
     };
@@ -185,7 +189,7 @@ export function parseLogisticsCourierRates(data) {
       cochin: parseOriginRates(stRaw.cochin),
       head_office: parseOriginRates(stRaw.head_office),
     },
-    trackon: parseSharedPartnerRates(data.trackon),
+    trackon: parseTrackonConfig(data.trackon),
     delhivery: parseSharedPartnerRates(data.delhivery),
     bluedart: parseBlueDartConfig(data.bluedart),
   };
@@ -326,6 +330,8 @@ export function mapPackageInfo(raw) {
 const PARTNER_FREIGHT_SKU = {
   st_courier: 'STFRC',
   trackon: 'TRFRC',
+  trackon_air: 'TRFRC',
+  trackon_surface: 'TRFRC',
   delhivery: 'DELFRC',
   bluedart_air: 'BDAIR',
   bluedart_surface: 'BDFRC',
@@ -341,31 +347,47 @@ const BLUEDART_PARTNER_SERVICE = {
   bluedart: 'surface',
 };
 
+const TRACKON_PARTNER_SERVICE = {
+  trackon_air: 'air',
+  trackon_surface: 'surface',
+  trackon: 'surface',
+};
+
 function isBlueDartPartner(partnerId) {
   return Boolean(BLUEDART_PARTNER_SERVICE[partnerId]);
+}
+
+function isTrackonPartner(partnerId) {
+  return Boolean(TRACKON_PARTNER_SERVICE[partnerId]);
 }
 
 function blueDartServiceForPartner(partnerId, fallback = 'surface') {
   return BLUEDART_PARTNER_SERVICE[partnerId] || fallback;
 }
 
+function trackonServiceForPartner(partnerId, fallback = 'surface') {
+  return TRACKON_PARTNER_SERVICE[partnerId] || fallback;
+}
+
 function normalizeCourierBySite(raw) {
   const out = {};
   if (!raw || typeof raw !== 'object') return out;
   for (const site of ['cochin', 'head_office']) {
-    const id = String(raw[site] ?? '').trim();
+    let id = String(raw[site] ?? '').trim();
+    if (id === 'trackon') id = 'trackon_surface';
+    if (id === 'bluedart') id = 'bluedart_surface';
     if (id) out[site] = id;
   }
   return out;
 }
 
 function partnerOriginRates(rates, partnerId, site) {
-  if (isBlueDartPartner(partnerId)) return null;
+  if (isBlueDartPartner(partnerId) || isTrackonPartner(partnerId)) return null;
   if (partnerId === 'st_courier') {
     return rates.st_courier?.[site] || null;
   }
-  if (partnerId === 'trackon' || partnerId === 'delhivery') {
-    return rates[partnerId] || null;
+  if (partnerId === 'delhivery') {
+    return rates.delhivery || null;
   }
   return null;
 }
@@ -427,6 +449,7 @@ export function buildDealerAutoFreightLines({
     let sku = PARTNER_FREIGHT_SKU[partnerId] || 'STFRC';
     const originRates = partnerOriginRates(rates, partnerId, site) || rates.st_courier[site];
     const bdService = blueDartServiceForPartner(partnerId, blueDartService);
+    const trackonService = trackonServiceForPartner(partnerId, 'surface');
 
     if (productSites.has(site)) {
       const parcels = productParcelsBySite.get(site) || [];
@@ -444,6 +467,17 @@ export function buildDealerAutoFreightLines({
           : { totalInr: 0, sku: PARTNER_FREIGHT_SKU[partnerId] || 'BDFRC' };
         totalInr = bd.totalInr || 0;
         sku = bd.sku || sku;
+      } else if (isTrackonPartner(partnerId)) {
+        const quoted = parcels.length
+          ? quoteTrackonParcels({
+            config: rates.trackon,
+            service: trackonService,
+            destination,
+            parcels,
+          })
+          : { totalInr: 0, sku: 'TRFRC' };
+        totalInr = quoted.totalInr || 0;
+        sku = quoted.sku || sku;
       } else {
         const quoted = parcels.length
           ? quoteParcels(zone, originRates, parcels)

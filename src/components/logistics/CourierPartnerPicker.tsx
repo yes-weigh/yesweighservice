@@ -86,7 +86,6 @@ export const CourierPartnerPicker: React.FC<CourierPartnerPickerProps> = ({
               </span>
               <span className="delivery-method-card__text">
                 <span className="delivery-method-card__label">{method.label}</span>
-                <span className="delivery-method-card__tagline">{method.tagline}</span>
                 {comingSoon && (
                   <span className="delivery-method-card__badge delivery-method-card__badge--soon">
                     <Clock size={11} aria-hidden />

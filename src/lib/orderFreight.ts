@@ -1,4 +1,5 @@
 import { blueDartServiceHasRate } from '../constants/blueDartRates';
+import { trackonServiceHasRate } from '../constants/trackonRates';
 import type { FreightLineSku } from '../constants/freightLines';
 import { FREIGHT_LINE_OPTIONS } from '../constants/freightLines';
 import type { LogisticsPartnerId } from '../constants/logisticsPartners';
@@ -6,8 +7,10 @@ import {
   blueDartServiceForPartner,
   isBlueDartLogisticsPartnerId,
   isLogisticsPartnerId,
+  isTrackonLogisticsPartnerId,
   logisticsPartnerLabel,
   partnerIdForBlueDartService,
+  trackonServiceForPartner,
 } from '../constants/logisticsPartners';
 import {
   defaultLogisticsPartnerStatuses,
@@ -37,7 +40,8 @@ export const PICKUP_PARTNER_ID: LogisticsPartnerId = 'personal_collection';
 
 const PARTNER_TO_FREIGHT_SKU: Partial<Record<LogisticsPartnerId, FreightLineSku>> = {
   st_courier: 'STFRC',
-  trackon: 'TRFRC',
+  trackon_air: 'TRFRC',
+  trackon_surface: 'TRFRC',
   delhivery: 'DELFRC',
   bluedart_air: 'BDAIR',
   bluedart_surface: 'BDFRC',
@@ -63,6 +67,8 @@ export function partnerIdForFreightSku(sku: string | null | undefined): Logistic
   if (!value) return null;
   const bdService = blueDartServiceForFreightSku(value);
   if (bdService) return partnerIdForBlueDartService(bdService);
+  /** TRFRC is shared by Trackon Air + Surface — default to Surface. */
+  if (value === 'TRFRC') return 'trackon_surface';
   const hit = (Object.entries(PARTNER_TO_FREIGHT_SKU) as Array<[LogisticsPartnerId, FreightLineSku]>)
     .find(([, freightSku]) => freightSku === value);
   return hit?.[0] ?? null;
@@ -83,13 +89,20 @@ export function partnerHasZoneRate(
     const service = blueDartServiceForPartner(partnerId);
     return service ? blueDartServiceHasRate(rates.bluedart, service) : false;
   }
+  if (isTrackonLogisticsPartnerId(partnerId)) {
+    const service = trackonServiceForPartner(partnerId);
+    return service ? trackonServiceHasRate(rates.trackon, service) : false;
+  }
   if (!isCourierRatePartnerId(partnerId)) return false;
   if (partnerId === 'st_courier') {
     const boxPerKg = rates.st_courier?.[site]?.zones?.[zone]?.boxPerKgInr;
     return typeof boxPerKg === 'number' && Number.isFinite(boxPerKg) && boxPerKg > 0;
   }
-  const boxPerKg = rates[partnerId]?.zones?.[zone]?.boxPerKgInr;
-  return typeof boxPerKg === 'number' && Number.isFinite(boxPerKg) && boxPerKg > 0;
+  if (partnerId === 'delhivery') {
+    const boxPerKg = rates.delhivery?.zones?.[zone]?.boxPerKgInr;
+    return typeof boxPerKg === 'number' && Number.isFinite(boxPerKg) && boxPerKg > 0;
+  }
+  return false;
 }
 
 /**
@@ -176,7 +189,8 @@ export function listOrderCourierOptions(input: {
     const status = statuses[partnerId];
     const allowManual = partnerStatusAllowsManualFreight(status);
     const isRatePartner = isCourierRatePartnerId(partnerId)
-      || isBlueDartLogisticsPartnerId(partnerId);
+      || isBlueDartLogisticsPartnerId(partnerId)
+      || isTrackonLogisticsPartnerId(partnerId);
     if (!isRatePartner && !allowManual) {
       return {
         partnerId,

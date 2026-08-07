@@ -62,7 +62,6 @@ export const FreightPartnerPicker: React.FC<FreightPartnerPickerProps> = ({
               </span>
               <span className="freight-partner-picker__copy">
                 <strong>{option.label}</strong>
-                <span className="text-muted text-sm">{option.tagline}</span>
               </span>
             </button>
             {selected ? (

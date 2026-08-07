@@ -1,4 +1,5 @@
 import { defaultBlueDartConfig } from './blueDartRates';
+import { defaultTrackonConfig } from './trackonRates';
 import type {
   LogisticsCourierRates,
   StCourierOriginRates,
@@ -50,7 +51,7 @@ export function defaultStCourierRatesByOrigin(): StCourierRatesByOrigin {
 export function defaultLogisticsCourierRates(): LogisticsCourierRates {
   return {
     st_courier: defaultStCourierRatesByOrigin(),
-    trackon: defaultStCourierOriginRates(),
+    trackon: defaultTrackonConfig(),
     delhivery: defaultStCourierOriginRates(),
     bluedart: defaultBlueDartConfig(),
     updatedAt: '',
@@ -58,4 +59,4 @@ export function defaultLogisticsCourierRates(): LogisticsCourierRates {
   };
 }
 
-export { COURIER_RATE_PARTNER_IDS, defaultBlueDartConfig };
+export { COURIER_RATE_PARTNER_IDS, defaultBlueDartConfig, defaultTrackonConfig };

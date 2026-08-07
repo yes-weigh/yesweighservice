@@ -21,22 +21,23 @@ export const CONFIGURABLE_DELIVERY_PARTNER_IDS = [...LOGISTICS_PARTNER_IDS];
 export const DEFAULT_LOGISTICS_DELIVERY_RULES: LogisticsDeliveryRulesMatrix = {
   kerala: {
     cochin: ['st_courier', 'personal_collection'],
-    head_office: ['st_courier', 'personal_collection'],
+    head_office: ['st_courier', 'trackon_surface', 'personal_collection'],
   },
   tamil_nadu_pondy: {
     cochin: ['delhivery', 'st_courier'],
-    head_office: ['st_courier', 'trackon'],
+    head_office: ['st_courier', 'trackon_surface'],
   },
   other_states: {
     cochin: ['delhivery', 'st_courier'],
-    head_office: ['trackon'],
+    head_office: ['trackon_air', 'trackon_surface'],
   },
 };
 
 /** Compact chip labels — full name in title tooltip. */
 export const RULE_PARTNER_SHORT_LABELS: Record<LogisticsPartnerId, string> = {
   st_courier: 'ST',
-  trackon: 'Trackon',
+  trackon_air: 'Trackon Air',
+  trackon_surface: 'Trackon Surf',
   delhivery: 'Delhivery',
   bluedart_air: 'BD Air',
   bluedart_surface: 'BD Surface',

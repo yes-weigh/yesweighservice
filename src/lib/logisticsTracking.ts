@@ -18,6 +18,8 @@ export function logisticsTrackingUrl(
     case 'dtdc':
       return `https://www.dtdc.in/tracking.asp?strCnno=${encoded}`;
     case 'trackon':
+    case 'trackon_air':
+    case 'trackon_surface':
       return `https://trackon.in/Tracking/t1.jsp?txtAction=track&txtAWBNo=${encoded}`;
     case 'st_courier':
       // Marketing site (?AwbNo=) does not auto-search; ERP page does (same as label QR).
