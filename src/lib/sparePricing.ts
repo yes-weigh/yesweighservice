@@ -2,6 +2,7 @@ import { doc, getDoc, setDoc } from 'firebase/firestore';
 import { db } from '../firebase';
 import {
   DEFAULT_CD_PERCENT,
+  DEFAULT_DEALER_PROFIT_PERCENT,
   DEFAULT_FREIGHT_PERCENT,
   DEFAULT_MARKUP_FEE_INR,
   DEFAULT_USD_TO_INR_RATE,
@@ -10,10 +11,12 @@ import {
   USD_INR_RATE_API_URL,
 } from '../constants/sparePricing';
 import type {
+  SparePricingLevelAdjust,
   SparePricingSettings,
   SparePricingSettingsDraft,
   UsdInrFetchResult,
 } from '../types/sparePricing';
+import type { PriceLevelRuleMode } from '../types/priceLevels';
 
 export { SPARE_PRICING_DOC_ID, SPARE_PRICING_LIVE_SAVE_MS, USD_INR_RATE_API_URL };
 
@@ -50,6 +53,8 @@ export function emptySparePricingSettings(): SparePricingSettings {
     markupFeeInr: DEFAULT_MARKUP_FEE_INR,
     cdPercent: DEFAULT_CD_PERCENT,
     freightPercent: DEFAULT_FREIGHT_PERCENT,
+    dealerProfitPercent: DEFAULT_DEALER_PROFIT_PERCENT,
+    levelPriceAdjusts: [],
     exchangeRateFetchedAt: null,
     exchangeRateDate: null,
     updatedAt: null,
@@ -75,6 +80,51 @@ function clampPercent(raw: unknown): number {
   return Math.round(Math.min(n, 1000) * 100) / 100;
 }
 
+function clampDealerProfitPercent(raw: unknown): number {
+  const n = Number(raw);
+  if (!Number.isFinite(n)) return DEFAULT_DEALER_PROFIT_PERCENT;
+  return Math.round(Math.min(Math.max(n, 0), 1000) * 10) / 10;
+}
+
+function normalizeLevelPriceAdjusts(raw: unknown): SparePricingLevelAdjust[] {
+  if (!Array.isArray(raw)) return [];
+  const out: SparePricingLevelAdjust[] = [];
+  const seen = new Set<string>();
+  for (const row of raw) {
+    if (!row || typeof row !== 'object') continue;
+    const data = row as Record<string, unknown>;
+    const levelId = typeof data.levelId === 'string' ? data.levelId.trim() : '';
+    if (!levelId || seen.has(levelId)) continue;
+    const modeRaw = data.mode;
+    const mode: PriceLevelRuleMode | null = modeRaw === 'discount' || modeRaw === 'increment'
+      ? modeRaw
+      : null;
+    if (!mode) continue;
+    const percent = clampPercent(data.percent);
+    if (!(percent > 0)) continue;
+    const levelName = typeof data.levelName === 'string' && data.levelName.trim()
+      ? data.levelName.trim()
+      : levelId;
+    seen.add(levelId);
+    out.push({ levelId, levelName, mode, percent });
+  }
+  return out;
+}
+
+export function levelPriceAdjustsEqual(
+  a: SparePricingLevelAdjust[],
+  b: SparePricingLevelAdjust[],
+): boolean {
+  if (a.length !== b.length) return false;
+  const byId = new Map(b.map(row => [row.levelId, row]));
+  for (const row of a) {
+    const other = byId.get(row.levelId);
+    if (!other) return false;
+    if (other.mode !== row.mode || other.percent !== row.percent) return false;
+  }
+  return true;
+}
+
 export function normalizeSparePricingSettings(raw: unknown): SparePricingSettings {
   const base = emptySparePricingSettings();
   if (!raw || typeof raw !== 'object') return base;
@@ -84,6 +134,12 @@ export function normalizeSparePricingSettings(raw: unknown): SparePricingSetting
     markupFeeInr: clampInr(data.markupFeeInr ?? data.markupFee ?? data.markup),
     cdPercent: clampPercent(data.cdPercent ?? data.cd ?? data.customsDutyPercent),
     freightPercent: clampPercent(data.freightPercent ?? data.freight ?? data.freightPct),
+    dealerProfitPercent: clampDealerProfitPercent(
+      data.dealerProfitPercent ?? data.dealerProfitPct ?? DEFAULT_DEALER_PROFIT_PERCENT,
+    ),
+    levelPriceAdjusts: normalizeLevelPriceAdjusts(
+      data.levelPriceAdjusts ?? data.levelAdjusts ?? data.spareLevelAdjusts,
+    ),
     exchangeRateFetchedAt: typeof data.exchangeRateFetchedAt === 'string'
       ? data.exchangeRateFetchedAt
       : null,
@@ -103,6 +159,8 @@ export function sparePricingSettingsEqual(
     && a.markupFeeInr === b.markupFeeInr
     && a.cdPercent === b.cdPercent
     && a.freightPercent === b.freightPercent
+    && a.dealerProfitPercent === b.dealerProfitPercent
+    && levelPriceAdjustsEqual(a.levelPriceAdjusts, b.levelPriceAdjusts)
     && a.exchangeRateFetchedAt === b.exchangeRateFetchedAt
     && a.exchangeRateDate === b.exchangeRateDate;
 }

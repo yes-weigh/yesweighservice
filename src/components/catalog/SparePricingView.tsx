@@ -18,6 +18,7 @@ import {
   computeSpareLandingCostInr,
   emptySparePricingSettings,
   fetchUsdToInrRate,
+  levelPriceAdjustsEqual,
   loadSparePricingSettings,
   saveSparePricingSettings,
   sparePricingSettingsEqual,
@@ -36,16 +37,16 @@ import type { SparePricingSettings, SparePricingSettingsDraft } from '../../type
 import { SparePricingLevelBulkPanel } from './SparePricingLevelBulkPanel';
 import { SparePricingProductPeek } from './SparePricingProductPeek';
 import {
-  applyAdjustToSpareLevel,
-  applyDealerListPriceToSpareLevel,
+  applySpareBulkPricingToLevels,
+  filterSpareLevelBulkRows,
   type SpareLevelBulkRow,
   type SpareLevelPriceAdjust,
 } from '../../lib/sparePriceLevelBulk';
 import {
-  isDefaultDealerPriceLevel,
   loadPriceLevels,
   savePriceLevels,
 } from '../../lib/priceLevels';
+import type { SparePricingLevelAdjust } from '../../types/sparePricing';
 
 type Props = {
   spares: CatalogProduct[];
@@ -293,9 +294,6 @@ export const SparePricingView: React.FC<Props> = ({
   const chromeRef = useRef<HTMLDivElement>(null);
   const [peekProduct, setPeekProduct] = useState<CatalogProduct | null>(null);
   const [levelBulkOpen, setLevelBulkOpen] = useState(false);
-  /** Local level discount/hike on New sell — persisted only on toolbar Save. */
-  const [levelAdjusts, setLevelAdjusts] = useState<SpareLevelPriceAdjust[]>([]);
-  const [levelAdjustsDirty, setLevelAdjustsDirty] = useState(false);
 
   const rows = useMemo(
     () => [...spares].sort(compareSpareRows),
@@ -569,6 +567,7 @@ export const SparePricingView: React.FC<Props> = ({
 
   const handleDealerListRatesApplied = useCallback((
     updates: Array<{ productId: string; rate: number }>,
+    dealerProfitPercent: number,
   ) => {
     if (!updates.length) return;
     setNewSellingDrafts(prev => {
@@ -579,14 +578,21 @@ export const SparePricingView: React.FC<Props> = ({
       }
       return next;
     });
-    markDirty();
-  }, [markDirty]);
+    patchDraft({ dealerProfitPercent });
+  }, [patchDraft]);
 
-  const handleLevelsApplied = useCallback((adjusts: SpareLevelPriceAdjust[]) => {
-    setLevelAdjusts(adjusts);
-    setLevelAdjustsDirty(true);
-    markDirty();
-  }, [markDirty]);
+  const handleLevelsApplied = useCallback((
+    adjusts: SpareLevelPriceAdjust[],
+    dealerProfitPercent: number,
+  ) => {
+    const levelPriceAdjusts: SparePricingLevelAdjust[] = adjusts.map(row => ({
+      levelId: row.levelId,
+      levelName: row.levelName,
+      mode: row.mode,
+      percent: row.percent,
+    }));
+    patchDraft({ dealerProfitPercent, levelPriceAdjusts });
+  }, [patchDraft]);
 
   const handleNewProfitChange = useCallback((
     productId: string,
@@ -638,10 +644,13 @@ export const SparePricingView: React.FC<Props> = ({
   }, [rows, newSellingDrafts, dirtyEpoch]);
 
   const settingsDirty = !sparePricingSettingsEqual(draft, saved);
+  const levelFormulaDirty = !levelPriceAdjustsEqual(
+    draft.levelPriceAdjusts,
+    saved.levelPriceAdjusts,
+  );
   const hasChanges = settingsDirty
     || changedCostIds.length > 0
-    || changedRateUpdates.length > 0
-    || levelAdjustsDirty;
+    || changedRateUpdates.length > 0;
 
   const handleCancelChanges = useCallback(() => {
     if (!hasChanges || saveStatus === 'saving') return;
@@ -665,8 +674,6 @@ export const SparePricingView: React.FC<Props> = ({
     }
     setCostDrafts(nextCosts);
     setNewSellingDrafts(nextSelling);
-    setLevelAdjusts([]);
-    setLevelAdjustsDirty(false);
     setSaveStatus('idle');
     setError(null);
     setDirtyEpoch(n => n + 1);
@@ -792,47 +799,41 @@ export const SparePricingView: React.FC<Props> = ({
         onProductRatesSaved?.(applied);
       }
 
-      if (levelAdjustsDirty) {
-        const docData = await loadPriceLevels();
-        const bulkRows = rows.map(product => {
-          const resolved = resolvePurchaseCost(
-            product.id,
-            overrides.get(product.id),
-            poCosts.get(product.id),
-            draft.usdToInrRate,
+      const shouldSyncPriceLevels = levelFormulaDirty || changedRateUpdates.length > 0;
+      if (shouldSyncPriceLevels) {
+        const targetIds = levelFormulaDirty
+          ? null
+          : new Set(changedRateUpdates.map(row => row.product.id));
+        const bulkRows: SpareLevelBulkRow[] = rows
+          .filter(product => targetIds == null || targetIds.has(product.id))
+          .map(product => {
+            const resolved = resolvePurchaseCost(
+              product.id,
+              overrides.get(product.id),
+              poCosts.get(product.id),
+              draft.usdToInrRate,
+            );
+            const draftCost = costDrafts[product.id] ?? {
+              amount: resolved.amount,
+              currencyCode: resolved.currencyCode,
+            };
+            return {
+              product,
+              listRate: newSellingDrafts[product.id] ?? (Number(product.rate) || 0),
+              landingInr: computeSpareLandingCostInr(draftCost, draft),
+              purchaseAmount: Number(draftCost.amount) || 0,
+            };
+          });
+        const { eligible } = filterSpareLevelBulkRows(bulkRows);
+        if (eligible.length > 0) {
+          const docData = await loadPriceLevels();
+          const nextLevels = applySpareBulkPricingToLevels(
+            docData.levels,
+            bulkRows,
+            draft.levelPriceAdjusts,
           );
-          const draftCost = costDrafts[product.id] ?? {
-            amount: resolved.amount,
-            currencyCode: resolved.currencyCode,
-          };
-          return {
-            product,
-            listRate: newSellingDrafts[product.id] ?? (Number(product.rate) || 0),
-            landingInr: computeSpareLandingCostInr(draftCost, draft),
-            purchaseAmount: Number(draftCost.amount) || 0,
-          };
-        });
-        const adjustById = new Map(levelAdjusts.map(a => [a.levelId, a]));
-        let nextLevels = docData.levels;
-        for (const level of docData.levels) {
-          if (isDefaultDealerPriceLevel(level)) {
-            nextLevels = nextLevels.map(row => (
-              row.id === level.id
-                ? applyDealerListPriceToSpareLevel(row, bulkRows)
-                : row
-            ));
-            continue;
-          }
-          const adjust = adjustById.get(level.id);
-          if (!adjust) continue;
-          nextLevels = nextLevels.map(row => (
-            row.id === level.id
-              ? applyAdjustToSpareLevel(row, bulkRows, adjust.mode, adjust.percent)
-              : row
-          ));
+          await savePriceLevels(nextLevels, userUid);
         }
-        await savePriceLevels(nextLevels, userUid);
-        setLevelAdjustsDirty(false);
       }
 
       setSaveStatus('saved');
@@ -851,8 +852,7 @@ export const SparePricingView: React.FC<Props> = ({
     costDrafts,
     changedRateUpdates,
     onProductRatesSaved,
-    levelAdjustsDirty,
-    levelAdjusts,
+    levelFormulaDirty,
     rows,
     overrides,
     poCosts,
@@ -1319,7 +1319,8 @@ export const SparePricingView: React.FC<Props> = ({
         open={levelBulkOpen}
         onClose={() => setLevelBulkOpen(false)}
         rows={levelBulkRows}
-        initialAdjusts={levelAdjusts}
+        initialDealerProfitPercent={draft.dealerProfitPercent}
+        initialAdjusts={draft.levelPriceAdjusts}
         onDealerListRatesApplied={handleDealerListRatesApplied}
         onLevelsApplied={handleLevelsApplied}
       />

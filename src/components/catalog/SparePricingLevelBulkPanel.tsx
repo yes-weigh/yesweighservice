@@ -22,18 +22,27 @@ type Props = {
   open: boolean;
   onClose: () => void;
   rows: SpareLevelBulkRow[];
-  /** Seed drafts when reopening (local, unsaved). */
+  /** Seed dealer profit % when opening (persisted settings). */
+  initialDealerProfitPercent?: number;
+  /** Seed drafts when reopening (persisted / unsaved). */
   initialAdjusts?: SpareLevelPriceAdjust[];
   /** Local New sell = landing × (1 + dealerProfit%/100). Not Firestore. */
-  onDealerListRatesApplied?: (updates: Array<{ productId: string; rate: number }>) => void;
+  onDealerListRatesApplied?: (
+    updates: Array<{ productId: string; rate: number }>,
+    dealerProfitPercent: number,
+  ) => void;
   /** Local level discount/hike on New sell. Not Firestore until main Save. */
-  onLevelsApplied?: (adjusts: SpareLevelPriceAdjust[]) => void;
+  onLevelsApplied?: (
+    adjusts: SpareLevelPriceAdjust[],
+    dealerProfitPercent: number,
+  ) => void;
 };
 
 export const SparePricingLevelBulkPanel: React.FC<Props> = ({
   open,
   onClose,
   rows,
+  initialDealerProfitPercent = 35,
   initialAdjusts = [],
   onDealerListRatesApplied,
   onLevelsApplied,
@@ -41,19 +50,23 @@ export const SparePricingLevelBulkPanel: React.FC<Props> = ({
   const [levels, setLevels] = useState<PriceLevel[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [dealerProfitPercent, setDealerProfitPercent] = useState<number | null>(35);
+  const [dealerProfitPercent, setDealerProfitPercent] = useState<number | null>(
+    initialDealerProfitPercent,
+  );
   const [drafts, setDrafts] = useState<Record<string, SpareLevelAdjustDraft>>({});
   const [dealerPricesApplied, setDealerPricesApplied] = useState(false);
 
   const initialAdjustsRef = React.useRef(initialAdjusts);
   initialAdjustsRef.current = initialAdjusts;
+  const initialDealerProfitRef = React.useRef(initialDealerProfitPercent);
+  initialDealerProfitRef.current = initialDealerProfitPercent;
 
   useEffect(() => {
     if (!open) return;
     let cancelled = false;
     setLoading(true);
     setError(null);
-    setDealerProfitPercent(35);
+    setDealerProfitPercent(initialDealerProfitRef.current);
     setDealerPricesApplied(false);
     void loadPriceLevels()
       .then(docData => {
@@ -120,7 +133,7 @@ export const SparePricingLevelBulkPanel: React.FC<Props> = ({
     if (dealerProfitPercent == null || !eligibleRows.length) return false;
     const listUpdates = buildDealerListRates(rows, dealerProfitPercent);
     if (!listUpdates.length) return false;
-    onDealerListRatesApplied?.(listUpdates);
+    onDealerListRatesApplied?.(listUpdates, dealerProfitPercent);
     setDealerPricesApplied(true);
     return true;
   }, [dealerProfitPercent, eligibleRows.length, rows, onDealerListRatesApplied]);
@@ -160,7 +173,7 @@ export const SparePricingLevelBulkPanel: React.FC<Props> = ({
   const handleApplyLevels = () => {
     if (dealerProfitPercent == null || !eligibleRows.length) return;
     applyDealerPricesLocally();
-    onLevelsApplied?.(activeAdjusts);
+    onLevelsApplied?.(activeAdjusts, dealerProfitPercent);
     onClose();
   };
 
@@ -380,8 +393,8 @@ export const SparePricingLevelBulkPanel: React.FC<Props> = ({
           )}
 
           <p className="spare-pricing-levels__hint">
-            Discount / hike is on New sell (dealer list). Apply levels keeps a local draft —
-            toolbar Save writes catalog rates and level rules.
+            Discount / hike is on New sell. Settings persist; editing New sell in the table
+            re-applies these levels on toolbar Save for updated rows.
           </p>
 
           {error ? (

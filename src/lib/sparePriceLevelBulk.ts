@@ -257,6 +257,23 @@ export function applyAdjustToSpareLevel(
   return mergeSpareItemRules(level, rows, generated, mode, 0);
 }
 
+/** Apply default Dealers list + each level adjust to spare rules for the given rows. */
+export function applySpareBulkPricingToLevels(
+  levels: PriceLevel[],
+  rows: SpareLevelBulkRow[],
+  adjusts: SpareLevelPriceAdjust[],
+): PriceLevel[] {
+  const adjustById = new Map(adjusts.map(a => [a.levelId, a]));
+  return levels.map(level => {
+    if (isDefaultDealerPriceLevel(level)) {
+      return applyDealerListPriceToSpareLevel(level, rows);
+    }
+    const adjust = adjustById.get(level.id);
+    if (!adjust) return level;
+    return applyAdjustToSpareLevel(level, rows, adjust.mode, adjust.percent);
+  });
+}
+
 export function isSpareLevelAdjustDraftActive(draft: SpareLevelAdjustDraft | undefined): boolean {
   return Boolean(
     draft

@@ -12,6 +12,9 @@ export const DEFAULT_CD_PERCENT = 0;
 /** Default freight percentage. */
 export const DEFAULT_FREIGHT_PERCENT = 0;
 
+/** Default dealer profit % on landing → New sell (bulk level pricing). */
+export const DEFAULT_DEALER_PROFIT_PERCENT = 35;
+
 /** Debounce for type-to-autosave on the Spare pricing tab. */
 export const SPARE_PRICING_LIVE_SAVE_MS = 450;
 

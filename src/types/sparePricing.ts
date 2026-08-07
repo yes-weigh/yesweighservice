@@ -1,3 +1,13 @@
+import type { PriceLevelRuleMode } from './priceLevels';
+
+/** Persisted bulk level discount/hike on New sell. */
+export type SparePricingLevelAdjust = {
+  levelId: string;
+  levelName: string;
+  mode: PriceLevelRuleMode;
+  percent: number;
+};
+
 export interface SparePricingSettings {
   /** How many INR for 1 USD. */
   usdToInrRate: number;
@@ -7,6 +17,16 @@ export interface SparePricingSettings {
   cdPercent: number;
   /** Freight as a percentage. */
   freightPercent: number;
+  /**
+   * Dealer / list profit % on landing → New sell (bulk panel).
+   * Used when applying dealer price; persisted across sessions.
+   */
+  dealerProfitPercent: number;
+  /**
+   * Active level discount/hike on New sell.
+   * Re-applied to updated New sell rows on toolbar Save.
+   */
+  levelPriceAdjusts: SparePricingLevelAdjust[];
   /** ISO timestamp when rate was last fetched from the FX API. */
   exchangeRateFetchedAt: string | null;
   /** FX market date reported by the API (YYYY-MM-DD). */
@@ -21,6 +41,8 @@ export type SparePricingSettingsDraft = Pick<
   | 'markupFeeInr'
   | 'cdPercent'
   | 'freightPercent'
+  | 'dealerProfitPercent'
+  | 'levelPriceAdjusts'
   | 'exchangeRateFetchedAt'
   | 'exchangeRateDate'
 >;
