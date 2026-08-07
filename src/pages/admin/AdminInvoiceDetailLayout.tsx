@@ -3,6 +3,7 @@ import { Outlet, useLocation, useNavigate, useParams } from 'react-router-dom';
 import { AlertCircle, FileText } from 'lucide-react';
 import { FetchingLoader } from '../../components/FetchingLoader';
 import { BookCourierEntryButton } from '../../components/logistics/BookCourierEntryButton';
+import { LogisticsAwbEntryButton } from '../../components/logistics/LogisticsAwbEntryButton';
 import { useAuth } from '../../context/AuthContext';
 import { useCatalogPageHeader } from '../../context/PageHeaderContext';
 import {
@@ -10,13 +11,20 @@ import {
 } from '../../lib/admin-invoices';
 import { fetchCatalog } from '../../lib/catalog';
 import { formatInvoiceDate, invoiceErrorMessage } from '../../lib/invoices';
-import { canCreateLogisticsBooking } from '../../lib/logisticsBookings';
+import {
+  canCreateLogisticsBooking,
+  findLogisticsBookingForInvoice,
+} from '../../lib/logisticsBookings';
 import {
   buildInvoiceBookingDraftPatch,
   canBookCourierForInvoice,
   type LogisticsEntryState,
 } from '../../lib/logisticsPrefill';
+import { resolveShipFromSiteForInvoice } from '../../lib/logisticsShipFrom';
+import { isInternalOpsUser } from '../../lib/staffAccess';
+import type { CatalogProduct } from '../../types/catalog';
 import type { DealerInvoiceDetail } from '../../types/invoices';
+import type { LogisticsBooking } from '../../types/logistics-dispatch';
 import { canNavigateBackInApp } from '../../lib/navigation';
 import type { AdminInvoiceDetailOutletContext } from './adminInvoiceDetailContext';
 
@@ -36,6 +44,7 @@ export const AdminInvoiceDetailLayout: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [courierEntry, setCourierEntry] = useState<LogisticsEntryState | null>(null);
+  const [existingBooking, setExistingBooking] = useState<LogisticsBooking | null>(null);
 
   const handleBack = useCallback(() => {
     if (isPdfView) {
@@ -84,50 +93,54 @@ export const AdminInvoiceDetailLayout: React.FC = () => {
     };
   }, [customerId, invoiceId]);
 
-  /** Prefill ST partner + cartonized boxes from catalog package info. */
+  /** Existing AWB booking wins over Book Courier; otherwise prefill book entry. */
   useEffect(() => {
     if (!invoice || !customerId || !invoiceId || !user) {
       setCourierEntry(null);
+      setExistingBooking(null);
       return;
     }
-    if (!canCreateLogisticsBooking(user) || !canBookCourierForInvoice(invoice)) {
+    if (!isInternalOpsUser(user)) {
       setCourierEntry(null);
+      setExistingBooking(null);
       return;
     }
 
     let cancelled = false;
-    void fetchCatalog()
-      .then(catalog => {
-        if (cancelled) return;
-        const productsById = new Map(catalog.items.map(item => [item.id, item]));
-        setCourierEntry({
-          draftPatch: buildInvoiceBookingDraftPatch(
-            invoice,
-            invoiceId,
-            customerId,
-            customerId,
-            {
-              productsById,
-              shipFromSite: user.staffLogisticsSite ?? 'cochin',
-            },
-          ),
-          dealerQuery: invoice.customerName ?? undefined,
-        });
-      })
-      .catch(() => {
-        if (cancelled) return;
+    void (async () => {
+      const linked = await findLogisticsBookingForInvoice(invoiceId).catch(() => null);
+      if (cancelled) return;
+      if (linked) {
+        setExistingBooking(linked);
+        setCourierEntry(null);
+        return;
+      }
+      setExistingBooking(null);
+      if (!canCreateLogisticsBooking(user) || !canBookCourierForInvoice(invoice)) {
+        setCourierEntry(null);
+        return;
+      }
+      const branch = await resolveShipFromSiteForInvoice(invoice).catch(() => null);
+      const shipFromSite = branch?.site ?? user.staffLogisticsSite ?? 'cochin';
+      let productsById: Map<string, CatalogProduct> | undefined;
+      try {
+        const catalog = await fetchCatalog();
+        productsById = new Map(catalog.items.map(item => [item.id, item]));
+      } catch {
         // Still allow booking with partner + dealer even if catalog dims fail.
-        setCourierEntry({
-          draftPatch: buildInvoiceBookingDraftPatch(
-            invoice,
-            invoiceId,
-            customerId,
-            customerId,
-            { shipFromSite: user.staffLogisticsSite ?? 'cochin' },
-          ),
-          dealerQuery: invoice.customerName ?? undefined,
-        });
+      }
+      if (cancelled) return;
+      setCourierEntry({
+        draftPatch: buildInvoiceBookingDraftPatch(
+          invoice,
+          invoiceId,
+          customerId,
+          customerId,
+          { productsById, shipFromSite },
+        ),
+        dealerQuery: invoice.customerName ?? undefined,
       });
+    })();
 
     return () => {
       cancelled = true;
@@ -169,7 +182,9 @@ export const AdminInvoiceDetailLayout: React.FC = () => {
               <div
                 className={[
                   'invoice-detail-top__actions',
-                  courierEntry ? 'invoice-detail-top__actions--pair' : 'invoice-detail-top__actions--single',
+                  (courierEntry || existingBooking)
+                    ? 'invoice-detail-top__actions--pair'
+                    : 'invoice-detail-top__actions--single',
                 ].join(' ')}
                 role="tablist"
                 aria-label="Invoice sections"
@@ -186,7 +201,17 @@ export const AdminInvoiceDetailLayout: React.FC = () => {
                   </span>
                   <span className="invoice-detail-top__card-label">Invoice</span>
                 </button>
-                {courierEntry ? (
+                {existingBooking ? (
+                  <LogisticsAwbEntryButton
+                    bookingId={existingBooking.id}
+                    awbLabel={
+                      existingBooking.consignmentNo?.trim()
+                      || existingBooking.trackingNo?.trim()
+                      || null
+                    }
+                    variant="card"
+                  />
+                ) : courierEntry ? (
                   <BookCourierEntryButton entry={courierEntry} variant="card" />
                 ) : null}
               </div>

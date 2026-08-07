@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import {
+  AlertTriangle,
   Camera,
   Check,
   ExternalLink,
@@ -34,6 +35,7 @@ import {
   canDeleteLogisticsBooking,
   generateLogisticsDocument,
   hydrateLogisticsBookingPhotos,
+  updateLogisticsBookingShipFrom,
   uploadLogisticsBookingFinalPackagePhoto,
 } from '../../lib/logisticsBookings';
 import {
@@ -41,6 +43,11 @@ import {
   loadLogisticsFreightCompare,
   type LogisticsFreightCompare,
 } from '../../lib/logisticsFreightCompare';
+import {
+  fetchInvoiceBranchShipFrom,
+  shipFromSiteLabel,
+  type InvoiceBranchShipFrom,
+} from '../../lib/logisticsShipFrom';
 import { logisticsTrackingUrl } from '../../lib/logisticsTracking';
 import { homePathForRole } from '../../types';
 import type {
@@ -48,9 +55,11 @@ import type {
   LogisticsBookingStatus,
   LogisticsDocumentType,
 } from '../../types/logistics-dispatch';
+import { STAFF_LOGISTICS_SITE_LABELS } from '../../types/staff-logistics';
 import { CourierSlipViewDialog } from './CourierSlipViewDialog';
 import { PhotoLightbox } from './PhotoLightbox';
 import { ShippingLabelPrintDialog } from './ShippingLabelPrintDialog';
+import { StCourierTrackDialog } from './StCourierTrackDialog';
 
 interface LogisticsBookingDetailProps {
   booking: LogisticsBooking;
@@ -91,12 +100,17 @@ export const LogisticsBookingDetail: React.FC<LogisticsBookingDetailProps> = ({
   const finalPhotoInputRef = useRef<HTMLInputElement>(null);
   const [generating, setGenerating] = useState<LogisticsDocumentType | null>(null);
   const [shippingLabelOpen, setShippingLabelOpen] = useState(false);
+  /** Prefer corrected booking immediately after ship-from fix (before parent re-render). */
+  const [shippingLabelBooking, setShippingLabelBooking] = useState<LogisticsBooking | null>(null);
   const [courierSlipOpen, setCourierSlipOpen] = useState(false);
   const [previewIndex, setPreviewIndex] = useState<number | null>(null);
   const [photosLoading, setPhotosLoading] = useState(false);
   const [uploadingFinalPhoto, setUploadingFinalPhoto] = useState(false);
   const [freightCompare, setFreightCompare] = useState<LogisticsFreightCompare | null>(null);
   const [freightLoading, setFreightLoading] = useState(false);
+  const [invoiceBranch, setInvoiceBranch] = useState<InvoiceBranchShipFrom | null>(null);
+  const [updatingShipFrom, setUpdatingShipFrom] = useState(false);
+  const [stTrackOpen, setStTrackOpen] = useState(false);
   const partner = LOGISTICS_PARTNERS.find(item => item.id === booking.partnerId);
   const isEnvelope = booking.shipmentMode === 'envelope';
   const needsOuterPhoto = missingFinalPackagePhoto(booking);
@@ -123,7 +137,9 @@ export const LogisticsBookingDetail: React.FC<LogisticsBookingDetailProps> = ({
     ? null
     : PROGRESS_STATUSES[currentIndex + 1]?.id ?? null;
   const basePath = user ? homePathForRole(user.role) : '/dealer';
-  const trackUrl = logisticsTrackingUrl(booking.partnerId, booking.trackingNo || booking.consignmentNo);
+  const trackAwb = (booking.trackingNo || booking.consignmentNo || '').trim();
+  const trackUrl = logisticsTrackingUrl(booking.partnerId, trackAwb);
+  const isStCourier = booking.partnerId === 'st_courier';
 
   const markDocumentGenerated = useCallback(async (document: LogisticsDocumentType) => {
     if (!user || !isOps) return;
@@ -221,8 +237,57 @@ export const LogisticsBookingDetail: React.FC<LogisticsBookingDetailProps> = ({
     isOps,
   ]);
 
-  const productItems = freightCompare?.items.filter(item => !item.isFreight) ?? [];
-  const freightItems = freightCompare?.items.filter(item => item.isFreight) ?? [];
+  useEffect(() => {
+    const invoiceId = booking.invoiceId?.trim() || '';
+    const customerId = booking.dealer.zohoCustomerId?.trim() || '';
+    if (!invoiceId || !customerId) {
+      setInvoiceBranch(null);
+      return;
+    }
+    let cancelled = false;
+    void fetchInvoiceBranchShipFrom({ invoiceId, customerId, isOps })
+      .then(branch => {
+        if (!cancelled) setInvoiceBranch(branch);
+      })
+      .catch(() => {
+        if (!cancelled) setInvoiceBranch(null);
+      });
+    return () => { cancelled = true; };
+  }, [booking.invoiceId, booking.dealer.zohoCustomerId, isOps]);
+
+  const shipFromMismatch = Boolean(
+    isOps
+    && invoiceBranch
+    && booking.shipFromSite !== invoiceBranch.site
+    && booking.status !== 'cancelled',
+  );
+
+  const handleFixShipFrom = useCallback(async () => {
+    if (!user || !isOps || !invoiceBranch) return;
+    setUpdatingShipFrom(true);
+    try {
+      const updated = await updateLogisticsBookingShipFrom(booking, invoiceBranch.site, user);
+      onUpdate(updated);
+      setShippingLabelBooking(updated);
+      setShippingLabelOpen(true);
+    } catch (err) {
+      window.alert(err instanceof Error ? err.message : 'Could not update ship-from.');
+    } finally {
+      setUpdatingShipFrom(false);
+    }
+  }, [booking, invoiceBranch, isOps, onUpdate, user]);
+
+  const openShippingLabel = useCallback(() => {
+    setShippingLabelBooking(booking);
+    setShippingLabelOpen(true);
+  }, [booking]);
+
+  const productItems = freightCompare?.items.filter(
+    item => !item.isFreight && !item.isStampingFee,
+  ) ?? [];
+  const freightItems = freightCompare?.items.filter(
+    item => item.isFreight || item.isStampingFee,
+  ) ?? [];
 
   return (
     <article className="logistics-booking panel glass">
@@ -239,17 +304,29 @@ export const LogisticsBookingDetail: React.FC<LogisticsBookingDetailProps> = ({
           </p>
         </div>
         <div className="logistics-booking__header-actions">
-          {trackUrl && (
-            <a
-              href={trackUrl}
-              target="_blank"
-              rel="noreferrer"
-              className="logistics-booking__track-btn"
-              aria-label="Track shipment"
-              title="Track shipment"
-            >
-              <SquareArrowOutUpRight size={16} aria-hidden />
-            </a>
+          {(isStCourier ? Boolean(trackAwb) : Boolean(trackUrl)) && (
+            isStCourier ? (
+              <button
+                type="button"
+                className="logistics-booking__track-btn"
+                aria-label="Track shipment"
+                title="Track shipment"
+                onClick={() => setStTrackOpen(true)}
+              >
+                <SquareArrowOutUpRight size={16} aria-hidden />
+              </button>
+            ) : (
+              <a
+                href={trackUrl!}
+                target="_blank"
+                rel="noreferrer"
+                className="logistics-booking__track-btn"
+                aria-label="Track shipment"
+                title="Track shipment"
+              >
+                <SquareArrowOutUpRight size={16} aria-hidden />
+              </a>
+            )
           )}
           <span className={`logistics-booking__status logistics-booking__status--${
             isIncompleteLogisticsBooking(booking) ? 'incomplete' : booking.status
@@ -287,6 +364,36 @@ export const LogisticsBookingDetail: React.FC<LogisticsBookingDetailProps> = ({
         </section>
       )}
 
+      {shipFromMismatch && invoiceBranch && (
+        <div className="logistics-booking__ship-from-mismatch" role="alert">
+          <AlertTriangle size={18} strokeWidth={2.25} aria-hidden />
+          <div className="logistics-booking__ship-from-mismatch-copy">
+            <strong>Ship-from differs from invoice branch</strong>
+            <p>
+              Current: {shipFromSiteLabel(booking.shipFromSite)}
+              {booking.shipFromAddress?.trim()
+                ? ` — ${booking.shipFromAddress.trim()}`
+                : ''}
+              . Invoice branch: {invoiceBranch.branchLabel}
+              {invoiceBranch.salesOrderNumber
+                ? ` (SO ${invoiceBranch.salesOrderNumber})`
+                : ''}
+              .
+            </p>
+          </div>
+          <button
+            type="button"
+            className="btn btn-primary btn-sm"
+            disabled={updatingShipFrom}
+            onClick={() => void handleFixShipFrom()}
+          >
+            {updatingShipFrom
+              ? 'Updating…'
+              : `Update to ${STAFF_LOGISTICS_SITE_LABELS[invoiceBranch.site]}`}
+          </button>
+        </div>
+      )}
+
       {booking.invoiceId && (
         <section className="logistics-booking__invoice-freight" aria-label="Invoice and freight">
           <div className="logistics-booking__card logistics-booking__card--wide">
@@ -319,6 +426,30 @@ export const LogisticsBookingDetail: React.FC<LogisticsBookingDetailProps> = ({
                     <div className="logistics-booking__invoice-item-main">
                       <strong>{item.name}</strong>
                       {item.sku && <span className="text-muted">{item.sku}</span>}
+                      {item.stampingLabel && (
+                        <span
+                          className={[
+                            'logistics-booking__invoice-item-stamp',
+                            item.hasStamping === true
+                              ? 'is-stamped'
+                              : item.hasStamping === false
+                                ? 'is-plain'
+                                : '',
+                          ].filter(Boolean).join(' ')}
+                        >
+                          {item.stampingLabel}
+                        </span>
+                      )}
+                      {item.serialNumbers.length > 0 && (
+                        <span className="logistics-booking__invoice-item-serials">
+                          S/N {item.serialNumbers.join(', ')}
+                        </span>
+                      )}
+                      {item.description && (
+                        <span className="logistics-booking__invoice-item-desc">
+                          {item.description}
+                        </span>
+                      )}
                     </div>
                     <div className="logistics-booking__invoice-item-meta">
                       <span>Qty {item.quantity}</span>
@@ -344,7 +475,7 @@ export const LogisticsBookingDetail: React.FC<LogisticsBookingDetailProps> = ({
                       {item.sku && <span className="text-muted">{item.sku}</span>}
                     </div>
                     <div className="logistics-booking__invoice-item-meta">
-                      <span>Freight line</span>
+                      <span>{item.isStampingFee ? 'Stamping' : 'Freight line'}</span>
                       <span>{formatCurrency(item.total)}</span>
                     </div>
                   </li>
@@ -399,13 +530,138 @@ export const LogisticsBookingDetail: React.FC<LogisticsBookingDetailProps> = ({
                 </dd>
               </div>
             </dl>
+
+            {freightCompare?.calc && (
+              <div className="logistics-booking__freight-calc">
+                <h5>Actual freight calculation</h5>
+                <dl className="logistics-booking__freight-calc-meta">
+                  <div>
+                    <dt>Courier</dt>
+                    <dd>{freightCompare.calc.partnerLabel}</dd>
+                  </div>
+                  <div>
+                    <dt>Mode</dt>
+                    <dd>
+                      {freightCompare.calc.shipmentMode === 'envelope'
+                        ? 'Envelope'
+                        : `${freightCompare.calc.boxCount} box${freightCompare.calc.boxCount === 1 ? '' : 'es'}`}
+                    </dd>
+                  </div>
+                  <div>
+                    <dt>Ship from</dt>
+                    <dd>{freightCompare.calc.shipFromLabel}</dd>
+                  </div>
+                  {freightCompare.calc.destinationLabel && (
+                    <div>
+                      <dt>Destination</dt>
+                      <dd>{freightCompare.calc.destinationLabel}</dd>
+                    </div>
+                  )}
+                  {freightCompare.calc.zoneLabel && (
+                    <div>
+                      <dt>Zone</dt>
+                      <dd>{freightCompare.calc.zoneLabel}</dd>
+                    </div>
+                  )}
+                  {freightCompare.calc.volumetricDivisor != null && (
+                    <div>
+                      <dt>Vol. divisor</dt>
+                      <dd>{freightCompare.calc.volumetricDivisor}</dd>
+                    </div>
+                  )}
+                </dl>
+
+                {freightCompare.calc.boxes.length > 0 && (
+                  <div className="logistics-booking__freight-boxes">
+                    <h6>
+                      Packages · {freightCompare.calc.boxes.length}
+                    </h6>
+                    <ul>
+                      {freightCompare.calc.boxes.map(box => (
+                        <li key={`${box.label}-${box.index}`}>
+                          <strong>{box.label}</strong>
+                          <span>{box.dimensionsLabel}</span>
+                          <span>
+                            Actual {box.actualKg.toFixed(2)} kg
+                            {' · '}
+                            Vol {box.volumetricKg.toFixed(2)} kg
+                            {' · '}
+                            Chg {box.chargeableKg.toFixed(0)} kg
+                          </span>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+
+                <dl className="logistics-booking__freight-calc-totals">
+                  <div>
+                    <dt>Total actual wt.</dt>
+                    <dd>{freightCompare.calc.totalActualKg.toFixed(2)} kg</dd>
+                  </div>
+                  <div>
+                    <dt>Total volumetric wt.</dt>
+                    <dd>{freightCompare.calc.totalVolumetricKg.toFixed(2)} kg</dd>
+                  </div>
+                  <div>
+                    <dt>Total chargeable wt.</dt>
+                    <dd>
+                      {(freightCompare.chargeableKg
+                        ?? freightCompare.calc.totalChargeableKg).toFixed(2)}
+                      {' '}
+                      kg
+                    </dd>
+                  </div>
+                  {freightCompare.calc.boxPerKgInr != null && freightCompare.calc.boxPerKgInr > 0 && (
+                    <div>
+                      <dt>Rate</dt>
+                      <dd>
+                        {formatCurrency(freightCompare.calc.boxPerKgInr)}
+                        /kg
+                      </dd>
+                    </div>
+                  )}
+                  {freightCompare.calc.envelopeFixedInr != null
+                    && freightCompare.calc.envelopeFixedInr > 0 && (
+                    <div>
+                      <dt>Envelope fixed</dt>
+                      <dd>{formatCurrency(freightCompare.calc.envelopeFixedInr)}</dd>
+                    </div>
+                  )}
+                  {freightCompare.calc.freightInr != null && (
+                    <div>
+                      <dt>Base freight</dt>
+                      <dd>{formatCurrency(freightCompare.calc.freightInr)}</dd>
+                    </div>
+                  )}
+                  {freightCompare.calc.fuelSurchargePercent != null
+                    && freightCompare.calc.fuelSurchargePercent > 0 && (
+                    <div>
+                      <dt>
+                        Fuel (
+                        {freightCompare.calc.fuelSurchargePercent}
+                        %)
+                      </dt>
+                      <dd>
+                        {freightCompare.calc.fuelSurchargeInr != null
+                          ? formatCurrency(freightCompare.calc.fuelSurchargeInr)
+                          : '—'}
+                      </dd>
+                    </div>
+                  )}
+                  {freightCompare.calc.totalInr != null && (
+                    <div className="logistics-booking__freight-calc-total">
+                      <dt>Quoted total</dt>
+                      <dd>{formatCurrency(freightCompare.calc.totalInr)}</dd>
+                    </div>
+                  )}
+                </dl>
+              </div>
+            )}
+
             <p className="text-muted text-sm logistics-booking__freight-hint">
               Paid = freight on invoice.
-              Actual = rate-card estimate from booked weights
-              {freightCompare?.chargeableKg != null
-                ? ` (${freightCompare.chargeableKg} kg chargeable)`
-                : ''}
-              .
+              Actual = rate-card estimate from booked packages.
               Difference = Actual − Paid.
             </p>
             {freightCompare?.actualNote && (
@@ -462,7 +718,15 @@ export const LogisticsBookingDetail: React.FC<LogisticsBookingDetailProps> = ({
             <div><dt>Branch</dt><dd>{booking.branch}</dd></div>
             <div><dt>Service</dt><dd>{booking.serviceType}</dd></div>
             <div><dt>Booked on</dt><dd>{booking.bookingDate}</dd></div>
-            <div><dt>Ship from</dt><dd>{booking.shipFromAddress || '—'}</dd></div>
+            <div>
+              <dt>Ship from</dt>
+              <dd>
+                {shipFromSiteLabel(booking.shipFromSite)}
+                {booking.shipFromAddress?.trim()
+                  ? ` — ${booking.shipFromAddress.trim()}`
+                  : ''}
+              </dd>
+            </div>
           </dl>
         </div>
         <div className="logistics-booking__card">
@@ -600,7 +864,7 @@ export const LogisticsBookingDetail: React.FC<LogisticsBookingDetailProps> = ({
           <button
             type="button"
             className={`btn btn-secondary btn-sm${booking.shippingLabelGenerated ? ' is-done' : ''}`}
-            onClick={() => setShippingLabelOpen(true)}
+            onClick={openShippingLabel}
             disabled={generating !== null}
           >
             <Eye size={14} aria-hidden />
@@ -661,13 +925,23 @@ export const LogisticsBookingDetail: React.FC<LogisticsBookingDetailProps> = ({
         />
       )}
 
-      {shippingLabelOpen && (
+      {shippingLabelOpen && (shippingLabelBooking || booking) && (
         <ShippingLabelPrintDialog
-          booking={booking}
-          alreadyPrinted={booking.shippingLabelGenerated}
-          onClose={() => setShippingLabelOpen(false)}
+          booking={shippingLabelBooking ?? booking}
+          alreadyPrinted={(shippingLabelBooking ?? booking).shippingLabelGenerated}
+          onClose={() => {
+            setShippingLabelOpen(false);
+            setShippingLabelBooking(null);
+          }}
           onPrinted={handleShippingLabelPrinted}
           onBookingRepair={onUpdate}
+        />
+      )}
+
+      {stTrackOpen && trackAwb && (
+        <StCourierTrackDialog
+          awb={trackAwb}
+          onClose={() => setStTrackOpen(false)}
         />
       )}
 

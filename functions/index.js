@@ -145,6 +145,10 @@ import {
   getPublicLogisticsInsidePhotoUrl,
 } from './lib/logistics-upload.js';
 import {
+  fetchStCourierTrack,
+  renderStCourierTrackHtml,
+} from './lib/st-courier-track.js';
+import {
   submitDealerOrder as submitDealerOrderRecord,
   createStaffSalesOrder as createStaffSalesOrderRecord,
   confirmMirroredSalesOrder as confirmMirroredSalesOrderRecord,
@@ -4009,6 +4013,58 @@ export const redirectLogisticsPackagePhoto = onRequest(
       console.error('redirectLogisticsPackagePhoto failed:', err);
       res.status(status).type('html').send(
         '<!doctype html><title>Photo unavailable</title><p>Package photo is not available.</p>',
+      );
+    }
+  },
+);
+
+/**
+ * Public ST Courier tracking page (replaces dead erpstcourier AWB URL).
+ * Hosting rewrite: GET /track/st-courier?awb=XXXXXXXXXXX
+ */
+export const trackStCourierShipmentHttp = onRequest(
+  {
+    region: 'asia-south1',
+    invoker: 'public',
+    timeoutSeconds: 60,
+    memory: '256MiB',
+  },
+  async (req, res) => {
+    if (req.method !== 'GET' && req.method !== 'HEAD') {
+      res.status(405).send('Method not allowed');
+      return;
+    }
+    try {
+      const awb = String(req.query?.awb ?? req.query?.keyword ?? '').trim();
+      const result = await fetchStCourierTrack(awb);
+      res.set('Cache-Control', 'no-store');
+      res.status(result.ok ? 200 : 404).type('html').send(renderStCourierTrackHtml(result));
+    } catch (err) {
+      console.error('trackStCourierShipmentHttp failed:', err);
+      res.status(500).type('html').send(
+        '<!doctype html><title>Track unavailable</title><p>Could not fetch ST Courier status right now.</p>',
+      );
+    }
+  },
+);
+
+/** Authenticated ST Courier tracking JSON for in-app track dialog. */
+export const trackStCourierShipmentFn = onCall(
+  {
+    region: 'asia-south1',
+    timeoutSeconds: 60,
+    memory: '256MiB',
+  },
+  async request => {
+    await requireActiveUser(request.auth?.uid, ALLOWED_ROLES, { allowViewOnly: true });
+    const awb = String(request.data?.awb ?? request.data?.trackingNo ?? '').trim();
+    try {
+      return await fetchStCourierTrack(awb);
+    } catch (err) {
+      if (err instanceof HttpsError) throw err;
+      throw new HttpsError(
+        'internal',
+        err?.message ?? 'Could not fetch ST Courier shipment status.',
       );
     }
   },

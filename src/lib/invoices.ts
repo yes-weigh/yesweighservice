@@ -979,7 +979,10 @@ export function normalizeInvoiceSearchNeedle(text: string): string {
   return text.trim().toLowerCase();
 }
 
-function serialNumbersFromLineItem(item: Pick<DealerInvoiceLineItem, 'description' | 'serialNumbers'>): string[] {
+/** Serial / MAC values from stored line serials or description text. */
+export function serialNumbersFromLineItem(
+  item: Pick<DealerInvoiceLineItem, 'description' | 'serialNumbers'>,
+): string[] {
   if (item.serialNumbers?.length) {
     return item.serialNumbers.map(value => value.trim()).filter(Boolean);
   }

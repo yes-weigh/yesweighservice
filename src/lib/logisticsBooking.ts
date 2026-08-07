@@ -324,7 +324,7 @@ export function emptyBookingDraft(partnerId: LogisticsPartnerId): LogisticsBooki
     zohoCustomerId: '',
     dealerId: '',
     deliveryAddressKind: 'shipping',
-    shipFromSite: 'head_office',
+    shipFromSite: 'cochin',
     shipmentMode: 'box',
     boxes: [emptyShipmentBoxDraft()],
     finalPackagePhoto: null,

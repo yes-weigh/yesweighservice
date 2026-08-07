@@ -81,6 +81,10 @@ import {
 } from '../../lib/logisticsPhotoVault';
 import { loadLogisticsSettings } from '../../lib/logisticsSettings';
 import {
+  fetchInvoiceBranchShipFrom,
+  type InvoiceBranchShipFrom,
+} from '../../lib/logisticsShipFrom';
+import {
   buildShippingLabelViewModel,
   formatShippingBookingTime,
 } from '../../lib/shippingLabel';
@@ -108,7 +112,11 @@ import type {
   ShipmentMode,
 } from '../../types/logistics-dispatch';
 import type { StaffLogisticsSite } from '../../types/staff-logistics';
-import { STAFF_LOGISTICS_SITES, STAFF_LOGISTICS_SITE_LABELS } from '../../types/staff-logistics';
+import {
+  STAFF_LOGISTICS_SITES,
+  STAFF_LOGISTICS_SITE_LABELS,
+  isStaffLogisticsSite,
+} from '../../types/staff-logistics';
 import { BarcodeScanner } from './BarcodeScanner';
 import { ShippingLabelBitmapPreview } from './ShippingLabelBitmapPreview';
 
@@ -301,6 +309,8 @@ export const BookCourierFlow: React.FC<BookCourierFlowProps> = ({
     cochin: '',
     head_office: '',
   });
+  const [invoiceBranchShipFrom, setInvoiceBranchShipFrom] = useState<InvoiceBranchShipFrom | null>(null);
+  const shipFromLockedByInvoice = Boolean(invoiceBranchShipFrom);
   const shipFromRef = useRef<HTMLDivElement>(null);
   const shippingLabelCanvasRefs = useRef<Array<HTMLCanvasElement | null>>([]);
   const finalPhotoCaptureInputRef = useRef<HTMLInputElement>(null);
@@ -538,11 +548,59 @@ export const BookCourierFlow: React.FC<BookCourierFlowProps> = ({
 
   useEffect(() => {
     void loadLogisticsSettings().then(settings => {
-      const site = user.staffLogisticsSite ?? settings.defaultStaffLogisticsSite;
-      setDraft(prev => ({ ...prev, shipFromSite: site }));
       setFromAddresses(settings.fromAddresses);
+      // Resuming a saved booking: keep its ship-from (don't clobber with staff/default).
+      if (existingBookingId) return;
+      setDraft(prev => {
+        // Invoice-linked: keep SO/invoice branch prefill — never override with staff site.
+        if (prev.source === 'invoice') {
+          if (isStaffLogisticsSite(prev.shipFromSite)) return prev;
+          return { ...prev, shipFromSite: settings.defaultStaffLogisticsSite };
+        }
+        // 1) HR staff assignment on the signed-in user
+        if (user.staffLogisticsSite && isStaffLogisticsSite(user.staffLogisticsSite)) {
+          return prev.shipFromSite === user.staffLogisticsSite
+            ? prev
+            : { ...prev, shipFromSite: user.staffLogisticsSite };
+        }
+        // 2) Keep draft choice
+        if (isStaffLogisticsSite(prev.shipFromSite)) return prev;
+        // 3) Logistics settings default (app default: Cochin)
+        return { ...prev, shipFromSite: settings.defaultStaffLogisticsSite };
+      });
     });
-  }, [user.staffLogisticsSite]);
+  }, [user.staffLogisticsSite, existingBookingId]);
+
+  // Lock ship-from to the invoice’s sales-order branch when booking from an invoice.
+  useEffect(() => {
+    if (existingBookingId) return;
+    if (draft.source !== 'invoice') {
+      setInvoiceBranchShipFrom(null);
+      return;
+    }
+    const invoiceId = draft.invoiceId?.trim() || '';
+    const customerId = draft.zohoCustomerId?.trim() || '';
+    if (!invoiceId || !customerId) {
+      setInvoiceBranchShipFrom(null);
+      return;
+    }
+    let cancelled = false;
+    void fetchInvoiceBranchShipFrom({ invoiceId, customerId, isOps: true })
+      .then(branch => {
+        if (cancelled) return;
+        setInvoiceBranchShipFrom(branch);
+        if (!branch) return;
+        setDraft(prev => (
+          prev.shipFromSite === branch.site
+            ? prev
+            : { ...prev, shipFromSite: branch.site }
+        ));
+      })
+      .catch(() => {
+        if (!cancelled) setInvoiceBranchShipFrom(null);
+      });
+    return () => { cancelled = true; };
+  }, [draft.source, draft.invoiceId, draft.zohoCustomerId, existingBookingId]);
 
   useEffect(() => {
     if (!shipFromOpen) return undefined;
@@ -1562,11 +1620,17 @@ export const BookCourierFlow: React.FC<BookCourierFlowProps> = ({
                 <span id="book-courier-ship-from-label">Ship from site</span>
                 <button
                   type="button"
-                  className={`book-courier__site-trigger${shipFromOpen ? ' is-open' : ''}`}
+                  className={`book-courier__site-trigger${shipFromOpen ? ' is-open' : ''}${
+                    shipFromLockedByInvoice ? ' is-locked' : ''
+                  }`}
                   aria-haspopup="listbox"
                   aria-expanded={shipFromOpen}
                   aria-labelledby="book-courier-ship-from-label"
-                  onClick={() => setShipFromOpen(open => !open)}
+                  disabled={shipFromLockedByInvoice}
+                  onClick={() => {
+                    if (shipFromLockedByInvoice) return;
+                    setShipFromOpen(open => !open);
+                  }}
                 >
                   <span className="book-courier__site-trigger-copy">
                     <strong>{STAFF_LOGISTICS_SITE_LABELS[draft.shipFromSite]}</strong>
@@ -1576,9 +1640,20 @@ export const BookCourierFlow: React.FC<BookCourierFlowProps> = ({
                       </span>
                     ) : null}
                   </span>
-                  <ChevronDown size={16} strokeWidth={2.25} aria-hidden />
+                  {!shipFromLockedByInvoice ? (
+                    <ChevronDown size={16} strokeWidth={2.25} aria-hidden />
+                  ) : null}
                 </button>
-                {shipFromOpen && (
+                {shipFromLockedByInvoice && invoiceBranchShipFrom ? (
+                  <p className="book-courier__ship-from-lock text-muted text-sm">
+                    Locked to invoice branch ({invoiceBranchShipFrom.branchLabel}
+                    {invoiceBranchShipFrom.salesOrderNumber
+                      ? ` · SO ${invoiceBranchShipFrom.salesOrderNumber}`
+                      : ''}
+                    ).
+                  </p>
+                ) : null}
+                {shipFromOpen && !shipFromLockedByInvoice && (
                   <div
                     className="book-courier__site-menu"
                     role="listbox"

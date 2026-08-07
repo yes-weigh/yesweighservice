@@ -1425,7 +1425,31 @@ export async function fetchAdminCustomerLocations(
   return map;
 }
 
+function mapAdminInvoiceSerialNumbers(raw: Record<string, unknown>): string[] {
+  if (Array.isArray(raw.serialNumbers) && raw.serialNumbers.length) {
+    return [...new Set(
+      raw.serialNumbers.map(value => String(value).trim()).filter(Boolean),
+    )];
+  }
+  const serials: string[] = [];
+  for (const candidate of [raw.serial_numbers, raw.item_serial_numbers, raw.itemSerialNumbers]) {
+    if (!Array.isArray(candidate)) continue;
+    for (const entry of candidate) {
+      if (typeof entry === 'string' && entry.trim()) {
+        serials.push(entry.trim());
+        continue;
+      }
+      if (!entry || typeof entry !== 'object') continue;
+      const row = entry as Record<string, unknown>;
+      const value = row.serial_number ?? row.serialnumber ?? row.serialNumber;
+      if (value) serials.push(String(value).trim());
+    }
+  }
+  return [...new Set(serials.filter(Boolean))];
+}
+
 function mapAdminInvoiceLineItem(raw: Record<string, unknown>): DealerInvoiceLineItem {
+  const serialNumbers = mapAdminInvoiceSerialNumbers(raw);
   return {
     id: String(raw.id ?? ''),
     itemId: raw.itemId ? String(raw.itemId) : null,
@@ -1437,6 +1461,7 @@ function mapAdminInvoiceLineItem(raw: Record<string, unknown>): DealerInvoiceLin
     total: Number(raw.total ?? 0),
     imageUrl: raw.imageUrl ? String(raw.imageUrl) : null,
     hsn: raw.hsn != null && String(raw.hsn).trim() ? String(raw.hsn) : null,
+    ...(serialNumbers.length ? { serialNumbers } : {}),
   };
 }
 

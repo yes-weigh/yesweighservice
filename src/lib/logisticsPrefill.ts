@@ -16,6 +16,8 @@ import { partnerIdForFreightSku } from './orderFreight';
 import { cartonizeCartLine } from './stCourierCartFreight';
 
 export const LOGISTICS_ENTRY_STATE_KEY = 'logisticsEntry';
+/** Open logistics detail for an existing booking id (location.state). */
+export const LOGISTICS_OPEN_BOOKING_STATE_KEY = 'logisticsOpenBookingId';
 
 /** Categories that never get courier booking from the invoice detail. */
 const COURIER_BLOCKED_INVOICE_CATEGORIES: ReadonlySet<InvoiceCategory> = new Set([
@@ -84,6 +86,18 @@ export function navigateToLogisticsBooking(
 ): void {
   navigate(logisticsPathForRole(role), {
     state: { [LOGISTICS_ENTRY_STATE_KEY]: entry },
+  });
+}
+
+export function navigateToLogisticsBookingDetail(
+  navigate: NavigateFunction,
+  role: Role,
+  bookingId: string,
+): void {
+  const id = bookingId.trim();
+  if (!id) return;
+  navigate(logisticsPathForRole(role), {
+    state: { [LOGISTICS_OPEN_BOOKING_STATE_KEY]: id },
   });
 }
 

@@ -86,6 +86,13 @@
         }
       },
       {
+        "source": "/track/st-courier",
+        "function": {
+          "functionId": "trackStCourierShipmentHttp",
+          "region": "asia-south1"
+        }
+      },
+      {
         "source": "**",
         "destination": "/index.html"
       }

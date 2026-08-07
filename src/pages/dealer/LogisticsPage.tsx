@@ -61,6 +61,7 @@ import { isInternalOpsUser } from '../../lib/staffAccess';
 import type { LogisticsBooking, LogisticsBookingDraft, LogisticsBookingStatus } from '../../types/logistics-dispatch';
 import {
   LOGISTICS_ENTRY_STATE_KEY,
+  LOGISTICS_OPEN_BOOKING_STATE_KEY,
   type LogisticsEntryState,
 } from '../../lib/logisticsPrefill';
 import type { BookCourierStep } from '../../lib/logisticsBooking';
@@ -262,9 +263,37 @@ export const LogisticsPage: React.FC = () => {
   const flowOpen = flowStep !== 'closed';
 
   useEffect(() => {
-    if (!canCreate) return;
     const state = location.state as Record<string, unknown> | null;
-    const entry = state?.[LOGISTICS_ENTRY_STATE_KEY] as LogisticsEntryState | undefined;
+    if (!state) return;
+
+    const openBookingId = typeof state[LOGISTICS_OPEN_BOOKING_STATE_KEY] === 'string'
+      ? String(state[LOGISTICS_OPEN_BOOKING_STATE_KEY]).trim()
+      : '';
+    if (openBookingId) {
+      navigate(location.pathname, { replace: true, state: null });
+      setFlowStep('closed');
+      setSelectedPartnerId(null);
+      setPendingEntry(null);
+      setResumeBookingId(null);
+      setResumeDraft(null);
+      setResumeStep(undefined);
+      setResumeDealerQuery(undefined);
+      setActiveBookingId(openBookingId);
+      void fetchLogisticsBooking(openBookingId)
+        .then(hydrated => {
+          if (!hydrated) return;
+          setBookings(prev => {
+            const rest = prev.filter(item => item.id !== hydrated.id);
+            return [hydrated, ...rest];
+          });
+          setActiveBookingId(hydrated.id);
+        })
+        .catch(() => undefined);
+      return;
+    }
+
+    if (!canCreate) return;
+    const entry = state[LOGISTICS_ENTRY_STATE_KEY] as LogisticsEntryState | undefined;
     if (!entry?.draftPatch) return;
     setPendingEntry(entry);
     const preferred = entry.draftPatch.partnerId;
@@ -858,7 +887,9 @@ export const LogisticsPage: React.FC = () => {
                   const tone = cardToneForStatus(booking);
                   const waybill = booking.trackingNo || booking.consignmentNo || '—';
                   const freight = freightByBookingId[booking.id];
-                  const productItems = freight?.items.filter(item => !item.isFreight) ?? [];
+                  const productItems = freight?.items.filter(
+                    item => !item.isFreight && !item.isStampingFee,
+                  ) ?? [];
                   return (
                     <li key={booking.id}>
                       <article

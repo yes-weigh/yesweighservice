@@ -480,7 +480,7 @@ export function stCourierTrackingUrl(consignmentNo: string): string {
 
 /**
  * Partner tracking URL encoded in the TO-column QR (null when not applicable).
- * ST Courier → http://www.erpstcourier.com/awb_tracking2.php?keyword={AWB}
+ * ST Courier → https://service.yesweigh.in/track/st-courier?awb={AWB}
  */
 export function buildShippingLabelTrackingUrl(
   label: Pick<ShippingLabelViewModel, 'partnerId' | 'consignmentNo'>,

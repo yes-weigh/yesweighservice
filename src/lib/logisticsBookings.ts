@@ -35,6 +35,7 @@ import {
   uploadLogisticsPhoto,
 } from './logisticsPhotos';
 import { loadLogisticsSettings } from './logisticsSettings';
+import { resolvePersistShipFromSite } from './logisticsShipFrom';
 import type {
   LogisticsBooking,
   LogisticsBookingDraft,
@@ -45,7 +46,7 @@ import type {
   ShipmentBoxDraft,
   ShipmentBoxPhoto,
 } from '../types/logistics-dispatch';
-import { isStaffLogisticsSite } from '../types/staff-logistics';
+import { isStaffLogisticsSite, type StaffLogisticsSite } from '../types/staff-logistics';
 
 const COLLECTION = 'logisticsBookings';
 
@@ -208,7 +209,7 @@ export function mapLogisticsBookingDoc(id: string, data: DocumentData): Logistic
       if (!isPlaceholderLogisticsAddress(stored)) return stored;
       return resolveDeliveryAddress(dealer, kind);
     })(),
-    shipFromSite: isStaffLogisticsSite(data.shipFromSite) ? data.shipFromSite : 'head_office',
+    shipFromSite: isStaffLogisticsSite(data.shipFromSite) ? data.shipFromSite : 'cochin',
     shipFromAddress: String(data.shipFromAddress ?? ''),
     shipmentMode,
     boxes,
@@ -359,7 +360,8 @@ async function buildBookingPayload(input: PersistLogisticsBookingInput & {
     existingZohoCustomerId = null,
   } = input;
   const settings = await loadLogisticsSettings();
-  const shipFromAddress = settings.fromAddresses[draft.shipFromSite]?.trim() || '';
+  const shipFromSite = await resolvePersistShipFromSite(draft);
+  const shipFromAddress = settings.fromAddresses[shipFromSite]?.trim() || '';
   const now = new Date().toISOString();
   const orderRef = existingOrderRef
     || draft.invoiceNumber
@@ -420,7 +422,7 @@ async function buildBookingPayload(input: PersistLogisticsBookingInput & {
     },
     deliveryAddressKind: draft.deliveryAddressKind,
     deliveryAddress: resolveDeliveryAddress(dealer, draft.deliveryAddressKind),
-    shipFromSite: draft.shipFromSite,
+    shipFromSite,
     shipFromAddress,
     shipmentMode: draft.shipmentMode,
     numberOfBoxes: Math.max(boxes.length, 1),
@@ -778,7 +780,8 @@ export async function persistLogisticsBookingDraft(
     }
 
     const settings = await loadLogisticsSettings();
-    const shipFromAddress = settings.fromAddresses[draft.shipFromSite]?.trim() || '';
+    const shipFromSite = await resolvePersistShipFromSite(draft);
+    const shipFromAddress = settings.fromAddresses[shipFromSite]?.trim() || '';
     const orderRef = existingOrderRef
       || draft.invoiceNumber
       || draft.supportRequestNumber
@@ -835,7 +838,7 @@ export async function persistLogisticsBookingDraft(
       },
       deliveryAddressKind: draft.deliveryAddressKind,
       deliveryAddress: resolveDeliveryAddress(dealer, draft.deliveryAddressKind),
-      shipFromSite: draft.shipFromSite,
+      shipFromSite,
       shipFromAddress,
       shipmentMode: draft.shipmentMode,
       numberOfBoxes: Math.max(boxes.length, 1),
@@ -1009,6 +1012,26 @@ export async function fetchLogisticsBooking(id: string): Promise<LogisticsBookin
   return hydrateBookingPhotos(booking);
 }
 
+/** Latest logistics booking linked to an invoice (prefer non-cancelled). */
+export async function findLogisticsBookingForInvoice(
+  invoiceId: string,
+): Promise<LogisticsBooking | null> {
+  const id = invoiceId.trim();
+  if (!id) return null;
+  const snap = await getDocs(
+    query(collection(db, COLLECTION), where('invoiceId', '==', id), limit(10)),
+  );
+  if (snap.empty) return null;
+  const bookings = snap.docs.map(docSnap => mapLogisticsBookingDoc(docSnap.id, docSnap.data()));
+  const ranked = [...bookings].sort((a, b) => {
+    const aCancelled = a.status === 'cancelled' ? 1 : 0;
+    const bCancelled = b.status === 'cancelled' ? 1 : 0;
+    if (aCancelled !== bCancelled) return aCancelled - bCancelled;
+    return b.updatedAt.localeCompare(a.updatedAt);
+  });
+  return ranked[0] ?? null;
+}
+
 async function fetchDealerBookings(user: User): Promise<LogisticsBooking[]> {
   const dealerId = resolveDealerIdForUser(user);
   const queries = [
@@ -1128,6 +1151,34 @@ export async function updateLogisticsBookingStatus(
   const updatedAt = new Date().toISOString();
   await updateDoc(doc(db, COLLECTION, booking.id), { status, updatedAt });
   return { ...booking, status, updatedAt };
+}
+
+/** Correct ship-from site/address from logistics settings (e.g. match invoice branch). */
+export async function updateLogisticsBookingShipFrom(
+  booking: LogisticsBooking,
+  site: StaffLogisticsSite,
+  user: User,
+): Promise<LogisticsBooking> {
+  if (!isInternalOpsUser(user)) {
+    throw new Error('You do not have permission to update ship-from.');
+  }
+  if (!isStaffLogisticsSite(site)) {
+    throw new Error('Invalid ship-from site.');
+  }
+  const settings = await loadLogisticsSettings();
+  const shipFromAddress = settings.fromAddresses[site]?.trim() || '';
+  const updatedAt = new Date().toISOString();
+  await updateDoc(doc(db, COLLECTION, booking.id), {
+    shipFromSite: site,
+    shipFromAddress,
+    updatedAt,
+  });
+  return {
+    ...booking,
+    shipFromSite: site,
+    shipFromAddress,
+    updatedAt,
+  };
 }
 
 /** Upload or replace the outer package (label-pasted) photo on any booking stage. */

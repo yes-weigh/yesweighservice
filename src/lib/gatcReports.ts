@@ -1,5 +1,7 @@
 import {
   collection,
+  doc,
+  getDoc,
   getDocs,
   limit,
   orderBy,
@@ -130,6 +132,21 @@ function mapReport(id: string, data: Record<string, unknown>): GatcReportDoc {
         || lineItems.reduce((s, line) => s + line.lineTotal, 0),
     },
   };
+}
+
+/** Portal GATC ledger for one invoice (`gatcReports/{invoiceId}`). */
+export async function fetchGatcReportForInvoice(
+  invoiceId: string,
+): Promise<GatcReportDoc | null> {
+  const id = invoiceId.trim();
+  if (!id) return null;
+  try {
+    const snap = await getDoc(doc(db, GATC_REPORTS_COLLECTION, id));
+    if (!snap.exists()) return null;
+    return mapReport(snap.id, snap.data() as Record<string, unknown>);
+  } catch {
+    return null;
+  }
 }
 
 export async function listGatcReports(pageSize = 100): Promise<GatcReportDoc[]> {
