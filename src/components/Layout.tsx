@@ -89,7 +89,7 @@ function portalNavItems(
   order: 'dealer' | 'staff' | 'dealer_staff' = 'dealer',
 ): NavItem[] {
   const items: Record<string, NavItem> = {
-    catalog: { path: `${home}/catalog`, icon: <Package size={20} />, label: 'Catalog' },
+    catalog: { path: `${home}/products`, icon: <Package size={20} />, label: 'Products' },
     orders: {
       path: `${home}/sales-orders`,
       icon: <ClipboardList size={20} />,
@@ -262,7 +262,7 @@ const LayoutShell: React.FC = () => {
       case 'super_admin':
         return [
           { path: '/super-admin', icon: <LayoutDashboard size={20} />, label: 'Dashboard' },
-          { path: '/super-admin/catalog', icon: <Package size={20} />, label: 'Catalog' },
+          { path: '/super-admin/products', icon: <Package size={20} />, label: 'Products' },
           { path: '/super-admin/sales-orders', icon: <ClipboardList size={20} />, label: 'Sales orders' },
           ...operationsNavItems('/super-admin', OPS_PRIORITY_SUFFIXES),
           { path: '/super-admin/hr', icon: <Users size={20} />, label: 'HR' },
@@ -276,8 +276,8 @@ const LayoutShell: React.FC = () => {
       case 'staff': {
         const portal = portalNavItems('/staff', 'staff');
         const withExtras = [...portal];
-        const catalogIndex = withExtras.findIndex(item => item.path.endsWith('/catalog'));
-        const insertAt = catalogIndex >= 0 ? catalogIndex + 1 : 0;
+        const productsIndex = withExtras.findIndex(item => item.path.endsWith('/products'));
+        const insertAt = productsIndex >= 0 ? productsIndex + 1 : 0;
         withExtras.splice(
           insertAt,
           0,
@@ -314,7 +314,7 @@ const LayoutShell: React.FC = () => {
       case 'media':
         return [
           { path: '/media', icon: <LayoutDashboard size={20} />, label: 'Home' },
-          { path: '/media/catalog', icon: <Package size={20} />, label: 'Catalog' },
+          { path: '/media/products', icon: <Package size={20} />, label: 'Products' },
         ];
       default:
         return [];
@@ -335,16 +335,17 @@ const LayoutShell: React.FC = () => {
     return location.pathname.startsWith(`${item.path}/`);
   });
 
-  const isCatalogSpareDetail = /\/catalog\/spare\/[^/]+$/.test(location.pathname);
-  const isCatalogProductDetail = /\/catalog\/[^/]+$/.test(location.pathname)
+  const isCatalogSpareDetail = /\/(?:products|catalog)\/spare\/[^/]+$/.test(location.pathname);
+  const isCatalogProductDetail = /\/(?:products|catalog)\/[^/]+$/.test(location.pathname)
     && !isCatalogSpareDetail
-    && !/\/catalog\/map\//.test(location.pathname);
+    && !/\/(?:products|catalog)\/map\//.test(location.pathname)
+    && !location.pathname.endsWith('/products')
+    && !location.pathname.endsWith('/catalog');
   const isProductDetail = isCatalogProductDetail
     || isCatalogSpareDetail
-    || /\/products\/[^/]+$/.test(location.pathname)
     || /\/spares\/[^/]+$/.test(location.pathname)
     || /^\/oc\/[^/]+$/.test(location.pathname);
-  const isSpareMapDetail = /\/catalog\/map\/[^/]+$/.test(location.pathname)
+  const isSpareMapDetail = /\/(?:products|catalog)\/map\/[^/]+$/.test(location.pathname)
     || /\/spares\/product\/[^/]+$/.test(location.pathname);
   const isDealerDetail = /\/dealers\/[^/]+$/.test(location.pathname);
   const dealerListPath = isDealerDetail
@@ -386,9 +387,9 @@ const LayoutShell: React.FC = () => {
   const showTrailing = Boolean(isDashboardHome || topBarAction || showCartFlyTarget);
 
   const handleNavClick = (path: string) => {
-    const isCatalogRoot = path.endsWith('/catalog');
+    const isProductsRoot = path.endsWith('/products');
     if (location.pathname === path) {
-      if (isCatalogRoot && location.search) {
+      if (isProductsRoot && location.search) {
         navigate(path, { replace: true });
         window.scrollTo({ top: 0, behavior: 'smooth' });
       } else {

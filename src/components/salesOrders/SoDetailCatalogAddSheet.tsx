@@ -178,7 +178,7 @@ const SoDetailCatalogAddBody: React.FC<{
       })
       .catch(err => {
         if (!cancelled) {
-          setCatalogError(err instanceof Error ? err.message : 'Could not load catalog.');
+          setCatalogError(err instanceof Error ? err.message : 'Could not load products.');
           setCatalogProducts([]);
           setCatalogCategories([]);
         }
@@ -299,7 +299,7 @@ const SoDetailCatalogAddBody: React.FC<{
               isCartable={isCartable}
               flatBrowse={false}
               showCategoryGrid={!browseCategoryId}
-              searchPlaceholder="Search catalog…"
+              searchPlaceholder="Search products…"
               showStockQuantity={showStockQuantity}
               spareLinkCountByProductId={spareCountByProductId ?? undefined}
               onProductSelect={setPeekProduct}
@@ -327,7 +327,7 @@ const SoDetailCatalogAddBody: React.FC<{
             ? `${items.length} line${items.length === 1 ? '' : 's'} selected`
             : isSpareOrder
               ? 'Open a product and add linked spares'
-              : 'Add items from the catalog'}
+              : 'Add items from products'}
         </span>
         <button
           type="button"

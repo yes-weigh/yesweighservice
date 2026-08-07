@@ -29,7 +29,7 @@ export const ProductDetailPage: React.FC = () => {
   const isSpare = isCatalogSpareDetailPath(location.pathname) || isLegacySpareDetailPath(location.pathname);
   const navState = location.state as CatalogNavState | null;
   const preview = navState?.preview ?? null;
-  const catalogBase = user ? catalogBaseForRole(user.role) : '/dealer/catalog';
+  const catalogBase = user ? catalogBaseForRole(user.role) : '/dealer/products';
   const mediaOnly = isMediaRole(user?.role);
 
   const { path: backPath, state: backState, label: backLabel } = resolveCatalogBack(

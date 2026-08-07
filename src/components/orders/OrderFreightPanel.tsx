@@ -62,11 +62,21 @@ type ItemFreightCalcView = {
   key: string;
   title: string;
   subtitle: string | null;
+  quantity: number;
+  masterCartonCount: number;
+  singleBoxCount: number;
   boxCount: number;
   lbhLabel: string | null;
   actualKg: number;
+  volumetricKg: number;
   chargeableKg: number;
+  volumetricDivisor: number | null;
+  parcelGroups: FreightParcelGroup[];
   ratePerKg: number | null;
+  /** Domestic Priority slab rates when not ₹/kg. */
+  rateLabel: string | null;
+  zoneLabel: string | null;
+  calcSteps: Array<{ label: string; detail?: string; amountInr: number }>;
   rawTotal: number;
   amountInr: number;
   isSpare: boolean;
@@ -160,15 +170,31 @@ function buildItemCalcView(
   key: string,
   siteLabel?: string | null,
 ): ItemFreightCalcView {
-  const boxCount = line.masterCartonCount + line.singleBoxCount;
+  const masterCartonCount = Math.max(0, Math.floor(Number(line.masterCartonCount) || 0));
+  const singleBoxCount = Math.max(0, Math.floor(Number(line.singleBoxCount) || 0));
+  const boxCount = masterCartonCount + singleBoxCount;
+  const quantity = Math.max(0, Math.floor(Number(line.quantity) || 0));
   const actualKg = Number(line.actualKg) || 0;
+  const volumetricKg = Number(line.volumetricKg) || 0;
   const chargeableKg = Number(line.chargeableKg) || 0;
   const ratePerKg = line.boxPerKgInr != null && line.boxPerKgInr > 0
     ? line.boxPerKgInr
     : null;
-  const rawTotal = ratePerKg != null && chargeableKg > 0
-    ? Math.round(ratePerKg * chargeableKg * 100) / 100
-    : line.amountInr;
+  const calcSteps = Array.isArray(line.calcSteps) ? line.calcSteps : [];
+  const hasBdStack = calcSteps.length > 0;
+  const rateLabel = !ratePerKg && line.first500gInr != null && line.first500gInr > 0
+    ? (
+      line.addl500gInr != null && line.addl500gInr > 0
+        ? `${formatCurrency(line.first500gInr)} / 500 g · addl ${formatCurrency(line.addl500gInr)}`
+        : `${formatCurrency(line.first500gInr)} / 500 g`
+    )
+    : null;
+  /** ST-style base; Blue Dart stack uses amountInr (includes surcharges). */
+  const rawTotal = hasBdStack
+    ? line.amountInr
+    : ratePerKg != null && chargeableKg > 0
+      ? Math.round(ratePerKg * chargeableKg * 100) / 100
+      : line.amountInr;
   const isSpare = line.indication === 'spare_default';
   return {
     key,
@@ -178,13 +204,23 @@ function buildItemCalcView(
     subtitle: [
       line.sku && !isSpare ? line.sku : null,
       siteLabel || null,
+      line.zoneLabel || null,
       isSpare ? 'Spare minimum' : null,
     ].filter(Boolean).join(' · ') || null,
+    quantity,
+    masterCartonCount,
+    singleBoxCount,
     boxCount,
     lbhLabel: lineLbhLabel(line),
     actualKg,
+    volumetricKg,
     chargeableKg,
+    volumetricDivisor: line.volumetricDivisor ?? null,
+    parcelGroups: Array.isArray(line.parcelGroups) ? line.parcelGroups : [],
     ratePerKg,
+    rateLabel,
+    zoneLabel: line.zoneLabel ?? null,
+    calcSteps,
     rawTotal,
     amountInr: line.amountInr,
     isSpare,
@@ -412,13 +448,37 @@ function ItemFreightCalcTile({
           <div className="order-freight-panel__calc-grid">
             <div className="order-freight-panel__calc-row">
               <div className="order-freight-panel__calc-cell">
-                <Box size={16} aria-hidden />
+                <Package size={16} aria-hidden />
                 <div>
-                  <span>Total Boxes</span>
-                  <strong>{calc.boxCount}</strong>
-                  <em>{calc.boxCount === 1 ? 'Box' : 'Boxes'}</em>
+                  <span>Qty</span>
+                  <strong>{calc.quantity}</strong>
+                  <em>{calc.quantity === 1 ? 'unit' : 'units'}</em>
                 </div>
               </div>
+              <div className="order-freight-panel__calc-cell">
+                <Box size={16} aria-hidden />
+                <div>
+                  <span>Master cartons</span>
+                  <strong>{calc.masterCartonCount}</strong>
+                  <em>
+                    {calc.masterCartonCount === 1 ? 'carton' : 'cartons'}
+                    {calc.boxCount > 0
+                      ? ` · ${calc.boxCount} total box${calc.boxCount === 1 ? '' : 'es'}`
+                      : ''}
+                  </em>
+                </div>
+              </div>
+              <div className="order-freight-panel__calc-cell">
+                <Box size={16} aria-hidden />
+                <div>
+                  <span>Single boxes</span>
+                  <strong>{calc.singleBoxCount}</strong>
+                  <em>{calc.singleBoxCount === 1 ? 'box' : 'boxes'}</em>
+                </div>
+              </div>
+            </div>
+
+            <div className="order-freight-panel__calc-row">
               <div className="order-freight-panel__calc-cell">
                 <Package size={16} aria-hidden />
                 <div>
@@ -430,12 +490,31 @@ function ItemFreightCalcTile({
               <div className="order-freight-panel__calc-cell">
                 <Scale size={16} aria-hidden />
                 <div>
-                  <span>Actual Weight (Total)</span>
+                  <span>Actual weight</span>
                   <strong>
                     {formatKg(calc.actualKg)}
                     {' '}
                     kg
                   </strong>
+                </div>
+              </div>
+              <div className="order-freight-panel__calc-cell">
+                <Scale size={16} aria-hidden />
+                <div>
+                  <span>Volumetric weight</span>
+                  <strong>
+                    {formatKg(calc.volumetricKg)}
+                    {' '}
+                    kg
+                  </strong>
+                  {calc.volumetricDivisor
+                    ? (
+                      <em>
+                        ÷
+                        {calc.volumetricDivisor}
+                      </em>
+                    )
+                    : null}
                 </div>
               </div>
             </div>
@@ -444,23 +523,13 @@ function ItemFreightCalcTile({
               <div className="order-freight-panel__calc-cell">
                 <Scale size={16} aria-hidden />
                 <div>
-                  <span>Chargeable Weight</span>
+                  <span>Chargeable weight</span>
                   <strong>
                     {formatKg(calc.chargeableKg)}
                     {' '}
                     kg
                   </strong>
-                </div>
-              </div>
-              <div className="order-freight-panel__calc-cell">
-                <Scale size={16} aria-hidden />
-                <div>
-                  <span>Total Weight (Actual)</span>
-                  <strong>
-                    {formatKg(calc.actualKg)}
-                    {' '}
-                    kg
-                  </strong>
+                  <em>max(actual, volumetric)</em>
                 </div>
               </div>
               <div className="order-freight-panel__calc-cell">
@@ -470,12 +539,33 @@ function ItemFreightCalcTile({
                   <strong>
                     {calc.ratePerKg != null
                       ? `${formatCurrency(calc.ratePerKg)} / kg`
-                      : '—'}
+                      : (calc.rateLabel ?? '—')}
                   </strong>
+                  {calc.zoneLabel ? <em>{calc.zoneLabel}</em> : null}
+                </div>
+              </div>
+              <div className="order-freight-panel__calc-cell">
+                <IndianRupee size={16} aria-hidden />
+                <div>
+                  <span>Line freight</span>
+                  <strong>{formatCurrency(calc.rawTotal)}</strong>
                 </div>
               </div>
             </div>
           </div>
+
+          {calc.parcelGroups.length > 0 ? (
+            <div className="order-freight-panel__calc-packing">
+              <p className="order-freight-panel__calc-packing-title">Packing detail</p>
+              <ul className="order-freight-panel__calc-packing-list">
+                {calc.parcelGroups.map((group, index) => (
+                  <li key={`${group.kind}:${group.lengthCm}:${index}`}>
+                    {parcelGroupDetail(group)}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          ) : null}
 
           {calc.needsPackage ? (
             <p className="order-freight-panel__hint">
@@ -484,30 +574,53 @@ function ItemFreightCalcTile({
             </p>
           ) : null}
 
-          <div className="order-freight-panel__calc-formula">
-            <div className="order-freight-panel__calc-formula-labels">
-              <span>Chargeable Weight</span>
-              <span>×</span>
-              <span>Rate</span>
+          {calc.calcSteps.length > 0 ? (
+            <div className="order-freight-panel__calc-stack">
+              <p className="order-freight-panel__calc-packing-title">Charge stack</p>
+              <ul className="order-freight-panel__calc-stack-list">
+                {calc.calcSteps.map(step => (
+                  <li key={`${step.label}:${step.detail ?? ''}`}>
+                    <span>
+                      {step.label}
+                      {step.detail ? <em>{step.detail}</em> : null}
+                    </span>
+                    <strong>{formatCurrency(step.amountInr)}</strong>
+                  </li>
+                ))}
+              </ul>
+              <div className="order-freight-panel__calc-stack-total">
+                <span>Total freight</span>
+                <strong>{formatCurrency(calc.rawTotal)}</strong>
+              </div>
             </div>
-            <div className="order-freight-panel__calc-formula-values">
-              <strong>
-                {formatKg(calc.chargeableKg)}
-                {' '}
-                kg
-              </strong>
-              <strong>
-                ×
-                {' '}
-                {calc.ratePerKg != null ? `${formatCurrency(calc.ratePerKg)} / kg` : '—'}
-              </strong>
+          ) : (
+            <div className="order-freight-panel__calc-formula">
+              <div className="order-freight-panel__calc-formula-labels">
+                <span>Chargeable Weight</span>
+                <span>×</span>
+                <span>Rate</span>
+              </div>
+              <div className="order-freight-panel__calc-formula-values">
+                <strong>
+                  {formatKg(calc.chargeableKg)}
+                  {' '}
+                  kg
+                </strong>
+                <strong>
+                  ×
+                  {' '}
+                  {calc.ratePerKg != null
+                    ? `${formatCurrency(calc.ratePerKg)} / kg`
+                    : (calc.rateLabel ?? '—')}
+                </strong>
+              </div>
+              <span className="order-freight-panel__calc-formula-arrow" aria-hidden>→</span>
+              <div className="order-freight-panel__calc-formula-right">
+                <span>Total freight</span>
+                <strong>{formatCurrency(calc.rawTotal)}</strong>
+              </div>
             </div>
-            <span className="order-freight-panel__calc-formula-arrow" aria-hidden>→</span>
-            <div className="order-freight-panel__calc-formula-right">
-              <span>Total freight</span>
-              <strong>{formatCurrency(calc.rawTotal)}</strong>
-            </div>
-          </div>
+          )}
         </div>
       )}
     </article>

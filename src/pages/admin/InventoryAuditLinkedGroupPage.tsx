@@ -31,7 +31,7 @@ export const InventoryAuditLinkedGroupPage: React.FC = () => {
   const navigate = useNavigate();
   const { user } = useAuth();
   const confirm = useConfirm();
-  const base = user?.role === 'super_admin' ? '/super-admin/catalog' : '/catalog';
+  const base = user?.role === 'super_admin' ? '/super-admin/products' : '/products';
 
   const [items, setItems] = useState<YesStoreItemDoc[]>([]);
   const [catalogProduct, setCatalogProduct] = useState<CatalogProduct | null>(null);

@@ -208,8 +208,8 @@ export const ProductDetailView: React.FC<{
   canEditProductImages,
   canSetInactive = false,
   onInactiveSuccess,
-  productsBasePath = '/dealer/catalog',
-  sparesBasePath = '/dealer/catalog/spare',
+  productsBasePath = '/dealer/products',
+  sparesBasePath = '/dealer/products/spare',
   currentNavState = null,
   visibleTabs,
   canWriteMedia = false,
@@ -916,7 +916,7 @@ export const ProductDetailView: React.FC<{
       setEditorPool(pool);
       setEditorOpen(true);
     } catch (err) {
-      setLinkError(err instanceof Error ? err.message : 'Could not load catalog for mapping.');
+      setLinkError(err instanceof Error ? err.message : 'Could not load products for mapping.');
     }
   };
 
@@ -1609,12 +1609,12 @@ export const ProductDetailView: React.FC<{
     if (!product || !canSetInactive || !productEditMode || statusUpdating || hiddenUpdating) return;
 
     const hide = product.hiddenFromCatalog !== true;
-    const actionLabel = hide ? 'Hide from catalogue' : 'Show in catalogue';
+    const actionLabel = hide ? 'Hide from products' : 'Show in products';
     const ok = await confirm({
       title: `${actionLabel}?`,
       message: hide
-        ? `“${product.name}” will no longer appear in the dealer/public catalogue. The item stays active in Zoho.`
-        : `“${product.name}” will appear in the catalogue again.`,
+        ? `“${product.name}” will no longer appear in the dealer/public products browse. The item stays active in Zoho.`
+        : `“${product.name}” will appear in products again.`,
       confirmLabel: actionLabel,
       destructive: hide,
     });
@@ -1626,7 +1626,7 @@ export const ProductDetailView: React.FC<{
       const result = await setCatalogProductHidden(product.id, hide);
       setProduct(prev => (prev ? { ...prev, hiddenFromCatalog: result.hiddenFromCatalog } : prev));
     } catch (err) {
-      setStatusError(err instanceof Error ? err.message : 'Could not update catalogue visibility.');
+      setStatusError(err instanceof Error ? err.message : 'Could not update product visibility.');
     } finally {
       setHiddenUpdating(false);
     }
@@ -2318,8 +2318,8 @@ export const ProductDetailView: React.FC<{
                             ? <Eye size={15} aria-hidden />
                             : <EyeOff size={15} aria-hidden />}
                         {product.hiddenFromCatalog === true
-                          ? 'Show in catalogue'
-                          : 'Hide from catalogue'}
+                          ? 'Show in products'
+                          : 'Hide from products'}
                       </button>
                     </>
                   )}

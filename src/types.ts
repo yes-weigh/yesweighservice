@@ -197,10 +197,10 @@ export function homePathForRole(role: Role): string {
   }
 }
 
-/** First screen after login (dealers land on catalog — no dashboard). */
+/** First screen after login (dealers land on products — no dashboard). */
 export function landingPathForRole(role: Role): string {
-  if (role === 'dealer') return '/dealer/catalog';
-  if (role === 'dealer_staff') return '/dealer-staff/catalog';
+  if (role === 'dealer') return '/dealer/products';
+  if (role === 'dealer_staff') return '/dealer-staff/products';
   return homePathForRole(role);
 }
 

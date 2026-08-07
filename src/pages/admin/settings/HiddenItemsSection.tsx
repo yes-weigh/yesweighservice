@@ -10,7 +10,7 @@ type HiddenItemsView = 'hidden' | 'catalog';
 
 const VIEWS: { id: HiddenItemsView; label: string }[] = [
   { id: 'hidden', label: 'Hidden' },
-  { id: 'catalog', label: 'Browse catalog' },
+  { id: 'catalog', label: 'Browse products' },
 ];
 
 function skuDisplay(sku: string | null | undefined): string {
@@ -35,7 +35,7 @@ export const HiddenItemsSection: React.FC = () => {
       const catalog = await fetchCatalog();
       setProducts(catalog.items);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Could not load catalog products.');
+      setError(err instanceof Error ? err.message : 'Could not load products products.');
       setProducts([]);
     } finally {
       setLoading(false);
@@ -77,12 +77,12 @@ export const HiddenItemsSection: React.FC = () => {
   const handleToggleHidden = async (product: CatalogProduct, hidden: boolean) => {
     if (busyId) return;
 
-    const actionLabel = hidden ? 'Hide from catalog' : 'Unhide';
+    const actionLabel = hidden ? 'Hide from products' : 'Unhide';
     const ok = await confirm({
       title: `${actionLabel}?`,
       message: hidden
-        ? `"${product.name}" will no longer appear in the dealer/public catalogue. The item stays active in Zoho.`
-        : `"${product.name}" will appear in the catalogue again.`,
+        ? `"${product.name}" will no longer appear in the dealer/public products browse. The item stays active in Zoho.`
+        : `"${product.name}" will appear in products again.`,
       confirmLabel: actionLabel,
       destructive: hidden,
     });
@@ -97,10 +97,10 @@ export const HiddenItemsSection: React.FC = () => {
         item.id === product.id ? { ...item, hiddenFromCatalog: hidden } : item
       )));
       setSuccess(hidden
-        ? `${product.name} is now hidden from the catalogue.`
-        : `${product.name} is visible in the catalogue again.`);
+        ? `${product.name} is now hidden from products.`
+        : `${product.name} is visible in products again.`);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Could not update catalogue visibility.');
+      setError(err instanceof Error ? err.message : 'Could not update product visibility.');
     } finally {
       setBusyId(null);
     }
@@ -110,7 +110,7 @@ export const HiddenItemsSection: React.FC = () => {
     <section className="settings-product-qty__section settings-sku-correction">
       <h4 className="settings-product-qty__title">Hidden items</h4>
       <p className="settings-product-qty__hint text-muted text-sm">
-        Hide products from the dealer and public catalogue without changing Zoho status.
+        Hide products from the dealer and public products browse without changing Zoho status.
         Hidden items stay in Zoho and remain searchable here so you can unhide them later.
       </p>
 
@@ -153,7 +153,7 @@ export const HiddenItemsSection: React.FC = () => {
           value={search}
           onChange={e => setSearch(e.target.value)}
           placeholder="Search SKU, name, or category…"
-          aria-label="Search catalog products"
+          aria-label="Search products products"
         />
         <SkuScanButton
           onScan={raw => fillSearchFromScan(raw, setSearch)}
@@ -197,7 +197,7 @@ export const HiddenItemsSection: React.FC = () => {
                   <tr key={product.id}>
                     <td>
                       <Link
-                        to={`/super-admin/catalog/${product.id}`}
+                        to={`/super-admin/products/${product.id}`}
                         className="settings-logistics__staff-link settings-sku-correction__sku-link"
                       >
                         <code>{skuDisplay(product.sku)}</code>
@@ -205,7 +205,7 @@ export const HiddenItemsSection: React.FC = () => {
                     </td>
                     <td>
                       <Link
-                        to={`/super-admin/catalog/${product.id}`}
+                        to={`/super-admin/products/${product.id}`}
                         className="settings-sku-correction__name-link"
                       >
                         {product.name}

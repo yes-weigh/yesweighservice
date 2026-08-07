@@ -116,7 +116,7 @@ export const SkuCorrectionTab: React.FC = () => {
       const items = await fetchAllCatalogProductsForSkuCorrection();
       setProducts(items);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Could not load catalog SKUs.');
+      setError(err instanceof Error ? err.message : 'Could not load products SKUs.');
       setProducts([]);
     } finally {
       setLoading(false);
@@ -410,7 +410,7 @@ export const SkuCorrectionTab: React.FC = () => {
                     <tr key={product.id}>
                       <td>
                         <Link
-                          to={`/super-admin/catalog/${product.id}`}
+                          to={`/super-admin/products/${product.id}`}
                           className="settings-logistics__staff-link settings-sku-correction__sku-link"
                         >
                           <code>{skuDisplay(product.sku)}</code>
@@ -425,7 +425,7 @@ export const SkuCorrectionTab: React.FC = () => {
                       )}
                       <td>
                         <Link
-                          to={`/super-admin/catalog/${product.id}`}
+                          to={`/super-admin/products/${product.id}`}
                           className="settings-sku-correction__name-link"
                         >
                           {product.name}

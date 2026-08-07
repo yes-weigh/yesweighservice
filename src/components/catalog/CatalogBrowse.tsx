@@ -220,7 +220,7 @@ export const CatalogBrowse: React.FC<CatalogBrowseProps> = ({
   products,
   categories,
   isLoading = false,
-  title = 'Product catalog',
+  title = 'Products',
   subtitle,
   showCategoryGrid = true,
   showToolbar = true,

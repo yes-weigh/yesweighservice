@@ -34,15 +34,15 @@ function autosizeTextarea(el: HTMLTextAreaElement | null) {
 type LogisticsSettingsSubTab = 'sites' | 'delivery-rules' | 'courier-rates' | 'staff';
 
 const LOGISTICS_SETTINGS_SUBTABS: { id: LogisticsSettingsSubTab; label: string }[] = [
+  { id: 'courier-rates', label: 'Delivery Partners' },
   { id: 'sites', label: 'Sites' },
   { id: 'delivery-rules', label: 'Delivery rules' },
-  { id: 'courier-rates', label: 'Delivery Partners' },
   { id: 'staff', label: 'Staff' },
 ];
 
 export const LogisticsSettingsTab: React.FC = () => {
   const { user } = useAuth();
-  const [subTab, setSubTab] = useState<LogisticsSettingsSubTab>('sites');
+  const [subTab, setSubTab] = useState<LogisticsSettingsSubTab>('courier-rates');
   const [defaultSite, setDefaultSite] = useState<StaffLogisticsSite>('head_office');
   const [draftDefaultSite, setDraftDefaultSite] = useState<StaffLogisticsSite>('head_office');
   const [fromAddresses, setFromAddresses] = useState<Record<StaffLogisticsSite, string>>({

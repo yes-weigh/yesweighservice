@@ -518,6 +518,23 @@ function surfaceFsCaf(surface) {
   };
 }
 
+/** Piece chargeable kg for OS/OW (no consignment minimum). */
+function pieceChargeableKg(actualKg, dims, divisor) {
+  const actual = nonNeg(actualKg);
+  const vol = volumetricKg(dims, divisor);
+  return ceilChargeableKg(Math.max(actual, vol));
+}
+
+/** Surface OS/OW: sum flat ₹ per box from each box’s own chargeable kg. */
+function parcelsOversizeInr(slabs, parcels, divisor) {
+  let total = 0;
+  for (const p of parcels) {
+    const pieceKg = pieceChargeableKg(p?.actualKg, p?.dims, divisor);
+    if (pieceKg > 0) total += resolveOversizeAmountInr(slabs, pieceKg);
+  }
+  return total;
+}
+
 export function quoteBlueDartParcels({
   config,
   service = 'surface',
@@ -538,14 +555,16 @@ export function quoteBlueDartParcels({
     return { totalInr: 0, chargeableKg: 0, sku: sku, rateMissing: true, notServiceable: true };
   }
 
+  /**
+   * Multi-box AWB:
+   * - Docket / FOV / ECC / EDL once per shipment
+   * - Chargeable kg = max(sum actual, sum volumetric), then consignment min
+   * - Surface OS/OW summed per box (not on combined shipment kg)
+   */
   let actualKg = 0;
-  let volume = 0;
   for (const p of parcels) {
     actualKg += nonNeg(p.actualKg);
-    volume += nonNeg(p.dims?.lengthCm) * nonNeg(p.dims?.widthCm) * nonNeg(p.dims?.heightCm);
   }
-  const side = volume > 0 ? Math.cbrt(volume) : 0;
-  const dims = { lengthCm: side, widthCm: side, heightCm: side };
 
   if (service === 'domestic_priority') {
     const rates = cfg.domestic_priority;
@@ -557,7 +576,11 @@ export function quoteBlueDartParcels({
     if (!zone) {
       return { totalInr: 0, chargeableKg: 0, sku, rateMissing: true, notServiceable: true };
     }
-    const kg = chargeableKg(actualKg, dims, rates.volumetricDivisor, 0.5);
+    let pieceKg = 0;
+    for (const p of parcels) {
+      pieceKg += pieceChargeableKg(p?.actualKg, p?.dims, rates.volumetricDivisor);
+    }
+    const kg = ceilChargeableKg(Math.max(pieceKg, 0.5));
     const first = nonNeg(rates.first500gInr[zone]);
     const addl = nonNeg(rates.addl500gInr[zone]);
     if (!(first > 0)) {
@@ -592,12 +615,12 @@ export function quoteBlueDartParcels({
   if (!zone) {
     return { totalInr: 0, chargeableKg: 0, sku, rateMissing: true, notServiceable: true };
   }
-  const kg = chargeableKg(
-    actualKg,
-    dims,
-    rates.volumetricDivisor,
-    rates.minimumChargeableWeightKg,
-  );
+  let pieceKg = 0;
+  for (const p of parcels) {
+    pieceKg += pieceChargeableKg(p?.actualKg, p?.dims, rates.volumetricDivisor);
+  }
+  const minKg = nonNeg(rates.minimumChargeableWeightKg);
+  const kg = ceilChargeableKg(Math.max(pieceKg, minKg > 0 ? minKg : 0));
   const perKg = nonNeg(rates.perKgInr[zone]);
   if (!(perKg > 0)) {
     return { totalInr: 0, chargeableKg: kg, sku, rateMissing: true, notServiceable: false };
@@ -616,7 +639,7 @@ export function quoteBlueDartParcels({
     ? 0
     : base * (nonNeg(rates.idcPercent) / 100);
   const oversize = service === 'surface'
-    ? resolveOversizeAmountInr(cfg.surface?.oversizeSlabs, kg)
+    ? parcelsOversizeInr(cfg.surface?.oversizeSlabs, parcels, rates.volumetricDivisor)
     : 0;
   const rasRate = rates.rasPerKgInr != null ? nonNeg(rates.rasPerKgInr) : nonNeg(cfg.shared.rasPerKgInr);
   const ras = isRas(destState, cfg.shared.rasStates) ? rasRate * kg : 0;

@@ -5458,6 +5458,48 @@
   color: #fdba74;
 }
 
+.price-levels-tab__spare-workspace {
+  margin: 0.55rem 0 0.15rem;
+}
+
+.price-levels-tab__spare-costs {
+  margin-top: 0.65rem;
+  min-width: 0;
+}
+
+.price-levels-tab__items-mode--spare-costs {
+  --price-levels-items-chrome-height: 0px;
+}
+
+.price-levels-tab__items-mode--spare-costs .price-levels-tab__items-chrome {
+  /* Stick under the fixed app top bar (window scroll). */
+  top: var(--header-height, 72px);
+  z-index: 5;
+}
+
+.price-levels-tab__spare-costs .spare-pricing {
+  /* Nested under price levels — chrome is sticky, not viewport-fixed. */
+  --spare-pricing-chrome-height: 0px;
+  padding-top: 0;
+  /* Avoid containing blocks that break sticky. */
+  transform: none;
+  filter: none;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+}
+
+.price-levels-tab__spare-costs .spare-pricing__chrome,
+.main-content.expanded .price-levels-tab__spare-costs .spare-pricing__chrome {
+  position: sticky;
+  top: calc(
+    var(--header-height, 72px) + var(--price-levels-items-chrome-height, 0px)
+  );
+  left: auto;
+  right: auto;
+  width: 100%;
+  z-index: 4;
+}
+
 .price-levels-tab__percent input,
 .price-levels-tab__item-search input,
 .price-levels-tab__item-list select {

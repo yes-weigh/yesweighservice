@@ -594,7 +594,7 @@ export const StaffCreateSalesOrderPage: React.FC = () => {
       })
       .catch(err => {
         if (!cancelled) {
-          setCatalogError(err instanceof Error ? err.message : 'Could not load catalog.');
+          setCatalogError(err instanceof Error ? err.message : 'Could not load products.');
           setCatalogProducts([]);
           setCatalogCategories([]);
         }
@@ -968,7 +968,7 @@ export const StaffCreateSalesOrderPage: React.FC = () => {
       return;
     }
     if (!lines.length) {
-      setError('Add at least one item from the catalog.');
+      setError('Add at least one item from products.');
       return;
     }
     const cartSegments = summarizeSegments(lines);
@@ -1009,7 +1009,7 @@ export const StaffCreateSalesOrderPage: React.FC = () => {
       return;
     }
     if (!lines.length) {
-      setError('Add items from the catalog.');
+      setError('Add items from products.');
       return;
     }
     if (!shipping) {
@@ -1434,7 +1434,7 @@ export const StaffCreateSalesOrderPage: React.FC = () => {
                 isCartable={productMatchesActiveSegments}
                 flatBrowse={false}
                 showCategoryGrid={!browseCategoryId}
-                searchPlaceholder="Search catalog…"
+                searchPlaceholder="Search products…"
                 showStockQuantity={showStockQuantity}
                 spareLinkCountByProductId={spareCountByProductId ?? undefined}
                 onProductSelect={setPeekProduct}

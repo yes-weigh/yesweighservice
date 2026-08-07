@@ -26,7 +26,7 @@ export const MediaHomePage: React.FC = () => (
           On the Media tab, tap + to upload
         </li>
       </ol>
-      <Link to="/media/catalog" className="btn btn-primary">
+      <Link to="/media/products" className="btn btn-primary">
         Open catalog
       </Link>
     </section>

@@ -90,7 +90,7 @@ const DealerCartPage: React.FC = () => {
   const [courierBySite, setCourierBySite] = useState<Partial<Record<InventorySite, LogisticsPartnerId>>>({});
 
   const base = user ? homePathForRole(user.role) : '/dealer';
-  const productsPath = `${base}/catalog`;
+  const productsPath = `${base}/products`;
 
   const shippingDestination = useMemo(
     () => resolveShippingDestination(shipping, addresses),

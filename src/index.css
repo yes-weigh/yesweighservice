@@ -15747,6 +15747,113 @@ body:has(.confirm-inline-bar) .confirm-inline-bar {
   border-top: 1px dashed rgba(148, 163, 184, 0.28);
 }
 
+.order-freight-panel__calc-packing {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  padding: 0.65rem 0 0;
+  margin-top: 0.15rem;
+  border-top: 1px dashed rgba(148, 163, 184, 0.22);
+}
+
+.order-freight-panel__calc-packing-title {
+  margin: 0;
+  font-size: 0.6875rem;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: #94a3b8;
+}
+
+.order-freight-panel__calc-packing-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+}
+
+.order-freight-panel__calc-packing-list li {
+  font-size: 0.75rem;
+  font-weight: 600;
+  line-height: 1.4;
+  color: #cbd5e1;
+}
+
+.order-freight-panel__calc-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 0.55rem;
+  padding: 0.7rem 0 0;
+  margin-top: 0.1rem;
+  border-top: 1px dashed rgba(148, 163, 184, 0.28);
+}
+
+.order-freight-panel__calc-stack-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+
+.order-freight-panel__calc-stack-list li {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+
+.order-freight-panel__calc-stack-list span {
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+  min-width: 0;
+  font-size: 0.75rem;
+  font-weight: 650;
+  color: #e2e8f0;
+  line-height: 1.35;
+}
+
+.order-freight-panel__calc-stack-list em {
+  font-size: 0.6875rem;
+  font-style: normal;
+  font-weight: 600;
+  color: #94a3b8;
+}
+
+.order-freight-panel__calc-stack-list strong {
+  font-size: 0.875rem;
+  font-weight: 750;
+  color: #f8fafc;
+  white-space: nowrap;
+}
+
+.order-freight-panel__calc-stack-total {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.75rem;
+  padding-top: 0.45rem;
+  border-top: 1px dashed rgba(255, 122, 0, 0.35);
+}
+
+.order-freight-panel__calc-stack-total span {
+  font-size: 0.6875rem;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: #ff7a00;
+}
+
+.order-freight-panel__calc-stack-total strong {
+  font-size: 1.2rem;
+  font-weight: 800;
+  color: #f8fafc;
+}
+
 .order-freight-panel__calc-formula--simple {
   border-top: none;
   padding-top: 0.35rem;

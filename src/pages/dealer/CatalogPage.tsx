@@ -1,10 +1,9 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useLocation, useNavigate, useSearchParams } from 'react-router-dom';
-import { AlertCircle, Boxes, IndianRupee, LayoutGrid, QrCode, RefreshCw, Rows3, Search, SlidersHorizontal, X } from 'lucide-react';
+import { AlertCircle, Boxes, LayoutGrid, QrCode, RefreshCw, Rows3, Search, SlidersHorizontal, X } from 'lucide-react';
 import { CatalogSparesFilterSheet } from '../../components/catalog/CatalogSparesFilterSheet';
 import { CatalogBrowse } from '../../components/catalog/CatalogBrowse';
 import { CatalogUnifiedResults } from '../../components/catalog/CatalogUnifiedResults';
-import { SparePricingView } from '../../components/catalog/SparePricingView';
 import { SparePartsRackView } from '../../components/catalog/SparePartsRackView';
 import { SpareSkuQrScanner } from '../../components/catalog/SpareSkuQrScanner';
 import { SpareLinkEditor } from '../../components/catalog/SpareLinkEditor';
@@ -16,7 +15,7 @@ import { useCatalogPageHeader, usePageHeaderSlot, useTopBarAction } from '../../
 import { useDealerPriceLevels } from '../../hooks/useDealerUnitPrice';
 import { canViewCatalogStock, isDealerPortalUser } from '../../lib/dealerAccess';
 import { SPARE_PRICE_LEVEL_CATEGORY_ID } from '../../types/priceLevels';
-import { canSuperAdminWrite, hasStaffPermission } from '../../lib/staffAccess';
+import { hasStaffPermission } from '../../lib/staffAccess';
 import {
   excludeHiddenCatalogProducts,
   fetchCatalog,
@@ -115,10 +114,9 @@ type CatalogFocus =
   | 'all-spares'
   | 'unlinked'
   | 'map'
-  | 'inventory-audit'
-  | 'spare-pricing';
+  | 'inventory-audit';
 
-type AdminCatalogSection = 'categories' | 'spares' | 'spare-pricing';
+type AdminCatalogSection = 'categories' | 'spares';
 
 function parseCatalogFocus(
   section: string | null,
@@ -135,10 +133,8 @@ function parseCatalogFocus(
 function parseAdminSection(
   section: string | null,
   query: string,
-  canSparePricing: boolean,
 ): AdminCatalogSection | 'search' {
   if (section === 'spares') return 'spares';
-  if (section === 'spare-pricing' && canSparePricing) return 'spare-pricing';
   if (query.trim()) return 'search';
   return 'categories';
 }
@@ -146,7 +142,6 @@ function parseAdminSection(
 function adminSectionToFocus(section: AdminCatalogSection | 'search'): CatalogFocus {
   if (section === 'search') return 'search';
   if (section === 'spares') return 'all-spares';
-  if (section === 'spare-pricing') return 'spare-pricing';
   return 'browse';
 }
 
@@ -157,7 +152,6 @@ const FOCUS_LABELS: Record<CatalogFocus, string> = {
   unlinked: 'Unlinked spares',
   map: 'Map spares to products',
   'inventory-audit': 'Inventory audit',
-  'spare-pricing': 'Spare pricing',
 };
 
 function useIsMobile(breakpoint = 768) {
@@ -189,7 +183,6 @@ export const CatalogPage: React.FC = () => {
   );
   const isMobile = useIsMobile();
   const canSync = hasStaffPermission(user, 'catalog.sync');
-  const canSparePricing = canSuperAdminWrite(user);
   /** Admin + staff share catalogue multi-filters (mapping, stock, location, audit, NC). */
   const canUseCatalogFilters = isSuperAdmin || isStaff;
   const showStockQuantity = canSync || canViewCatalogStock(user);
@@ -296,23 +289,28 @@ export const CatalogPage: React.FC = () => {
   const debouncedSearchQuery = useDebounce(searchQuery, 300);
   const committedSearchQuery = searchQuery.trim() ? debouncedSearchQuery : '';
   const adminSection = isSuperAdmin
-    ? parseAdminSection(sectionParam, committedSearchQuery, canSparePricing)
+    ? parseAdminSection(sectionParam, committedSearchQuery)
     : null;
   const focus = isSuperAdmin && adminSection
     ? adminSectionToFocus(adminSection)
     : parseCatalogFocus(sectionParam, committedSearchQuery, canSync);
 
+  /** Legacy Catalogue → Spare pricing now lives under Dealers → Price level. */
+  useEffect(() => {
+    if (sectionParam !== 'spare-pricing') return;
+    navigate('/super-admin/dealers?tab=price-levels', { replace: true });
+  }, [sectionParam, navigate]);
+
   useEffect(() => {
     const dropSection = sectionParam === 'inventory-audit'
-      || sectionParam === 'spare-grouping'
-      || (sectionParam === 'spare-pricing' && !canSparePricing);
+      || sectionParam === 'spare-grouping';
     if (!dropSection) return;
     setSearchParams(prev => {
       const params = new URLSearchParams(prev);
       params.delete('section');
       return params;
     }, { replace: true });
-  }, [sectionParam, canSparePricing, setSearchParams]);
+  }, [sectionParam, setSearchParams]);
   const isFlatList = focus === 'all-spares' || focus === 'unlinked';
   const isMapBrowse = focus === 'map';
 
@@ -337,7 +335,7 @@ export const CatalogPage: React.FC = () => {
       const data = await fetchCatalog({}, { force: opts?.force === true });
       setCatalog(data);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Unable to load catalog.');
+      setError(err instanceof Error ? err.message : 'Unable to load products.');
     } finally {
       setLoading(false);
     }
@@ -931,7 +929,6 @@ export const CatalogPage: React.FC = () => {
       params.delete('category');
       if (next === 'categories') params.delete('section');
       else if (next === 'spares') params.set('section', 'spares');
-      else if (next === 'spare-pricing') params.set('section', 'spare-pricing');
       return params;
     }, { replace: true });
     setSearchQuery('');
@@ -945,8 +942,6 @@ export const CatalogPage: React.FC = () => {
         params.delete('section');
       } else if (next === 'all-spares') {
         params.set('section', 'spares');
-      } else if (next === 'spare-pricing') {
-        params.set('section', 'spare-pricing');
       } else if (next === 'unlinked') {
         params.set('section', 'unlinked');
       } else if (next === 'map') {
@@ -1091,7 +1086,7 @@ export const CatalogPage: React.FC = () => {
       await loadCatalog();
       await loadLinkedSpareIds();
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Catalog sync failed.');
+      setError(err instanceof Error ? err.message : 'Product sync failed.');
     } finally {
       setSyncing(false);
     }
@@ -1136,7 +1131,7 @@ export const CatalogPage: React.FC = () => {
     && focus !== 'all-spares'
   );
   const showDealerCatalogTabs = !isSuperAdmin;
-  const showAdminSearch = isSuperAdmin && focus !== 'inventory-audit' && focus !== 'spare-pricing';
+  const showAdminSearch = isSuperAdmin && focus !== 'inventory-audit';
   const showHeaderSearch = showAdminSearch || !isSuperAdmin;
 
   const activeAdminTab: AdminCatalogSection = adminSection === 'search' || !adminSection
@@ -1516,7 +1511,7 @@ export const CatalogPage: React.FC = () => {
           onChange={e => handleSearchChange(e.target.value)}
           onFocus={() => setSearchFocused(true)}
           onBlur={() => window.setTimeout(() => setSearchFocused(false), 180)}
-          aria-label="Search catalog"
+          aria-label="Search products"
         />
         {searchQuery && (
           <button
@@ -1563,7 +1558,7 @@ export const CatalogPage: React.FC = () => {
     >
       {isSuperAdmin && (
         <div className="catalog-section-tabs">
-          <div className="spares-mode-toggle spares-mode-toggle--ops" role="tablist" aria-label="Catalog sections">
+          <div className="spares-mode-toggle spares-mode-toggle--ops" role="tablist" aria-label="Product sections">
             <button
               type="button"
               role="tab"
@@ -1584,25 +1579,13 @@ export const CatalogPage: React.FC = () => {
               <Boxes size={16} aria-hidden />
               <span className="spares-mode-toggle__label">Spare parts</span>
             </button>
-            {canSparePricing ? (
-              <button
-                type="button"
-                role="tab"
-                aria-selected={activeAdminTab === 'spare-pricing'}
-                className={`spares-mode-toggle__btn ${activeAdminTab === 'spare-pricing' ? 'spares-mode-toggle__btn--active' : ''}`}
-                onClick={() => setAdminSection('spare-pricing')}
-              >
-                <IndianRupee size={16} aria-hidden />
-                <span className="spares-mode-toggle__label">Spare pricing</span>
-              </button>
-            ) : null}
           </div>
         </div>
       )}
 
       {showDealerCatalogTabs && (
         <div className="catalog-section-tabs">
-          <div className="spares-mode-toggle spares-mode-toggle--ops" role="tablist" aria-label="Catalog sections">
+          <div className="spares-mode-toggle spares-mode-toggle--ops" role="tablist" aria-label="Product sections">
             <button
               type="button"
               role="tab"
@@ -1844,7 +1827,7 @@ export const CatalogPage: React.FC = () => {
       <div className="page-content fade-in products-page spares-page catalog-page catalog-page--smart">
         <div className="panel glass products-error">
           <AlertCircle size={40} className="products-error-icon" />
-          <h2>Could not load catalog</h2>
+          <h2>Could not load products</h2>
           <p className="text-muted">{error}</p>
           <div className="products-error-actions">
             <button type="button" className="btn btn-primary" onClick={() => void loadCatalog({ force: true })}>
@@ -1866,7 +1849,6 @@ export const CatalogPage: React.FC = () => {
     isSuperAdmin ? 'catalog-page--admin-tabs' : '',
     isFlatList ? 'catalog-page--flat spares-page--all-spares' : '',
     focus === 'inventory-audit' ? 'catalog-page--inventory-audit' : '',
-    focus === 'spare-pricing' ? 'catalog-page--spare-pricing' : '',
   ].filter(Boolean).join(' ');
 
   return (
@@ -2190,39 +2172,6 @@ export const CatalogPage: React.FC = () => {
             unlinkingGroupId={unlinkingGroupId}
           />
         </div>
-      )}
-
-      {focus === 'spare-pricing' && canSparePricing && (
-        <SparePricingView
-          spares={spareParts}
-          onProductRatesSaved={updates => {
-            const byId = new Map(updates.map(row => [row.productId, row.rate]));
-            setCatalog(prev => {
-              if (!prev) return prev;
-              return {
-                ...prev,
-                items: prev.items.map(item => (
-                  byId.has(item.id)
-                    ? { ...item, rate: byId.get(item.id)! }
-                    : item
-                )),
-              };
-            });
-          }}
-          onProductHidden={productId => {
-            setCatalog(prev => {
-              if (!prev) return prev;
-              return {
-                ...prev,
-                items: prev.items.map(item => (
-                  item.id === productId
-                    ? { ...item, hiddenFromCatalog: true }
-                    : item
-                )),
-              };
-            });
-          }}
-        />
       )}
 
       {batchLinkItems && (

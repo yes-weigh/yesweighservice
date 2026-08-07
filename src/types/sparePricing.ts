@@ -23,8 +23,9 @@ export interface SparePricingSettings {
    */
   dealerProfitPercent: number;
   /**
-   * Active level discount/hike on New sell.
-   * Re-applied to updated New sell rows on toolbar Save.
+   * @deprecated Unused for charge — spare level % lives on
+   * appSettings/priceLevels (`__spare_parts__` category rules).
+   * Cleared on save; kept for backward-compatible parse only.
    */
   levelPriceAdjusts: SparePricingLevelAdjust[];
   /** ISO timestamp when rate was last fetched from the FX API. */

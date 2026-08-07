@@ -84,7 +84,7 @@ export interface CatalogProduct {
   /** Name on the last printed bin label. Firestore only. */
   binLabelPrintedName?: string | null;
   binLabelPrintedAt?: string | null;
-  /** Super admin — excluded from dealer/public catalogue browse. Firestore only. */
+  /** Super admin — excluded from dealer/public products browse browse. Firestore only. */
   hiddenFromCatalog?: boolean;
   /**
    * Lifetime ledger closing stock (Software Keys + HSN 997331 only).

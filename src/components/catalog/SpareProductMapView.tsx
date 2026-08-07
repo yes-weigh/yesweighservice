@@ -232,7 +232,7 @@ export const SpareProductMapView: React.FC<{
   preview = null,
   canManage = false,
   showStockQuantity = false,
-  sparesBasePath = '/staff/catalog/spare',
+  sparesBasePath = '/staff/products/spare',
 }) => {
   const navigate = useNavigate();
   const [product, setProduct] = useState<CatalogProductDetail | CatalogProduct | null>(preview);

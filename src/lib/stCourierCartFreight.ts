@@ -21,7 +21,13 @@ import {
   type StCourierZone,
   type TrackonServiceId,
 } from '../types/logistics-courier-rates';
-import { quoteBlueDartParcels } from './blueDartQuote';
+import {
+  blueDartFreightCalcSteps,
+  blueDartParcelsOversizeInr,
+  blueDartPieceChargeableKg,
+  quoteBlueDartParcels,
+  type BlueDartFreightCalcStep,
+} from './blueDartQuote';
 import { quoteTrackonParcels } from './trackonQuote';
 import {
   isPickupPartner,
@@ -111,6 +117,13 @@ export type FreightLineBreakdown = {
   fuelSurchargePercent?: number;
   volumetricDivisor?: number;
   parcelGroups?: FreightParcelGroup[];
+  /** Blue Dart zone / DP zone label for calc card. */
+  zoneLabel?: string | null;
+  /** Domestic Priority slab rates (when not ₹/kg). */
+  first500gInr?: number | null;
+  addl500gInr?: number | null;
+  /** Blue Dart surcharge stack (scaled to this line’s share). */
+  calcSteps?: BlueDartFreightCalcStep[];
 };
 
 export type SiteFreightBucket = {
@@ -628,9 +641,11 @@ export function estimateStCourierCartFreight(input: {
       })
       : null;
 
-    const boxPerKg = isBlueDart || isTrackon
-      ? 0
-      : (quoted?.quote.boxPerKgInr ?? 0);
+    const boxPerKg = isBlueDart
+      ? (bdQuoted && !bdQuoted.notServiceable ? (bdQuoted.perKgInr ?? 0) : 0)
+      : isTrackon
+        ? 0
+        : (quoted?.quote.boxPerKgInr ?? 0);
     const totalProductChargeable = isBlueDart
       ? (bdQuoted && !bdQuoted.notServiceable ? bdQuoted.chargeableKg : 0)
       : isTrackon
@@ -645,9 +660,9 @@ export function estimateStCourierCartFreight(input: {
             ? trackonQuoted.totalInr
             : 0)
           : (quoted?.quote.totalInr ?? 0);
-
     // Allocate freight to lines by share of chargeable kg
     let parcelOffset = 0;
+    let bdShipmentFeesAssigned = false;
     const lineBreakdowns: FreightLineBreakdown[] = [];
     const volumetricDivisor = isBlueDart
       ? (bdService === 'domestic_priority'
@@ -672,14 +687,22 @@ export function estimateStCourierCartFreight(input: {
 
       for (let i = 0; i < row.parcels.length; i += 1) {
         const parcel = row.parcels[i];
-        const chg = isBlueDart || isTrackon
-          ? (totalProductChargeable > 0 && allParcels.length
-            ? totalProductChargeable / allParcels.length
-            : 0)
-          : (quoted?.perParcelChargeableKg[parcelOffset + i] ?? 0);
+        const vol = stCourierVolumetricKg(parcel.dims, volumetricDivisor);
+        const chg = isBlueDart
+          ? blueDartPieceChargeableKg(
+            parcel.actualKg,
+            {
+              lengthCm: Number(parcel.dims.lengthCm) || 0,
+              widthCm: Number(parcel.dims.widthCm) || 0,
+              heightCm: Number(parcel.dims.heightCm) || 0,
+            },
+            volumetricDivisor,
+          )
+          : isTrackon
+            ? ceilChargeableKg(Math.max(parcel.actualKg, vol))
+            : (quoted?.perParcelChargeableKg[parcelOffset + i] ?? 0);
         lineKg += chg;
         lineActualKg += parcel.actualKg;
-        const vol = stCourierVolumetricKg(parcel.dims, volumetricDivisor);
         lineVolumetricKg += vol;
         const lengthCm = Number(parcel.dims.lengthCm) || 0;
         const breadthCm = Number(parcel.dims.widthCm) || 0;
@@ -722,6 +745,39 @@ export function estimateStCourierCartFreight(input: {
       const indication = row.missingUnits > 0 || row.skip
         ? (row.skip?.reason === 'no_package' ? 'missing_package' : 'incomplete_package')
         : 'ok';
+      const lineKgRounded = Math.round(lineKg * 1000) / 1000;
+      const includeShipmentFees = Boolean(
+        isBlueDart
+        && !bdShipmentFeesAssigned
+        && row.parcels.length > 0
+        && indication === 'ok',
+      );
+      if (includeShipmentFees) bdShipmentFeesAssigned = true;
+      const lineOversizeInr = isBlueDart && bdService === 'surface'
+        ? blueDartParcelsOversizeInr(
+          input.rates.bluedart.surface.oversizeSlabs,
+          row.parcels.map(p => ({
+            actualKg: p.actualKg,
+            dims: {
+              lengthCm: Number(p.dims.lengthCm) || 0,
+              widthCm: Number(p.dims.widthCm) || 0,
+              heightCm: Number(p.dims.heightCm) || 0,
+            },
+          })),
+          volumetricDivisor,
+        )
+        : undefined;
+      const lineSteps = isBlueDart
+        && bdQuoted
+        && !bdQuoted.notServiceable
+        && !bdQuoted.rateMissing
+        ? blueDartFreightCalcSteps(bdQuoted, {
+          chargeableKgOverride: lineKgRounded,
+          amountScale: share,
+          includeShipmentFees,
+          oversizeInrOverride: lineOversizeInr,
+        })
+        : undefined;
 
       lineBreakdowns.push({
         productId: row.line.productId,
@@ -731,7 +787,7 @@ export function estimateStCourierCartFreight(input: {
         masterCartonCount: row.masterCartonCount,
         singleBoxCount: row.singleBoxCount,
         missingUnits: row.missingUnits,
-        chargeableKg: Math.round(lineKg * 1000) / 1000,
+        chargeableKg: lineKgRounded,
         amountInr,
         indication,
         actualKg: Math.round(lineActualKg * 1000) / 1000,
@@ -740,6 +796,10 @@ export function estimateStCourierCartFreight(input: {
         fuelSurchargePercent,
         volumetricDivisor,
         parcelGroups: [...groupMap.values()],
+        zoneLabel: isBlueDart ? (bdQuoted?.zoneLabel ?? null) : null,
+        first500gInr: isBlueDart ? (bdQuoted?.first500gInr ?? null) : null,
+        addl500gInr: isBlueDart ? (bdQuoted?.addl500gInr ?? null) : null,
+        calcSteps: lineSteps,
       });
     }
 

@@ -17,7 +17,7 @@ export const SpareProductMapPage: React.FC = () => {
   } | null;
   const preview = navState?.preview ?? null;
   const returnCategoryId = navState?.returnCategoryId ?? preview?.categoryId ?? '';
-  const catalogBase = user ? catalogBaseForRole(user.role) : '/staff/catalog';
+  const catalogBase = user ? catalogBaseForRole(user.role) : '/staff/products';
   const listPath = returnCategoryId
     ? `${catalogBase}?section=map&category=${encodeURIComponent(returnCategoryId)}`
     : `${catalogBase}?section=map`;
@@ -36,7 +36,7 @@ export const SpareProductMapPage: React.FC = () => {
       <SpareProductMapView
         productId={productId}
         backPath={listPath}
-        backLabel="Back to catalog"
+        backLabel="Back to products"
         preview={preview && preview.id === productId ? preview : null}
         canManage={canManage}
         showStockQuantity={showStockQuantity}

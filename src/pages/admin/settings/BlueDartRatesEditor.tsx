@@ -590,9 +590,9 @@ function SurfaceChargeStack(props: {
           prefix="+"
           names={[{
             text: 'Docket',
-            tip: 'Fixed AWB / docket fee. Included in the diesel FS base (Surface rates sample).',
+            tip: 'Fixed AWB / docket fee once per shipment (not per box). Included in the diesel FS base (Surface rates sample).',
           }]}
-          detail="flat · inside FS base"
+          detail="flat · once per shipment · inside FS base"
           value={formatStackInr(preview.docketFeeInr)}
         />
         <SurfaceStackRow
@@ -600,9 +600,9 @@ function SurfaceChargeStack(props: {
           prefix="+"
           names={[{
             text: 'FOV',
-            tip: 'Freight on Value. Higher of min ₹ and % of invoice. Included in the diesel FS base (Surface rates sample).',
+            tip: 'Freight on Value once per shipment. Higher of min ₹ and % of invoice. Included in the diesel FS base (Surface rates sample).',
           }]}
-          detail="flat · inside FS base"
+          detail="flat · once per shipment · inside FS base"
           value={formatStackInr(preview.fovInr)}
         />
         <SurfaceStackRow
@@ -657,7 +657,7 @@ function SurfaceChargeStack(props: {
           names={[
             {
               text: 'OS/OW',
-              tip: 'Oversize / overweight flat ₹ per shipment from weight slabs (≤32 Nil, 33–70 ₹100, 71–200 ₹300, 201–700 ₹3500). After % stack — not inside FS/EFSS.',
+              tip: 'Oversize / overweight flat ₹ per box from that box’s chargeable kg slabs (≤32 Nil, 33–70 ₹100, 71–200 ₹300, 201–700 ₹3500). Not based on combined shipment weight. After % stack — not inside FS/EFSS.',
             },
             {
               text: 'RAS',
@@ -1022,15 +1022,15 @@ function SurfaceRatesEditor(props: {
 
       <SurfaceStep
         n={3}
-        title="Oversize shipment"
-        applies="Flat ₹ when chargeable kg is under the slab · first match wins (sorted at quote time)"
+        title="Oversize per box"
+        applies="Flat ₹ per box from that box’s chargeable kg · first matching slab wins (sorted at quote time)"
       >
         <OversizeSlabsEditor
           slabs={rates.oversizeSlabs}
           onChange={oversizeSlabs => onPatchRates({ oversizeSlabs })}
         />
         <p className="settings-bluedart__stack-footnote">
-          → OS/OW is a flat VAS after EFSS (not inside Subtotal A / Diesel FS)
+          → OS/OW is charged per box (not on combined shipment kg), after EFSS
         </p>
       </SurfaceStep>
 
@@ -1129,9 +1129,9 @@ function SurfaceRatesEditor(props: {
         <div className="settings-courier-rates__inline-fields settings-bluedart__grid">
           <InrInput
             label="Docket fee"
-            tip="Fixed AWB fee. Added after percentages (unlike the Air sample sheet where docket sits before fuel)."
+            tip="Fixed AWB fee once per shipment. Added after percentages (unlike the Air sample sheet where docket sits before fuel)."
             value={rates.docketFeeInr}
-            hint="flat ₹"
+            hint="₹ / shipment"
             onChange={docketFeeInr => onPatchRates({ docketFeeInr })}
           />
           <InrInput
@@ -1143,14 +1143,14 @@ function SurfaceRatesEditor(props: {
           />
           <InrInput
             label="Insurance min (FOV)"
-            tip="Minimum insurance ₹ per AWB."
+            tip="Minimum insurance ₹ once per shipment (AWB)."
             value={shared.fov.minInr}
-            hint="flat floor"
+            hint="₹ / shipment floor"
             onChange={minInr => onPatchShared({ fov: { ...shared.fov, minInr } })}
           />
           <PctInput
             label="Insurance % of invoice"
-            tip="FOV billed as max(min ₹, this % of invoice)."
+            tip="FOV once per shipment: max(min ₹, this % of invoice)."
             value={shared.fov.percentOfInvoice}
             hint="of invoice · not of freight"
             onChange={percentOfInvoice => onPatchShared({

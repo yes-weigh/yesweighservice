@@ -279,7 +279,7 @@ export const SuperAdminDashboard: React.FC = () => {
     { label: 'Manage Dealers', path: `${BASE}/dealers`, icon: <Building2 size={20} /> },
     { label: 'HR', path: `${BASE}/hr`, icon: <Users size={20} /> },
     { label: 'Invoices', path: `${BASE}/invoices`, icon: <FileText size={20} /> },
-    { label: 'Catalog', path: `${BASE}/catalog`, icon: <Package size={20} /> },
+    { label: 'Products', path: `${BASE}/products`, icon: <Package size={20} /> },
     { label: 'Warranty & Support', path: `${BASE}/warranty-support`, icon: <LifeBuoy size={20} /> },
     { label: 'Verification', path: `${BASE}/verification`, icon: <ShieldCheck size={20} /> },
   ];

@@ -149,7 +149,7 @@ export const ProductsPage: React.FC = () => {
       await syncCatalog();
       await loadCatalog();
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Catalog sync failed.');
+      setError(err instanceof Error ? err.message : 'Product sync failed.');
     } finally {
       setSyncing(false);
     }

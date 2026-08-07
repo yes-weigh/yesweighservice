@@ -65,7 +65,10 @@ import { HrSalaryPublicSharePage } from './pages/public/HrSalaryPublicSharePage'
 import { ProductDetailPage } from './pages/ProductDetailPage';
 import { SpareProductMapPage } from './pages/SpareProductMapPage';
 import {
-  LegacyProductDetailRedirect,
+  LegacyCatalogMapRedirect,
+  LegacyCatalogProductDetailRedirect,
+  LegacyCatalogRootRedirect,
+  LegacyCatalogSpareDetailRedirect,
   LegacySpareDetailRedirect,
   LegacySpareMapRedirect,
 } from './components/catalog/LegacyCatalogRedirects';
@@ -91,15 +94,20 @@ const OpsOrdersListRedirect: React.FC = () => {
 
 const catalogRoutes = (
   <>
-    <Route path="catalog" element={<DealerMenuPages.Catalog />} />
-    <Route path="catalog/inventory-audit/linked/:catalogProductId" element={<InventoryAuditLinkedGroupPage />} />
-    <Route path="catalog/inventory-audit/:itemId" element={<InventoryAuditItemPage />} />
-    <Route path="catalog/map/:productId" element={<SpareProductMapPage />} />
-    <Route path="catalog/spare/:productId" element={<ProductDetailPage />} />
-    <Route path="catalog/:productId" element={<ProductDetailPage />} />
-    <Route path="products" element={<Navigate to="catalog" replace />} />
-    <Route path="products/:productId" element={<LegacyProductDetailRedirect />} />
-    <Route path="spares" element={<Navigate to="catalog?section=spares" replace />} />
+    <Route path="products" element={<DealerMenuPages.Products />} />
+    <Route path="products/inventory-audit/linked/:catalogProductId" element={<InventoryAuditLinkedGroupPage />} />
+    <Route path="products/inventory-audit/:itemId" element={<InventoryAuditItemPage />} />
+    <Route path="products/map/:productId" element={<SpareProductMapPage />} />
+    <Route path="products/spare/:productId" element={<ProductDetailPage />} />
+    <Route path="products/:productId" element={<ProductDetailPage />} />
+    {/* Legacy /catalog → /products */}
+    <Route path="catalog" element={<LegacyCatalogRootRedirect />} />
+    <Route path="catalog/inventory-audit/linked/:catalogProductId" element={<LegacyCatalogRootRedirect />} />
+    <Route path="catalog/inventory-audit/:itemId" element={<LegacyCatalogRootRedirect />} />
+    <Route path="catalog/map/:productId" element={<LegacyCatalogMapRedirect />} />
+    <Route path="catalog/spare/:productId" element={<LegacyCatalogSpareDetailRedirect />} />
+    <Route path="catalog/:productId" element={<LegacyCatalogProductDetailRedirect />} />
+    <Route path="spares" element={<Navigate to="products?section=spares" replace />} />
     <Route path="spares/product/:productId" element={<LegacySpareMapRedirect />} />
     <Route path="spares/:productId" element={<LegacySpareDetailRedirect />} />
   </>
@@ -182,7 +190,7 @@ const dealerSalesOrderRoutes = (
 
 const dealerRoutes = (
   <>
-    <Route index element={<Navigate to="catalog" replace />} />
+    <Route index element={<Navigate to="products" replace />} />
     {portalMenuRoutes}
     {dealerInvoiceRoutes}
     {dealerSalesOrderRoutes}
@@ -357,7 +365,7 @@ const App: React.FC = () => (
 
           <Route element={<ProtectedRoute allowedRoles={['dealer_staff']} />}>
             <Route path="/dealer-staff" element={<Layout />}>
-              <Route index element={<Navigate to="catalog" replace />} />
+              <Route index element={<Navigate to="products" replace />} />
               <Route path="warranty-support" element={<DealerMenuPages.WarrantySupport />} />
               <Route path="warranty-support/complaint-guidelines" element={<DealerMenuPages.ComplaintGuidelines />} />
               <Route path="warranty-support/:requestId" element={<DealerMenuPages.SupportRequestDetail />} />

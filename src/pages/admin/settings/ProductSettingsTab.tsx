@@ -1321,7 +1321,7 @@ export const ProductSettingsTab: React.FC = () => {
         <div>
           <h3>Product settings</h3>
           <p className="text-muted text-sm">
-            Carton qty, MRP, model & approval options, spare groups, stamping, image tools, and hidden catalogue items.
+            Carton qty, MRP, model & approval options, spare groups, stamping, image tools, and hidden products.
           </p>
         </div>
       </header>

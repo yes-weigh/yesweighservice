@@ -49,7 +49,7 @@ export const InventoryAuditItemPage: React.FC = () => {
   const fromSpareRack = Boolean(rackNav?.fromSpareRack);
   const { user } = useAuth();
   const confirm = useConfirm();
-  const base = user?.role === 'super_admin' ? '/super-admin/catalog' : '/catalog';
+  const base = user?.role === 'super_admin' ? '/super-admin/products' : '/products';
 
   const [item, setItem] = useState<YesStoreItemDoc | null>(null);
   const [catalogProducts, setCatalogProducts] = useState<CatalogProduct[]>([]);
@@ -113,7 +113,7 @@ export const InventoryAuditItemPage: React.FC = () => {
       })
       .catch(err => {
         if (!cancelled) {
-          setError(err instanceof Error ? err.message : 'Could not load catalog.');
+          setError(err instanceof Error ? err.message : 'Could not load products.');
         }
       })
       .finally(() => {

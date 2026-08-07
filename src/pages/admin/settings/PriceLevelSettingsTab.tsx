@@ -18,6 +18,7 @@ import {
 import { CategoryBrowseCard } from '../../../components/catalog/CategoryBrowseCard';
 import { CategoryThumbnail } from '../../../components/catalog/CategoryThumbnail';
 import { ProductBrowseCard } from '../../../components/catalog/ProductBrowseCard';
+import { SparePricingView } from '../../../components/catalog/SparePricingView';
 import { useAuth } from '../../../context/AuthContext';
 import {
   excludeHiddenCatalogProducts,
@@ -214,8 +215,10 @@ export const PriceLevelSettingsTab: React.FC = () => {
   const [dealerQuery, setDealerQuery] = useState('');
   /** Level name + dealer assignment — rarely edited; collapsed by default. */
   const [showLevelMeta, setShowLevelMeta] = useState(false);
-  /** Category selected from the catalogue-style grid for editing rules (Items mode). */
+  /** Category selected from productsue-style grid for editing rules (Items mode). */
   const [ruleCategoryId, setRuleCategoryId] = useState<string | null>(null);
+  /** Spare parts: item overrides vs landing / New sell workspace. */
+  const [spareWorkspace, setSpareWorkspace] = useState<'overrides' | 'costs'>('overrides');
   /** Filters the product browse grid in Items mode only. */
   const [itemQuery, setItemQuery] = useState('');
   const [overrideEditor, setOverrideEditor] = useState<OverrideEditorState | null>(null);
@@ -227,12 +230,32 @@ export const PriceLevelSettingsTab: React.FC = () => {
   const savedRef = useRef(savedLevels);
   const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const saveEpochRef = useRef(0);
+  const itemsChromeRef = useRef<HTMLDivElement | null>(null);
+  const itemsModeRef = useRef<HTMLDivElement | null>(null);
   const userUid = user?.uid ?? null;
+
+  /** Keep Costs & New sell toolbar stuck below Spare parts chrome. */
+  useEffect(() => {
+    const chrome = itemsChromeRef.current;
+    const mode = itemsModeRef.current;
+    if (!chrome || !mode || spareWorkspace !== 'costs') return undefined;
+    const apply = () => {
+      mode.style.setProperty(
+        '--price-levels-items-chrome-height',
+        `${Math.ceil(chrome.getBoundingClientRect().height)}px`,
+      );
+    };
+    apply();
+    const observer = new ResizeObserver(apply);
+    observer.observe(chrome);
+    return () => observer.disconnect();
+  }, [spareWorkspace, selectedId, ruleCategoryId]);
 
   const exitCategoryEdit = useCallback(() => {
     setRuleCategoryId(null);
     setItemQuery('');
     setOverrideEditor(null);
+    setSpareWorkspace('overrides');
   }, []);
 
   useEffect(() => {
@@ -265,6 +288,7 @@ export const PriceLevelSettingsTab: React.FC = () => {
     setShowLevelMeta(false);
     setDealerQuery('');
     setOverrideEditor(null);
+    setSpareWorkspace('overrides');
   }, [selectedId]);
 
   const rulesByCategoryId = useMemo(() => {
@@ -737,8 +761,9 @@ export const PriceLevelSettingsTab: React.FC = () => {
         <div>
           <h3>Price level setting</h3>
           <p className="text-muted text-sm">
-            Create levels, assign dealers, and set category discount or price hike %.
-            Changes save automatically.
+            Create levels, assign dealers, and set category discount or hike %.
+            Spare parts: level overrides (Custom ₹ / %) and Costs & New sell live here —
+            single source for dealer charge rules. Changes save automatically.
           </p>
         </div>
         {saveLabel ? (
@@ -1121,13 +1146,20 @@ export const PriceLevelSettingsTab: React.FC = () => {
 
                   return (
                     <div
+                      ref={isSpareEdit ? itemsModeRef : undefined}
                       className={[
                         'price-levels-tab__items-mode',
                         isSpareEdit ? 'price-levels-tab__items-mode--spare' : '',
+                        isSpareEdit && spareWorkspace === 'costs'
+                          ? 'price-levels-tab__items-mode--spare-costs'
+                          : '',
                       ].filter(Boolean).join(' ')}
                       aria-label={isSpareEdit ? 'Spare parts overrides' : `Items in ${editCat.name}`}
                     >
-                      <div className="price-levels-tab__items-chrome">
+                      <div
+                        ref={isSpareEdit ? itemsChromeRef : undefined}
+                        className="price-levels-tab__items-chrome"
+                      >
                         <div className="price-levels-tab__items-chrome-row">
                           <button
                             type="button"
@@ -1181,49 +1213,105 @@ export const PriceLevelSettingsTab: React.FC = () => {
                           </div>
                         </div>
 
-                        <div className="price-levels-tab__rule-main">
+                        {isSpareEdit ? (
                           <div
-                            className="price-levels-tab__mode-toggle"
-                            role="group"
-                            aria-label={`Rule type for ${editCat.name}`}
+                            className="price-levels-tab__mode-toggle price-levels-tab__spare-workspace"
+                            role="tablist"
+                            aria-label="Spare parts workspace"
                           >
                             <button
                               type="button"
-                              className={mode === 'discount' ? 'is-active' : ''}
-                              onClick={() => upsertCategoryRule(editCat, { mode: 'discount' })}
+                              role="tab"
+                              aria-selected={spareWorkspace === 'overrides'}
+                              className={spareWorkspace === 'overrides' ? 'is-active' : ''}
+                              onClick={() => setSpareWorkspace('overrides')}
                             >
-                              Discount
+                              Level overrides
                             </button>
                             <button
                               type="button"
-                              className={mode === 'increment' ? 'is-active' : ''}
-                              onClick={() => upsertCategoryRule(editCat, { mode: 'increment' })}
+                              role="tab"
+                              aria-selected={spareWorkspace === 'costs'}
+                              className={spareWorkspace === 'costs' ? 'is-active' : ''}
+                              onClick={() => setSpareWorkspace('costs')}
                             >
-                              Hike
+                              Costs & New sell
                             </button>
                           </div>
-                          <label className="price-levels-tab__percent">
-                            <input
-                              type="number"
-                              min={0}
-                              max={1000}
-                              step={0.1}
-                              value={percent === 0 ? '' : percent}
-                              placeholder="0"
-                              onChange={e => {
-                                const v = e.target.value;
-                                upsertCategoryRule(editCat, {
-                                  mode,
-                                  percent: v === '' ? 0 : Number(v),
-                                });
-                              }}
-                              aria-label={`Percent for ${editCat.name}`}
-                            />
-                            <span>%</span>
-                          </label>
-                        </div>
+                        ) : null}
+
+                        {spareWorkspace === 'overrides' || !isSpareEdit ? (
+                          <div className="price-levels-tab__rule-main">
+                            <div
+                              className="price-levels-tab__mode-toggle"
+                              role="group"
+                              aria-label={`Rule type for ${editCat.name}`}
+                            >
+                              <button
+                                type="button"
+                                className={mode === 'discount' ? 'is-active' : ''}
+                                onClick={() => upsertCategoryRule(editCat, { mode: 'discount' })}
+                              >
+                                Discount
+                              </button>
+                              <button
+                                type="button"
+                                className={mode === 'increment' ? 'is-active' : ''}
+                                onClick={() => upsertCategoryRule(editCat, { mode: 'increment' })}
+                              >
+                                Hike
+                              </button>
+                            </div>
+                            <label className="price-levels-tab__percent">
+                              <input
+                                type="number"
+                                min={0}
+                                max={1000}
+                                step={0.1}
+                                value={percent === 0 ? '' : percent}
+                                placeholder="0"
+                                onChange={e => {
+                                  const v = e.target.value;
+                                  upsertCategoryRule(editCat, {
+                                    mode,
+                                    percent: v === '' ? 0 : Number(v),
+                                  });
+                                }}
+                                aria-label={`Percent for ${editCat.name}`}
+                              />
+                              <span>%</span>
+                            </label>
+                          </div>
+                        ) : null}
                       </div>
 
+                      {isSpareEdit && spareWorkspace === 'costs' ? (
+                        <div className="price-levels-tab__spare-costs">
+                          <SparePricingView
+                            spares={spareProducts}
+                            onProductRatesSaved={updates => {
+                              if (!updates.length) return;
+                              const byId = new Map(updates.map(u => [u.productId, u.rate]));
+                              setSpareProducts(prev => prev.map(p => (
+                                byId.has(p.id) ? { ...p, rate: byId.get(p.id)! } : p
+                              )));
+                              setProducts(prev => prev.map(p => (
+                                byId.has(p.id) ? { ...p, rate: byId.get(p.id)! } : p
+                              )));
+                            }}
+                            onProductHidden={productId => {
+                              setSpareProducts(prev => prev.filter(p => p.id !== productId));
+                              setProducts(prev => prev.filter(p => p.id !== productId));
+                            }}
+                            onPriceLevelsChanged={next => {
+                              setLevels(next);
+                              setSavedLevels(next);
+                            }}
+                          />
+                        </div>
+                      ) : null}
+
+                      {spareWorkspace === 'overrides' || !isSpareEdit ? (
                       <div className="price-levels-tab__browse-head">
                         <span className="price-levels-tab__browse-label">
                           {isSpareEdit ? 'Browse spares' : 'Browse items'}
@@ -1246,62 +1334,65 @@ export const PriceLevelSettingsTab: React.FC = () => {
                           />
                         </div>
                       </div>
+                      ) : null}
 
-                      {browseProducts.length === 0 ? (
-                        <p className="text-muted text-sm">
-                          {catProducts.length === 0
-                            ? (isSpareEdit ? 'No spare parts in catalog.' : 'No products in this category.')
-                            : 'No products match this filter.'}
-                        </p>
-                      ) : (
-                        <div className="price-levels-tab__product-grid catalog-grid catalog-grid--tiles">
-                          {browseProducts.map((product, idx) => {
-                            const override = itemRuleById.get(product.id) ?? null;
-                            const overrideView = override
-                              ? itemOverrideDisplay(override, product.rate)
-                              : null;
-                            return (
-                              <div
-                                key={product.id}
-                                className={[
-                                  'price-levels-tab__product-tile',
-                                  override ? 'is-override' : '',
-                                ].filter(Boolean).join(' ')}
-                              >
-                                {overrideView ? (
-                                  <div
-                                    className="price-levels-tab__product-override"
-                                    aria-label={`${overrideView.kindLabel}: ${overrideView.lines.map(l => l.text).join(', ')}`}
-                                  >
-                                    <span className="price-levels-tab__product-override-kind">
-                                      {overrideView.kindLabel}
-                                    </span>
-                                    <ul>
-                                      {overrideView.lines.map(line => (
-                                        <li
-                                          key={line.text}
-                                          className={line.emphasize
-                                            ? 'price-levels-tab__product-override-rate'
-                                            : undefined}
-                                        >
-                                          {line.text}
-                                        </li>
-                                      ))}
-                                    </ul>
-                                  </div>
-                                ) : null}
-                                <ProductBrowseCard
-                                  product={product}
-                                  index={idx}
-                                  enableCart={false}
-                                  onSelect={() => openOverrideEditor(editCat, product)}
-                                  highlighted={overrideEditor?.product.id === product.id}
-                                />
-                              </div>
-                            );
-                          })}
-                        </div>
-                      )}
+                      {spareWorkspace === 'overrides' || !isSpareEdit ? (
+                        browseProducts.length === 0 ? (
+                          <p className="text-muted text-sm">
+                            {catProducts.length === 0
+                              ? (isSpareEdit ? 'No spare parts in catalog.' : 'No products in this category.')
+                              : 'No products match this filter.'}
+                          </p>
+                        ) : (
+                          <div className="price-levels-tab__product-grid catalog-grid catalog-grid--tiles">
+                            {browseProducts.map((product, idx) => {
+                              const override = itemRuleById.get(product.id) ?? null;
+                              const overrideView = override
+                                ? itemOverrideDisplay(override, product.rate)
+                                : null;
+                              return (
+                                <div
+                                  key={product.id}
+                                  className={[
+                                    'price-levels-tab__product-tile',
+                                    override ? 'is-override' : '',
+                                  ].filter(Boolean).join(' ')}
+                                >
+                                  {overrideView ? (
+                                    <div
+                                      className="price-levels-tab__product-override"
+                                      aria-label={`${overrideView.kindLabel}: ${overrideView.lines.map(l => l.text).join(', ')}`}
+                                    >
+                                      <span className="price-levels-tab__product-override-kind">
+                                        {overrideView.kindLabel}
+                                      </span>
+                                      <ul>
+                                        {overrideView.lines.map(line => (
+                                          <li
+                                            key={line.text}
+                                            className={line.emphasize
+                                              ? 'price-levels-tab__product-override-rate'
+                                              : undefined}
+                                          >
+                                            {line.text}
+                                          </li>
+                                        ))}
+                                      </ul>
+                                    </div>
+                                  ) : null}
+                                  <ProductBrowseCard
+                                    product={product}
+                                    index={idx}
+                                    enableCart={false}
+                                    onSelect={() => openOverrideEditor(editCat, product)}
+                                    highlighted={overrideEditor?.product.id === product.id}
+                                  />
+                                </div>
+                              );
+                            })}
+                          </div>
+                        )
+                      ) : null}
                     </div>
                   );
                 })()}

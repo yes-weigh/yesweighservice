@@ -369,7 +369,7 @@ export const SalesOrderDraftLineEditor: React.FC<SalesOrderDraftLineEditorProps>
       })
       .catch(err => {
         if (!cancelled) {
-          setCatalogError(err instanceof Error ? err.message : 'Could not load catalog.');
+          setCatalogError(err instanceof Error ? err.message : 'Could not load products.');
         }
       })
       .finally(() => {

@@ -67,7 +67,7 @@ export const RoleDashboard: React.FC = () => {
   const { user } = useAuth();
 
   if (user?.role === 'dealer' || user?.role === 'dealer_staff') {
-    return <Navigate to={`${homePathForRole(user.role)}/catalog`} replace />;
+    return <Navigate to={`${homePathForRole(user.role)}/products`} replace />;
   }
 
   return (

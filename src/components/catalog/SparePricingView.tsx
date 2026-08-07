@@ -20,7 +20,6 @@ import {
   computeSpareLandingCostInr,
   emptySparePricingSettings,
   fetchUsdToInrRate,
-  levelPriceAdjustsEqual,
   loadSparePricingSettings,
   saveSparePricingSettings,
   sparePricingSettingsEqual,
@@ -44,11 +43,11 @@ import { SparePricingFilterSheet } from './SparePricingFilterSheet';
 import { SparePricingLevelBulkPanel } from './SparePricingLevelBulkPanel';
 import { SparePricingProductPeek } from './SparePricingProductPeek';
 import {
-  applySpareBulkPricingToLevels,
+  applySpareCategoryPercentsToLevels,
   dealerPriceFromLanding,
   existingSpareLevelPricingForProduct,
-  filterSpareLevelBulkRows,
   formatExistingSpareLevelMode,
+  spareCategoryAdjustsFromLevels,
   type ExistingSpareLevelPriceRow,
   type SpareLevelBulkRow,
   type SpareLevelPriceAdjust,
@@ -71,7 +70,7 @@ type NewSellLevelTip = {
   left: number;
   top: number;
   newSell: number;
-  adjusts: SparePricingLevelAdjust[];
+  adjusts: SpareLevelPriceAdjust[];
 };
 
 type ItemLevelTip = {
@@ -80,7 +79,6 @@ type ItemLevelTip = {
   productName: string;
   listRate: number;
   existingRows: ExistingSpareLevelPriceRow[];
-  draftAdjusts: SparePricingLevelAdjust[];
 };
 
 function tipPositionFromTarget(target: HTMLElement, tipWidth = 280): { left: number; top: number } {
@@ -101,6 +99,8 @@ type Props = {
   onProductRatesSaved?: (updates: Array<{ productId: string; rate: number }>) => void;
   /** After hide-from-catalogue — drop row from in-memory catalog. */
   onProductHidden?: (productId: string) => void;
+  /** After spare category % is written to appSettings/priceLevels. */
+  onPriceLevelsChanged?: (levels: PriceLevel[]) => void;
 };
 
 type SaveStatus = 'idle' | 'saving' | 'saved' | 'error';
@@ -169,7 +169,7 @@ function formatInrAmount(value: number): string {
   });
 }
 
-function formatLevelAdjustLabel(adjust: SparePricingLevelAdjust): string {
+function formatLevelAdjustLabel(adjust: Pick<SpareLevelPriceAdjust, 'mode' | 'percent'>): string {
   const sign = adjust.mode === 'discount' ? '−' : '+';
   return `${sign}${adjust.percent}% ${adjust.mode === 'discount' ? 'discount' : 'hike'}`;
 }
@@ -340,6 +340,7 @@ export const SparePricingView: React.FC<Props> = ({
   spares,
   onProductRatesSaved,
   onProductHidden,
+  onPriceLevelsChanged,
 }) => {
   const { user } = useAuth();
   const userUid = user?.uid ?? null;
@@ -629,6 +630,11 @@ export const SparePricingView: React.FC<Props> = ({
     markDirty();
   }, [markDirty]);
 
+  const liveLevelAdjusts = useMemo(
+    () => spareCategoryAdjustsFromLevels(priceLevels),
+    [priceLevels],
+  );
+
   const showNewSellLevelTip = useCallback((
     event: React.MouseEvent<HTMLElement> | React.FocusEvent<HTMLElement>,
     newSell: number,
@@ -638,9 +644,9 @@ export const SparePricingView: React.FC<Props> = ({
     setNewSellLevelTip({
       ...pos,
       newSell,
-      adjusts: draft.levelPriceAdjusts,
+      adjusts: liveLevelAdjusts,
     });
-  }, [draft.levelPriceAdjusts]);
+  }, [liveLevelAdjusts]);
 
   const hideNewSellLevelTip = useCallback(() => {
     setNewSellLevelTip(null);
@@ -658,9 +664,8 @@ export const SparePricingView: React.FC<Props> = ({
       productName: product.name,
       listRate,
       existingRows: existingSpareLevelPricingForProduct(priceLevels, product.id, listRate),
-      draftAdjusts: draft.levelPriceAdjusts,
     });
-  }, [priceLevels, draft.levelPriceAdjusts]);
+  }, [priceLevels]);
 
   const hideItemLevelTip = useCallback(() => {
     setItemLevelTip(null);
@@ -769,18 +774,21 @@ export const SparePricingView: React.FC<Props> = ({
     patchDraft({ dealerProfitPercent });
   }, [patchDraft]);
 
-  const handleLevelsApplied = useCallback((
+  const handleLevelsApplied = useCallback(async (
     adjusts: SpareLevelPriceAdjust[],
     dealerProfitPercent: number,
   ) => {
-    const levelPriceAdjusts: SparePricingLevelAdjust[] = adjusts.map(row => ({
-      levelId: row.levelId,
-      levelName: row.levelName,
-      mode: row.mode,
-      percent: row.percent,
-    }));
-    patchDraft({ dealerProfitPercent, levelPriceAdjusts });
-  }, [patchDraft]);
+    patchDraft({ dealerProfitPercent, levelPriceAdjusts: [] });
+    try {
+      const docData = await loadPriceLevels();
+      const nextLevels = applySpareCategoryPercentsToLevels(docData.levels, adjusts);
+      await savePriceLevels(nextLevels, userUid);
+      setPriceLevels(nextLevels);
+      onPriceLevelsChanged?.(nextLevels);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Could not save spare level %.');
+    }
+  }, [patchDraft, userUid, onPriceLevelsChanged]);
 
   const handleNewProfitChange = useCallback((
     productId: string,
@@ -832,10 +840,9 @@ export const SparePricingView: React.FC<Props> = ({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [rows, newSellingDrafts, dirtyEpoch]);
 
-  const settingsDirty = !sparePricingSettingsEqual(draft, saved);
-  const levelFormulaDirty = !levelPriceAdjustsEqual(
-    draft.levelPriceAdjusts,
-    saved.levelPriceAdjusts,
+  const settingsDirty = !sparePricingSettingsEqual(
+    { ...draft, levelPriceAdjusts: [] },
+    { ...saved, levelPriceAdjusts: [] },
   );
   const hasChanges = settingsDirty
     || changedCostIds.length > 0
@@ -939,10 +946,13 @@ export const SparePricingView: React.FC<Props> = ({
     setError(null);
     try {
       if (settingsDirty) {
-        const next = await saveSparePricingSettings(draft, userUid);
+        /** Landing/FX/profit only — level % lives on priceLevels, not here. */
+        const toSave = { ...draft, levelPriceAdjusts: [] as SparePricingLevelAdjust[] };
+        const next = await saveSparePricingSettings(toSave, userUid);
         setSaved(next);
         setDraft(prev => ({
           ...prev,
+          levelPriceAdjusts: [],
           updatedAt: next.updatedAt,
           updatedByUid: next.updatedByUid,
         }));
@@ -991,44 +1001,6 @@ export const SparePricingView: React.FC<Props> = ({
         onProductRatesSaved?.(applied);
       }
 
-      const shouldSyncPriceLevels = levelFormulaDirty || changedRateUpdates.length > 0;
-      if (shouldSyncPriceLevels) {
-        const targetIds = levelFormulaDirty
-          ? null
-          : new Set(changedRateUpdates.map(row => row.product.id));
-        const bulkRows: SpareLevelBulkRow[] = rows
-          .filter(product => targetIds == null || targetIds.has(product.id))
-          .map(product => {
-            const resolved = resolvePurchaseCost(
-              product.id,
-              overrides.get(product.id),
-              poCosts.get(product.id),
-              draft.usdToInrRate,
-            );
-            const draftCost = costDrafts[product.id] ?? {
-              amount: resolved.amount,
-              currencyCode: resolved.currencyCode,
-            };
-            return {
-              product,
-              listRate: newSellingDrafts[product.id] ?? (Number(product.rate) || 0),
-              landingInr: computeSpareLandingCostInr(draftCost, draft),
-              purchaseAmount: Number(draftCost.amount) || 0,
-            };
-          });
-        const { eligible } = filterSpareLevelBulkRows(bulkRows);
-        if (eligible.length > 0) {
-          const docData = await loadPriceLevels();
-          const nextLevels = applySpareBulkPricingToLevels(
-            docData.levels,
-            bulkRows,
-            draft.levelPriceAdjusts,
-          );
-          await savePriceLevels(nextLevels, userUid);
-          setPriceLevels(nextLevels);
-        }
-      }
-
       setSaveStatus('saved');
       setDirtyEpoch(n => n + 1);
     } catch (err) {
@@ -1045,11 +1017,6 @@ export const SparePricingView: React.FC<Props> = ({
     costDrafts,
     changedRateUpdates,
     onProductRatesSaved,
-    levelFormulaDirty,
-    rows,
-    overrides,
-    poCosts,
-    newSellingDrafts,
   ]);
 
   const levelBulkRows = useMemo((): SpareLevelBulkRow[] => (
@@ -1294,7 +1261,7 @@ export const SparePricingView: React.FC<Props> = ({
               title="Set spare profit % per dealer price level"
             >
               <Layers size={14} aria-hidden />
-              <span className="spare-pricing__action-label">Level pricing</span>
+              <span className="spare-pricing__action-label">Level %</span>
             </button>
             <button
               type="button"
@@ -1555,7 +1522,7 @@ export const SparePricingView: React.FC<Props> = ({
         onClose={() => setLevelBulkOpen(false)}
         rows={levelBulkRows}
         initialDealerProfitPercent={draft.dealerProfitPercent}
-        initialAdjusts={draft.levelPriceAdjusts}
+        initialAdjusts={liveLevelAdjusts}
         onDealerListRatesApplied={handleDealerListRatesApplied}
         onLevelsApplied={handleLevelsApplied}
       />
@@ -1568,7 +1535,7 @@ export const SparePricingView: React.FC<Props> = ({
             role="tooltip"
           >
             <div className="spare-pricing__level-tip-head">
-              Draft levels on New sell
+              Price levels on New sell
               {' '}
               <strong>
                 ₹
@@ -1586,7 +1553,7 @@ export const SparePricingView: React.FC<Props> = ({
               </li>
               {newSellLevelTip.adjusts.length === 0 ? (
                 <li className="spare-pricing__level-tip-empty">
-                  No draft discount / hike levels
+                  No spare category % on other levels
                 </li>
               ) : (
                 newSellLevelTip.adjusts.map(adjust => {
@@ -1629,7 +1596,7 @@ export const SparePricingView: React.FC<Props> = ({
             role="tooltip"
           >
             <div className="spare-pricing__level-tip-head">
-              Level pricing on New sell
+              Price levels
               {' '}
               <strong>
                 ₹
@@ -1641,7 +1608,7 @@ export const SparePricingView: React.FC<Props> = ({
             </div>
 
             <div className="spare-pricing__level-tip-section">
-              <div className="spare-pricing__level-tip-section-title">Existing</div>
+              <div className="spare-pricing__level-tip-section-title">Saved rules</div>
               <ul className="spare-pricing__level-tip-list">
                 {itemLevelTip.existingRows.length === 0 ? (
                   <li className="spare-pricing__level-tip-empty">
@@ -1668,51 +1635,6 @@ export const SparePricingView: React.FC<Props> = ({
                       </span>
                     </li>
                   ))
-                )}
-              </ul>
-            </div>
-
-            <div className="spare-pricing__level-tip-section">
-              <div className="spare-pricing__level-tip-section-title">Draft (until Save)</div>
-              <ul className="spare-pricing__level-tip-list">
-                <li>
-                  <span className="spare-pricing__level-tip-name">Dealers</span>
-                  <span className="spare-pricing__level-tip-mode">list</span>
-                  <span className="spare-pricing__level-tip-price">
-                    ₹
-                    {formatInrAmount(itemLevelTip.listRate)}
-                  </span>
-                </li>
-                {itemLevelTip.draftAdjusts.length === 0 ? (
-                  <li className="spare-pricing__level-tip-empty">
-                    No draft discount / hike levels
-                  </li>
-                ) : (
-                  itemLevelTip.draftAdjusts.map(adjust => {
-                    const charge = applyPriceLevelPercent(
-                      itemLevelTip.listRate,
-                      adjust.mode,
-                      adjust.percent,
-                    );
-                    return (
-                      <li key={`draft-${adjust.levelId}`}>
-                        <span className="spare-pricing__level-tip-name">{adjust.levelName}</span>
-                        <span
-                          className={
-                            adjust.mode === 'discount'
-                              ? 'spare-pricing__level-tip-mode is-discount'
-                              : 'spare-pricing__level-tip-mode is-hike'
-                          }
-                        >
-                          {formatLevelAdjustLabel(adjust)}
-                        </span>
-                        <span className="spare-pricing__level-tip-price">
-                          ₹
-                          {formatInrAmount(charge)}
-                        </span>
-                      </li>
-                    );
-                  })
                 )}
               </ul>
             </div>

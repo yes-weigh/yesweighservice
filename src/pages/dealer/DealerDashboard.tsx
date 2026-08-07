@@ -116,14 +116,14 @@ function buildQuickActions(base: string, isDealerStaff: boolean): QuickAction[] 
   ];
   if (!isDealerStaff) {
     actions.push(
-      { label: 'New Order', path: `${base}/catalog`, icon: <Boxes size={20} /> },
+      { label: 'New Order', path: `${base}/products`, icon: <Boxes size={20} /> },
       { label: 'Verification', path: `${base}/verification`, icon: <ShieldCheck size={20} /> },
       { label: 'View Invoices', path: `${base}/invoices`, icon: <FileText size={20} /> },
     );
   } else {
     actions.push(
       { label: 'Verification', path: `${base}/verification`, icon: <ShieldCheck size={20} /> },
-      { label: 'Catalog', path: `${base}/catalog`, icon: <Package size={20} /> },
+      { label: 'Products', path: `${base}/products`, icon: <Package size={20} /> },
       { label: 'View Invoices', path: `${base}/invoices`, icon: <FileText size={20} /> },
     );
   }
@@ -162,8 +162,8 @@ function buildMiniStats(base: string): MiniStat[] {
       trend: '',
       tone: 'green',
       icon: <Package size={18} />,
-      actionLabel: 'Browse catalog',
-      path: `${base}/catalog`,
+      actionLabel: 'Browse products',
+      path: `${base}/products`,
     },
     {
       label: 'Verifications Due',

@@ -9,7 +9,6 @@ import type { CatalogProduct } from '../types/catalog';
 import type {
   PriceLevel,
   PriceLevelCategoryRule,
-  PriceLevelItemRule,
   PriceLevelRuleMode,
 } from '../types/priceLevels';
 
@@ -30,7 +29,7 @@ export type SpareLevelAdjustDraft = {
   percent: number | null;
 };
 
-/** Local draft applied from the bulk panel — saved to Firestore only on main Save. */
+/** Level discount/hike written to Spare parts category % on price levels. */
 export type SpareLevelPriceAdjust = {
   levelId: string;
   levelName: string;
@@ -107,45 +106,6 @@ export function averageDealerPrice(
   return roundMoney(sum / eligible.length);
 }
 
-function itemBase(product: CatalogProduct): Omit<PriceLevelItemRule, 'kind' | 'percent' | 'customRate' | 'slabs'> {
-  return {
-    productId: product.id,
-    productName: product.name,
-    sku: product.sku?.trim() || null,
-  };
-}
-
-/** Level pays list (dealer price) — no discount/hike. */
-export function buildSpareListPriceRule(row: SpareLevelBulkRow): PriceLevelItemRule {
-  return {
-    ...itemBase(row.product),
-    kind: 'except',
-    percent: 0,
-    customRate: null,
-    slabs: [],
-  };
-}
-
-/**
- * Discount / hike % applied on dealer price (list).
- * Example: dealer ₹135, directors −3.7% → charge ≈ ₹130.
- */
-export function buildSpareAdjustRule(
-  row: SpareLevelBulkRow,
-  mode: PriceLevelRuleMode,
-  percent: number,
-): PriceLevelItemRule {
-  const pct = clampPercent(percent);
-  if (pct <= 0) return buildSpareListPriceRule(row);
-  return {
-    ...itemBase(row.product),
-    kind: mode,
-    percent: pct,
-    customRate: null,
-    slabs: [],
-  };
-}
-
 export function previewSpareLevelAdjust(
   rows: SpareLevelBulkRow[],
   mode: PriceLevelRuleMode | null,
@@ -192,29 +152,23 @@ export function formatSpareRuleSummary(rule: PriceLevelCategoryRule | undefined)
   return 'No spare rule';
 }
 
-function mergeSpareItemRules(
+/**
+ * Set Spare parts category mode/percent. Preserves every item override
+ * (Custom ₹ / slabs / except / %) — never floods item rules.
+ */
+export function setSpareCategoryPercent(
   level: PriceLevel,
-  rows: SpareLevelBulkRow[],
-  generated: PriceLevelItemRule[],
   mode: PriceLevelRuleMode,
-  categoryPercent: number,
+  percent: number,
 ): PriceLevel {
-  const { eligible } = filterSpareLevelBulkRows(rows);
   const existing = getSpareCategoryRule(level);
-  const touchedIds = new Set(eligible.map(row => row.product.id));
-  const preserved = (existing?.itemRules ?? []).filter(
-    rule => !touchedIds.has(rule.productId),
-  );
-  const byProduct = new Map<string, PriceLevelItemRule>();
-  for (const rule of preserved) byProduct.set(rule.productId, rule);
-  for (const rule of generated) byProduct.set(rule.productId, rule);
-
+  const pct = clampPercent(percent);
   const spareRule: PriceLevelCategoryRule = {
     categoryId: SPARE_PRICE_LEVEL_CATEGORY_ID,
     categoryName: SPARE_PRICE_LEVEL_CATEGORY_NAME,
     mode,
-    percent: categoryPercent,
-    itemRules: [...byProduct.values()],
+    percent: pct,
+    itemRules: existing?.itemRules ?? [],
   };
   const otherRules = level.categoryRules.filter(
     r => r.categoryId !== SPARE_PRICE_LEVEL_CATEGORY_ID,
@@ -225,53 +179,43 @@ function mergeSpareItemRules(
   };
 }
 
-/** Default Dealers level → list price (except overrides). */
-export function applyDealerListPriceToSpareLevel(
-  level: PriceLevel,
-  rows: SpareLevelBulkRow[],
-): PriceLevel {
-  const { eligible } = filterSpareLevelBulkRows(rows);
-  const generated = eligible.map(buildSpareListPriceRule);
-  return mergeSpareItemRules(level, rows, generated, 'discount', 0);
-}
-
 /**
- * Apply discount/hike % on dealer price for one level.
- * Prefer category % when uniform (same % for all eligible items).
+ * Apply level discount/hike as Spare parts **category** % on each level.
+ * Default Dealers stays list (0%). Item overrides (including fixed/slabs) are kept.
  */
-export function applyAdjustToSpareLevel(
-  level: PriceLevel,
-  rows: SpareLevelBulkRow[],
-  mode: PriceLevelRuleMode,
-  percent: number,
-): PriceLevel {
-  const { eligible } = filterSpareLevelBulkRows(rows);
-  const pct = clampPercent(percent);
-  if (pct <= 0) {
-    return applyDealerListPriceToSpareLevel(level, rows);
-  }
-
-  // Uniform category rule + clear prior item overrides for touched products
-  // by writing matching item rules (keeps zero-purchase overrides intact).
-  const generated = eligible.map(row => buildSpareAdjustRule(row, mode, pct));
-  return mergeSpareItemRules(level, rows, generated, mode, 0);
-}
-
-/** Apply default Dealers list + each level adjust to spare rules for the given rows. */
-export function applySpareBulkPricingToLevels(
+export function applySpareCategoryPercentsToLevels(
   levels: PriceLevel[],
-  rows: SpareLevelBulkRow[],
   adjusts: SpareLevelPriceAdjust[],
 ): PriceLevel[] {
   const adjustById = new Map(adjusts.map(a => [a.levelId, a]));
   return levels.map(level => {
     if (isDefaultDealerPriceLevel(level)) {
-      return applyDealerListPriceToSpareLevel(level, rows);
+      return setSpareCategoryPercent(level, 'discount', 0);
     }
     const adjust = adjustById.get(level.id);
     if (!adjust) return level;
-    return applyAdjustToSpareLevel(level, rows, adjust.mode, adjust.percent);
+    if (adjust.percent <= 0) {
+      return setSpareCategoryPercent(level, 'discount', 0);
+    }
+    return setSpareCategoryPercent(level, adjust.mode, adjust.percent);
   });
+}
+
+/** Seed bulk panel drafts from live spare category rules on price levels. */
+export function spareCategoryAdjustsFromLevels(levels: PriceLevel[]): SpareLevelPriceAdjust[] {
+  const out: SpareLevelPriceAdjust[] = [];
+  for (const level of levels) {
+    if (isDefaultDealerPriceLevel(level)) continue;
+    const rule = getSpareCategoryRule(level);
+    if (!rule || !(rule.percent > 0)) continue;
+    out.push({
+      levelId: level.id,
+      levelName: level.name,
+      mode: rule.mode,
+      percent: rule.percent,
+    });
+  }
+  return out;
 }
 
 export function isSpareLevelAdjustDraftActive(draft: SpareLevelAdjustDraft | undefined): boolean {

@@ -8,7 +8,7 @@ export const DEALER_TIER_LABELS: Record<DealerTier, string> = {
 };
 
 export const DEALER_TIER_DESCRIPTIONS: Record<DealerTier, string> = {
-  standard: 'Browse catalog and place orders — stock quantities stay hidden',
+  standard: 'Browse products and place orders — stock quantities stay hidden',
   director: 'Company director access — see warehouse stock levels across the catalog',
 };
 
@@ -33,7 +33,7 @@ export const DEALER_PERMISSION_GROUPS: Array<{
 }> = [
   {
     id: 'catalog',
-    label: 'Catalog visibility',
+    label: 'Product visibility',
     permissions: ['catalog.stock_view', 'catalog.warehouse_view'],
   },
 ];

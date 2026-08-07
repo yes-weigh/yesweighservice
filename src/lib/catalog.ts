@@ -708,7 +708,7 @@ function catalogErrorMessage(err: unknown): string {
     const message = 'message' in err ? String((err as { message: string }).message).trim() : '';
 
     if (code === 'functions/deadline-exceeded' || message.includes('deadline-exceeded')) {
-      return 'Catalog sync timed out. Deploy the latest functions and try again — sync should finish in under a minute.';
+      return 'Product sync timed out. Deploy the latest functions and try again — sync should finish in under a minute.';
     }
 
     if (
@@ -1965,7 +1965,7 @@ export async function updateCatalogProductOverlays(
   }
 }
 
-/** Super admin — hide or unhide a product from dealer/public catalogue browse. */
+/** Super admin — hide or unhide a product from dealer/public products browse browse. */
 export async function setCatalogProductHidden(
   productId: string,
   hidden: boolean,

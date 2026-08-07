@@ -16,7 +16,7 @@ export const OpenCatalogPage: React.FC = () => {
       const data = await fetchCatalog();
       setCatalog(data);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Unable to load catalog.');
+      setError(err instanceof Error ? err.message : 'Unable to load products.');
     } finally {
       setLoading(false);
     }
@@ -42,7 +42,7 @@ export const OpenCatalogPage: React.FC = () => {
       <div className="open-catalog-page">
         <div className="panel glass products-error">
           <AlertCircle size={36} />
-          <h2>Catalog unavailable</h2>
+          <h2>Products unavailable</h2>
           <p className="text-muted">{error}</p>
           <button type="button" className="btn btn-primary mt-4" onClick={() => void load()}>
             Try again
@@ -59,7 +59,7 @@ export const OpenCatalogPage: React.FC = () => {
         products={excludeHiddenCatalogProducts(catalog?.items ?? [], catalog?.categories ?? [])}
         categories={(catalog?.categories ?? []).filter(c => !isHiddenCatalogCategory(c))}
         isLoading={loading}
-        title="Product Catalog"
+        title="Products"
         subtitle={
           catalog?.syncedAt
             ? `Updated ${new Date(catalog.syncedAt).toLocaleString('en-IN')}`

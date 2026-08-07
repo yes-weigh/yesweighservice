@@ -58,7 +58,7 @@ export const AdminInvoiceSyncPage: React.FC = () => {
       <InvoiceCsvUpsertPanel />
 
       <div className="panel glass">
-        <h2 className="mb-4">Classify from catalog</h2>
+        <h2 className="mb-4">Classify from products</h2>
         <p className="text-muted mb-4">
           Sets each invoice category from its highest-value line item’s product id → catalog
           HSN/category. Firestore only — no Zoho API calls.
@@ -83,7 +83,7 @@ export const AdminInvoiceSyncPage: React.FC = () => {
           onClick={() => { void handleCategoryBackfill(); }}
         >
           <Tags size={16} />
-          {busy ? 'Classifying…' : 'Classify from catalog'}
+          {busy ? 'Classifying…' : 'Classify from products'}
         </button>
       </div>
     </div>

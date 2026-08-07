@@ -216,7 +216,7 @@ export function resolveCatalogBack(
   isPublic = false,
 ): { path: string; state: CatalogNavState | null; label: string } {
   if (isPublic) {
-    return { path: '/oc', state: null, label: 'Back to catalog' };
+    return { path: '/oc', state: null, label: 'Back to products' };
   }
 
   if (navState?.backTo) {
@@ -325,7 +325,7 @@ export function resolveCatalogBack(
     return {
       path: `${catalogBase}?category=${encodeURIComponent(navState.returnCategoryId)}`,
       state: null,
-      label: 'Back to catalog',
+      label: 'Back to products',
     };
   }
 
@@ -333,11 +333,11 @@ export function resolveCatalogBack(
     return {
       path: catalogSearchPath(catalogBase, navState?.searchQuery),
       state: null,
-      label: 'Back to catalog',
+      label: 'Back to products',
     };
   }
 
-  return { path: catalogBase, state: null, label: 'Back to catalog' };
+  return { path: catalogBase, state: null, label: 'Back to products' };
 }
 
 function backLabelForPath(path: string, _catalogBase: string, itemKind: 'product' | 'spare'): string {
@@ -346,7 +346,7 @@ function backLabelForPath(path: string, _catalogBase: string, itemKind: 'product
   if (path.includes('section=unlinked')) return 'Back to unlinked spares';
   if (path.includes('section=spares')) return 'Back to spare parts';
   if (itemKind === 'spare') return 'Back to product';
-  return 'Back to catalog';
+  return 'Back to products';
 }
 
 export function catalogOriginFromReturnView(returnView?: string): CatalogNavOrigin {

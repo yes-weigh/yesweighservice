@@ -86,9 +86,9 @@ export const STAFF_PERMISSION_LABELS: Record<StaffPermission, string> = {
   'support.complaint': 'Complaint tickets',
   'orders.view': 'View orders',
   'orders.manage': 'Manage orders',
-  'catalog.view': 'Browse catalog',
-  'catalog.manage': 'Edit catalog & spares',
-  'catalog.sync': 'Sync catalog from Zoho',
+  'catalog.view': 'Browse products',
+  'catalog.manage': 'Edit products & spares',
+  'catalog.sync': 'Sync products from Zoho',
   'staff.manage': 'Manage staff roles',
   'hr.view': 'View HR staff directory',
   'hr.manage': 'Manage HR staff & documents',
@@ -134,7 +134,7 @@ export const STAFF_PERMISSION_GROUPS: Array<{
   },
   {
     id: 'catalog',
-    label: 'Catalog',
+    label: 'Products',
     permissions: ['catalog.view', 'catalog.manage', 'catalog.sync'],
   },
   {

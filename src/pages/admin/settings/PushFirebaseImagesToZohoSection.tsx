@@ -61,7 +61,7 @@ export const PushFirebaseImagesToZohoSection: React.FC = () => {
     try {
       products = await listCatalogProductsWithFirebaseImages();
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Could not load catalog products.');
+      setError(err instanceof Error ? err.message : 'Could not load products products.');
       setStatusLine('');
       setLoadingList(false);
       return;
@@ -79,7 +79,7 @@ export const PushFirebaseImagesToZohoSection: React.FC = () => {
         `This will check ${products.length} product${products.length === 1 ? '' : 's'} `
         + `that have images in Firebase, and upload any images missing from Zoho.\n\n`
         + `Runs slowly to respect Zoho rate limits. You can stop mid-run and resume later.\n\n`
-        + `When finished, run Catalog Sync so Firebase matches Zoho again.`,
+        + `When finished, run Product Sync so Firebase matches Zoho again.`,
       confirmLabel: `Start (${products.length})`,
       destructive: false,
     });
@@ -163,7 +163,7 @@ export const PushFirebaseImagesToZohoSection: React.FC = () => {
       setStatusLine(
         `Done. Checked ${nextSummary.processed} product${nextSummary.processed === 1 ? '' : 's'}; `
         + `uploaded ${nextSummary.uploadedImages} image${nextSummary.uploadedImages === 1 ? '' : 's'}. `
-        + `Run Catalog Sync when ready.`,
+        + `Run Product Sync when ready.`,
       );
     }
   }, [confirm]);
@@ -175,7 +175,7 @@ export const PushFirebaseImagesToZohoSection: React.FC = () => {
       <h4 className="settings-product-qty__title">Push Firebase images to Zoho</h4>
       <p className="settings-product-qty__hint text-muted text-sm">
         Iterates every catalog product that has images in Firebase, compares each to Zoho,
-        and uploads only the images Zoho is missing. After it finishes, run Catalog Sync.
+        and uploads only the images Zoho is missing. After it finishes, run Product Sync.
       </p>
 
       {error && <p className="settings-locations__error text-sm">{error}</p>}

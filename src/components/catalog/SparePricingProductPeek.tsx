@@ -19,7 +19,7 @@ import { StockBadge, StockQuantity } from './StockBadge';
 type Props = {
   product: CatalogProduct;
   onClose: () => void;
-  /** Called after the product is hidden from the catalogue. */
+  /** Called after the product is hidden from products. */
   onHidden: (productId: string) => void;
 };
 
@@ -154,9 +154,9 @@ export const SparePricingProductPeek: React.FC<Props> = ({
   const handleHide = async () => {
     if (hiding) return;
     const ok = await confirm({
-      title: 'Hide from catalogue?',
-      message: `“${display.name}” will no longer appear in the dealer/public catalogue or spare pricing. The item stays active in Zoho.`,
-      confirmLabel: 'Hide from catalogue',
+      title: 'Hide from products?',
+      message: `“${display.name}” will no longer appear in the dealer/public products browse or spare pricing. The item stays active in Zoho.`,
+      confirmLabel: 'Hide from products',
       destructive: true,
     });
     if (!ok) return;
@@ -168,7 +168,7 @@ export const SparePricingProductPeek: React.FC<Props> = ({
       onHidden(product.id);
       onClose();
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Could not hide from catalogue.');
+      setError(err instanceof Error ? err.message : 'Could not hide from products.');
     } finally {
       setHiding(false);
     }
@@ -333,7 +333,7 @@ export const SparePricingProductPeek: React.FC<Props> = ({
             {hiding
               ? <Loader2 size={16} className="spin-icon" aria-hidden />
               : <EyeOff size={16} aria-hidden />}
-            {hiding ? 'Hiding…' : 'Hide from catalogue'}
+            {hiding ? 'Hiding…' : 'Hide from products'}
           </button>
         </div>
       </div>

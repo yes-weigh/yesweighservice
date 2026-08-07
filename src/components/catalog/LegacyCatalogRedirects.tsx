@@ -1,25 +1,57 @@
 import { Navigate, useLocation, useParams } from 'react-router-dom';
 
-/** Redirect /role/products/:id → /role/catalog/:id */
-export function LegacyProductDetailRedirect() {
-  const { productId } = useParams<{ productId: string }>();
-  const { pathname } = useLocation();
-  const catalogPath = pathname.replace(/\/products\/[^/]+$/, `/catalog/${productId ?? ''}`);
-  return <Navigate to={catalogPath} replace />;
+/** Redirect legacy /role/catalog… → /role/products… (path + query). */
+export function LegacyCatalogRootRedirect() {
+  const { pathname, search } = useLocation();
+  const next = pathname.replace(/\/catalog(\/|$)/, '/products$1');
+  return <Navigate to={`${next}${search}`} replace />;
 }
 
-/** Redirect /role/spares/:id → /role/catalog/spare/:id */
+/** Redirect /role/catalog/:id → /role/products/:id */
+export function LegacyCatalogProductDetailRedirect() {
+  const { productId } = useParams<{ productId: string }>();
+  const { pathname } = useLocation();
+  const productsPath = pathname.replace(/\/catalog\/[^/]+$/, `/products/${productId ?? ''}`);
+  return <Navigate to={productsPath} replace />;
+}
+
+/** Redirect /role/catalog/spare/:id → /role/products/spare/:id */
+export function LegacyCatalogSpareDetailRedirect() {
+  const { productId } = useParams<{ productId: string }>();
+  const { pathname } = useLocation();
+  const productsPath = pathname.replace(
+    /\/catalog\/spare\/[^/]+$/,
+    `/products/spare/${productId ?? ''}`,
+  );
+  return <Navigate to={productsPath} replace />;
+}
+
+/** Redirect /role/catalog/map/:id → /role/products/map/:id */
+export function LegacyCatalogMapRedirect() {
+  const { productId } = useParams<{ productId: string }>();
+  const { pathname } = useLocation();
+  const productsPath = pathname.replace(
+    /\/catalog\/map\/[^/]+$/,
+    `/products/map/${productId ?? ''}`,
+  );
+  return <Navigate to={productsPath} replace />;
+}
+
+/** Redirect /role/spares/:id → /role/products/spare/:id */
 export function LegacySpareDetailRedirect() {
   const { productId } = useParams<{ productId: string }>();
   const { pathname } = useLocation();
-  const catalogPath = pathname.replace(/\/spares\/[^/]+$/, `/catalog/spare/${productId ?? ''}`);
-  return <Navigate to={catalogPath} replace />;
+  const productsPath = pathname.replace(/\/spares\/[^/]+$/, `/products/spare/${productId ?? ''}`);
+  return <Navigate to={productsPath} replace />;
 }
 
-/** Redirect /role/spares/product/:id → /role/catalog/map/:id */
+/** Redirect /role/spares/product/:id → /role/products/map/:id */
 export function LegacySpareMapRedirect() {
   const { productId } = useParams<{ productId: string }>();
   const { pathname } = useLocation();
-  const catalogPath = pathname.replace(/\/spares\/product\/[^/]+$/, `/catalog/map/${productId ?? ''}`);
-  return <Navigate to={catalogPath} replace />;
+  const productsPath = pathname.replace(
+    /\/spares\/product\/[^/]+$/,
+    `/products/map/${productId ?? ''}`,
+  );
+  return <Navigate to={productsPath} replace />;
 }

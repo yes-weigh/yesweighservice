@@ -31,11 +31,14 @@ type Props = {
     updates: Array<{ productId: string; rate: number }>,
     dealerProfitPercent: number,
   ) => void;
-  /** Local level discount/hike on New sell. Not Firestore until main Save. */
+  /**
+   * Writes Spare parts category % on each price level immediately
+   * (preserves Custom ₹ / item overrides). Also updates New sell locally.
+   */
   onLevelsApplied?: (
     adjusts: SpareLevelPriceAdjust[],
     dealerProfitPercent: number,
-  ) => void;
+  ) => void | Promise<void>;
 };
 
 export const SparePricingLevelBulkPanel: React.FC<Props> = ({
@@ -82,10 +85,23 @@ export const SparePricingLevelBulkPanel: React.FC<Props> = ({
             next[level.id] = { levelId: level.id, mode: 'discount', percent: 0 };
             continue;
           }
-          const existing = byId.get(level.id);
-          next[level.id] = existing
-            ? { levelId: level.id, mode: existing.mode, percent: existing.percent }
-            : { levelId: level.id, mode: null, percent: null };
+          const seeded = byId.get(level.id);
+          const rule = getSpareCategoryRule(level);
+          if (seeded) {
+            next[level.id] = {
+              levelId: level.id,
+              mode: seeded.mode,
+              percent: seeded.percent,
+            };
+          } else if (rule && rule.percent > 0) {
+            next[level.id] = {
+              levelId: level.id,
+              mode: rule.mode,
+              percent: rule.percent,
+            };
+          } else {
+            next[level.id] = { levelId: level.id, mode: null, percent: null };
+          }
         }
         setDrafts(next);
       })
@@ -173,8 +189,8 @@ export const SparePricingLevelBulkPanel: React.FC<Props> = ({
   const handleApplyLevels = () => {
     if (dealerProfitPercent == null || !eligibleRows.length) return;
     applyDealerPricesLocally();
-    onLevelsApplied?.(activeAdjusts, dealerProfitPercent);
-    onClose();
+    void Promise.resolve(onLevelsApplied?.(activeAdjusts, dealerProfitPercent))
+      .finally(() => onClose());
   };
 
   if (!open) return null;
@@ -207,7 +223,7 @@ export const SparePricingLevelBulkPanel: React.FC<Props> = ({
                 {skippedZeroPurchase > 0
                   ? ` · ${skippedZeroPurchase} with purchase 0 skipped`
                   : ''}
-                . Nothing is saved until toolbar Save.
+                . Level % saves to Dealers → Price level; New sell waits for toolbar Save.
               </p>
             </div>
           </div>
@@ -393,8 +409,9 @@ export const SparePricingLevelBulkPanel: React.FC<Props> = ({
           )}
 
           <p className="spare-pricing-levels__hint">
-            Discount / hike is on New sell. Settings persist; editing New sell in the table
-            re-applies these levels on toolbar Save for updated rows.
+            Discount / hike writes the Spare parts category % on each price level.
+            Custom ₹ and other item overrides are kept. New sell list rates still need
+            toolbar Save.
           </p>
 
           {error ? (

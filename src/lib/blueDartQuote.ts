@@ -54,6 +54,12 @@ export type BlueDartQuoteBreakdown = {
   actualKg: number;
   volumetricKg: number;
   chargeableKg: number;
+  /** Zone ₹/kg for Air/Surface; null for Domestic Priority (500 g slabs). */
+  perKgInr: number | null;
+  /** Domestic Priority: first 500 g slab ₹ (null for Air/Surface). */
+  first500gInr: number | null;
+  /** Domestic Priority: each addl 500 g ₹ (null for Air/Surface). */
+  addl500gInr: number | null;
   baseFreightInr: number;
   docketFeeInr: number;
   pssInr: number;
@@ -75,6 +81,131 @@ export type BlueDartQuoteBreakdown = {
   notServiceable: boolean;
   notServiceableReason: string | null;
 };
+
+/** Ordered charge lines for SO freight calc UI (mirrors Settings stack). */
+export type BlueDartFreightCalcStep = {
+  label: string;
+  /** Short hint under the label (e.g. Docket → “flat · inside FS base”). */
+  detail?: string;
+  amountInr: number;
+};
+
+/**
+ * Build the visible charge stack for an SO freight card.
+ * Surface order matches Settings → “How Surface adds up”
+ * (Basic → Festival → Docket/FOV inside FS base → Diesel FS → EFSS → VAS).
+ *
+ * Docket / FOV / ECC / EDL are once per shipment — only included when
+ * `includeShipmentFees` is true (primary line). OS/OW uses per-box total via
+ * `oversizeInrOverride` (not scaled by kg share).
+ */
+export function blueDartFreightCalcSteps(
+  q: BlueDartQuoteBreakdown,
+  options?: {
+    chargeableKgOverride?: number;
+    amountScale?: number;
+    /** When false, omit Docket / FOV / ECC / EDL (already shown on another line). */
+    includeShipmentFees?: boolean;
+    /** Sum of OS/OW for this line’s boxes; when set, replaces scaled shipment oversize. */
+    oversizeInrOverride?: number;
+  },
+): BlueDartFreightCalcStep[] {
+  const scale = options?.amountScale != null && Number.isFinite(options.amountScale)
+    ? Math.max(0, options.amountScale)
+    : 1;
+  const kg = options?.chargeableKgOverride != null && options.chargeableKgOverride > 0
+    ? options.chargeableKgOverride
+    : q.chargeableKg;
+  const includeShipmentFees = options?.includeShipmentFees !== false;
+  const steps: BlueDartFreightCalcStep[] = [];
+  const pushScaled = (label: string, amountInr: number, detail?: string) => {
+    const scaled = Math.round(amountInr * scale * 100) / 100;
+    if (scaled > 0) steps.push({ label, detail, amountInr: scaled });
+  };
+  const pushFlat = (label: string, amountInr: number, detail?: string) => {
+    const n = Math.round(amountInr * 100) / 100;
+    if (n > 0) steps.push({ label, detail, amountInr: n });
+  };
+
+  if (q.service === 'surface') {
+    if (q.perKgInr != null && q.perKgInr > 0 && kg > 0) {
+      pushFlat('Basic freight', q.perKgInr * kg, `₹${q.perKgInr}/kg × ${kg} kg`);
+    } else {
+      pushScaled('Basic freight', q.baseFreightInr);
+    }
+    pushScaled('+ Festival', q.festivalSurchargeInr, 'of basic');
+    if (includeShipmentFees) {
+      pushFlat('+ Docket', q.docketFeeInr, 'flat · once per shipment · inside FS base');
+      pushFlat('+ FOV', q.fovInr, 'flat · once per shipment · inside FS base');
+    }
+    pushScaled('+ Diesel FS', q.fuelSurchargeInr, 'of Subtotal A (basic + festival + docket + FOV)');
+    pushScaled('+ EFSS', q.efssInr, 'of Subtotal B');
+    if (options?.oversizeInrOverride != null) {
+      pushFlat('+ OS/OW', options.oversizeInrOverride, 'per box · after % stack');
+    } else {
+      pushScaled('+ OS/OW', q.oversizeInr, 'per box · after % stack');
+    }
+    pushScaled('+ RAS', q.rasInr, '₹/kg · after % stack');
+    if (includeShipmentFees) {
+      pushFlat('+ ECC', q.eccInr, 'flat · once per shipment');
+      pushFlat('+ EDL', q.edlInr, 'flat · once per shipment');
+    }
+    pushScaled('+ GST', q.gstInr);
+    return steps;
+  }
+
+  if (q.service === 'domestic_priority') {
+    pushScaled('Basic (500 g slabs)', q.baseFreightInr);
+  } else if (q.perKgInr != null && q.perKgInr > 0 && kg > 0) {
+    pushFlat('Basic freight', q.perKgInr * kg, `₹${q.perKgInr}/kg × ${kg} kg`);
+  } else {
+    pushScaled('Basic freight', q.baseFreightInr);
+  }
+  pushScaled('+ PSS', q.pssInr, 'of basic');
+  pushScaled('+ IDC', q.idcInr, 'of basic');
+  pushScaled('+ Fuel surcharge', q.fuelSurchargeInr);
+  pushScaled('+ CAF', q.cafInr);
+  pushScaled('+ EFSS', q.efssInr);
+  if (includeShipmentFees) {
+    pushFlat('+ Docket', q.docketFeeInr, 'flat · once per shipment');
+    pushFlat('+ FOV', q.fovInr, 'flat · once per shipment');
+    pushFlat('+ EDL', q.edlInr, 'flat · once per shipment');
+  }
+  pushScaled('+ RAS', q.rasInr);
+  pushScaled('+ GST', q.gstInr);
+  return steps;
+}
+
+/** Piece chargeable kg for OS/OW (no consignment minimum). */
+export function blueDartPieceChargeableKg(
+  actualKg: number,
+  dims: BlueDartQuoteDims,
+  volumetricDivisor: number,
+): number {
+  const actual = nonNeg(actualKg);
+  const vol = blueDartVolumetricKg(dims, volumetricDivisor);
+  return ceilChargeableKg(Math.max(actual, vol));
+}
+
+/** Sum Surface OS/OW across boxes (each box looked up on its own chargeable kg). */
+export function blueDartParcelsOversizeInr(
+  slabs: BlueDartConfig['surface']['oversizeSlabs'],
+  parcels: Array<{ actualKg: number; dims: BlueDartQuoteDims }>,
+  volumetricDivisor: number,
+): number {
+  let total = 0;
+  for (const parcel of parcels) {
+    const pieceKg = blueDartPieceChargeableKg(
+      parcel.actualKg,
+      parcel.dims,
+      volumetricDivisor,
+    );
+    if (pieceKg > 0) {
+      total += resolveBlueDartOversizeAmountInr(slabs, pieceKg);
+    }
+  }
+  return total;
+}
 
 function nonNeg(value: unknown, fallback = 0): number {
   if (typeof value !== 'number' || !Number.isFinite(value) || value < 0) return fallback;
@@ -273,6 +404,11 @@ function quoteKgService(input: {
   edlKm: number | null | undefined;
   /** Quote “as of” date — Surface festival season uses this month. */
   at?: Date;
+  /**
+   * Surface OS/OW total. When set (multi-box), use this instead of looking up
+   * slabs on the combined shipment chargeable kg.
+   */
+  oversizeInr?: number;
 }): Omit<BlueDartQuoteBreakdown, 'service' | 'sku' | 'zoneLabel' | 'actualKg' | 'volumetricKg' | 'notServiceable' | 'notServiceableReason'> {
   const rates: BlueDartKgServiceRates = input.config[input.service];
   const perKg = nonNeg(rates.perKgInr[input.zone]);
@@ -292,10 +428,12 @@ function quoteKgService(input: {
     ? 0
     : base * (nonNeg(rates.idcPercent) / 100);
   const oversize = input.service === 'surface'
-    ? resolveBlueDartOversizeAmountInr(
-      input.config.surface.oversizeSlabs,
-      input.chargeableKg,
-    )
+    ? (input.oversizeInr != null
+      ? nonNeg(input.oversizeInr)
+      : resolveBlueDartOversizeAmountInr(
+        input.config.surface.oversizeSlabs,
+        input.chargeableKg,
+      ))
     : 0;
   const fov = fovInr(input.config.shared, rates.fov, input.invoiceValueInr);
   const rasRate = rates.rasPerKgInr != null
@@ -348,6 +486,9 @@ function quoteKgService(input: {
   const total = ceilCourierChargeInr(subtotal);
   return {
     chargeableKg: input.chargeableKg,
+    perKgInr: perKg,
+    first500gInr: null,
+    addl500gInr: null,
     baseFreightInr: base,
     docketFeeInr: docket,
     pssInr: pss,
@@ -397,6 +538,9 @@ function quoteDomesticPriority(input: {
   const subtotal = afterCaf + efss;
   return {
     chargeableKg: input.chargeableKg,
+    perKgInr: null,
+    first500gInr: first,
+    addl500gInr: addl,
     baseFreightInr: base,
     docketFeeInr: 0,
     pssInr: pss,
@@ -440,6 +584,9 @@ export function quoteBlueDartShipment(input: {
     actualKg: nonNeg(input.actualKg),
     volumetricKg: 0,
     chargeableKg: 0,
+    perKgInr: null,
+    first500gInr: null,
+    addl500gInr: null,
     baseFreightInr: 0,
     docketFeeInr: 0,
     pssInr: 0,
@@ -514,6 +661,13 @@ export function quoteBlueDartShipment(input: {
     volumetricDivisor: rates.volumetricDivisor,
     minimumChargeableWeightKg: rates.minimumChargeableWeightKg,
   });
+  /** OS/OW is per box — use piece kg (no consignment minimum). */
+  const oversizeInr = input.service === 'surface'
+    ? resolveBlueDartOversizeAmountInr(
+      input.config.surface.oversizeSlabs,
+      blueDartPieceChargeableKg(input.actualKg, input.dims, rates.volumetricDivisor),
+    )
+    : undefined;
   const q = quoteKgService({
     service: input.service,
     config: input.config,
@@ -523,6 +677,7 @@ export function quoteBlueDartShipment(input: {
     destState: input.destState,
     isEdl: access.isEdl,
     edlKm: input.pin?.edlKm ?? null,
+    oversizeInr,
   });
   return {
     service: input.service,
@@ -536,7 +691,12 @@ export function quoteBlueDartShipment(input: {
   };
 }
 
-/** Sum parcel quotes for multi-parcel shipments (one AWB — docket/FOV/EDL once). */
+/**
+ * Multi-box shipment on one AWB:
+ * - Docket / FOV / ECC / EDL once per shipment
+ * - Chargeable kg = sum of per-box max(actual, volumetric), then consignment minimum
+ * - Surface OS/OW summed per box (each box’s own chargeable kg)
+ */
 export function quoteBlueDartParcels(input: {
   config: BlueDartConfig;
   service: BlueDartServiceId;
@@ -553,38 +713,143 @@ export function quoteBlueDartParcels(input: {
     });
   }
 
-  // Combine into one shipment weight (sum actual; max volumetric envelope approx via sum of vols).
-  let actualKg = 0;
-  let maxL = 0;
-  let maxW = 0;
-  let sumH = 0;
-  for (const p of input.parcels) {
-    actualKg += nonNeg(p.actualKg);
-    maxL = Math.max(maxL, nonNeg(p.dims.lengthCm));
-    maxW = Math.max(maxW, nonNeg(p.dims.widthCm));
-    sumH += nonNeg(p.dims.heightCm);
+  if (input.parcels.length === 1) {
+    const only = input.parcels[0]!;
+    return quoteBlueDartShipment({
+      config: input.config,
+      service: input.service,
+      destState: input.destState,
+      pin: input.pin,
+      actualKg: only.actualKg,
+      dims: only.dims,
+      invoiceValueInr: input.invoiceValueInr,
+    });
   }
 
-  // Prefer summing volumetric kg via a synthetic dims that preserves total volume.
-  const totalVolume = input.parcels.reduce((acc, p) => {
-    const l = nonNeg(p.dims.lengthCm);
-    const w = nonNeg(p.dims.widthCm);
-    const h = nonNeg(p.dims.heightCm);
-    return acc + l * w * h;
-  }, 0);
-  const side = totalVolume > 0 ? Math.cbrt(totalVolume) : 0;
-
-  return quoteBlueDartShipment({
-    config: input.config,
+  const meta = BLUE_DART_SERVICE_META[input.service];
+  const access = blueDartServiceAllowed({
     service: input.service,
-    destState: input.destState,
     pin: input.pin,
-    actualKg,
-    dims: side > 0
-      ? { lengthCm: side, widthCm: side, heightCm: side }
-      : { lengthCm: maxL, widthCm: maxW, heightCm: sumH },
-    invoiceValueInr: input.invoiceValueInr,
+    hideTemPer: input.config.shared.hideTemPer,
   });
+  const empty = (extra: Partial<BlueDartQuoteBreakdown>): BlueDartQuoteBreakdown => ({
+    service: input.service,
+    sku: meta.sku,
+    zoneLabel: '—',
+    actualKg: 0,
+    volumetricKg: 0,
+    chargeableKg: 0,
+    perKgInr: null,
+    first500gInr: null,
+    addl500gInr: null,
+    baseFreightInr: 0,
+    docketFeeInr: 0,
+    pssInr: 0,
+    festivalSurchargeInr: 0,
+    oversizeInr: 0,
+    idcInr: 0,
+    fuelSurchargeInr: 0,
+    cafInr: 0,
+    efssInr: 0,
+    rasInr: 0,
+    fovInr: 0,
+    eccInr: 0,
+    edlInr: 0,
+    subtotalExGstInr: 0,
+    gstInr: 0,
+    totalInr: 0,
+    rateMissing: true,
+    notServiceable: !access.allowed,
+    notServiceableReason: access.reason,
+    ...extra,
+  });
+
+  if (!access.allowed) return empty({});
+
+  const divisor = input.service === 'domestic_priority'
+    ? input.config.domestic_priority.volumetricDivisor
+    : input.config[input.service].volumetricDivisor;
+  const minKg = input.service === 'domestic_priority'
+    ? 0.5
+    : nonNeg(input.config[input.service].minimumChargeableWeightKg);
+
+  let actualKg = 0;
+  let volumetricKg = 0;
+  let pieceChargeableKg = 0;
+  for (const parcel of input.parcels) {
+    actualKg += nonNeg(parcel.actualKg);
+    volumetricKg += blueDartVolumetricKg(parcel.dims, divisor);
+    pieceChargeableKg += blueDartPieceChargeableKg(
+      parcel.actualKg,
+      parcel.dims,
+      divisor,
+    );
+  }
+  const chargeableKg = ceilChargeableKg(
+    Math.max(pieceChargeableKg, minKg > 0 ? minKg : 0),
+  );
+
+  const oversizeInr = input.service === 'surface'
+    ? blueDartParcelsOversizeInr(
+      input.config.surface.oversizeSlabs,
+      input.parcels,
+      divisor,
+    )
+    : 0;
+
+  if (input.service === 'domestic_priority') {
+    const zone = resolveBlueDartDpZone({
+      destState: input.destState,
+      pin: input.pin,
+    });
+    if (!zone) {
+      return empty({ notServiceable: true, notServiceableReason: 'Cannot resolve DP zone' });
+    }
+    const q = quoteDomesticPriority({
+      config: input.config,
+      zone,
+      chargeableKg,
+    });
+    return {
+      service: input.service,
+      sku: meta.sku,
+      zoneLabel: `DP ${zone}`,
+      actualKg,
+      volumetricKg,
+      notServiceable: false,
+      notServiceableReason: null,
+      ...q,
+    };
+  }
+
+  const zone = resolveBlueDartAirZone({
+    shared: input.config.shared,
+    destState: input.destState,
+  });
+  if (!zone) {
+    return empty({ notServiceable: true, notServiceableReason: 'Cannot resolve zone' });
+  }
+  const q = quoteKgService({
+    service: input.service,
+    config: input.config,
+    zone,
+    chargeableKg,
+    invoiceValueInr: nonNeg(input.invoiceValueInr),
+    destState: input.destState,
+    isEdl: access.isEdl,
+    edlKm: input.pin?.edlKm ?? null,
+    oversizeInr,
+  });
+  return {
+    service: input.service,
+    sku: meta.sku,
+    zoneLabel: `Zone ${zone}`,
+    actualKg,
+    volumetricKg,
+    notServiceable: false,
+    notServiceableReason: null,
+    ...q,
+  };
 }
 
 /** Settings “try a quote” preview — same Surface stack as live quotes. */
@@ -637,9 +902,15 @@ export function previewBlueDartSurfaceStack(input: {
   });
   const at = input.at ?? new Date();
   const festivalPct = blueDartSurfaceFestivalPercent(input.surface, at);
+  /** Settings preview is one box — OS/OW on piece kg (no consignment min). */
+  const pieceKg = blueDartPieceChargeableKg(
+    input.actualKg,
+    dims,
+    input.surface.volumetricDivisor,
+  );
   const oversizeAmountInr = resolveBlueDartOversizeAmountInr(
     input.surface.oversizeSlabs,
-    chargeableKg,
+    pieceKg,
   );
   const dieselEffectivePct = blueDartSurfaceEffectiveDieselFsPercent(input.surface);
   const config = {
@@ -669,6 +940,7 @@ export function previewBlueDartSurfaceStack(input: {
     isEdl: input.isEdl,
     edlKm: input.edlKm ?? null,
     at,
+    oversizeInr: oversizeAmountInr,
   });
   const subtotalAInr = q.baseFreightInr
     + q.festivalSurchargeInr
