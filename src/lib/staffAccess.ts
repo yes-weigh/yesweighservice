@@ -12,6 +12,7 @@ import {
   type StaffDepartment,
   type StaffPermission,
 } from '../types/staff-access';
+import { SYSTEM_STAFF_ROLE_IDS } from '../types/staff-role';
 
 /** Staff permissions that imply mutation / sync (denied for view-only super admins). */
 const SUPER_ADMIN_WRITE_PERMISSIONS = new Set<StaffPermission>([
@@ -81,6 +82,14 @@ export function resolveStaffPermissions(user: User | null | undefined): StaffPer
   if (user.role !== 'staff') return [];
 
   const profile = readStaffAccessProfile(user);
+  // Invoice access system role: always use the code template so existing users
+  // pick up logistics.view without needing a re-save in HR.
+  if (
+    profile.roleId === SYSTEM_STAFF_ROLE_IDS.invoiceAccess
+    && profile.accessMode !== 'custom'
+  ) {
+    return [...INVOICE_ACCESS_PERMISSIONS];
+  }
   if (
     (profile.accessMode === 'custom' || profile.accessMode === 'role')
     && profile.permissions.length > 0
@@ -267,7 +276,7 @@ const NAV_FEATURE_PERMISSIONS: Record<StaffNavFeature, StaffPermission[] | 'alwa
 
 const INVOICE_ACCESS_PERMISSION_SET = new Set<string>(INVOICE_ACCESS_PERMISSIONS);
 
-/** Staff whose resolved perms are only Invoice access (dashboard + invoices + profile). */
+/** Staff whose resolved perms are only Invoice access (dashboard + invoices + logistics + profile). */
 export function isInvoiceAccessOnlyStaff(user: User | null | undefined): boolean {
   if (!user || user.role !== 'staff') return false;
   const perms = resolveStaffPermissions(user);

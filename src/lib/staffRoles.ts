@@ -92,7 +92,7 @@ export function buildSystemStaffRoles(): StaffRoleTemplate[] {
       'Invoice access',
       'admin',
       [...INVOICE_ACCESS_PERMISSIONS],
-      'Dashboard, invoices, and profile only',
+      'Dashboard, invoices, logistics, and profile',
     ),
   ];
 }
@@ -112,9 +112,10 @@ export function legacyDepartmentToRoleId(department: StaffDepartment | undefined
 
 export async function ensureStaffRolesSeeded(): Promise<void> {
   const snap = await getDocs(collection(db, ROLES_COLLECTION));
+  const templates = buildSystemStaffRoles();
   if (snap.empty) {
     const batch = writeBatch(db);
-    for (const role of buildSystemStaffRoles()) {
+    for (const role of templates) {
       const { id, ...data } = role;
       batch.set(doc(db, ROLES_COLLECTION, id), data);
     }
@@ -124,14 +125,33 @@ export async function ensureStaffRolesSeeded(): Promise<void> {
 
   /** Backfill newly added system roles without overwriting customised ones. */
   const existing = new Set(snap.docs.map(d => d.id));
-  const missing = buildSystemStaffRoles().filter(role => !existing.has(role.id));
-  if (!missing.length) return;
-  const batch = writeBatch(db);
-  for (const role of missing) {
-    const { id, ...data } = role;
-    batch.set(doc(db, ROLES_COLLECTION, id), data);
+  const missing = templates.filter(role => !existing.has(role.id));
+  if (missing.length) {
+    const batch = writeBatch(db);
+    for (const role of missing) {
+      const { id, ...data } = role;
+      batch.set(doc(db, ROLES_COLLECTION, id), data);
+    }
+    await batch.commit();
   }
-  await batch.commit();
+
+  /** Keep Invoice access system role permissions/description aligned with code. */
+  const invoiceTemplate = templates.find(role => role.id === SYSTEM_STAFF_ROLE_IDS.invoiceAccess);
+  if (invoiceTemplate && existing.has(invoiceTemplate.id)) {
+    const current = snap.docs.find(d => d.id === invoiceTemplate.id)?.data() as StaffRoleDoc | undefined;
+    const nextPerms = [...invoiceTemplate.permissions].sort().join('|');
+    const curPerms = [...(current?.permissions ?? [])].sort().join('|');
+    if (
+      nextPerms !== curPerms
+      || (current?.description ?? '') !== invoiceTemplate.description
+    ) {
+      await updateDoc(doc(db, ROLES_COLLECTION, invoiceTemplate.id), {
+        permissions: invoiceTemplate.permissions,
+        description: invoiceTemplate.description,
+        updatedAt: new Date().toISOString(),
+      });
+    }
+  }
 }
 
 export async function fetchStaffRoles(seedIfEmpty = false): Promise<StaffRoleTemplate[]> {

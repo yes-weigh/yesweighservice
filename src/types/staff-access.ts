@@ -220,5 +220,8 @@ export const DEFAULT_STAFF_ACCESS: StaffAccessProfile = {
   teamId: null,
 };
 
-/** Permissions granted by the Invoice access system role (dashboard + invoices + profile). */
-export const INVOICE_ACCESS_PERMISSIONS: StaffPermission[] = ['invoices.view'];
+/** Permissions granted by the Invoice access system role (dashboard + invoices + logistics + profile). */
+export const INVOICE_ACCESS_PERMISSIONS: StaffPermission[] = [
+  'invoices.view',
+  'logistics.view',
+];
