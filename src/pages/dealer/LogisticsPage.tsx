@@ -19,6 +19,7 @@ import {
 } from 'lucide-react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
+import { useConfirm } from '../../context/ConfirmContext';
 import {
   useCatalogPageHeader,
   usePageHeaderSlot,
@@ -206,6 +207,7 @@ function showsRoute(status: LogisticsBookingStatus): boolean {
 
 export const LogisticsPage: React.FC = () => {
   const { user } = useAuth();
+  const confirm = useConfirm();
   const location = useLocation();
   const navigate = useNavigate();
   const [flowStep, setFlowStep] = useState<FlowStep>('closed');
@@ -227,7 +229,6 @@ export const LogisticsPage: React.FC = () => {
   const [filtersOpen, setFiltersOpen] = useState(false);
   const [statusFilter, setStatusFilter] = useState<LogisticsBookingStatus | ''>('');
   const [dateRange, setDateRange] = useState(defaultDateRange);
-  /** Super-admin wipe mode — off by default; only meaningful for super_admin. */
   const [page, setPage] = useState(1);
 
   const isMobile = useIsMobile();
@@ -436,9 +437,18 @@ export const LogisticsPage: React.FC = () => {
 
   const handleDelete = useCallback(async (bookingId: string) => {
     if (!user) return;
-    const ok = window.confirm(
-      'Permanently delete this logistics booking from Firestore? Photos will be removed too. This cannot be undone.',
-    );
+    const booking = bookings.find(item => item.id === bookingId);
+    const label = booking?.consignmentNo?.trim()
+      || booking?.invoiceNumber?.trim()
+      || booking?.orderRef?.trim()
+      || 'this booking';
+    const ok = await confirm({
+      title: 'Delete logistics booking',
+      message: `Permanently delete ${label}? Photos will be removed too. This cannot be undone.`,
+      confirmLabel: 'Delete permanently',
+      cancelLabel: 'Cancel',
+      destructive: true,
+    });
     if (!ok) return;
     try {
       await deleteLogisticsBookingPermanently(bookingId, user);
@@ -448,7 +458,7 @@ export const LogisticsPage: React.FC = () => {
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Could not delete shipment.');
     }
-  }, [user]);
+  }, [user, bookings, confirm]);
 
   const openBooking = useCallback((booking: LogisticsBooking) => {
     if (isIncompleteLogisticsBooking(booking) || needsFinalPackagePhoto(booking)) {
