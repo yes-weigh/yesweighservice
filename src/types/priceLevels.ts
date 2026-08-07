@@ -1,5 +1,5 @@
 /**
- * Dealer price levels (Dealers → Price level setting).
+ * Dealer price levels (Products → Price level setting).
  * Stored at appSettings/priceLevels.
  *
  * Each level has:

@@ -10,6 +10,7 @@ import {
 import { db } from '../firebase';
 import {
   DEPARTMENT_DEFAULT_PERMISSIONS,
+  INVOICE_ACCESS_PERMISSIONS,
   type StaffDepartment,
   type StaffPermission,
 } from '../types/staff-access';
@@ -86,6 +87,13 @@ export function buildSystemStaffRoles(): StaffRoleTemplate[] {
       ],
       'HR directory, staff records, and dealer visibility',
     ),
+    mk(
+      SYSTEM_STAFF_ROLE_IDS.invoiceAccess,
+      'Invoice access',
+      'admin',
+      [...INVOICE_ACCESS_PERMISSIONS],
+      'Dashboard, invoices, and profile only',
+    ),
   ];
 }
 
@@ -104,10 +112,22 @@ export function legacyDepartmentToRoleId(department: StaffDepartment | undefined
 
 export async function ensureStaffRolesSeeded(): Promise<void> {
   const snap = await getDocs(collection(db, ROLES_COLLECTION));
-  if (!snap.empty) return;
+  if (snap.empty) {
+    const batch = writeBatch(db);
+    for (const role of buildSystemStaffRoles()) {
+      const { id, ...data } = role;
+      batch.set(doc(db, ROLES_COLLECTION, id), data);
+    }
+    await batch.commit();
+    return;
+  }
 
+  /** Backfill newly added system roles without overwriting customised ones. */
+  const existing = new Set(snap.docs.map(d => d.id));
+  const missing = buildSystemStaffRoles().filter(role => !existing.has(role.id));
+  if (!missing.length) return;
   const batch = writeBatch(db);
-  for (const role of buildSystemStaffRoles()) {
+  for (const role of missing) {
     const { id, ...data } = role;
     batch.set(doc(db, ROLES_COLLECTION, id), data);
   }

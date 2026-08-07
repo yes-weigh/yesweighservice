@@ -32,12 +32,12 @@ import {
 import { type AssignableStaffOption, type DealerListParams, type ZohoDealer } from '../../types/dealers';
 import { homePathForRole, type Role } from '../../types';
 import { hasStaffPermission } from '../../lib/staffAccess';
-import { PriceLevelSettingsTab } from '../admin/settings/PriceLevelSettingsTab';
+import { catalogBaseForRole } from '../../lib/catalogRoutes';
 
-type DealersMainTab = 'roster' | 'price-levels' | 'salespersons';
+type DealersMainTab = 'roster' | 'salespersons';
 
 function parseDealersTab(value: string | null): DealersMainTab {
-  if (value === 'price-levels' || value === 'salespersons') return value;
+  if (value === 'salespersons') return value;
   return 'roster';
 }
 
@@ -62,7 +62,8 @@ export function ZohoDealersPage() {
   const dealersBase = user ? dealersListBase(user.role) : '/staff/dealers';
   const canSyncDealers = hasStaffPermission(user, 'dealers.sync');
   const canEditDealers = hasStaffPermission(user, 'dealers.edit');
-  const mainTab = parseDealersTab(searchParams.get('tab'));
+  const tabParam = searchParams.get('tab');
+  const mainTab = parseDealersTab(tabParam);
   const setMainTab = (tab: DealersMainTab) => {
     if (tab === 'roster') {
       setSearchParams({}, { replace: true });
@@ -70,6 +71,13 @@ export function ZohoDealersPage() {
     }
     setSearchParams({ tab }, { replace: true });
   };
+
+  /** Price level moved to Products → Price level. */
+  useEffect(() => {
+    if (tabParam !== 'price-levels') return;
+    const base = user ? catalogBaseForRole(user.role) : '/super-admin/products';
+    navigate(`${base}?section=price-levels`, { replace: true });
+  }, [tabParam, user, navigate]);
 
   const [searchTerm, setSearchTerm] = useState('');
   const debouncedSearch = useDebounce(searchTerm, 500);
@@ -357,15 +365,6 @@ export function ZohoDealersPage() {
         <button
           type="button"
           role="tab"
-          className={`dealers-page-tabs__tab${mainTab === 'price-levels' ? ' dealers-page-tabs__tab--active' : ''}`}
-          aria-selected={mainTab === 'price-levels'}
-          onClick={() => setMainTab('price-levels')}
-        >
-          Price level
-        </button>
-        <button
-          type="button"
-          role="tab"
           className={`dealers-page-tabs__tab${mainTab === 'salespersons' ? ' dealers-page-tabs__tab--active' : ''}`}
           aria-selected={mainTab === 'salespersons'}
           onClick={() => setMainTab('salespersons')}
@@ -374,9 +373,7 @@ export function ZohoDealersPage() {
         </button>
       </div>
 
-      {mainTab === 'price-levels' ? (
-        <PriceLevelSettingsTab />
-      ) : mainTab === 'salespersons' ? (
+      {mainTab === 'salespersons' ? (
         <ZohoSalespersonsPanel />
       ) : (
       <>

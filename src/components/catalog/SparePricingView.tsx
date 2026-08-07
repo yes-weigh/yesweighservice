@@ -43,15 +43,20 @@ import { SparePricingFilterSheet } from './SparePricingFilterSheet';
 import { SparePricingLevelBulkPanel } from './SparePricingLevelBulkPanel';
 import { SparePricingProductPeek } from './SparePricingProductPeek';
 import {
-  applySpareCategoryPercentsToLevels,
+  applyCategoryPercentsToLevels,
+  categoryAdjustsFromLevels,
   dealerPriceFromLanding,
-  existingSpareLevelPricingForProduct,
+  existingCategoryLevelPricingForProduct,
   formatExistingSpareLevelMode,
-  spareCategoryAdjustsFromLevels,
   type ExistingSpareLevelPriceRow,
   type SpareLevelBulkRow,
   type SpareLevelPriceAdjust,
 } from '../../lib/sparePriceLevelBulk';
+import {
+  isSparePriceLevelCategoryId,
+  SPARE_PRICE_LEVEL_CATEGORY_ID,
+  SPARE_PRICE_LEVEL_CATEGORY_NAME,
+} from '../../lib/priceLevels';
 import {
   countSparePricingFilters,
   matchesSparePricingFilters,
@@ -94,12 +99,18 @@ function tipPositionFromTarget(target: HTMLElement, tipWidth = 280): { left: num
 }
 
 type Props = {
-  spares: CatalogProduct[];
+  /** Products in the open price-level category (spare pool or shop category). */
+  products?: CatalogProduct[];
+  /** @deprecated Use `products`. Kept for existing call sites. */
+  spares?: CatalogProduct[];
+  /** Category whose Level % / tips are scoped (defaults to Spare parts). */
+  priceLevelCategoryId?: string;
+  priceLevelCategoryName?: string;
   /** After Zoho rate push — update in-memory catalog rows. */
   onProductRatesSaved?: (updates: Array<{ productId: string; rate: number }>) => void;
   /** After hide-from-catalogue — drop row from in-memory catalog. */
   onProductHidden?: (productId: string) => void;
-  /** After spare category % is written to appSettings/priceLevels. */
+  /** After category % is written to appSettings/priceLevels. */
   onPriceLevelsChanged?: (levels: PriceLevel[]) => void;
 };
 
@@ -337,7 +348,10 @@ const PurchaseCostCell = React.memo(function PurchaseCostCell({
 });
 
 export const SparePricingView: React.FC<Props> = ({
+  products,
   spares,
+  priceLevelCategoryId = SPARE_PRICE_LEVEL_CATEGORY_ID,
+  priceLevelCategoryName = SPARE_PRICE_LEVEL_CATEGORY_NAME,
   onProductRatesSaved,
   onProductHidden,
   onPriceLevelsChanged,
@@ -350,10 +364,12 @@ export const SparePricingView: React.FC<Props> = ({
   const [priceLevels, setPriceLevels] = useState<PriceLevel[]>([]);
   const [newSellLevelTip, setNewSellLevelTip] = useState<NewSellLevelTip | null>(null);
   const [itemLevelTip, setItemLevelTip] = useState<ItemLevelTip | null>(null);
+  const productRows = products ?? spares;
+  const isSpareCategory = isSparePriceLevelCategoryId(priceLevelCategoryId);
 
   const rows = useMemo(
-    () => [...spares].sort(compareSpareRows),
-    [spares],
+    () => [...(productRows ?? [])].sort(compareSpareRows),
+    [productRows],
   );
 
   const [loading, setLoading] = useState(true);
@@ -631,8 +647,8 @@ export const SparePricingView: React.FC<Props> = ({
   }, [markDirty]);
 
   const liveLevelAdjusts = useMemo(
-    () => spareCategoryAdjustsFromLevels(priceLevels),
-    [priceLevels],
+    () => categoryAdjustsFromLevels(priceLevels, priceLevelCategoryId),
+    [priceLevels, priceLevelCategoryId],
   );
 
   const showNewSellLevelTip = useCallback((
@@ -663,9 +679,14 @@ export const SparePricingView: React.FC<Props> = ({
       ...pos,
       productName: product.name,
       listRate,
-      existingRows: existingSpareLevelPricingForProduct(priceLevels, product.id, listRate),
+      existingRows: existingCategoryLevelPricingForProduct(
+        priceLevels,
+        priceLevelCategoryId,
+        product.id,
+        listRate,
+      ),
     });
-  }, [priceLevels]);
+  }, [priceLevels, priceLevelCategoryId]);
 
   const hideItemLevelTip = useCallback(() => {
     setItemLevelTip(null);
@@ -781,14 +802,19 @@ export const SparePricingView: React.FC<Props> = ({
     patchDraft({ dealerProfitPercent, levelPriceAdjusts: [] });
     try {
       const docData = await loadPriceLevels();
-      const nextLevels = applySpareCategoryPercentsToLevels(docData.levels, adjusts);
+      const nextLevels = applyCategoryPercentsToLevels(
+        docData.levels,
+        priceLevelCategoryId,
+        priceLevelCategoryName,
+        adjusts,
+      );
       await savePriceLevels(nextLevels, userUid);
       setPriceLevels(nextLevels);
       onPriceLevelsChanged?.(nextLevels);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Could not save spare level %.');
+      setError(err instanceof Error ? err.message : 'Could not save level %.');
     }
-  }, [patchDraft, userUid, onPriceLevelsChanged]);
+  }, [patchDraft, userUid, onPriceLevelsChanged, priceLevelCategoryId, priceLevelCategoryName]);
 
   const handleNewProfitChange = useCallback((
     productId: string,
@@ -1133,7 +1159,7 @@ export const SparePricingView: React.FC<Props> = ({
                 value={searchQuery}
                 onChange={event => setSearchQuery(event.target.value)}
                 placeholder="Search SKU or name"
-                aria-label="Search spare pricing"
+                aria-label={isSpareCategory ? 'Search spare pricing' : 'Search product pricing'}
               />
               {searchQuery.trim() ? (
                 <button
@@ -1244,7 +1270,7 @@ export const SparePricingView: React.FC<Props> = ({
               onClick={() => setFilterOpen(open => !open)}
               aria-expanded={filterOpen}
               aria-haspopup="dialog"
-              aria-label="Open spare pricing filters"
+              aria-label={isSpareCategory ? 'Open spare pricing filters' : 'Open product pricing filters'}
               title="Filters"
             >
               <SlidersHorizontal size={18} strokeWidth={2.25} aria-hidden />
@@ -1331,14 +1357,20 @@ export const SparePricingView: React.FC<Props> = ({
 
       <div className="table-scroll-wrap">
         {totalCount === 0 ? (
-          <p className="text-muted text-center p-4">No spare parts found.</p>
+          <p className="text-muted text-center p-4">
+            {isSpareCategory ? 'No spare parts found.' : 'No products found.'}
+          </p>
         ) : showingCount === 0 ? (
           <p className="text-muted text-center p-4">
             {hasActiveTableFilters && !searchQuery.trim()
-              ? 'No spares match your filters.'
+              ? (isSpareCategory ? 'No spares match your filters.' : 'No products match your filters.')
               : hasActiveTableFilters
-                ? 'No spares match your search and filters.'
-                : 'No spares match your search.'}
+                ? (isSpareCategory
+                  ? 'No spares match your search and filters.'
+                  : 'No products match your search and filters.')
+                : (isSpareCategory
+                  ? 'No spares match your search.'
+                  : 'No products match your search.')}
           </p>
         ) : (
           <table className="data-table spare-pricing__table spare-pricing__table--body">
@@ -1521,6 +1553,8 @@ export const SparePricingView: React.FC<Props> = ({
         open={levelBulkOpen}
         onClose={() => setLevelBulkOpen(false)}
         rows={levelBulkRows}
+        categoryId={priceLevelCategoryId}
+        categoryName={priceLevelCategoryName}
         initialDealerProfitPercent={draft.dealerProfitPercent}
         initialAdjusts={liveLevelAdjusts}
         onDealerListRatesApplied={handleDealerListRatesApplied}
@@ -1553,7 +1587,7 @@ export const SparePricingView: React.FC<Props> = ({
               </li>
               {newSellLevelTip.adjusts.length === 0 ? (
                 <li className="spare-pricing__level-tip-empty">
-                  No spare category % on other levels
+                  No category % on other levels
                 </li>
               ) : (
                 newSellLevelTip.adjusts.map(adjust => {
@@ -1612,7 +1646,7 @@ export const SparePricingView: React.FC<Props> = ({
               <ul className="spare-pricing__level-tip-list">
                 {itemLevelTip.existingRows.length === 0 ? (
                   <li className="spare-pricing__level-tip-empty">
-                    No spare level rules on this item
+                    No level rules on this item
                   </li>
                 ) : (
                   itemLevelTip.existingRows.map(row => (

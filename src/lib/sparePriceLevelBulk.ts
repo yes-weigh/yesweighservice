@@ -133,12 +133,19 @@ export function formatSpareLevelSees(preview: SpareLevelBulkPreview | null): str
   return `New sell +${preview.percent}% · ${preview.eligibleCount}`;
 }
 
+export function getCategoryRule(
+  level: PriceLevel,
+  categoryId: string,
+): PriceLevelCategoryRule | undefined {
+  return level.categoryRules.find(r => r.categoryId === categoryId);
+}
+
 export function getSpareCategoryRule(level: PriceLevel): PriceLevelCategoryRule | undefined {
-  return level.categoryRules.find(r => r.categoryId === SPARE_PRICE_LEVEL_CATEGORY_ID);
+  return getCategoryRule(level, SPARE_PRICE_LEVEL_CATEGORY_ID);
 }
 
 export function formatSpareRuleSummary(rule: PriceLevelCategoryRule | undefined): string {
-  if (!rule) return 'No spare rule';
+  if (!rule) return 'No category rule';
   const overrides = rule.itemRules.length;
   if (rule.percent > 0) {
     const sign = rule.mode === 'increment' ? '+' : '−';
@@ -149,7 +156,34 @@ export function formatSpareRuleSummary(rule: PriceLevelCategoryRule | undefined)
   if (overrides > 0) {
     return `${overrides} item override${overrides === 1 ? '' : 's'}`;
   }
-  return 'No spare rule';
+  return 'No category rule';
+}
+
+/**
+ * Set category mode/percent. Preserves every item override
+ * (Custom ₹ / slabs / except / %) — never floods item rules.
+ */
+export function setCategoryPercent(
+  level: PriceLevel,
+  categoryId: string,
+  categoryName: string,
+  mode: PriceLevelRuleMode,
+  percent: number,
+): PriceLevel {
+  const existing = getCategoryRule(level, categoryId);
+  const pct = clampPercent(percent);
+  const nextRule: PriceLevelCategoryRule = {
+    categoryId,
+    categoryName,
+    mode,
+    percent: pct,
+    itemRules: existing?.itemRules ?? [],
+  };
+  const otherRules = level.categoryRules.filter(r => r.categoryId !== categoryId);
+  return {
+    ...level,
+    categoryRules: [...otherRules, nextRule],
+  };
 }
 
 /**
@@ -161,22 +195,37 @@ export function setSpareCategoryPercent(
   mode: PriceLevelRuleMode,
   percent: number,
 ): PriceLevel {
-  const existing = getSpareCategoryRule(level);
-  const pct = clampPercent(percent);
-  const spareRule: PriceLevelCategoryRule = {
-    categoryId: SPARE_PRICE_LEVEL_CATEGORY_ID,
-    categoryName: SPARE_PRICE_LEVEL_CATEGORY_NAME,
+  return setCategoryPercent(
+    level,
+    SPARE_PRICE_LEVEL_CATEGORY_ID,
+    SPARE_PRICE_LEVEL_CATEGORY_NAME,
     mode,
-    percent: pct,
-    itemRules: existing?.itemRules ?? [],
-  };
-  const otherRules = level.categoryRules.filter(
-    r => r.categoryId !== SPARE_PRICE_LEVEL_CATEGORY_ID,
+    percent,
   );
-  return {
-    ...level,
-    categoryRules: [...otherRules, spareRule],
-  };
+}
+
+/**
+ * Apply level discount/hike as **category** % on each level for the given category.
+ * Default Dealers stays list (0%). Item overrides (including fixed/slabs) are kept.
+ */
+export function applyCategoryPercentsToLevels(
+  levels: PriceLevel[],
+  categoryId: string,
+  categoryName: string,
+  adjusts: SpareLevelPriceAdjust[],
+): PriceLevel[] {
+  const adjustById = new Map(adjusts.map(a => [a.levelId, a]));
+  return levels.map(level => {
+    if (isDefaultDealerPriceLevel(level)) {
+      return setCategoryPercent(level, categoryId, categoryName, 'discount', 0);
+    }
+    const adjust = adjustById.get(level.id);
+    if (!adjust) return level;
+    if (adjust.percent <= 0) {
+      return setCategoryPercent(level, categoryId, categoryName, 'discount', 0);
+    }
+    return setCategoryPercent(level, categoryId, categoryName, adjust.mode, adjust.percent);
+  });
 }
 
 /**
@@ -187,26 +236,23 @@ export function applySpareCategoryPercentsToLevels(
   levels: PriceLevel[],
   adjusts: SpareLevelPriceAdjust[],
 ): PriceLevel[] {
-  const adjustById = new Map(adjusts.map(a => [a.levelId, a]));
-  return levels.map(level => {
-    if (isDefaultDealerPriceLevel(level)) {
-      return setSpareCategoryPercent(level, 'discount', 0);
-    }
-    const adjust = adjustById.get(level.id);
-    if (!adjust) return level;
-    if (adjust.percent <= 0) {
-      return setSpareCategoryPercent(level, 'discount', 0);
-    }
-    return setSpareCategoryPercent(level, adjust.mode, adjust.percent);
-  });
+  return applyCategoryPercentsToLevels(
+    levels,
+    SPARE_PRICE_LEVEL_CATEGORY_ID,
+    SPARE_PRICE_LEVEL_CATEGORY_NAME,
+    adjusts,
+  );
 }
 
-/** Seed bulk panel drafts from live spare category rules on price levels. */
-export function spareCategoryAdjustsFromLevels(levels: PriceLevel[]): SpareLevelPriceAdjust[] {
+/** Seed bulk panel drafts from live category rules on price levels. */
+export function categoryAdjustsFromLevels(
+  levels: PriceLevel[],
+  categoryId: string,
+): SpareLevelPriceAdjust[] {
   const out: SpareLevelPriceAdjust[] = [];
   for (const level of levels) {
     if (isDefaultDealerPriceLevel(level)) continue;
-    const rule = getSpareCategoryRule(level);
+    const rule = getCategoryRule(level, categoryId);
     if (!rule || !(rule.percent > 0)) continue;
     out.push({
       levelId: level.id,
@@ -216,6 +262,11 @@ export function spareCategoryAdjustsFromLevels(levels: PriceLevel[]): SpareLevel
     });
   }
   return out;
+}
+
+/** Seed bulk panel drafts from live spare category rules on price levels. */
+export function spareCategoryAdjustsFromLevels(levels: PriceLevel[]): SpareLevelPriceAdjust[] {
+  return categoryAdjustsFromLevels(levels, SPARE_PRICE_LEVEL_CATEGORY_ID);
 }
 
 export function isSpareLevelAdjustDraftActive(draft: SpareLevelAdjustDraft | undefined): boolean {
@@ -235,14 +286,15 @@ export type SpareLevelChargeSummary = {
   hasRule: boolean;
 };
 
-/** Effective charge under current spare category/item rules (qty 1). */
-export function currentSpareChargeForProduct(
+/** Effective charge under current category/item rules (qty 1). */
+export function currentCategoryChargeForProduct(
   level: PriceLevel,
+  categoryId: string,
   productId: string,
   listRate: number,
 ): SpareLevelChargeSummary {
   const list = roundMoney(listRate);
-  const rule = getSpareCategoryRule(level);
+  const rule = getCategoryRule(level, categoryId);
   if (!rule) return { chargeRate: list, mode: 'none', percent: 0, hasRule: false };
   const item = rule.itemRules.find(r => r.productId === productId);
   if (item) {
@@ -278,6 +330,20 @@ export function currentSpareChargeForProduct(
   };
 }
 
+/** Effective charge under current spare category/item rules (qty 1). */
+export function currentSpareChargeForProduct(
+  level: PriceLevel,
+  productId: string,
+  listRate: number,
+): SpareLevelChargeSummary {
+  return currentCategoryChargeForProduct(
+    level,
+    SPARE_PRICE_LEVEL_CATEGORY_ID,
+    productId,
+    listRate,
+  );
+}
+
 export type ExistingSpareLevelPriceRow = {
   levelId: string;
   levelName: string;
@@ -287,9 +353,10 @@ export type ExistingSpareLevelPriceRow = {
   isDefault: boolean;
 };
 
-/** Existing spare level rules for one product (saved price levels). */
-export function existingSpareLevelPricingForProduct(
+/** Existing category level rules for one product (saved price levels). */
+export function existingCategoryLevelPricingForProduct(
   levels: PriceLevel[],
+  categoryId: string,
   productId: string,
   listRate: number,
 ): ExistingSpareLevelPriceRow[] {
@@ -298,7 +365,7 @@ export function existingSpareLevelPricingForProduct(
   );
   const out: ExistingSpareLevelPriceRow[] = [];
   for (const level of sorted) {
-    const summary = currentSpareChargeForProduct(level, productId, listRate);
+    const summary = currentCategoryChargeForProduct(level, categoryId, productId, listRate);
     const isDefault = isDefaultDealerPriceLevel(level);
     if (!isDefault && !summary.hasRule) continue;
     out.push({
@@ -311,6 +378,20 @@ export function existingSpareLevelPricingForProduct(
     });
   }
   return out;
+}
+
+/** Existing spare level rules for one product (saved price levels). */
+export function existingSpareLevelPricingForProduct(
+  levels: PriceLevel[],
+  productId: string,
+  listRate: number,
+): ExistingSpareLevelPriceRow[] {
+  return existingCategoryLevelPricingForProduct(
+    levels,
+    SPARE_PRICE_LEVEL_CATEGORY_ID,
+    productId,
+    listRate,
+  );
 }
 
 export function formatExistingSpareLevelMode(row: ExistingSpareLevelPriceRow): string {

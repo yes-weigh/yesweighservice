@@ -1,12 +1,13 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useLocation, useNavigate, useSearchParams } from 'react-router-dom';
-import { AlertCircle, Boxes, LayoutGrid, QrCode, RefreshCw, Rows3, Search, SlidersHorizontal, X } from 'lucide-react';
+import { AlertCircle, Boxes, LayoutGrid, Percent, QrCode, RefreshCw, Rows3, Search, SlidersHorizontal, X } from 'lucide-react';
 import { CatalogSparesFilterSheet } from '../../components/catalog/CatalogSparesFilterSheet';
 import { CatalogBrowse } from '../../components/catalog/CatalogBrowse';
 import { CatalogUnifiedResults } from '../../components/catalog/CatalogUnifiedResults';
 import { SparePartsRackView } from '../../components/catalog/SparePartsRackView';
 import { SpareSkuQrScanner } from '../../components/catalog/SpareSkuQrScanner';
 import { SpareLinkEditor } from '../../components/catalog/SpareLinkEditor';
+import { PriceLevelSettingsTab } from '../admin/settings/PriceLevelSettingsTab';
 import { WarehouseInventoryAuditList } from '../../components/yesStore/WarehouseInventoryAuditList';
 import { InventoryAuditBatchLinkModal } from '../../components/yesStore/InventoryAuditBatchLinkModal';
 import { useAuth } from '../../context/AuthContext';
@@ -15,7 +16,8 @@ import { useCatalogPageHeader, usePageHeaderSlot, useTopBarAction } from '../../
 import { useDealerPriceLevels } from '../../hooks/useDealerUnitPrice';
 import { canViewCatalogStock, isDealerPortalUser } from '../../lib/dealerAccess';
 import { SPARE_PRICE_LEVEL_CATEGORY_ID } from '../../types/priceLevels';
-import { hasStaffPermission } from '../../lib/staffAccess';
+import { canViewDealersInHr, hasStaffPermission } from '../../lib/staffAccess';
+import { catalogBaseForRole } from '../../lib/catalogRoutes';
 import {
   excludeHiddenCatalogProducts,
   fetchCatalog,
@@ -116,7 +118,7 @@ type CatalogFocus =
   | 'map'
   | 'inventory-audit';
 
-type AdminCatalogSection = 'categories' | 'spares';
+type AdminCatalogSection = 'categories' | 'spares' | 'price-levels';
 
 function parseCatalogFocus(
   section: string | null,
@@ -134,6 +136,7 @@ function parseAdminSection(
   section: string | null,
   query: string,
 ): AdminCatalogSection | 'search' {
+  if (section === 'price-levels') return 'price-levels';
   if (section === 'spares') return 'spares';
   if (query.trim()) return 'search';
   return 'categories';
@@ -142,6 +145,7 @@ function parseAdminSection(
 function adminSectionToFocus(section: AdminCatalogSection | 'search'): CatalogFocus {
   if (section === 'search') return 'search';
   if (section === 'spares') return 'all-spares';
+  // price-levels is a dedicated panel — keep browse focus for header chrome only
   return 'browse';
 }
 
@@ -295,11 +299,14 @@ export const CatalogPage: React.FC = () => {
     ? adminSectionToFocus(adminSection)
     : parseCatalogFocus(sectionParam, committedSearchQuery, canSync);
 
-  /** Legacy Catalogue → Spare pricing now lives under Dealers → Price level. */
+  const canManagePriceLevels = isSuperAdmin || canViewDealersInHr(user);
+
+  /** Legacy Catalogue → Spare pricing / Dealers Price level → Products → Price level. */
   useEffect(() => {
     if (sectionParam !== 'spare-pricing') return;
-    navigate('/super-admin/dealers?tab=price-levels', { replace: true });
-  }, [sectionParam, navigate]);
+    const base = user ? catalogBaseForRole(user.role) : '/super-admin/products';
+    navigate(`${base}?section=price-levels`, { replace: true });
+  }, [sectionParam, navigate, user]);
 
   useEffect(() => {
     const dropSection = sectionParam === 'inventory-audit'
@@ -676,7 +683,9 @@ export const CatalogPage: React.FC = () => {
     [shopCategories, dealerView, restrictedCategoryIds],
   );
 
-  const showBrowseCategoryChips = focus === 'browse' && browseCategoryChips.length > 0;
+  const showBrowseCategoryChips = focus === 'browse'
+    && sectionParam !== 'price-levels'
+    && browseCategoryChips.length > 0;
 
   const filteredSpareParts = useMemo(() => {
     let items = spareParts;
@@ -929,6 +938,7 @@ export const CatalogPage: React.FC = () => {
       params.delete('category');
       if (next === 'categories') params.delete('section');
       else if (next === 'spares') params.set('section', 'spares');
+      else if (next === 'price-levels') params.set('section', 'price-levels');
       return params;
     }, { replace: true });
     setSearchQuery('');
@@ -1131,8 +1141,11 @@ export const CatalogPage: React.FC = () => {
     && focus !== 'all-spares'
   );
   const showDealerCatalogTabs = !isSuperAdmin;
-  const showAdminSearch = isSuperAdmin && focus !== 'inventory-audit';
-  const showHeaderSearch = showAdminSearch || !isSuperAdmin;
+  const showPriceLevels = canManagePriceLevels && (
+    isSuperAdmin ? adminSection === 'price-levels' : sectionParam === 'price-levels'
+  );
+  const showAdminSearch = isSuperAdmin && focus !== 'inventory-audit' && !showPriceLevels;
+  const showHeaderSearch = (showAdminSearch || !isSuperAdmin) && !showPriceLevels;
 
   const activeAdminTab: AdminCatalogSection = adminSection === 'search' || !adminSection
     ? 'categories'
@@ -1579,6 +1592,16 @@ export const CatalogPage: React.FC = () => {
               <Boxes size={16} aria-hidden />
               <span className="spares-mode-toggle__label">Spare parts</span>
             </button>
+            <button
+              type="button"
+              role="tab"
+              aria-selected={activeAdminTab === 'price-levels'}
+              className={`spares-mode-toggle__btn ${activeAdminTab === 'price-levels' ? 'spares-mode-toggle__btn--active' : ''}`}
+              onClick={() => setAdminSection('price-levels')}
+            >
+              <Percent size={16} aria-hidden />
+              <span className="spares-mode-toggle__label">Price level</span>
+            </button>
           </div>
         </div>
       )}
@@ -1589,8 +1612,8 @@ export const CatalogPage: React.FC = () => {
             <button
               type="button"
               role="tab"
-              aria-selected={focus === 'browse' || focus === 'search'}
-              className={`spares-mode-toggle__btn ${focus === 'browse' || focus === 'search' ? 'spares-mode-toggle__btn--active' : ''}`}
+              aria-selected={!showPriceLevels && (focus === 'browse' || focus === 'search')}
+              className={`spares-mode-toggle__btn ${!showPriceLevels && (focus === 'browse' || focus === 'search') ? 'spares-mode-toggle__btn--active' : ''}`}
               onClick={() => setFocus('browse')}
             >
               <LayoutGrid size={16} aria-hidden />
@@ -1599,8 +1622,8 @@ export const CatalogPage: React.FC = () => {
             <button
               type="button"
               role="tab"
-              aria-selected={focus === 'all-spares'}
-              className={`spares-mode-toggle__btn ${focus === 'all-spares' ? 'spares-mode-toggle__btn--active' : ''}`}
+              aria-selected={!showPriceLevels && focus === 'all-spares'}
+              className={`spares-mode-toggle__btn ${!showPriceLevels && focus === 'all-spares' ? 'spares-mode-toggle__btn--active' : ''}`}
               onClick={() => setFocus('all-spares')}
             >
               <Boxes size={16} aria-hidden />
@@ -1609,6 +1632,18 @@ export const CatalogPage: React.FC = () => {
                 <span className="spares-mode-toggle__badge">{spareParts.length}</span>
               ) : null}
             </button>
+            {canManagePriceLevels ? (
+              <button
+                type="button"
+                role="tab"
+                aria-selected={showPriceLevels}
+                className={`spares-mode-toggle__btn ${showPriceLevels ? 'spares-mode-toggle__btn--active' : ''}`}
+                onClick={() => setAdminSection('price-levels')}
+              >
+                <Percent size={16} aria-hidden />
+                <span className="spares-mode-toggle__label">Price level</span>
+              </button>
+            ) : null}
           </div>
         </div>
       )}
@@ -1847,8 +1882,9 @@ export const CatalogPage: React.FC = () => {
   const pageClass = [
     'page-content fade-in products-page spares-page catalog-page catalog-page--smart',
     isSuperAdmin ? 'catalog-page--admin-tabs' : '',
-    isFlatList ? 'catalog-page--flat spares-page--all-spares' : '',
+    isFlatList && !showPriceLevels ? 'catalog-page--flat spares-page--all-spares' : '',
     focus === 'inventory-audit' ? 'catalog-page--inventory-audit' : '',
+    showPriceLevels ? 'catalog-page--price-levels' : '',
   ].filter(Boolean).join(' ');
 
   return (
@@ -1862,6 +1898,12 @@ export const CatalogPage: React.FC = () => {
 
       {smartBar}
 
+      {showPriceLevels ? (
+        <div className="catalog-page__price-levels">
+          <PriceLevelSettingsTab />
+        </div>
+      ) : (
+      <>
       {showSparesFilters && (
         <CatalogSparesFilterSheet
           open={sparesFiltersOpen}
@@ -2218,6 +2260,8 @@ export const CatalogPage: React.FC = () => {
             handleWarehouseTransferred(warehouseTransferProduct.id, patch);
           }}
         />
+      )}
+      </>
       )}
     </div>
   );

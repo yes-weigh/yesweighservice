@@ -292,7 +292,7 @@ const App: React.FC = () => (
                 <Route path="product" element={<ProductSettingsTab />} />
                 <Route
                   path="price-levels"
-                  element={<Navigate to="/super-admin/dealers?tab=price-levels" replace />}
+                  element={<Navigate to="/super-admin/products?section=price-levels" replace />}
                 />
                 <Route path="sku-correction" element={<SkuCorrectionTab />} />
                 <Route path="logistics" element={<LogisticsSettingsTab />} />

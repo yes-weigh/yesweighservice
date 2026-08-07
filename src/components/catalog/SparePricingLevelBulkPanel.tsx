@@ -8,13 +8,14 @@ import {
   filterSpareLevelBulkRows,
   formatSpareLevelSees,
   formatSpareRuleSummary,
-  getSpareCategoryRule,
+  getCategoryRule,
   isSpareLevelAdjustDraftActive,
   previewSpareLevelAdjust,
   type SpareLevelAdjustDraft,
   type SpareLevelBulkRow,
   type SpareLevelPriceAdjust,
 } from '../../lib/sparePriceLevelBulk';
+import { SPARE_PRICE_LEVEL_CATEGORY_ID, SPARE_PRICE_LEVEL_CATEGORY_NAME } from '../../types/priceLevels';
 import type { PriceLevel } from '../../types/priceLevels';
 import type { PriceLevelRuleMode } from '../../types/priceLevels';
 
@@ -22,6 +23,9 @@ type Props = {
   open: boolean;
   onClose: () => void;
   rows: SpareLevelBulkRow[];
+  /** Category whose Level % is written (defaults to Spare parts). */
+  categoryId?: string;
+  categoryName?: string;
   /** Seed dealer profit % when opening (persisted settings). */
   initialDealerProfitPercent?: number;
   /** Seed drafts when reopening (persisted / unsaved). */
@@ -32,7 +36,7 @@ type Props = {
     dealerProfitPercent: number,
   ) => void;
   /**
-   * Writes Spare parts category % on each price level immediately
+   * Writes category % on each price level immediately
    * (preserves Custom ₹ / item overrides). Also updates New sell locally.
    */
   onLevelsApplied?: (
@@ -45,6 +49,8 @@ export const SparePricingLevelBulkPanel: React.FC<Props> = ({
   open,
   onClose,
   rows,
+  categoryId = SPARE_PRICE_LEVEL_CATEGORY_ID,
+  categoryName = SPARE_PRICE_LEVEL_CATEGORY_NAME,
   initialDealerProfitPercent = 35,
   initialAdjusts = [],
   onDealerListRatesApplied,
@@ -86,7 +92,7 @@ export const SparePricingLevelBulkPanel: React.FC<Props> = ({
             continue;
           }
           const seeded = byId.get(level.id);
-          const rule = getSpareCategoryRule(level);
+          const rule = getCategoryRule(level, categoryId);
           if (seeded) {
             next[level.id] = {
               levelId: level.id,
@@ -115,7 +121,7 @@ export const SparePricingLevelBulkPanel: React.FC<Props> = ({
     return () => {
       cancelled = true;
     };
-  }, [open]);
+  }, [open, categoryId]);
 
   const { eligible: eligibleRows, skippedZeroPurchase } = useMemo(
     () => filterSpareLevelBulkRows(rows),
@@ -205,7 +211,7 @@ export const SparePricingLevelBulkPanel: React.FC<Props> = ({
         className="catalog-modal panel glass spare-pricing-levels"
         role="dialog"
         aria-modal="true"
-        aria-label="Bulk spare level pricing"
+        aria-label={`Bulk level pricing for ${categoryName}`}
         onClick={event => event.stopPropagation()}
       >
         <header className="spare-pricing-levels__header">
@@ -216,14 +222,18 @@ export const SparePricingLevelBulkPanel: React.FC<Props> = ({
               <p>
                 {eligibleRows.length}
                 {' '}
-                spare
+                product
                 {eligibleRows.length === 1 ? '' : 's'}
                 {' '}
                 with purchase {'>'} 0
                 {skippedZeroPurchase > 0
                   ? ` · ${skippedZeroPurchase} with purchase 0 skipped`
                   : ''}
-                . Level % saves to Dealers → Price level; New sell waits for toolbar Save.
+                . Level % saves to
+                {' '}
+                {categoryName}
+                {' '}
+                under Products → Price level; New sell waits for toolbar Save.
               </p>
             </div>
           </div>
@@ -284,7 +294,7 @@ export const SparePricingLevelBulkPanel: React.FC<Props> = ({
             </div>
           ) : levels.length === 0 ? (
             <p className="text-muted">
-              No price levels yet. Create them under Dealers → Price level.
+              No price levels yet. Create them under Products → Price level.
             </p>
           ) : (
             <table className="spare-pricing-levels__table">
@@ -292,7 +302,7 @@ export const SparePricingLevelBulkPanel: React.FC<Props> = ({
                 <tr>
                   <th scope="col">Level</th>
                   <th scope="col">Dealers</th>
-                  <th scope="col">Current spare rule</th>
+                  <th scope="col">Current rule</th>
                   <th scope="col">On New sell</th>
                   <th scope="col">Dealer sees</th>
                 </tr>
@@ -301,7 +311,7 @@ export const SparePricingLevelBulkPanel: React.FC<Props> = ({
                 {levels.map(level => {
                   const isDefault = isDefaultDealerPriceLevel(level);
                   const draft = drafts[level.id];
-                  const rule = getSpareCategoryRule(level);
+                  const rule = getCategoryRule(level, categoryId);
                   const preview = isDefault
                     ? (
                       dealerProfitPercent != null

@@ -5462,6 +5462,11 @@
   margin: 0.55rem 0 0.15rem;
 }
 
+.price-levels-tab__workspace-hint {
+  margin: 0.35rem 0 0;
+  line-height: 1.35;
+}
+
 .price-levels-tab__spare-costs {
   margin-top: 0.65rem;
   min-width: 0;

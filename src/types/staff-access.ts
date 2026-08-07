@@ -219,3 +219,6 @@ export const DEFAULT_STAFF_ACCESS: StaffAccessProfile = {
   permissions: [],
   teamId: null,
 };
+
+/** Permissions granted by the Invoice access system role (dashboard + invoices + profile). */
+export const INVOICE_ACCESS_PERMISSIONS: StaffPermission[] = ['invoices.view'];

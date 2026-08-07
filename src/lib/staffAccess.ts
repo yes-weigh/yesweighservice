@@ -6,6 +6,7 @@ import {
   DEPARTMENT_DEFAULT_PERMISSIONS,
   DEPARTMENT_SUPPORT_TYPES,
   DEFAULT_STAFF_ACCESS,
+  INVOICE_ACCESS_PERMISSIONS,
   STAFF_DEPARTMENT_LABELS,
   type StaffAccessProfile,
   type StaffDepartment,
@@ -251,7 +252,8 @@ const NAV_FEATURE_PERMISSIONS: Record<StaffNavFeature, StaffPermission[] | 'alwa
   verification: ['verification.view'],
   advertisements: ['advertisements.view'],
   invoices: ['invoices.view'],
-  'sales-orders': ['orders.view', 'orders.manage', 'invoices.view'],
+  // Do not unlock via invoices.view — Invoice access staff must not see SOs.
+  'sales-orders': ['orders.view', 'orders.manage'],
   // Purchase orders are super-admin only — staff must not see this nav/feature.
   'purchase-orders': [],
   logistics: ['logistics.view'],
@@ -263,6 +265,16 @@ const NAV_FEATURE_PERMISSIONS: Record<StaffNavFeature, StaffPermission[] | 'alwa
   staff: ['staff.manage', 'hr.view', 'hr.manage'],
 };
 
+const INVOICE_ACCESS_PERMISSION_SET = new Set<string>(INVOICE_ACCESS_PERMISSIONS);
+
+/** Staff whose resolved perms are only Invoice access (dashboard + invoices + profile). */
+export function isInvoiceAccessOnlyStaff(user: User | null | undefined): boolean {
+  if (!user || user.role !== 'staff') return false;
+  const perms = resolveStaffPermissions(user);
+  if (!perms.length) return false;
+  return perms.every(permission => INVOICE_ACCESS_PERMISSION_SET.has(permission));
+}
+
 export function canAccessNavFeature(user: User | null | undefined, feature: StaffNavFeature): boolean {
   if (!user) return false;
   if (user.role === 'super_admin') return feature !== 'staff' || true;
@@ -270,7 +282,12 @@ export function canAccessNavFeature(user: User | null | undefined, feature: Staf
   if (user.role !== 'staff') return false;
 
   const rule = NAV_FEATURE_PERMISSIONS[feature];
-  if (rule === 'always') return true;
+  if (rule === 'always') {
+    // Invoice-only staff: Dashboard stays; hide AI / notifications / training / reports.
+    if (feature === 'dashboard') return true;
+    if (isInvoiceAccessOnlyStaff(user)) return false;
+    return true;
+  }
   return hasAnyStaffPermission(user, rule);
 }
 

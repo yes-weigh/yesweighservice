@@ -217,7 +217,7 @@ export const PriceLevelSettingsTab: React.FC = () => {
   const [showLevelMeta, setShowLevelMeta] = useState(false);
   /** Category selected from productsue-style grid for editing rules (Items mode). */
   const [ruleCategoryId, setRuleCategoryId] = useState<string | null>(null);
-  /** Spare parts: item overrides vs landing / New sell workspace. */
+  /** Category workspace: level overrides vs Costs & New sell. */
   const [spareWorkspace, setSpareWorkspace] = useState<'overrides' | 'costs'>('overrides');
   /** Filters the product browse grid in Items mode only. */
   const [itemQuery, setItemQuery] = useState('');
@@ -234,7 +234,7 @@ export const PriceLevelSettingsTab: React.FC = () => {
   const itemsModeRef = useRef<HTMLDivElement | null>(null);
   const userUid = user?.uid ?? null;
 
-  /** Keep Costs & New sell toolbar stuck below Spare parts chrome. */
+  /** Keep Costs & New sell toolbar stuck below category chrome. */
   useEffect(() => {
     const chrome = itemsChromeRef.current;
     const mode = itemsModeRef.current;
@@ -762,7 +762,7 @@ export const PriceLevelSettingsTab: React.FC = () => {
           <h3>Price level setting</h3>
           <p className="text-muted text-sm">
             Create levels, assign dealers, and set category discount or hike %.
-            Spare parts: level overrides (Custom ₹ / %) and Costs & New sell live here —
+            Each category has Level overrides (Custom ₹ / %) and Costs & New sell —
             single source for dealer charge rules. Changes save automatically.
           </p>
         </div>
@@ -1144,20 +1144,22 @@ export const PriceLevelSettingsTab: React.FC = () => {
                     ))
                     : catProducts;
 
+                  const costsProducts = isSpareEdit ? spareProducts : catProducts;
+
                   return (
                     <div
-                      ref={isSpareEdit ? itemsModeRef : undefined}
+                      ref={itemsModeRef}
                       className={[
                         'price-levels-tab__items-mode',
-                        isSpareEdit ? 'price-levels-tab__items-mode--spare' : '',
-                        isSpareEdit && spareWorkspace === 'costs'
+                        'price-levels-tab__items-mode--spare',
+                        spareWorkspace === 'costs'
                           ? 'price-levels-tab__items-mode--spare-costs'
                           : '',
                       ].filter(Boolean).join(' ')}
-                      aria-label={isSpareEdit ? 'Spare parts overrides' : `Items in ${editCat.name}`}
+                      aria-label={`${editCat.name} pricing`}
                     >
                       <div
-                        ref={isSpareEdit ? itemsChromeRef : undefined}
+                        ref={itemsChromeRef}
                         className="price-levels-tab__items-chrome"
                       >
                         <div className="price-levels-tab__items-chrome-row">
@@ -1213,34 +1215,35 @@ export const PriceLevelSettingsTab: React.FC = () => {
                           </div>
                         </div>
 
-                        {isSpareEdit ? (
-                          <div
-                            className="price-levels-tab__mode-toggle price-levels-tab__spare-workspace"
-                            role="tablist"
-                            aria-label="Spare parts workspace"
+                        <div
+                          className="price-levels-tab__mode-toggle price-levels-tab__spare-workspace"
+                          role="tablist"
+                          aria-label={`${editCat.name} workspace`}
+                        >
+                          <button
+                            type="button"
+                            role="tab"
+                            aria-selected={spareWorkspace === 'overrides'}
+                            className={spareWorkspace === 'overrides' ? 'is-active' : ''}
+                            onClick={() => setSpareWorkspace('overrides')}
                           >
-                            <button
-                              type="button"
-                              role="tab"
-                              aria-selected={spareWorkspace === 'overrides'}
-                              className={spareWorkspace === 'overrides' ? 'is-active' : ''}
-                              onClick={() => setSpareWorkspace('overrides')}
-                            >
-                              Level overrides
-                            </button>
-                            <button
-                              type="button"
-                              role="tab"
-                              aria-selected={spareWorkspace === 'costs'}
-                              className={spareWorkspace === 'costs' ? 'is-active' : ''}
-                              onClick={() => setSpareWorkspace('costs')}
-                            >
-                              Costs & New sell
-                            </button>
-                          </div>
-                        ) : null}
+                            Level overrides
+                          </button>
+                          <button
+                            type="button"
+                            role="tab"
+                            aria-selected={spareWorkspace === 'costs'}
+                            className={spareWorkspace === 'costs' ? 'is-active' : ''}
+                            onClick={() => setSpareWorkspace('costs')}
+                          >
+                            Costs & New sell
+                          </button>
+                        </div>
+                        <p className="price-levels-tab__workspace-hint text-muted text-sm">
+                          Costs set list price; Level overrides set what each tier pays vs list.
+                        </p>
 
-                        {spareWorkspace === 'overrides' || !isSpareEdit ? (
+                        {spareWorkspace === 'overrides' ? (
                           <div className="price-levels-tab__rule-main">
                             <div
                               className="price-levels-tab__mode-toggle"
@@ -1285,22 +1288,28 @@ export const PriceLevelSettingsTab: React.FC = () => {
                         ) : null}
                       </div>
 
-                      {isSpareEdit && spareWorkspace === 'costs' ? (
+                      {spareWorkspace === 'costs' ? (
                         <div className="price-levels-tab__spare-costs">
                           <SparePricingView
-                            spares={spareProducts}
+                            products={costsProducts}
+                            priceLevelCategoryId={editCat.id}
+                            priceLevelCategoryName={editCat.name}
                             onProductRatesSaved={updates => {
                               if (!updates.length) return;
                               const byId = new Map(updates.map(u => [u.productId, u.rate]));
-                              setSpareProducts(prev => prev.map(p => (
-                                byId.has(p.id) ? { ...p, rate: byId.get(p.id)! } : p
-                              )));
+                              if (isSpareEdit) {
+                                setSpareProducts(prev => prev.map(p => (
+                                  byId.has(p.id) ? { ...p, rate: byId.get(p.id)! } : p
+                                )));
+                              }
                               setProducts(prev => prev.map(p => (
                                 byId.has(p.id) ? { ...p, rate: byId.get(p.id)! } : p
                               )));
                             }}
                             onProductHidden={productId => {
-                              setSpareProducts(prev => prev.filter(p => p.id !== productId));
+                              if (isSpareEdit) {
+                                setSpareProducts(prev => prev.filter(p => p.id !== productId));
+                              }
                               setProducts(prev => prev.filter(p => p.id !== productId));
                             }}
                             onPriceLevelsChanged={next => {
@@ -1311,7 +1320,7 @@ export const PriceLevelSettingsTab: React.FC = () => {
                         </div>
                       ) : null}
 
-                      {spareWorkspace === 'overrides' || !isSpareEdit ? (
+                      {spareWorkspace === 'overrides' ? (
                       <div className="price-levels-tab__browse-head">
                         <span className="price-levels-tab__browse-label">
                           {isSpareEdit ? 'Browse spares' : 'Browse items'}
@@ -1336,7 +1345,7 @@ export const PriceLevelSettingsTab: React.FC = () => {
                       </div>
                       ) : null}
 
-                      {spareWorkspace === 'overrides' || !isSpareEdit ? (
+                      {spareWorkspace === 'overrides' ? (
                         browseProducts.length === 0 ? (
                           <p className="text-muted text-sm">
                             {catProducts.length === 0
