@@ -1,6 +1,9 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import {
   emptyPriceLevelsDoc,
+  findPriceLevelForDealer,
+  isProductVisibleOnPriceLevel,
+  restrictedCategoryIdsForDealer,
   resolveDealerUnitPrice,
   subscribePriceLevels,
 } from '../lib/priceLevels';
@@ -46,17 +49,30 @@ export const DealerPriceLevelProvider: React.FC<{ children: React.ReactNode }> =
     );
   }, [dealerId]);
 
-  const value = useMemo(() => ({
-    levels,
-    dealerId,
-    ready,
-    resolveProductPrice: (
-      product: Pick<CatalogProduct, 'id' | 'rate' | 'categoryId' | 'categoryName'> | null | undefined,
-    ): DealerUnitPrice | null => {
-      if (!product || !dealerId) return null;
-      return resolveDealerUnitPrice(levels, dealerId, product);
-    },
-  }), [levels, dealerId, ready]);
+  const value = useMemo(() => {
+    const restrictedCategoryIds = dealerId
+      ? restrictedCategoryIdsForDealer(levels, dealerId)
+      : new Set<string>();
+    const level = dealerId ? findPriceLevelForDealer(levels, dealerId) : null;
+    return {
+      levels,
+      dealerId,
+      ready,
+      restrictedCategoryIds,
+      resolveProductPrice: (
+        product: Pick<CatalogProduct, 'id' | 'rate' | 'categoryId' | 'categoryName'> | null | undefined,
+      ): DealerUnitPrice | null => {
+        if (!product || !dealerId) return null;
+        return resolveDealerUnitPrice(levels, dealerId, product);
+      },
+      isProductVisible: (
+        product: Pick<CatalogProduct, 'categoryId' | 'categoryName'> | null | undefined,
+      ): boolean => {
+        if (!product || !dealerId) return true;
+        return isProductVisibleOnPriceLevel(level, product);
+      },
+    };
+  }, [levels, dealerId, ready]);
 
   return (
     <DealerPriceLevelContext.Provider value={value}>

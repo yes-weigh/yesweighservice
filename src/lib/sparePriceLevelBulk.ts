@@ -283,32 +283,97 @@ export function isSpareLevelAdjustDraftActive(draft: SpareLevelAdjustDraft | und
   );
 }
 
+export type SpareLevelChargeSummary = {
+  chargeRate: number;
+  mode: 'none' | PriceLevelRuleMode | 'fixed';
+  percent: number;
+  /** True when this product has a spare item override or category %. */
+  hasRule: boolean;
+};
+
 /** Effective charge under current spare category/item rules (qty 1). */
 export function currentSpareChargeForProduct(
   level: PriceLevel,
   productId: string,
   listRate: number,
-): { chargeRate: number; mode: 'none' | PriceLevelRuleMode | 'fixed' } {
+): SpareLevelChargeSummary {
   const list = roundMoney(listRate);
   const rule = getSpareCategoryRule(level);
-  if (!rule) return { chargeRate: list, mode: 'none' };
+  if (!rule) return { chargeRate: list, mode: 'none', percent: 0, hasRule: false };
   const item = rule.itemRules.find(r => r.productId === productId);
   if (item) {
-    if (item.kind === 'except') return { chargeRate: list, mode: 'none' };
-    if (item.kind === 'fixed') {
-      return { chargeRate: roundMoney(Number(item.customRate) || 0), mode: 'fixed' };
+    if (item.kind === 'except') {
+      return { chargeRate: list, mode: 'none', percent: 0, hasRule: true };
     }
-    if (item.percent <= 0) return { chargeRate: list, mode: 'none' };
+    if (item.kind === 'fixed') {
+      return {
+        chargeRate: roundMoney(Number(item.customRate) || 0),
+        mode: 'fixed',
+        percent: 0,
+        hasRule: true,
+      };
+    }
+    if (item.percent <= 0) {
+      return { chargeRate: list, mode: 'none', percent: 0, hasRule: true };
+    }
     return {
       chargeRate: applyPriceLevelPercent(list, item.kind, item.percent),
       mode: item.kind,
+      percent: item.percent,
+      hasRule: true,
     };
   }
-  if (rule.percent <= 0) return { chargeRate: list, mode: 'none' };
+  if (rule.percent <= 0) {
+    return { chargeRate: list, mode: 'none', percent: 0, hasRule: false };
+  }
   return {
     chargeRate: applyPriceLevelPercent(list, rule.mode, rule.percent),
     mode: rule.mode,
+    percent: rule.percent,
+    hasRule: true,
   };
+}
+
+export type ExistingSpareLevelPriceRow = {
+  levelId: string;
+  levelName: string;
+  chargeRate: number;
+  mode: 'none' | PriceLevelRuleMode | 'fixed';
+  percent: number;
+  isDefault: boolean;
+};
+
+/** Existing spare level rules for one product (saved price levels). */
+export function existingSpareLevelPricingForProduct(
+  levels: PriceLevel[],
+  productId: string,
+  listRate: number,
+): ExistingSpareLevelPriceRow[] {
+  const sorted = [...levels].sort(
+    (a, b) => a.sortOrder - b.sortOrder || a.name.localeCompare(b.name),
+  );
+  const out: ExistingSpareLevelPriceRow[] = [];
+  for (const level of sorted) {
+    const summary = currentSpareChargeForProduct(level, productId, listRate);
+    const isDefault = isDefaultDealerPriceLevel(level);
+    if (!isDefault && !summary.hasRule) continue;
+    out.push({
+      levelId: level.id,
+      levelName: level.name,
+      chargeRate: summary.chargeRate,
+      mode: summary.mode,
+      percent: summary.percent,
+      isDefault,
+    });
+  }
+  return out;
+}
+
+export function formatExistingSpareLevelMode(row: ExistingSpareLevelPriceRow): string {
+  if (row.isDefault || row.mode === 'none') return 'list';
+  if (row.mode === 'fixed') return 'fixed';
+  if (row.mode === 'discount') return `−${row.percent}% discount`;
+  return `+${row.percent}% hike`;
 }
 
 export { isDefaultDealerPriceLevel };

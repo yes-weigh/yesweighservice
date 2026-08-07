@@ -13,7 +13,9 @@ import { InventoryAuditBatchLinkModal } from '../../components/yesStore/Inventor
 import { useAuth } from '../../context/AuthContext';
 import { useConfirm } from '../../context/ConfirmContext';
 import { useCatalogPageHeader, usePageHeaderSlot, useTopBarAction } from '../../context/PageHeaderContext';
+import { useDealerPriceLevels } from '../../hooks/useDealerUnitPrice';
 import { canViewCatalogStock, isDealerPortalUser } from '../../lib/dealerAccess';
+import { SPARE_PRICE_LEVEL_CATEGORY_ID } from '../../types/priceLevels';
 import { canSuperAdminWrite, hasStaffPermission } from '../../lib/staffAccess';
 import {
   excludeHiddenCatalogProducts,
@@ -179,6 +181,7 @@ export const CatalogPage: React.FC = () => {
   const isStaff = user?.role === 'staff';
   const isMedia = user?.role === 'media';
   const dealerView = isDealerPortalUser(user);
+  const { isProductVisible, restrictedCategoryIds } = useDealerPriceLevels();
   const orderCartEnabled = canUseOrderCart(user);
   const isCartable = useCallback(
     (product: CatalogProduct) => isCatalogProductCartable(user, product),
@@ -485,18 +488,20 @@ export const CatalogPage: React.FC = () => {
     void loadAuditItems();
   }, [showAuditedLocations, focus, loadAuditItems]);
 
-  const shopProducts = useMemo(
-    () => excludeHiddenCatalogProducts(
+  const shopProducts = useMemo(() => {
+    const base = excludeHiddenCatalogProducts(
       getShopCatalogProducts(catalog?.items ?? [], catalog?.categories ?? []),
       catalog?.categories ?? [],
-    ),
-    [catalog?.items, catalog?.categories],
-  );
+    );
+    if (!dealerView) return base;
+    return base.filter(product => isProductVisible(product));
+  }, [catalog?.items, catalog?.categories, dealerView, isProductVisible]);
 
-  const spareParts = useMemo(
-    () => getCatalogSparePartsPool(catalog?.items ?? [], catalog?.categories ?? []),
-    [catalog?.items, catalog?.categories],
-  );
+  const spareParts = useMemo(() => {
+    const base = getCatalogSparePartsPool(catalog?.items ?? [], catalog?.categories ?? []);
+    if (!dealerView) return base;
+    return base.filter(product => isProductVisible(product));
+  }, [catalog?.items, catalog?.categories, dealerView, isProductVisible]);
 
   const hasMediaProductFilters = isMedia && mediaProductFilters.size > 0;
 
@@ -657,13 +662,20 @@ export const CatalogPage: React.FC = () => {
 
   const browseCategoryChips = useMemo(
     () => shopCategories
-      .filter(c => c.id && c.productCount > 0 && !isHiddenCatalogCategory(c))
+      .filter(c => {
+        if (!c.id || c.productCount <= 0 || isHiddenCatalogCategory(c)) return false;
+        if (!dealerView) return true;
+        if (isGenericSparePartsCategory(c) || !String(c.id).trim()) {
+          return !restrictedCategoryIds.has(SPARE_PRICE_LEVEL_CATEGORY_ID);
+        }
+        return !restrictedCategoryIds.has(c.id);
+      })
       .sort((a, b) => {
         const orderDiff = a.displayOrder - b.displayOrder;
         if (orderDiff !== 0) return orderDiff;
         return a.name.localeCompare(b.name);
       }),
-    [shopCategories],
+    [shopCategories, dealerView, restrictedCategoryIds],
   );
 
   const showBrowseCategoryChips = focus === 'browse' && browseCategoryChips.length > 0;

@@ -48,6 +48,7 @@ function ensureDefaultDealerPriceLevel(levels) {
         name: DEFAULT_DEALER_PRICE_LEVEL_NAME,
         dealerIds: [],
         categoryRules: [],
+        restrictedCategoryIds: [],
         sortOrder: maxOrder + 1,
       });
     }
@@ -176,6 +177,11 @@ function normalizeRule(raw) {
   };
 }
 
+function normalizeRestrictedCategoryIds(raw) {
+  if (!Array.isArray(raw)) return [];
+  return [...new Set(raw.map(v => String(v ?? '').trim()).filter(Boolean))];
+}
+
 function normalizeLevel(raw, index) {
   if (!raw || typeof raw !== 'object') return null;
   const id = String(raw.id ?? '').trim();
@@ -192,6 +198,9 @@ function normalizeLevel(raw, index) {
     name: String(raw.name ?? '').trim() || 'Untitled level',
     dealerIds,
     categoryRules,
+    restrictedCategoryIds: normalizeRestrictedCategoryIds(
+      raw.restrictedCategoryIds ?? raw.hiddenCategoryIds ?? raw.restrictedCategories,
+    ),
     sortOrder,
   };
 }

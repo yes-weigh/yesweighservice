@@ -61,6 +61,19 @@ function poSortKey(date: string | null, syncedAt: string | null): string {
   return `${date ?? ''}\t${syncedAt ?? ''}`;
 }
 
+function readPoSyncedAt(raw: unknown): string | null {
+  if (!raw) return null;
+  if (typeof raw === 'string') return raw;
+  if (typeof raw === 'object' && raw !== null && 'toDate' in raw) {
+    try {
+      return (raw as { toDate: () => Date }).toDate().toISOString();
+    } catch {
+      return null;
+    }
+  }
+  return null;
+}
+
 function isNewerPo(
   nextDate: string | null,
   nextSyncedAt: string | null,
@@ -129,13 +142,7 @@ export async function loadLatestPurchaseCostsByItemId(): Promise<Map<string, Pur
       const data = docSnap.data();
       const currencyCode = normalizeCurrency(data.currencyCode);
       const date = data.date ? String(data.date) : null;
-      const syncedAt = data.syncedAt
-        ? (typeof data.syncedAt === 'string'
-          ? data.syncedAt
-          : (data.syncedAt && typeof data.syncedAt === 'object' && 'toDate' in data.syncedAt
-            ? (data.syncedAt as { toDate: () => Date }).toDate().toISOString()
-            : null))
-        : null;
+      const syncedAt = readPoSyncedAt(data.syncedAt);
       const purchaseOrderNumber = String(data.purchaseOrderNumber ?? docSnap.id);
       const lineItems = Array.isArray(data.lineItems) ? data.lineItems : [];
 

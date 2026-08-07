@@ -4863,7 +4863,11 @@
 
 /* —— Price level setting —— */
 .price-levels-tab {
-  padding: 1rem 1.1rem 1.25rem;
+  padding: 0;
+  border: none;
+  background: transparent;
+  box-shadow: none;
+  backdrop-filter: none;
 }
 
 .price-levels-tab input[type='number'] {
@@ -4889,7 +4893,9 @@
   align-items: flex-start;
   justify-content: space-between;
   gap: 0.75rem;
-  margin-bottom: 0.85rem;
+  margin-bottom: 0.65rem;
+  padding-bottom: 0.55rem;
+  border-bottom: 1px solid rgba(148, 163, 184, 0.14);
 }
 
 .price-levels-tab__header h3 {
@@ -4922,123 +4928,64 @@
 }
 
 .price-levels-tab__levels-bar {
-  margin-bottom: 0.9rem;
-  padding: 0.55rem 0.65rem 0.65rem;
-  border: 1px solid rgba(148, 163, 184, 0.16);
-  border-radius: 12px;
-  background: rgba(15, 23, 42, 0.35);
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 0.45rem 0.55rem;
+  margin-bottom: 0.65rem;
+  padding: 0;
+  border: none;
+  border-radius: 0;
+  background: transparent;
 }
 
-.price-levels-tab__levels-head {
+.price-levels-tab__level-picker {
   display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 0.5rem;
-  margin-bottom: 0.5rem;
-  font-size: 0.75rem;
+  flex-direction: column;
+  gap: 0.28rem;
+  flex: 1 1 14rem;
+  min-width: 0;
+  font-size: 0.7rem;
   font-weight: 700;
-  text-transform: uppercase;
   letter-spacing: 0.04em;
+  text-transform: uppercase;
   color: #94a3b8;
+}
+
+.price-levels-tab__level-picker select {
+  width: 100%;
+  min-height: 2.35rem;
+  padding: 0.45rem 0.65rem;
+  border-radius: 8px;
+  border: 1px solid rgba(148, 163, 184, 0.22);
+  background: rgba(2, 6, 23, 0.55);
+  color: #f8fafc;
+  font-size: 0.875rem;
+  font-weight: 600;
+  letter-spacing: 0;
+  text-transform: none;
+  cursor: pointer;
+}
+
+.price-levels-tab__level-picker select:focus {
+  outline: 2px solid rgba(245, 130, 32, 0.45);
+  outline-offset: 1px;
+}
+
+.price-levels-tab__level-actions {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.4rem;
+  flex-shrink: 0;
+}
+
+.price-levels-tab__level-delete-btn {
+  color: #fca5a5;
 }
 
 .price-levels-tab__empty {
   margin: 0.2rem 0.1rem 0;
-}
-
-.price-levels-tab__level-list {
-  list-style: none;
-  margin: 0;
-  padding: 0.1rem 0.05rem 0.15rem;
-  display: flex;
-  flex-direction: row;
-  flex-wrap: nowrap;
-  gap: 0.4rem;
-  overflow-x: auto;
-  overscroll-behavior-x: contain;
-  -webkit-overflow-scrolling: touch;
-  scrollbar-width: thin;
-}
-
-.price-levels-tab__level-list > li {
-  display: inline-flex;
-  flex: 0 0 auto;
-  align-items: stretch;
-  gap: 0.15rem;
-  max-width: min(16rem, 72vw);
-}
-
-.price-levels-tab__level-btn {
-  display: inline-flex;
-  flex-direction: row;
-  align-items: center;
-  gap: 0.4rem;
-  text-align: left;
-  padding: 0.45rem 0.65rem;
-  border-radius: 999px;
-  border: 1px solid rgba(148, 163, 184, 0.18);
-  background: rgba(2, 6, 23, 0.35);
-  color: inherit;
-  cursor: pointer;
-  min-width: 0;
-  max-width: 100%;
-}
-
-.price-levels-tab__level-btn svg {
-  color: #94a3b8;
-  flex-shrink: 0;
-}
-
-.price-levels-tab__level-btn.is-default:not(.is-active) {
-  border-color: rgba(245, 130, 32, 0.28);
-}
-
-.price-levels-tab__level-btn.is-active {
-  background: rgba(245, 130, 32, 0.16);
-  border-color: rgba(245, 130, 32, 0.45);
-  color: #fdba74;
-}
-
-.price-levels-tab__level-btn.is-active svg {
-  color: #fdba74;
-}
-
-.price-levels-tab__level-name {
-  font-size: 0.8125rem;
-  font-weight: 700;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  min-width: 0;
-}
-
-.price-levels-tab__level-meta {
-  font-size: 0.6875rem;
-  color: #94a3b8;
-  white-space: nowrap;
-  flex-shrink: 0;
-}
-
-.price-levels-tab__level-btn.is-active .price-levels-tab__level-meta {
-  color: rgba(253, 186, 116, 0.85);
-}
-
-.price-levels-tab__level-delete {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 1.85rem;
-  flex-shrink: 0;
-  border: none;
-  border-radius: 999px;
-  background: transparent;
-  color: #94a3b8;
-  cursor: pointer;
-}
-
-.price-levels-tab__level-delete:hover {
-  color: #fca5a5;
-  background: rgba(248, 113, 113, 0.12);
 }
 
 .price-levels-tab__detail {
@@ -5139,11 +5086,12 @@
 .price-levels-tab__block {
   display: flex;
   flex-direction: column;
-  gap: 0.55rem;
-  padding: 0.85rem;
-  border-radius: 12px;
-  border: 1px solid rgba(148, 163, 184, 0.14);
-  background: rgba(15, 23, 42, 0.28);
+  gap: 0.5rem;
+  padding: 0.55rem 0 0;
+  border-radius: 0;
+  border: none;
+  border-top: 1px solid rgba(148, 163, 184, 0.12);
+  background: transparent;
 }
 
 .price-levels-tab__block h4 {
@@ -5252,6 +5200,24 @@
   text-transform: uppercase;
 }
 
+.price-levels-tab__flat-all {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  margin-bottom: 0.35rem;
+}
+
+.price-levels-tab__flat-all-main {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.45rem;
+}
+
+.price-levels-tab__flat-all-hint {
+  margin: 0;
+}
+
 .price-levels-tab__cat-grid {
   min-width: 0;
 }
@@ -5271,8 +5237,78 @@
   box-shadow: 0 0 0 1px rgba(245, 130, 32, 0.45);
 }
 
+.price-levels-tab__cat-tile.is-restricted {
+  opacity: 0.72;
+}
+
+.price-levels-tab__cat-tile.is-restricted .catalog-category-card {
+  filter: grayscale(0.35);
+}
+
 .price-levels-tab__cat-tile.is-spare .catalog-category-card {
   min-height: 7.5rem;
+}
+
+.price-levels-tab__visibility-legend {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.25rem 0.35rem;
+  margin: 0 0 0.45rem;
+}
+
+.price-levels-tab__visibility-legend svg {
+  flex-shrink: 0;
+  color: #94a3b8;
+}
+
+.price-levels-tab__visibility {
+  position: absolute;
+  z-index: 3;
+  left: 0.45rem;
+  top: 0.45rem;
+  display: inline-flex;
+  padding: 0.12rem;
+  border-radius: 999px;
+  border: 1px solid rgba(15, 23, 42, 0.35);
+  background: rgba(8, 10, 14, 0.82);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.28);
+}
+
+.price-levels-tab__visibility-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.22rem;
+  margin: 0;
+  padding: 0.28rem 0.5rem;
+  border: none;
+  border-radius: 999px;
+  background: transparent;
+  color: #94a3b8;
+  font-size: 0.65rem;
+  font-weight: 750;
+  letter-spacing: 0.02em;
+  cursor: pointer;
+}
+
+.price-levels-tab__visibility-btn:hover {
+  color: #e2e8f0;
+}
+
+.price-levels-tab__visibility-btn.is-active {
+  background: rgba(74, 222, 128, 0.2);
+  color: #86efac;
+}
+
+.price-levels-tab__visibility-btn.is-restrict.is-active {
+  background: rgba(248, 113, 113, 0.22);
+  color: #fca5a5;
+}
+
+.price-levels-tab__cat-tile.is-restricted .price-levels-tab__cat-badge {
+  top: 2.35rem;
 }
 
 .price-levels-tab__spare-hint {
@@ -5283,9 +5319,7 @@
 
 .price-levels-tab__items-mode--spare .price-levels-tab__items-chrome {
   border-color: rgba(56, 189, 248, 0.35);
-  background:
-    linear-gradient(180deg, rgba(56, 189, 248, 0.12), rgba(15, 23, 42, 0.96) 2.25rem),
-    rgba(15, 23, 42, 0.96);
+  background: rgba(15, 23, 42, 0.55);
 }
 
 .price-levels-tab__cat-badge {
@@ -5293,13 +5327,18 @@
   z-index: 2;
   top: 0.45rem;
   right: 0.45rem;
+  max-width: calc(100% - 0.9rem);
   padding: 0.18rem 0.45rem;
   border-radius: 999px;
   background: rgba(245, 130, 32, 0.95);
   color: #111827;
-  font-size: 0.6875rem;
+  font-size: 0.65rem;
   font-weight: 800;
   letter-spacing: 0.02em;
+  line-height: 1.2;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
   pointer-events: none;
 }
 
@@ -5312,18 +5351,17 @@
 
 .price-levels-tab__items-chrome {
   position: sticky;
-  top: 0.35rem;
+  top: 0;
   z-index: 3;
   display: flex;
   flex-direction: column;
-  gap: 0.55rem;
-  padding: 0.65rem 0.75rem 0.7rem;
-  border-radius: 14px;
-  border: 1px solid rgba(245, 130, 32, 0.4);
-  background:
-    linear-gradient(180deg, rgba(245, 130, 32, 0.14), rgba(15, 23, 42, 0.96) 2.25rem),
-    rgba(15, 23, 42, 0.96);
-  box-shadow: 0 8px 22px rgba(0, 0, 0, 0.28);
+  gap: 0.45rem;
+  padding: 0.55rem 0;
+  border-radius: 0;
+  border: none;
+  border-bottom: 1px solid rgba(245, 130, 32, 0.35);
+  background: var(--bg-app, #0b0b0d);
+  box-shadow: none;
 }
 
 .price-levels-tab__items-chrome-row {

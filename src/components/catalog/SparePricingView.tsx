@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import {
   ArrowDown,
   ArrowUp,
@@ -33,20 +34,56 @@ import {
   type SparePurchaseCostOverride,
 } from '../../lib/sparePurchaseCosts';
 import type { CatalogProduct } from '../../types/catalog';
-import type { SparePricingSettings, SparePricingSettingsDraft } from '../../types/sparePricing';
+import type {
+  SparePricingLevelAdjust,
+  SparePricingSettings,
+  SparePricingSettingsDraft,
+} from '../../types/sparePricing';
 import { SparePricingLevelBulkPanel } from './SparePricingLevelBulkPanel';
 import { SparePricingProductPeek } from './SparePricingProductPeek';
 import {
   applySpareBulkPricingToLevels,
+  existingSpareLevelPricingForProduct,
   filterSpareLevelBulkRows,
+  formatExistingSpareLevelMode,
+  type ExistingSpareLevelPriceRow,
   type SpareLevelBulkRow,
   type SpareLevelPriceAdjust,
 } from '../../lib/sparePriceLevelBulk';
 import {
+  applyPriceLevelPercent,
   loadPriceLevels,
   savePriceLevels,
 } from '../../lib/priceLevels';
-import type { SparePricingLevelAdjust } from '../../types/sparePricing';
+import type { PriceLevel } from '../../types/priceLevels';
+
+type NewSellLevelTip = {
+  left: number;
+  top: number;
+  newSell: number;
+  adjusts: SparePricingLevelAdjust[];
+};
+
+type ItemLevelTip = {
+  left: number;
+  top: number;
+  productName: string;
+  listRate: number;
+  existingRows: ExistingSpareLevelPriceRow[];
+  draftAdjusts: SparePricingLevelAdjust[];
+};
+
+function tipPositionFromTarget(target: HTMLElement, tipWidth = 280): { left: number; top: number } {
+  const rect = target.getBoundingClientRect();
+  const left = Math.min(
+    Math.max(8, rect.left + Math.min(rect.width, 180) / 2 - tipWidth / 2),
+    window.innerWidth - tipWidth - 8,
+  );
+  return {
+    left,
+    top: Math.max(8, rect.top - 8),
+  };
+}
 
 type Props = {
   spares: CatalogProduct[];
@@ -120,6 +157,11 @@ function formatInrAmount(value: number): string {
     minimumFractionDigits: 0,
     maximumFractionDigits: 2,
   });
+}
+
+function formatLevelAdjustLabel(adjust: SparePricingLevelAdjust): string {
+  const sign = adjust.mode === 'discount' ? '−' : '+';
+  return `${sign}${adjust.percent}% ${adjust.mode === 'discount' ? 'discount' : 'hike'}`;
 }
 
 /** Profit % on landing cost. Landing 0 → 100%. */
@@ -294,6 +336,9 @@ export const SparePricingView: React.FC<Props> = ({
   const chromeRef = useRef<HTMLDivElement>(null);
   const [peekProduct, setPeekProduct] = useState<CatalogProduct | null>(null);
   const [levelBulkOpen, setLevelBulkOpen] = useState(false);
+  const [priceLevels, setPriceLevels] = useState<PriceLevel[]>([]);
+  const [newSellLevelTip, setNewSellLevelTip] = useState<NewSellLevelTip | null>(null);
+  const [itemLevelTip, setItemLevelTip] = useState<ItemLevelTip | null>(null);
 
   const rows = useMemo(
     () => [...spares].sort(compareSpareRows),
@@ -442,6 +487,20 @@ export const SparePricingView: React.FC<Props> = ({
     };
   }, []);
 
+  const refreshPriceLevels = useCallback(() => {
+    void loadPriceLevels()
+      .then(docData => {
+        setPriceLevels(docData.levels);
+      })
+      .catch(() => {
+        // Hover tip is best-effort; table remains usable.
+      });
+  }, []);
+
+  useEffect(() => {
+    refreshPriceLevels();
+  }, [refreshPriceLevels]);
+
   useEffect(() => {
     let cancelled = false;
     setCostsLoading(true);
@@ -523,6 +582,57 @@ export const SparePricingView: React.FC<Props> = ({
     setDraft(prev => ({ ...prev, ...patch }));
     markDirty();
   }, [markDirty]);
+
+  const showNewSellLevelTip = useCallback((
+    event: React.MouseEvent<HTMLElement> | React.FocusEvent<HTMLElement>,
+    newSell: number,
+  ) => {
+    setItemLevelTip(null);
+    const pos = tipPositionFromTarget(event.currentTarget);
+    setNewSellLevelTip({
+      ...pos,
+      newSell,
+      adjusts: draft.levelPriceAdjusts,
+    });
+  }, [draft.levelPriceAdjusts]);
+
+  const hideNewSellLevelTip = useCallback(() => {
+    setNewSellLevelTip(null);
+  }, []);
+
+  const showItemLevelTip = useCallback((
+    event: React.MouseEvent<HTMLElement>,
+    product: CatalogProduct,
+    listRate: number,
+  ) => {
+    setNewSellLevelTip(null);
+    const pos = tipPositionFromTarget(event.currentTarget);
+    setItemLevelTip({
+      ...pos,
+      productName: product.name,
+      listRate,
+      existingRows: existingSpareLevelPricingForProduct(priceLevels, product.id, listRate),
+      draftAdjusts: draft.levelPriceAdjusts,
+    });
+  }, [priceLevels, draft.levelPriceAdjusts]);
+
+  const hideItemLevelTip = useCallback(() => {
+    setItemLevelTip(null);
+  }, []);
+
+  useEffect(() => {
+    if (!newSellLevelTip && !itemLevelTip) return;
+    const hide = () => {
+      setNewSellLevelTip(null);
+      setItemLevelTip(null);
+    };
+    window.addEventListener('scroll', hide, true);
+    window.addEventListener('resize', hide);
+    return () => {
+      window.removeEventListener('scroll', hide, true);
+      window.removeEventListener('resize', hide);
+    };
+  }, [newSellLevelTip, itemLevelTip]);
 
   const handleFetchRate = useCallback(async () => {
     setFetchingRate(true);
@@ -833,6 +943,7 @@ export const SparePricingView: React.FC<Props> = ({
             draft.levelPriceAdjusts,
           );
           await savePriceLevels(nextLevels, userUid);
+          setPriceLevels(nextLevels);
         }
       }
 
@@ -1209,9 +1320,14 @@ export const SparePricingView: React.FC<Props> = ({
                       <button
                         type="button"
                         className="spare-pricing__item spare-pricing__item-btn"
-                        title={`${sku} · ${product.name} · qty: ${stockQty} pcs — view details`}
                         aria-label={`View details for ${product.name}`}
                         onClick={() => setPeekProduct(product)}
+                        onMouseEnter={event => showItemLevelTip(
+                          event,
+                          product,
+                          newSelling,
+                        )}
+                        onMouseLeave={hideItemLevelTip}
                       >
                         <span className="spare-pricing__item-sku">
                           {sku}
@@ -1261,7 +1377,13 @@ export const SparePricingView: React.FC<Props> = ({
                       />
                     </td>
                     <td className="spare-pricing__cost-col">
-                      <div className="spare-pricing__cost-cell spare-pricing__field-box is-editable">
+                      <div
+                        className="spare-pricing__cost-cell spare-pricing__field-box is-editable spare-pricing__new-sell"
+                        onMouseEnter={event => showNewSellLevelTip(event, newSelling)}
+                        onMouseLeave={hideNewSellLevelTip}
+                        onFocus={event => showNewSellLevelTip(event, newSelling)}
+                        onBlur={hideNewSellLevelTip}
+                      >
                         <span className="spare-pricing__currency is-inr" aria-hidden>₹</span>
                         <DecimalAmountInput
                           className="spare-pricing__input spare-pricing__cost-input"
@@ -1324,6 +1446,167 @@ export const SparePricingView: React.FC<Props> = ({
         onDealerListRatesApplied={handleDealerListRatesApplied}
         onLevelsApplied={handleLevelsApplied}
       />
+
+      {newSellLevelTip
+        ? createPortal(
+          <div
+            className="spare-pricing__level-tip"
+            style={{ left: newSellLevelTip.left, top: newSellLevelTip.top }}
+            role="tooltip"
+          >
+            <div className="spare-pricing__level-tip-head">
+              Draft levels on New sell
+              {' '}
+              <strong>
+                ₹
+                {formatInrAmount(newSellLevelTip.newSell)}
+              </strong>
+            </div>
+            <ul className="spare-pricing__level-tip-list">
+              <li>
+                <span className="spare-pricing__level-tip-name">Dealers</span>
+                <span className="spare-pricing__level-tip-mode">list</span>
+                <span className="spare-pricing__level-tip-price">
+                  ₹
+                  {formatInrAmount(newSellLevelTip.newSell)}
+                </span>
+              </li>
+              {newSellLevelTip.adjusts.length === 0 ? (
+                <li className="spare-pricing__level-tip-empty">
+                  No draft discount / hike levels
+                </li>
+              ) : (
+                newSellLevelTip.adjusts.map(adjust => {
+                  const charge = applyPriceLevelPercent(
+                    newSellLevelTip.newSell,
+                    adjust.mode,
+                    adjust.percent,
+                  );
+                  return (
+                    <li key={adjust.levelId}>
+                      <span className="spare-pricing__level-tip-name">{adjust.levelName}</span>
+                      <span
+                        className={
+                          adjust.mode === 'discount'
+                            ? 'spare-pricing__level-tip-mode is-discount'
+                            : 'spare-pricing__level-tip-mode is-hike'
+                        }
+                      >
+                        {formatLevelAdjustLabel(adjust)}
+                      </span>
+                      <span className="spare-pricing__level-tip-price">
+                        ₹
+                        {formatInrAmount(charge)}
+                      </span>
+                    </li>
+                  );
+                })
+              )}
+            </ul>
+          </div>,
+          document.body,
+        )
+        : null}
+
+      {itemLevelTip
+        ? createPortal(
+          <div
+            className="spare-pricing__level-tip spare-pricing__level-tip--item"
+            style={{ left: itemLevelTip.left, top: itemLevelTip.top }}
+            role="tooltip"
+          >
+            <div className="spare-pricing__level-tip-head">
+              Level pricing on New sell
+              {' '}
+              <strong>
+                ₹
+                {formatInrAmount(itemLevelTip.listRate)}
+              </strong>
+              <span className="spare-pricing__level-tip-sub">
+                {itemLevelTip.productName}
+              </span>
+            </div>
+
+            <div className="spare-pricing__level-tip-section">
+              <div className="spare-pricing__level-tip-section-title">Existing</div>
+              <ul className="spare-pricing__level-tip-list">
+                {itemLevelTip.existingRows.length === 0 ? (
+                  <li className="spare-pricing__level-tip-empty">
+                    No spare level rules on this item
+                  </li>
+                ) : (
+                  itemLevelTip.existingRows.map(row => (
+                    <li key={`existing-${row.levelId}`}>
+                      <span className="spare-pricing__level-tip-name">{row.levelName}</span>
+                      <span
+                        className={
+                          row.mode === 'discount'
+                            ? 'spare-pricing__level-tip-mode is-discount'
+                            : row.mode === 'increment'
+                              ? 'spare-pricing__level-tip-mode is-hike'
+                              : 'spare-pricing__level-tip-mode'
+                        }
+                      >
+                        {formatExistingSpareLevelMode(row)}
+                      </span>
+                      <span className="spare-pricing__level-tip-price">
+                        ₹
+                        {formatInrAmount(row.chargeRate)}
+                      </span>
+                    </li>
+                  ))
+                )}
+              </ul>
+            </div>
+
+            <div className="spare-pricing__level-tip-section">
+              <div className="spare-pricing__level-tip-section-title">Draft (until Save)</div>
+              <ul className="spare-pricing__level-tip-list">
+                <li>
+                  <span className="spare-pricing__level-tip-name">Dealers</span>
+                  <span className="spare-pricing__level-tip-mode">list</span>
+                  <span className="spare-pricing__level-tip-price">
+                    ₹
+                    {formatInrAmount(itemLevelTip.listRate)}
+                  </span>
+                </li>
+                {itemLevelTip.draftAdjusts.length === 0 ? (
+                  <li className="spare-pricing__level-tip-empty">
+                    No draft discount / hike levels
+                  </li>
+                ) : (
+                  itemLevelTip.draftAdjusts.map(adjust => {
+                    const charge = applyPriceLevelPercent(
+                      itemLevelTip.listRate,
+                      adjust.mode,
+                      adjust.percent,
+                    );
+                    return (
+                      <li key={`draft-${adjust.levelId}`}>
+                        <span className="spare-pricing__level-tip-name">{adjust.levelName}</span>
+                        <span
+                          className={
+                            adjust.mode === 'discount'
+                              ? 'spare-pricing__level-tip-mode is-discount'
+                              : 'spare-pricing__level-tip-mode is-hike'
+                          }
+                        >
+                          {formatLevelAdjustLabel(adjust)}
+                        </span>
+                        <span className="spare-pricing__level-tip-price">
+                          ₹
+                          {formatInrAmount(charge)}
+                        </span>
+                      </li>
+                    );
+                  })
+                )}
+              </ul>
+            </div>
+          </div>,
+          document.body,
+        )
+        : null}
     </section>
   );
 };

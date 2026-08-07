@@ -79,6 +79,11 @@ export interface PriceLevel {
   /** Zoho Inventory contact / dealer ids. */
   dealerIds: string[];
   categoryRules: PriceLevelCategoryRule[];
+  /**
+   * Catalog category ids (incl. spare synthetic id) hidden from dealers on this level.
+   * Default empty = all categories permitted.
+   */
+  restrictedCategoryIds: string[];
   sortOrder: number;
   updatedAt: string | null;
 }

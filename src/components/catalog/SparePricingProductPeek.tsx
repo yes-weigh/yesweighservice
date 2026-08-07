@@ -8,8 +8,12 @@ import {
   setCatalogProductHidden,
 } from '../../lib/catalog';
 import { catalogGridStockQty } from '../../lib/catalogProductAudit/display';
+import {
+  isBrokenStockLedger,
+  loadCatalogProductStockLedger,
+} from '../../lib/catalogProductAudit/loadStockLedger';
 import type { CatalogProduct, CatalogProductDetail } from '../../types/catalog';
-import { ProductImageFrame } from './ProductImageFrame';
+import type { CatalogStockMovement } from '../../types/catalog-product-audit';
 import { StockBadge, StockQuantity } from './StockBadge';
 
 type Props = {
@@ -19,6 +23,57 @@ type Props = {
   onHidden: (productId: string) => void;
 };
 
+function isPurchaseBill(row: CatalogStockMovement): boolean {
+  return row.type === 'bill';
+}
+
+function billQty(row: CatalogStockMovement): number {
+  return Math.abs(
+    Number(row.quantity) || Math.abs(Number(row.displayQtyDelta ?? row.qtyDelta) || 0),
+  );
+}
+
+function formatBillDate(row: CatalogStockMovement): string {
+  const iso = row.createdAt || (row.date ? `${row.date}T12:00:00` : '');
+  const d = iso ? new Date(iso) : null;
+  if (!d || Number.isNaN(d.getTime())) return row.date || '—';
+  return d.toLocaleDateString('en-IN', {
+    day: '2-digit',
+    month: 'short',
+    year: 'numeric',
+  });
+}
+
+function formatVendorName(name: string | null): string {
+  const trimmed = String(name ?? '').trim();
+  return trimmed || 'Unknown vendor';
+}
+
+function formatBillUnitPrice(row: CatalogStockMovement): string {
+  const unitPrice = row.itemPrice != null && Number.isFinite(Number(row.itemPrice))
+    ? Number(row.itemPrice)
+    : null;
+  if (unitPrice == null) return '—';
+  if (row.currencyCode) return formatCurrency(unitPrice, row.currencyCode);
+  if (row.currencySymbol) {
+    const amount = unitPrice.toLocaleString('en-IN', {
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2,
+    });
+    return `${row.currencySymbol}${amount}`;
+  }
+  return formatCurrency(unitPrice, 'INR');
+}
+
+function sortBillsNewestFirst(rows: CatalogStockMovement[]): CatalogStockMovement[] {
+  return [...rows].sort((a, b) => {
+    const da = String(a.createdAt || a.date || '');
+    const db = String(b.createdAt || b.date || '');
+    if (da !== db) return db.localeCompare(da);
+    return String(b.documentNumber).localeCompare(String(a.documentNumber));
+  });
+}
+
 export const SparePricingProductPeek: React.FC<Props> = ({
   product,
   onClose,
@@ -27,6 +82,9 @@ export const SparePricingProductPeek: React.FC<Props> = ({
   const confirm = useConfirm();
   const [detail, setDetail] = useState<CatalogProductDetail | null>(null);
   const [detailLoading, setDetailLoading] = useState(false);
+  const [history, setHistory] = useState<CatalogStockMovement[]>([]);
+  const [historyLoading, setHistoryLoading] = useState(false);
+  const [historyError, setHistoryError] = useState<string | null>(null);
   const [hiding, setHiding] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -46,6 +104,39 @@ export const SparePricingProductPeek: React.FC<Props> = ({
       })
       .finally(() => {
         if (!cancelled) setDetailLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [product.id]);
+
+  useEffect(() => {
+    let cancelled = false;
+    setHistory([]);
+    setHistoryError(null);
+    setHistoryLoading(true);
+    void loadCatalogProductStockLedger(product.id)
+      .then(result => {
+        if (cancelled) return;
+        if (isBrokenStockLedger(result)) {
+          setHistoryError('Could not load purchases from Zoho.');
+          setHistory([]);
+          return;
+        }
+        const bills = sortBillsNewestFirst(
+          (result.movements ?? []).filter(isPurchaseBill),
+        );
+        setHistory(bills);
+      })
+      .catch(err => {
+        if (!cancelled) {
+          setHistoryError(
+            err instanceof Error ? err.message : 'Could not load purchase history.',
+          );
+        }
+      })
+      .finally(() => {
+        if (!cancelled) setHistoryLoading(false);
       });
     return () => {
       cancelled = true;
@@ -89,7 +180,8 @@ export const SparePricingProductPeek: React.FC<Props> = ({
     : display.stockStatus === 'low_stock'
       ? 'low_stock' as const
       : 'in_stock' as const;
-  const warehouses = detail?.warehouses?.filter(w => w.warehouseName && w.stock > 0) ?? [];
+  const unit = display.unit || 'pcs';
+  const sku = display.sku?.trim() || '';
 
   return createPortal(
     <div
@@ -107,76 +199,114 @@ export const SparePricingProductPeek: React.FC<Props> = ({
         onClick={event => event.stopPropagation()}
       >
         <div className="spare-pricing-peek__scroll">
-          <div className="catalog-modal__hero">
+          <div className="spare-pricing-peek__hero">
             {display.imageUrl ? (
-              <ProductImageFrame src={display.imageUrl} alt="" variant="card" />
+              <img
+                className="spare-pricing-peek__hero-img"
+                src={display.imageUrl}
+                alt=""
+                loading="lazy"
+                decoding="async"
+              />
             ) : (
-              <span className="catalog-modal__placeholder" aria-hidden>
+              <span className="spare-pricing-peek__hero-placeholder" aria-hidden>
                 <Package size={40} />
               </span>
             )}
-          </div>
+            <div className="spare-pricing-peek__hero-scrim" aria-hidden />
 
-          <div className="catalog-modal__body">
-            <div className="catalog-modal__meta">
-              {display.sku ? <span className="catalog-modal__sku">{display.sku}</span> : null}
-              {display.categoryName ? (
-                <span className="text-muted text-sm">{display.categoryName}</span>
-              ) : null}
-              <h2 className="spare-pricing-peek__title">{display.name}</h2>
-              <div className="spare-pricing-peek__badges">
-                <StockBadge status={display.stockStatus} variant="tile" />
-                <StockQuantity
-                  stock={stockQty}
-                  unit={display.unit || 'pcs'}
-                  status={stockStatus}
-                  compact
-                />
+            <div className="spare-pricing-peek__chips-top">
+              <div className="spare-pricing-peek__chips-row">
+                {sku ? (
+                  <span className="spare-pricing-peek__chip spare-pricing-peek__chip--sku">
+                    {sku}
+                  </span>
+                ) : null}
+                {display.categoryName ? (
+                  <span className="spare-pricing-peek__chip spare-pricing-peek__chip--muted">
+                    {display.categoryName}
+                  </span>
+                ) : null}
+              </div>
+              <div className="spare-pricing-peek__chips-row spare-pricing-peek__chips-row--end">
+                <StockBadge status={display.stockStatus} variant="tile" overlay />
                 {detailLoading ? (
-                  <span className="text-muted text-sm spare-pricing-peek__loading">
-                    <Loader2 size={14} className="spin-icon" aria-hidden />
-                    Refreshing…
+                  <span className="spare-pricing-peek__chip spare-pricing-peek__chip--muted">
+                    <Loader2 size={12} className="spin-icon" aria-hidden />
+                    …
                   </span>
                 ) : null}
-              </div>
-              <div className="catalog-modal__price">
-                <span>Selling price</span>
-                <strong>
-                  <IndianRupee size={18} strokeWidth={2.5} aria-hidden />
-                  {display.rate.toLocaleString('en-IN')}
-                </strong>
-              </div>
-              {display.description ? (
-                <p className="catalog-modal__description">{display.description}</p>
-              ) : null}
-              <div className="catalog-modal__tax">
-                {display.hsn ? <span>HSN {display.hsn}</span> : null}
-                {display.taxName ? (
-                  <span>
-                    {display.taxName}
-                    {display.taxPercentage ? ` (${display.taxPercentage}%)` : ''}
-                  </span>
-                ) : null}
-                <span>{formatCurrency(display.rate)}</span>
               </div>
             </div>
 
-            {warehouses.length > 0 ? (
-              <div className="catalog-modal__warehouses">
-                <h3>Warehouse stock</h3>
-                <ul>
-                  {warehouses.map(w => (
-                    <li key={w.warehouseId}>
-                      <span>{w.warehouseName}</span>
-                      <strong>
-                        {w.stock.toLocaleString('en-IN')}
-                        {display.unit ? ` ${display.unit}` : ' pcs'}
-                      </strong>
-                    </li>
-                  ))}
-                </ul>
+            <div className="spare-pricing-peek__chips-bottom">
+              <h2 className="spare-pricing-peek__name">{display.name}</h2>
+              <div className="spare-pricing-peek__chips-row">
+                <span className="spare-pricing-peek__chip spare-pricing-peek__chip--price">
+                  <IndianRupee size={14} strokeWidth={2.5} aria-hidden />
+                  {display.rate.toLocaleString('en-IN')}
+                </span>
+                <StockQuantity
+                  stock={stockQty}
+                  unit={unit}
+                  status={stockStatus}
+                  compact
+                />
               </div>
-            ) : null}
+            </div>
+          </div>
+
+          <div className="spare-pricing-peek__body">
+            <div className="spare-pricing-peek__history">
+              <div className="spare-pricing-peek__history-head">
+                <h3>Purchase history</h3>
+                {!historyLoading && history.length > 0 ? (
+                  <span>{history.length}</span>
+                ) : null}
+              </div>
+
+              {historyLoading ? (
+                <div className="spare-pricing-peek__history-loading">
+                  <Loader2 size={16} className="spin-icon" aria-hidden />
+                  Loading purchases…
+                </div>
+              ) : historyError ? (
+                <p className="spare-pricing-peek__history-empty" role="alert">
+                  {historyError}
+                </p>
+              ) : history.length === 0 ? (
+                <p className="spare-pricing-peek__history-empty">
+                  No purchase bills found for this item.
+                </p>
+              ) : (
+                <ul>
+                  {history.map(row => {
+                    const qty = billQty(row);
+                    return (
+                      <li key={`${row.documentId}-${row.date}-${row.createdAt ?? ''}`}>
+                        <div className="spare-pricing-peek__history-main">
+                          <strong>{formatVendorName(row.customerOrVendor)}</strong>
+                          <span>
+                            {formatBillDate(row)}
+                            {row.documentNumber ? ` · ${row.documentNumber}` : ''}
+                          </span>
+                        </div>
+                        <div className="spare-pricing-peek__history-meta">
+                          <span>
+                            {qty > 0
+                              ? `${qty.toLocaleString('en-IN')} ${unit}`
+                              : 'Qty —'}
+                          </span>
+                          <strong className="spare-pricing-peek__history-rate">
+                            {formatBillUnitPrice(row)}
+                          </strong>
+                        </div>
+                      </li>
+                    );
+                  })}
+                </ul>
+              )}
+            </div>
 
             {error ? (
               <p className="spare-pricing-peek__error" role="alert">{error}</p>

@@ -381,18 +381,18 @@ export function ZohoDealersPage() {
       ) : (
       <>
       {success && (
-        <div className="products-inline-error panel glass" style={{ borderColor: 'rgba(16,185,129,0.35)', color: '#6ee7b7' }}>
+        <div className="products-inline-error dealers-page__notice is-success" style={{ borderColor: 'rgba(16,185,129,0.35)', color: '#6ee7b7' }}>
           <span>{success}</span>
         </div>
       )}
 
       {error && (
-        <div className="products-inline-error panel glass">
+        <div className="products-inline-error dealers-page__notice">
           <span>{error}</span>
         </div>
       )}
 
-      <div className="dealers-toolbar panel glass">
+      <div className="dealers-toolbar">
         <div className="dealers-toolbar__row">
           <div className="catalog-search dealers-search">
             <Search size={16} />
@@ -473,7 +473,7 @@ export function ZohoDealersPage() {
         </details>
       </div>
 
-      <div className="dealers-table-panel panel glass">
+      <div className="dealers-table-panel">
         {renderPaginationBar('top')}
         <div className="dealers-table-wrap dealers-table-wrap--desktop">
         <table className="dealers-table">

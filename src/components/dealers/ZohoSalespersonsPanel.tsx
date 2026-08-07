@@ -444,7 +444,7 @@ export function ZohoSalespersonsPanel() {
   return (
     <div className="zoho-sp-panel fade-in">
       {hideDialogUi}
-      <section className="panel glass zoho-sp-panel__hero">
+      <section className="zoho-sp-panel__hero">
         <div>
           <h2>Zoho salespersons</h2>
           <p className="text-muted text-sm">
@@ -480,12 +480,12 @@ export function ZohoSalespersonsPanel() {
         <div className="user-management__save-notice" role="status">{success}</div>
       ) : null}
       {error && !hideDialog ? (
-        <div className="products-inline-error panel glass">
+        <div className="products-inline-error dealers-page__notice">
           <span>{error}</span>
         </div>
       ) : null}
 
-      <section className="panel glass panel--table">
+      <section className="zoho-sp-panel__table">
         <div className="zoho-sp-panel__toolbar">
           <label className="zoho-sp-panel__search">
             <Search size={16} aria-hidden />

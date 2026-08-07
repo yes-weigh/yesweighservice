@@ -11,12 +11,28 @@ export function useDealerPriceLevels(): {
   levels: PriceLevel[];
   dealerId: string | null;
   ready: boolean;
+  restrictedCategoryIds: ReadonlySet<string>;
+  isProductVisible: (
+    product: Pick<CatalogProduct, 'categoryId' | 'categoryName'> | null | undefined,
+  ) => boolean;
 } {
   const ctx = useContext(DealerPriceLevelContext);
   if (!ctx) {
-    return { levels: [], dealerId: null, ready: true };
+    return {
+      levels: [],
+      dealerId: null,
+      ready: true,
+      restrictedCategoryIds: new Set<string>(),
+      isProductVisible: () => true,
+    };
   }
-  return { levels: ctx.levels, dealerId: ctx.dealerId, ready: ctx.ready };
+  return {
+    levels: ctx.levels,
+    dealerId: ctx.dealerId,
+    ready: ctx.ready,
+    restrictedCategoryIds: ctx.restrictedCategoryIds,
+    isProductVisible: ctx.isProductVisible,
+  };
 }
 
 export function useDealerUnitPrice(

@@ -46,6 +46,7 @@ export function createDefaultDealerPriceLevel(sortOrder = 9999): PriceLevel {
     name: DEFAULT_DEALER_PRICE_LEVEL_NAME,
     dealerIds: [],
     categoryRules: [],
+    restrictedCategoryIds: [],
     sortOrder,
     updatedAt: null,
   };
@@ -241,6 +242,11 @@ function normalizeRule(raw: unknown): PriceLevelCategoryRule | null {
   };
 }
 
+function normalizeRestrictedCategoryIds(raw: unknown): string[] {
+  if (!Array.isArray(raw)) return [];
+  return [...new Set(raw.map(v => String(v ?? '').trim()).filter(Boolean))];
+}
+
 function normalizeLevel(raw: unknown, index: number): PriceLevel | null {
   if (!raw || typeof raw !== 'object') return null;
   const row = raw as Record<string, unknown>;
@@ -258,6 +264,9 @@ function normalizeLevel(raw: unknown, index: number): PriceLevel | null {
     name: String(row.name ?? '').trim() || 'Untitled level',
     dealerIds,
     categoryRules,
+    restrictedCategoryIds: normalizeRestrictedCategoryIds(
+      row.restrictedCategoryIds ?? row.hiddenCategoryIds ?? row.restrictedCategories,
+    ),
     sortOrder,
     updatedAt: row.updatedAt != null ? String(row.updatedAt) : null,
   };
@@ -296,9 +305,59 @@ export function createEmptyPriceLevel(name = 'New level', sortOrder = 0): PriceL
     name: name.trim() || 'New level',
     dealerIds: [],
     categoryRules: [],
+    restrictedCategoryIds: [],
     sortOrder,
     updatedAt: null,
   };
+}
+
+export function isCategoryRestrictedOnLevel(
+  level: PriceLevel | null | undefined,
+  categoryId: string | null | undefined,
+): boolean {
+  const id = String(categoryId ?? '').trim();
+  if (!level || !id) return false;
+  return level.restrictedCategoryIds.includes(id);
+}
+
+/** Category ids dealers on this level must not see (incl. spare synthetic id). */
+export function restrictedCategoryIdsForDealer(
+  levels: PriceLevel[],
+  dealerId: string | null | undefined,
+): Set<string> {
+  const level = findPriceLevelForDealer(levels, dealerId);
+  if (!level) return new Set();
+  return new Set(level.restrictedCategoryIds);
+}
+
+/**
+ * Whether a product is visible to a dealer on the given level.
+ * Spare-pool products follow the synthetic spare category restriction.
+ */
+export function isProductVisibleOnPriceLevel(
+  level: PriceLevel | null | undefined,
+  product: Pick<CatalogProduct, 'categoryId' | 'categoryName'>,
+): boolean {
+  if (!level) return true;
+  if (productUsesSparePriceLevel(product)) {
+    return !isCategoryRestrictedOnLevel(level, SPARE_PRICE_LEVEL_CATEGORY_ID);
+  }
+  const catId = String(product.categoryId ?? '').trim();
+  if (!catId) return true;
+  return !isCategoryRestrictedOnLevel(level, catId);
+}
+
+export function toggleRestrictedCategoryId(
+  level: PriceLevel,
+  categoryId: string,
+  restricted: boolean,
+): PriceLevel {
+  const id = String(categoryId ?? '').trim();
+  if (!id) return level;
+  const set = new Set(level.restrictedCategoryIds);
+  if (restricted) set.add(id);
+  else set.delete(id);
+  return { ...level, restrictedCategoryIds: [...set] };
 }
 
 export function emptyCategoryRule(
