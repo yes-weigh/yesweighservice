@@ -16,14 +16,15 @@ import type {
   SparePricingSettingsDraft,
   UsdInrFetchResult,
 } from '../types/sparePricing';
+import { ceilInr } from './priceLevels';
 import type { PriceLevelRuleMode } from '../types/priceLevels';
 
 export { SPARE_PRICING_DOC_ID, SPARE_PRICING_LIVE_SAVE_MS, USD_INR_RATE_API_URL };
 
 /**
  * Landing cost in INR.
- * - INR purchase: same amount
- * - USD purchase: (amount × exchangeRate + markupFee) × (1 + (CD% + freight%) / 100)
+ * - INR purchase: same amount (ceiled to whole ₹)
+ * - USD purchase: (amount × exchangeRate + markupFee) × (1 + (CD% + freight%) / 100), ceiled to whole ₹
  */
 export function computeSpareLandingCostInr(
   purchase: { amount: number; currencyCode: string },
@@ -33,7 +34,7 @@ export function computeSpareLandingCostInr(
   if (!Number.isFinite(amount) || amount <= 0) return 0;
   const code = String(purchase.currencyCode ?? '').trim().toUpperCase();
   if (code !== 'USD') {
-    return Math.round(amount * 100) / 100;
+    return ceilInr(amount);
   }
   const rate = Number(settings.usdToInrRate);
   const markup = Number(settings.markupFeeInr);
@@ -44,7 +45,7 @@ export function computeSpareLandingCostInr(
   const dutyFreightPct = (Number.isFinite(cd) && cd > 0 ? cd : 0)
     + (Number.isFinite(freight) && freight > 0 ? freight : 0);
   const landing = withMarkup * (1 + dutyFreightPct / 100);
-  return Math.round(landing * 100) / 100;
+  return ceilInr(landing);
 }
 
 export function emptySparePricingSettings(): SparePricingSettings {

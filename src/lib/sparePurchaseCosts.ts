@@ -255,9 +255,11 @@ export function resolvePurchaseCost(
   usdToInrRate = 0,
 ): ResolvedPurchaseCost {
   if (override) {
+    const amount = Number(override.amount) || 0;
     return {
-      amount: override.amount,
-      currencyCode: override.currencyCode,
+      amount,
+      // Zero purchase defaults to USD ($0) so landing stays clear of INR markup path.
+      currencyCode: amount <= 0 ? 'USD' : override.currencyCode,
       source: 'override',
       notFromLatest: false,
       latestAmount: fromPo?.latest?.amount ?? null,
@@ -269,12 +271,13 @@ export function resolvePurchaseCost(
   const highest = pickHighestPurchaseCost(fromPo, usdToInrRate);
   if (highest) {
     const latest = fromPo?.latest ?? null;
+    const amount = Number(highest.amount) || 0;
     const notFromLatest = !latest
       || highest.amount !== latest.amount
       || normalizeCurrency(highest.currencyCode) !== normalizeCurrency(latest.currencyCode);
     return {
-      amount: highest.amount,
-      currencyCode: highest.currencyCode,
+      amount,
+      currencyCode: amount <= 0 ? 'USD' : highest.currencyCode,
       source: 'purchase_order',
       notFromLatest,
       latestAmount: latest?.amount ?? null,
@@ -285,7 +288,7 @@ export function resolvePurchaseCost(
 
   return {
     amount: 0,
-    currencyCode: 'INR',
+    currencyCode: 'USD',
     source: 'none',
     notFromLatest: false,
     latestAmount: null,

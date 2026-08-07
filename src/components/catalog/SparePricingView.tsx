@@ -10,6 +10,7 @@ import {
   RefreshCw,
   Save,
   Search,
+  SlidersHorizontal,
   X,
 } from 'lucide-react';
 import { DecimalAmountInput } from '../DecimalAmountInput';
@@ -39,10 +40,12 @@ import type {
   SparePricingSettings,
   SparePricingSettingsDraft,
 } from '../../types/sparePricing';
+import { SparePricingFilterSheet } from './SparePricingFilterSheet';
 import { SparePricingLevelBulkPanel } from './SparePricingLevelBulkPanel';
 import { SparePricingProductPeek } from './SparePricingProductPeek';
 import {
   applySpareBulkPricingToLevels,
+  dealerPriceFromLanding,
   existingSpareLevelPricingForProduct,
   filterSpareLevelBulkRows,
   formatExistingSpareLevelMode,
@@ -51,7 +54,14 @@ import {
   type SpareLevelPriceAdjust,
 } from '../../lib/sparePriceLevelBulk';
 import {
+  countSparePricingFilters,
+  matchesSparePricingFilters,
+  type SparePricingFilterKey,
+  type SparePricingRowMetrics,
+} from '../../lib/sparePricingFilters';
+import {
   applyPriceLevelPercent,
+  ceilInr,
   loadPriceLevels,
   savePriceLevels,
 } from '../../lib/priceLevels';
@@ -113,7 +123,7 @@ type CostDraft = {
 };
 
 function ratesEqual(a: number, b: number): boolean {
-  return Math.round((Number(a) || 0) * 100) / 100 === Math.round((Number(b) || 0) * 100) / 100;
+  return ceilInr(a) === ceilInr(b);
 }
 
 function purchaseAmountInr(cost: CostDraft, usdToInrRate: number): number {
@@ -152,10 +162,10 @@ function formatFetchedMeta(settings: SparePricingSettings): string | null {
 }
 
 function formatInrAmount(value: number): string {
-  const n = Number.isFinite(value) ? value : 0;
+  const n = ceilInr(value);
   return n.toLocaleString('en-IN', {
     minimumFractionDigits: 0,
-    maximumFractionDigits: 2,
+    maximumFractionDigits: 0,
   });
 }
 
@@ -172,12 +182,12 @@ function computeProfitPercent(selling: number, landing: number): number {
   return ((sell - land) / land) * 100;
 }
 
-/** New sell from target profit %: landing × (1 + pct/100). Landing 0 → 0. */
+/** New sell from target profit %: landing × (1 + pct/100), ceiled to whole ₹. Landing 0 → 0. */
 function sellingFromProfitPercent(landing: number, percent: number): number {
   const land = Number.isFinite(landing) ? landing : 0;
   const pct = Number.isFinite(percent) ? percent : 0;
   if (!(land > 0)) return 0;
-  return Math.round(land * (1 + pct / 100) * 100) / 100;
+  return ceilInr(land * (1 + pct / 100));
 }
 
 function formatProfitPercent(value: number): string {
@@ -348,6 +358,8 @@ export const SparePricingView: React.FC<Props> = ({
   const [loading, setLoading] = useState(true);
   const [costsLoading, setCostsLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
+  const [filterOpen, setFilterOpen] = useState(false);
+  const [tableFilters, setTableFilters] = useState<Set<SparePricingFilterKey>>(() => new Set());
   const [draft, setDraft] = useState<SparePricingSettings>(() => emptySparePricingSettings());
   const [saved, setSaved] = useState<SparePricingSettings>(() => emptySparePricingSettings());
   const [saveStatus, setSaveStatus] = useState<SaveStatus>('idle');
@@ -363,6 +375,41 @@ export const SparePricingView: React.FC<Props> = ({
   /** Proposed selling prices — default to catalog rate until edited. */
   const [newSellingDrafts, setNewSellingDrafts] = useState<Record<string, number>>({});
 
+  const resolveCostDraft = useCallback((product: CatalogProduct): CostDraft => {
+    const existing = costDrafts[product.id];
+    if (existing) return existing;
+    const resolved = resolvePurchaseCost(
+      product.id,
+      overrides.get(product.id),
+      poCosts.get(product.id),
+      draft.usdToInrRate,
+    );
+    return { amount: resolved.amount, currencyCode: resolved.currencyCode };
+  }, [costDrafts, overrides, poCosts, draft.usdToInrRate]);
+
+  const rowMetrics = useCallback((product: CatalogProduct): SparePricingRowMetrics => {
+    const cost = resolveCostDraft(product);
+    const landingInr = computeSpareLandingCostInr(cost, draft);
+    const sell = Number(product.rate) || 0;
+    const newSell = newSellingDrafts[product.id] ?? sell;
+    return {
+      purchaseAmount: Number(cost.amount) || 0,
+      currencyCode: cost.currencyCode,
+      landingInr,
+      sell,
+      profitPercent: computeProfitPercent(sell, landingInr),
+      newSell,
+      stock: Number.isFinite(product.stock) ? product.stock : 0,
+    };
+  }, [resolveCostDraft, draft, newSellingDrafts]);
+
+  const filterCounts = useMemo(
+    () => countSparePricingFilters(rows.map(rowMetrics)),
+    [rows, rowMetrics],
+  );
+
+  const hasActiveTableFilters = tableFilters.size > 0;
+
   const toggleSort = useCallback((key: SortKey) => {
     setSortKey(prev => {
       if (prev === key) {
@@ -376,26 +423,20 @@ export const SparePricingView: React.FC<Props> = ({
 
   const filteredRows = useMemo(() => {
     const q = searchQuery.trim().toLowerCase();
-    const matched = !q
-      ? rows
-      : rows.filter(product => {
+    const matched = rows.filter(product => {
+      if (q) {
         const sku = (product.sku ?? '').toLowerCase();
         const name = product.name.toLowerCase();
-        return sku.includes(q) || name.includes(q);
-      });
+        if (!sku.includes(q) && !name.includes(q)) return false;
+      }
+      if (tableFilters.size > 0 && !matchesSparePricingFilters(rowMetrics(product), tableFilters)) {
+        return false;
+      }
+      return true;
+    });
 
     const dir = sortDir === 'asc' ? 1 : -1;
-    const resolveCost = (product: CatalogProduct): CostDraft => {
-      const existing = costDrafts[product.id];
-      if (existing) return existing;
-      const resolved = resolvePurchaseCost(
-        product.id,
-        overrides.get(product.id),
-        poCosts.get(product.id),
-        draft.usdToInrRate,
-      );
-      return { amount: resolved.amount, currencyCode: resolved.currencyCode };
-    };
+    const resolveCost = resolveCostDraft;
 
     return [...matched].sort((a, b) => {
       let cmp = 0;
@@ -450,8 +491,11 @@ export const SparePricingView: React.FC<Props> = ({
   }, [
     rows,
     searchQuery,
+    tableFilters,
     sortKey,
     sortDir,
+    resolveCostDraft,
+    rowMetrics,
     costDrafts,
     overrides,
     poCosts,
@@ -461,6 +505,8 @@ export const SparePricingView: React.FC<Props> = ({
 
   const dirtyCostIdsRef = useRef<Set<string>>(new Set());
   const dirtyNewSellingRef = useRef<Set<string>>(new Set());
+  /** Purchase was 0 → value: keep New sell synced to dealer profit until user edits sell. */
+  const autoDealerProfitFromZeroRef = useRef<Set<string>>(new Set());
   /** Bump to recompute hasChanges after dirty-ref mutations. */
   const [dirtyEpoch, setDirtyEpoch] = useState(0);
 
@@ -659,18 +705,50 @@ export const SparePricingView: React.FC<Props> = ({
     currencyCode: string,
   ) => {
     dirtyCostIdsRef.current.add(productId);
+
+    const previous = costDrafts[productId] ?? (() => {
+      const resolved = resolvePurchaseCost(
+        productId,
+        overrides.get(productId),
+        poCosts.get(productId),
+        draft.usdToInrRate,
+      );
+      return { amount: resolved.amount, currencyCode: resolved.currencyCode };
+    })();
+    const wasZero = !(Number(previous.amount) > 0);
+    const nowPositive = Number(amount) > 0;
+
+    if (wasZero && nowPositive) {
+      autoDealerProfitFromZeroRef.current.add(productId);
+    }
+    if (!nowPositive) {
+      autoDealerProfitFromZeroRef.current.delete(productId);
+    }
+
     setCostDrafts(prev => ({
       ...prev,
       [productId]: { amount, currencyCode },
     }));
+
+    if (autoDealerProfitFromZeroRef.current.has(productId) && nowPositive) {
+      const landingInr = computeSpareLandingCostInr({ amount, currencyCode }, draft);
+      const nextSell = dealerPriceFromLanding(landingInr, draft.dealerProfitPercent);
+      dirtyNewSellingRef.current.add(productId);
+      setNewSellingDrafts(prev => ({
+        ...prev,
+        [productId]: nextSell,
+      }));
+    }
+
     markDirty();
-  }, [markDirty]);
+  }, [markDirty, costDrafts, overrides, poCosts, draft]);
 
   const handleNewSellingChange = useCallback((productId: string, amount: number) => {
+    autoDealerProfitFromZeroRef.current.delete(productId);
     dirtyNewSellingRef.current.add(productId);
     setNewSellingDrafts(prev => ({
       ...prev,
-      [productId]: amount,
+      [productId]: ceilInr(amount),
     }));
     markDirty();
   }, [markDirty]);
@@ -709,6 +787,7 @@ export const SparePricingView: React.FC<Props> = ({
     percent: number,
     landingInr: number,
   ) => {
+    autoDealerProfitFromZeroRef.current.delete(productId);
     dirtyNewSellingRef.current.add(productId);
     setNewSellingDrafts(prev => ({
       ...prev,
@@ -746,7 +825,7 @@ export const SparePricingView: React.FC<Props> = ({
       const nextRate = newSellingDrafts[product.id];
       if (nextRate == null) continue;
       if (!ratesEqual(nextRate, Number(product.rate) || 0)) {
-        updates.push({ product, rate: Math.round(nextRate * 100) / 100 });
+        updates.push({ product, rate: ceilInr(nextRate) });
       }
     }
     return updates;
@@ -767,6 +846,7 @@ export const SparePricingView: React.FC<Props> = ({
     setDraft(saved);
     dirtyCostIdsRef.current.clear();
     dirtyNewSellingRef.current.clear();
+    autoDealerProfitFromZeroRef.current.clear();
     const nextCosts: Record<string, CostDraft> = {};
     const nextSelling: Record<string, number> = {};
     for (const product of rows) {
@@ -832,10 +912,10 @@ export const SparePricingView: React.FC<Props> = ({
           product.name,
           draftCost.currencyCode.trim().toUpperCase() || 'INR',
           draftCost.amount,
-          Math.round(landingInr * 100) / 100,
-          Math.round(currentSelling * 100) / 100,
+          ceilInr(landingInr),
+          ceilInr(currentSelling),
           Math.round(currentProfitPct * 10) / 10,
-          Math.round(newSelling * 100) / 100,
+          ceilInr(newSelling),
           Math.round(newProfitPct * 10) / 10,
           draft.usdToInrRate,
           draft.markupFeeInr,
@@ -890,6 +970,7 @@ export const SparePricingView: React.FC<Props> = ({
         });
         for (const productId of changedCostIds) {
           dirtyCostIdsRef.current.delete(productId);
+          autoDealerProfitFromZeroRef.current.delete(productId);
         }
       }
 
@@ -904,6 +985,7 @@ export const SparePricingView: React.FC<Props> = ({
           const savedRate = result.rate != null ? result.rate : rate;
           applied.push({ productId: product.id, rate: savedRate });
           dirtyNewSellingRef.current.delete(product.id);
+          autoDealerProfitFromZeroRef.current.delete(product.id);
           setNewSellingDrafts(prev => ({ ...prev, [product.id]: savedRate }));
         }
         onProductRatesSaved?.(applied);
@@ -1010,7 +1092,7 @@ export const SparePricingView: React.FC<Props> = ({
     return () => observer.disconnect();
   }, [loading, showingCount, totalCount, searchQuery, costsLoading]);
 
-  const itemCountLabel = searchQuery.trim()
+  const itemCountLabel = (searchQuery.trim() || hasActiveTableFilters)
     ? `${showingCount}/${totalCount}`
     : String(totalCount);
 
@@ -1076,116 +1158,133 @@ export const SparePricingView: React.FC<Props> = ({
     <section className="spare-pricing">
       <div ref={chromeRef} className="spare-pricing__chrome">
         <div className="spare-pricing__toolbar">
-          <label className="spare-pricing__search catalog-search">
-            <Search size={15} aria-hidden />
-            <input
-              type="search"
-              value={searchQuery}
-              onChange={event => setSearchQuery(event.target.value)}
-              placeholder="Search SKU or name"
-              aria-label="Search spare pricing"
-            />
-            {searchQuery.trim() ? (
-              <button
-                type="button"
-                className="spare-pricing__search-clear"
-                onClick={() => setSearchQuery('')}
-                aria-label="Clear search"
-              >
-                <X size={14} aria-hidden />
-              </button>
-            ) : null}
-          </label>
+          <div className="spare-pricing__toolbar-row spare-pricing__toolbar-row--main">
+            <label className="spare-pricing__search catalog-search">
+              <Search size={15} aria-hidden />
+              <input
+                type="search"
+                value={searchQuery}
+                onChange={event => setSearchQuery(event.target.value)}
+                placeholder="Search SKU or name"
+                aria-label="Search spare pricing"
+              />
+              {searchQuery.trim() ? (
+                <button
+                  type="button"
+                  className="spare-pricing__search-clear"
+                  onClick={() => setSearchQuery('')}
+                  aria-label="Clear search"
+                >
+                  <X size={14} aria-hidden />
+                </button>
+              ) : null}
+            </label>
 
-          {loading ? (
-            <div className="spare-pricing__loading">
-              <Loader2 className="spin-icon" size={16} aria-hidden />
-              <span>Loading…</span>
-            </div>
-          ) : (
-            <div className="spare-pricing__controls">
-              <div className="spare-pricing__field">
-                <label htmlFor="spare-pricing-usd-inr">USD→INR</label>
-                <div className="spare-pricing__rate-row">
-                  <DecimalAmountInput
-                    id="spare-pricing-usd-inr"
-                    className="spare-pricing__input"
-                    value={draft.usdToInrRate}
-                    onChange={next => patchDraft({ usdToInrRate: next ?? 0 })}
-                    min={0}
-                    decimals={4}
-                    aria-label="Exchange rate USD to INR"
-                  />
-                  <button
-                    type="button"
-                    className="btn btn-secondary btn-sm spare-pricing__fetch-btn"
-                    onClick={() => void handleFetchRate()}
-                    disabled={fetchingRate}
-                    title={fetchedMeta || 'Fetch latest USD→INR rate'}
-                  >
-                    {fetchingRate
-                      ? <Loader2 size={14} className="spin-icon" aria-hidden />
-                      : <RefreshCw size={14} aria-hidden />}
-                    <span className="spare-pricing__fetch-label">
-                      {fetchingRate ? '…' : 'Fetch'}
-                    </span>
-                  </button>
-                </div>
+            {loading ? (
+              <div className="spare-pricing__loading">
+                <Loader2 className="spin-icon" size={16} aria-hidden />
+                <span>Loading…</span>
               </div>
-
-              <div className="spare-pricing__field">
-                <label htmlFor="spare-pricing-markup">Markup (₹)</label>
-                <div className="spare-pricing__rate-row">
-                  <span className="spare-pricing__prefix is-inr" aria-hidden>₹</span>
-                  <DecimalAmountInput
-                    id="spare-pricing-markup"
-                    className="spare-pricing__input"
-                    value={draft.markupFeeInr}
-                    onChange={next => patchDraft({ markupFeeInr: next ?? 0 })}
-                    min={0}
-                    decimals={2}
-                    aria-label="Markup fee in rupees"
-                  />
+            ) : (
+              <>
+                <div className="spare-pricing__field">
+                  <label htmlFor="spare-pricing-usd-inr">USD→INR</label>
+                  <div className="spare-pricing__affix-field spare-pricing__affix-field--rate">
+                    <DecimalAmountInput
+                      id="spare-pricing-usd-inr"
+                      className="spare-pricing__input"
+                      value={draft.usdToInrRate}
+                      onChange={next => patchDraft({ usdToInrRate: next ?? 0 })}
+                      min={0}
+                      decimals={4}
+                      aria-label="Exchange rate USD to INR"
+                    />
+                    <button
+                      type="button"
+                      className="spare-pricing__fetch-icon-btn"
+                      onClick={() => void handleFetchRate()}
+                      disabled={fetchingRate}
+                      title={fetchedMeta || 'Fetch latest USD→INR rate'}
+                      aria-label={fetchingRate ? 'Fetching USD to INR rate' : 'Fetch latest USD to INR rate'}
+                    >
+                      {fetchingRate
+                        ? <Loader2 size={14} className="spin-icon" aria-hidden />
+                        : <RefreshCw size={14} aria-hidden />}
+                    </button>
+                  </div>
                 </div>
-              </div>
 
-              <div className="spare-pricing__field">
-                <label htmlFor="spare-pricing-cd">Customs (%)</label>
-                <div className="spare-pricing__rate-row">
-                  <DecimalAmountInput
-                    id="spare-pricing-cd"
-                    className="spare-pricing__input"
-                    value={draft.cdPercent}
-                    onChange={next => patchDraft({ cdPercent: next ?? 0 })}
-                    min={0}
-                    max={1000}
-                    decimals={2}
-                    aria-label="Customs duty percentage"
-                  />
-                  <span className="spare-pricing__suffix" aria-hidden>%</span>
+                <div className="spare-pricing__field">
+                  <label htmlFor="spare-pricing-markup">Markup (₹)</label>
+                  <div className="spare-pricing__affix-field">
+                    <span className="spare-pricing__prefix is-inr" aria-hidden>₹</span>
+                    <DecimalAmountInput
+                      id="spare-pricing-markup"
+                      className="spare-pricing__input"
+                      value={draft.markupFeeInr}
+                      onChange={next => patchDraft({ markupFeeInr: next ?? 0 })}
+                      min={0}
+                      decimals={2}
+                      aria-label="Markup fee in rupees"
+                    />
+                  </div>
                 </div>
-              </div>
 
-              <div className="spare-pricing__field">
-                <label htmlFor="spare-pricing-freight">Freight (%)</label>
-                <div className="spare-pricing__rate-row">
-                  <DecimalAmountInput
-                    id="spare-pricing-freight"
-                    className="spare-pricing__input"
-                    value={draft.freightPercent}
-                    onChange={next => patchDraft({ freightPercent: next ?? 0 })}
-                    min={0}
-                    max={1000}
-                    decimals={2}
-                    aria-label="Freight percentage"
-                  />
-                  <span className="spare-pricing__suffix" aria-hidden>%</span>
+                <div className="spare-pricing__field">
+                  <label htmlFor="spare-pricing-cd">Customs (%)</label>
+                  <div className="spare-pricing__affix-field">
+                    <DecimalAmountInput
+                      id="spare-pricing-cd"
+                      className="spare-pricing__input"
+                      value={draft.cdPercent}
+                      onChange={next => patchDraft({ cdPercent: next ?? 0 })}
+                      min={0}
+                      max={1000}
+                      decimals={2}
+                      aria-label="Customs duty percentage"
+                    />
+                    <span className="spare-pricing__suffix" aria-hidden>%</span>
+                  </div>
                 </div>
-              </div>
-            </div>
-          )}
 
-          <div className="spare-pricing__actions">
+                <div className="spare-pricing__field">
+                  <label htmlFor="spare-pricing-freight">Freight (%)</label>
+                  <div className="spare-pricing__affix-field">
+                    <DecimalAmountInput
+                      id="spare-pricing-freight"
+                      className="spare-pricing__input"
+                      value={draft.freightPercent}
+                      onChange={next => patchDraft({ freightPercent: next ?? 0 })}
+                      min={0}
+                      max={1000}
+                      decimals={2}
+                      aria-label="Freight percentage"
+                    />
+                    <span className="spare-pricing__suffix" aria-hidden>%</span>
+                  </div>
+                </div>
+              </>
+            )}
+
+            <button
+              type="button"
+              className={[
+                'catalog-header-filter-btn',
+                'spare-pricing__filter-btn',
+                filterOpen ? 'catalog-header-filter-btn--open' : '',
+                hasActiveTableFilters ? 'catalog-header-filter-btn--active' : '',
+              ].filter(Boolean).join(' ')}
+              onClick={() => setFilterOpen(open => !open)}
+              aria-expanded={filterOpen}
+              aria-haspopup="dialog"
+              aria-label="Open spare pricing filters"
+              title="Filters"
+            >
+              <SlidersHorizontal size={18} strokeWidth={2.25} aria-hidden />
+            </button>
+          </div>
+
+          <div className="spare-pricing__toolbar-row spare-pricing__toolbar-row--actions">
             <button
               type="button"
               className="btn btn-secondary btn-sm spare-pricing__action-btn spare-pricing__levels-btn"
@@ -1204,7 +1303,7 @@ export const SparePricingView: React.FC<Props> = ({
               disabled={loading || showingCount === 0}
               aria-label="Export to Excel"
               title={
-                searchQuery.trim()
+                searchQuery.trim() || hasActiveTableFilters
                   ? `Export ${showingCount} filtered row(s) to Excel`
                   : `Export ${showingCount} row(s) to Excel`
               }
@@ -1267,7 +1366,13 @@ export const SparePricingView: React.FC<Props> = ({
         {totalCount === 0 ? (
           <p className="text-muted text-center p-4">No spare parts found.</p>
         ) : showingCount === 0 ? (
-          <p className="text-muted text-center p-4">No spares match your search.</p>
+          <p className="text-muted text-center p-4">
+            {hasActiveTableFilters && !searchQuery.trim()
+              ? 'No spares match your filters.'
+              : hasActiveTableFilters
+                ? 'No spares match your search and filters.'
+                : 'No spares match your search.'}
+          </p>
         ) : (
           <table className="data-table spare-pricing__table spare-pricing__table--body">
             <thead className="spare-pricing__sr-only">{columnHead}</thead>
@@ -1387,10 +1492,10 @@ export const SparePricingView: React.FC<Props> = ({
                         <span className="spare-pricing__currency is-inr" aria-hidden>₹</span>
                         <DecimalAmountInput
                           className="spare-pricing__input spare-pricing__cost-input"
-                          value={newSelling}
+                          value={ceilInr(newSelling)}
                           onChange={next => handleNewSellingChange(product.id, next ?? 0)}
                           min={0}
-                          decimals={2}
+                          decimals={0}
                           aria-label={`New selling price for ${product.name}`}
                         />
                       </div>
@@ -1436,6 +1541,14 @@ export const SparePricingView: React.FC<Props> = ({
           }}
         />
       ) : null}
+
+      <SparePricingFilterSheet
+        open={filterOpen}
+        onClose={() => setFilterOpen(false)}
+        selected={tableFilters}
+        counts={filterCounts}
+        onApply={setTableFilters}
+      />
 
       <SparePricingLevelBulkPanel
         open={levelBulkOpen}

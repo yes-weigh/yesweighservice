@@ -402,8 +402,16 @@ export function enforceUniqueDealerAssignments(levels: PriceLevel[]): PriceLevel
   });
 }
 
+/** INR amounts: always round up to whole rupees (no paise). */
+export function ceilInr(n: number): number {
+  const x = Number(n);
+  if (!Number.isFinite(x) || x <= 0) return 0;
+  // Tiny epsilon avoids float dust (e.g. 100.0000000002) bumping a whole rupee.
+  return Math.ceil(x - 1e-9);
+}
+
 export function roundMoney(n: number): number {
-  return Math.round(Number(n) * 100) / 100;
+  return ceilInr(n);
 }
 
 export function applyPriceLevelPercent(
