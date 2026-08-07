@@ -27,6 +27,7 @@ import {
 import { enrichInvoiceDetailImages } from './invoiceLineItemImages';
 import {
   getInvoicePeriodBounds,
+  invoiceCategoryAmount,
   invoiceHasCategory,
   invoiceAmountExclGst,
   normalizeInvoiceCategories,
@@ -997,6 +998,80 @@ async function loadPortalStampingKpiOverride(options: {
   return { count: rows.length, feeTotal: gatcFeeTotal };
 }
 
+/** Line-level category amounts are often missing; document totals still exist on the rollup. */
+function pickCategoryKpiAmount(categoryAmount: number, documentAmount: number): number {
+  const line = Number(categoryAmount) || 0;
+  if (line > 0) return line;
+  return Number(documentAmount) || 0;
+}
+
+async function sumLiveInvoiceKpiAmounts(options: {
+  category: InvoiceCategory | 'all';
+  dateStart?: string | null;
+  dateEnd?: string | null;
+  salespersonIds?: string[] | null;
+}): Promise<{ categoryAmount: number; documentAmount: number }> {
+  const { rows } = await fetchAllAdminInvoicesInRange({
+    category: options.category,
+    dateStart: options.dateStart,
+    dateEnd: options.dateEnd,
+    salespersonIds: options.salespersonIds,
+  });
+  let categoryAmount = 0;
+  let documentAmount = 0;
+  for (const row of rows) {
+    const docAmt = invoiceAmountExclGst(row);
+    documentAmount += docAmt;
+    if (options.category === 'all') {
+      categoryAmount += docAmt;
+    } else {
+      categoryAmount += invoiceCategoryAmount(row, options.category);
+    }
+  }
+  return { categoryAmount, documentAmount };
+}
+
+async function finalizeAdminInvoiceKpi(
+  rollup: AdminInvoiceStatsKpi,
+  options: {
+    dateStart?: string | null;
+    dateEnd?: string | null;
+    salespersonIds?: string[] | null;
+    category: InvoiceCategory | 'all';
+    portalGatcCount?: number;
+  },
+): Promise<AdminInvoiceStatsKpi> {
+  const repaired = await repairRollupCategoryCounts(rollup, options);
+  let categoryAmount = pickCategoryKpiAmount(repaired.categoryAmount, repaired.documentAmount);
+  let documentAmount = Number(repaired.documentAmount) || 0;
+  if (documentAmount <= 0 && categoryAmount > 0) documentAmount = categoryAmount;
+
+  if (categoryAmount <= 0 && repaired.invoiceCount > 0 && options.category !== 'gatc') {
+    const live = await sumLiveInvoiceKpiAmounts({
+      category: options.category,
+      dateStart: options.dateStart,
+      dateEnd: options.dateEnd,
+      salespersonIds: options.salespersonIds,
+    });
+    categoryAmount = pickCategoryKpiAmount(live.categoryAmount, live.documentAmount);
+    documentAmount = Number(live.documentAmount) || categoryAmount;
+    return {
+      ...repaired,
+      categoryAmount,
+      documentAmount,
+      totalAmount: documentAmount,
+      source: 'query',
+    };
+  }
+
+  return {
+    ...repaired,
+    categoryAmount,
+    documentAmount,
+    totalAmount: documentAmount,
+  };
+}
+
 export async function loadAdminInvoiceKpis(options: {
   dateStart?: string | null;
   dateEnd?: string | null;
@@ -1056,7 +1131,7 @@ export async function loadAdminInvoiceKpis(options: {
           const invoiceCount = category === 'all'
             ? categoryCounts.all
             : categoryCounts[category];
-          return repairRollupCategoryCounts({
+          return finalizeAdminInvoiceKpi({
             invoiceCount,
             categoryAmount,
             documentAmount,
@@ -1109,7 +1184,7 @@ export async function loadAdminInvoiceKpis(options: {
             const documentAmount = category === 'all'
               ? totalAmountAll
               : documentAmountByCategory[category];
-            return repairRollupCategoryCounts({
+            return finalizeAdminInvoiceKpi({
               invoiceCount: category === 'all' ? categoryCounts.all : categoryCounts[category],
               categoryAmount,
               documentAmount,
@@ -1131,7 +1206,7 @@ export async function loadAdminInvoiceKpis(options: {
     }
   }
 
-  // Counts only — amount requires rollups (run backfillInvoiceStatsAndSummariesFn once).
+  // Counts from live queries; amounts from a bounded invoice scan when rollups are missing.
   const categoryCounts = await countAdminInvoicesByCategory({
     dateStart,
     dateEnd,
@@ -1139,14 +1214,20 @@ export async function loadAdminInvoiceKpis(options: {
   });
   categoryCounts.gatc = portalStamping.count;
 
-  return {
+  return finalizeAdminInvoiceKpi({
     invoiceCount: category === 'all' ? categoryCounts.all : categoryCounts[category],
     categoryAmount: 0,
     documentAmount: 0,
     totalAmount: 0,
     categoryCounts,
     source: 'query',
-  };
+  }, {
+    dateStart,
+    dateEnd,
+    salespersonIds: options.salespersonIds,
+    category,
+    portalGatcCount: portalStamping.count,
+  });
 }
 
 export async function countAdminInvoicesByCategory(options: {
