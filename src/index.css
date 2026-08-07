@@ -20583,6 +20583,18 @@ body:has(.confirm-inline-bar) .confirm-inline-bar {
   flex: 1;
 }
 
+.logistics-shipment__top {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.65rem;
+}
+
+.logistics-shipment__top-left {
+  min-width: 0;
+  flex: 1;
+}
+
 .logistics-shipment__tracking {
   display: block;
   font-size: 1.0625rem;
@@ -20631,6 +20643,46 @@ body:has(.confirm-inline-bar) .confirm-inline-bar {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.logistics-shipment__invoice-items {
+  display: block;
+  font-size: 0.6875rem;
+  font-weight: 700;
+  line-height: 1.35;
+  color: #f472b6;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.logistics-shipment__freight {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 0.08rem;
+  flex-shrink: 0;
+  max-width: 46%;
+  text-align: right;
+  font-size: 0.625rem;
+  line-height: 1.25;
+  color: #e2e8f0;
+  font-weight: 600;
+}
+
+.logistics-shipment__freight-diff.is-under {
+  color: #f87171;
+  font-weight: 700;
+}
+
+.logistics-shipment__freight-diff.is-over {
+  color: #4ade80;
+  font-weight: 700;
+}
+
+.logistics-shipment__freight-diff.is-matched {
+  color: #94a3b8;
+  font-weight: 700;
 }
 
 .logistics-shipment__sep {
@@ -23768,6 +23820,31 @@ body:has(.confirm-inline-bar) .confirm-inline-bar {
   gap: 0.75rem;
 }
 
+.logistics-booking__header-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  flex-shrink: 0;
+}
+
+.logistics-booking__track-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 2rem;
+  height: 2rem;
+  border-radius: 9px;
+  border: 1px solid rgba(56, 189, 248, 0.35);
+  background: rgba(56, 189, 248, 0.12);
+  color: #38bdf8;
+  text-decoration: none;
+}
+
+.logistics-booking__track-btn:hover {
+  background: rgba(56, 189, 248, 0.22);
+  color: #7dd3fc;
+}
+
 .logistics-booking__partner-logo-wrap {
   flex-shrink: 0;
   width: 3rem;
@@ -23892,6 +23969,12 @@ body:has(.confirm-inline-bar) .confirm-inline-bar {
   gap: 0.65rem;
 }
 
+.logistics-booking__invoice-freight {
+  display: grid;
+  gap: 0.65rem;
+  margin-bottom: 0.65rem;
+}
+
 @media (min-width: 640px) {
   .logistics-booking__cards {
     grid-template-columns: repeat(2, 1fr);
@@ -23903,6 +23986,154 @@ body:has(.confirm-inline-bar) .confirm-inline-bar {
   border: 1px solid var(--border-glass);
   border-radius: 12px;
   background: rgba(15, 23, 42, 0.35);
+}
+
+.logistics-booking__card--wide {
+  grid-column: 1 / -1;
+}
+
+.logistics-booking__invoice-items {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.45rem;
+}
+
+.logistics-booking__invoice-items li {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.65rem;
+  padding: 0.45rem 0;
+  border-bottom: 1px solid rgba(148, 163, 184, 0.12);
+  font-size: 0.8125rem;
+}
+
+.logistics-booking__invoice-items li:last-child {
+  border-bottom: none;
+  padding-bottom: 0;
+}
+
+.logistics-booking__invoice-items--freight {
+  margin-top: 0.35rem;
+  padding-top: 0.35rem;
+  border-top: 1px dashed rgba(255, 122, 0, 0.35);
+}
+
+.logistics-booking__invoice-item-thumb {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 2.75rem;
+  height: 2.75rem;
+  flex-shrink: 0;
+  border-radius: 10px;
+  border: 1px solid rgba(148, 163, 184, 0.18);
+  background: #0f172a;
+  color: #64748b;
+  overflow: hidden;
+}
+
+.logistics-booking__invoice-item-thumb img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.logistics-booking__invoice-item-main {
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+  min-width: 0;
+  flex: 1;
+}
+
+.logistics-booking__invoice-item-main strong {
+  color: #f472b6;
+  font-weight: 700;
+  font-size: 0.8125rem;
+}
+
+.logistics-booking__invoice-item-meta {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 0.1rem;
+  color: #cbd5e1;
+  white-space: nowrap;
+  font-size: 0.75rem;
+}
+
+.logistics-booking__invoice-item-meta span:first-child {
+  color: #f472b6;
+  font-weight: 700;
+}
+
+.logistics-booking__freight-compare {
+  display: grid;
+  gap: 0.45rem;
+  margin: 0;
+  font-size: 0.875rem;
+}
+
+.logistics-booking__freight-compare > div {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 0.75rem;
+}
+
+.logistics-booking__freight-compare dt {
+  margin: 0;
+  color: #94a3b8;
+}
+
+.logistics-booking__freight-compare dd {
+  margin: 0;
+  color: #f8fafc;
+  font-weight: 700;
+  text-align: right;
+}
+
+.logistics-booking__freight-diff dd {
+  display: inline-flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 0.1rem;
+}
+
+.logistics-booking__freight-diff dd em {
+  font-style: normal;
+  font-size: 0.6875rem;
+  font-weight: 700;
+  color: #94a3b8;
+}
+
+.logistics-booking__freight-diff.is-under dd {
+  color: #f87171;
+}
+
+.logistics-booking__freight-diff.is-under dd em {
+  color: #f87171;
+}
+
+.logistics-booking__freight-diff.is-over dd {
+  color: #4ade80;
+}
+
+.logistics-booking__freight-diff.is-over dd em {
+  color: #4ade80;
+}
+
+.logistics-booking__freight-diff.is-matched dd {
+  color: #94a3b8;
+}
+
+.logistics-booking__freight-hint,
+.logistics-booking__freight-note {
+  margin: 0.55rem 0 0;
 }
 
 .logistics-booking__card h4 {

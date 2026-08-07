@@ -1,10 +1,21 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { Camera, Check, ExternalLink, Eye, MapPin, Package, Truck } from 'lucide-react';
+import {
+  Camera,
+  Check,
+  ExternalLink,
+  Eye,
+  FileText,
+  IndianRupee,
+  MapPin,
+  Package,
+  SquareArrowOutUpRight,
+  Truck,
+} from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import { LOGISTICS_PARTNERS } from '../../constants/logisticsPartners';
 import { logisticsPartnerLabel } from '../../constants/logisticsPartners';
-import { homePathForRole } from '../../types';
+import { formatCurrency } from '../../lib/catalog';
 import {
   LOGISTICS_BOOKING_STATUSES,
   LOGISTICS_PIPELINE_STATUSES,
@@ -25,7 +36,13 @@ import {
   hydrateLogisticsBookingPhotos,
   uploadLogisticsBookingFinalPackagePhoto,
 } from '../../lib/logisticsBookings';
+import {
+  formatFreightDiffLabel,
+  loadLogisticsFreightCompare,
+  type LogisticsFreightCompare,
+} from '../../lib/logisticsFreightCompare';
 import { logisticsTrackingUrl } from '../../lib/logisticsTracking';
+import { homePathForRole } from '../../types';
 import type {
   LogisticsBooking,
   LogisticsBookingStatus,
@@ -78,6 +95,8 @@ export const LogisticsBookingDetail: React.FC<LogisticsBookingDetailProps> = ({
   const [previewIndex, setPreviewIndex] = useState<number | null>(null);
   const [photosLoading, setPhotosLoading] = useState(false);
   const [uploadingFinalPhoto, setUploadingFinalPhoto] = useState(false);
+  const [freightCompare, setFreightCompare] = useState<LogisticsFreightCompare | null>(null);
+  const [freightLoading, setFreightLoading] = useState(false);
   const partner = LOGISTICS_PARTNERS.find(item => item.id === booking.partnerId);
   const isEnvelope = booking.shipmentMode === 'envelope';
   const needsOuterPhoto = missingFinalPackagePhoto(booking);
@@ -168,6 +187,43 @@ export const LogisticsBookingDetail: React.FC<LogisticsBookingDetailProps> = ({
     }
   }, [booking, isOps, onUpdate, user]);
 
+  useEffect(() => {
+    if (!booking.invoiceId?.trim()) {
+      setFreightCompare(null);
+      setFreightLoading(false);
+      return;
+    }
+    let cancelled = false;
+    setFreightLoading(true);
+    void loadLogisticsFreightCompare(booking, { isOps })
+      .then(result => {
+        if (!cancelled) setFreightCompare(result);
+      })
+      .catch(() => {
+        if (!cancelled) setFreightCompare(null);
+      })
+      .finally(() => {
+        if (!cancelled) setFreightLoading(false);
+      });
+    return () => { cancelled = true; };
+  }, [
+    booking.id,
+    booking.invoiceId,
+    booking.partnerId,
+    booking.shipmentMode,
+    booking.shipFromSite,
+    booking.actualWeightKg,
+    booking.volumetricWeightKg,
+    booking.numberOfBoxes,
+    booking.boxes,
+    booking.deliveryAddress,
+    booking.dealer.zohoCustomerId,
+    isOps,
+  ]);
+
+  const productItems = freightCompare?.items.filter(item => !item.isFreight) ?? [];
+  const freightItems = freightCompare?.items.filter(item => item.isFreight) ?? [];
+
   return (
     <article className="logistics-booking panel glass">
       <header className="logistics-booking__header">
@@ -180,24 +236,30 @@ export const LogisticsBookingDetail: React.FC<LogisticsBookingDetailProps> = ({
           <h3>{logisticsPartnerLabel(booking.partnerId)}</h3>
           <p className="text-muted text-sm">
             {booking.orderRef} · {booking.trackingNo}
-            {trackUrl && (
-              <>
-                {' · '}
-                <a href={trackUrl} target="_blank" rel="noreferrer" className="logistics-booking__track-link">
-                  Track shipment
-                </a>
-              </>
-            )}
           </p>
         </div>
-        <span className={`logistics-booking__status logistics-booking__status--${
-          isIncompleteLogisticsBooking(booking) ? 'incomplete' : booking.status
-        }`}
-        >
-          {isIncompleteLogisticsBooking(booking)
-            ? 'Incomplete'
-            : LOGISTICS_BOOKING_STATUSES.find(item => item.id === booking.status)?.label}
-        </span>
+        <div className="logistics-booking__header-actions">
+          {trackUrl && (
+            <a
+              href={trackUrl}
+              target="_blank"
+              rel="noreferrer"
+              className="logistics-booking__track-btn"
+              aria-label="Track shipment"
+              title="Track shipment"
+            >
+              <SquareArrowOutUpRight size={16} aria-hidden />
+            </a>
+          )}
+          <span className={`logistics-booking__status logistics-booking__status--${
+            isIncompleteLogisticsBooking(booking) ? 'incomplete' : booking.status
+          }`}
+          >
+            {isIncompleteLogisticsBooking(booking)
+              ? 'Incomplete'
+              : LOGISTICS_BOOKING_STATUSES.find(item => item.id === booking.status)?.label}
+          </span>
+        </div>
       </header>
 
       {(booking.invoiceId || booking.supportRequestId) && (
@@ -222,6 +284,136 @@ export const LogisticsBookingDetail: React.FC<LogisticsBookingDetailProps> = ({
               Support {booking.supportRequestNumber}
             </Link>
           )}
+        </section>
+      )}
+
+      {booking.invoiceId && (
+        <section className="logistics-booking__invoice-freight" aria-label="Invoice and freight">
+          <div className="logistics-booking__card logistics-booking__card--wide">
+            <h4>
+              <FileText size={16} aria-hidden />
+              Invoice &amp; items
+              {freightCompare?.invoiceNumber
+                ? ` · ${freightCompare.invoiceNumber}`
+                : booking.invoiceNumber
+                  ? ` · ${booking.invoiceNumber}`
+                  : ''}
+            </h4>
+            {freightLoading && !freightCompare && (
+              <p className="text-muted text-sm">Loading invoice details…</p>
+            )}
+            {!freightLoading && !freightCompare?.items.length && (
+              <p className="text-muted text-sm">Invoice line items unavailable.</p>
+            )}
+            {productItems.length > 0 && (
+              <ul className="logistics-booking__invoice-items">
+                {productItems.map(item => (
+                  <li key={item.id}>
+                    <span className="logistics-booking__invoice-item-thumb" aria-hidden>
+                      {item.imageUrl ? (
+                        <img src={item.imageUrl} alt="" />
+                      ) : (
+                        <Package size={18} strokeWidth={1.5} />
+                      )}
+                    </span>
+                    <div className="logistics-booking__invoice-item-main">
+                      <strong>{item.name}</strong>
+                      {item.sku && <span className="text-muted">{item.sku}</span>}
+                    </div>
+                    <div className="logistics-booking__invoice-item-meta">
+                      <span>Qty {item.quantity}</span>
+                      <span>{formatCurrency(item.total)}</span>
+                    </div>
+                  </li>
+                ))}
+              </ul>
+            )}
+            {freightItems.length > 0 && (
+              <ul className="logistics-booking__invoice-items logistics-booking__invoice-items--freight">
+                {freightItems.map(item => (
+                  <li key={item.id}>
+                    <span className="logistics-booking__invoice-item-thumb" aria-hidden>
+                      {item.imageUrl ? (
+                        <img src={item.imageUrl} alt="" />
+                      ) : (
+                        <Truck size={18} strokeWidth={1.5} />
+                      )}
+                    </span>
+                    <div className="logistics-booking__invoice-item-main">
+                      <strong>{item.name}</strong>
+                      {item.sku && <span className="text-muted">{item.sku}</span>}
+                    </div>
+                    <div className="logistics-booking__invoice-item-meta">
+                      <span>Freight line</span>
+                      <span>{formatCurrency(item.total)}</span>
+                    </div>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+
+          <div className="logistics-booking__card logistics-booking__card--wide">
+            <h4>
+              <IndianRupee size={16} aria-hidden />
+              Freight compare
+            </h4>
+            <dl className="logistics-booking__freight-compare">
+              <div>
+                <dt>Paid freight</dt>
+                <dd>
+                  {freightCompare?.paidFreightInr != null
+                    ? formatCurrency(freightCompare.paidFreightInr)
+                    : (freightLoading ? '…' : '—')}
+                </dd>
+              </div>
+              <div>
+                <dt>Actual freight</dt>
+                <dd>
+                  {freightCompare?.actualFreightInr != null
+                    ? formatCurrency(freightCompare.actualFreightInr)
+                    : (freightLoading ? '…' : '—')}
+                </dd>
+              </div>
+              <div className={[
+                'logistics-booking__freight-diff',
+                freightCompare?.differenceInr == null
+                  ? ''
+                  : freightCompare.differenceInr > 0
+                    ? 'is-under'
+                    : freightCompare.differenceInr < 0
+                      ? 'is-over'
+                      : 'is-matched',
+              ].filter(Boolean).join(' ')}
+              >
+                <dt>Difference</dt>
+                <dd>
+                  {freightCompare?.differenceInr != null
+                    ? (
+                      <>
+                        {formatCurrency(freightCompare.differenceInr)}
+                        <em>{formatFreightDiffLabel(freightCompare.differenceInr)}</em>
+                      </>
+                    )
+                    : (freightLoading ? '…' : '—')}
+                </dd>
+              </div>
+            </dl>
+            <p className="text-muted text-sm logistics-booking__freight-hint">
+              Paid = freight on invoice.
+              Actual = rate-card estimate from booked weights
+              {freightCompare?.chargeableKg != null
+                ? ` (${freightCompare.chargeableKg} kg chargeable)`
+                : ''}
+              .
+              Difference = Actual − Paid.
+            </p>
+            {freightCompare?.actualNote && (
+              <p className="text-muted text-sm logistics-booking__freight-note">
+                {freightCompare.actualNote}
+              </p>
+            )}
+          </div>
         </section>
       )}
 

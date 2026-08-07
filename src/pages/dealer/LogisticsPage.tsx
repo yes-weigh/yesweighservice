@@ -50,6 +50,12 @@ import {
   updateLogisticsBookingStatus,
   type LogisticsBookingListFilters,
 } from '../../lib/logisticsBookings';
+import { formatCurrency } from '../../lib/catalog';
+import {
+  loadLogisticsFreightCompare,
+  type LogisticsFreightCompare,
+} from '../../lib/logisticsFreightCompare';
+import { loadLogisticsCourierRates } from '../../lib/logisticsCourierRates';
 import { extractCityState, resolveDestinationPlace } from '../../lib/shippingLabel';
 import { isInternalOpsUser } from '../../lib/staffAccess';
 import type { LogisticsBooking, LogisticsBookingDraft, LogisticsBookingStatus } from '../../types/logistics-dispatch';
@@ -59,6 +65,7 @@ import {
 } from '../../lib/logisticsPrefill';
 import type { BookCourierStep } from '../../lib/logisticsBooking';
 import { emptyShipmentBoxDraft } from '../../lib/logisticsBooking';
+import type { LogisticsCourierRates } from '../../types/logistics-courier-rates';
 import type { StaffLogisticsSite } from '../../types/staff-logistics';
 
 type FlowStep = 'closed' | 'partner' | 'book';
@@ -232,6 +239,10 @@ export const LogisticsPage: React.FC = () => {
   const [page, setPage] = useState(1);
   /** Super-admin only — trash on list/detail stays hidden until enabled in Filters. */
   const [showDeleteButtons, setShowDeleteButtons] = useState(false);
+  const [courierRates, setCourierRates] = useState<LogisticsCourierRates | null>(null);
+  const [freightByBookingId, setFreightByBookingId] = useState<
+    Record<string, LogisticsFreightCompare>
+  >({});
 
   const isMobile = useIsMobile();
   const isOps = user ? isInternalOpsUser(user) : false;
@@ -317,6 +328,41 @@ export const LogisticsPage: React.FC = () => {
   useEffect(() => {
     if (page > totalPages) setPage(totalPages);
   }, [page, totalPages]);
+
+  useEffect(() => {
+    let cancelled = false;
+    void loadLogisticsCourierRates()
+      .then(rates => {
+        if (!cancelled) setCourierRates(rates);
+      })
+      .catch(() => {
+        if (!cancelled) setCourierRates(null);
+      });
+    return () => { cancelled = true; };
+  }, []);
+
+  useEffect(() => {
+    const targets = pageBookings.filter(booking => booking.invoiceId?.trim());
+    if (!targets.length) return;
+    let cancelled = false;
+    void (async () => {
+      const next: Record<string, LogisticsFreightCompare> = {};
+      await Promise.all(targets.map(async booking => {
+        try {
+          next[booking.id] = await loadLogisticsFreightCompare(booking, {
+            isOps,
+            rates: courierRates,
+          });
+        } catch {
+          // Skip failed cards; detail view can retry.
+        }
+      }));
+      if (!cancelled) {
+        setFreightByBookingId(prev => ({ ...prev, ...next }));
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [pageBookings, isOps, courierRates]);
 
   const stats = useMemo(() => {
     const counts: Record<StatFilterId, number> = {
@@ -811,6 +857,8 @@ export const LogisticsPage: React.FC = () => {
                   const partner = LOGISTICS_PARTNERS.find(item => item.id === booking.partnerId);
                   const tone = cardToneForStatus(booking);
                   const waybill = booking.trackingNo || booking.consignmentNo || '—';
+                  const freight = freightByBookingId[booking.id];
+                  const productItems = freight?.items.filter(item => !item.isFreight) ?? [];
                   return (
                     <li key={booking.id}>
                       <article
@@ -835,9 +883,51 @@ export const LogisticsPage: React.FC = () => {
                           </span>
 
                           <div className="logistics-shipment__body">
-                            <strong className="logistics-shipment__tracking">{waybill}</strong>
+                            <div className="logistics-shipment__top">
+                              <div className="logistics-shipment__top-left">
+                                <strong className="logistics-shipment__tracking">{waybill}</strong>
+                                <span className="logistics-shipment__dealer">{booking.dealer.name}</span>
+                              </div>
+                              {(freight?.paidFreightInr != null
+                                || freight?.actualFreightInr != null) && (
+                                <div className="logistics-shipment__freight">
+                                  <span>
+                                    Paid{' '}
+                                    {freight.paidFreightInr != null
+                                      ? formatCurrency(freight.paidFreightInr)
+                                      : '—'}
+                                  </span>
+                                  <span>
+                                    Actual{' '}
+                                    {freight.actualFreightInr != null
+                                      ? formatCurrency(freight.actualFreightInr)
+                                      : '—'}
+                                  </span>
+                                  {freight.differenceInr != null && (
+                                    <span
+                                      className={[
+                                        'logistics-shipment__freight-diff',
+                                        freight.differenceInr > 0
+                                          ? 'is-under'
+                                          : freight.differenceInr < 0
+                                            ? 'is-over'
+                                            : 'is-matched',
+                                      ].join(' ')}
+                                    >
+                                      Diff {formatCurrency(freight.differenceInr)}
+                                    </span>
+                                  )}
+                                </div>
+                              )}
+                            </div>
 
-                            <span className="logistics-shipment__dealer">{booking.dealer.name}</span>
+                            {productItems.length > 0 && (
+                              <span className="logistics-shipment__invoice-items">
+                                {productItems
+                                  .map(item => `${item.name}${item.quantity > 1 ? ` ×${item.quantity}` : ''}`)
+                                  .join(', ')}
+                              </span>
+                            )}
 
                             {showsRoute(booking.status) ? (
                               <div className="logistics-shipment__route">
