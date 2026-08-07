@@ -34,6 +34,7 @@ import {
   ENABLED_LOGISTICS_PARTNER_IDS,
   LOGISTICS_DASHBOARD_STATUSES,
   isIncompleteLogisticsBooking,
+  isPipelineEnabledPartner,
   needsFinalPackagePhoto,
 } from '../../lib/logisticsBooking';
 import {
@@ -227,18 +228,12 @@ export const LogisticsPage: React.FC = () => {
   const [statusFilter, setStatusFilter] = useState<LogisticsBookingStatus | ''>('');
   const [dateRange, setDateRange] = useState(defaultDateRange);
   /** Super-admin wipe mode — off by default; only meaningful for super_admin. */
-  const [superMode, setSuperMode] = useState(false);
   const [page, setPage] = useState(1);
 
   const isMobile = useIsMobile();
   const isOps = user ? isInternalOpsUser(user) : false;
   const canCreate = user ? canCreateLogisticsBooking(user) : false;
   const canSuperDelete = user ? canDeleteLogisticsBooking(user) : false;
-  const showTileDelete = canSuperDelete && superMode;
-
-  useEffect(() => {
-    if (!canSuperDelete && superMode) setSuperMode(false);
-  }, [canSuperDelete, superMode]);
 
   const activeBooking = useMemo(
     () => bookings.find(item => item.id === activeBookingId) ?? null,
@@ -253,8 +248,14 @@ export const LogisticsPage: React.FC = () => {
     const entry = state?.[LOGISTICS_ENTRY_STATE_KEY] as LogisticsEntryState | undefined;
     if (!entry?.draftPatch) return;
     setPendingEntry(entry);
-    setFlowStep('partner');
-    setSelectedPartnerId(null);
+    const preferred = entry.draftPatch.partnerId;
+    if (preferred && isPipelineEnabledPartner(preferred)) {
+      setSelectedPartnerId(preferred);
+      setFlowStep('book');
+    } else {
+      setSelectedPartnerId(null);
+      setFlowStep('partner');
+    }
     navigate(location.pathname, { replace: true, state: null });
   }, [canCreate, location.pathname, location.state, navigate]);
 
@@ -668,27 +669,6 @@ export const LogisticsPage: React.FC = () => {
               </select>
             </label>
 
-            {canSuperDelete && (
-              <label className="logistics-filter-supermode">
-                <span className="logistics-filter-supermode__copy">
-                  <strong>Super mode</strong>
-                  <em>Show delete on list tiles — permanently wipes booking + photos</em>
-                </span>
-                <button
-                  type="button"
-                  role="switch"
-                  aria-checked={superMode}
-                  className={[
-                    'logistics-filter-supermode__switch',
-                    superMode ? 'logistics-filter-supermode__switch--on' : '',
-                  ].filter(Boolean).join(' ')}
-                  onClick={() => setSuperMode(prev => !prev)}
-                >
-                  <span className="logistics-filter-supermode__knob" />
-                </button>
-              </label>
-            )}
-
             <button
               type="button"
               className="logistics-filter-dropdown__clear"
@@ -719,7 +699,7 @@ export const LogisticsPage: React.FC = () => {
           onUpdate={handleUpdateBooking}
           onAdvanceStatus={status => void handleAdvanceStatus(activeBooking, status)}
           onCancel={() => void handleCancel(activeBooking)}
-          onDelete={showTileDelete
+          onDelete={canSuperDelete
             ? () => void handleDelete(activeBooking.id)
             : undefined}
         />
@@ -860,7 +840,7 @@ export const LogisticsPage: React.FC = () => {
                           </div>
 
                           <div className="logistics-shipment__trail">
-                            {showTileDelete && (
+                            {canSuperDelete && (
                               <button
                                 type="button"
                                 className="logistics-shipment__delete"

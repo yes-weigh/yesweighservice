@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import { Outlet, useLocation, useNavigate, useParams } from 'react-router-dom';
 import { AlertCircle, FileText } from 'lucide-react';
 import { FetchingLoader } from '../../components/FetchingLoader';
@@ -8,11 +8,13 @@ import { useCatalogPageHeader } from '../../context/PageHeaderContext';
 import {
   fetchAdminInvoiceDetail,
 } from '../../lib/admin-invoices';
+import { fetchCatalog } from '../../lib/catalog';
 import { formatInvoiceDate, invoiceErrorMessage } from '../../lib/invoices';
 import { canCreateLogisticsBooking } from '../../lib/logisticsBookings';
 import {
   buildInvoiceBookingDraftPatch,
   canBookCourierForInvoice,
+  type LogisticsEntryState,
 } from '../../lib/logisticsPrefill';
 import type { DealerInvoiceDetail } from '../../types/invoices';
 import { canNavigateBackInApp } from '../../lib/navigation';
@@ -33,6 +35,7 @@ export const AdminInvoiceDetailLayout: React.FC = () => {
   const [invoice, setInvoice] = useState<DealerInvoiceDetail | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  const [courierEntry, setCourierEntry] = useState<LogisticsEntryState | null>(null);
 
   const handleBack = useCallback(() => {
     if (isPdfView) {
@@ -81,12 +84,53 @@ export const AdminInvoiceDetailLayout: React.FC = () => {
     };
   }, [customerId, invoiceId]);
 
-  const courierEntry = useMemo(() => {
-    if (!invoice || !customerId || !invoiceId || !user) return null;
-    if (!canCreateLogisticsBooking(user) || !canBookCourierForInvoice(invoice)) return null;
-    return {
-      draftPatch: buildInvoiceBookingDraftPatch(invoice, invoiceId, customerId, customerId),
-      dealerQuery: invoice.customerName ?? undefined,
+  /** Prefill ST partner + cartonized boxes from catalog package info. */
+  useEffect(() => {
+    if (!invoice || !customerId || !invoiceId || !user) {
+      setCourierEntry(null);
+      return;
+    }
+    if (!canCreateLogisticsBooking(user) || !canBookCourierForInvoice(invoice)) {
+      setCourierEntry(null);
+      return;
+    }
+
+    let cancelled = false;
+    void fetchCatalog()
+      .then(catalog => {
+        if (cancelled) return;
+        const productsById = new Map(catalog.items.map(item => [item.id, item]));
+        setCourierEntry({
+          draftPatch: buildInvoiceBookingDraftPatch(
+            invoice,
+            invoiceId,
+            customerId,
+            customerId,
+            {
+              productsById,
+              shipFromSite: user.staffLogisticsSite ?? 'cochin',
+            },
+          ),
+          dealerQuery: invoice.customerName ?? undefined,
+        });
+      })
+      .catch(() => {
+        if (cancelled) return;
+        // Still allow booking with partner + dealer even if catalog dims fail.
+        setCourierEntry({
+          draftPatch: buildInvoiceBookingDraftPatch(
+            invoice,
+            invoiceId,
+            customerId,
+            customerId,
+            { shipFromSite: user.staffLogisticsSite ?? 'cochin' },
+          ),
+          dealerQuery: invoice.customerName ?? undefined,
+        });
+      });
+
+    return () => {
+      cancelled = true;
     };
   }, [invoice, customerId, invoiceId, user]);
 
