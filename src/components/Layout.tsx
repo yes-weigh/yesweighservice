@@ -7,7 +7,12 @@ import { useCartFly } from '../context/useCartFly';
 import { homePathForRole } from '../types';
 import { canUseOrderCart, orderCartPathForUser } from '../lib/salesOrderSegments';
 import { navigateBack } from '../lib/navigation';
-import { canAccessNavFeature, canViewHr, type StaffNavFeature } from '../lib/staffAccess';
+import {
+  canAccessNavFeature,
+  canViewHr,
+  isInvoiceAccessOnlyStaff,
+  type StaffNavFeature,
+} from '../lib/staffAccess';
 import {
   ArrowLeft,
   ChevronDown,
@@ -324,6 +329,7 @@ const LayoutShell: React.FC = () => {
   const navItems = getNavItems();
   const home = homePathForRole(user.role);
   const isSuperAdmin = user.role === 'super_admin';
+  const compactTopNav = isInvoiceAccessOnlyStaff(user);
   const footerNavPath = isSuperAdmin ? `${home}/settings` : `${home}/profile`;
   const isFooterNavActive = isSuperAdmin
     ? location.pathname === footerNavPath || location.pathname.startsWith(`${footerNavPath}/`)
@@ -424,6 +430,7 @@ const LayoutShell: React.FC = () => {
           isMobile ? 'sidebar--mobile' : '',
           collapsed && !isMobile ? 'collapsed' : '',
           isMobile && mobileOpen ? 'mobile-open' : '',
+          compactTopNav ? 'sidebar--nav-top' : '',
         ]
           .filter(Boolean)
           .join(' ')}

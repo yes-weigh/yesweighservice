@@ -682,6 +682,17 @@ html::-webkit-scrollbar {
 
 .sidebar.mobile-open { transform: translateX(0); }
 
+/* Invoice-access (and similar): keep main + profile menus stacked under the logo. */
+.sidebar.sidebar--nav-top .nav-menu {
+  flex: 0 1 auto;
+  justify-content: flex-start;
+}
+
+.sidebar.sidebar--nav-top .sidebar-profile {
+  border-top: none;
+  padding-top: 0;
+}
+
 .sidebar-header {
   height: var(--header-height);
   display: flex;

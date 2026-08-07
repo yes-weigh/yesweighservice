@@ -1,5 +1,6 @@
 import { where, type QueryConstraint } from 'firebase/firestore';
 import type { User } from '../types';
+import { isInvoiceAccessOnlyStaff } from './staffAccess';
 import { normalizeZohoSalespersonLinks } from './zohoSalespersonStaff';
 
 /** Firestore `in` supports at most 30 values. */
@@ -7,10 +8,12 @@ const MAX_IN = 30;
 
 /**
  * Staff → linked Zoho salesperson ids (may be empty).
+ * Invoice-access clerks → `undefined` (org-wide; invoices are not branch-tagged).
  * Other roles → `undefined` (no salesperson filter).
  */
 export function salespersonScopeForUser(user: User | null | undefined): string[] | undefined {
   if (!user || user.role !== 'staff') return undefined;
+  if (isInvoiceAccessOnlyStaff(user)) return undefined;
   return normalizeZohoSalespersonLinks(user).map(link => link.id);
 }
 
@@ -44,6 +47,7 @@ export function staffCanAccessSalespersonDoc(
   salespersonId: string | null | undefined,
 ): boolean {
   if (!user || user.role !== 'staff') return true;
+  if (isInvoiceAccessOnlyStaff(user)) return true;
   const scope = salespersonScopeForUser(user) ?? [];
   const id = String(salespersonId ?? '').trim();
   return Boolean(id && scope.includes(id));
