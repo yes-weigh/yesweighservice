@@ -11,6 +11,10 @@ import {
   getHardcodedPrinterSlot,
   getStoreLabelPrinter,
   loadLabelStudioDoc,
+  formatPrinterHostsText,
+  normalizePrinterHosts,
+  parsePrinterHostsText,
+  printerHostCandidates,
   saveLabelStudioDoc,
   type LabelPrinter,
   type LabelStudioDoc,
@@ -34,6 +38,8 @@ export const LocalPrintersTab: React.FC = () => {
   const [success, setSuccess] = useState('');
   const [busyKey, setBusyKey] = useState<string | null>(null);
   const [draft, setDraft] = useState<BinLabelDraft>(() => loadTestLabelDraft());
+  /** Raw logistics IP field so commas can be typed without being stripped. */
+  const [logisticsHostsText, setLogisticsHostsText] = useState('');
 
   const native = isNativePrintAvailable();
   const platform = Capacitor.getPlatform();
@@ -54,7 +60,14 @@ export const LocalPrintersTab: React.FC = () => {
 
   const applyDoc = (docData: LabelStudioDoc) => {
     setPrinters(docData.printers);
-    setSavedSnapshot(JSON.stringify(docData.printers.map(p => ({ id: p.id, host: p.host }))));
+    const logistics = docData.printers.find(p => p.id === LOGISTICS_LABEL_PRINTER_ID);
+    setLogisticsHostsText(formatPrinterHostsText(printerHostCandidates(logistics ?? {
+      host: '',
+      hosts: [],
+    })));
+    setSavedSnapshot(JSON.stringify(
+      docData.printers.map(p => ({ id: p.id, hosts: printerHostCandidates(p) })),
+    ));
   };
 
   const loadAll = useCallback(async () => {
@@ -75,7 +88,9 @@ export const LocalPrintersTab: React.FC = () => {
   }, [loadAll]);
 
   const dirty = useMemo(() => {
-    const snapshot = JSON.stringify(printers.map(p => ({ id: p.id, host: p.host })));
+    const snapshot = JSON.stringify(
+      printers.map(p => ({ id: p.id, hosts: printerHostCandidates(p) })),
+    );
     return snapshot !== savedSnapshot;
   }, [printers, savedSnapshot]);
 
@@ -90,7 +105,18 @@ export const LocalPrintersTab: React.FC = () => {
   );
 
   const updatePrinterHost = (id: string, host: string) => {
-    setPrinters(prev => prev.map(p => (p.id === id ? { ...p, host } : p)));
+    const hosts = normalizePrinterHosts(host);
+    setPrinters(prev => prev.map(p => (
+      p.id === id ? { ...p, host: hosts[0] ?? '', hosts } : p
+    )));
+  };
+
+  const updatePrinterHostsText = (id: string, text: string) => {
+    setLogisticsHostsText(text);
+    const hosts = parsePrinterHostsText(text);
+    setPrinters(prev => prev.map(p => (
+      p.id === id ? { ...p, host: hosts[0] ?? '', hosts } : p
+    )));
   };
 
   const handleSave = async () => {
@@ -141,7 +167,8 @@ export const LocalPrintersTab: React.FC = () => {
         <div>
           <h3>Label printing</h3>
           <p className="text-muted text-sm">
-            Printers and label sizes are fixed by usage. Only set each printer IP.
+            Printers and label sizes are fixed by usage. Set store IP once;
+            logistics can list several IPs (office + warehouse) — print uses the first reachable.
             Port is {HARDCODED_LABEL_PRINTERS[0]?.port ?? 9100} for all.
           </p>
         </div>
@@ -179,7 +206,7 @@ export const LocalPrintersTab: React.FC = () => {
             <div className="settings-local-printer__list">
               {HARDCODED_LABEL_PRINTERS.map(slot => {
                 const printer = printers.find(p => p.id === slot.id)
-                  ?? { id: slot.id, name: slot.name, host: '', port: slot.port };
+                  ?? { id: slot.id, name: slot.name, host: '', hosts: [], port: slot.port };
                 return (
                   <div
                     key={slot.id}
@@ -199,19 +226,42 @@ export const LocalPrintersTab: React.FC = () => {
                         {' · '}
                         {formatLabelMediaSize(slot.media)}
                       </p>
-                      <label className="settings-locations__field">
-                        <span>IP address</span>
-                        <input
-                          type="text"
-                          inputMode="decimal"
-                          autoComplete="off"
-                          spellCheck={false}
-                          value={printer.host}
-                          disabled={busyKey === 'save'}
-                          onChange={e => updatePrinterHost(slot.id, e.target.value)}
-                          placeholder="192.168.1.39"
-                        />
-                      </label>
+                      {slot.id === LOGISTICS_LABEL_PRINTER_ID ? (
+                        <label className="settings-locations__field">
+                          <span>IP addresses (comma-separated)</span>
+                          <input
+                            type="text"
+                            autoComplete="off"
+                            spellCheck={false}
+                            value={logisticsHostsText}
+                            disabled={busyKey === 'save'}
+                            onChange={e => updatePrinterHostsText(slot.id, e.target.value)}
+                            onBlur={() => {
+                              setLogisticsHostsText(
+                                formatPrinterHostsText(parsePrinterHostsText(logisticsHostsText)),
+                              );
+                            }}
+                            placeholder="192.168.1.11, 192.168.0.10"
+                          />
+                          <span className="text-muted text-sm">
+                            Separate with commas — APK tries each IP and prints on the first that answers.
+                          </span>
+                        </label>
+                      ) : (
+                        <label className="settings-locations__field">
+                          <span>IP address</span>
+                          <input
+                            type="text"
+                            inputMode="decimal"
+                            autoComplete="off"
+                            spellCheck={false}
+                            value={printer.host}
+                            disabled={busyKey === 'save'}
+                            onChange={e => updatePrinterHost(slot.id, e.target.value)}
+                            placeholder="192.168.1.39"
+                          />
+                        </label>
+                      )}
                     </div>
                   </div>
                 );

@@ -19,6 +19,53 @@ public class TcpPrintPlugin extends Plugin {
     private final ExecutorService executor = Executors.newCachedThreadPool();
 
     @PluginMethod
+    public void probe(PluginCall call) {
+        String host = call.getString("host");
+        Integer port = call.getInt("port", 9100);
+        Integer timeoutMs = call.getInt("timeoutMs", 2000);
+
+        if (host == null || host.trim().isEmpty()) {
+            call.reject("Printer host (IP) is required.");
+            return;
+        }
+        if (port == null || port < 1 || port > 65535) {
+            call.reject("Printer port must be between 1 and 65535.");
+            return;
+        }
+
+        final String trimmedHost = host.trim();
+        final int resolvedPort = port;
+        final int resolvedTimeout = timeoutMs == null ? 2000 : Math.max(500, timeoutMs);
+
+        executor.execute(() -> {
+            Socket socket = null;
+            try {
+                socket = new Socket();
+                socket.connect(new InetSocketAddress(trimmedHost, resolvedPort), resolvedTimeout);
+                JSObject result = new JSObject();
+                result.put("ok", true);
+                result.put("host", trimmedHost);
+                result.put("port", resolvedPort);
+                call.resolve(result);
+            } catch (Exception e) {
+                String message = e.getMessage();
+                if (message == null || message.isEmpty()) {
+                    message = e.getClass().getSimpleName();
+                }
+                call.reject("Could not reach printer at " + trimmedHost + ":" + resolvedPort + " — " + message);
+            } finally {
+                if (socket != null) {
+                    try {
+                        socket.close();
+                    } catch (Exception ignored) {
+                        // no-op
+                    }
+                }
+            }
+        });
+    }
+
+    @PluginMethod
     public void send(PluginCall call) {
         String host = call.getString("host");
         Integer port = call.getInt("port", 9100);

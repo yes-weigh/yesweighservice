@@ -33,11 +33,22 @@ export interface LabelMediaSize {
 export interface LabelPrinter {
   id: string;
   name: string;
+  /**
+   * Primary IP (first of `hosts`) — kept for older readers / single-IP UIs.
+   */
   host: string;
+  /**
+   * Ordered LAN IPs. Logistics print uses the first reachable host.
+   * Always normalized on load/save (includes `host` when set).
+   */
+  hosts: string[];
   port: number;
 }
 
-export interface HardcodedLabelPrinterSlot extends Omit<LabelPrinter, 'host'> {
+export interface HardcodedLabelPrinterSlot {
+  id: string;
+  name: string;
+  port: number;
   /** Short badge in settings (e.g. "Store label"). */
   roleBadge: string;
   /** What this printer is for — shown under the name. */
@@ -91,16 +102,60 @@ function normalizeHost(value: unknown): string {
   return value.trim();
 }
 
-function hostByPrinterId(rawPrinters: unknown): Map<string, string> {
-  const map = new Map<string, string>();
+/** Unique non-empty hosts, preserving order. */
+export function normalizePrinterHosts(values: unknown): string[] {
+  const list: string[] = [];
+  if (Array.isArray(values)) {
+    for (const value of values) {
+      const host = normalizeHost(value);
+      if (host) list.push(host);
+    }
+  } else {
+    const host = normalizeHost(values);
+    if (host) list.push(host);
+  }
+  const out: string[] = [];
+  const seen = new Set<string>();
+  for (const host of list) {
+    const key = host.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(host);
+  }
+  return out;
+}
+
+/** Split typed host list — commas, newlines, or spaces. */
+export function parsePrinterHostsText(text: string): string[] {
+  return normalizePrinterHosts(
+    String(text ?? '')
+      .split(/[\s,;]+/)
+      .map(part => part.trim())
+      .filter(Boolean),
+  );
+}
+
+export function formatPrinterHostsText(hosts: string[]): string {
+  return normalizePrinterHosts(hosts).join(', ');
+}
+
+export function printerHostCandidates(printer: Pick<LabelPrinter, 'host' | 'hosts'>): string[] {
+  return normalizePrinterHosts([...(printer.hosts ?? []), printer.host]);
+}
+
+function hostsByPrinterId(rawPrinters: unknown): Map<string, string[]> {
+  const map = new Map<string, string[]>();
   if (!Array.isArray(rawPrinters)) return map;
   for (const raw of rawPrinters) {
     if (!raw || typeof raw !== 'object') continue;
     const data = raw as Record<string, unknown>;
     const id = typeof data.id === 'string' ? data.id.trim() : '';
     if (!id) continue;
-    const host = normalizeHost(data.host);
-    if (host) map.set(id, host);
+    const hosts = normalizePrinterHosts([
+      ...(Array.isArray(data.hosts) ? data.hosts : []),
+      data.host,
+    ]);
+    if (hosts.length) map.set(id, hosts);
   }
   return map;
 }
@@ -130,27 +185,36 @@ export function formatLabelMediaSize(media: LabelMediaSize): string {
 
 /** Build the fixed printer list, applying saved IPs where present. */
 export function buildHardcodedPrinters(
-  savedHosts?: Map<string, string> | Record<string, string>,
+  savedHosts?: Map<string, string | string[]> | Record<string, string | string[]>,
 ): LabelPrinter[] {
-  const hosts = savedHosts instanceof Map
+  const hostsMap = savedHosts instanceof Map
     ? savedHosts
     : new Map(Object.entries(savedHosts ?? {}));
-  return HARDCODED_LABEL_PRINTERS.map((slot, index) => ({
-    id: slot.id,
-    name: slot.name,
-    port: slot.port,
-    host: hosts.get(slot.id)
-      ?? (index === 0 && !hosts.size ? DEFAULT_LABEL_PRINTER_HOST : ''),
-  }));
+  return HARDCODED_LABEL_PRINTERS.map((slot, index) => {
+    const raw = hostsMap.get(slot.id);
+    let hosts = normalizePrinterHosts(raw);
+    if (!hosts.length && index === 0 && !hostsMap.size) {
+      hosts = [DEFAULT_LABEL_PRINTER_HOST];
+    }
+    return {
+      id: slot.id,
+      name: slot.name,
+      port: slot.port,
+      host: hosts[0] ?? '',
+      hosts,
+    };
+  });
 }
 
 export function emptyLabelPrinter(overrides?: Partial<LabelPrinter>): LabelPrinter {
   const slot = HARDCODED_LABEL_PRINTERS.find(p => p.id === overrides?.id)
     ?? HARDCODED_LABEL_PRINTERS[0];
+  const hosts = normalizePrinterHosts(overrides?.hosts ?? overrides?.host ?? '');
   return {
     id: overrides?.id ?? slot.id,
     name: overrides?.name ?? slot.name,
-    host: overrides?.host ?? '',
+    host: hosts[0] ?? '',
+    hosts,
     port: overrides?.port ?? slot.port,
   };
 }
@@ -160,6 +224,7 @@ export function emptyStoreLabelPrinter(): LabelPrinter {
     id: STORE_LABEL_PRINTER_ID,
     name: 'Store label printer',
     host: DEFAULT_LABEL_PRINTER_HOST,
+    hosts: [DEFAULT_LABEL_PRINTER_HOST],
     port: DEFAULT_LABEL_PRINTER_PORT,
   };
 }
@@ -169,6 +234,7 @@ export function emptyLogisticsLabelPrinter(): LabelPrinter {
     id: LOGISTICS_LABEL_PRINTER_ID,
     name: 'Logistics label printer',
     host: '',
+    hosts: [],
     port: DEFAULT_LABEL_PRINTER_PORT,
   };
 }
@@ -184,10 +250,11 @@ export function emptyLabelStudioDoc(): LabelStudioDoc {
 }
 
 function normalizeStudioPayload(data: Record<string, unknown>): LabelStudioDoc | null {
-  const hosts = hostByPrinterId(data.printers);
+  const hosts = hostsByPrinterId(data.printers);
   // Legacy single-host docs.
   if (!hosts.size && typeof data.host === 'string') {
-    hosts.set(STORE_LABEL_PRINTER_ID, normalizeHost(data.host) || DEFAULT_LABEL_PRINTER_HOST);
+    const host = normalizeHost(data.host) || DEFAULT_LABEL_PRINTER_HOST;
+    hosts.set(STORE_LABEL_PRINTER_ID, [host]);
   }
   if (!hosts.size && !Array.isArray(data.printers) && typeof data.host !== 'string') {
     return null;
@@ -203,9 +270,10 @@ function normalizeStudioPayload(data: Record<string, unknown>): LabelStudioDoc |
 }
 
 function migrateFromLegacyPrintersDoc(data: Record<string, unknown>): LabelStudioDoc {
-  const hosts = hostByPrinterId(data.printers);
+  const hosts = hostsByPrinterId(data.printers);
   if (!hosts.size && (typeof data.host === 'string' || typeof data.port !== 'undefined')) {
-    hosts.set(STORE_LABEL_PRINTER_ID, normalizeHost(data.host) || DEFAULT_LABEL_PRINTER_HOST);
+    const host = normalizeHost(data.host) || DEFAULT_LABEL_PRINTER_HOST;
+    hosts.set(STORE_LABEL_PRINTER_ID, [host]);
   }
   return {
     printers: buildHardcodedPrinters(hosts),
@@ -260,11 +328,13 @@ export function validatePrinterHost(host: string): string | null {
 export function validateLabelPrinter(printer: LabelPrinter): string | null {
   const slot = HARDCODED_LABEL_PRINTERS.find(p => p.id === printer.id);
   if (!slot) return `Unknown printer: ${printer.id}`;
-  const host = printer.host.trim();
+  const hosts = printerHostCandidates(printer);
   // Empty IP is allowed in settings (configure later); print paths require a host.
-  if (!host) return null;
-  const hostError = validatePrinterHost(host);
-  if (hostError) return `${slot.name}: ${hostError}`;
+  if (!hosts.length) return null;
+  for (const host of hosts) {
+    const hostError = validatePrinterHost(host);
+    if (hostError) return `${slot.name}: ${hostError} (${host})`;
+  }
   return null;
 }
 
@@ -314,7 +384,9 @@ export async function saveLabelStudioDoc(
   },
   updatedBy?: string | null,
 ): Promise<LabelStudioDoc> {
-  const hosts = new Map(input.printers.map(p => [p.id, normalizeHost(p.host)]));
+  const hosts = new Map(
+    input.printers.map(p => [p.id, printerHostCandidates(p)]),
+  );
   const printers = buildHardcodedPrinters(hosts);
   const err = validateLabelStudioDoc({ printers });
   if (err) throw new Error(err);

@@ -3,11 +3,17 @@ import {
   LOGISTICS_LABEL_HEIGHT_MM,
   LOGISTICS_LABEL_WIDTH_MM,
 } from '../constants/localPrinterSettings';
-import { isNativePrintAvailable, sendRawToPrinter } from './localPrinterPrint';
+import {
+  isNativePrintAvailable,
+  logisticsLastHostStorageKey,
+  pickReachablePrinter,
+  sendRawToPrinter,
+} from './localPrinterPrint';
 import {
   getLabelMediaForUsage,
   getLogisticsLabelPrinter,
   loadLabelStudioDoc,
+  printerHostCandidates,
 } from './labelStudio';
 import type { ShippingLabelViewModel } from './shippingLabel';
 import { buildShippingLabelBitmapJob } from './shippingLabelBitmap';
@@ -142,10 +148,17 @@ export function buildCourierLabelTspl(input: {
 export async function resolveLogisticsPrinterOrThrow(): Promise<{ host: string; port: number }> {
   const studio = await loadLabelStudioDoc();
   const printer = getLogisticsLabelPrinter(studio);
-  if (!printer.host.trim()) {
-    throw new Error('Set the logistics label printer IP in Admin → Settings → Label printing.');
+  const hosts = printerHostCandidates(printer);
+  if (!hosts.length) {
+    throw new Error(
+      'Set at least one logistics label printer IP in Admin → Settings → Label printing.',
+    );
   }
-  return { host: printer.host.trim(), port: printer.port };
+  return pickReachablePrinter({
+    hosts,
+    port: printer.port,
+    lastHostKey: logisticsLastHostStorageKey(),
+  });
 }
 
 /** Native thermal print when APK + IP available; otherwise returns false for browser fallback. */

@@ -26,6 +26,90 @@ export function isNativePrintAvailable(): boolean {
   return Capacitor.isNativePlatform();
 }
 
+const LOGISTICS_LAST_HOST_KEY = 'yesweigh.logisticsPrinter.lastHost';
+
+export async function probePrinter(options: {
+  host: string;
+  port: number;
+  timeoutMs?: number;
+}): Promise<boolean> {
+  if (!isNativePrintAvailable()) return false;
+  try {
+    await TcpPrint.probe({
+      host: options.host,
+      port: options.port,
+      timeoutMs: options.timeoutMs ?? 2000,
+    });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Pick the first reachable host (tries last-good first when provided).
+ * Falls back to the first host if probe is unavailable (non-native).
+ */
+export async function pickReachablePrinter(options: {
+  hosts: string[];
+  port: number;
+  lastHostKey?: string;
+  probeTimeoutMs?: number;
+}): Promise<{ host: string; port: number }> {
+  const hosts = [...new Set(
+    options.hosts.map(h => h.trim()).filter(Boolean),
+  )];
+  if (!hosts.length) {
+    throw new Error('No printer IP configured.');
+  }
+
+  let ordered = hosts;
+  if (options.lastHostKey && typeof localStorage !== 'undefined') {
+    try {
+      const last = localStorage.getItem(options.lastHostKey)?.trim();
+      if (last && hosts.includes(last)) {
+        ordered = [last, ...hosts.filter(h => h !== last)];
+      }
+    } catch {
+      // ignore storage errors
+    }
+  }
+
+  if (!isNativePrintAvailable()) {
+    // Browser cannot probe LAN — return first configured IP for error messaging.
+    return { host: ordered[0]!, port: options.port };
+  }
+
+  const errors: string[] = [];
+  for (const host of ordered) {
+    const ok = await probePrinter({
+      host,
+      port: options.port,
+      timeoutMs: options.probeTimeoutMs ?? 2000,
+    });
+    if (ok) {
+      if (options.lastHostKey && typeof localStorage !== 'undefined') {
+        try {
+          localStorage.setItem(options.lastHostKey, host);
+        } catch {
+          // ignore
+        }
+      }
+      return { host, port: options.port };
+    }
+    errors.push(host);
+  }
+
+  throw new Error(
+    `No logistics printer reachable. Tried: ${errors.join(', ')}. `
+    + 'Check Wi‑Fi and Admin → Settings → Label printing IPs.',
+  );
+}
+
+export function logisticsLastHostStorageKey(): string {
+  return LOGISTICS_LAST_HOST_KEY;
+}
+
 export async function sendRawToPrinter(options: {
   host: string;
   port: number;

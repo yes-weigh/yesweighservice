@@ -14,6 +14,21 @@ export interface TcpPrintSendResult {
   bytesSent: number;
 }
 
+export interface TcpPrintProbeOptions {
+  host: string;
+  port?: number;
+  /** Connect timeout in ms; default 2000 */
+  timeoutMs?: number;
+}
+
+export interface TcpPrintProbeResult {
+  ok: true;
+  host: string;
+  port: number;
+}
+
 export interface TcpPrintPlugin {
   send(options: TcpPrintSendOptions): Promise<TcpPrintSendResult>;
+  /** Connect only — used to pick a reachable printer among several IPs. */
+  probe(options: TcpPrintProbeOptions): Promise<TcpPrintProbeResult>;
 }
