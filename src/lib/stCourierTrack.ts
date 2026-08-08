@@ -98,3 +98,40 @@ export function openStCourierTrackPage(awb: string): void {
 export function openStCourierOfficialTrackPage(): void {
   window.open(stCourierOfficialTrackingUrl(), '_blank', 'noopener,noreferrer');
 }
+
+export type StCourierDeliveryOfficeResult = {
+  pincode: string;
+  ok: boolean;
+  error: string | null;
+  communication: string | null;
+  serviceCenter: string | null;
+  hubCenter: string | null;
+  sourceUrl: string;
+  fetchedAt: string;
+};
+
+/** Extract the first 6-digit Indian PIN from free-text address. */
+export function extractIndianPincode(text: string | null | undefined): string | null {
+  const match = /\b(\d{6})\b/.exec(String(text ?? ''));
+  return match?.[1] ?? null;
+}
+
+/** Fetch ST Courier delivery-office Communication for a destination pincode. */
+export async function fetchStCourierDeliveryOffice(
+  pincode: string,
+): Promise<StCourierDeliveryOfficeResult> {
+  try {
+    const fn = httpsCallable<
+      { pincode: string },
+      StCourierDeliveryOfficeResult
+    >(
+      functions,
+      'lookupStCourierDeliveryOfficeFn',
+      { timeout: 45_000 },
+    );
+    const result = await fn({ pincode: pincode.replace(/\D/g, '').slice(0, 6) });
+    return result.data;
+  } catch (err) {
+    throw callableError(err, 'Could not fetch ST Courier delivery office.');
+  }
+}

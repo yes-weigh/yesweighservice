@@ -37,10 +37,15 @@ import {
 } from './logisticsPhotos';
 import { loadLogisticsSettings } from './logisticsSettings';
 import { resolvePersistShipFromSite } from './logisticsShipFrom';
+import {
+  extractIndianPincode,
+  fetchStCourierDeliveryOffice,
+} from './stCourierTrack';
 import type {
   LogisticsBooking,
   LogisticsBookingDraft,
   LogisticsBookingStatus,
+  LogisticsCourierDeliveryOffice,
   LogisticsCourierTrack,
   LogisticsDealerSnapshot,
   LogisticsDocumentType,
@@ -91,6 +96,48 @@ function mapCourierTrack(raw: unknown): LogisticsCourierTrack | null {
     sourceUrl: String(data.sourceUrl ?? ''),
     fetchedAt: String(data.fetchedAt ?? ''),
   };
+}
+
+function mapCourierDeliveryOffice(raw: unknown): LogisticsCourierDeliveryOffice | null {
+  if (!raw || typeof raw !== 'object') return null;
+  const data = raw as DocumentData;
+  const communication = String(data.communication ?? '').trim();
+  const pincode = String(data.pincode ?? '').replace(/\D/g, '').slice(0, 6);
+  if (!communication || pincode.length !== 6) return null;
+  return {
+    pincode,
+    communication,
+    serviceCenter: data.serviceCenter == null ? null : String(data.serviceCenter),
+    hubCenter: data.hubCenter == null ? null : String(data.hubCenter),
+    sourceUrl: String(data.sourceUrl ?? 'https://stcourier.com/pincode-search'),
+    fetchedAt: String(data.fetchedAt ?? ''),
+  };
+}
+
+/** Fetch ST delivery-office once; keep existing snapshot when already filled. */
+async function resolveCourierDeliveryOfficeForPersist(
+  partnerId: string,
+  deliveryAddress: string,
+  existing: LogisticsCourierDeliveryOffice | null,
+): Promise<LogisticsCourierDeliveryOffice | null> {
+  if (existing?.communication?.trim()) return existing;
+  if (partnerId !== 'st_courier') return null;
+  const pincode = extractIndianPincode(deliveryAddress);
+  if (!pincode) return null;
+  try {
+    const result = await fetchStCourierDeliveryOffice(pincode);
+    if (!result.ok || !result.communication?.trim()) return null;
+    return {
+      pincode: result.pincode,
+      communication: result.communication.trim(),
+      serviceCenter: result.serviceCenter,
+      hubCenter: result.hubCenter,
+      sourceUrl: result.sourceUrl,
+      fetchedAt: result.fetchedAt,
+    };
+  } catch {
+    return null;
+  }
 }
 
 export interface LogisticsBookingListFilters {
@@ -234,6 +281,7 @@ export function mapLogisticsBookingDoc(id: string, data: DocumentData): Logistic
       ? boxes.reduce((total, box) => total + Math.max(box.weightKg || 0, box.volumetricWeightKg || 0), 0)
       : Math.max(actualWeightKg, volumetricWeightKg);
   const courierTrack = mapCourierTrack(data.courierTrack);
+  const courierDeliveryOffice = mapCourierDeliveryOffice(data.courierDeliveryOffice);
 
   return {
     id,
@@ -279,6 +327,7 @@ export function mapLogisticsBookingDoc(id: string, data: DocumentData): Logistic
     trackFetchedAt: typeof data.trackFetchedAt === 'string'
       ? data.trackFetchedAt
       : (courierTrack?.fetchedAt || null),
+    courierDeliveryOffice,
     deliveredAt: typeof data.deliveredAt === 'string' ? data.deliveredAt : null,
     inTransitAt: typeof data.inTransitAt === 'string' ? data.inTransitAt : null,
     createdAt: String(data.createdAt ?? ''),
@@ -423,9 +472,11 @@ async function buildBookingPayload(input: PersistLogisticsBookingInput & {
     || `ORD-${new Date().getFullYear()}-${String(Math.floor(Math.random() * 9000) + 1000)}`;
 
   const existingSnap = await getDoc(doc(db, COLLECTION, bookingId)).catch(() => null);
-  const existingBoxes = existingSnap?.exists() && Array.isArray(existingSnap.data()?.boxes)
-    ? existingSnap.data()!.boxes.map((box: DocumentData) => mapShipmentBox(box))
+  const existingData = existingSnap?.exists() ? existingSnap.data() : null;
+  const existingBoxes = existingData && Array.isArray(existingData.boxes)
+    ? existingData.boxes.map((box: DocumentData) => mapShipmentBox(box))
     : [];
+  const existingDeliveryOffice = mapCourierDeliveryOffice(existingData?.courierDeliveryOffice);
 
   const { boxes, finalPackagePhotoStoragePath } = await uploadDraftBoxPhotos(
     bookingId,
@@ -444,6 +495,12 @@ async function buildBookingPayload(input: PersistLogisticsBookingInput & {
     || createdBy.loginId?.trim()
     || createdBy.email?.trim()
     || 'YESWEIGH';
+  const deliveryAddress = resolveDeliveryAddress(dealer, draft.deliveryAddressKind);
+  const courierDeliveryOffice = await resolveCourierDeliveryOfficeForPersist(
+    draft.partnerId,
+    deliveryAddress,
+    existingDeliveryOffice,
+  );
 
   return {
     orderRef,
@@ -475,7 +532,7 @@ async function buildBookingPayload(input: PersistLogisticsBookingInput & {
         : {}),
     },
     deliveryAddressKind: draft.deliveryAddressKind,
-    deliveryAddress: resolveDeliveryAddress(dealer, draft.deliveryAddressKind),
+    deliveryAddress,
     shipFromSite,
     shipFromAddress,
     shipmentMode: draft.shipmentMode,
@@ -499,6 +556,7 @@ async function buildBookingPayload(input: PersistLogisticsBookingInput & {
     packingSlipGenerated: false,
     status,
     wizardStep: wizardStep ?? null,
+    ...(courierDeliveryOffice ? { courierDeliveryOffice } : {}),
     createdAt,
     updatedAt: now,
     createdByUid: existingCreatedByUid || createdBy.uid,
@@ -756,6 +814,7 @@ export async function persistLogisticsBookingDraft(
   let existingCreatedByUid: string | null = null;
   let existingCreatedByName: string | null = null;
   let existingBoxes: ShipmentBox[] = [];
+  let existingDeliveryOffice: LogisticsCourierDeliveryOffice | null = null;
   if (existingBookingId) {
     const existing = await getDoc(bookingRef);
     if (!existing.exists()) throw new Error('Draft booking not found.');
@@ -782,6 +841,7 @@ export async function persistLogisticsBookingDraft(
     existingBoxes = Array.isArray(existing.data()?.boxes)
       ? existing.data()!.boxes.map((box: DocumentData) => mapShipmentBox(box))
       : [];
+    existingDeliveryOffice = mapCourierDeliveryOffice(existing.data()?.courierDeliveryOffice);
   }
 
   try {
@@ -862,6 +922,13 @@ export async function persistLogisticsBookingDraft(
       ? 'box'
       : (wizardStep ?? 'box');
 
+    const deliveryAddress = resolveDeliveryAddress(dealer, draft.deliveryAddressKind);
+    const courierDeliveryOffice = await resolveCourierDeliveryOfficeForPersist(
+      draft.partnerId,
+      deliveryAddress,
+      existingDeliveryOffice,
+    );
+
     const payload: Record<string, unknown> = {
       orderRef,
       source: draft.source,
@@ -891,7 +958,7 @@ export async function persistLogisticsBookingDraft(
           : {}),
       },
       deliveryAddressKind: draft.deliveryAddressKind,
-      deliveryAddress: resolveDeliveryAddress(dealer, draft.deliveryAddressKind),
+      deliveryAddress,
       shipFromSite,
       shipFromAddress,
       shipmentMode: draft.shipmentMode,
@@ -915,6 +982,7 @@ export async function persistLogisticsBookingDraft(
       packingSlipGenerated: false,
       status: 'label_generated',
       wizardStep: storedWizardStep,
+      ...(courierDeliveryOffice ? { courierDeliveryOffice } : {}),
       createdAt,
       updatedAt: now,
       createdByUid: existingCreatedByUid || createdBy.uid,

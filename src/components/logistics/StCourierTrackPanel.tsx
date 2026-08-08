@@ -1,19 +1,24 @@
 import React, { useEffect, useState } from 'react';
-import { Phone, RefreshCw, Truck } from 'lucide-react';
+import { MapPin, Phone, RefreshCw, Truck } from 'lucide-react';
 import { LOGISTICS_BRANCH_TRACKING_CONTACTS } from '../../constants/logisticsSettings';
 import {
   fetchStCourierShipmentTrack,
   stCourierTrackFromBooking,
   type StCourierTrackResult,
 } from '../../lib/stCourierTrack';
-import type { LogisticsCourierTrack } from '../../types/logistics-dispatch';
+import type {
+  LogisticsCourierDeliveryOffice,
+  LogisticsCourierTrack,
+} from '../../types/logistics-dispatch';
 import { isStaffLogisticsSite, type StaffLogisticsSite } from '../../types/staff-logistics';
 
 interface StCourierTrackPanelProps {
   awb: string;
   bookingId?: string | null;
-  /** Ship-from site — picks the local branch contact under history. */
+  /** Ship-from site — picks the booking-office contact under history. */
   shipFromSite?: StaffLogisticsSite | string | null;
+  /** Persisted destination office from ST pincode search (filled once on create). */
+  courierDeliveryOffice?: LogisticsCourierDeliveryOffice | null;
   /** Persisted Firestore snapshot — shown as-is until the user refreshes. */
   cachedTrack?: LogisticsCourierTrack | null;
   onTrackUpdated?: (track: StCourierTrackResult) => void;
@@ -47,6 +52,7 @@ export const StCourierTrackPanel: React.FC<StCourierTrackPanelProps> = ({
   awb,
   bookingId,
   shipFromSite,
+  courierDeliveryOffice,
   cachedTrack,
   onTrackUpdated,
 }) => {
@@ -80,7 +86,9 @@ export const StCourierTrackPanel: React.FC<StCourierTrackPanelProps> = ({
   const fetchedLabel = formatFetchedAt(result?.fetchedAt);
   const hasSnapshot = Boolean(result);
   const branchContact = branchContactForSite(shipFromSite);
-  const phoneHref = branchContact ? phoneHrefFromContact(branchContact) : null;
+  const bookingPhoneHref = branchContact ? phoneHrefFromContact(branchContact) : null;
+  const deliveryOffice = courierDeliveryOffice?.communication?.trim() || null;
+  const deliveryPhoneHref = deliveryOffice ? phoneHrefFromContact(deliveryOffice) : null;
 
   return (
     <section className="logistics-booking__track-panel" aria-label="Shipment tracking">
@@ -173,12 +181,27 @@ export const StCourierTrackPanel: React.FC<StCourierTrackPanelProps> = ({
             <div className="logistics-booking__track-branch-contact">
               <h5>
                 <Phone size={14} aria-hidden />
-                Local courier contact
+                Courier booking office
               </h5>
               <p>{branchContact}</p>
-              {phoneHref && (
-                <a href={phoneHref} className="logistics-booking__track-branch-phone">
-                  Call {phoneHref.replace(/^tel:/, '')}
+              {bookingPhoneHref && (
+                <a href={bookingPhoneHref} className="logistics-booking__track-branch-phone">
+                  Call {bookingPhoneHref.replace(/^tel:/, '')}
+                </a>
+              )}
+            </div>
+          )}
+
+          {deliveryOffice && (
+            <div className="logistics-booking__track-branch-contact logistics-booking__track-delivery-office">
+              <h5>
+                <MapPin size={14} aria-hidden />
+                Courier delivery office
+              </h5>
+              <p>{deliveryOffice}</p>
+              {deliveryPhoneHref && (
+                <a href={deliveryPhoneHref} className="logistics-booking__track-branch-phone">
+                  Call {deliveryPhoneHref.replace(/^tel:/, '')}
                 </a>
               )}
             </div>

@@ -1,5 +1,6 @@
 import { initializeApp } from 'firebase-admin/app';
 import { getFirestore } from 'firebase-admin/firestore';
+import { onDocumentCreated } from 'firebase-functions/v2/firestore';
 import { onCall, onRequest, HttpsError } from 'firebase-functions/v2/https';
 import { onSchedule } from 'firebase-functions/v2/scheduler';
 import { defineSecret, defineString } from 'firebase-functions/params';
@@ -148,6 +149,8 @@ import {
   fetchStCourierTrack,
   renderStCourierTrackHtml,
 } from './lib/st-courier-track.js';
+import { fetchStCourierDeliveryOffice } from './lib/st-courier-pincode.js';
+import { fillCourierDeliveryOfficeOnBooking } from './lib/st-courier-delivery-office-sync.js';
 import {
   persistStCourierTrackOnBooking,
   syncStCourierTrackingForBookings,
@@ -4084,6 +4087,61 @@ export const trackStCourierShipmentFn = onCall(
       throw new HttpsError(
         'internal',
         err?.message ?? 'Could not fetch ST Courier shipment status.',
+      );
+    }
+  },
+);
+
+/**
+ * Lookup ST Courier delivery-office Communication for a destination pincode
+ * (scrapes https://stcourier.com/pincode-search — first result row).
+ */
+export const lookupStCourierDeliveryOfficeFn = onCall(
+  {
+    region: 'asia-south1',
+    timeoutSeconds: 45,
+    memory: '256MiB',
+  },
+  async request => {
+    await requireActiveUser(request.auth?.uid, ALLOWED_ROLES, { allowViewOnly: true });
+    const pincode = String(request.data?.pincode ?? '').trim();
+    try {
+      return await fetchStCourierDeliveryOffice(pincode);
+    } catch (err) {
+      if (err instanceof HttpsError) throw err;
+      throw new HttpsError(
+        'internal',
+        err?.message ?? 'Could not fetch ST Courier delivery office.',
+      );
+    }
+  },
+);
+
+/**
+ * On new ST logistics booking: fetch destination delivery office once and persist.
+ * Skips when already filled by the client at create time.
+ */
+export const fillStCourierDeliveryOfficeOnCreate = onDocumentCreated(
+  {
+    document: 'logisticsBookings/{bookingId}',
+    region: 'asia-south1',
+    timeoutSeconds: 60,
+    memory: '256MiB',
+  },
+  async event => {
+    const bookingId = event.params.bookingId;
+    try {
+      const result = await fillCourierDeliveryOfficeOnBooking(getFirestore(), bookingId);
+      if (result.updated) {
+        console.log(
+          `fillStCourierDeliveryOfficeOnCreate: ${bookingId} pin=${result.pincode}`,
+        );
+      }
+    } catch (err) {
+      console.warn(
+        'fillStCourierDeliveryOfficeOnCreate failed',
+        bookingId,
+        err?.message || err,
       );
     }
   },

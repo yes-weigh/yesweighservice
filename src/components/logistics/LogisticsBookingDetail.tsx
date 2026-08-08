@@ -462,6 +462,7 @@ export const LogisticsBookingDetail: React.FC<LogisticsBookingDetailProps> = ({
           awb={trackAwb}
           bookingId={booking.id}
           shipFromSite={booking.shipFromSite}
+          courierDeliveryOffice={booking.courierDeliveryOffice}
           cachedTrack={booking.courierTrack}
           onTrackUpdated={(track) => {
             let nextStatus = booking.status;

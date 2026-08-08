@@ -130,6 +130,16 @@ export interface LogisticsCourierTrack {
   fetchedAt: string;
 }
 
+/** Destination delivery-office contact from ST pincode search (fetched once). */
+export interface LogisticsCourierDeliveryOffice {
+  pincode: string;
+  communication: string;
+  serviceCenter?: string | null;
+  hubCenter?: string | null;
+  sourceUrl: string;
+  fetchedAt: string;
+}
+
 export interface LogisticsBooking {
   id: string;
   orderRef: string;
@@ -174,6 +184,8 @@ export interface LogisticsBooking {
   courierTrack?: LogisticsCourierTrack | null;
   /** ISO timestamp of last ST track fetch (mirrors courierTrack.fetchedAt). */
   trackFetchedAt?: string | null;
+  /** Destination office Communication from ST pincode search (once per booking). */
+  courierDeliveryOffice?: LogisticsCourierDeliveryOffice | null;
   /** ISO or ST delivery timestamp when booking was marked delivered via sync. */
   deliveredAt?: string | null;
   inTransitAt?: string | null;
