@@ -240,8 +240,13 @@ export const SalesOrderDraftLineEditor: React.FC<SalesOrderDraftLineEditorProps>
     if (!freight) return;
     const option = freightOptionByProductId(freight.productId)
       || freightOptionBySku(freight.sku);
+    const existingRate = Math.round(Number(freight.catalogRate ?? freight.rate) * 100) / 100;
     setFreightSku(option?.sku ?? null);
-    setFreightAmount(String(freight.catalogRate ?? freight.rate ?? ''));
+    setFreightAmount(Number.isFinite(existingRate) ? String(existingRate) : '');
+    // Keep Zoho/manual freight amounts — auto-estimate must not overwrite them with ₹0.
+    if (Number.isFinite(existingRate) && existingRate > 0) {
+      setFreightAmountManual(true);
+    }
     const partner = partnerIdForFreightSku(option?.sku);
     if (partner) {
       // Site refined once estimate loads.
@@ -338,17 +343,29 @@ export const SalesOrderDraftLineEditor: React.FC<SalesOrderDraftLineEditorProps>
     const sku = freightSkuForPartner(site.partnerId);
     if (!sku) return;
     const rate = Math.ceil(Number(site.totalInr) || 0) || 0;
+    const current = lines.find(isFreightDraftLine);
+    const currentAmount = current
+      ? Math.round(Number(current.catalogRate ?? current.rate) * 100) / 100
+      : 0;
+    // Never clobber an existing positive freight line with a zero estimate
+    // (common for Manual partners like Delhivery with no rate card).
+    if (rate === 0 && currentAmount > 0) {
+      setFreightAmountManual(true);
+      setFreightSku(String(current?.sku || sku).toUpperCase());
+      setFreightAmount(String(currentAmount));
+      lastAutoFreightKeyRef.current = `${site.site}:${site.partnerId}:keep:${currentAmount}`;
+      return;
+    }
     const key = `${site.site}:${site.partnerId}:${rate}`;
     if (lastAutoFreightKeyRef.current === key) return;
     lastAutoFreightKeyRef.current = key;
 
     setFreightSku(sku);
     setFreightAmount(String(rate));
-    const current = lines.find(isFreightDraftLine);
     if (
       current
       && String(current.sku || '').toUpperCase() === sku
-      && Math.round((current.catalogRate ?? current.rate) * 100) / 100 === rate
+      && currentAmount === rate
     ) {
       return;
     }
