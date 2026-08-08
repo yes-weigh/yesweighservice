@@ -3,10 +3,10 @@ import type { StaffLogisticsSite } from './staff-logistics';
 
 export type LogisticsBookingStatus =
   | 'label_generated'
-  | 'shipped'
   | 'in_transit'
   | 'delivered'
-  | 'cancelled';
+  | 'cancelled'
+  | 'returned';
 
 export type LogisticsBookingSource = 'manual' | 'invoice' | 'support';
 

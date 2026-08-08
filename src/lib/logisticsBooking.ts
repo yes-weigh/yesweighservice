@@ -26,10 +26,10 @@ export const LOGISTICS_BOOKING_STATUSES: ReadonlyArray<{
   label: string;
 }> = [
   { id: 'label_generated', label: 'Booked' },
-  { id: 'shipped', label: 'Shipped' },
   { id: 'in_transit', label: 'In Transit' },
   { id: 'delivered', label: 'Delivered' },
   { id: 'cancelled', label: 'Cancelled' },
+  { id: 'returned', label: 'Returned' },
 ];
 
 /** Stages shown in dashboard / filters. */
@@ -41,7 +41,6 @@ export const LOGISTICS_PIPELINE_STATUSES: ReadonlyArray<{
   label: string;
 }> = [
   { id: 'label_generated', label: 'Booked' },
-  { id: 'shipped', label: 'Shipped' },
   { id: 'in_transit', label: 'In Transit' },
   { id: 'delivered', label: 'Delivered' },
 ];
@@ -68,7 +67,7 @@ export function isIncompleteLogisticsBooking(
 /**
  * Label-generated booking still parked on the outer-photo wizard step.
  * Outer package photo is optional — missing photo alone must not force resume
- * (list opens detail so staff can Mark as Shipped without a photo).
+ * (list opens detail so staff can finish without a photo).
  */
 export function needsFinalPackagePhoto(
   booking: Pick<LogisticsBooking, 'status' | 'wizardStep' | 'finalPackagePhotoStoragePath'>,
@@ -227,10 +226,10 @@ export function statusForDocument(
   document: LogisticsDocumentType,
 ): LogisticsBookingStatus {
   if (
-    current === 'cancelled'
+    current === 'returned'
+    || current === 'cancelled'
     || current === 'delivered'
     || current === 'in_transit'
-    || current === 'shipped'
   ) {
     return current;
   }
@@ -361,7 +360,7 @@ export function parseCourierBarcode(
 export function bookingStatusIndex(status: LogisticsBookingStatus): number {
   const idx = LOGISTICS_PIPELINE_STATUSES.findIndex(item => item.id === status);
   if (idx >= 0) return idx;
-  if (status === 'cancelled') return -1;
+  if (status === 'returned' || status === 'cancelled') return -1;
   return 0;
 }
 

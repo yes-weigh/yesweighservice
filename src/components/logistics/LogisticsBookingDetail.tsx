@@ -70,6 +70,7 @@ interface LogisticsBookingDetailProps {
   onUpdate: (booking: LogisticsBooking) => void;
   onAdvanceStatus?: (status: LogisticsBookingStatus) => void;
   onCancel?: () => void;
+  onReturn?: () => void;
   onDelete?: () => void;
 }
 
@@ -97,6 +98,7 @@ export const LogisticsBookingDetail: React.FC<LogisticsBookingDetailProps> = ({
   onUpdate,
   onAdvanceStatus,
   onCancel,
+  onReturn,
   onDelete,
 }) => {
   const { user } = useAuth();
@@ -129,9 +131,10 @@ export const LogisticsBookingDetail: React.FC<LogisticsBookingDetailProps> = ({
   const currentIndex = isIncompleteLogisticsBooking(booking)
     ? -1
     : bookingStatusIndex(booking.status);
-  // Advance only along the public pipeline (Label → Shipped → Transit → Delivered).
+  // Advance only along the public pipeline (Booked → Transit → Delivered).
   const nextStatus = (
     isIncompleteLogisticsBooking(booking)
+    || booking.status === 'returned'
     || booking.status === 'cancelled'
     || booking.status === 'delivered'
     || (booking.status === 'label_generated' && !booking.shippingLabelGenerated)
@@ -261,6 +264,7 @@ export const LogisticsBookingDetail: React.FC<LogisticsBookingDetailProps> = ({
     isOps
     && invoiceBranch
     && booking.shipFromSite !== invoiceBranch.site
+    && booking.status !== 'returned'
     && booking.status !== 'cancelled',
   );
 
@@ -466,7 +470,7 @@ export const LogisticsBookingDetail: React.FC<LogisticsBookingDetailProps> = ({
           cachedTrack={booking.courierTrack}
           onTrackUpdated={(track) => {
             let nextStatus = booking.status;
-            if (booking.status !== 'cancelled') {
+            if (booking.status !== 'returned' && booking.status !== 'cancelled') {
               if (!track.ok) {
                 nextStatus = 'label_generated';
               } else if (
@@ -781,7 +785,7 @@ export const LogisticsBookingDetail: React.FC<LogisticsBookingDetailProps> = ({
         </section>
       )}
 
-      {!isIncompleteLogisticsBooking(booking) && booking.status !== 'cancelled' && (
+      {!isIncompleteLogisticsBooking(booking) && booking.status !== 'returned' && booking.status !== 'cancelled' && (
         <section className="logistics-booking__timeline" aria-label="Shipment status">
           <ol className="logistics-booking__timeline-list">
             {PROGRESS_STATUSES.map((item, index) => {
@@ -876,7 +880,7 @@ export const LogisticsBookingDetail: React.FC<LogisticsBookingDetailProps> = ({
         </div>
       </section>
 
-      {(bookingHasPhotos(booking) || (isOps && booking.status !== 'cancelled')) && (
+      {(bookingHasPhotos(booking) || (isOps && booking.status !== 'returned' && booking.status !== 'cancelled')) && (
         <section className="logistics-booking__photos">
           <h4>Package photos</h4>
           {photosLoading
@@ -925,7 +929,7 @@ export const LogisticsBookingDetail: React.FC<LogisticsBookingDetailProps> = ({
               </div>
             )}
           </div>
-          {isOps && needsOuterPhoto && booking.status !== 'cancelled' && (
+          {isOps && needsOuterPhoto && booking.status !== 'returned' && booking.status !== 'cancelled' && (
             <div className="logistics-booking__final-photo-add">
               <p className="text-muted text-sm">
                 Outer package photo not added yet. You can capture it now at any stage.
@@ -1026,11 +1030,22 @@ export const LogisticsBookingDetail: React.FC<LogisticsBookingDetailProps> = ({
         )}
       </section>
 
-      {isOps && booking.status !== 'cancelled' && booking.status !== 'delivered' && onCancel && (
+      {isOps
+        && booking.status !== 'delivered'
+        && booking.status !== 'cancelled'
+        && booking.status !== 'returned'
+        && (onCancel || onReturn) && (
         <div className="logistics-booking__ops-actions">
-          <button type="button" className="btn btn-secondary btn-sm" onClick={onCancel}>
-            Cancel shipment
-          </button>
+          {onCancel && (
+            <button type="button" className="btn btn-secondary btn-sm" onClick={onCancel}>
+              Cancel shipment
+            </button>
+          )}
+          {onReturn && (
+            <button type="button" className="btn btn-secondary btn-sm" onClick={onReturn}>
+              Mark returned
+            </button>
+          )}
         </div>
       )}
 

@@ -854,10 +854,12 @@ service cloud.firestore {
         && data.dealerSnapshot is map
         && (
           data.status == 'label_generated'
-          || data.status == 'shipped'
           || data.status == 'in_transit'
           || data.status == 'delivered'
           || data.status == 'cancelled'
+          || data.status == 'returned'
+          // Legacy removed stage (normalized to in_transit on read)
+          || data.status == 'shipped'
         )
         && data.createdByUid == request.auth.uid
         && data.createdAt is string

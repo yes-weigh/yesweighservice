@@ -21283,7 +21283,8 @@ body:has(.confirm-inline-bar) .confirm-inline-bar {
   gap: 0.5rem;
 }
 
-.logistics-booking__status--cancelled {
+.logistics-booking__status--cancelled,
+.logistics-booking__status--returned {
   background: rgba(248, 113, 113, 0.12);
   color: #f87171;
 }

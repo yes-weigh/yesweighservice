@@ -170,11 +170,16 @@ function isEditableStatus(status: LogisticsBookingStatus): boolean {
 function normalizeBookingStatus(raw: string): LogisticsBookingStatus {
   switch (raw) {
     case 'label_generated':
-    case 'shipped':
     case 'in_transit':
     case 'delivered':
     case 'cancelled':
+    case 'returned':
       return raw;
+    // Removed stage — fold into In Transit
+    case 'shipped':
+      return 'in_transit';
+    case 'canceled':
+      return 'cancelled';
     // Track-unavailable aliases → Booked (label_generated)
     case 'status_not_available':
     case 'tracking_failed':
@@ -1048,7 +1053,7 @@ export async function persistLogisticsBooking(
       dealer,
       createdBy,
       bookingId: bookingRef.id,
-      status: 'shipped',
+      status: 'label_generated',
       createdAt,
       wizardStep: null,
       existingFinalPackagePhotoStoragePath,
@@ -1134,7 +1139,7 @@ export async function fetchLogisticsBooking(id: string): Promise<LogisticsBookin
   return hydrateBookingPhotos(booking);
 }
 
-/** Latest logistics booking linked to an invoice (prefer non-cancelled). */
+/** Latest logistics booking linked to an invoice (prefer active over cancelled/returned). */
 export async function findLogisticsBookingForInvoice(
   invoiceId: string,
 ): Promise<LogisticsBooking | null> {
@@ -1146,9 +1151,9 @@ export async function findLogisticsBookingForInvoice(
   if (snap.empty) return null;
   const bookings = snap.docs.map(docSnap => mapLogisticsBookingDoc(docSnap.id, docSnap.data()));
   const ranked = [...bookings].sort((a, b) => {
-    const aCancelled = a.status === 'cancelled' ? 1 : 0;
-    const bCancelled = b.status === 'cancelled' ? 1 : 0;
-    if (aCancelled !== bCancelled) return aCancelled - bCancelled;
+    const aClosed = a.status === 'returned' || a.status === 'cancelled' ? 1 : 0;
+    const bClosed = b.status === 'returned' || b.status === 'cancelled' ? 1 : 0;
+    if (aClosed !== bClosed) return aClosed - bClosed;
     return compareLogisticsBookingsByBookingDateDesc(a, b);
   });
   return ranked[0] ?? null;
@@ -1377,10 +1382,23 @@ export async function cancelLogisticsBooking(
   if (!isInternalOpsUser(user)) {
     throw new Error('You do not have permission to cancel shipments.');
   }
-  if (booking.status === 'delivered') {
-    throw new Error('Delivered shipments cannot be cancelled.');
+  if (booking.status === 'delivered' || booking.status === 'returned') {
+    throw new Error('Delivered or returned shipments cannot be cancelled.');
   }
   return updateLogisticsBookingStatus(booking, 'cancelled', user);
+}
+
+export async function returnLogisticsBooking(
+  booking: LogisticsBooking,
+  user: User,
+): Promise<LogisticsBooking> {
+  if (!isInternalOpsUser(user)) {
+    throw new Error('You do not have permission to mark shipments returned.');
+  }
+  if (booking.status === 'cancelled') {
+    throw new Error('Cancelled shipments cannot be marked returned.');
+  }
+  return updateLogisticsBookingStatus(booking, 'returned', user);
 }
 
 export async function deleteLogisticsBookingPermanently(

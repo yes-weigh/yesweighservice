@@ -8,13 +8,13 @@ import {
   LayoutGrid,
   MapPin,
   Package,
-  PackageCheck,
   Plus,
   Search,
   SlidersHorizontal,
   Tag,
   Trash2,
   Truck,
+  Undo2,
   X,
 } from 'lucide-react';
 import { useLocation, useNavigate } from 'react-router-dom';
@@ -43,6 +43,7 @@ import {
   canCreateLogisticsBooking,
   canDeleteLogisticsBooking,
   cancelLogisticsBooking,
+  returnLogisticsBooking,
   clampWizardStepForDraftPhotos,
   compareLogisticsBookingsByBookingDateDesc,
   deleteLogisticsBookingPermanently,
@@ -73,7 +74,7 @@ import type { LogisticsCourierRates } from '../../types/logistics-courier-rates'
 import type { StaffLogisticsSite } from '../../types/staff-logistics';
 
 type FlowStep = 'closed' | 'partner' | 'book';
-type CardTone = 'all' | 'incomplete' | 'label' | 'shipped' | 'transit' | 'delivered' | 'exception';
+type CardTone = 'all' | 'incomplete' | 'label' | 'transit' | 'delivered' | 'exception';
 type StatFilterId = 'all' | LogisticsBookingStatus;
 
 const LIST_PAGE_SIZE = 10;
@@ -87,10 +88,10 @@ const STATUS_STAT_META: ReadonlyArray<{
 }> = [
   { id: 'all', label: 'All', shortLabel: 'All', Icon: LayoutGrid, tone: 'all' },
   { id: 'label_generated', label: 'Booked', shortLabel: 'Booked', Icon: Tag, tone: 'label' },
-  { id: 'shipped', label: 'Shipped', shortLabel: 'Shipped', Icon: PackageCheck, tone: 'shipped' },
   { id: 'in_transit', label: 'In Transit', shortLabel: 'Transit', Icon: Truck, tone: 'transit' },
   { id: 'delivered', label: 'Delivered', shortLabel: 'Delivered', Icon: CheckCircle2, tone: 'delivered' },
   { id: 'cancelled', label: 'Cancelled', shortLabel: 'Cancel', Icon: AlertCircle, tone: 'exception' },
+  { id: 'returned', label: 'Returned', shortLabel: 'Returned', Icon: Undo2, tone: 'exception' },
 ];
 
 function useIsMobile(breakpoint = 768) {
@@ -204,13 +205,12 @@ function cardToneForStatus(booking: LogisticsBooking): CardTone {
   switch (booking.status) {
     case 'label_generated':
       return 'label';
-    case 'shipped':
-      return 'shipped';
     case 'in_transit':
       return 'transit';
     case 'delivered':
       return 'delivered';
     case 'cancelled':
+    case 'returned':
       return 'exception';
     default:
       return 'incomplete';
@@ -220,8 +220,8 @@ function cardToneForStatus(booking: LogisticsBooking): CardTone {
 function statusBadgeLabel(booking: LogisticsBooking): string {
   if (isIncompleteLogisticsBooking(booking)) return 'Incomplete';
   if (booking.status === 'cancelled') return 'Cancelled';
+  if (booking.status === 'returned') return 'Returned';
   if (booking.status === 'label_generated') return 'Booked';
-  if (booking.status === 'shipped') return 'Shipped';
   if (booking.status === 'in_transit') return 'In Transit';
   if (booking.status === 'delivered') return 'Delivered';
   return booking.status;
@@ -252,7 +252,7 @@ function packageCountLabel(booking: LogisticsBooking): string {
 }
 
 function showsRoute(status: LogisticsBookingStatus): boolean {
-  return status === 'label_generated' || status === 'shipped' || status === 'in_transit';
+  return status === 'label_generated' || status === 'in_transit';
 }
 
 let shipFromSessionSyncStarted = false;
@@ -461,10 +461,10 @@ export const LogisticsPage: React.FC = () => {
     const counts: Record<StatFilterId, number> = {
       all: datedBookings.length,
       label_generated: 0,
-      shipped: 0,
       in_transit: 0,
       delivered: 0,
       cancelled: 0,
+      returned: 0,
     };
     for (const booking of pipelineBookings) {
       counts[booking.status] += 1;
@@ -578,6 +578,16 @@ export const LogisticsPage: React.FC = () => {
       handleUpdateBooking(updated);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Could not cancel shipment.');
+    }
+  }, [user, handleUpdateBooking]);
+
+  const handleReturn = useCallback(async (booking: LogisticsBooking) => {
+    if (!user) return;
+    try {
+      const updated = await returnLogisticsBooking(booking, user);
+      handleUpdateBooking(updated);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Could not mark shipment returned.');
     }
   }, [user, handleUpdateBooking]);
 
@@ -882,6 +892,7 @@ export const LogisticsPage: React.FC = () => {
           onUpdate={handleUpdateBooking}
           onAdvanceStatus={status => void handleAdvanceStatus(activeBooking, status)}
           onCancel={() => void handleCancel(activeBooking)}
+          onReturn={() => void handleReturn(activeBooking)}
           onDelete={showTileDelete
             ? () => void handleDelete(activeBooking.id)
             : undefined}
@@ -1051,7 +1062,12 @@ export const LogisticsPage: React.FC = () => {
                             ) : booking.status === 'cancelled' ? (
                               <div className="logistics-shipment__outcome logistics-shipment__outcome--exception">
                                 <AlertCircle size={14} aria-hidden />
-                                <span>Exception · {formatShipmentDateTime(booking)}</span>
+                                <span>Cancelled · {formatShipmentDateTime(booking)}</span>
+                              </div>
+                            ) : booking.status === 'returned' ? (
+                              <div className="logistics-shipment__outcome logistics-shipment__outcome--exception">
+                                <Undo2 size={14} aria-hidden />
+                                <span>Returned · {formatShipmentDateTime(booking)}</span>
                               </div>
                             ) : null}
 

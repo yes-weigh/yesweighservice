@@ -1,6 +1,6 @@
 /**
  * Persist ST Courier track results onto logisticsBookings and optionally
- * advance pipeline status (shipped → in_transit → delivered).
+ * advance pipeline status (booked → in_transit → delivered).
  * Backfill can also correct false "delivered" statuses from live ST data.
  */
 
@@ -8,19 +8,21 @@ import { fetchStCourierTrack } from './st-courier-track.js';
 
 export const ST_COURIER_PARTNER_ID = 'st_courier';
 
-/** Bookings still open for hourly sync (excludes delivered + cancelled). */
+/** Bookings still open for hourly sync (excludes delivered / cancelled / returned). */
 export const OPEN_LOGISTICS_STATUSES = Object.freeze([
   'label_generated',
+  // Legacy: treat as open until backfill folds into in_transit
   'shipped',
   'in_transit',
 ]);
 
 const STATUS_RANK = Object.freeze({
   label_generated: 0,
-  shipped: 1,
+  shipped: 1, // legacy alias of in_transit rank floor
   in_transit: 2,
   delivered: 3,
   cancelled: -1,
+  returned: -1,
 });
 
 /**
@@ -72,7 +74,7 @@ function stTrackTextBits(track) {
  *   deliveredAt?: string | null,
  *   history?: Array<{ activity?: string }>,
  * }} track
- * @returns {'shipped' | 'in_transit' | 'delivered' | null}
+ * @returns {'in_transit' | 'delivered' | null}
  */
 export function resolveStPipelineStatus(track) {
   if (!track?.ok) return null;
@@ -87,12 +89,10 @@ export function resolveStPipelineStatus(track) {
 
   const looksInTransit = /\b(in\s*transit|out\s*for\s*delivery|ofd|reached|arrived|dispatched|manifest|transit|hub|branch)\b/.test(bits)
     || /\b(out\s*for\s*dlvy|of\s*delivery)\b/.test(bits)
-    || /\b(undelivered|rto|return\s*to\s*origin|on\s*hold|held|attempted)\b/.test(bits);
+    || /\b(undelivered|rto|return\s*to\s*origin|on\s*hold|held|attempted)\b/.test(bits)
+    || /\b(picked\s*up|pickup|booked|accepted|shipment\s*created|consignment\s*booked)\b/.test(bits);
 
   if (looksInTransit) return 'in_transit';
-
-  const looksShipped = /\b(picked\s*up|pickup|booked|accepted|shipment\s*created|consignment\s*booked)\b/.test(bits);
-  if (looksShipped) return 'shipped';
 
   // Successful track with a current status but no delivery signal → treat as in transit.
   if (String(track.status || '').trim()) return 'in_transit';
@@ -102,7 +102,7 @@ export function resolveStPipelineStatus(track) {
 
 /**
  * Map ST Courier free-text status / history → pipeline status, or null = no change.
- * By default never downgrades and never changes cancelled.
+ * By default never downgrades and never changes returned/cancelled.
  * With correctFalseDelivered, overwrites incorrect delivered → live ST status.
  * Track fetch failures (incl. invalid AWB) → label_generated.
  *
@@ -115,7 +115,7 @@ export function resolveStPipelineStatus(track) {
  * }} track
  * @param {string} currentStatus
  * @param {{ correctFalseDelivered?: boolean }} [options]
- * @returns {'label_generated' | 'shipped' | 'in_transit' | 'delivered' | null}
+ * @returns {'label_generated' | 'in_transit' | 'delivered' | null}
  */
 export function inferLogisticsStatusFromStTrack(track, currentStatus, options = {}) {
   const currentRaw = String(currentStatus || '');
@@ -123,8 +123,10 @@ export function inferLogisticsStatusFromStTrack(track, currentStatus, options = 
     currentRaw === 'tracking_failed' || currentRaw === 'status_not_available'
   )
     ? 'label_generated'
-    : currentRaw;
-  if (current === 'cancelled') return null;
+    : currentRaw === 'shipped'
+      ? 'in_transit'
+      : currentRaw;
+  if (current === 'cancelled' || current === 'returned') return null;
 
   const correctFalseDelivered = Boolean(options.correctFalseDelivered);
 
@@ -294,9 +296,9 @@ export async function syncStCourierTrackingForBookings(db, options = {}) {
   for (const docSnap of snap.docs) {
     const data = docSnap.data() || {};
     const status = String(data.status || '');
-    if (!includeCancelled && status === 'cancelled') continue;
+    if (!includeCancelled && (status === 'cancelled' || status === 'returned')) continue;
     if (!includeDelivered && status === 'delivered') continue;
-    // Hourly mode: only open pipeline statuses (skip unknown / cancelled / delivered).
+    // Hourly mode: only open pipeline statuses (skip unknown / returned / delivered).
     if (!includeDelivered && !OPEN_LOGISTICS_STATUSES.includes(status)) continue;
     const awb = awbFromLogisticsBooking(data);
     if (!awb) continue;

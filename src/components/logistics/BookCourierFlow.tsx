@@ -2163,7 +2163,7 @@ export const BookCourierFlow: React.FC<BookCourierFlowProps> = ({
                   }}
                 >
                   <CheckCircle2 size={16} aria-hidden />
-                  {saving ? 'Saving…' : 'Skip photo & Mark Shipped'}
+                  {saving ? 'Saving…' : 'Skip photo & Confirm'}
                 </button>
               </div>
             </section>
@@ -2177,7 +2177,7 @@ export const BookCourierFlow: React.FC<BookCourierFlowProps> = ({
               </h3>
               <p className="book-courier__hint text-muted text-sm">
                 Optional — capture proof that the shipping label is pasted correctly,
-                or skip and mark shipped without it.
+                or skip and confirm without it.
               </p>
 
               {draft.finalPackagePhoto ? (
@@ -2230,7 +2230,7 @@ export const BookCourierFlow: React.FC<BookCourierFlowProps> = ({
                 <CheckCircle2 size={16} aria-hidden />
                 {saving
                   ? 'Saving…'
-                  : (draft.finalPackagePhoto ? 'Confirm & Mark Shipped' : 'Skip photo & Mark Shipped')}
+                  : (draft.finalPackagePhoto ? 'Confirm booking' : 'Skip photo & Confirm')}
               </button>
             </section>
           )}
@@ -2241,7 +2241,7 @@ export const BookCourierFlow: React.FC<BookCourierFlowProps> = ({
               <div className="book-courier__success-badge">
                 <CheckCircle2 size={44} aria-hidden />
               </div>
-              <h3 className="book-courier__success-title">Shipment Marked as Shipped</h3>
+              <h3 className="book-courier__success-title">Shipment Booked</h3>
               <div className="book-courier__success-track">
                 <span>Tracking Number</span>
                 <strong>{booking.trackingNo}</strong>
