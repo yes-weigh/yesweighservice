@@ -59,7 +59,7 @@ import { STAFF_LOGISTICS_SITE_LABELS } from '../../types/staff-logistics';
 import { CourierSlipViewDialog } from './CourierSlipViewDialog';
 import { PhotoLightbox } from './PhotoLightbox';
 import { ShippingLabelPrintDialog } from './ShippingLabelPrintDialog';
-import { StCourierTrackDialog } from './StCourierTrackDialog';
+import { StCourierTrackPanel } from './StCourierTrackPanel';
 
 interface LogisticsBookingDetailProps {
   booking: LogisticsBooking;
@@ -110,7 +110,6 @@ export const LogisticsBookingDetail: React.FC<LogisticsBookingDetailProps> = ({
   const [freightLoading, setFreightLoading] = useState(false);
   const [invoiceBranch, setInvoiceBranch] = useState<InvoiceBranchShipFrom | null>(null);
   const [updatingShipFrom, setUpdatingShipFrom] = useState(false);
-  const [stTrackOpen, setStTrackOpen] = useState(false);
   const partner = LOGISTICS_PARTNERS.find(item => item.id === booking.partnerId);
   const isEnvelope = booking.shipmentMode === 'envelope';
   const needsOuterPhoto = missingFinalPackagePhoto(booking);
@@ -307,29 +306,17 @@ export const LogisticsBookingDetail: React.FC<LogisticsBookingDetailProps> = ({
           </p>
         </div>
         <div className="logistics-booking__header-actions">
-          {(isStCourier ? Boolean(trackAwb) : Boolean(trackUrl)) && (
-            isStCourier ? (
-              <button
-                type="button"
-                className="logistics-booking__track-btn"
-                aria-label="Track shipment"
-                title="Track shipment"
-                onClick={() => setStTrackOpen(true)}
-              >
-                <SquareArrowOutUpRight size={16} aria-hidden />
-              </button>
-            ) : (
-              <a
-                href={trackUrl!}
-                target="_blank"
-                rel="noreferrer"
-                className="logistics-booking__track-btn"
-                aria-label="Track shipment"
-                title="Track shipment"
-              >
-                <SquareArrowOutUpRight size={16} aria-hidden />
-              </a>
-            )
+          {!isStCourier && trackUrl && (
+            <a
+              href={trackUrl}
+              target="_blank"
+              rel="noreferrer"
+              className="logistics-booking__track-btn"
+              aria-label="Track shipment"
+              title="Track shipment"
+            >
+              <SquareArrowOutUpRight size={16} aria-hidden />
+            </a>
           )}
           <span className={`logistics-booking__status logistics-booking__status--${
             isIncompleteLogisticsBooking(booking) ? 'incomplete' : booking.status
@@ -395,6 +382,50 @@ export const LogisticsBookingDetail: React.FC<LogisticsBookingDetailProps> = ({
               : `Update to ${STAFF_LOGISTICS_SITE_LABELS[invoiceBranch.site]}`}
           </button>
         </div>
+      )}
+
+      {isStCourier && trackAwb && (
+        <StCourierTrackPanel
+          awb={trackAwb}
+          bookingId={booking.id}
+          shipFromSite={booking.shipFromSite}
+          cachedTrack={booking.courierTrack}
+          onTrackUpdated={(track) => {
+            let nextStatus = booking.status;
+            if (booking.status !== 'cancelled') {
+              if (!track.ok) {
+                nextStatus = 'label_generated';
+              } else if (
+                booking.status === 'label_generated'
+                || Boolean(String(track.deliveredAt || '').trim())
+                || /\bdelivered\b/i.test(track.status || '')
+              ) {
+                const delivered = Boolean(String(track.deliveredAt || '').trim())
+                  || /\bdelivered\b/i.test(track.status || '');
+                nextStatus = delivered ? 'delivered' : 'in_transit';
+              }
+            }
+            onUpdate({
+              ...booking,
+              status: nextStatus,
+              courierTrack: {
+                awb: track.awb,
+                ok: track.ok,
+                error: track.error,
+                status: track.status,
+                origin: track.origin,
+                destination: track.destination,
+                consignmentType: track.consignmentType,
+                bookedAt: track.bookedAt,
+                deliveredAt: track.deliveredAt,
+                history: track.history,
+                sourceUrl: track.sourceUrl,
+                fetchedAt: track.fetchedAt,
+              },
+              trackFetchedAt: track.fetchedAt,
+            });
+          }}
+        />
       )}
 
       {booking.invoiceId && (
@@ -853,26 +884,26 @@ export const LogisticsBookingDetail: React.FC<LogisticsBookingDetailProps> = ({
       <section className="logistics-booking__slips">
         <h4>Documents</h4>
         <div className="logistics-booking__slip-actions">
-          {isOps && (
-            <button
-              type="button"
-              className={`btn btn-secondary btn-sm${booking.courierSlipGenerated ? ' is-done' : ''}`}
-              onClick={() => setCourierSlipOpen(true)}
-              disabled={generating !== null}
-            >
-              <Eye size={14} aria-hidden />
-              View courier slip
-            </button>
-          )}
           <button
             type="button"
-            className={`btn btn-secondary btn-sm${booking.shippingLabelGenerated ? ' is-done' : ''}`}
-            onClick={openShippingLabel}
+            className={`btn btn-secondary btn-sm${booking.courierSlipGenerated ? ' is-done' : ''}`}
+            onClick={() => setCourierSlipOpen(true)}
             disabled={generating !== null}
           >
             <Eye size={14} aria-hidden />
-            View shipping label
+            View courier slip
           </button>
+          {isOps && (
+            <button
+              type="button"
+              className={`btn btn-secondary btn-sm${booking.shippingLabelGenerated ? ' is-done' : ''}`}
+              onClick={openShippingLabel}
+              disabled={generating !== null}
+            >
+              <Eye size={14} aria-hidden />
+              View shipping label
+            </button>
+          )}
         </div>
         {isOps && (booking.courierSlipGenerated || booking.shippingLabelGenerated) && (
           <p className="text-muted text-sm logistics-booking__slip-names">
@@ -938,35 +969,6 @@ export const LogisticsBookingDetail: React.FC<LogisticsBookingDetailProps> = ({
           }}
           onPrinted={handleShippingLabelPrinted}
           onBookingRepair={onUpdate}
-        />
-      )}
-
-      {stTrackOpen && trackAwb && (
-        <StCourierTrackDialog
-          awb={trackAwb}
-          bookingId={booking.id}
-          cachedTrack={booking.courierTrack}
-          onClose={() => setStTrackOpen(false)}
-          onTrackUpdated={(track) => {
-            onUpdate({
-              ...booking,
-              courierTrack: {
-                awb: track.awb,
-                ok: track.ok,
-                error: track.error,
-                status: track.status,
-                origin: track.origin,
-                destination: track.destination,
-                consignmentType: track.consignmentType,
-                bookedAt: track.bookedAt,
-                deliveredAt: track.deliveredAt,
-                history: track.history,
-                sourceUrl: track.sourceUrl,
-                fetchedAt: track.fetchedAt,
-              },
-              trackFetchedAt: track.fetchedAt,
-            });
-          }}
         />
       )}
 

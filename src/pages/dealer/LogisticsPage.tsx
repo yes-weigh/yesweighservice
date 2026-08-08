@@ -44,6 +44,7 @@ import {
   canDeleteLogisticsBooking,
   cancelLogisticsBooking,
   clampWizardStepForDraftPhotos,
+  compareLogisticsBookingsByBookingDateDesc,
   deleteLogisticsBookingPermanently,
   fetchLogisticsBooking,
   subscribeLogisticsBookings,
@@ -83,7 +84,7 @@ const STATUS_STAT_META: ReadonlyArray<{
   tone: CardTone;
 }> = [
   { id: 'all', label: 'All', shortLabel: 'All', Icon: LayoutGrid, tone: 'all' },
-  { id: 'label_generated', label: 'Label Generated', shortLabel: 'Label', Icon: Tag, tone: 'label' },
+  { id: 'label_generated', label: 'Label Generated', shortLabel: 'Label Generated', Icon: Tag, tone: 'label' },
   { id: 'shipped', label: 'Shipped', shortLabel: 'Shipped', Icon: PackageCheck, tone: 'shipped' },
   { id: 'in_transit', label: 'In Transit', shortLabel: 'Transit', Icon: Truck, tone: 'transit' },
   { id: 'delivered', label: 'Delivered', shortLabel: 'Delivered', Icon: CheckCircle2, tone: 'delivered' },
@@ -187,10 +188,8 @@ function lastTrackedLabel(booking: LogisticsBooking): {
     return { text: 'Not tracked', tone: 'missing' };
   }
   if (track && track.ok === false) {
-    return {
-      text: fetchedAt ? `Tracking failed · ${fetchedAt}` : 'Tracking failed',
-      tone: 'failed',
-    };
+    // Failed track is shown as Label Generated — no extra track line.
+    return null;
   }
   if (fetchedAt) {
     return { text: `Last tracked ${fetchedAt}`, tone: 'ok' };
@@ -381,8 +380,10 @@ export const LogisticsPage: React.FC = () => {
   const rangedBookings = useMemo(() => {
     const activeStatus = statusFilter || filters.status || '';
     const source = activeStatus ? pipelineBookings : datedBookings;
-    if (!activeStatus) return source;
-    return source.filter(booking => booking.status === activeStatus);
+    const filtered = activeStatus
+      ? source.filter(booking => booking.status === activeStatus)
+      : source;
+    return [...filtered].sort(compareLogisticsBookingsByBookingDateDesc);
   }, [datedBookings, pipelineBookings, filters.status, statusFilter]);
 
   useEffect(() => {

@@ -51,6 +51,20 @@ import { isStaffLogisticsSite, type StaffLogisticsSite } from '../types/staff-lo
 
 const COLLECTION = 'logisticsBookings';
 
+/** Newest bookingDate first; same day uses createdAt then updatedAt. */
+export function compareLogisticsBookingsByBookingDateDesc(
+  a: LogisticsBooking,
+  b: LogisticsBooking,
+): number {
+  const aDate = String(a.bookingDate || '').slice(0, 10);
+  const bDate = String(b.bookingDate || '').slice(0, 10);
+  if (aDate !== bDate) return bDate.localeCompare(aDate);
+  const aCreated = a.createdAt || a.updatedAt || '';
+  const bCreated = b.createdAt || b.updatedAt || '';
+  if (aCreated !== bCreated) return bCreated.localeCompare(aCreated);
+  return (b.updatedAt || '').localeCompare(a.updatedAt || '');
+}
+
 function mapCourierTrack(raw: unknown): LogisticsCourierTrack | null {
   if (!raw || typeof raw !== 'object') return null;
   const data = raw as DocumentData;
@@ -112,6 +126,10 @@ function normalizeBookingStatus(raw: string): LogisticsBookingStatus {
     case 'delivered':
     case 'cancelled':
       return raw;
+    // Track-unavailable aliases → Label Generated
+    case 'status_not_available':
+    case 'tracking_failed':
+      return 'label_generated';
     // Legacy draft/booked (and aliases) → start of public pipeline
     case 'draft':
     case 'booked':
@@ -1061,7 +1079,7 @@ export async function findLogisticsBookingForInvoice(
     const aCancelled = a.status === 'cancelled' ? 1 : 0;
     const bCancelled = b.status === 'cancelled' ? 1 : 0;
     if (aCancelled !== bCancelled) return aCancelled - bCancelled;
-    return b.updatedAt.localeCompare(a.updatedAt);
+    return compareLogisticsBookingsByBookingDateDesc(a, b);
   });
   return ranked[0] ?? null;
 }
@@ -1072,7 +1090,7 @@ async function fetchDealerBookings(user: User): Promise<LogisticsBooking[]> {
     query(
       collection(db, COLLECTION),
       where('dealerId', '==', dealerId),
-      orderBy('updatedAt', 'desc'),
+      orderBy('bookingDate', 'desc'),
       limit(100),
     ),
   ];
@@ -1081,7 +1099,7 @@ async function fetchDealerBookings(user: User): Promise<LogisticsBooking[]> {
       query(
         collection(db, COLLECTION),
         where('zohoCustomerId', '==', user.zohoCustomerId.trim()),
-        orderBy('updatedAt', 'desc'),
+        orderBy('bookingDate', 'desc'),
         limit(100),
       ),
     );
@@ -1094,7 +1112,7 @@ async function fetchDealerBookings(user: User): Promise<LogisticsBooking[]> {
       byId.set(docSnap.id, mapLogisticsBookingDoc(docSnap.id, docSnap.data()));
     }
   }
-  return [...byId.values()].sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
+  return [...byId.values()].sort(compareLogisticsBookingsByBookingDateDesc);
 }
 
 export async function listLogisticsBookings(
@@ -1102,13 +1120,13 @@ export async function listLogisticsBookings(
   filters: LogisticsBookingListFilters = {},
 ): Promise<LogisticsBooking[]> {
   const base = isInternalOpsUser(user)
-    ? (await getDocs(query(collection(db, COLLECTION), orderBy('updatedAt', 'desc'), limit(250))))
+    ? (await getDocs(query(collection(db, COLLECTION), orderBy('bookingDate', 'desc'), limit(250))))
       .docs.map(docSnap => mapLogisticsBookingDoc(docSnap.id, docSnap.data()))
     : await fetchDealerBookings(user);
 
   const filtered = base.filter(booking => matchesClientFilters(booking, filters));
   // List consumers do not need photo URLs; hydrate only in fetchLogisticsBooking / after persist.
-  return filtered;
+  return [...filtered].sort(compareLogisticsBookingsByBookingDateDesc);
 }
 
 export function subscribeLogisticsBookings(
@@ -1132,14 +1150,15 @@ export function subscribeLogisticsBookings(
     };
   }
 
-  const q = query(collection(db, COLLECTION), orderBy('updatedAt', 'desc'), limit(250));
+  const q = query(collection(db, COLLECTION), orderBy('bookingDate', 'desc'), limit(250));
 
   return onSnapshot(q, async snapshot => {
     try {
       // List view does not render photos — skip hydration to avoid Storage read 403 spam.
       const bookings = snapshot.docs
         .map(docSnap => mapLogisticsBookingDoc(docSnap.id, docSnap.data()))
-        .filter(booking => matchesClientFilters(booking, filters));
+        .filter(booking => matchesClientFilters(booking, filters))
+        .sort(compareLogisticsBookingsByBookingDateDesc);
       onChange(bookings);
     } catch (err) {
       onError?.(err instanceof Error ? err : new Error('Could not load logistics bookings.'));

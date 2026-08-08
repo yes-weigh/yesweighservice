@@ -45,8 +45,24 @@
       "collectionGroup": "logisticsBookings",
       "queryScope": "COLLECTION",
       "fields": [
+        { "fieldPath": "dealerId", "order": "ASCENDING" },
+        { "fieldPath": "bookingDate", "order": "DESCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "logisticsBookings",
+      "queryScope": "COLLECTION",
+      "fields": [
         { "fieldPath": "zohoCustomerId", "order": "ASCENDING" },
         { "fieldPath": "updatedAt", "order": "DESCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "logisticsBookings",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "zohoCustomerId", "order": "ASCENDING" },
+        { "fieldPath": "bookingDate", "order": "DESCENDING" }
       ]
     },
     {

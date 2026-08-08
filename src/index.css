@@ -23870,145 +23870,94 @@ body:has(.confirm-inline-bar) .confirm-inline-bar {
   color: #7dd3fc;
 }
 
-.st-track-dialog {
-  position: fixed;
-  inset: 0;
-  z-index: 80;
+.logistics-booking__track-panel {
+  margin: 0 0 0.65rem;
+}
+
+.logistics-booking__track-panel-head {
   display: flex;
-  align-items: flex-end;
-  justify-content: center;
-  padding: 0.75rem;
-}
-
-@media (min-width: 640px) {
-  .st-track-dialog {
-    align-items: center;
-  }
-}
-
-.st-track-dialog__backdrop {
-  position: absolute;
-  inset: 0;
-  border: 0;
-  background: rgba(2, 6, 23, 0.72);
-  cursor: pointer;
-}
-
-.st-track-dialog__panel {
-  position: relative;
-  z-index: 1;
-  width: min(28rem, 100%);
-  max-height: min(85vh, 40rem);
-  display: flex;
-  flex-direction: column;
-  border: 1px solid #334155;
-  border-radius: 16px;
-  background: #111827;
-  box-shadow: 0 20px 50px rgba(0, 0, 0, 0.45);
-  overflow: hidden;
-}
-
-.st-track-dialog__head {
-  display: flex;
+  flex-wrap: wrap;
   align-items: flex-start;
   justify-content: space-between;
-  gap: 0.75rem;
-  padding: 0.9rem 1rem;
-  border-bottom: 1px solid #1f2937;
+  gap: 0.55rem;
+  margin-bottom: 0.55rem;
 }
 
-.st-track-dialog__head h3 {
-  margin: 0;
-  font-size: 1rem;
-}
-
-.st-track-dialog__head p {
-  margin: 0.2rem 0 0;
-}
-
-.st-track-dialog__head-actions {
+.logistics-booking__track-panel-head h4 {
   display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.35rem;
+  margin: 0;
+}
+
+.logistics-booking__track-panel-updated {
+  font-size: 0.75rem;
+  font-weight: 500;
+  color: #94a3b8;
+}
+
+.logistics-booking__track-panel-actions {
+  display: inline-flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: 0.35rem;
 }
 
-.st-track-dialog__close {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 2rem;
-  height: 2rem;
-  border: 0;
-  border-radius: 9px;
-  background: transparent;
-  color: #94a3b8;
-  cursor: pointer;
+.logistics-booking__track-panel-actions .is-spin {
+  animation: st-track-spin 0.8s linear infinite;
 }
 
-.st-track-dialog__close:hover {
-  background: rgba(148, 163, 184, 0.12);
-  color: #e2e8f0;
-}
-
-.st-track-dialog__body {
-  padding: 0.9rem 1rem;
-  overflow: auto;
-  flex: 1;
-}
-
-.st-track-dialog__error {
+.logistics-booking__track-panel-error {
   margin: 0;
   color: #f87171;
   font-size: 0.875rem;
   font-weight: 600;
 }
 
-.st-track-dialog__status {
-  margin: 0 0 0.75rem;
+.logistics-booking__track-panel-status {
+  margin: 0 0 0.65rem;
   color: #4ade80;
   font-size: 1.05rem;
   font-weight: 800;
 }
 
-.st-track-dialog__meta {
+.logistics-booking__track-panel-meta {
   display: grid;
   gap: 0.4rem;
   margin: 0;
   font-size: 0.8125rem;
 }
 
-.st-track-dialog__meta > div {
+.logistics-booking__track-panel-meta > div {
   display: flex;
   justify-content: space-between;
   gap: 0.75rem;
 }
 
-.st-track-dialog__meta dt {
+.logistics-booking__track-panel-meta dt {
   margin: 0;
   color: #94a3b8;
 }
 
-.st-track-dialog__meta dd {
+.logistics-booking__track-panel-meta dd {
   margin: 0;
   color: #f1f5f9;
   text-align: right;
 }
 
-.st-track-dialog__history {
-  margin-top: 1rem;
+.logistics-booking__track-panel-history {
+  margin-top: 0.85rem;
 }
 
-.st-track-dialog__history h4 {
+.logistics-booking__track-panel-history h5 {
   margin: 0 0 0.65rem;
   font-size: 0.8125rem;
   color: #cbd5e1;
+  font-weight: 600;
 }
 
-.st-track-dialog__history-empty {
-  margin: 0.75rem 0 0;
-}
-
-.st-track-dialog__timeline {
+.logistics-booking__track-timeline {
   list-style: none;
   margin: 0;
   padding: 0;
@@ -24016,7 +23965,7 @@ body:has(.confirm-inline-bar) .confirm-inline-bar {
   flex-direction: column;
 }
 
-.st-track-dialog__timeline li {
+.logistics-booking__track-timeline li {
   position: relative;
   display: grid;
   grid-template-columns: 0.85rem 1fr;
@@ -24024,11 +23973,11 @@ body:has(.confirm-inline-bar) .confirm-inline-bar {
   padding: 0 0 0.85rem;
 }
 
-.st-track-dialog__timeline li:last-child {
+.logistics-booking__track-timeline li:last-child {
   padding-bottom: 0;
 }
 
-.st-track-dialog__timeline li:not(:last-child)::before {
+.logistics-booking__track-timeline li:not(:last-child)::before {
   content: '';
   position: absolute;
   left: 0.32rem;
@@ -24038,7 +23987,7 @@ body:has(.confirm-inline-bar) .confirm-inline-bar {
   background: rgba(71, 85, 105, 0.85);
 }
 
-.st-track-dialog__timeline-dot {
+.logistics-booking__track-timeline-dot {
   width: 0.7rem;
   height: 0.7rem;
   margin-top: 0.2rem;
@@ -24048,48 +23997,73 @@ body:has(.confirm-inline-bar) .confirm-inline-bar {
   z-index: 1;
 }
 
-.st-track-dialog__timeline li.is-latest .st-track-dialog__timeline-dot {
+.logistics-booking__track-timeline li.is-latest .logistics-booking__track-timeline-dot {
   background: #4ade80;
 }
 
-.st-track-dialog__timeline-copy {
+.logistics-booking__track-timeline-copy {
   display: flex;
   flex-direction: column;
   gap: 0.15rem;
   min-width: 0;
 }
 
-.st-track-dialog__timeline-copy strong {
+.logistics-booking__track-timeline-copy strong {
   font-size: 0.8125rem;
   color: #f8fafc;
   font-weight: 700;
 }
 
-.st-track-dialog__timeline li.is-latest .st-track-dialog__timeline-copy strong {
+.logistics-booking__track-timeline li.is-latest .logistics-booking__track-timeline-copy strong {
   color: #86efac;
 }
 
-.st-track-dialog__timeline-location {
+.logistics-booking__track-timeline-location {
   font-size: 0.75rem;
   color: #cbd5e1;
   line-height: 1.35;
 }
 
-.st-track-dialog__timeline-at {
+.logistics-booking__track-timeline-at {
   font-size: 0.7rem;
   color: #94a3b8;
 }
 
-.st-track-dialog__foot {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.5rem;
-  padding: 0.75rem 1rem 1rem;
-  border-top: 1px solid #1f2937;
+.logistics-booking__track-branch-contact {
+  margin-top: 0.9rem;
+  padding-top: 0.75rem;
+  border-top: 1px solid rgba(148, 163, 184, 0.2);
 }
 
-.st-track-dialog__head-actions .is-spin {
-  animation: st-track-spin 0.8s linear infinite;
+.logistics-booking__track-branch-contact h5 {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  margin: 0 0 0.35rem;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  color: #cbd5e1;
+}
+
+.logistics-booking__track-branch-contact p {
+  margin: 0;
+  font-size: 0.8125rem;
+  line-height: 1.4;
+  color: #e2e8f0;
+}
+
+.logistics-booking__track-branch-phone {
+  display: inline-block;
+  margin-top: 0.4rem;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  color: #38bdf8;
+  text-decoration: none;
+}
+
+.logistics-booking__track-branch-phone:hover {
+  color: #7dd3fc;
+  text-decoration: underline;
 }
 
 @keyframes st-track-spin {

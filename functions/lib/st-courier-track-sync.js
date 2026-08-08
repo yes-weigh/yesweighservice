@@ -104,26 +104,38 @@ export function resolveStPipelineStatus(track) {
  * Map ST Courier free-text status / history → pipeline status, or null = no change.
  * By default never downgrades and never changes cancelled.
  * With correctFalseDelivered, overwrites incorrect delivered → live ST status.
+ * Track fetch failures (incl. invalid AWB) → label_generated.
  *
  * @param {{
  *   ok?: boolean,
  *   status?: string | null,
+ *   error?: string | null,
  *   deliveredAt?: string | null,
  *   history?: Array<{ activity?: string }>,
  * }} track
  * @param {string} currentStatus
  * @param {{ correctFalseDelivered?: boolean }} [options]
- * @returns {'shipped' | 'in_transit' | 'delivered' | null}
+ * @returns {'label_generated' | 'shipped' | 'in_transit' | 'delivered' | null}
  */
 export function inferLogisticsStatusFromStTrack(track, currentStatus, options = {}) {
-  const current = String(currentStatus || '');
+  const currentRaw = String(currentStatus || '');
+  const current = (
+    currentRaw === 'tracking_failed' || currentRaw === 'status_not_available'
+  )
+    ? 'label_generated'
+    : currentRaw;
   if (current === 'cancelled') return null;
-  if (!track?.ok) return null;
+
+  const correctFalseDelivered = Boolean(options.correctFalseDelivered);
+
+  if (!track?.ok) {
+    // Don't flip a confirmed delivered booking unless correcting.
+    if (current === 'delivered' && !correctFalseDelivered) return null;
+    return current === 'label_generated' ? null : 'label_generated';
+  }
 
   const resolved = resolveStPipelineStatus(track);
   if (!resolved) return null;
-
-  const correctFalseDelivered = Boolean(options.correctFalseDelivered);
 
   // Backfill / correction mode: trust ST when booking was wrongly marked delivered.
   if (correctFalseDelivered && current === 'delivered' && resolved !== 'delivered') {
