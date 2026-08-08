@@ -607,6 +607,36 @@ export function resolveBookingDeliveryAddress(booking: LogisticsBooking): string
   return resolveDeliveryAddress(booking.dealer, booking.deliveryAddressKind);
 }
 
+/** Whether FROM / TO addresses are ready for a shipping label preview/print. */
+export function shippingLabelAddressGate(booking: LogisticsBooking): {
+  fromMissing: boolean;
+  toMissing: boolean;
+  /** Null when both addresses are present. */
+  message: string | null;
+} {
+  const fromMissing = isPlaceholderLogisticsAddress(booking.shipFromAddress);
+  const toMissing = isPlaceholderLogisticsAddress(resolveBookingDeliveryAddress(booking));
+  if (!fromMissing && !toMissing) {
+    return { fromMissing, toMissing, message: null };
+  }
+  const parts: string[] = [];
+  if (fromMissing) {
+    parts.push(
+      'Ship-from (FROM) address is missing. Set it under Admin → Logistics → Sites, then update this booking’s ship-from.',
+    );
+  }
+  if (toMissing) {
+    parts.push(
+      'Dealer delivery (TO) address is missing. Refresh the dealer from Zoho, then try again.',
+    );
+  }
+  return {
+    fromMissing,
+    toMissing,
+    message: `${parts.join('\n\n')}\n\nFix the address first — the shipping label will not open until both FROM and TO are available.`,
+  };
+}
+
 /** Build one 100×150 mm shipping-label view model per box (or one for envelope). */
 export function buildShippingLabelsFromBooking(booking: LogisticsBooking): ShippingLabelViewModel[] {
   const count = booking.shipmentMode === 'envelope'

@@ -49,6 +49,7 @@ import {
   type InvoiceBranchShipFrom,
 } from '../../lib/logisticsShipFrom';
 import { logisticsTrackingUrl } from '../../lib/logisticsTracking';
+import { shippingLabelAddressGate } from '../../lib/shippingLabel';
 import { homePathForRole } from '../../types';
 import type {
   LogisticsBooking,
@@ -277,6 +278,11 @@ export const LogisticsBookingDetail: React.FC<LogisticsBookingDetailProps> = ({
   }, [booking, invoiceBranch, isOps, onUpdate, user]);
 
   const openShippingLabel = useCallback(() => {
+    const gate = shippingLabelAddressGate(booking);
+    if (gate.message) {
+      window.alert(gate.message);
+      return;
+    }
     setShippingLabelBooking(booking);
     setShippingLabelOpen(true);
   }, [booking]);

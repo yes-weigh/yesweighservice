@@ -20,6 +20,7 @@ import {
 import {
   buildShippingLabelsFromBooking,
   resolveBookingDeliveryAddress,
+  shippingLabelAddressGate,
 } from '../../lib/shippingLabel';
 import type { LogisticsBooking } from '../../types/logistics-dispatch';
 import { ShippingLabelBitmapPreview } from './ShippingLabelBitmapPreview';
@@ -93,20 +94,24 @@ export const ShippingLabelPrintDialog: React.FC<Props> = ({
     };
   }, [booking, onBookingRepair]);
 
-  const labels = useMemo(
-    () => buildShippingLabelsFromBooking(effectiveBooking),
+  const addressGate = useMemo(
+    () => shippingLabelAddressGate(effectiveBooking),
     [effectiveBooking],
   );
+  const addressesReady = !addressGate.message;
 
-  const toAddressMissing = labels.some(label => isPlaceholderLogisticsAddress(label.toAddress));
+  const labels = useMemo(
+    () => (addressesReady ? buildShippingLabelsFromBooking(effectiveBooking) : []),
+    [effectiveBooking, addressesReady],
+  );
 
   const handlePrint = useCallback(async () => {
-    if (!labels.length) {
-      setError('No shipping label to print.');
+    if (!addressesReady) {
+      setError(addressGate.message || 'Fix FROM and TO addresses before printing.');
       return;
     }
-    if (toAddressMissing) {
-      setError('Dealer delivery address is missing. Refresh the dealer from Zoho, then print again.');
+    if (!labels.length) {
+      setError('No shipping label to print.');
       return;
     }
     setPrinting(true);
@@ -143,7 +148,7 @@ export const ShippingLabelPrintDialog: React.FC<Props> = ({
     } finally {
       setPrinting(false);
     }
-  }, [labels, booking.consignmentNo, booking.trackingNo, onPrinted, toAddressMissing]);
+  }, [labels, booking.consignmentNo, booking.trackingNo, onPrinted, addressesReady, addressGate.message]);
 
   return createPortal(
     <div
@@ -161,11 +166,9 @@ export const ShippingLabelPrintDialog: React.FC<Props> = ({
           <div>
             <h2 id="shipping-label-print-title">Shipping label</h2>
             <p className="text-muted text-sm">
-              Preview first, then print when ready
-              {` · ${booking.consignmentNo || booking.trackingNo || booking.orderRef}`}
-              {` · ${LOGISTICS_LABEL_WIDTH_MM} × ${LOGISTICS_LABEL_HEIGHT_MM} mm · 203 DPI`}
-              {labels.length > 1 ? ` · ${labels.length} labels` : ''}
-              {hydrating ? ' · Loading address…' : ''}
+              {addressesReady
+                ? `Preview first, then print when ready · ${booking.consignmentNo || booking.trackingNo || booking.orderRef} · ${LOGISTICS_LABEL_WIDTH_MM} × ${LOGISTICS_LABEL_HEIGHT_MM} mm · 203 DPI${labels.length > 1 ? ` · ${labels.length} labels` : ''}${hydrating ? ' · Loading address…' : ''}`
+                : 'Fix missing addresses before the label can be shown'}
             </p>
           </div>
           <button
@@ -181,41 +184,51 @@ export const ShippingLabelPrintDialog: React.FC<Props> = ({
         {error && <p className="dealers-modal__error">{error}</p>}
         {success && <p className="shipping-label-print-dialog__success text-sm">{success}</p>}
 
-        <div className="shipping-label-print-dialog__preview book-courier__label-preview book-courier__label-preview--stack">
-          {labels.map((label, index) => (
-            <div
-              key={`${label.consignmentNo}-${label.boxIndex}`}
-              className="book-courier__label-sheet"
-            >
-              {labels.length > 1 && (
-                <p className="book-courier__label-sheet-caption">
-                  {`Label ${label.boxIndex} of ${labels.length} · ${LOGISTICS_LABEL_WIDTH_MM} × ${LOGISTICS_LABEL_HEIGHT_MM} mm`}
-                </p>
-              )}
-              <ShippingLabelBitmapPreview
-                label={label}
-                ref={el => {
-                  canvasRefs.current[index] = el;
-                }}
-              />
+        {!addressesReady ? (
+          <div className="shipping-label-print-dialog__blocked" role="alert">
+            <p className="dealers-modal__error" style={{ whiteSpace: 'pre-wrap' }}>
+              {addressGate.message}
+            </p>
+          </div>
+        ) : (
+          <>
+            <div className="shipping-label-print-dialog__preview book-courier__label-preview book-courier__label-preview--stack">
+              {labels.map((label, index) => (
+                <div
+                  key={`${label.consignmentNo}-${label.boxIndex}`}
+                  className="book-courier__label-sheet"
+                >
+                  {labels.length > 1 && (
+                    <p className="book-courier__label-sheet-caption">
+                      {`Label ${label.boxIndex} of ${labels.length} · ${LOGISTICS_LABEL_WIDTH_MM} × ${LOGISTICS_LABEL_HEIGHT_MM} mm`}
+                    </p>
+                  )}
+                  <ShippingLabelBitmapPreview
+                    label={label}
+                    ref={el => {
+                      canvasRefs.current[index] = el;
+                    }}
+                  />
+                </div>
+              ))}
             </div>
-          ))}
-        </div>
 
-        {!native && (
-          <p className="text-muted text-sm shipping-label-print-dialog__hint">
-            Preview is the exact 203 DPI bitmap. Thermal print uses the YesWeigh Android APK on the same Wi‑Fi as the logistics printer.
-            On web, Print opens the system dialog — {labels.length > 1
-              ? `${labels.length} pages at ${LOGISTICS_LABEL_WIDTH_MM}×${LOGISTICS_LABEL_HEIGHT_MM} mm (one label per box).`
-              : `${LOGISTICS_LABEL_WIDTH_MM}×${LOGISTICS_LABEL_HEIGHT_MM} mm stock.`}
-          </p>
-        )}
-        {native && (
-          <p className="text-muted text-sm shipping-label-print-dialog__hint">
-            {labels.length > 1
-              ? `Preview matches the 203 DPI bitmap. Print all sends ${labels.length} separate ${LOGISTICS_LABEL_WIDTH_MM}×${LOGISTICS_LABEL_HEIGHT_MM} mm jobs to the logistics printer.`
-              : 'Preview matches the 203 DPI bitmap sent to the logistics printer (same pixels as print).'}
-          </p>
+            {!native && (
+              <p className="text-muted text-sm shipping-label-print-dialog__hint">
+                Preview is the exact 203 DPI bitmap. Thermal print uses the YesWeigh Android APK on the same Wi‑Fi as the logistics printer.
+                On web, Print opens the system dialog — {labels.length > 1
+                  ? `${labels.length} pages at ${LOGISTICS_LABEL_WIDTH_MM}×${LOGISTICS_LABEL_HEIGHT_MM} mm (one label per box).`
+                  : `${LOGISTICS_LABEL_WIDTH_MM}×${LOGISTICS_LABEL_HEIGHT_MM} mm stock.`}
+              </p>
+            )}
+            {native && (
+              <p className="text-muted text-sm shipping-label-print-dialog__hint">
+                {labels.length > 1
+                  ? `Preview matches the 203 DPI bitmap. Print all sends ${labels.length} separate ${LOGISTICS_LABEL_WIDTH_MM}×${LOGISTICS_LABEL_HEIGHT_MM} mm jobs to the logistics printer.`
+                  : 'Preview matches the 203 DPI bitmap sent to the logistics printer (same pixels as print).'}
+              </p>
+            )}
+          </>
         )}
 
         <div className="dealers-modal__actions shipping-label-print-dialog__actions">
@@ -231,16 +244,18 @@ export const ShippingLabelPrintDialog: React.FC<Props> = ({
             type="button"
             className="btn btn-primary"
             onClick={() => void handlePrint()}
-            disabled={printing || hydrating || labels.length === 0 || toAddressMissing}
+            disabled={printing || hydrating || !addressesReady || labels.length === 0}
           >
             <Printer size={16} aria-hidden />
             {printing
               ? 'Printing…'
               : hydrating
                 ? 'Loading address…'
-                : alreadyPrinted
-                  ? (labels.length > 1 ? 'Reprint all' : 'Reprint')
-                  : (labels.length > 1 ? 'Print all' : 'Print')}
+                : !addressesReady
+                  ? 'Fix addresses first'
+                  : alreadyPrinted
+                    ? (labels.length > 1 ? 'Reprint all' : 'Reprint')
+                    : (labels.length > 1 ? 'Print all' : 'Print')}
           </button>
         </div>
       </div>

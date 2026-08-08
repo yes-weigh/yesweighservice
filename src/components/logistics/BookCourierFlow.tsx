@@ -1147,7 +1147,7 @@ export const BookCourierFlow: React.FC<BookCourierFlowProps> = ({
   ) => {
     const deliveryAddress = resolveDeliveryAddress(dealer, addressKind);
     const fromName = STAFF_LOGISTICS_SITE_LABELS[draft.shipFromSite];
-    const fromAddress = (fromAddresses[draft.shipFromSite] || FIRM_NAME).trim();
+    const fromAddress = (fromAddresses[draft.shipFromSite] ?? '').trim();
     const bookingTime = formatShippingBookingTime();
     return Array.from({ length: shippingLabelCount }, (_, index) => {
       const box = draft.boxes[index];
@@ -1158,7 +1158,7 @@ export const BookCourierFlow: React.FC<BookCourierFlowProps> = ({
       const inside = box?.photos?.[0];
       return buildShippingLabelViewModel({
         fromName,
-        fromAddress,
+        fromAddress: fromAddress || '—',
         dealer,
         deliveryAddress,
         numberOfBoxes: shippingLabelCount,
@@ -1213,11 +1213,19 @@ export const BookCourierFlow: React.FC<BookCourierFlowProps> = ({
         window.alert('Select a dealer before printing the shipping label.');
         return;
       }
+      const site = draftRef.current.shipFromSite;
+      const fromAddress = (fromAddresses[site] ?? '').trim();
+      if (isPlaceholderLogisticsAddress(fromAddress)) {
+        window.alert(
+          'Ship-from (FROM) address is missing. Set it under Admin → Logistics → Sites for this location, then print again.',
+        );
+        return;
+      }
       const kind = preferredDeliveryAddressKind(dealer, draftRef.current.deliveryAddressKind);
       const deliveryAddress = resolveDeliveryAddress(dealer, kind);
       if (isPlaceholderLogisticsAddress(deliveryAddress)) {
         window.alert(
-          'Dealer delivery address is missing in Zoho. Open the dealer record, refresh from Zoho, then print again.',
+          'Dealer delivery (TO) address is missing in Zoho. Open the dealer record, refresh from Zoho, then print again.',
         );
         return;
       }
@@ -1247,7 +1255,7 @@ export const BookCourierFlow: React.FC<BookCourierFlowProps> = ({
     } catch (err) {
       window.alert(err instanceof Error ? err.message : 'Print failed.');
     }
-  }, [buildShippingLabelsForDealer, ensureDealerAddressHydrated, updateDraft]);
+  }, [buildShippingLabelsForDealer, ensureDealerAddressHydrated, fromAddresses, updateDraft]);
 
   useEffect(() => {
     if (step !== 'label') return;
@@ -2042,37 +2050,56 @@ export const BookCourierFlow: React.FC<BookCourierFlowProps> = ({
                         type="button"
                         className="btn btn-secondary btn-sm"
                         onClick={() => void handlePrintShippingLabels()}
+                        disabled={
+                          isPlaceholderLogisticsAddress(fromAddresses[draft.shipFromSite])
+                          || isPlaceholderLogisticsAddress(
+                            resolveDeliveryAddress(selectedDealer, draft.deliveryAddressKind),
+                          )
+                        }
                       >
                         <Printer size={14} aria-hidden />
                         {shippingLabelCount > 1 ? 'Print all' : 'Print'}
                       </button>
                     </div>
                   </header>
-                  <div className="book-courier__label-preview book-courier__label-preview--stack">
-                    {shippingLabels.map((label, index) => (
-                      <div
-                        key={`ship-${label.boxIndex}`}
-                        className="book-courier__label-sheet"
-                      >
-                        {shippingLabelCount > 1 && (
-                          <p className="book-courier__label-sheet-caption">
-                            {`Label ${label.boxIndex} of ${shippingLabelCount} · 100 × 150 mm`}
-                          </p>
-                        )}
-                        <ShippingLabelBitmapPreview
-                          label={label}
-                          ref={el => {
-                            shippingLabelCanvasRefs.current[index] = el;
-                          }}
-                        />
-                      </div>
-                    ))}
-                  </div>
-                  <p className="book-courier__hint text-muted text-sm">
-                    {shippingLabelCount > 1
-                      ? `Exact 203 DPI preview — ${shippingLabelCount} separate 100×150 mm labels (one per box). Print all sends each as its own page.`
-                      : 'Exact 203 DPI print preview — what you see is what the logistics printer receives.'}
-                  </p>
+                  {isPlaceholderLogisticsAddress(fromAddresses[draft.shipFromSite])
+                    || isPlaceholderLogisticsAddress(
+                      resolveDeliveryAddress(selectedDealer, draft.deliveryAddressKind),
+                    ) ? (
+                      <p className="book-courier__hint text-muted text-sm" role="alert">
+                        {isPlaceholderLogisticsAddress(fromAddresses[draft.shipFromSite])
+                          ? 'Ship-from (FROM) address is missing. Set it under Admin → Logistics → Sites for this location before the label can be shown.'
+                          : 'Dealer delivery (TO) address is missing. Refresh the dealer from Zoho before the label can be shown.'}
+                      </p>
+                    ) : (
+                      <>
+                        <div className="book-courier__label-preview book-courier__label-preview--stack">
+                          {shippingLabels.map((label, index) => (
+                            <div
+                              key={`ship-${label.boxIndex}`}
+                              className="book-courier__label-sheet"
+                            >
+                              {shippingLabelCount > 1 && (
+                                <p className="book-courier__label-sheet-caption">
+                                  {`Label ${label.boxIndex} of ${shippingLabelCount} · 100 × 150 mm`}
+                                </p>
+                              )}
+                              <ShippingLabelBitmapPreview
+                                label={label}
+                                ref={el => {
+                                  shippingLabelCanvasRefs.current[index] = el;
+                                }}
+                              />
+                            </div>
+                          ))}
+                        </div>
+                        <p className="book-courier__hint text-muted text-sm">
+                          {shippingLabelCount > 1
+                            ? `Exact 203 DPI preview — ${shippingLabelCount} separate 100×150 mm labels (one per box). Print all sends each as its own page.`
+                            : 'Exact 203 DPI print preview — what you see is what the logistics printer receives.'}
+                        </p>
+                      </>
+                    )}
                 </article>
 
                 <article className="book-courier__label-card">
