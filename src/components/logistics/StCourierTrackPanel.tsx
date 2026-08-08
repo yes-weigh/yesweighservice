@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { MapPin, Phone, RefreshCw, Truck } from 'lucide-react';
+import { RefreshCw, Truck } from 'lucide-react';
 import { LOGISTICS_BRANCH_TRACKING_CONTACTS } from '../../constants/logisticsSettings';
 import {
   fetchStCourierShipmentTrack,
@@ -180,7 +180,7 @@ export const StCourierTrackPanel: React.FC<StCourierTrackPanelProps> = ({
           {branchContact && (
             <div className="logistics-booking__track-branch-contact">
               <h5>
-                <Phone size={14} aria-hidden />
+                <Truck size={14} aria-hidden />
                 Courier booking office
               </h5>
               <p>{branchContact}</p>
@@ -195,7 +195,7 @@ export const StCourierTrackPanel: React.FC<StCourierTrackPanelProps> = ({
           {deliveryOffice && (
             <div className="logistics-booking__track-branch-contact logistics-booking__track-delivery-office">
               <h5>
-                <MapPin size={14} aria-hidden />
+                <Truck size={14} aria-hidden />
                 Courier delivery office
               </h5>
               <p>{deliveryOffice}</p>
