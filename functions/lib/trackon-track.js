@@ -11,28 +11,6 @@ const TRACK_MULTI = 'https://www.trackon.in/courier-tracking-Multi';
 const USER_AGENT =
   'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36';
 
-const FIELD_MAP = {
-  'current status': 'status',
-  status: 'status',
-  'shipment status': 'status',
-  origin: 'origin',
-  'origin city': 'origin',
-  'from': 'origin',
-  destination: 'destination',
-  'destination city': 'destination',
-  'to': 'destination',
-  consignment: 'consignmentType',
-  'consignment type': 'consignmentType',
-  'service type': 'consignmentType',
-  'book date': 'bookedAt',
-  'booked on': 'bookedAt',
-  'booking date': 'bookedAt',
-  'booking datetime': 'bookedAt',
-  'delivery date': 'deliveredAt',
-  'delivered on': 'deliveredAt',
-  'delivery datetime': 'deliveredAt',
-};
-
 function normalizeAwb(raw) {
   return String(raw ?? '').replace(/[^\dA-Za-z]/g, '').trim().toUpperCase();
 }
@@ -44,6 +22,7 @@ function isValidAwb(awb) {
 
 function stripTags(html) {
   return String(html ?? '')
+    .replace(/<!--[\s\S]*?-->/g, ' ')
     .replace(/<script[\s\S]*?<\/script>/gi, ' ')
     .replace(/<style[\s\S]*?<\/style>/gi, ' ')
     .replace(/<br\s*\/?>/gi, '\n')
@@ -56,11 +35,81 @@ function stripTags(html) {
     .trim();
 }
 
+/** Prefer the dedicated result container; fall back to whole document. */
 function extractDivTrackStatus(html) {
-  const match = /<div[^>]*id=["']divtrackStatus["'][^>]*>([\s\S]*?)<\/div>\s*<div class=["']text-right["']/i
-    .exec(html)
-    || /<div[^>]*id=["']divtrackStatus["'][^>]*>([\s\S]*?)$/i.exec(html);
-  return match?.[1] || '';
+  const start = /<div[^>]*\bid=["']divtrackStatus["'][^>]*>/i.exec(html);
+  if (!start) return String(html ?? '');
+  const from = start.index + start[0].length;
+  // Balanced-ish close: stop at the sibling after page-table / alert block.
+  const rest = html.slice(from);
+  const endMarkers = [
+    /<\/div>\s*<div class=["']text-right["']/i,
+    /<\/div>\s*<div id=["']BModel["']/i,
+    /<\/div>\s*<script/i,
+  ];
+  let end = rest.length;
+  for (const re of endMarkers) {
+    const m = re.exec(rest);
+    if (m && m.index < end) end = m.index;
+  }
+  return rest.slice(0, end);
+}
+
+function cellTexts(rowHtml) {
+  return [...String(rowHtml).matchAll(/<t[dh][^>]*>([\s\S]*?)<\/t[dh]>/gi)]
+    .map(m => stripTags(m[1]));
+}
+
+/**
+ * Trackon multi-track success table:
+ * Date | Transaction Number | Location | (icon) | Event
+ */
+function parseHistoryTable(block) {
+  const history = [];
+  const tableRe = /<table[^>]*>([\s\S]*?)<\/table>/gi;
+  let tableMatch = tableRe.exec(block);
+  while (tableMatch) {
+    const rows = [];
+    const tRowRe = /<tr[^>]*>([\s\S]*?)<\/tr>/gi;
+    let tRow = tRowRe.exec(tableMatch[1]);
+    while (tRow) {
+      const cells = cellTexts(tRow[1]);
+      if (cells.some(Boolean)) rows.push(cells);
+      tRow = tRowRe.exec(tableMatch[1]);
+    }
+    if (rows.length < 2) {
+      tableMatch = tableRe.exec(block);
+      continue;
+    }
+    const header = rows[0].map(c => c.toLowerCase());
+    const isTrackonHistory = header.some(h => h.includes('date'))
+      && header.some(h => h.includes('event') || h.includes('status') || h.includes('activity'))
+      && header.some(h => h.includes('location') || h.includes('transaction'));
+    if (!isTrackonHistory) {
+      tableMatch = tableRe.exec(block);
+      continue;
+    }
+    const dateIdx = header.findIndex(h => h.includes('date'));
+    const locIdx = header.findIndex(h => h.includes('location'));
+    const eventIdx = header.findIndex(h => (
+      h.includes('event') || h.includes('status') || h.includes('activity')
+    ));
+    for (const cells of rows.slice(1)) {
+      const at = dateIdx >= 0 ? (cells[dateIdx] || '') : (cells[0] || '');
+      const location = locIdx >= 0 ? (cells[locIdx] || '') : '';
+      let activity = eventIdx >= 0 ? (cells[eventIdx] || '') : '';
+      if (!activity) activity = cells[cells.length - 1] || '';
+      if (!at && !activity) continue;
+      if (/^date$/i.test(at)) continue;
+      history.push({
+        at,
+        location,
+        activity: activity || 'Update',
+      });
+    }
+    tableMatch = tableRe.exec(block);
+  }
+  return history;
 }
 
 /**
@@ -68,11 +117,10 @@ function extractDivTrackStatus(html) {
  * @param {string} awb
  */
 export function parseTrackonTrackHtml(html, awb = '') {
-  const source = String(html ?? '');
-  const block = extractDivTrackStatus(source) || source;
+  const source = String(html ?? '').replace(/<!--[\s\S]*?-->/g, ' ');
+  const block = extractDivTrackStatus(source);
 
-  const notFound = /Consignment\s*No\s*:\s*([A-Z0-9]+)\s*\(\s*Not\s*Found\s*\)/i.exec(block)
-    || /(?:AWB|Consignment)[^\n<]{0,40}\(\s*Not\s*Found\s*\)/i.exec(block);
+  const notFound = /Consignment\s*No\s*:\s*([A-Z0-9]+)\s*\(\s*Not\s*Found\s*\)/i.exec(block);
   if (notFound) {
     const foundAwb = normalizeAwb(notFound[1] || awb);
     return {
@@ -85,115 +133,30 @@ export function parseTrackonTrackHtml(html, awb = '') {
     };
   }
 
+  const history = parseHistoryTable(block);
   const fields = {};
-  const rowRe = /<tr[^>]*>([\s\S]*?)<\/tr>/gi;
-  let rowMatch = rowRe.exec(block);
-  while (rowMatch) {
-    const cells = [...rowMatch[1].matchAll(/<t[dh][^>]*>([\s\S]*?)<\/t[dh]>/gi)]
-      .map(m => stripTags(m[1]));
-    if (cells.length === 2) {
-      const key = FIELD_MAP[cells[0].toLowerCase()];
-      if (key && cells[1]) fields[key] = cells[1];
-    }
-    rowMatch = rowRe.exec(block);
-  }
 
-  // Label: value pairs outside tables
-  const labelRe = /(?:^|\n)\s*([A-Za-z][A-Za-z /]{1,40}?)\s*[:\-]\s*([^\n]{2,120})/g;
-  let labelMatch = labelRe.exec(stripTags(block).replace(/\s*\n\s*/g, '\n'));
-  while (labelMatch) {
-    const key = FIELD_MAP[labelMatch[1].trim().toLowerCase()];
-    if (key && !fields[key]) fields[key] = labelMatch[2].trim();
-    labelMatch = labelRe.exec(stripTags(block).replace(/\s*\n\s*/g, '\n'));
-  }
+  const due = /DueDate\s*:\s*([^<\n]+)/i.exec(block);
+  if (due) fields.dueDate = stripTags(due[1]);
 
-  const history = [];
-  const seen = new Set();
-  const tableRe = /<table[^>]*>([\s\S]*?)<\/table>/gi;
-  let tableMatch = tableRe.exec(block);
-  while (tableMatch) {
-    const rows = [];
-    const tRowRe = /<tr[^>]*>([\s\S]*?)<\/tr>/gi;
-    let tRow = tRowRe.exec(tableMatch[1]);
-    while (tRow) {
-      const cells = [...tRow[1].matchAll(/<t[dh][^>]*>([\s\S]*?)<\/t[dh]>/gi)]
-        .map(m => stripTags(m[1]));
-      if (cells.some(Boolean)) rows.push(cells);
-      tRow = tRowRe.exec(tableMatch[1]);
-    }
-    if (rows.length >= 2) {
-      const header = rows[0].map(c => c.toLowerCase());
-      const looksKeyValue = rows.every(r => r.length === 2)
-        && rows.some(r => FIELD_MAP[String(r[0] || '').toLowerCase()]);
-      if (looksKeyValue) {
-        tableMatch = tableRe.exec(block);
-        continue;
-      }
-      const looksHistory = (
-        header.some(h => /^(date|time)$/.test(h) || h.includes('date') || h.includes('time'))
-        && header.some(h => /status|activity|remark|scan|location|place/.test(h))
-      ) || rows.slice(1).some(r => (
-        r.length >= 3 && /\d{1,2}[\/\-.]\d{1,2}|\d{4}/.test(r[0] || '')
-      ));
-      if (looksHistory) {
-        for (const cells of rows.slice(1)) {
-          if (cells.length < 2) continue;
-          if (/^date$/i.test(cells[0]) || /^s\.?no/i.test(cells[0])) continue;
-          let at = '';
-          let location = '';
-          let activity = '';
-          if (header.includes('date') || header.includes('time')) {
-            const dateIdx = header.findIndex(h => h.includes('date'));
-            const timeIdx = header.findIndex(h => h.includes('time'));
-            const locIdx = header.findIndex(h => h.includes('location') || h.includes('place'));
-            const actIdx = header.findIndex(h => (
-              h.includes('status') || h.includes('activity') || h.includes('remark') || h.includes('scan')
-            ));
-            const date = dateIdx >= 0 ? cells[dateIdx] : '';
-            const time = timeIdx >= 0 ? cells[timeIdx] : '';
-            at = [date, time].filter(Boolean).join(' ').trim();
-            location = locIdx >= 0 ? (cells[locIdx] || '') : '';
-            activity = actIdx >= 0 ? (cells[actIdx] || '') : (cells[cells.length - 1] || '');
-          } else if (cells.length >= 3) {
-            at = cells[0];
-            // Date + time split across first two cells
-            if (/^\d{1,2}:\d{2}/.test(cells[1] || '') || /AM|PM/i.test(cells[1] || '')) {
-              at = `${cells[0]} ${cells[1]}`.trim();
-              location = cells[2] || '';
-              activity = cells[3] || cells.slice(3).join(' · ') || cells[2] || '';
-              if (cells.length === 3) {
-                activity = cells[2];
-                location = '';
-              }
-            } else {
-              location = cells[1] || '';
-              activity = cells[2] || cells.slice(2).join(' · ');
-            }
-          } else {
-            at = cells[0];
-            activity = cells[1] || '';
-          }
-          if (!activity && !at) continue;
-          const key = `${at}|${activity}|${location}`;
-          if (seen.has(key)) continue;
-          seen.add(key);
-          history.push({ at, location, activity: activity || 'Update' });
-        }
-      }
-    }
-    tableMatch = tableRe.exec(block);
-  }
+  const consignmentMatch = /Consignment\s*No\s*:\s*([A-Z0-9]+)/i.exec(block);
+  if (consignmentMatch) fields.consignmentNo = normalizeAwb(consignmentMatch[1]);
 
-  // Fallback: alert-success / status badges
-  if (!fields.status) {
-    const statusBadge = /(?:Current\s*Status|Status)\s*[:\-]?\s*([^<\n]{2,80})/i.exec(block);
-    if (statusBadge) fields.status = stripTags(statusBadge[1]);
-  }
-  if (!fields.status && history[0]?.activity) {
+  if (history[0]?.activity) {
     fields.status = history[0].activity;
   }
 
-  if (!fields.status && !history.length && !Object.keys(fields).length) {
+  const deliveredRow = history.find(item => /\bdelivered\b/i.test(item.activity));
+  if (deliveredRow?.at) fields.deliveredAt = deliveredRow.at;
+
+  // Oldest event often reflects booking/origin hub.
+  const oldest = history[history.length - 1];
+  if (oldest?.at) fields.bookedAt = oldest.at;
+  if (oldest?.location) fields.origin = oldest.location;
+  if (deliveredRow?.location) fields.destination = deliveredRow.location;
+  else if (history[0]?.location) fields.destination = history[0].location;
+
+  if (!fields.status && !history.length) {
     return {
       ok: false,
       error: 'Tracking details not found on Trackon.',
@@ -202,14 +165,11 @@ export function parseTrackonTrackHtml(html, awb = '') {
     };
   }
 
-  // Prefer newest-first timeline (Trackon multi often oldest-first).
-  const newestFirst = [...history].reverse();
-
   return {
     ok: true,
     error: null,
     fields,
-    history: newestFirst.length ? newestFirst : history,
+    history,
   };
 }
 
