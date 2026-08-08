@@ -8,6 +8,7 @@ import { downloadElementScreenshot } from '../../lib/shareElementScreenshot';
 import type {
   HrExpenseEntry,
   HrExpenseSettlement,
+  HrExpenseSettlementLine,
   HrExpenseSettlementLineKind,
   HrSalaryReceiptEntry,
 } from '../../types/hr-salary';
@@ -27,6 +28,20 @@ const KIND_LABEL: Record<HrExpenseSettlementLineKind, string> = {
   reimbursement: 'Reimbursement',
   salary_advance: 'Advance',
 };
+
+function expenseNoteLabel(line: HrExpenseSettlementLine): string | null {
+  if (line.kind !== 'expense' || !line.parts || line.parts.length <= 1) {
+    return line.note;
+  }
+  return `${line.parts.length} items`;
+}
+
+function expenseSplitTitle(line: HrExpenseSettlementLine): string | undefined {
+  if (!line.parts || line.parts.length <= 1) return undefined;
+  return line.parts
+    .map(part => `${part.note || 'Expense'}: ${formatInr(part.amount)}`)
+    .join('\n');
+}
 
 export type ExpenseSettlementCardProps = {
   settlement: HrExpenseSettlement;
@@ -138,17 +153,35 @@ export function ExpenseSettlementCard({
           </div>
           <ul className="hr-salary__expense-detail-list">
             {lines.map(line => {
+              const noteLabel = expenseNoteLabel(line);
+              const hasSplit = Boolean(line.parts && line.parts.length > 1);
               const row = (
                 <>
                   <span className="hr-salary__expense-detail-date">
                     {formatDayLabel(line.date)}
                   </span>
-                  <span className="hr-salary__expense-detail-desc">
+                  <span
+                    className={[
+                      'hr-salary__expense-detail-desc',
+                      hasSplit ? 'has-split' : '',
+                    ].filter(Boolean).join(' ')}
+                    title={expenseSplitTitle(line)}
+                  >
                     <span className={`hr-salary__expense-kind is-${line.kind}`}>
                       {KIND_LABEL[line.kind]}
                     </span>
-                    {line.note ? (
-                      <span className="hr-salary__expense-note">{line.note}</span>
+                    {noteLabel ? (
+                      <span className="hr-salary__expense-note">{noteLabel}</span>
+                    ) : null}
+                    {hasSplit && line.parts ? (
+                      <span className="hr-salary__expense-split" role="tooltip">
+                        {line.parts.map(part => (
+                          <span key={part.id} className="hr-salary__expense-split-row">
+                            <span>{part.note || 'Expense'}</span>
+                            <span>{formatInr(part.amount)}</span>
+                          </span>
+                        ))}
+                      </span>
                     ) : null}
                   </span>
                   <span

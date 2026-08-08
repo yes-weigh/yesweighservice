@@ -110,7 +110,7 @@ function mapShareDoc(token: string, data: Record<string, unknown>): HrSalaryShar
           amount: Math.max(0, Number(row.amount) || 0),
           note: String(row.note ?? '').trim().slice(0, 120),
         };
-      }).filter(e => e.id && e.date && e.amount > 0)
+      }).filter(e => e.id && e.date)
     : [];
   const receiptEntries = Array.isArray(data.receiptEntries)
     ? data.receiptEntries.map(raw => {
@@ -122,7 +122,7 @@ function mapShareDoc(token: string, data: Record<string, unknown>): HrSalaryShar
           amount: Math.max(0, Number(row.amount) || 0),
           note: String(row.note ?? '').trim().slice(0, 120),
         };
-      }).filter(e => e.id && e.date && e.amount > 0)
+      }).filter(e => e.id && e.date)
     : [];
   const overtimeEntries = Array.isArray(data.overtimeEntries)
     ? data.overtimeEntries.map(raw => {

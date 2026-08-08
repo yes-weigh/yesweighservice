@@ -1,9 +1,11 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { Download, X } from 'lucide-react';
+import type { AdminSalesOrderDetail } from '../../lib/admin-sales-orders';
 import {
   buildSpareOrderListPdfBlob,
   buildSpareOrderListPdfInput,
+  buildSpareOrderListPdfInputFromSalesOrder,
   spareOrderListPdfFileName,
 } from '../../lib/spareOrderListPdf';
 import { prefersNativePdfViewer } from '../../lib/pdfViewer';
@@ -11,11 +13,21 @@ import type { DealerInvoiceDetail } from '../../types/invoices';
 import type { LogisticsBooking } from '../../types/logistics-dispatch';
 import { ZoomablePdfPreview } from '../logistics/ZoomablePdfPreview';
 
-type Props = {
+type InvoiceProps = {
   invoice: DealerInvoiceDetail;
+  salesOrder?: never;
   booking: LogisticsBooking | null;
   onClose: () => void;
 };
+
+type SalesOrderProps = {
+  salesOrder: AdminSalesOrderDetail;
+  invoice?: never;
+  booking?: LogisticsBooking | null;
+  onClose: () => void;
+};
+
+type Props = InvoiceProps | SalesOrderProps;
 
 function downloadBlob(blob: Blob, filename: string): void {
   const url = URL.createObjectURL(blob);
@@ -29,11 +41,18 @@ function downloadBlob(blob: Blob, filename: string): void {
   window.setTimeout(() => URL.revokeObjectURL(url), 60_000);
 }
 
-export const SpareOrderListViewDialog: React.FC<Props> = ({
-  invoice,
-  booking,
-  onClose,
-}) => {
+function documentSubtitle(props: Props): string {
+  if (props.salesOrder) {
+    const so = props.salesOrder;
+    const invoiceNo = so.zohoInvoiceNumber?.trim();
+    return invoiceNo || so.salesOrderNumber || so.id;
+  }
+  return props.invoice.invoiceNumber || props.invoice.id;
+}
+
+export const SpareOrderListViewDialog: React.FC<Props> = (props) => {
+  const { onClose } = props;
+  const booking = props.booking ?? null;
   const useNativeViewer = useMemo(() => prefersNativePdfViewer(), []);
   const [pdfBytes, setPdfBytes] = useState<Uint8Array | null>(null);
   const [pdfUrl, setPdfUrl] = useState<string | null>(null);
@@ -41,6 +60,7 @@ export const SpareOrderListViewDialog: React.FC<Props> = ({
   const [fileName, setFileName] = useState('order-list.pdf');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  const subtitle = documentSubtitle(props);
 
   useEffect(() => {
     let cancelled = false;
@@ -54,7 +74,9 @@ export const SpareOrderListViewDialog: React.FC<Props> = ({
 
     void (async () => {
       try {
-        const input = await buildSpareOrderListPdfInput(invoice, booking);
+        const input = props.salesOrder
+          ? await buildSpareOrderListPdfInputFromSalesOrder(props.salesOrder, booking)
+          : await buildSpareOrderListPdfInput(props.invoice, booking);
         if (cancelled) return;
         const name = spareOrderListPdfFileName(input.invoiceNumber);
         setFileName(name);
@@ -85,7 +107,7 @@ export const SpareOrderListViewDialog: React.FC<Props> = ({
       cancelled = true;
       if (objectUrl) URL.revokeObjectURL(objectUrl);
     };
-  }, [invoice, booking, useNativeViewer]);
+  }, [props.invoice, props.salesOrder, booking, useNativeViewer]);
 
   useEffect(() => {
     const previousOverflow = document.body.style.overflow;
@@ -121,7 +143,7 @@ export const SpareOrderListViewDialog: React.FC<Props> = ({
           <div className="courier-slip-view-dialog__title-block">
             <h2 id="spare-order-list-view-title">Order list</h2>
             <p className="text-muted text-sm">
-              {invoice.invoiceNumber || invoice.id}
+              {subtitle}
               {fileName ? ` · ${fileName}` : ''}
             </p>
           </div>
@@ -145,7 +167,7 @@ export const SpareOrderListViewDialog: React.FC<Props> = ({
           )}
           {!loading && useNativeViewer && pdfUrl && (
             <iframe
-              title={`Order list ${invoice.invoiceNumber || invoice.id}`}
+              title={`Order list ${subtitle}`}
               src={pdfUrl}
               className="spare-order-list-dialog__frame"
             />

@@ -228,6 +228,13 @@ export type HrExpenseSettlement = {
 
 export type HrExpenseSettlementLineKind = 'expense' | 'reimbursement' | 'salary_advance';
 
+/** One item inside a same-day expense aggregate. */
+export type HrExpenseSettlementLinePart = {
+  id: string;
+  note: string | null;
+  amount: number;
+};
+
 export type HrExpenseSettlementLine = {
   id: string;
   date: string;
@@ -238,6 +245,8 @@ export type HrExpenseSettlementLine = {
   sign: '+' | '−';
   /** Running unreimbursed expenses after this line (expenses − reimbursements). */
   balance: number;
+  /** Individual expenses when this line aggregates a day (hover split-up). */
+  parts?: HrExpenseSettlementLinePart[];
 };
 
 /** Assumed working hours in a payable day (for hourly OT rate). */

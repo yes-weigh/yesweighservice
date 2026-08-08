@@ -4,6 +4,7 @@ import {
   BadgeCheck,
   Ban,
   Check,
+  ClipboardList,
   FileText,
   ImageIcon,
   IndianRupee,
@@ -17,6 +18,7 @@ import { DocumentPartyBlock } from '../../components/admin/DocumentPartyBlock';
 import { ThemeSelect } from '../../components/ThemeSelect';
 import type { GatcStampingChoice } from '../../components/catalog/GatcStampingChoiceDialog';
 import { InvoiceDocumentBody } from '../../components/invoices/InvoiceDocumentBody';
+import { SpareOrderListViewDialog } from '../../components/invoices/SpareOrderListViewDialog';
 import { ShippingAddressPicker } from '../../components/orders/ShippingAddressPicker';
 import {
   draftLinesFingerprint,
@@ -54,7 +56,12 @@ import {
   updateDraftSalesOrderShipping,
   uploadSalesOrderPaymentScreenshot,
 } from '../../lib/salesOrderWorkflow';
-import { formatInvoiceDate, isFreightInvoiceLineItem, moveFreightLinesToEnd } from '../../lib/invoices';
+import {
+  formatInvoiceDate,
+  invoiceHasCategory,
+  isFreightInvoiceLineItem,
+  moveFreightLinesToEnd,
+} from '../../lib/invoices';
 import type { DealerInvoiceLineItem } from '../../types/invoices';
 import {
   prepareElementScreenshot,
@@ -122,6 +129,7 @@ export const AdminSalesOrderDocumentPage: React.FC = () => {
   const [catalogAddSession, setCatalogAddSession] = useState(0);
   const [salespersonStaffUid, setSalespersonStaffUid] = useState('');
   const [showPaymentProof, setShowPaymentProof] = useState(false);
+  const [orderListOpen, setOrderListOpen] = useState(false);
   const [sharing, setSharing] = useState(false);
   const shareCaptureRef = useRef<HTMLDivElement>(null);
   const soDetailRef = useRef<HTMLDivElement>(null);
@@ -830,9 +838,21 @@ export const AdminSalesOrderDocumentPage: React.FC = () => {
   const showPriceChanges = Boolean(salesOrder.yesOnePriceCustomized && priceChanges.length);
 
   const paymentScreenshotUrl = salesOrder.paymentScreenshotUrl?.trim() || '';
-  const topActionClass = paymentScreenshotUrl
-    ? 'invoice-detail-top__actions invoice-detail-top__actions--pair'
-    : 'invoice-detail-top__actions invoice-detail-top__actions--single';
+  const showOrderList = invoiceHasCategory(
+    {
+      categories: salesOrder.categories,
+      invoiceCategory: salesOrder.salesOrderCategory,
+    },
+    'spare',
+  ) || salesOrder.yesOneOrderSegment === 'spare';
+  const topActionCount = 1
+    + (showOrderList ? 1 : 0)
+    + (paymentScreenshotUrl ? 1 : 0);
+  const topActionClass = topActionCount >= 3
+    ? 'invoice-detail-top__actions invoice-detail-top__actions--triple'
+    : topActionCount === 2
+      ? 'invoice-detail-top__actions invoice-detail-top__actions--pair'
+      : 'invoice-detail-top__actions invoice-detail-top__actions--single';
 
   return (
     <div ref={soDetailRef} className="so-detail so-detail--with-actions">
@@ -844,7 +864,7 @@ export const AdminSalesOrderDocumentPage: React.FC = () => {
           ) : null}
         </div>
 
-      {/* Compact header: PDF (+ payment screenshot) + customer + shipping */}
+      {/* Compact header: PDF (+ order list / payment) + customer + shipping */}
       <header className="so-detail__header">
         <div className="invoice-detail-top so-detail__top-actions" data-capture-ignore="1">
           <div className={topActionClass} role="group" aria-label="Sales order actions">
@@ -857,6 +877,23 @@ export const AdminSalesOrderDocumentPage: React.FC = () => {
               </span>
               <span className="invoice-detail-top__card-label">Sales order</span>
             </Link>
+            {showOrderList ? (
+              <button
+                type="button"
+                className={[
+                  'invoice-detail-top__card',
+                  'invoice-detail-top__card--green',
+                  orderListOpen ? 'is-active' : '',
+                ].filter(Boolean).join(' ')}
+                onClick={() => setOrderListOpen(true)}
+                title="Open order / picking list PDF"
+              >
+                <span className="invoice-detail-top__card-icon">
+                  <ClipboardList size={28} strokeWidth={1.75} aria-hidden />
+                </span>
+                <span className="invoice-detail-top__card-label">Order list</span>
+              </button>
+            ) : null}
             {paymentScreenshotUrl ? (
               <button
                 type="button"
@@ -1386,6 +1423,13 @@ export const AdminSalesOrderDocumentPage: React.FC = () => {
           title="Payment proof"
           alt="Payment screenshot"
           onClose={() => setShowPaymentProof(false)}
+        />
+      ) : null}
+
+      {orderListOpen && salesOrder ? (
+        <SpareOrderListViewDialog
+          salesOrder={salesOrder}
+          onClose={() => setOrderListOpen(false)}
         />
       ) : null}
 

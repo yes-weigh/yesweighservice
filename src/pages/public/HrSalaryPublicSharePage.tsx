@@ -145,6 +145,7 @@ export const HrSalaryPublicSharePage: React.FC = () => {
     savingRef.current = true;
     setSaveStatus('saving');
     setSaveError('');
+    const savedSnapshot = JSON.stringify(current);
     try {
       const result = await updatePublicSalaryShareViaCallable({
         token: token.trim(),
@@ -159,7 +160,8 @@ export const HrSalaryPublicSharePage: React.FC = () => {
         receiptEntries: current.receiptEntries,
         overtimeEntries: current.overtimeEntries,
       });
-      dirtyRef.current = false;
+      // Keep dirty if the user typed while this save was in flight.
+      dirtyRef.current = JSON.stringify(draftRef.current) !== savedSnapshot;
       if (result.updatedAt) shareUpdatedAtRef.current = result.updatedAt;
       setSaveStatus('saved');
       window.setTimeout(() => {

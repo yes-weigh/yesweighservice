@@ -20,6 +20,7 @@ import {
 import type { DealerInvoiceDetail, DealerInvoiceLineItem } from '../types/invoices';
 import type { LogisticsBooking } from '../types/logistics-dispatch';
 import { formatItemLocationShort, readItemQuantity, type YesStoreItemDoc } from '../types/yes-store';
+import type { AdminSalesOrderDetail } from './admin-sales-orders';
 import { getCatalogSiteInventory } from './catalogSiteInventory/data';
 import { fetchCatalog } from './catalog';
 import { formatInvoiceDate, isFreightInvoiceLineItem, moveFreightLinesToEnd } from './invoices';
@@ -36,6 +37,8 @@ const MUTE = rgb(0.32, 0.32, 0.32);
 const RULE = rgb(0.12, 0.12, 0.12);
 const HEADER_BG = rgb(0.08, 0.08, 0.08);
 const LIGHT_BG = rgb(0.96, 0.96, 0.96);
+/** Shared corner radius for modern card-style boxes. */
+const BOX_R = 8;
 /** Special instructions + signature block pinned above page footer. */
 const BOTTOM_BLOCK_H = 176;
 const PAGE_FOOTER_H = 34;
@@ -82,9 +85,12 @@ export type SpareOrderListLine = {
 };
 
 export type SpareOrderListPdfInput = {
+  /** Primary document number (invoice # when invoiced, else SO #). */
   invoiceNumber: string;
+  /** Label above the primary number box. */
+  documentNumberLabel: string;
   dateTimeLabel: string;
-  /** Invoice date — used as pickup date on the bottom-right Date line. */
+  /** Invoice/SO date — used as pickup date on the Picked By Date line. */
   pickupDateLabel: string;
   pickedBy: string;
   poNo: string;
@@ -309,11 +315,11 @@ async function resolveLineStockMeta(
   return map;
 }
 
-export async function buildSpareOrderListPdfInput(
-  invoice: DealerInvoiceDetail,
-  booking: LogisticsBooking | null,
-): Promise<SpareOrderListPdfInput> {
-  const ordered = moveFreightLinesToEnd(invoice.lineItems);
+async function buildOrderListLines(
+  lineItems: DealerInvoiceLineItem[],
+  currencyCode: string,
+): Promise<SpareOrderListLine[]> {
+  const ordered = moveFreightLinesToEnd(lineItems);
   let productsById = new Map<string, CatalogProduct>();
   try {
     const catalog = await fetchCatalog();
@@ -322,8 +328,7 @@ export async function buildSpareOrderListPdfInput(
     // Units/locations still work with defaults when catalog is unavailable.
   }
   const stockMeta = await resolveLineStockMeta(ordered);
-  const currencyCode = (invoice.currencyCode || 'INR').toUpperCase();
-  const lines: SpareOrderListLine[] = ordered.map(line => {
+  return ordered.map(line => {
     const product = line.itemId ? productsById.get(line.itemId) : null;
     const unit = product?.unit?.trim()
       || (isFreightInvoiceLineItem(line) ? 'Lumpsum' : 'nos');
@@ -343,6 +348,26 @@ export async function buildSpareOrderListPdfInput(
       location: meta?.location || '',
     };
   });
+}
+
+function bookingTransportFields(booking: LogisticsBooking | null): {
+  modeOfTransport: string;
+  shippingDateTime: string;
+} {
+  return {
+    modeOfTransport: booking ? logisticsPartnerLabel(booking.partnerId) : '',
+    shippingDateTime: booking?.bookingDate
+      ? formatDateTimeLabel(booking.bookingDate)
+      : '',
+  };
+}
+
+export async function buildSpareOrderListPdfInput(
+  invoice: DealerInvoiceDetail,
+  booking: LogisticsBooking | null,
+): Promise<SpareOrderListPdfInput> {
+  const currencyCode = (invoice.currencyCode || 'INR').toUpperCase();
+  const lines = await buildOrderListLines(invoice.lineItems, currencyCode);
 
   const billing = (
     invoice.billingAddress
@@ -360,19 +385,12 @@ export async function buildSpareOrderListPdfInput(
     || ''
   ).trim();
 
-  const transport = booking
-    ? logisticsPartnerLabel(booking.partnerId)
-    : '';
-
-  const shippingDate = booking?.bookingDate
-    ? formatDateTimeLabel(booking.bookingDate)
-    : '';
-
   const special = (invoice.notes?.trim())
     || 'Handle with care. Fragile items. Keep away from moisture.';
 
   return {
     invoiceNumber: invoice.invoiceNumber?.trim() || invoice.id,
+    documentNumberLabel: 'Invoice Number',
     dateTimeLabel: formatDateTimeLabel(invoice.date),
     pickupDateLabel: formatInvoiceDate(invoice.date),
     pickedBy: (invoice.salespersonName || '').trim(),
@@ -387,8 +405,63 @@ export async function buildSpareOrderListPdfInput(
     billingAddress: phone
       ? `${billing}${billing ? '\n' : ''}Phone: ${phone}`
       : billing,
-    modeOfTransport: transport,
-    shippingDateTime: shippingDate,
+    ...bookingTransportFields(booking),
+    specialInstructions: special,
+    currencyCode,
+    lines,
+  };
+}
+
+/**
+ * Order / picking list from a sales order.
+ * Invoiced → primary number is the invoice #; otherwise SO # only.
+ */
+export async function buildSpareOrderListPdfInputFromSalesOrder(
+  salesOrder: AdminSalesOrderDetail,
+  booking: LogisticsBooking | null = null,
+): Promise<SpareOrderListPdfInput> {
+  const currencyCode = (salesOrder.currencyCode || 'INR').toUpperCase();
+  const lines = await buildOrderListLines(salesOrder.lineItems, currencyCode);
+
+  const soNumber = (salesOrder.salesOrderNumber || salesOrder.id).trim();
+  const invoiceNumber = (salesOrder.zohoInvoiceNumber || '').trim();
+  const invoiced = Boolean(invoiceNumber);
+
+  const billing = (
+    salesOrder.shippingAddress
+    || booking?.dealer.billingAddress
+    || booking?.dealer.shippingAddress
+    || ''
+  ).trim();
+
+  const phone = (
+    salesOrder.customerPhone
+    || booking?.dealer.mobile
+    || booking?.dealer.shippingPhone
+    || booking?.dealer.billingPhone
+    || ''
+  ).trim();
+
+  const special = (salesOrder.notes?.trim())
+    || 'Handle with care. Fragile items. Keep away from moisture.';
+
+  return {
+    invoiceNumber: invoiced ? invoiceNumber : soNumber,
+    documentNumberLabel: invoiced ? 'Invoice Number' : 'Sales Order Number',
+    dateTimeLabel: formatDateTimeLabel(salesOrder.date),
+    pickupDateLabel: formatInvoiceDate(salesOrder.date),
+    pickedBy: (salesOrder.salespersonName || '').trim(),
+    // When invoiced, surface the SO number as PO/ref; otherwise ref only (no fake invoice #).
+    poNo: invoiced
+      ? soNumber
+      : (salesOrder.referenceNumber?.trim() || ''),
+    customerName: (salesOrder.customerName || booking?.dealer.name || '').trim().toUpperCase(),
+    customerContact: phone,
+    customerGstin: '',
+    billingAddress: phone
+      ? `${billing}${billing ? '\n' : ''}Phone: ${phone}`
+      : billing,
+    ...bookingTransportFields(booking),
     specialInstructions: special,
     currencyCode,
     lines,
@@ -456,7 +529,13 @@ export async function buildSpareOrderListPdfBlob(input: SpareOrderListPdfInput):
     pageIndex += 1;
     page = doc.addPage([PAGE_W, PAGE_H]);
     y = PAGE_H - MARGIN;
-    drawContinuationHeader(page, font, fontBold, input.invoiceNumber);
+    drawContinuationHeader(
+      page,
+      font,
+      fontBold,
+      input.invoiceNumber,
+      input.documentNumberLabel || 'Invoice Number',
+    );
     y -= 38;
     drawTableHeader(page, fontBold, tableLeft, y, cols, headerH);
     y -= headerH;
@@ -531,15 +610,19 @@ export async function buildSpareOrderListPdfBlob(input: SpareOrderListPdfInput):
   const brandEndY = contactY;
 
   // Invoice number box (right)
-  page.drawRectangle({
-    x: invBoxX,
-    y: invBoxY,
-    width: invBoxW,
-    height: invBoxH,
-    borderColor: RULE,
-    borderWidth: 1.1,
+  drawRoundedRect(page, invBoxX, invBoxY, invBoxW, invBoxH, BOX_R, {
+    stroke: RULE,
+    strokeWidth: 1.1,
   });
-  drawText(page, font, 'Invoice Number', invBoxX + 8, invBoxY + invBoxH - 14, FS.invLabel, MUTE);
+  drawText(
+    page,
+    font,
+    input.documentNumberLabel || 'Invoice Number',
+    invBoxX + 8,
+    invBoxY + invBoxH - 14,
+    FS.invLabel,
+    MUTE,
+  );
   const invNo = truncate(fontBold, input.invoiceNumber, FS.invNo, invBoxW - 16);
   const invNoSize = FS.invNo;
   const invNoW = fontBold.widthOfTextAtSize(winAnsiSafe(invNo), invNoSize);
@@ -647,31 +730,54 @@ export async function buildSpareOrderListPdfBlob(input: SpareOrderListPdfInput):
 
   if (input.lines.length === 0) {
     ensureSpace(rowH);
-    drawItemTableRow(page, font, fontBold, tableLeft, y, cols, rowH, {
-      index: '',
-      name: 'No line items',
-      sku: '',
-      availableQtyLabel: '',
-      orderQtyLabel: '',
-      unitPriceLabel: '',
-      location: '',
-      muted: true,
-    });
+    drawItemTableRow(
+      page,
+      font,
+      fontBold,
+      tableLeft,
+      y,
+      cols,
+      rowH,
+      {
+        index: '',
+        name: 'No line items',
+        sku: '',
+        availableQtyLabel: '',
+        orderQtyLabel: '',
+        unitPriceLabel: '',
+        location: '',
+        muted: true,
+      },
+      { last: true },
+    );
     y -= rowH;
   } else {
-    for (const line of input.lines) {
+    for (let i = 0; i < input.lines.length; i += 1) {
       ensureSpace(rowH);
       lineIndex += 1;
-      drawItemTableRow(page, font, fontBold, tableLeft, y, cols, rowH, {
-        index: String(lineIndex),
-        name: line.name,
-        sku: line.sku,
-        availableQtyLabel: line.availableQtyLabel,
-        orderQtyLabel: line.orderQtyLabel,
-        unitPriceLabel: line.unitPriceLabel,
-        location: line.location || '—',
-        muted: false,
-      });
+      const line = input.lines[i]!;
+      const isLastOverall = i === input.lines.length - 1;
+      const nextNeedsPage = !isLastOverall && y - 2 * rowH < bottomLimit;
+      drawItemTableRow(
+        page,
+        font,
+        fontBold,
+        tableLeft,
+        y,
+        cols,
+        rowH,
+        {
+          index: String(lineIndex),
+          name: line.name,
+          sku: line.sku,
+          availableQtyLabel: line.availableQtyLabel,
+          orderQtyLabel: line.orderQtyLabel,
+          unitPriceLabel: line.unitPriceLabel,
+          location: line.location || '—',
+          muted: false,
+        },
+        { last: isLastOverall || nextNeedsPage },
+      );
       y -= rowH;
     }
   }
@@ -704,6 +810,59 @@ function roundedRectSvg(w: number, h: number, r: number): string {
   ].join(' ');
 }
 
+/** Top corners rounded; bottom edge square (section title bars / table headers). */
+function roundedTopRectSvg(w: number, h: number, r: number): string {
+  const radius = Math.min(r, w / 2, h / 2);
+  return [
+    `M 0,${h}`,
+    `V ${radius}`,
+    `A ${radius},${radius} 0 0 1 ${radius},0`,
+    `H ${w - radius}`,
+    `A ${radius},${radius} 0 0 1 ${w},${radius}`,
+    `V ${h}`,
+    'Z',
+  ].join(' ');
+}
+
+/** Bottom corners rounded; top edge square (last table row). */
+function roundedBottomRectSvg(w: number, h: number, r: number): string {
+  const radius = Math.min(r, w / 2, h / 2);
+  return [
+    `M 0,0`,
+    `H ${w}`,
+    `V ${h - radius}`,
+    `A ${radius},${radius} 0 0 1 ${w - radius},${h}`,
+    `H ${radius}`,
+    `A ${radius},${radius} 0 0 1 0,${h - radius}`,
+    'Z',
+  ].join(' ');
+}
+
+type RoundRectOpts = {
+  fill?: ReturnType<typeof rgb>;
+  stroke?: ReturnType<typeof rgb>;
+  strokeWidth?: number;
+};
+
+function drawSvgShape(
+  page: PDFPage,
+  path: string,
+  x: number,
+  yBottom: number,
+  h: number,
+  opts: RoundRectOpts,
+): void {
+  // pdf-lib applies scale(1, -1) to SVG paths, so path +Y draws downward from `y`.
+  // Pass the TOP of the shape as the origin so the box fills [yBottom, yBottom+h].
+  page.drawSvgPath(path, {
+    x,
+    y: yBottom + h,
+    color: opts.fill,
+    borderColor: opts.stroke,
+    borderWidth: opts.strokeWidth ?? (opts.stroke ? 1 : 0),
+  });
+}
+
 function drawRoundedRect(
   page: PDFPage,
   x: number,
@@ -711,17 +870,33 @@ function drawRoundedRect(
   w: number,
   h: number,
   r: number,
-  opts: { fill?: ReturnType<typeof rgb>; stroke?: ReturnType<typeof rgb>; strokeWidth?: number },
+  opts: RoundRectOpts,
 ): void {
-  // pdf-lib applies scale(1, -1) to SVG paths, so path +Y draws downward from `y`.
-  // Pass the TOP of the shape as the origin so the box fills [yBottom, yBottom+h].
-  page.drawSvgPath(roundedRectSvg(w, h, r), {
-    x,
-    y: yBottom + h,
-    color: opts.fill,
-    borderColor: opts.stroke,
-    borderWidth: opts.strokeWidth ?? (opts.stroke ? 1 : 0),
-  });
+  drawSvgShape(page, roundedRectSvg(w, h, r), x, yBottom, h, opts);
+}
+
+function drawRoundedTopRect(
+  page: PDFPage,
+  x: number,
+  yBottom: number,
+  w: number,
+  h: number,
+  r: number,
+  opts: RoundRectOpts,
+): void {
+  drawSvgShape(page, roundedTopRectSvg(w, h, r), x, yBottom, h, opts);
+}
+
+function drawRoundedBottomRect(
+  page: PDFPage,
+  x: number,
+  yBottom: number,
+  w: number,
+  h: number,
+  r: number,
+  opts: RoundRectOpts,
+): void {
+  drawSvgShape(page, roundedBottomRectSvg(w, h, r), x, yBottom, h, opts);
 }
 
 /** Compact white clipboard glyph for the special-instructions pill. */
@@ -778,10 +953,9 @@ function drawBottomBlock(
   const instrBottom = sigLabelY + 28;
   const instrH = 86;
   const instrTop = instrBottom + instrH;
-  const boxR = 8;
 
   // Outer rounded container (special instructions only)
-  drawRoundedRect(page, MARGIN, instrBottom, CONTENT_W, instrH, boxR, {
+  drawRoundedRect(page, MARGIN, instrBottom, CONTENT_W, instrH, BOX_R, {
     stroke: INK,
     strokeWidth: 1.15,
   });
@@ -857,22 +1031,20 @@ function drawKeyedRow(
   cols: Array<{ label: string; value: string }>,
   shaded: boolean,
 ): void {
-  page.drawRectangle({
-    x,
-    y: yTop - height,
-    width,
-    height,
-    borderColor: RULE,
-    borderWidth: 0.9,
-    ...(shaded ? { color: LIGHT_BG } : {}),
+  drawRoundedRect(page, x, yTop - height, width, height, BOX_R, {
+    stroke: RULE,
+    strokeWidth: 0.9,
+    ...(shaded ? { fill: LIGHT_BG } : {}),
   });
   const colW = width / cols.length;
+  // Keep dividers inset from rounded corners so they don't clip the arcs.
+  const divInset = Math.min(BOX_R * 0.55, height * 0.28);
   cols.forEach((col, i) => {
     const cx = x + i * colW;
     if (i > 0) {
       page.drawLine({
-        start: { x: cx, y: yTop },
-        end: { x: cx, y: yTop - height },
+        start: { x: cx, y: yTop - divInset },
+        end: { x: cx, y: yTop - height + divInset },
         thickness: 0.6,
         color: RULE,
       });
@@ -894,6 +1066,7 @@ function drawContinuationHeader(
   font: PDFFont,
   fontBold: PDFFont,
   invoiceNumber: string,
+  documentNumberLabel = 'Invoice Number',
 ): void {
   drawText(
     page,
@@ -906,7 +1079,7 @@ function drawContinuationHeader(
   drawText(
     page,
     font,
-    `Invoice Number  ${invoiceNumber}`,
+    `${documentNumberLabel}  ${invoiceNumber}`,
     MARGIN,
     PAGE_H - MARGIN - 26,
     FS.contMeta,
@@ -923,12 +1096,15 @@ function drawTableHeader(
   headerH: number,
 ): void {
   const tableWidth = cols.reduce((sum, col) => sum + col.width, 0);
-  page.drawRectangle({
-    x: tableLeft,
-    y: y - headerH,
-    width: tableWidth,
-    height: headerH,
-    color: HEADER_BG,
+  drawRoundedTopRect(page, tableLeft, y - headerH, tableWidth, headerH, BOX_R, {
+    fill: HEADER_BG,
+  });
+  // Side + bottom edge of header so it joins the body rows cleanly
+  page.drawLine({
+    start: { x: tableLeft, y: y - headerH },
+    end: { x: tableLeft + tableWidth, y: y - headerH },
+    thickness: 0.45,
+    color: RULE,
   });
   let x = tableLeft;
   for (const col of cols) {
@@ -962,23 +1138,43 @@ function drawItemTableRow(
     location: string;
     muted: boolean;
   },
+  options: { last?: boolean } = {},
 ): void {
   const tableWidth = cols.reduce((sum, col) => sum + col.width, 0);
-  page.drawRectangle({
-    x: tableLeft,
-    y: y - rowH,
-    width: tableWidth,
-    height: rowH,
-    borderColor: RULE,
-    borderWidth: 0.45,
-  });
+  const yBottom = y - rowH;
+  if (options.last) {
+    drawRoundedBottomRect(page, tableLeft, yBottom, tableWidth, rowH, BOX_R, {
+      stroke: RULE,
+      strokeWidth: 0.55,
+    });
+  } else {
+    // Square body rows: left / right / bottom (top shared with row above)
+    page.drawLine({
+      start: { x: tableLeft, y },
+      end: { x: tableLeft, y: yBottom },
+      thickness: 0.45,
+      color: RULE,
+    });
+    page.drawLine({
+      start: { x: tableLeft + tableWidth, y },
+      end: { x: tableLeft + tableWidth, y: yBottom },
+      thickness: 0.45,
+      color: RULE,
+    });
+    page.drawLine({
+      start: { x: tableLeft, y: yBottom },
+      end: { x: tableLeft + tableWidth, y: yBottom },
+      thickness: 0.45,
+      color: RULE,
+    });
+  }
 
   let x = tableLeft;
   cols.forEach((col, i) => {
     if (i > 0) {
       page.drawLine({
         start: { x, y },
-        end: { x, y: y - rowH },
+        end: { x, y: yBottom },
         thickness: 0.35,
         color: RULE,
       });
@@ -1102,20 +1298,12 @@ function drawSectionBox(
   rows: Array<[string, string]>,
 ): void {
   const titleH = 18;
-  page.drawRectangle({
-    x,
-    y,
-    width: w,
-    height: h,
-    borderColor: RULE,
-    borderWidth: 0.9,
+  drawRoundedRect(page, x, y, w, h, BOX_R, {
+    stroke: RULE,
+    strokeWidth: 0.9,
   });
-  page.drawRectangle({
-    x,
-    y: y + h - titleH,
-    width: w,
-    height: titleH,
-    color: HEADER_BG,
+  drawRoundedTopRect(page, x, y + h - titleH, w, titleH, BOX_R, {
+    fill: HEADER_BG,
   });
   drawText(page, fontBold, title, x + 7, y + h - 12, FS.sectionTitle, rgb(1, 1, 1));
 

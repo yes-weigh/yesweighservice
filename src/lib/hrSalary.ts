@@ -260,7 +260,8 @@ export function normalizeExpenseEntries(
       amount: Math.max(0, Number(entry.amount) || 0),
       note: String(entry.note ?? '').trim().slice(0, 120),
     }))
-    .filter(entry => entry.date.startsWith(key) && entry.amount > 0)
+    // Keep amount=0 draft rows so "Add expense" survives autosave before the user types.
+    .filter(entry => entry.date.startsWith(key))
     .sort((a, b) => {
       const byDate = a.date.localeCompare(b.date);
       if (byDate !== 0) return byDate;
@@ -281,7 +282,8 @@ export function normalizeSalaryReceiptEntries(
       amount: Math.max(0, Number(entry.amount) || 0),
       note: String(entry.note ?? '').trim().slice(0, 120),
     }))
-    .filter(entry => entry.date.startsWith(key) && entry.amount > 0)
+    // Keep amount=0 draft rows so "Add reimbursement/advance" survives autosave.
+    .filter(entry => entry.date.startsWith(key))
     .sort((a, b) => {
       const byDate = a.date.localeCompare(b.date);
       if (byDate !== 0) return byDate;
@@ -329,31 +331,56 @@ export function computeExpenseSettlement(
   };
 }
 
-/** Flat, date-sorted lines for expense / payment detail lists. */
+/** Flat, date-sorted lines for expense / payment detail lists.
+ * Same-day expenses are combined into one row (with `parts` for split-up).
+ */
 export function buildExpenseSettlementLines(
   expenseEntries: HrExpenseEntry[],
   receiptEntries: HrSalaryReceiptEntry[],
 ): HrExpenseSettlementLine[] {
-  const lines = [
-    ...expenseEntries.map(entry => ({
-      id: entry.id,
-      date: entry.date,
-      kind: 'expense' as const,
-      note: entry.note?.trim() || null,
-      amount: entry.amount,
-      sign: '+' as const,
-    })),
-    ...receiptEntries.map(entry => ({
+  const expensesByDate = new Map<string, HrExpenseEntry[]>();
+  for (const entry of expenseEntries) {
+    if (!(entry.amount > 0)) continue;
+    const list = expensesByDate.get(entry.date) ?? [];
+    list.push(entry);
+    expensesByDate.set(entry.date, list);
+  }
+
+  const expenseLines: Omit<HrExpenseSettlementLine, 'balance'>[] = [...expensesByDate.entries()]
+    .map(([date, entries]) => {
+      const parts = [...entries]
+        .sort((a, b) => a.id.localeCompare(b.id))
+        .map(entry => ({
+          id: entry.id,
+          note: entry.note?.trim() || null,
+          amount: entry.amount,
+        }));
+      const amount = Math.round(parts.reduce((sum, part) => sum + part.amount, 0) * 100) / 100;
+      return {
+        id: `expense-${date}`,
+        date,
+        kind: 'expense' as const,
+        note: parts.length === 1 ? parts[0].note : null,
+        amount,
+        sign: '+' as const,
+        parts,
+      };
+    });
+
+  const receiptLines: Omit<HrExpenseSettlementLine, 'balance'>[] = receiptEntries
+    .filter(entry => entry.amount > 0)
+    .map(entry => ({
       id: entry.id,
       date: entry.date,
       kind: entry.kind,
       note: entry.note?.trim() || null,
       amount: entry.amount,
       sign: '−' as const,
-    })),
-  ]
-    .filter(line => line.amount > 0)
-    .sort((a, b) => a.date.localeCompare(b.date) || a.kind.localeCompare(b.kind));
+    }));
+
+  const lines = [...expenseLines, ...receiptLines].sort(
+    (a, b) => a.date.localeCompare(b.date) || a.kind.localeCompare(b.kind),
+  );
 
   // Balance is unreimbursed expenses only — salary advances do not affect it.
   let cumExpenses = 0;
@@ -1435,7 +1462,7 @@ function mapExpenseEntries(data: Record<string, unknown>): HrExpenseEntry[] {
       amount: Math.max(0, Number(row.amount) || 0),
       note: String(row.note ?? '').trim().slice(0, 120),
     };
-  }).filter(e => e.date && e.amount > 0);
+  }).filter(e => e.date);
 }
 
 function mapSalaryReceiptEntries(data: Record<string, unknown>): HrSalaryReceiptEntry[] {
@@ -1449,7 +1476,7 @@ function mapSalaryReceiptEntries(data: Record<string, unknown>): HrSalaryReceipt
       amount: Math.max(0, Number(row.amount) || 0),
       note: String(row.note ?? '').trim().slice(0, 120),
     };
-  }).filter(e => e.date && e.amount > 0);
+  }).filter(e => e.date);
 }
 
 function mapSalaryDoc(id: string, data: Record<string, unknown>): HrSalaryMonthRecord {

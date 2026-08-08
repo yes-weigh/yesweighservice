@@ -197,7 +197,8 @@ function normalizeExpenseEntries(raw, key) {
       amount: Math.max(0, Number(row?.amount) || 0),
       note: String(row?.note ?? '').trim().slice(0, 120),
     }))
-    .filter(e => e.date.startsWith(key) && e.amount > 0)
+    // Keep amount=0 draft rows so "Add expense" survives autosave before the user types.
+    .filter(e => e.date.startsWith(key))
     .sort((a, b) => a.date.localeCompare(b.date));
 }
 
@@ -211,7 +212,8 @@ function normalizeSalaryReceiptEntries(raw, key) {
       amount: Math.max(0, Number(row?.amount) || 0),
       note: String(row?.note ?? '').trim().slice(0, 120),
     }))
-    .filter(e => e.date.startsWith(key) && e.amount > 0)
+    // Keep amount=0 draft rows so "Add reimbursement/advance" survives autosave.
+    .filter(e => e.date.startsWith(key))
     .sort((a, b) => a.date.localeCompare(b.date));
 }
 
