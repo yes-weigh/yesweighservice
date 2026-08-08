@@ -277,15 +277,17 @@ export const LogisticsBookingDetail: React.FC<LogisticsBookingDetailProps> = ({
     }
   }, [booking, invoiceBranch, isOps, onUpdate, user]);
 
+  const shippingLabelGate = useMemo(() => shippingLabelAddressGate(booking), [booking]);
+  const shippingLabelBlocked = Boolean(shippingLabelGate.message);
+
   const openShippingLabel = useCallback(() => {
-    const gate = shippingLabelAddressGate(booking);
-    if (gate.message) {
-      window.alert(gate.message);
+    if (shippingLabelGate.message) {
+      window.alert(shippingLabelGate.message);
       return;
     }
     setShippingLabelBooking(booking);
     setShippingLabelOpen(true);
-  }, [booking]);
+  }, [booking, shippingLabelGate.message]);
 
   const productItems = freightCompare?.items.filter(
     item => !item.isFreight && !item.isStampingFee,
@@ -902,15 +904,36 @@ export const LogisticsBookingDetail: React.FC<LogisticsBookingDetailProps> = ({
           {isOps && (
             <button
               type="button"
-              className={`btn btn-secondary btn-sm${booking.shippingLabelGenerated ? ' is-done' : ''}`}
+              className={[
+                'btn btn-secondary btn-sm',
+                booking.shippingLabelGenerated && !shippingLabelBlocked ? 'is-done' : '',
+                shippingLabelBlocked ? 'is-blocked' : '',
+              ].filter(Boolean).join(' ')}
               onClick={openShippingLabel}
-              disabled={generating !== null}
+              disabled={generating !== null || shippingLabelBlocked}
+              title={shippingLabelBlocked ? 'Fix missing addresses before opening the label' : undefined}
+              aria-disabled={shippingLabelBlocked || undefined}
             >
-              <Eye size={14} aria-hidden />
-              View shipping label
+              {shippingLabelBlocked ? <AlertTriangle size={14} aria-hidden /> : <Eye size={14} aria-hidden />}
+              {shippingLabelBlocked ? 'Shipping label blocked' : 'View shipping label'}
             </button>
           )}
         </div>
+        {isOps && shippingLabelBlocked && (
+          <div className="logistics-booking__slip-blocked" role="status">
+            <AlertTriangle size={14} aria-hidden />
+            <div>
+              <strong>Shipping label unavailable</strong>
+              <p>
+                {shippingLabelGate.fromMissing && shippingLabelGate.toMissing
+                  ? 'FROM and TO addresses are missing. Set ship-from under Logistics → Sites and refresh the dealer address from Zoho.'
+                  : shippingLabelGate.fromMissing
+                    ? 'FROM (ship-from) address is missing. Set it under Admin → Logistics → Sites, then update this booking’s ship-from.'
+                    : 'TO (dealer delivery) address is missing. Refresh the dealer from Zoho, then try again.'}
+              </p>
+            </div>
+          </div>
+        )}
         {isOps && (booking.courierSlipGenerated || booking.shippingLabelGenerated) && (
           <p className="text-muted text-sm logistics-booking__slip-names">
             {booking.courierSlipGenerated && courierSlipFileName(booking)}
@@ -918,7 +941,7 @@ export const LogisticsBookingDetail: React.FC<LogisticsBookingDetailProps> = ({
             {booking.shippingLabelGenerated && shippingLabelFileName(booking)}
           </p>
         )}
-        {isOps && !booking.shippingLabelGenerated && isIncompleteLogisticsBooking(booking) && (
+        {isOps && !shippingLabelBlocked && !booking.shippingLabelGenerated && isIncompleteLogisticsBooking(booking) && (
           <p className="text-muted text-sm logistics-booking__slip-hint">
             Open and print the shipping label to confirm this shipment.
           </p>
