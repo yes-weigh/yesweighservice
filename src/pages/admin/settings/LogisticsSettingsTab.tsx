@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom';
 import { IndianRupee, MapPin, Save, Truck, Users } from 'lucide-react';
 import { DecimalAmountInput } from '../../../components/DecimalAmountInput';
 import { useAuth } from '../../../context/AuthContext';
+import { syncLogisticsShipFromAddressesToAllBookings } from '../../../lib/logisticsBookings';
 import {
   listHrStaffUsers,
   loadLogisticsSettings,
@@ -61,7 +62,9 @@ export const LogisticsSettingsTab: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [busyKey, setBusyKey] = useState<string | null>(null);
+  const [shipFromSyncNote, setShipFromSyncNote] = useState('');
   const addressRefs = useRef<Partial<Record<StaffLogisticsSite, HTMLTextAreaElement | null>>>({});
+  const didAutoSyncShipFromRef = useRef(false);
 
   const loadAll = useCallback(async () => {
     setLoading(true);
@@ -80,6 +83,19 @@ export const LogisticsSettingsTab: React.FC = () => {
       setSpareFreightMinimumInr(settings.spareFreightMinimumInr);
       setDraftSpareFreightMinimumInr(settings.spareFreightMinimumInr);
       setStaff(staffUsers);
+
+      const hasAddress = STAFF_LOGISTICS_SITES.some(
+        site => Boolean(settings.fromAddresses[site]?.trim()),
+      );
+      if (hasAddress && !didAutoSyncShipFromRef.current) {
+        didAutoSyncShipFromRef.current = true;
+        const result = await syncLogisticsShipFromAddressesToAllBookings(settings.fromAddresses);
+        if (result.updated > 0) {
+          setShipFromSyncNote(
+            `Applied ship-from addresses to ${result.updated} of ${result.scanned} bookings.`,
+          );
+        }
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Could not load logistics settings.');
     } finally {
@@ -131,9 +147,15 @@ export const LogisticsSettingsTab: React.FC = () => {
       }
       if (fromAddressesDirty) {
         tasks.push(
-          saveLogisticsFromAddresses(draftFromAddresses, user?.uid ?? null).then(saved => {
+          saveLogisticsFromAddresses(draftFromAddresses, user?.uid ?? null).then(async saved => {
             setFromAddresses(saved);
             setDraftFromAddresses(saved);
+            const result = await syncLogisticsShipFromAddressesToAllBookings(saved);
+            setShipFromSyncNote(
+              result.updated > 0
+                ? `Saved and applied ship-from to ${result.updated} of ${result.scanned} bookings.`
+                : `Saved. All ${result.scanned} bookings already match these addresses.`,
+            );
           }),
         );
       }
@@ -210,7 +232,8 @@ export const LogisticsSettingsTab: React.FC = () => {
             <div>
               <h4 className="settings-logistics__title">Logistics sites</h4>
               <p className="text-muted text-sm">
-                Ship-from address on courier labels. Mark one site as default for new staff.
+                Ship-from address on courier labels. Saving applies these addresses to all existing
+                bookings for each site. Mark one site as default for new staff.
               </p>
             </div>
             <button
@@ -223,6 +246,11 @@ export const LogisticsSettingsTab: React.FC = () => {
               Save
             </button>
           </div>
+          {shipFromSyncNote && (
+            <p className="text-muted text-sm settings-logistics__sync-note" role="status">
+              {shipFromSyncNote}
+            </p>
+          )}
 
           <div className="settings-logistics__from-grid">
             {STAFF_LOGISTICS_SITES.map(site => {

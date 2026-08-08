@@ -48,6 +48,8 @@ import {
   shipFromSiteLabel,
   type InvoiceBranchShipFrom,
 } from '../../lib/logisticsShipFrom';
+import { isPlaceholderLogisticsAddress } from '../../lib/logisticsDealers';
+import { loadLogisticsSettings } from '../../lib/logisticsSettings';
 import { logisticsTrackingUrl } from '../../lib/logisticsTracking';
 import { shippingLabelAddressGate } from '../../lib/shippingLabel';
 import { homePathForRole } from '../../types';
@@ -276,6 +278,69 @@ export const LogisticsBookingDetail: React.FC<LogisticsBookingDetailProps> = ({
       setUpdatingShipFrom(false);
     }
   }, [booking, invoiceBranch, isOps, onUpdate, user]);
+
+  /** Pull Sites address onto this booking (settings save does not update existing shipments). */
+  const handleApplyShipFromFromSites = useCallback(async (opts?: { openLabel?: boolean }) => {
+    if (!user || !isOps) return false;
+    setUpdatingShipFrom(true);
+    try {
+      const settings = await loadLogisticsSettings();
+      const site = booking.shipFromSite;
+      const address = settings.fromAddresses[site]?.trim() || '';
+      if (isPlaceholderLogisticsAddress(address)) {
+        window.alert(
+          `No ship-from address saved for ${STAFF_LOGISTICS_SITE_LABELS[site] || site}. `
+          + 'Set it under Admin → Logistics → Sites, save, then try again.',
+        );
+        return false;
+      }
+      const updated = await updateLogisticsBookingShipFrom(booking, site, user);
+      onUpdate(updated);
+      setShippingLabelBooking(updated);
+      if (opts?.openLabel) {
+        const gate = shippingLabelAddressGate(updated);
+        if (!gate.message) setShippingLabelOpen(true);
+      }
+      return true;
+    } catch (err) {
+      window.alert(err instanceof Error ? err.message : 'Could not update ship-from.');
+      return false;
+    } finally {
+      setUpdatingShipFrom(false);
+    }
+  }, [booking, isOps, onUpdate, user]);
+
+  const shipFromAutoAppliedRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (!isOps || !user) return;
+    if (!isPlaceholderLogisticsAddress(booking.shipFromAddress)) return;
+    if (shipFromAutoAppliedRef.current === booking.id) return;
+    shipFromAutoAppliedRef.current = booking.id;
+    let cancelled = false;
+    void (async () => {
+      try {
+        const settings = await loadLogisticsSettings();
+        const address = settings.fromAddresses[booking.shipFromSite]?.trim() || '';
+        if (cancelled || isPlaceholderLogisticsAddress(address)) return;
+        const updated = await updateLogisticsBookingShipFrom(booking, booking.shipFromSite, user);
+        if (!cancelled) {
+          onUpdate(updated);
+          setShippingLabelBooking(updated);
+        }
+      } catch {
+        /* leave blocked UI; user can Apply manually */
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [
+    booking,
+    booking.id,
+    booking.shipFromAddress,
+    booking.shipFromSite,
+    isOps,
+    onUpdate,
+    user,
+  ]);
 
   const shippingLabelGate = useMemo(() => shippingLabelAddressGate(booking), [booking]);
   const shippingLabelBlocked = Boolean(shippingLabelGate.message);
@@ -926,11 +991,23 @@ export const LogisticsBookingDetail: React.FC<LogisticsBookingDetailProps> = ({
               <strong>Shipping label unavailable</strong>
               <p>
                 {shippingLabelGate.fromMissing && shippingLabelGate.toMissing
-                  ? 'FROM and TO addresses are missing. Set ship-from under Logistics → Sites and refresh the dealer address from Zoho.'
+                  ? 'FROM and TO addresses are missing. Apply ship-from from Sites (or save it there first), and refresh the dealer address from Zoho.'
                   : shippingLabelGate.fromMissing
-                    ? 'FROM (ship-from) address is missing. Set it under Admin → Logistics → Sites, then update this booking’s ship-from.'
+                    ? `This booking still has no ship-from address. Sites settings do not update existing shipments automatically — apply the ${STAFF_LOGISTICS_SITE_LABELS[booking.shipFromSite] || 'site'} address here.`
                     : 'TO (dealer delivery) address is missing. Refresh the dealer from Zoho, then try again.'}
               </p>
+              {shippingLabelGate.fromMissing && (
+                <button
+                  type="button"
+                  className="btn btn-primary btn-sm logistics-booking__slip-blocked-action"
+                  disabled={updatingShipFrom}
+                  onClick={() => void handleApplyShipFromFromSites({ openLabel: true })}
+                >
+                  {updatingShipFrom
+                    ? 'Applying…'
+                    : `Apply ${STAFF_LOGISTICS_SITE_LABELS[booking.shipFromSite] || 'site'} address from Sites`}
+                </button>
+              )}
             </div>
           </div>
         )}

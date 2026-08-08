@@ -11,6 +11,7 @@ import {
   setDoc,
   updateDoc,
   where,
+  writeBatch,
   type DocumentData,
   type Unsubscribe,
 } from 'firebase/firestore';
@@ -50,6 +51,7 @@ import type {
 import { isStaffLogisticsSite, type StaffLogisticsSite } from '../types/staff-logistics';
 
 const COLLECTION = 'logisticsBookings';
+const FIRESTORE_BATCH_LIMIT = 450;
 
 /** Newest bookingDate first; same day uses createdAt then updatedAt. */
 export function compareLogisticsBookingsByBookingDateDesc(
@@ -1232,6 +1234,43 @@ export async function updateLogisticsBookingShipFrom(
     shipFromAddress,
     updatedAt,
   };
+}
+
+/**
+ * Push Sites ship-from addresses onto every logistics booking for that site.
+ * Skips docs that already match. Empty Sites values clear booking addresses.
+ */
+export async function syncLogisticsShipFromAddressesToAllBookings(
+  fromAddresses: Record<StaffLogisticsSite, string>,
+): Promise<{ updated: number; scanned: number }> {
+  const updatedAt = new Date().toISOString();
+  const snap = await getDocs(collection(db, COLLECTION));
+  const pending: Array<{ id: string; shipFromSite: StaffLogisticsSite; shipFromAddress: string }> = [];
+
+  for (const row of snap.docs) {
+    const data = row.data();
+    const shipFromSite = isStaffLogisticsSite(data.shipFromSite) ? data.shipFromSite : 'cochin';
+    const shipFromAddress = fromAddresses[shipFromSite]?.trim() || '';
+    const currentAddress = String(data.shipFromAddress ?? '').trim();
+    const siteNeedsFix = !isStaffLogisticsSite(data.shipFromSite);
+    if (!siteNeedsFix && currentAddress === shipFromAddress) continue;
+    pending.push({ id: row.id, shipFromSite, shipFromAddress });
+  }
+
+  for (let i = 0; i < pending.length; i += FIRESTORE_BATCH_LIMIT) {
+    const chunk = pending.slice(i, i + FIRESTORE_BATCH_LIMIT);
+    const batch = writeBatch(db);
+    for (const item of chunk) {
+      batch.update(doc(db, COLLECTION, item.id), {
+        shipFromSite: item.shipFromSite,
+        shipFromAddress: item.shipFromAddress,
+        updatedAt,
+      });
+    }
+    await batch.commit();
+  }
+
+  return { updated: pending.length, scanned: snap.size };
 }
 
 /** Upload or replace the outer package (label-pasted) photo on any booking stage. */

@@ -24647,6 +24647,10 @@ body:has(.confirm-inline-bar) .confirm-inline-bar {
   color: rgba(254, 243, 199, 0.88);
 }
 
+.logistics-booking__slip-blocked-action {
+  margin-top: 0.55rem;
+}
+
 .logistics-booking__slip-names {
   margin: 0.45rem 0 0;
 }

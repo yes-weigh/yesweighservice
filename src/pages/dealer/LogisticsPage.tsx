@@ -48,6 +48,7 @@ import {
   deleteLogisticsBookingPermanently,
   fetchLogisticsBooking,
   subscribeLogisticsBookings,
+  syncLogisticsShipFromAddressesToAllBookings,
   updateLogisticsBookingStatus,
   type LogisticsBookingListFilters,
 } from '../../lib/logisticsBookings';
@@ -57,6 +58,7 @@ import {
   type LogisticsFreightCompare,
 } from '../../lib/logisticsFreightCompare';
 import { loadLogisticsCourierRates } from '../../lib/logisticsCourierRates';
+import { loadLogisticsSettings } from '../../lib/logisticsSettings';
 import { extractCityState, resolveDestinationPlace } from '../../lib/shippingLabel';
 import { isInternalOpsUser } from '../../lib/staffAccess';
 import type { LogisticsBooking, LogisticsBookingDraft, LogisticsBookingStatus } from '../../types/logistics-dispatch';
@@ -253,6 +255,8 @@ function showsRoute(status: LogisticsBookingStatus): boolean {
   return status === 'label_generated' || status === 'shipped' || status === 'in_transit';
 }
 
+let shipFromSessionSyncStarted = false;
+
 export const LogisticsPage: React.FC = () => {
   const { user } = useAuth();
   const confirm = useConfirm();
@@ -366,6 +370,24 @@ export const LogisticsPage: React.FC = () => {
     );
     return unsubscribe;
   }, [user, filters.partnerId, filters.query]);
+
+  /** Once per session: push Sites ship-from addresses onto all bookings for ops. */
+  useEffect(() => {
+    if (!user || !isOps || shipFromSessionSyncStarted) return;
+    shipFromSessionSyncStarted = true;
+    let cancelled = false;
+    void (async () => {
+      try {
+        const settings = await loadLogisticsSettings();
+        const hasAddress = Object.values(settings.fromAddresses).some(value => Boolean(value?.trim()));
+        if (cancelled || !hasAddress) return;
+        await syncLogisticsShipFromAddressesToAllBookings(settings.fromAddresses);
+      } catch {
+        /* list subscription still works; detail can apply per booking */
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [user, isOps]);
 
   const datedBookings = useMemo(
     () => bookings.filter(booking => inDateRange(booking, dateRange.from, dateRange.to)),
