@@ -693,7 +693,8 @@ export const PriceLevelSettingsTab: React.FC = () => {
           kind: nextKind,
           percent: nextPercent,
           customRate: nextCustom,
-          slabs: nextKind === 'fixed' ? normalizePriceLevelSlabs(nextSlabs) : [],
+          // Keep editor order as typed — sorting/deduping here remounts inputs and steals focus.
+          slabs: nextKind === 'fixed' ? nextSlabs : [],
         },
       };
     });
@@ -708,7 +709,7 @@ export const PriceLevelSettingsTab: React.FC = () => {
       kind: draft.kind,
       percent: draft.percent,
       customRate: draft.customRate,
-      slabs: draft.kind === 'fixed' ? draft.slabs : [],
+      slabs: draft.kind === 'fixed' ? normalizePriceLevelSlabs(draft.slabs) : [],
     });
     setOverrideEditor(null);
   };
@@ -1413,10 +1414,9 @@ export const PriceLevelSettingsTab: React.FC = () => {
       {overrideEditor ? (() => {
         const { product, draft, isExisting } = overrideEditor;
         const listRate = Math.round((Number(product.rate) || 0) * 100) / 100;
-        const editorSlabs = draft.kind === 'fixed'
-          ? normalizePriceLevelSlabs(draft.slabs)
-          : [];
+        const editorSlabs = draft.kind === 'fixed' ? draft.slabs : [];
         const hasSlabs = editorSlabs.length > 0;
+        const previewSlabs = hasSlabs ? normalizePriceLevelSlabs(editorSlabs) : [];
         const percentEffective = draft.kind === 'discount' || draft.kind === 'increment'
           ? applyPriceLevelPercent(
             listRate,
@@ -1432,7 +1432,7 @@ export const PriceLevelSettingsTab: React.FC = () => {
             kind: draft.kind,
             percent: draft.percent,
             customRate: draft.customRate,
-            slabs: editorSlabs,
+            slabs: previewSlabs,
           },
           listRate,
         );
@@ -1567,7 +1567,7 @@ export const PriceLevelSettingsTab: React.FC = () => {
                         </thead>
                         <tbody>
                           {editorSlabs.map((slab, slabIdx) => (
-                            <tr key={`editor-slab-${slab.minQty}-${slabIdx}`}>
+                            <tr key={`editor-slab-${slabIdx}`}>
                               <td>
                                 <label className="price-levels-tab__slabs-qty">
                                   <span>≥</span>
@@ -1575,12 +1575,16 @@ export const PriceLevelSettingsTab: React.FC = () => {
                                     type="number"
                                     min={1}
                                     step={1}
-                                    value={slab.minQty}
+                                    value={slab.minQty === 0 ? '' : slab.minQty}
                                     onChange={e => {
+                                      const v = e.target.value;
                                       const next = [...editorSlabs];
                                       next[slabIdx] = {
                                         ...slab,
-                                        minQty: Math.max(1, Math.floor(Number(e.target.value) || 1)),
+                                        // Allow empty while typing; clamp on save via normalize.
+                                        minQty: v === ''
+                                          ? 0
+                                          : Math.max(1, Math.floor(Number(v) || 0)),
                                       };
                                       patchOverrideDraft({ slabs: next });
                                     }}

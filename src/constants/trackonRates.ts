@@ -6,16 +6,17 @@ import type {
   TrackonAirDestinationRates,
   TrackonConfig,
   TrackonNorthDestinationId,
-  TrackonNorthSurfaceRates,
   TrackonServiceId,
   TrackonSharedRules,
   TrackonSouthDestinationId,
-  TrackonSouthSurfaceRates,
+  TrackonSurfaceNorthDestinationId,
+  TrackonSurfacePerKgRates,
   TrackonWeightSlabs,
 } from '../types/trackon-rates';
 import {
   TRACKON_NORTH_DESTINATION_IDS,
   TRACKON_SOUTH_DESTINATION_IDS,
+  TRACKON_SURFACE_NORTH_DESTINATION_IDS,
 } from '../types/trackon-rates';
 
 function slabs(
@@ -41,24 +42,11 @@ function airRow(
   return slabs(upTo250gInr, upTo500gInr, upTo1000gInr);
 }
 
-function southRow(
-  upTo250gInr: number,
-  upTo500gInr: number,
-  upTo1000gInr: number,
-  bulkPerKgInr: number,
-): TrackonSouthSurfaceRates {
-  return {
-    ...slabs(upTo250gInr, upTo500gInr, upTo1000gInr),
-    bulkPerKgInr,
-  };
-}
-
 export const DEFAULT_TRACKON_SHARED: TrackonSharedRules = {
   fuelSurchargePercent: 15,
   volumetricDivisor: 5000,
   oversizedSideCm: 100,
-  northernMinimumChargeableKg: 1,
-  southernBulkMinimumKg: 4,
+  minimumChargeableKg: 4,
 };
 
 export function defaultTrackonConfig(): TrackonConfig {
@@ -74,20 +62,20 @@ export function defaultTrackonConfig(): TrackonConfig {
     mumbai: { perKgInr: 55 },
     delhi: { perKgInr: 60 },
     andhra_pradesh: { perKgInr: 60 },
-    kolkata: { perKgInr: 70 },
     northern_sectors: { perKgInr: 70 },
-  } satisfies Record<TrackonNorthDestinationId, TrackonNorthSurfaceRates>;
+  } satisfies Record<TrackonSurfaceNorthDestinationId, TrackonSurfacePerKgRates>;
 
+  // Seeded from former bulk ₹/kg column (light slabs dropped — surface is 4 kg+).
   const southernSurface = {
-    chennai: southRow(40, 35, 40, 35),
-    bangalore: southRow(40, 40, 45, 35),
-    coimbatore: southRow(40, 35, 40, 35),
-    salem: southRow(40, 35, 40, 35),
-    tamil_nadu: southRow(40, 35, 40, 35),
-    karnataka: southRow(40, 40, 45, 35),
-    kerala: southRow(30, 17, 17, 17),
-    kerala_hilly: southRow(30, 20, 20, 20),
-  } satisfies Record<TrackonSouthDestinationId, TrackonSouthSurfaceRates>;
+    chennai: { perKgInr: 35 },
+    bangalore: { perKgInr: 35 },
+    coimbatore: { perKgInr: 35 },
+    salem: { perKgInr: 35 },
+    tamil_nadu: { perKgInr: 35 },
+    karnataka: { perKgInr: 35 },
+    kerala: { perKgInr: 17 },
+    kerala_hilly: { perKgInr: 20 },
+  } satisfies Record<TrackonSouthDestinationId, TrackonSurfacePerKgRates>;
 
   return {
     shared: { ...DEFAULT_TRACKON_SHARED },
@@ -99,7 +87,7 @@ export function defaultTrackonConfig(): TrackonConfig {
     source: {
       label: 'Phoenix Cargo — Trackon franchise (Cochin)',
       dated: '2026-02-27',
-      notes: 'Quotation to M/S Interweighing Pvt Ltd, Cochin. Fuel 15%. Vol = L×B×H/5000; side >100 cm doubles vol.',
+      notes: 'Quotation to M/S Interweighing Pvt Ltd, Cochin. Fuel 15%. Vol = L×B×H/5000; side >100 cm doubles vol. Surface min 4 kg.',
     },
   };
 }
@@ -114,16 +102,12 @@ export function trackonServiceHasRate(
       return row.upTo1000gInr > 0 || row.additionalPer500gInr > 0;
     });
   }
-  const northOk = TRACKON_NORTH_DESTINATION_IDS.some(
+  const northOk = TRACKON_SURFACE_NORTH_DESTINATION_IDS.some(
     id => config.surface.northern[id].perKgInr > 0,
   );
-  const southOk = TRACKON_SOUTH_DESTINATION_IDS.some(id => {
-    const row = config.surface.southern[id];
-    return row.upTo250gInr > 0
-      || row.upTo500gInr > 0
-      || row.upTo1000gInr > 0
-      || row.bulkPerKgInr > 0;
-  });
+  const southOk = TRACKON_SOUTH_DESTINATION_IDS.some(
+    id => config.surface.southern[id].perKgInr > 0,
+  );
   return northOk || southOk;
 }
 

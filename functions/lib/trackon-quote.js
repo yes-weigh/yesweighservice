@@ -12,6 +12,13 @@ const NORTH_IDS = [
   'northern_sectors',
 ];
 
+const SURFACE_NORTH_IDS = [
+  'mumbai',
+  'delhi',
+  'andhra_pradesh',
+  'northern_sectors',
+];
+
 const SOUTH_IDS = [
   'chennai',
   'bangalore',
@@ -59,18 +66,13 @@ function slabs(upTo250, upTo500, upTo1000, addl) {
   };
 }
 
-function southRow(a, b, c, bulk) {
-  return { ...slabs(a, b, c), bulkPerKgInr: bulk };
-}
-
 export function defaultTrackonConfig() {
   return {
     shared: {
       fuelSurchargePercent: 15,
       volumetricDivisor: 5000,
       oversizedSideCm: 100,
-      northernMinimumChargeableKg: 1,
-      southernBulkMinimumKg: 4,
+      minimumChargeableKg: 4,
     },
     air: {
       destinations: {
@@ -86,18 +88,17 @@ export function defaultTrackonConfig() {
         mumbai: { perKgInr: 55 },
         delhi: { perKgInr: 60 },
         andhra_pradesh: { perKgInr: 60 },
-        kolkata: { perKgInr: 70 },
         northern_sectors: { perKgInr: 70 },
       },
       southern: {
-        chennai: southRow(40, 35, 40, 35),
-        bangalore: southRow(40, 40, 45, 35),
-        coimbatore: southRow(40, 35, 40, 35),
-        salem: southRow(40, 35, 40, 35),
-        tamil_nadu: southRow(40, 35, 40, 35),
-        karnataka: southRow(40, 40, 45, 35),
-        kerala: southRow(30, 17, 17, 17),
-        kerala_hilly: southRow(30, 20, 20, 20),
+        chennai: { perKgInr: 35 },
+        bangalore: { perKgInr: 35 },
+        coimbatore: { perKgInr: 35 },
+        salem: { perKgInr: 35 },
+        tamil_nadu: { perKgInr: 35 },
+        karnataka: { perKgInr: 35 },
+        kerala: { perKgInr: 17 },
+        kerala_hilly: { perKgInr: 20 },
       },
     },
     source: {
@@ -121,6 +122,13 @@ function parseSlabs(raw, fallback) {
   };
 }
 
+function parseSurfacePerKg(raw, fallback) {
+  if (!raw || typeof raw !== 'object') return { ...fallback };
+  return {
+    perKgInr: nonNeg(raw.perKgInr, nonNeg(raw.bulkPerKgInr, fallback.perKgInr)),
+  };
+}
+
 function isLegacyStTrackonShape(raw) {
   if (raw.air != null || raw.surface != null || raw.shared != null) return false;
   if (raw.zones != null || raw.cochin != null || raw.head_office != null) return true;
@@ -134,20 +142,18 @@ export function parseTrackonConfig(raw) {
   if (isLegacyStTrackonShape(raw)) return defaults;
 
   const sharedRaw = raw.shared && typeof raw.shared === 'object' ? raw.shared : {};
+  const legacyMin = nonNeg(
+    sharedRaw.southernBulkMinimumKg,
+    nonNeg(sharedRaw.northernMinimumChargeableKg, defaults.shared.minimumChargeableKg),
+  );
   const shared = {
     fuelSurchargePercent: nonNeg(sharedRaw.fuelSurchargePercent, defaults.shared.fuelSurchargePercent),
     volumetricDivisor: nonNeg(sharedRaw.volumetricDivisor, defaults.shared.volumetricDivisor)
       || defaults.shared.volumetricDivisor,
     oversizedSideCm: nonNeg(sharedRaw.oversizedSideCm, defaults.shared.oversizedSideCm)
       || defaults.shared.oversizedSideCm,
-    northernMinimumChargeableKg: nonNeg(
-      sharedRaw.northernMinimumChargeableKg,
-      defaults.shared.northernMinimumChargeableKg,
-    ),
-    southernBulkMinimumKg: nonNeg(
-      sharedRaw.southernBulkMinimumKg,
-      defaults.shared.southernBulkMinimumKg,
-    ) || defaults.shared.southernBulkMinimumKg,
+    minimumChargeableKg: nonNeg(sharedRaw.minimumChargeableKg, legacyMin)
+      || defaults.shared.minimumChargeableKg,
   };
 
   const airRaw = raw.air && typeof raw.air === 'object' ? raw.air : {};
@@ -167,23 +173,12 @@ export function parseTrackonConfig(raw) {
     ? surfaceRaw.southern
     : {};
   const northern = {};
-  for (const id of NORTH_IDS) {
-    const row = northRaw[id];
-    northern[id] = {
-      perKgInr: nonNeg(
-        row && typeof row === 'object' ? row.perKgInr : null,
-        defaults.surface.northern[id].perKgInr,
-      ),
-    };
+  for (const id of SURFACE_NORTH_IDS) {
+    northern[id] = parseSurfacePerKg(northRaw[id], defaults.surface.northern[id]);
   }
   const southern = {};
   for (const id of SOUTH_IDS) {
-    const base = parseSlabs(southRaw[id], defaults.surface.southern[id]);
-    const row = southRaw[id] && typeof southRaw[id] === 'object' ? southRaw[id] : {};
-    southern[id] = {
-      ...base,
-      bulkPerKgInr: nonNeg(row.bulkPerKgInr, defaults.surface.southern[id].bulkPerKgInr),
-    };
+    southern[id] = parseSurfacePerKg(southRaw[id], defaults.surface.southern[id]);
   }
 
   return {
@@ -235,6 +230,11 @@ function resolveTrackonDestination(destination) {
   return 'northern_sectors';
 }
 
+function resolveSurfaceNorthStation(destId) {
+  if (destId === 'kolkata') return 'northern_sectors';
+  return destId;
+}
+
 function volumetricKg(dims, divisor, oversizedSideCm) {
   const lengthCm = nonNeg(dims?.lengthCm);
   const widthCm = nonNeg(dims?.widthCm);
@@ -245,15 +245,6 @@ function volumetricKg(dims, divisor, oversizedSideCm) {
   const limit = oversizedSideCm > 0 ? oversizedSideCm : 100;
   if (lengthCm > limit || widthCm > limit || heightCm > limit) vol *= 2;
   return vol;
-}
-
-function freightFromSouthSlabs(row, billableKg) {
-  if (billableKg <= 0) return 0;
-  if (billableKg <= 0.25) return nonNeg(row.upTo250gInr);
-  if (billableKg <= 0.5) return nonNeg(row.upTo500gInr);
-  if (billableKg <= 1) return nonNeg(row.upTo1000gInr);
-  const addlUnits = Math.ceil((billableKg - 1) / 0.5);
-  return nonNeg(row.upTo1000gInr) + addlUnits * nonNeg(row.additionalPer500gInr);
 }
 
 /** Air: flat upto 1 kg; then ₹ per each 500 g (or part) above 1 kg. */
@@ -312,23 +303,19 @@ export function quoteTrackonParcels({
     const row = parsed.air.destinations[destId];
     freightInr = freightFromAirSlabs(row, billableKg);
     chargeableKg = billableKg <= 1 ? billableKg : ceilKg(billableKg);
-  } else if (SOUTH_IDS.includes(destId)) {
-    const row = parsed.surface.southern[destId];
-    if (billableKg <= 1) {
-      freightInr = freightFromSouthSlabs(row, billableKg);
-      chargeableKg = billableKg;
-    } else {
-      const minBulk = nonNeg(parsed.shared.southernBulkMinimumKg) || 4;
-      chargeableKg = ceilKg(Math.max(billableKg, minBulk));
-      freightInr = nonNeg(row.bulkPerKgInr) * chargeableKg;
-    }
-  } else if (NORTH_IDS.includes(destId)) {
-    const row = parsed.surface.northern[destId];
-    const minKg = nonNeg(parsed.shared.northernMinimumChargeableKg);
-    chargeableKg = ceilKg(Math.max(billableKg, minKg));
-    freightInr = nonNeg(row.perKgInr) * chargeableKg;
   } else {
-    return empty({ notServiceable: true });
+    const minKg = nonNeg(parsed.shared.minimumChargeableKg) || 4;
+    chargeableKg = ceilKg(Math.max(billableKg, minKg));
+    let perKgInr = 0;
+    if (SOUTH_IDS.includes(destId)) {
+      perKgInr = nonNeg(parsed.surface.southern[destId]?.perKgInr);
+    } else if (NORTH_IDS.includes(destId)) {
+      const station = resolveSurfaceNorthStation(destId);
+      perKgInr = nonNeg(parsed.surface.northern[station]?.perKgInr);
+    } else {
+      return empty({ notServiceable: true });
+    }
+    freightInr = perKgInr * chargeableKg;
   }
 
   if (!(freightInr > 0) && billableKg > 0) {

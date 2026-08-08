@@ -3,10 +3,12 @@ import type {
   TrackonNorthDestinationId,
   TrackonServiceId,
   TrackonSouthDestinationId,
+  TrackonSurfaceNorthDestinationId,
 } from '../types/trackon-rates';
 import {
   TRACKON_NORTH_DESTINATION_IDS,
   TRACKON_SOUTH_DESTINATION_IDS,
+  TRACKON_SURFACE_NORTH_DESTINATION_IDS,
 } from '../types/trackon-rates';
 import type { StCourierDestination } from './stCourierZone';
 
@@ -150,6 +152,23 @@ export function isTrackonSouthDestination(
   id: TrackonDestinationId,
 ): id is TrackonSouthDestinationId {
   return (TRACKON_SOUTH_DESTINATION_IDS as readonly string[]).includes(id);
+}
+
+export function isTrackonSurfaceNorthDestination(
+  id: TrackonDestinationId,
+): id is TrackonSurfaceNorthDestinationId {
+  return (TRACKON_SURFACE_NORTH_DESTINATION_IDS as readonly string[]).includes(id);
+}
+
+/**
+ * Surface northern ₹/kg station for a resolved north destination.
+ * Kolkata is air-only — surface bills under Northern Sectors.
+ */
+export function resolveTrackonSurfaceNorthStation(
+  destinationId: TrackonNorthDestinationId,
+): TrackonSurfaceNorthDestinationId {
+  if (destinationId === 'kolkata') return 'northern_sectors';
+  return destinationId;
 }
 
 /** Air card only lists northern stations. */

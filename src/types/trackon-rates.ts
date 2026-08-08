@@ -9,8 +9,7 @@
  *
  * ## Modes
  * - Air: flat slabs 250g / 500g / 1kg (+ configurable addl per 500g above 1kg). Northern stations only on the sheet.
- * - Surface north: ₹/kg
- * - Surface south: light slabs to 1kg, then bulk ₹/kg with min payload (4 kg)
+ * - Surface: ₹/kg only, minimum chargeable kg (default 4). Kolkata is air-only (surface → Northern Sectors).
  */
 
 export const TRACKON_SERVICE_IDS = ['air', 'surface'] as const;
@@ -21,7 +20,7 @@ export function isTrackonServiceId(value: unknown): value is TrackonServiceId {
     && (TRACKON_SERVICE_IDS as readonly string[]).includes(value);
 }
 
-/** Air / northern surface stations from the top tariff table. */
+/** Air / northern stations from the top tariff table (Air still includes Kolkata). */
 export const TRACKON_NORTH_DESTINATION_IDS = [
   'mumbai',
   'delhi',
@@ -31,6 +30,20 @@ export const TRACKON_NORTH_DESTINATION_IDS = [
 ] as const;
 
 export type TrackonNorthDestinationId = (typeof TRACKON_NORTH_DESTINATION_IDS)[number];
+
+/**
+ * Surface northern ₹/kg stations — Kolkata is air-only on the sheet;
+ * surface to Kolkata / West Bengal bills under Northern Sectors.
+ */
+export const TRACKON_SURFACE_NORTH_DESTINATION_IDS = [
+  'mumbai',
+  'delhi',
+  'andhra_pradesh',
+  'northern_sectors',
+] as const;
+
+export type TrackonSurfaceNorthDestinationId =
+  (typeof TRACKON_SURFACE_NORTH_DESTINATION_IDS)[number];
 
 /** Southern surface stations from the bottom tariff table. */
 export const TRACKON_SOUTH_DESTINATION_IDS = [
@@ -66,7 +79,7 @@ export const TRACKON_DESTINATION_LABELS: Record<TrackonDestinationId, string> = 
   kerala_hilly: 'Wayanad, Idukki, Kasargod',
 };
 
-/** Flat air (or southern light-surface) slabs in rupees. */
+/** Flat air slabs in rupees. */
 export interface TrackonWeightSlabs {
   upTo250gInr: number;
   upTo500gInr: number;
@@ -80,23 +93,23 @@ export interface TrackonWeightSlabs {
 
 export interface TrackonAirDestinationRates extends TrackonWeightSlabs {}
 
-export interface TrackonNorthSurfaceRates {
+/** Surface ₹/kg rate (north + south). */
+export interface TrackonSurfacePerKgRates {
   perKgInr: number;
 }
 
-export interface TrackonSouthSurfaceRates extends TrackonWeightSlabs {
-  bulkPerKgInr: number;
-}
+/** @deprecated Alias — use TrackonSurfacePerKgRates. */
+export type TrackonNorthSurfaceRates = TrackonSurfacePerKgRates;
+/** @deprecated Alias — use TrackonSurfacePerKgRates. */
+export type TrackonSouthSurfaceRates = TrackonSurfacePerKgRates;
 
 export interface TrackonSharedRules {
   fuelSurchargePercent: number;
   volumetricDivisor: number;
   /** Any single side above this (cm) doubles volumetric weight. */
   oversizedSideCm: number;
-  /** Floor for northern surface ₹/kg billing (0 = no floor beyond ceil kg). */
-  northernMinimumChargeableKg: number;
-  /** Southern bulk minimum payload (sheet: 4 kg). */
-  southernBulkMinimumKg: number;
+  /** Floor for all surface ₹/kg billing (sheet: 4 kg). */
+  minimumChargeableKg: number;
 }
 
 export interface TrackonAirRates {
@@ -104,8 +117,8 @@ export interface TrackonAirRates {
 }
 
 export interface TrackonSurfaceRates {
-  northern: Record<TrackonNorthDestinationId, TrackonNorthSurfaceRates>;
-  southern: Record<TrackonSouthDestinationId, TrackonSouthSurfaceRates>;
+  northern: Record<TrackonSurfaceNorthDestinationId, TrackonSurfacePerKgRates>;
+  southern: Record<TrackonSouthDestinationId, TrackonSurfacePerKgRates>;
 }
 
 export interface TrackonSourceMeta {

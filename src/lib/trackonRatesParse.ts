@@ -3,16 +3,17 @@ import type {
   TrackonAirDestinationRates,
   TrackonConfig,
   TrackonNorthDestinationId,
-  TrackonNorthSurfaceRates,
   TrackonSharedRules,
   TrackonSouthDestinationId,
-  TrackonSouthSurfaceRates,
   TrackonSourceMeta,
+  TrackonSurfaceNorthDestinationId,
+  TrackonSurfacePerKgRates,
   TrackonWeightSlabs,
 } from '../types/trackon-rates';
 import {
   TRACKON_NORTH_DESTINATION_IDS,
   TRACKON_SOUTH_DESTINATION_IDS,
+  TRACKON_SURFACE_NORTH_DESTINATION_IDS,
 } from '../types/trackon-rates';
 
 function finiteNonNeg(value: unknown, fallback: number): number {
@@ -38,18 +39,16 @@ function parseSlabs(raw: unknown, fallback: TrackonWeightSlabs): TrackonWeightSl
 function parseShared(raw: unknown, fallback: TrackonSharedRules): TrackonSharedRules {
   if (!raw || typeof raw !== 'object') return { ...fallback };
   const data = raw as Record<string, unknown>;
+  // Migrate legacy north/south min fields → single surface minimum (prefer south bulk / 4).
+  const legacyMin = finiteNonNeg(
+    data.southernBulkMinimumKg,
+    finiteNonNeg(data.northernMinimumChargeableKg, fallback.minimumChargeableKg),
+  );
   return {
     fuelSurchargePercent: finiteNonNeg(data.fuelSurchargePercent, fallback.fuelSurchargePercent),
     volumetricDivisor: finiteNonNeg(data.volumetricDivisor, fallback.volumetricDivisor) || fallback.volumetricDivisor,
     oversizedSideCm: finiteNonNeg(data.oversizedSideCm, fallback.oversizedSideCm) || fallback.oversizedSideCm,
-    northernMinimumChargeableKg: finiteNonNeg(
-      data.northernMinimumChargeableKg,
-      fallback.northernMinimumChargeableKg,
-    ),
-    southernBulkMinimumKg: finiteNonNeg(
-      data.southernBulkMinimumKg,
-      fallback.southernBulkMinimumKg,
-    ) || fallback.southernBulkMinimumKg,
+    minimumChargeableKg: finiteNonNeg(data.minimumChargeableKg, legacyMin) || fallback.minimumChargeableKg,
   };
 }
 
@@ -60,26 +59,18 @@ function parseAirDest(
   return parseSlabs(raw, fallback);
 }
 
-function parseNorthSurface(
+function parseSurfacePerKg(
   raw: unknown,
-  fallback: TrackonNorthSurfaceRates,
-): TrackonNorthSurfaceRates {
+  fallback: TrackonSurfacePerKgRates,
+): TrackonSurfacePerKgRates {
   if (!raw || typeof raw !== 'object') return { ...fallback };
   const data = raw as Record<string, unknown>;
-  return { perKgInr: finiteNonNeg(data.perKgInr, fallback.perKgInr) };
-}
-
-function parseSouthSurface(
-  raw: unknown,
-  fallback: TrackonSouthSurfaceRates,
-): TrackonSouthSurfaceRates {
-  const slabs = parseSlabs(raw, fallback);
-  if (!raw || typeof raw !== 'object') return { ...fallback };
-  const data = raw as Record<string, unknown>;
-  return {
-    ...slabs,
-    bulkPerKgInr: finiteNonNeg(data.bulkPerKgInr, fallback.bulkPerKgInr),
-  };
+  // Prefer perKgInr; fall back to legacy bulkPerKgInr from southern slab cards.
+  const perKgInr = finiteNonNeg(
+    data.perKgInr,
+    finiteNonNeg(data.bulkPerKgInr, fallback.perKgInr),
+  );
+  return { perKgInr };
 }
 
 function parseSource(raw: unknown): TrackonSourceMeta | null {
@@ -135,13 +126,14 @@ export function parseTrackonConfig(raw: unknown): TrackonConfig {
     ? surfaceRaw.southern as Record<string, unknown>
     : {};
 
-  const northern = {} as Record<TrackonNorthDestinationId, TrackonNorthSurfaceRates>;
-  for (const id of TRACKON_NORTH_DESTINATION_IDS) {
-    northern[id] = parseNorthSurface(northRaw[id], defaults.surface.northern[id]);
+  const northern = {} as Record<TrackonSurfaceNorthDestinationId, TrackonSurfacePerKgRates>;
+  for (const id of TRACKON_SURFACE_NORTH_DESTINATION_IDS) {
+    // Legacy saves may still have kolkata under surface.northern — ignore it.
+    northern[id] = parseSurfacePerKg(northRaw[id], defaults.surface.northern[id]);
   }
-  const southern = {} as Record<TrackonSouthDestinationId, TrackonSouthSurfaceRates>;
+  const southern = {} as Record<TrackonSouthDestinationId, TrackonSurfacePerKgRates>;
   for (const id of TRACKON_SOUTH_DESTINATION_IDS) {
-    southern[id] = parseSouthSurface(southRaw[id], defaults.surface.southern[id]);
+    southern[id] = parseSurfacePerKg(southRaw[id], defaults.surface.southern[id]);
   }
 
   return {

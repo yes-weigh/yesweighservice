@@ -10,6 +10,7 @@ import {
   isTrackonNorthDestination,
   isTrackonSouthDestination,
   resolveTrackonDestination,
+  resolveTrackonSurfaceNorthStation,
   trackonDestinationSupportsService,
 } from './trackonDestination';
 import type { StCourierDestination } from './stCourierZone';
@@ -69,16 +70,6 @@ function trackonVolumetricKg(
     vol *= 2;
   }
   return vol;
-}
-
-/** Southern surface light parcels: 250 g / 500 g / 1 kg bands. */
-function freightFromSouthSlabs(slabs: TrackonWeightSlabs, billableKg: number): number {
-  if (billableKg <= 0) return 0;
-  if (billableKg <= 0.25) return nonNeg(slabs.upTo250gInr);
-  if (billableKg <= 0.5) return nonNeg(slabs.upTo500gInr);
-  if (billableKg <= 1) return nonNeg(slabs.upTo1000gInr);
-  const addlUnits = Math.ceil((billableKg - 1) / 0.5);
-  return nonNeg(slabs.upTo1000gInr) + addlUnits * nonNeg(slabs.additionalPer500gInr);
 }
 
 /** Air: flat upto 1 kg; then ₹ per each 500 g (or part) above 1 kg. */
@@ -146,23 +137,20 @@ export function quoteTrackonShipment(input: TrackonQuoteInput): TrackonQuoteResu
     chargeableKg = billableKg <= 1
       ? billableKg
       : ceilChargeableKg(billableKg);
-  } else if (isTrackonSouthDestination(destinationId)) {
-    const row = config.surface.southern[destinationId];
-    if (billableKg <= 1) {
-      freightInr = freightFromSouthSlabs(row, billableKg);
-      chargeableKg = billableKg;
-    } else {
-      const minBulk = nonNeg(config.shared.southernBulkMinimumKg) || 4;
-      chargeableKg = ceilChargeableKg(Math.max(billableKg, minBulk));
-      freightInr = nonNeg(row.bulkPerKgInr) * chargeableKg;
-    }
-  } else if (isTrackonNorthDestination(destinationId)) {
-    const row = config.surface.northern[destinationId];
-    const minKg = nonNeg(config.shared.northernMinimumChargeableKg);
-    chargeableKg = ceilChargeableKg(Math.max(billableKg, minKg));
-    freightInr = nonNeg(row.perKgInr) * chargeableKg;
   } else {
-    return empty({ notServiceable: true });
+    // Surface: ₹/kg with a single minimum chargeable kg (default 4).
+    const minKg = nonNeg(config.shared.minimumChargeableKg) || 4;
+    chargeableKg = ceilChargeableKg(Math.max(billableKg, minKg));
+    let perKgInr = 0;
+    if (isTrackonSouthDestination(destinationId)) {
+      perKgInr = nonNeg(config.surface.southern[destinationId].perKgInr);
+    } else if (isTrackonNorthDestination(destinationId)) {
+      const surfaceStation = resolveTrackonSurfaceNorthStation(destinationId);
+      perKgInr = nonNeg(config.surface.northern[surfaceStation].perKgInr);
+    } else {
+      return empty({ notServiceable: true });
+    }
+    freightInr = perKgInr * chargeableKg;
   }
 
   if (!(freightInr > 0) && billableKg > 0) {

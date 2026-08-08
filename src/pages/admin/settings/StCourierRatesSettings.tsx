@@ -483,11 +483,6 @@ export const StCourierRatesSettings: React.FC<Props> = ({
       <div className="settings-logistics__default-head">
         <div>
           <h4 className="settings-logistics__title">Delivery Partners</h4>
-          <p className="text-muted text-sm">
-            Set Active / Inactive / Manual on each partner. ST Courier rates differ by ship-from
-            site; Trackon and Delhivery share one card. Blue Dart keeps Air / Surface / Domestic
-            Priority tabs — each with its own status. Other partners are status-only.
-          </p>
         </div>
         {!loading ? (
           <span

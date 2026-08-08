@@ -8,13 +8,16 @@ import { DecimalAmountInput } from '../../../components/DecimalAmountInput';
 import type { LogisticsPartnerStatus } from '../../../types/logistics-partner-status';
 import type {
   TrackonConfig,
+  TrackonDestinationId,
   TrackonNorthDestinationId,
   TrackonSouthDestinationId,
+  TrackonSurfaceNorthDestinationId,
 } from '../../../types/trackon-rates';
 import {
   TRACKON_DESTINATION_LABELS,
   TRACKON_NORTH_DESTINATION_IDS,
   TRACKON_SOUTH_DESTINATION_IDS,
+  TRACKON_SURFACE_NORTH_DESTINATION_IDS,
 } from '../../../types/trackon-rates';
 import {
   TRACKON_SERVICE_META,
@@ -34,9 +37,14 @@ type Props = {
   ) => void;
 };
 
-const TABS: Array<{ id: TrackonServiceId; label: string; sku: string }> = [
-  { id: 'air', label: 'Air', sku: TRACKON_SERVICE_META.air.sku },
-  { id: 'surface', label: 'Surface', sku: TRACKON_SERVICE_META.surface.sku },
+const TABS: Array<{ id: TrackonServiceId; label: string; sku: string; image: string }> = [
+  { id: 'air', label: 'Air', sku: TRACKON_SERVICE_META.air.sku, image: '/logistics/trackon-air.webp' },
+  {
+    id: 'surface',
+    label: 'Surface',
+    sku: TRACKON_SERVICE_META.surface.sku,
+    image: '/logistics/trackon-surface.webp',
+  },
 ];
 
 function Field(props: {
@@ -55,31 +63,6 @@ function Field(props: {
       </span>
       {props.children}
     </label>
-  );
-}
-
-function InrInput(props: {
-  label: string;
-  tip?: string;
-  value: number;
-  onChange: (n: number) => void;
-}) {
-  return (
-    <Field label={props.label} tip={props.tip}>
-      <div className="settings-courier-rates__suffix-input">
-        <span aria-hidden>₹</span>
-        <DecimalAmountInput
-          min={0}
-          decimals={2}
-          value={props.value}
-          aria-label={props.label}
-          onChange={next => {
-            if (next == null) return;
-            props.onChange(next);
-          }}
-        />
-      </div>
-    </Field>
   );
 }
 
@@ -130,6 +113,24 @@ function CellInr(props: {
   );
 }
 
+/** Group stations that share the same ₹/kg so the editor stays compact. */
+function groupStationsByPerKg<T extends TrackonDestinationId>(
+  ids: readonly T[],
+  getPerKg: (id: T) => number,
+): Array<{ ids: T[]; label: string; perKgInr: number }> {
+  const groups: Array<{ ids: T[]; perKgInr: number }> = [];
+  for (const id of ids) {
+    const perKgInr = getPerKg(id);
+    const existing = groups.find(g => g.perKgInr === perKgInr);
+    if (existing) existing.ids.push(id);
+    else groups.push({ ids: [id], perKgInr });
+  }
+  return groups.map(g => ({
+    ...g,
+    label: g.ids.map(id => TRACKON_DESTINATION_LABELS[id]).join(', '),
+  }));
+}
+
 export const TrackonRatesEditor: React.FC<Props> = ({
   config,
   service,
@@ -157,57 +158,73 @@ export const TrackonRatesEditor: React.FC<Props> = ({
     });
   };
 
-  const patchNorthSurface = (
-    id: TrackonNorthDestinationId,
+  const patchNorthSurfaceGroup = (
+    ids: TrackonSurfaceNorthDestinationId[],
     perKgInr: number,
   ) => {
+    const northern = { ...config.surface.northern };
+    for (const id of ids) northern[id] = { perKgInr };
     onChange({
       ...config,
-      surface: {
-        ...config.surface,
-        northern: {
-          ...config.surface.northern,
-          [id]: { perKgInr },
-        },
-      },
+      surface: { ...config.surface, northern },
     });
   };
 
-  const patchSouthSurface = (
-    id: TrackonSouthDestinationId,
-    patch: Partial<TrackonConfig['surface']['southern'][TrackonSouthDestinationId]>,
+  const patchSouthSurfaceGroup = (
+    ids: TrackonSouthDestinationId[],
+    perKgInr: number,
   ) => {
+    const southern = { ...config.surface.southern };
+    for (const id of ids) southern[id] = { perKgInr };
     onChange({
       ...config,
-      surface: {
-        ...config.surface,
-        southern: {
-          ...config.surface.southern,
-          [id]: { ...config.surface.southern[id], ...patch },
-        },
-      },
+      surface: { ...config.surface, southern },
     });
   };
+
+  const northSurfaceGroups = groupStationsByPerKg(
+    TRACKON_SURFACE_NORTH_DESTINATION_IDS,
+    id => config.surface.northern[id].perKgInr,
+  );
+  const southSurfaceGroups = groupStationsByPerKg(
+    TRACKON_SOUTH_DESTINATION_IDS,
+    id => config.surface.southern[id].perKgInr,
+  );
 
   return (
     <div className="settings-bluedart">
-      <div className="settings-bluedart__tabs" role="tablist" aria-label="Trackon service">
-        {TABS.map(tab => (
-          <button
-            key={tab.id}
-            type="button"
-            role="tab"
-            aria-selected={service === tab.id}
-            className={`settings-bluedart__tab${service === tab.id ? ' is-selected' : ''}`}
-            onClick={() => onServiceChange(tab.id)}
-          >
-            <img src="/logistics/trackon.png" alt="" width={28} height={28} />
-            <span>
-              <strong>{tab.label}</strong>
-              <em>{tab.sku}</em>
-            </span>
-          </button>
-        ))}
+      <div
+        className="settings-bluedart__tabs settings-bluedart__tabs--duo"
+        role="tablist"
+        aria-label="Trackon service"
+      >
+        {TABS.map(tab => {
+          const selected = service === tab.id;
+          return (
+            <button
+              key={tab.id}
+              type="button"
+              role="tab"
+              aria-selected={selected}
+              className={`settings-bluedart__tab${selected ? ' is-selected' : ''}`}
+              onClick={() => onServiceChange(tab.id)}
+            >
+              <img
+                className="settings-bluedart__tab-img settings-bluedart__tab-img--plain"
+                src={tab.image}
+                alt=""
+                width={64}
+                height={64}
+                loading="lazy"
+                decoding="async"
+              />
+              <span className="settings-bluedart__tab-copy">
+                <span className="settings-bluedart__tab-label">{tab.label}</span>
+                <span className="settings-bluedart__tab-sku">{tab.sku}</span>
+              </span>
+            </button>
+          );
+        })}
       </div>
 
       <PartnerStatusControl
@@ -258,20 +275,18 @@ export const TrackonRatesEditor: React.FC<Props> = ({
               />
             </Field>
             {service === 'surface' ? (
-              <>
-                <InrInput
-                  label="North min kg"
-                  tip="Minimum chargeable kg for northern surface ₹/kg"
-                  value={config.shared.northernMinimumChargeableKg}
-                  onChange={northernMinimumChargeableKg => patchShared({ northernMinimumChargeableKg })}
+              <Field label="Minimum kg" tip="Surface bills ₹/kg with this floor (sheet: 4 kg)">
+                <DecimalAmountInput
+                  min={0}
+                  decimals={0}
+                  value={config.shared.minimumChargeableKg}
+                  aria-label="Minimum chargeable kg"
+                  onChange={next => {
+                    if (next == null) return;
+                    patchShared({ minimumChargeableKg: next });
+                  }}
                 />
-                <InrInput
-                  label="South bulk min kg"
-                  tip="Sheet: minimum payload 4 kg for bulk"
-                  value={config.shared.southernBulkMinimumKg}
-                  onChange={southernBulkMinimumKg => patchShared({ southernBulkMinimumKg })}
-                />
-              </>
+              </Field>
             ) : null}
           </div>
         </fieldset>
@@ -342,92 +357,49 @@ export const TrackonRatesEditor: React.FC<Props> = ({
                   </tr>
                 </thead>
                 <tbody>
-                  {TRACKON_NORTH_DESTINATION_IDS.map(id => {
-                    const label = TRACKON_DESTINATION_LABELS[id];
-                    return (
-                      <tr key={id}>
-                        <th scope="row">{label}</th>
-                        <td>
-                          <CellInr
-                            label={`${label} per kg`}
-                            value={config.surface.northern[id].perKgInr}
-                            onChange={perKgInr => patchNorthSurface(id, perKgInr)}
-                          />
-                        </td>
-                      </tr>
-                    );
-                  })}
+                  {northSurfaceGroups.map(group => (
+                    <tr key={group.ids.join('|')}>
+                      <th scope="row">{group.label}</th>
+                      <td>
+                        <CellInr
+                          label={`${group.label} per kg`}
+                          value={group.perKgInr}
+                          onChange={perKgInr => patchNorthSurfaceGroup(group.ids, perKgInr)}
+                        />
+                      </td>
+                    </tr>
+                  ))}
                 </tbody>
               </table>
             </div>
           </fieldset>
 
           <fieldset className="settings-courier-rates__card">
-            <legend>Surface — southern slabs + bulk</legend>
-            <p className="settings-courier-rates__zone-hint text-muted text-sm">
-              ≤ 1 kg uses slabs; above 1 kg bills bulk ₹/kg with the bulk minimum payload.
-            </p>
+            <legend>Surface — southern ₹/kg</legend>
             <div className="settings-courier-rates__zone-table-wrap">
               <table className="settings-courier-rates__zone-table">
                 <thead>
                   <tr>
                     <th scope="col">Station</th>
                     <th scope="col">
-                      ≤ 250 g
+                      Per kg
                       <span className="settings-courier-rates__th-sub">₹</span>
-                    </th>
-                    <th scope="col">
-                      251–500 g
-                      <span className="settings-courier-rates__th-sub">₹</span>
-                    </th>
-                    <th scope="col">
-                      501–1000 g
-                      <span className="settings-courier-rates__th-sub">₹</span>
-                    </th>
-                    <th scope="col">
-                      Bulk / kg
-                      <span className="settings-courier-rates__th-sub">min payload</span>
                     </th>
                   </tr>
                 </thead>
                 <tbody>
-                  {TRACKON_SOUTH_DESTINATION_IDS.map(id => {
-                    const row = config.surface.southern[id];
-                    const label = TRACKON_DESTINATION_LABELS[id];
-                    return (
-                      <tr key={id}>
-                        <th scope="row">{label}</th>
-                        <td>
-                          <CellInr
-                            label={`${label} ≤ 250 g`}
-                            value={row.upTo250gInr}
-                            onChange={upTo250gInr => patchSouthSurface(id, { upTo250gInr })}
-                          />
-                        </td>
-                        <td>
-                          <CellInr
-                            label={`${label} 251–500 g`}
-                            value={row.upTo500gInr}
-                            onChange={upTo500gInr => patchSouthSurface(id, { upTo500gInr })}
-                          />
-                        </td>
-                        <td>
-                          <CellInr
-                            label={`${label} 501–1000 g`}
-                            value={row.upTo1000gInr}
-                            onChange={upTo1000gInr => patchSouthSurface(id, { upTo1000gInr })}
-                          />
-                        </td>
-                        <td>
-                          <CellInr
-                            label={`${label} bulk / kg`}
-                            value={row.bulkPerKgInr}
-                            onChange={bulkPerKgInr => patchSouthSurface(id, { bulkPerKgInr })}
-                          />
-                        </td>
-                      </tr>
-                    );
-                  })}
+                  {southSurfaceGroups.map(group => (
+                    <tr key={group.ids.join('|')}>
+                      <th scope="row">{group.label}</th>
+                      <td>
+                        <CellInr
+                          label={`${group.label} per kg`}
+                          value={group.perKgInr}
+                          onChange={perKgInr => patchSouthSurfaceGroup(group.ids, perKgInr)}
+                        />
+                      </td>
+                    </tr>
+                  ))}
                 </tbody>
               </table>
             </div>

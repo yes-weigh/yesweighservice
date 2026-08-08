@@ -59,10 +59,6 @@ function slabs(upTo250, upTo500, upTo1000) {
   };
 }
 
-function southRow(a, b, c, bulk) {
-  return { ...slabs(a, b, c), bulkPerKgInr: bulk };
-}
-
 /** Mirrors src/constants/trackonRates.ts — Phoenix Cargo Cochin, 27 Feb 2026. */
 function defaultTrackonConfig() {
   return {
@@ -70,8 +66,7 @@ function defaultTrackonConfig() {
       fuelSurchargePercent: 15,
       volumetricDivisor: 5000,
       oversizedSideCm: 100,
-      northernMinimumChargeableKg: 1,
-      southernBulkMinimumKg: 4,
+      minimumChargeableKg: 4,
     },
     air: {
       destinations: {
@@ -87,24 +82,23 @@ function defaultTrackonConfig() {
         mumbai: { perKgInr: 55 },
         delhi: { perKgInr: 60 },
         andhra_pradesh: { perKgInr: 60 },
-        kolkata: { perKgInr: 70 },
         northern_sectors: { perKgInr: 70 },
       },
       southern: {
-        chennai: southRow(40, 35, 40, 35),
-        bangalore: southRow(40, 40, 45, 35),
-        coimbatore: southRow(40, 35, 40, 35),
-        salem: southRow(40, 35, 40, 35),
-        tamil_nadu: southRow(40, 35, 40, 35),
-        karnataka: southRow(40, 40, 45, 35),
-        kerala: southRow(30, 17, 17, 17),
-        kerala_hilly: southRow(30, 20, 20, 20),
+        chennai: { perKgInr: 35 },
+        bangalore: { perKgInr: 35 },
+        coimbatore: { perKgInr: 35 },
+        salem: { perKgInr: 35 },
+        tamil_nadu: { perKgInr: 35 },
+        karnataka: { perKgInr: 35 },
+        kerala: { perKgInr: 17 },
+        kerala_hilly: { perKgInr: 20 },
       },
     },
     source: {
       label: 'Phoenix Cargo — Trackon franchise (Cochin)',
       dated: '2026-02-27',
-      notes: 'Quotation to M/S Interweighing Pvt Ltd, Cochin. Fuel 15%. Vol = L×B×H/5000; side >100 cm doubles vol.',
+      notes: 'Quotation to M/S Interweighing Pvt Ltd, Cochin. Fuel 15%. Vol = L×B×H/5000; side >100 cm doubles vol. Surface min 4 kg.',
     },
   };
 }

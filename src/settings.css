@@ -3537,6 +3537,10 @@
   background: #101010;
 }
 
+.settings-bluedart__tabs--duo {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
 .settings-bluedart__tab {
   display: flex;
   flex-direction: row;
@@ -3571,6 +3575,10 @@
   border-radius: 10px;
   object-fit: cover;
   background: #ffd200;
+}
+
+.settings-bluedart__tab-img--plain {
+  background: #fff;
 }
 
 .settings-bluedart__tab-copy {
