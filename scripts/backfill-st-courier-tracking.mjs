@@ -1,7 +1,8 @@
 /**
  * One-time (or ad-hoc): fetch ST Courier tracking for ALL st_courier logistics
  * bookings (including delivered) and persist courierTrack + history on each doc.
- * Advances pipeline status when ST reports delivered / in-transit.
+ * Advances pipeline status from ST, and corrects false "delivered" marks when
+ * ST still shows in-transit / shipped / undelivered.
  *
  *   set GOOGLE_APPLICATION_CREDENTIALS=secrets\yesweigh-service-firebase-adminsdk-....json
  *   node scripts/backfill-st-courier-tracking.mjs [--dry-run] [--limit=N] [--concurrency=2]
@@ -54,12 +55,13 @@ const db = getFirestore();
 
 console.log(
   `ST Courier tracking backfill`
-  + ` (includeDelivered=true, includeCancelled=${INCLUDE_CANCELLED},`
+  + ` (includeDelivered=true, correctFalseDelivered=true, includeCancelled=${INCLUDE_CANCELLED},`
   + ` dryRun=${DRY_RUN}, limit=${LIMIT || 'all'}, concurrency=${CONCURRENCY})`,
 );
 
 const summary = await syncStCourierTrackingForBookings(db, {
   includeDelivered: true,
+  correctFalseDelivered: true,
   includeCancelled: INCLUDE_CANCELLED,
   dryRun: DRY_RUN,
   concurrency: CONCURRENCY,
@@ -67,10 +69,15 @@ const summary = await syncStCourierTrackingForBookings(db, {
   limit: LIMIT,
   onProgress: (event) => {
     if (event.type === 'fetched') {
-      const statusBit = event.nextStatus ? ` → ${event.nextStatus}` : '';
+      const from = event.currentStatus || '?';
+      const statusBit = event.nextStatus
+        ? (event.correctedDelivered
+          ? `  CORRECT ${from} → ${event.nextStatus}`
+          : `  ${from} → ${event.nextStatus}`)
+        : `  [${from}]`;
       const st = event.ok ? (event.stStatus || 'ok') : (event.error || 'fail');
       console.log(
-        `${DRY_RUN ? '[dry] ' : ''}${event.id}  AWB=${event.awb}  ${st}${statusBit}`,
+        `${DRY_RUN ? '[dry] ' : ''}${event.id}  AWB=${event.awb}  ST=${st}${statusBit}`,
       );
       return;
     }
@@ -86,7 +93,8 @@ console.log(`Targeted: ${summary.targeted}`);
 console.log(`Fetch ok: ${summary.fetchedOk}`);
 console.log(`Fetch fail: ${summary.fetchedFail}`);
 console.log(`Updated: ${summary.updated}`);
-console.log(`Status advanced: ${summary.statusAdvanced}`);
+console.log(`Status changed: ${summary.statusAdvanced}`);
+console.log(`False delivered corrected: ${summary.statusCorrected}`);
 if (DRY_RUN) console.log(`Dry-run skipped writes: ${summary.skipped}`);
 if (summary.errors.length) {
   console.log(`Errors: ${summary.errors.length}`);
