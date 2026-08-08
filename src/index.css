@@ -24751,6 +24751,30 @@ body:has(.confirm-inline-bar) .confirm-inline-bar {
   overflow: hidden;
 }
 
+.spare-order-list-dialog__frame {
+  display: block;
+  flex: 1;
+  width: 100%;
+  min-height: 0;
+  border: 0;
+  background: #fff;
+}
+
+.dealers-modal-backdrop.spare-order-list-dialog__backdrop {
+  align-items: stretch;
+  justify-content: stretch;
+  padding: 0;
+}
+
+.dealers-modal.spare-order-list-dialog {
+  width: 100%;
+  max-width: none;
+  height: 100dvh;
+  max-height: 100dvh;
+  margin: 0;
+  border-radius: 0;
+}
+
 .courier-slip-view-dialog__actions,
 .zoomable-image-dialog__actions {
   flex-shrink: 0;
@@ -24886,6 +24910,20 @@ body:has(.confirm-inline-bar) .confirm-inline-bar {
     height: min(92dvh, 56rem);
     max-height: 92dvh;
     border-radius: 16px;
+  }
+
+  .dealers-modal-backdrop.spare-order-list-dialog__backdrop {
+    align-items: stretch;
+    justify-content: stretch;
+    padding: 0;
+  }
+
+  .dealers-modal.spare-order-list-dialog {
+    width: 100%;
+    max-width: none;
+    height: 100dvh;
+    max-height: 100dvh;
+    border-radius: 0;
   }
 }
 

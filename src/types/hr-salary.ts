@@ -236,6 +236,8 @@ export type HrExpenseSettlementLine = {
   amount: number;
   /** + adds to net payable; − reduces net payable */
   sign: '+' | '−';
+  /** Running unreimbursed expenses after this line (expenses − reimbursements). */
+  balance: number;
 };
 
 /** Assumed working hours in a payable day (for hourly OT rate). */

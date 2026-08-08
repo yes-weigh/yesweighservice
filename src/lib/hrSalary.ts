@@ -334,7 +334,7 @@ export function buildExpenseSettlementLines(
   expenseEntries: HrExpenseEntry[],
   receiptEntries: HrSalaryReceiptEntry[],
 ): HrExpenseSettlementLine[] {
-  const lines: HrExpenseSettlementLine[] = [
+  const lines = [
     ...expenseEntries.map(entry => ({
       id: entry.id,
       date: entry.date,
@@ -351,10 +351,19 @@ export function buildExpenseSettlementLines(
       amount: entry.amount,
       sign: '−' as const,
     })),
-  ];
-  return lines
+  ]
     .filter(line => line.amount > 0)
     .sort((a, b) => a.date.localeCompare(b.date) || a.kind.localeCompare(b.kind));
+
+  // Balance is unreimbursed expenses only — salary advances do not affect it.
+  let cumExpenses = 0;
+  let cumReimbursements = 0;
+  return lines.map(line => {
+    if (line.kind === 'expense') cumExpenses += line.amount;
+    else if (line.kind === 'reimbursement') cumReimbursements += line.amount;
+    const balance = Math.round((cumExpenses - cumReimbursements) * 100) / 100;
+    return { ...line, balance };
+  });
 }
 
 export function normalizeProjects(projects: HrSalaryProject[]): HrSalaryProject[] {

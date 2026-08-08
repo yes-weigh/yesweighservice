@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { Download, X } from 'lucide-react';
 import {
@@ -6,6 +6,7 @@ import {
   buildSpareOrderListPdfInput,
   spareOrderListPdfFileName,
 } from '../../lib/spareOrderListPdf';
+import { prefersNativePdfViewer } from '../../lib/pdfViewer';
 import type { DealerInvoiceDetail } from '../../types/invoices';
 import type { LogisticsBooking } from '../../types/logistics-dispatch';
 import { ZoomablePdfPreview } from '../logistics/ZoomablePdfPreview';
@@ -33,7 +34,9 @@ export const SpareOrderListViewDialog: React.FC<Props> = ({
   booking,
   onClose,
 }) => {
+  const useNativeViewer = useMemo(() => prefersNativePdfViewer(), []);
   const [pdfBytes, setPdfBytes] = useState<Uint8Array | null>(null);
+  const [pdfUrl, setPdfUrl] = useState<string | null>(null);
   const [blob, setBlob] = useState<Blob | null>(null);
   const [fileName, setFileName] = useState('order-list.pdf');
   const [loading, setLoading] = useState(true);
@@ -41,24 +44,35 @@ export const SpareOrderListViewDialog: React.FC<Props> = ({
 
   useEffect(() => {
     let cancelled = false;
+    let objectUrl: string | null = null;
 
     setLoading(true);
     setError('');
     setPdfBytes(null);
+    setPdfUrl(null);
     setBlob(null);
 
     void (async () => {
       try {
         const input = await buildSpareOrderListPdfInput(invoice, booking);
         if (cancelled) return;
-        const name = spareOrderListPdfFileName(input.orderNo);
+        const name = spareOrderListPdfFileName(input.invoiceNumber);
         setFileName(name);
         const pdfBlob = await buildSpareOrderListPdfBlob(input);
         if (cancelled) return;
-        const buffer = await pdfBlob.arrayBuffer();
-        if (cancelled) return;
         setBlob(pdfBlob);
-        setPdfBytes(new Uint8Array(buffer));
+
+        if (useNativeViewer) {
+          objectUrl = URL.createObjectURL(pdfBlob);
+          setPdfUrl(objectUrl);
+        } else {
+          const buffer = await pdfBlob.arrayBuffer();
+          if (cancelled) return;
+          // Fresh copy — pdf.js may transfer/detach the buffer it receives.
+          const bytes = new Uint8Array(buffer.byteLength);
+          bytes.set(new Uint8Array(buffer));
+          setPdfBytes(bytes);
+        }
         setLoading(false);
       } catch (err) {
         if (cancelled) return;
@@ -69,8 +83,9 @@ export const SpareOrderListViewDialog: React.FC<Props> = ({
 
     return () => {
       cancelled = true;
+      if (objectUrl) URL.revokeObjectURL(objectUrl);
     };
-  }, [invoice, booking]);
+  }, [invoice, booking, useNativeViewer]);
 
   useEffect(() => {
     const previousOverflow = document.body.style.overflow;
@@ -92,11 +107,11 @@ export const SpareOrderListViewDialog: React.FC<Props> = ({
 
   return createPortal(
     <div
-      className="dealers-modal-backdrop courier-slip-view-dialog__backdrop"
+      className="dealers-modal-backdrop courier-slip-view-dialog__backdrop spare-order-list-dialog__backdrop"
       onClick={onClose}
     >
       <div
-        className="dealers-modal panel glass courier-slip-view-dialog"
+        className="dealers-modal panel glass courier-slip-view-dialog spare-order-list-dialog"
         onClick={event => event.stopPropagation()}
         role="dialog"
         aria-modal="true"
@@ -128,7 +143,14 @@ export const SpareOrderListViewDialog: React.FC<Props> = ({
               Preparing order list…
             </p>
           )}
-          {!loading && pdfBytes && (
+          {!loading && useNativeViewer && pdfUrl && (
+            <iframe
+              title={`Order list ${invoice.invoiceNumber || invoice.id}`}
+              src={pdfUrl}
+              className="spare-order-list-dialog__frame"
+            />
+          )}
+          {!loading && !useNativeViewer && pdfBytes && (
             <ZoomablePdfPreview data={pdfBytes} />
           )}
         </div>

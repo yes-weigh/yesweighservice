@@ -1,7 +1,17 @@
 import { Capacitor } from '@capacitor/core';
-import { toPng } from 'html-to-image';
+import { toJpeg, toPng } from 'html-to-image';
 import { WhatsAppShare } from 'whatsapp-share';
 import { openWhatsAppWithText, uploadWhatsAppShareCard } from './whatsappShareCard';
+
+export type ScreenshotFormat = 'png' | 'jpeg';
+
+export type CaptureElementOptions = {
+  backgroundColor?: string;
+  fileName?: string;
+  format?: ScreenshotFormat;
+  /** JPEG quality 0–1 (default 0.92). Ignored for PNG. */
+  quality?: number;
+};
 
 function blobToBase64(blob: Blob): Promise<string> {
   return new Promise((resolve, reject) => {
@@ -62,14 +72,18 @@ export type PreparedScreenshot = {
 };
 
 /**
- * Rasterize a full element (including overflow / scrolled content) to a PNG blob.
+ * Rasterize a full element (including overflow / scrolled content) to an image blob.
  */
 export async function captureElementScreenshot(
   el: HTMLElement,
-  options?: { backgroundColor?: string; fileName?: string },
+  options?: CaptureElementOptions,
 ): Promise<PreparedScreenshot> {
   const backgroundColor = options?.backgroundColor ?? '#13151b';
-  const fileName = options?.fileName ?? `screenshot-${Date.now()}.png`;
+  const format: ScreenshotFormat = options?.format ?? 'png';
+  const ext = format === 'jpeg' ? 'jpg' : 'png';
+  const fileName = options?.fileName ?? `screenshot-${Date.now()}.${ext}`;
+  const rasterize = format === 'jpeg' ? toJpeg : toPng;
+  const quality = options?.quality ?? 0.92;
 
   el.classList.add('is-capturing');
   await settleFrames();
@@ -86,7 +100,7 @@ export async function captureElementScreenshot(
 
     for (const pixelRatio of tryRatios) {
       try {
-        dataUrl = await toPng(el, {
+        dataUrl = await rasterize(el, {
           // Signed GCS URLs break if we append a cache-bust query param.
           cacheBust: false,
           // Keep signature query params on Firebase Storage URLs.
@@ -101,6 +115,7 @@ export async function captureElementScreenshot(
           canvasWidth: Math.round(width * pixelRatio),
           canvasHeight: Math.round(height * pixelRatio),
           backgroundColor,
+          ...(format === 'jpeg' ? { quality } : {}),
           style: {
             transform: 'none',
             width: `${width}px`,
@@ -126,17 +141,26 @@ export async function captureElementScreenshot(
     return {
       blob: dataUrlToBlob(dataUrl),
       fileName,
-      mimeType: 'image/png',
+      mimeType: format === 'jpeg' ? 'image/jpeg' : 'image/png',
     };
   } finally {
     el.classList.remove('is-capturing');
   }
 }
 
+/** Capture an element and trigger a file download. */
+export async function downloadElementScreenshot(
+  el: HTMLElement,
+  options?: CaptureElementOptions,
+): Promise<void> {
+  const shot = await captureElementScreenshot(el, options);
+  downloadBlob(shot.blob, shot.fileName);
+}
+
 /** Capture + optionally pre-encode base64 for native share (background warm path). */
 export async function prepareElementScreenshot(
   el: HTMLElement,
-  options?: { backgroundColor?: string; fileName?: string },
+  options?: CaptureElementOptions,
 ): Promise<PreparedScreenshot> {
   const shot = await captureElementScreenshot(el, options);
   if (!Capacitor.isNativePlatform()) return shot;

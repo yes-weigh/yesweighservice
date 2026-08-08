@@ -23,6 +23,7 @@ import {
 import type { HrHoliday } from '../../types/hr-holiday';
 import {
   HR_SALARY_HOURS_PER_DAY,
+  salaryPeriodKey,
   salaryPeriodLabel,
   type HrLeaveEntry,
   type HrLeaveKind,
@@ -601,6 +602,11 @@ export function HrSalaryShareView({
           earnedSalary={calc.earnedSalary}
           expenseEntries={expenseEntries}
           receiptEntries={receiptEntries}
+          downloadFileName={`${displayName
+            .trim()
+            .toLowerCase()
+            .replace(/[^a-z0-9]+/g, '-')
+            .replace(/^-|-$/g, '') || 'staff'}-expenses-${salaryPeriodKey(period)}`}
         />
 
         <div className="hr-salary__card hr-salary__ot-detail">

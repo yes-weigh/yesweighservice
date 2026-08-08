@@ -1564,6 +1564,11 @@ export const HrSalaryCalculationPage: React.FC<Props> = ({ basePath: _basePath }
                               expenseEntries={draft.expenseEntries}
                               receiptEntries={draft.receiptEntries}
                               onLineClick={date => selectDay(row.staffUid, date)}
+                              downloadFileName={`${row.displayName
+                                .trim()
+                                .toLowerCase()
+                                .replace(/[^a-z0-9]+/g, '-')
+                                .replace(/^-|-$/g, '') || 'staff'}-expenses-${salaryPeriodKey(period)}`}
                             />
 
                             <div className="hr-salary__card hr-salary__ot-detail">

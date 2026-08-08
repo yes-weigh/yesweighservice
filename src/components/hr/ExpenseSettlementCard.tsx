@@ -1,8 +1,10 @@
-import { useMemo } from 'react';
+import { useMemo, useRef, useState } from 'react';
+import { Download } from 'lucide-react';
 import {
   buildExpenseSettlementLines,
   formatInr,
 } from '../../lib/hrSalary';
+import { downloadElementScreenshot } from '../../lib/shareElementScreenshot';
 import type {
   HrExpenseEntry,
   HrExpenseSettlement,
@@ -33,6 +35,8 @@ export type ExpenseSettlementCardProps = {
   receiptEntries: HrSalaryReceiptEntry[];
   /** Opens the day editor when a line is clicked (admin). */
   onLineClick?: (date: string) => void;
+  /** Suggested download filename (`.jpg` appended if missing). */
+  downloadFileName?: string;
 };
 
 export function ExpenseSettlementCard({
@@ -41,18 +45,54 @@ export function ExpenseSettlementCard({
   expenseEntries,
   receiptEntries,
   onLineClick,
+  downloadFileName,
 }: ExpenseSettlementCardProps) {
+  const cardRef = useRef<HTMLDivElement>(null);
+  const [downloading, setDownloading] = useState(false);
   const lines = useMemo(
     () => buildExpenseSettlementLines(expenseEntries, receiptEntries),
     [expenseEntries, receiptEntries],
   );
   const clickable = Boolean(onLineClick);
 
+  const handleDownloadJpg = async () => {
+    const el = cardRef.current;
+    if (!el || downloading) return;
+    setDownloading(true);
+    try {
+      const base = (downloadFileName || 'expenses-payments').replace(/\.jpe?g$/i, '');
+      await downloadElementScreenshot(el, {
+        format: 'jpeg',
+        quality: 0.92,
+        backgroundColor: '#1a1d27',
+        fileName: `${base}.jpg`,
+      });
+    } catch (err) {
+      console.error(err);
+      window.alert(err instanceof Error ? err.message : 'Could not download image.');
+    } finally {
+      setDownloading(false);
+    }
+  };
+
   return (
-    <div className="hr-salary__card hr-salary__expense-detail">
+    <div ref={cardRef} className="hr-salary__card hr-salary__expense-detail">
       <div className="hr-salary__ot-detail-head">
         <h5>Expenses &amp; payments</h5>
-        <span>{formatInr(settlement.netPayable)} net</span>
+        <div className="hr-salary__ot-detail-head-right">
+          <span>{formatInr(settlement.netPayable)} net</span>
+          <button
+            type="button"
+            className="hr-salary__capture-btn"
+            data-capture-ignore="1"
+            disabled={downloading}
+            onClick={() => { void handleDownloadJpg(); }}
+            aria-label="Download expenses and payments as JPG"
+          >
+            <Download size={15} aria-hidden />
+            {downloading ? 'Downloading…' : 'Download JPG'}
+          </button>
+        </div>
       </div>
 
       <ul className="hr-salary__settlement-lines">
@@ -92,6 +132,9 @@ export function ExpenseSettlementCard({
         <>
           <div className="hr-salary__expense-detail-divider">
             <span>By date</span>
+            <span aria-hidden />
+            <span className="hr-salary__expense-detail-col-label">Amount</span>
+            <span className="hr-salary__expense-detail-col-label">Balance</span>
           </div>
           <ul className="hr-salary__expense-detail-list">
             {lines.map(line => {
@@ -115,6 +158,9 @@ export function ExpenseSettlementCard({
                     ].join(' ')}
                   >
                     {line.sign} {formatInr(line.amount)}
+                  </span>
+                  <span className="hr-salary__expense-detail-balance">
+                    {formatInr(line.balance)}
                   </span>
                 </>
               );
