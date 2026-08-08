@@ -1,7 +1,8 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import { Outlet, useLocation, useNavigate, useParams } from 'react-router-dom';
-import { AlertCircle, FileText } from 'lucide-react';
+import { AlertCircle, ClipboardList, FileText } from 'lucide-react';
 import { FetchingLoader } from '../../components/FetchingLoader';
+import { SpareOrderListViewDialog } from '../../components/invoices/SpareOrderListViewDialog';
 import { BookCourierEntryButton } from '../../components/logistics/BookCourierEntryButton';
 import { LogisticsAwbEntryButton } from '../../components/logistics/LogisticsAwbEntryButton';
 import { useAuth } from '../../context/AuthContext';
@@ -10,7 +11,11 @@ import {
   fetchAdminInvoiceDetail,
 } from '../../lib/admin-invoices';
 import { fetchCatalog } from '../../lib/catalog';
-import { formatInvoiceDate, invoiceErrorMessage } from '../../lib/invoices';
+import {
+  formatInvoiceDate,
+  invoiceErrorMessage,
+  invoiceHasCategory,
+} from '../../lib/invoices';
 import {
   canCreateLogisticsBooking,
   findLogisticsBookingForInvoice,
@@ -45,6 +50,7 @@ export const AdminInvoiceDetailLayout: React.FC = () => {
   const [error, setError] = useState('');
   const [courierEntry, setCourierEntry] = useState<LogisticsEntryState | null>(null);
   const [existingBooking, setExistingBooking] = useState<LogisticsBooking | null>(null);
+  const [orderListOpen, setOrderListOpen] = useState(false);
 
   const handleBack = useCallback(() => {
     if (isPdfView) {
@@ -158,6 +164,14 @@ export const AdminInvoiceDetailLayout: React.FC = () => {
     invoicesPath,
   };
 
+  const showOrderList = Boolean(invoice && invoiceHasCategory(invoice, 'spare'));
+  const showCourierCard = Boolean(courierEntry || existingBooking);
+  const actionsLayout = showOrderList && showCourierCard
+    ? 'triple'
+    : showOrderList || showCourierCard
+      ? 'pair'
+      : 'single';
+
   return (
     <div className={`page-content fade-in invoice-detail-page ${isPdfView ? 'invoice-detail-page--pdf-view' : ''}`}>
       {error && (
@@ -182,9 +196,7 @@ export const AdminInvoiceDetailLayout: React.FC = () => {
               <div
                 className={[
                   'invoice-detail-top__actions',
-                  (courierEntry || existingBooking)
-                    ? 'invoice-detail-top__actions--pair'
-                    : 'invoice-detail-top__actions--single',
+                  `invoice-detail-top__actions--${actionsLayout}`,
                 ].join(' ')}
                 role="tablist"
                 aria-label="Invoice sections"
@@ -201,6 +213,25 @@ export const AdminInvoiceDetailLayout: React.FC = () => {
                   </span>
                   <span className="invoice-detail-top__card-label">Invoice</span>
                 </button>
+                {showOrderList ? (
+                  <button
+                    type="button"
+                    role="tab"
+                    aria-selected={orderListOpen}
+                    className={[
+                      'invoice-detail-top__card',
+                      'invoice-detail-top__card--green',
+                      orderListOpen ? 'is-active' : '',
+                    ].filter(Boolean).join(' ')}
+                    onClick={() => setOrderListOpen(true)}
+                    title="Open order / picking list PDF"
+                  >
+                    <span className="invoice-detail-top__card-icon">
+                      <ClipboardList size={28} strokeWidth={1.75} aria-hidden />
+                    </span>
+                    <span className="invoice-detail-top__card-label">Order list</span>
+                  </button>
+                ) : null}
                 {existingBooking ? (
                   <LogisticsAwbEntryButton
                     bookingId={existingBooking.id}
@@ -218,6 +249,13 @@ export const AdminInvoiceDetailLayout: React.FC = () => {
             </div>
           )}
           <Outlet context={outletContext} />
+          {orderListOpen && invoice ? (
+            <SpareOrderListViewDialog
+              invoice={invoice}
+              booking={existingBooking}
+              onClose={() => setOrderListOpen(false)}
+            />
+          ) : null}
         </>
       )}
     </div>

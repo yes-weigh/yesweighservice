@@ -1485,12 +1485,15 @@ export function mapAdminInvoiceDetail(
     salespersonName: data.salespersonName ? String(data.salespersonName) : null,
     invoiceUrl: data.invoiceUrl ? String(data.invoiceUrl) : null,
     invoiceCategory: parseInvoiceCategory(data.invoiceCategory),
+    categories: normalizeInvoiceCategories(data.categories),
+    categoryAmounts: normalizeInvoiceCategoryAmounts(data.categoryAmounts),
     salesOrderId: data.salesOrderId ? String(data.salesOrderId) : null,
     salesOrderNumber: data.salesOrderNumber ? String(data.salesOrderNumber) : null,
     subtotal: Number(data.subtotal ?? 0),
     taxTotal: Number(data.taxTotal ?? 0),
     notes: data.notes ? String(data.notes) : null,
     shippingAddress: data.shippingAddress ? String(data.shippingAddress) : null,
+    billingAddress: data.billingAddress ? String(data.billingAddress) : null,
     lineItems: Array.isArray(data.lineItems)
       ? data.lineItems.map(item => mapAdminInvoiceLineItem(item as Record<string, unknown>))
       : [],
@@ -1576,9 +1579,12 @@ export async function fetchAdminInvoiceDetail(
       preferredAddressId: preferredAddressId || soAddressId,
     }),
   ]);
+  const billingFromInvoice = String(data.billingAddress ?? '').trim() || null;
   return {
     ...withImages,
     shippingAddress: contact.address,
+    billingAddress: billingFromInvoice || contact.billingAddress || contact.address,
+    customerGstin: contact.gstin,
     customerPhone: contact.phone,
     customerTelHref: contact.telHref,
     customerWhatsappHref: contact.whatsappHref,

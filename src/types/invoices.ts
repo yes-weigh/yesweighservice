@@ -72,6 +72,10 @@ export interface DealerInvoiceDetail extends DealerInvoice {
   lineItems: DealerInvoiceLineItem[];
   /** Resolved shipping/billing address for display (from invoice or zohoCustomers). */
   shippingAddress?: string | null;
+  /** Billing address when distinct from shipping (invoice mirror or customer). */
+  billingAddress?: string | null;
+  /** Customer GSTIN from zohoCustomers. */
+  customerGstin?: string | null;
   customerPhone?: string | null;
   customerTelHref?: string | null;
   customerWhatsappHref?: string | null;

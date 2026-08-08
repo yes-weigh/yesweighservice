@@ -29960,6 +29960,11 @@ body:has(.confirm-inline-bar) .confirm-inline-bar {
   grid-template-columns: repeat(2, minmax(0, 8.5rem));
 }
 
+.admin-invoice-detail-top .invoice-detail-top__actions--triple,
+.so-detail__top-actions .invoice-detail-top__actions--triple {
+  grid-template-columns: repeat(3, minmax(0, 8.5rem));
+}
+
 .book-courier-entry-btn--card {
   width: 100%;
   margin: 0;

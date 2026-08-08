@@ -4,6 +4,9 @@ import { buildContactLinks } from './phoneLinks';
 
 export type ZohoCustomerDisplayContact = {
   address: string | null;
+  /** Billing address when available (may match shipping). */
+  billingAddress: string | null;
+  gstin: string | null;
   phone: string | null;
   telHref: string | null;
   whatsappHref: string | null;
@@ -78,6 +81,15 @@ function phoneFromCustomer(data: DocumentData): string | null {
   );
 }
 
+function billingAddressFromCustomer(data: DocumentData): string | null {
+  return (
+    trimStr(data.zohoBillingAddress)
+    || trimStr(data.billingAddress)
+    || formatRawAddress(data.zohoBillingAddressRaw)
+    || null
+  );
+}
+
 export function contactFromCustomerData(
   data: DocumentData | null | undefined,
   preferredAddress?: string | null,
@@ -86,10 +98,16 @@ export function contactFromCustomerData(
   // Document-provided address always wins; only then fall back to customer addresses.
   const address = trimStr(preferredAddress)
     || (data ? addressFromCustomer(data, preferredAddressId) : null);
+  const billingAddress = data ? billingAddressFromCustomer(data) : null;
+  const gstin = data
+    ? (trimStr(data.zohoGstNo) || trimStr(data.gstNo) || trimStr(data.gstin))
+    : null;
   const phone = data ? phoneFromCustomer(data) : null;
   const links = phone ? buildContactLinks(phone) : null;
   return {
     address,
+    billingAddress,
+    gstin,
     phone,
     telHref: links?.tel ?? null,
     whatsappHref: links?.whatsapp ?? null,
