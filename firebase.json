@@ -100,6 +100,13 @@
         }
       },
       {
+        "source": "/track/delhivery",
+        "function": {
+          "functionId": "trackDelhiveryShipmentHttp",
+          "region": "asia-south1"
+        }
+      },
+      {
         "source": "**",
         "destination": "/index.html"
       }

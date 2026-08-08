@@ -13,7 +13,8 @@ export function logisticsTrackingUrl(
   if (!encoded) return null;
   switch (partnerId) {
     case 'delhivery':
-      return `https://www.delhivery.com/track/package/${encoded}`;
+      // Prefer in-app B2B track proxy; official site remains a fallback link.
+      return delhiveryAppTrackingUrl(awb);
     case 'bluedart':
     case 'bluedart_air':
     case 'bluedart_surface':
@@ -57,4 +58,18 @@ export function stCourierOfficialTrackingUrl(): string {
 /** Official Trackon track form (manual entry). */
 export function trackonOfficialTrackingUrl(): string {
   return 'https://www.trackon.in/courier-tracking';
+}
+
+/** Absolute app URL that fetches Delhivery B2B status for an LRN. */
+export function delhiveryAppTrackingUrl(awb: string, origin?: string): string {
+  const value = encodeURIComponent(String(awb ?? '').trim());
+  const base = (origin || APP_TRACK_ORIGIN).replace(/\/$/, '');
+  return `${base}/track/delhivery?awb=${value}`;
+}
+
+/** Official Delhivery package track page. */
+export function delhiveryOfficialTrackingUrl(awb?: string): string {
+  const value = String(awb ?? '').trim();
+  if (!value) return 'https://www.delhivery.com/tracking';
+  return `https://www.delhivery.com/track/package/${encodeURIComponent(value)}`;
 }

@@ -79,6 +79,7 @@ import {
   putLogisticsVaultPhoto,
   rememberLogisticsPhotoSessionKey,
 } from '../../lib/logisticsPhotoVault';
+import { bookDelhiveryShipment } from '../../lib/delhiveryB2b';
 import { loadLogisticsSettings } from '../../lib/logisticsSettings';
 import {
   fetchInvoiceBranchShipFrom,
@@ -257,18 +258,26 @@ function StepProgress({ step }: { step: BookCourierStep }) {
   );
 }
 
+function pincodeFromAddress(address: string): string {
+  const match = /\b(\d{6})\b/.exec(String(address ?? ''));
+  return match?.[1] ?? '';
+}
+
 export const BookCourierFlow: React.FC<BookCourierFlowProps> = ({
   partnerId,
   user,
   initialDraft,
   initialDealerQuery,
-  initialStep = 'scan',
+  initialStep: initialStepProp,
   existingBookingId = null,
   onClose,
   onComplete,
   onDraftSaved,
   onDraftUpdated,
 }) => {
+  const isDelhivery = partnerId === 'delhivery';
+  const initialStep = initialStepProp
+    ?? (isDelhivery ? 'address' : 'scan');
   const [step, setStep] = useState<BookCourierStep>(() => {
     const boxes = initialDraft?.boxes?.length
       ? initialDraft.boxes
@@ -279,6 +288,8 @@ export const BookCourierFlow: React.FC<BookCourierFlowProps> = ({
     }
     return initialStep;
   });
+  const [bookingDelhivery, setBookingDelhivery] = useState(false);
+  const [delhiveryBookError, setDelhiveryBookError] = useState('');
   const [draft, setDraft] = useState<LogisticsBookingDraft>(() => ({
     ...emptyBookingDraft(partnerId),
     ...initialDraft,
@@ -646,7 +657,9 @@ export const BookCourierFlow: React.FC<BookCourierFlowProps> = ({
   }, [applyScannedCode]);
 
   const handleScanContinue = useCallback(() => {
-    applyScannedCode(draft.barcodeRaw);
+    if (draft.barcodeRaw.trim()) {
+      applyScannedCode(draft.barcodeRaw);
+    }
     setStep('address');
   }, [applyScannedCode, draft.barcodeRaw]);
 
@@ -780,6 +793,75 @@ export const BookCourierFlow: React.FC<BookCourierFlowProps> = ({
       return next;
     });
   }, []);
+
+  /** Create LR via Delhivery B2B API when no consignment is set yet. */
+  const ensureDelhiveryLrn = useCallback(async (): Promise<boolean> => {
+    if (!isDelhivery) return true;
+    if (draftRef.current.consignmentNo.trim()) return true;
+    if (!selectedDealer) {
+      setDelhiveryBookError('Select a delivery address before booking Delhivery.');
+      return false;
+    }
+    setBookingDelhivery(true);
+    setDelhiveryBookError('');
+    try {
+      const address = resolveDeliveryAddress(selectedDealer, draftRef.current.deliveryAddressKind);
+      const pin = pincodeFromAddress(address);
+      if (!pin) {
+        throw new Error('Delivery address needs a 6-digit pincode for Delhivery booking.');
+      }
+      const fromAddress = (fromAddresses[draftRef.current.shipFromSite] ?? '').trim();
+      const result = await bookDelhiveryShipment({
+        shipFromSite: draftRef.current.shipFromSite,
+        orderId: draftRef.current.invoiceNumber
+          || draftBookingIdRef.current
+          || `YW-${Date.now()}`,
+        consignee: {
+          name: selectedDealer.name,
+          phone: selectedDealer.mobile,
+          address,
+          city: selectedDealer.destinationCity || undefined,
+          pincode: pin,
+          country: 'India',
+        },
+        returnAddress: fromAddress
+          ? {
+            name: STAFF_LOGISTICS_SITE_LABELS[draftRef.current.shipFromSite],
+            phone: selectedDealer.mobile,
+            address: fromAddress,
+            pincode: pincodeFromAddress(fromAddress) || pin,
+            country: 'India',
+          }
+          : null,
+        boxes: draftRef.current.boxes.map(box => ({
+          lengthCm: Number.parseFloat(box.lengthCm) || undefined,
+          widthCm: Number.parseFloat(box.widthCm) || undefined,
+          heightCm: Number.parseFloat(box.heightCm) || undefined,
+          weightKg: Number.parseFloat(box.weightKg) || undefined,
+          quantity: 1,
+        })),
+        invoiceNumber: draftRef.current.invoiceNumber,
+        productsDesc: 'Weighing equipment',
+        shippingMode: 'Surface',
+        paymentMode: 'Prepaid',
+      });
+      const lrn = String(result.lrn || '').trim();
+      if (!lrn) throw new Error('Delhivery did not return an LR number.');
+      applyDraft(prev => ({
+        ...prev,
+        consignmentNo: lrn,
+        barcodeRaw: prev.barcodeRaw || lrn,
+        serviceType: prev.serviceType || 'Surface',
+        branch: prev.branch || 'Delhivery B2B',
+      }));
+      return true;
+    } catch (err) {
+      setDelhiveryBookError(err instanceof Error ? err.message : 'Could not book Delhivery LR.');
+      return false;
+    } finally {
+      setBookingDelhivery(false);
+    }
+  }, [applyDraft, fromAddresses, isDelhivery, selectedDealer]);
 
   const ensureDealerAddressHydrated = useCallback(async (): Promise<LogisticsDealerSnapshot | null> => {
     const zohoId = draftRef.current.zohoCustomerId?.trim();
@@ -1341,7 +1423,13 @@ export const BookCourierFlow: React.FC<BookCourierFlowProps> = ({
   const goBack = () => {
     switch (step) {
       case 'scan': onClose(); break;
-      case 'address': setStep('scan'); break;
+      case 'address':
+        if (isDelhivery && !draft.consignmentNo.trim() && !draft.barcodeRaw.trim()) {
+          onClose();
+        } else {
+          setStep('scan');
+        }
+        break;
       case 'box': setStep('address'); break;
       case 'review': setStep('box'); break;
       case 'label': setStep('review'); break;
@@ -1425,10 +1513,16 @@ export const BookCourierFlow: React.FC<BookCourierFlowProps> = ({
             <section className="book-courier__section">
               <h3 className="book-courier__section-title">
                 <ScanLine size={18} aria-hidden />
-                Scan <span className="accent">Courier</span> Barcode
+                {isDelhivery ? (
+                  <>Enter <span className="accent">LR</span> (optional)</>
+                ) : (
+                  <>Scan <span className="accent">Courier</span> Barcode</>
+                )}
               </h3>
               <p className="book-courier__hint text-muted text-sm">
-                Scan the barcode on the courier slip or enter the code manually.
+                {isDelhivery
+                  ? 'Enter an existing Delhivery LR, or skip — an LR will be created via API after review.'
+                  : 'Scan the barcode on the courier slip or enter the code manually.'}
               </p>
 
               {cameraOpen ? (
@@ -1474,10 +1568,10 @@ export const BookCourierFlow: React.FC<BookCourierFlowProps> = ({
               <button
                 type="button"
                 className="btn btn-primary book-courier__next"
-                disabled={!canProceedScan}
+                disabled={!isDelhivery && !canProceedScan}
                 onClick={handleScanContinue}
               >
-                Confirm &amp; Next
+                {isDelhivery && !canProceedScan ? 'Skip & Next' : 'Confirm & Next'}
               </button>
             </section>
           )}
@@ -1932,12 +2026,23 @@ export const BookCourierFlow: React.FC<BookCourierFlowProps> = ({
                 ) : (
                   <dl className="book-courier__kv">
                     <div><dt>Partner</dt><dd>{logisticsPartnerLabel(partnerId)}</dd></div>
-                    <div><dt>Tracking No.</dt><dd>{draft.consignmentNo}</dd></div>
-                    <div><dt>Service Type</dt><dd>{draft.serviceType}</dd></div>
-                    <div><dt>Branch</dt><dd>{draft.branch}</dd></div>
+                    <div>
+                      <dt>Tracking No.</dt>
+                      <dd>
+                        {draft.consignmentNo || (isDelhivery
+                          ? 'Will create via Delhivery API'
+                          : '—')}
+                      </dd>
+                    </div>
+                    <div><dt>Service Type</dt><dd>{draft.serviceType || (isDelhivery ? 'Surface' : '—')}</dd></div>
+                    <div><dt>Branch</dt><dd>{draft.branch || (isDelhivery ? 'Delhivery B2B' : '—')}</dd></div>
                   </dl>
                 )}
               </div>
+
+              {isDelhivery && delhiveryBookError ? (
+                <p className="book-courier__slip-error" role="alert">{delhiveryBookError}</p>
+              ) : null}
 
               <div className="book-courier__review-card">
                 <div className="book-courier__review-head">
@@ -2008,9 +2113,20 @@ export const BookCourierFlow: React.FC<BookCourierFlowProps> = ({
                 <button
                   type="button"
                   className="btn btn-primary book-courier__next"
-                  onClick={() => void advanceTo('label')}
+                  disabled={bookingDelhivery}
+                  onClick={() => {
+                    void (async () => {
+                      const ok = await ensureDelhiveryLrn();
+                      if (!ok) return;
+                      await advanceTo('label');
+                    })();
+                  }}
                 >
-                  Next
+                  {bookingDelhivery
+                    ? 'Booking Delhivery…'
+                    : (isDelhivery && !draft.consignmentNo.trim()
+                      ? 'Create LR & Next'
+                      : 'Next')}
                 </button>
               ) : (
                 <button

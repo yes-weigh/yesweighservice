@@ -149,7 +149,8 @@ export const LogisticsBookingDetail: React.FC<LogisticsBookingDetailProps> = ({
     booking.partnerId === 'trackon_air'
     || booking.partnerId === 'trackon_surface'
   );
-  const showInAppTrack = (isStCourier || isTrackon) && Boolean(trackAwb);
+  const isDelhivery = booking.partnerId === 'delhivery';
+  const showInAppTrack = (isStCourier || isTrackon || isDelhivery) && Boolean(trackAwb);
 
   const markDocumentGenerated = useCallback(async (document: LogisticsDocumentType) => {
     if (!user || !isOps) return;
@@ -470,7 +471,7 @@ export const LogisticsBookingDetail: React.FC<LogisticsBookingDetailProps> = ({
         <StCourierTrackPanel
           awb={trackAwb}
           bookingId={booking.id}
-          provider={isTrackon ? 'trackon' : 'st_courier'}
+          provider={isTrackon ? 'trackon' : isDelhivery ? 'delhivery' : 'st_courier'}
           shipFromSite={booking.shipFromSite}
           courierDeliveryOffice={isStCourier ? booking.courierDeliveryOffice : null}
           cachedTrack={booking.courierTrack}

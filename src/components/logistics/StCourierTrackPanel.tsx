@@ -10,13 +10,17 @@ import {
   fetchTrackonShipmentTrack,
   trackonTrackFromBooking,
 } from '../../lib/trackonTrack';
+import {
+  fetchDelhiveryShipmentTrack,
+  delhiveryTrackFromBooking,
+} from '../../lib/delhiveryTrack';
 import type {
   LogisticsCourierDeliveryOffice,
   LogisticsCourierTrack,
 } from '../../types/logistics-dispatch';
 import { isStaffLogisticsSite, type StaffLogisticsSite } from '../../types/staff-logistics';
 
-export type CourierTrackProvider = 'st_courier' | 'trackon';
+export type CourierTrackProvider = 'st_courier' | 'trackon' | 'delhivery';
 
 interface StCourierTrackPanelProps {
   awb: string;
@@ -45,14 +49,17 @@ function formatFetchedAt(iso: string | null | undefined): string | null {
   });
 }
 
-function branchContactForSite(site: string | null | undefined): string | null {
+function branchContactForSite(
+  provider: CourierTrackProvider,
+  site: string | null | undefined,
+): string | null {
   if (!isStaffLogisticsSite(site)) return null;
-  const contact = LOGISTICS_BRANCH_TRACKING_CONTACTS[site]?.trim();
+  const contact = LOGISTICS_BRANCH_TRACKING_CONTACTS[provider]?.[site]?.trim();
   return contact || null;
 }
 
 function phoneHrefFromContact(contact: string): string | null {
-  const match = /PH\s*:?\s*([0-9]{8,15})/i.exec(contact);
+  const match = /(?:PH(?:O(?:NE)?)?|TEL)\s*:?\s*([0-9]{8,15})/i.exec(contact);
   return match?.[1] ? `tel:${match[1]}` : null;
 }
 
@@ -67,18 +74,20 @@ export const StCourierTrackPanel: React.FC<StCourierTrackPanelProps> = ({
 }) => {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
-  const [result, setResult] = useState<StCourierTrackResult | null>(() => (
-    provider === 'trackon'
-      ? trackonTrackFromBooking(cachedTrack)
-      : stCourierTrackFromBooking(cachedTrack)
-  ));
+  const [result, setResult] = useState<StCourierTrackResult | null>(() => {
+    if (provider === 'trackon') return trackonTrackFromBooking(cachedTrack);
+    if (provider === 'delhivery') return delhiveryTrackFromBooking(cachedTrack);
+    return stCourierTrackFromBooking(cachedTrack);
+  });
 
   // Keep panel in sync with Firestore booking data (no live courier fetch on open).
   useEffect(() => {
     setResult(
       provider === 'trackon'
         ? trackonTrackFromBooking(cachedTrack)
-        : stCourierTrackFromBooking(cachedTrack),
+        : provider === 'delhivery'
+          ? delhiveryTrackFromBooking(cachedTrack)
+          : stCourierTrackFromBooking(cachedTrack),
     );
     // Failed tracks map to Booked — don't surface raw courier error text.
     setError('');
@@ -90,7 +99,9 @@ export const StCourierTrackPanel: React.FC<StCourierTrackPanelProps> = ({
     try {
       const next = provider === 'trackon'
         ? await fetchTrackonShipmentTrack(awb, { bookingId })
-        : await fetchStCourierShipmentTrack(awb, { bookingId });
+        : provider === 'delhivery'
+          ? await fetchDelhiveryShipmentTrack(awb, { bookingId })
+          : await fetchStCourierShipmentTrack(awb, { bookingId });
       setResult(next);
       onTrackUpdated?.(next);
     } catch (err) {
@@ -102,7 +113,7 @@ export const StCourierTrackPanel: React.FC<StCourierTrackPanelProps> = ({
 
   const fetchedLabel = formatFetchedAt(result?.fetchedAt);
   const hasSnapshot = Boolean(result);
-  const branchContact = branchContactForSite(shipFromSite);
+  const branchContact = branchContactForSite(provider, shipFromSite);
   const bookingPhoneHref = branchContact ? phoneHrefFromContact(branchContact) : null;
   const deliveryOffice = courierDeliveryOffice?.communication?.trim() || null;
   const deliveryPhoneHref = deliveryOffice ? phoneHrefFromContact(deliveryOffice) : null;

@@ -12,7 +12,7 @@ import {
 import { OrderFreightPanel } from '../../../components/orders/OrderFreightPanel';
 import { ShippingAddressPicker } from '../../../components/orders/ShippingAddressPicker';
 import { QuantityStepper } from '../../../components/QuantityStepper';
-import { formatCurrency, fetchCatalog } from '../../../lib/catalog';
+import { fetchCatalog } from '../../../lib/catalog';
 import {
   ensureDealersCached,
   peekCachedDealers,
@@ -50,10 +50,6 @@ import {
 import { useBlueDartPincode } from '../../../hooks/useBlueDartPincode';
 import { inferStCourierZone } from '../../../lib/stCourierZone';
 import type { LogisticsPartnerId } from '../../../constants/logisticsPartners';
-import {
-  logisticsPartnerImage,
-  logisticsPartnerLabel,
-} from '../../../constants/logisticsPartners';
 import type { LogisticsCourierRates } from '../../../types/logistics-courier-rates';
 import type { LogisticsDeliveryRulesMatrix } from '../../../types/logistics-delivery-rules';
 import type { LogisticsPartnerStatuses } from '../../../types/logistics-partner-status';
@@ -662,136 +658,38 @@ export const LogisticsFreightTestingPanel: React.FC = () => {
           </div>
 
           {freightEstimate?.usable ? (
-            <>
-              <div className="settings-logistics-testing__partner-tables">
-                <h5 className="settings-logistics-testing__block-title">
-                  Partner quotes by ship-from
-                </h5>
-                <p className="text-muted text-sm">
-                  All selectable partners for this destination (delivery rules + Active/Manual).
-                  Totals include product cartons + auto spare freight.
-                </p>
-                {freightEstimate.sites.map(site => (
-                  <div key={site.site} className="settings-logistics-testing__partner-block">
-                    <header className="settings-logistics-testing__partner-head">
-                      <strong>{site.siteLabel}</strong>
-                      <span className="text-muted text-sm">
-                        Selected:
-                        {' '}
-                        {site.partnerLabel}
-                        {' · '}
-                        {formatCurrency(site.totalInr)}
-                      </span>
-                    </header>
-                    <div className="settings-logistics-testing__table-wrap">
-                      <table className="settings-logistics-testing__table">
-                        <thead>
-                          <tr>
-                            <th>Partner</th>
-                            <th>Status</th>
-                            <th>Est. freight</th>
-                            <th />
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {site.courierOptions.map(opt => {
-                            const selected = opt.partnerId === site.partnerId;
-                            const img = logisticsPartnerImage(opt.partnerId);
-                            return (
-                              <tr
-                                key={opt.partnerId}
-                                className={selected ? 'is-selected' : undefined}
-                              >
-                                <td>
-                                  <span className="settings-logistics-testing__partner-cell">
-                                    {img ? (
-                                      <img src={img} alt="" width={22} height={22} />
-                                    ) : null}
-                                    {opt.label || logisticsPartnerLabel(opt.partnerId)}
-                                    {opt.preferred ? (
-                                      <span className="settings-logistics-testing__chip is-soft">
-                                        Preferred
-                                      </span>
-                                    ) : null}
-                                  </span>
-                                </td>
-                                <td>
-                                  {!opt.enabled
-                                    ? (opt.disabledReason || 'Disabled')
-                                    : opt.manualRate
-                                      ? 'Manual ₹'
-                                      : 'Quoted'}
-                                </td>
-                                <td className="settings-logistics-testing__amount">
-                                  {opt.enabled
-                                    ? formatCurrency(opt.estimatedTotalInr ?? 0)
-                                    : '—'}
-                                </td>
-                                <td>
-                                  <button
-                                    type="button"
-                                    className={`btn btn-sm ${selected ? 'btn-primary' : 'btn-secondary'}`}
-                                    disabled={!opt.enabled}
-                                    onClick={() => {
-                                      setCourierBySite(prev => ({
-                                        ...prev,
-                                        [site.site]: opt.partnerId,
-                                      }));
-                                    }}
-                                  >
-                                    {selected ? 'Selected' : 'Use'}
-                                  </button>
-                                </td>
-                              </tr>
-                            );
-                          })}
-                        </tbody>
-                      </table>
-                    </div>
-                    {site.indications.length > 0 ? (
-                      <ul className="settings-logistics-testing__notes">
-                        {site.indications.map(note => (
-                          <li key={note}>{note}</li>
-                        ))}
-                      </ul>
-                    ) : null}
-                  </div>
-                ))}
-              </div>
-
-              <OrderFreightPanel
-                estimate={freightEstimate}
-                canEditPackage
-                allowManualFreightEntry
-                showLineDetails
-                manualFreightAmount={manualFreightAmount}
-                catalogById={catalogById}
-                destinationLabel={[
-                  shippingDestination?.city,
-                  shippingDestination?.state,
-                ].filter(Boolean).join(', ') || null}
-                footerNote="Testing sandbox — selecting a partner only updates this preview."
-                onManualFreightAmountChange={setManualFreightAmount}
-                onCourierChange={(site, partnerId) => {
-                  setCourierBySite(prev => ({ ...prev, [site]: partnerId }));
-                }}
-                onPackageInfoChange={(productId, info) => {
-                  setCatalogById(prev => {
-                    const current = prev[productId];
-                    if (!current) return prev;
-                    return {
-                      ...prev,
-                      [productId]: { ...current, packageInfo: info },
-                    };
-                  });
-                  setLines(prev => prev.map(line => (
-                    line.productId === productId
-                      ? { ...line, packageInfo: info }
-                      : line
-                  )));
-                }}
-              />
-            </>
+            <OrderFreightPanel
+              estimate={freightEstimate}
+              canEditPackage
+              allowManualFreightEntry
+              showLineDetails
+              manualFreightAmount={manualFreightAmount}
+              catalogById={catalogById}
+              destinationLabel={[
+                shippingDestination?.city,
+                shippingDestination?.state,
+              ].filter(Boolean).join(', ') || null}
+              footerNote="Testing sandbox — selecting a partner only updates this preview."
+              onManualFreightAmountChange={setManualFreightAmount}
+              onCourierChange={(site, partnerId) => {
+                setCourierBySite(prev => ({ ...prev, [site]: partnerId }));
+              }}
+              onPackageInfoChange={(productId, info) => {
+                setCatalogById(prev => {
+                  const current = prev[productId];
+                  if (!current) return prev;
+                  return {
+                    ...prev,
+                    [productId]: { ...current, packageInfo: info },
+                  };
+                });
+                setLines(prev => prev.map(line => (
+                  line.productId === productId
+                    ? { ...line, packageInfo: info }
+                    : line
+                )));
+              }}
+            />
           ) : (
             <p className="text-muted text-sm">
               Freight needs a destination with a resolvable zone and at least one quotable line.

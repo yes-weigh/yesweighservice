@@ -12,6 +12,8 @@ import {
 import { normalizeLogisticsDeliveryRules } from './logisticsDeliveryRules';
 import type { LogisticsDeliveryRulesMatrix } from '../types/logistics-delivery-rules';
 import type { LogisticsPartnerStatuses } from '../types/logistics-partner-status';
+import type { DelhiveryB2bPublicConfig } from '../types/delhivery-b2b';
+import { emptyDelhiveryB2bPublicConfig } from '../types/delhivery-b2b';
 import type { FirestoreUserDoc, UserRecord } from '../types';
 import { normalizeRole } from '../types';
 import {
@@ -36,6 +38,28 @@ function parseFromAddresses(data: Record<string, unknown> | undefined): Record<S
   return base;
 }
 
+function parseDelhiveryB2b(data: Record<string, unknown> | undefined): DelhiveryB2bPublicConfig {
+  const base = emptyDelhiveryB2bPublicConfig();
+  const raw = data?.delhiveryB2b;
+  if (!raw || typeof raw !== 'object') return base;
+  const obj = raw as Record<string, unknown>;
+  base.env = String(obj.env ?? '').trim().toLowerCase() === 'production' ? 'production' : 'staging';
+  if (typeof obj.username === 'string') base.username = obj.username;
+  base.passwordSet = Boolean(obj.passwordSet);
+  if (typeof obj.lastTestAt === 'string') base.lastTestAt = obj.lastTestAt;
+  base.lastTestOk = Boolean(obj.lastTestOk);
+  if (typeof obj.lastTestMessage === 'string') base.lastTestMessage = obj.lastTestMessage;
+  if (typeof obj.clientName === 'string') base.clientName = obj.clientName;
+  const pickup = obj.pickupLocationBySite;
+  if (pickup && typeof pickup === 'object') {
+    const map = pickup as Record<string, unknown>;
+    for (const site of STAFF_LOGISTICS_SITES) {
+      if (typeof map[site] === 'string') base.pickupLocationBySite[site] = map[site];
+    }
+  }
+  return base;
+}
+
 export interface LogisticsSettings {
   defaultStaffLogisticsSite: StaffLogisticsSite;
   /** Free-text ship-from address per logistics site. */
@@ -47,6 +71,8 @@ export interface LogisticsSettings {
    * Rules may list any partner; SO freight only offers Active or Manual.
    */
   partnerStatuses: LogisticsPartnerStatuses;
+  /** Public Delhivery B2B API connection metadata (password never returned). */
+  delhiveryB2b: DelhiveryB2bPublicConfig;
   updatedAt: string;
   updatedBy?: string | null;
 }
@@ -60,6 +86,7 @@ export async function loadLogisticsSettings(): Promise<LogisticsSettings> {
         fromAddresses: EMPTY_FROM_ADDRESSES(),
         deliveryRules: structuredClone(DEFAULT_LOGISTICS_DELIVERY_RULES),
         partnerStatuses: defaultLogisticsPartnerStatuses(),
+        delhiveryB2b: emptyDelhiveryB2bPublicConfig(),
         updatedAt: '',
       };
     }
@@ -72,6 +99,7 @@ export async function loadLogisticsSettings(): Promise<LogisticsSettings> {
       fromAddresses: parseFromAddresses(data as Record<string, unknown>),
       deliveryRules: normalizeLogisticsDeliveryRules(data.deliveryRules),
       partnerStatuses: normalizeLogisticsPartnerStatuses(data.partnerStatuses),
+      delhiveryB2b: parseDelhiveryB2b(data as Record<string, unknown>),
       updatedAt: typeof data.updatedAt === 'string' ? data.updatedAt : '',
       updatedBy: typeof data.updatedBy === 'string' ? data.updatedBy : null,
     };
@@ -81,6 +109,7 @@ export async function loadLogisticsSettings(): Promise<LogisticsSettings> {
       fromAddresses: EMPTY_FROM_ADDRESSES(),
       deliveryRules: structuredClone(DEFAULT_LOGISTICS_DELIVERY_RULES),
       partnerStatuses: defaultLogisticsPartnerStatuses(),
+      delhiveryB2b: emptyDelhiveryB2bPublicConfig(),
       updatedAt: '',
     };
   }

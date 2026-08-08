@@ -164,6 +164,23 @@ import {
   syncTrackonTrackingForBookings,
 } from './lib/trackon-track-sync.js';
 import {
+  loadDelhiveryB2bPublicConfig,
+  saveDelhiveryB2bConfig,
+  testDelhiveryB2bConnection,
+} from './lib/delhivery-b2b.js';
+import {
+  bookDelhiveryB2bShipment,
+  resolveDelhiveryPickupLocationName,
+} from './lib/delhivery-b2b-manifest.js';
+import {
+  fetchDelhiveryTrack,
+  renderDelhiveryTrackHtml,
+} from './lib/delhivery-track.js';
+import {
+  persistDelhiveryTrackOnBooking,
+  syncDelhiveryTrackingForBookings,
+} from './lib/delhivery-track-sync.js';
+import {
   submitDealerOrder as submitDealerOrderRecord,
   createStaffSalesOrder as createStaffSalesOrderRecord,
   confirmMirroredSalesOrder as confirmMirroredSalesOrderRecord,
@@ -4283,6 +4300,216 @@ export const syncTrackonTrackingScheduled = onSchedule(
     });
     console.log(
       `syncTrackonTracking: scanned=${summary.scanned}, targeted=${summary.targeted}, `
+      + `ok=${summary.fetchedOk}, fail=${summary.fetchedFail}, updated=${summary.updated}, `
+      + `statusAdvanced=${summary.statusAdvanced}, errors=${summary.errors.length}`,
+    );
+  },
+);
+
+/** Save Delhivery B2B connection settings (password write-only via Admin SDK). */
+export const saveDelhiveryB2bCredentialsFn = onCall(
+  {
+    region: 'asia-south1',
+    timeoutSeconds: 60,
+    memory: '256MiB',
+  },
+  async request => {
+    await requireActiveUser(request.auth?.uid, SUPER_ADMIN_ROLES);
+    try {
+      const config = await saveDelhiveryB2bConfig(getFirestore(), {
+        username: request.data?.username,
+        password: request.data?.password,
+        env: request.data?.env,
+        pickupLocationBySite: request.data?.pickupLocationBySite,
+        updatedBy: request.auth?.uid ?? null,
+      });
+      return { ok: true, config };
+    } catch (err) {
+      if (err instanceof HttpsError) throw err;
+      throw new HttpsError(
+        'internal',
+        err?.message ?? 'Could not save Delhivery B2B credentials.',
+      );
+    }
+  },
+);
+
+/** Public (non-secret) Delhivery B2B connection status for Logistics Settings. */
+export const getDelhiveryB2bConfigFn = onCall(
+  {
+    region: 'asia-south1',
+    timeoutSeconds: 30,
+    memory: '256MiB',
+  },
+  async request => {
+    await requireActiveUser(request.auth?.uid, SUPER_ADMIN_ROLES, { allowViewOnly: true });
+    try {
+      return await loadDelhiveryB2bPublicConfig(getFirestore());
+    } catch (err) {
+      if (err instanceof HttpsError) throw err;
+      throw new HttpsError(
+        'internal',
+        err?.message ?? 'Could not load Delhivery B2B config.',
+      );
+    }
+  },
+);
+
+/** Login to Delhivery B2B and report connection status. */
+export const testDelhiveryB2bConnectionFn = onCall(
+  {
+    region: 'asia-south1',
+    timeoutSeconds: 60,
+    memory: '256MiB',
+  },
+  async request => {
+    await requireActiveUser(request.auth?.uid, SUPER_ADMIN_ROLES);
+    try {
+      return await testDelhiveryB2bConnection(getFirestore());
+    } catch (err) {
+      if (err instanceof HttpsError) throw err;
+      throw new HttpsError(
+        'internal',
+        err?.message ?? 'Could not test Delhivery B2B connection.',
+      );
+    }
+  },
+);
+
+/** Create a Delhivery B2B LR via /v2/manifest. */
+export const bookDelhiveryShipmentFn = onCall(
+  {
+    region: 'asia-south1',
+    timeoutSeconds: 120,
+    memory: '256MiB',
+  },
+  async request => {
+    await requireActiveUser(request.auth?.uid, ALLOWED_ROLES);
+    const db = getFirestore();
+    try {
+      const site = String(request.data?.shipFromSite ?? 'head_office').trim();
+      const pickupOverride = String(request.data?.pickupLocationName ?? '').trim();
+      const pickupLocationName = pickupOverride
+        || await resolveDelhiveryPickupLocationName(db, site);
+      const result = await bookDelhiveryB2bShipment(db, {
+        pickupLocationName,
+        orderId: String(request.data?.orderId ?? '').trim() || `YW-${Date.now()}`,
+        consignee: request.data?.consignee || {},
+        returnAddress: request.data?.returnAddress || null,
+        boxes: Array.isArray(request.data?.boxes) ? request.data.boxes : [],
+        invoiceNumber: request.data?.invoiceNumber,
+        invoiceValueInr: request.data?.invoiceValueInr,
+        invoiceDate: request.data?.invoiceDate,
+        productsDesc: request.data?.productsDesc,
+        hsnCode: request.data?.hsnCode,
+        sellerGstin: request.data?.sellerGstin,
+        paymentMode: request.data?.paymentMode,
+        shippingMode: request.data?.shippingMode,
+      });
+      return result;
+    } catch (err) {
+      if (err instanceof HttpsError) throw err;
+      throw new HttpsError(
+        'failed-precondition',
+        err?.message ?? 'Could not book Delhivery shipment.',
+      );
+    }
+  },
+);
+
+/**
+ * Hosting rewrite: GET /track/delhivery?awb=XXXXXXXX
+ */
+export const trackDelhiveryShipmentHttp = onRequest(
+  {
+    region: 'asia-south1',
+    invoker: 'public',
+    timeoutSeconds: 60,
+    memory: '256MiB',
+  },
+  async (req, res) => {
+    if (req.method !== 'GET' && req.method !== 'HEAD') {
+      res.status(405).send('Method not allowed');
+      return;
+    }
+    try {
+      const awb = String(req.query?.awb ?? req.query?.lrn ?? req.query?.keyword ?? '').trim();
+      const result = await fetchDelhiveryTrack(getFirestore(), awb);
+      res.set('Cache-Control', 'no-store');
+      res.status(result.ok ? 200 : 404).type('html').send(renderDelhiveryTrackHtml(result));
+    } catch (err) {
+      console.error('trackDelhiveryShipmentHttp failed:', err);
+      res.status(500).type('html').send(
+        '<!doctype html><title>Track unavailable</title><p>Could not fetch Delhivery status right now.</p>',
+      );
+    }
+  },
+);
+
+/** Authenticated Delhivery tracking JSON for in-app track panel. */
+export const trackDelhiveryShipmentFn = onCall(
+  {
+    region: 'asia-south1',
+    timeoutSeconds: 60,
+    memory: '256MiB',
+  },
+  async request => {
+    await requireActiveUser(request.auth?.uid, ALLOWED_ROLES, { allowViewOnly: true });
+    const awb = String(request.data?.awb ?? request.data?.trackingNo ?? request.data?.lrn ?? '').trim();
+    const bookingId = String(request.data?.bookingId ?? '').trim();
+    try {
+      const result = await fetchDelhiveryTrack(getFirestore(), awb);
+      if (bookingId && result) {
+        try {
+          await persistDelhiveryTrackOnBooking(getFirestore(), bookingId, result, {
+            updatePipelineStatus: true,
+          });
+        } catch (persistErr) {
+          console.warn(
+            'trackDelhiveryShipmentFn: persist failed for',
+            bookingId,
+            persistErr?.message || persistErr,
+          );
+        }
+      }
+      return result;
+    } catch (err) {
+      if (err instanceof HttpsError) throw err;
+      throw new HttpsError(
+        'internal',
+        err?.message ?? 'Could not fetch Delhivery shipment status.',
+      );
+    }
+  },
+);
+
+/**
+ * Hourly: sync open Delhivery logistics bookings from B2B track API.
+ */
+export const syncDelhiveryTrackingScheduled = onSchedule(
+  {
+    schedule: '10 * * * *',
+    timeZone: 'Asia/Kolkata',
+    region: 'asia-south1',
+    timeoutSeconds: 540,
+    memory: '512MiB',
+  },
+  async () => {
+    const summary = await syncDelhiveryTrackingForBookings(getFirestore(), {
+      includeDelivered: false,
+      includeCancelled: false,
+      concurrency: 2,
+      delayMs: 350,
+      onProgress: (event) => {
+        if (event.type === 'error' || event.type === 'write_error') {
+          console.warn(
+            `syncDelhiveryTracking: ${event.type} id=${event.id} awb=${event.awb}: ${event.error}`,
+          );
+        }
+      },
+    });
+    console.log(
+      `syncDelhiveryTracking: scanned=${summary.scanned}, targeted=${summary.targeted}, `
       + `ok=${summary.fetchedOk}, fail=${summary.fetchedFail}, updated=${summary.updated}, `
       + `statusAdvanced=${summary.statusAdvanced}, errors=${summary.errors.length}`,
     );

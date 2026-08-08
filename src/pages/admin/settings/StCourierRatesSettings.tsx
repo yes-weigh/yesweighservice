@@ -54,6 +54,7 @@ import {
 import { BlueDartRatesEditor } from './BlueDartRatesEditor';
 import { TrackonRatesEditor } from './TrackonRatesEditor';
 import { PartnerStatusControl } from './PartnerStatusControl';
+import { DelhiveryB2bApiPanel } from './DelhiveryB2bApiPanel';
 
 type SaveStatus = 'idle' | 'pending' | 'saving' | 'saved' | 'error';
 
@@ -631,6 +632,10 @@ export const StCourierRatesSettings: React.FC<Props> = ({
               setLogisticsPartnerStatus(partnerId, next);
             }}
           />
+
+          {partnerId === 'delhivery' ? (
+            <DelhiveryB2bApiPanel onError={onError} />
+          ) : null}
 
           {ratesWarning && (
             <p className="settings-courier-rates__warn text-sm">

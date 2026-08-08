@@ -533,6 +533,7 @@ export const LogisticsPage: React.FC = () => {
     if (!isLogisticsPartnerId(methodId)) return;
     if (!ENABLED_LOGISTICS_PARTNER_IDS.includes(methodId)) return;
     setSelectedPartnerId(methodId);
+    setResumeStep(methodId === 'delhivery' ? 'address' : undefined);
     setFlowStep('book');
   }, []);
 

@@ -24051,6 +24051,7 @@ body:has(.confirm-inline-bar) .confirm-inline-bar {
   font-size: 0.8125rem;
   line-height: 1.4;
   color: #e2e8f0;
+  white-space: pre-line;
 }
 
 .logistics-booking__track-branch-phone {

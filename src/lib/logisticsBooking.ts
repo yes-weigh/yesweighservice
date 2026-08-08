@@ -15,6 +15,7 @@ export const ENABLED_LOGISTICS_PARTNER_IDS: ReadonlyArray<LogisticsPartnerId> = 
   'st_courier',
   'trackon_air',
   'trackon_surface',
+  'delhivery',
 ];
 
 export function isPipelineEnabledPartner(id: string): boolean {

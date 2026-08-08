@@ -219,8 +219,14 @@ service cloud.firestore {
     }
 
     match /appSettings/{docId} {
-      allow read: if signedIn();
-      allow write: if signedIn() && (
+      // Delhivery B2B password + cached JWT are Admin SDK only (Cloud Functions).
+      allow read: if signedIn()
+        && docId != 'delhiveryB2bSecrets'
+        && docId != 'delhiveryB2bAuth';
+      allow write: if signedIn()
+        && docId != 'delhiveryB2bSecrets'
+        && docId != 'delhiveryB2bAuth'
+        && (
         bootstrapOpen()
         || (docId == 'productSettings' && isFullSuperAdmin())
         || (docId == 'logisticsSettings' && isFullSuperAdmin())
