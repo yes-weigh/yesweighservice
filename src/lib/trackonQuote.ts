@@ -5,6 +5,7 @@ import type {
   TrackonWeightSlabs,
 } from '../types/trackon-rates';
 import { ceilChargeableKg, ceilCourierChargeInr } from './stCourierQuote';
+import { TRACKON_SERVICE_META } from '../types/logistics-courier-rates';
 import {
   isTrackonNorthDestination,
   isTrackonSouthDestination,
@@ -44,7 +45,7 @@ export interface TrackonQuoteResult {
   totalInr: number;
   notServiceable: boolean;
   rateMissing: boolean;
-  sku: 'TRFRC';
+  sku: 'TRAIR' | 'TRFRC';
 }
 
 function nonNeg(value: number | null | undefined): number {
@@ -119,7 +120,7 @@ export function quoteTrackonShipment(input: TrackonQuoteInput): TrackonQuoteResu
     totalInr: 0,
     notServiceable: Boolean(flags.notServiceable),
     rateMissing: Boolean(flags.rateMissing),
-    sku: 'TRFRC',
+    sku: TRACKON_SERVICE_META[service].sku,
   });
 
   if (!destinationId) return empty({ rateMissing: true });
@@ -187,7 +188,7 @@ export function quoteTrackonShipment(input: TrackonQuoteInput): TrackonQuoteResu
     totalInr,
     notServiceable: false,
     rateMissing: false,
-    sku: 'TRFRC',
+    sku: TRACKON_SERVICE_META[service].sku,
   };
 }
 

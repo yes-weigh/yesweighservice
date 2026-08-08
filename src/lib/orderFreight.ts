@@ -40,7 +40,7 @@ export const PICKUP_PARTNER_ID: LogisticsPartnerId = 'personal_collection';
 
 const PARTNER_TO_FREIGHT_SKU: Partial<Record<LogisticsPartnerId, FreightLineSku>> = {
   st_courier: 'STFRC',
-  trackon_air: 'TRFRC',
+  trackon_air: 'TRAIR',
   trackon_surface: 'TRFRC',
   delhivery: 'DELFRC',
   bluedart_air: 'BDAIR',
@@ -67,7 +67,7 @@ export function partnerIdForFreightSku(sku: string | null | undefined): Logistic
   if (!value) return null;
   const bdService = blueDartServiceForFreightSku(value);
   if (bdService) return partnerIdForBlueDartService(bdService);
-  /** TRFRC is shared by Trackon Air + Surface — default to Surface. */
+  if (value === 'TRAIR') return 'trackon_air';
   if (value === 'TRFRC') return 'trackon_surface';
   const hit = (Object.entries(PARTNER_TO_FREIGHT_SKU) as Array<[LogisticsPartnerId, FreightLineSku]>)
     .find(([, freightSku]) => freightSku === value);

@@ -135,11 +135,11 @@ export interface LogisticsCourierRates {
 
 export const TRACKON_SERVICE_META: Record<TrackonServiceId, {
   label: string;
-  sku: 'TRFRC';
+  sku: 'TRAIR' | 'TRFRC';
 }> = {
   air: {
     label: 'Air',
-    sku: 'TRFRC',
+    sku: 'TRAIR',
   },
   surface: {
     label: 'Surface',

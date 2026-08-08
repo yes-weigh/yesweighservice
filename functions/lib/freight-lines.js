@@ -6,6 +6,11 @@ export const FREIGHT_LINE_OPTIONS = [
     name: 'ST COURIER FREIGHT',
   },
   {
+    productId: '99381000032106054',
+    sku: 'TRAIR',
+    name: 'TRACKON AIR FREIGHT',
+  },
+  {
     productId: '99381000031675164',
     sku: 'TRFRC',
     name: 'TRACKON COURIER FREIGHT',

@@ -573,19 +573,21 @@ async function createSegmentSalesOrders({
 
     const freightOnBucket = segmentLines.find(isFreightOrderLine);
     const freightSku = String(freightOnBucket?.sku ?? '').trim().toUpperCase();
-    const courierPartner = freightSku === 'TRFRC'
-      ? 'trackon_surface'
-      : freightSku === 'DELFRC'
-        ? 'delhivery'
-        : freightSku === 'STFRC'
-          ? 'st_courier'
-          : freightSku === 'BDAIR'
-            ? 'bluedart_air'
-            : freightSku === 'BDFRC'
-              ? 'bluedart_surface'
-              : freightSku === 'BDDP'
-                ? 'bluedart_domestic'
-                : (segmentLines.some(isFreightOrderLine) ? 'st_courier' : 'personal_collection');
+    const courierPartner = freightSku === 'TRAIR'
+      ? 'trackon_air'
+      : freightSku === 'TRFRC'
+        ? 'trackon_surface'
+        : freightSku === 'DELFRC'
+          ? 'delhivery'
+          : freightSku === 'STFRC'
+            ? 'st_courier'
+            : freightSku === 'BDAIR'
+              ? 'bluedart_air'
+              : freightSku === 'BDFRC'
+                ? 'bluedart_surface'
+                : freightSku === 'BDDP'
+                  ? 'bluedart_domestic'
+                  : (segmentLines.some(isFreightOrderLine) ? 'st_courier' : 'personal_collection');
 
     const segmentPriceChanges = filterPriceAuditForLines(
       workflowBase.yesOnePriceChanges,

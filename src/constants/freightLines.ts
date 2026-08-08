@@ -8,10 +8,17 @@ export const FREIGHT_LINE_OPTIONS = [
     image: '/logistics/st-courier.png',
   },
   {
+    productId: '99381000032106054',
+    sku: 'TRAIR',
+    name: 'TRACKON AIR FREIGHT',
+    label: 'Trackon Air',
+    image: '/logistics/trackon.png',
+  },
+  {
     productId: '99381000031675164',
     sku: 'TRFRC',
     name: 'TRACKON COURIER FREIGHT',
-    label: 'Trackon',
+    label: 'Trackon Surface',
     image: '/logistics/trackon.png',
   },
   {

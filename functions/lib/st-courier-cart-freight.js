@@ -330,7 +330,7 @@ export function mapPackageInfo(raw) {
 const PARTNER_FREIGHT_SKU = {
   st_courier: 'STFRC',
   trackon: 'TRFRC',
-  trackon_air: 'TRFRC',
+  trackon_air: 'TRAIR',
   trackon_surface: 'TRFRC',
   delhivery: 'DELFRC',
   bluedart_air: 'BDAIR',
@@ -475,7 +475,7 @@ export function buildDealerAutoFreightLines({
             destination,
             parcels,
           })
-          : { totalInr: 0, sku: 'TRFRC' };
+          : { totalInr: 0, sku: PARTNER_FREIGHT_SKU[partnerId] || 'TRFRC' };
         totalInr = quoted.totalInr || 0;
         sku = quoted.sku || sku;
       } else {

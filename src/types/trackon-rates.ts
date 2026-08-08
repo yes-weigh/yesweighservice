@@ -4,8 +4,8 @@
  * Source: Phoenix Cargo Cochin quotation to Interweighing (27 Feb 2026).
  *
  * ## Services → booking partners / Zoho
- * - air → trackon_air → TRFRC (same Zoho freight item until a dedicated air SKU exists)
- * - surface → trackon_surface → TRFRC
+ * - air → trackon_air → TRAIR (99381000032106054)
+ * - surface → trackon_surface → TRFRC (99381000031675164)
  *
  * ## Modes
  * - Air: flat slabs 250g / 500g / 1kg (+ configurable addl per 500g above 1kg). Northern stations only on the sheet.

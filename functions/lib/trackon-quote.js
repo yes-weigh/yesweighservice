@@ -284,7 +284,7 @@ export function quoteTrackonParcels({
     totalInr: 0,
     notServiceable: Boolean(flags.notServiceable),
     rateMissing: Boolean(flags.rateMissing),
-    sku: 'TRFRC',
+    sku: service === 'air' ? 'TRAIR' : 'TRFRC',
   });
 
   if (!destId) return empty({ rateMissing: true });
@@ -353,6 +353,6 @@ export function quoteTrackonParcels({
     totalInr: ceilInr(freightInr + fuelSurchargeInr),
     notServiceable: false,
     rateMissing: false,
-    sku: 'TRFRC',
+    sku: service === 'air' ? 'TRAIR' : 'TRFRC',
   };
 }
