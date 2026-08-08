@@ -6,15 +6,23 @@ import {
   stCourierTrackFromBooking,
   type StCourierTrackResult,
 } from '../../lib/stCourierTrack';
+import {
+  fetchTrackonShipmentTrack,
+  trackonTrackFromBooking,
+} from '../../lib/trackonTrack';
 import type {
   LogisticsCourierDeliveryOffice,
   LogisticsCourierTrack,
 } from '../../types/logistics-dispatch';
 import { isStaffLogisticsSite, type StaffLogisticsSite } from '../../types/staff-logistics';
 
+export type CourierTrackProvider = 'st_courier' | 'trackon';
+
 interface StCourierTrackPanelProps {
   awb: string;
   bookingId?: string | null;
+  /** Defaults to ST Courier. Pass `trackon` for Trackon air/surface bookings. */
+  provider?: CourierTrackProvider;
   /** Ship-from site — picks the booking-office contact under history. */
   shipFromSite?: StaffLogisticsSite | string | null;
   /** Persisted destination office from ST pincode search (filled once on create). */
@@ -51,6 +59,7 @@ function phoneHrefFromContact(contact: string): string | null {
 export const StCourierTrackPanel: React.FC<StCourierTrackPanelProps> = ({
   awb,
   bookingId,
+  provider = 'st_courier',
   shipFromSite,
   courierDeliveryOffice,
   cachedTrack,
@@ -58,22 +67,30 @@ export const StCourierTrackPanel: React.FC<StCourierTrackPanelProps> = ({
 }) => {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
-  const [result, setResult] = useState<StCourierTrackResult | null>(
-    () => stCourierTrackFromBooking(cachedTrack),
-  );
+  const [result, setResult] = useState<StCourierTrackResult | null>(() => (
+    provider === 'trackon'
+      ? trackonTrackFromBooking(cachedTrack)
+      : stCourierTrackFromBooking(cachedTrack)
+  ));
 
-  // Keep panel in sync with Firestore booking data (no live ST fetch on open).
+  // Keep panel in sync with Firestore booking data (no live courier fetch on open).
   useEffect(() => {
-    setResult(stCourierTrackFromBooking(cachedTrack));
+    setResult(
+      provider === 'trackon'
+        ? trackonTrackFromBooking(cachedTrack)
+        : stCourierTrackFromBooking(cachedTrack),
+    );
     // Failed tracks map to Booked — don't surface raw courier error text.
     setError('');
-  }, [cachedTrack]);
+  }, [cachedTrack, provider]);
 
   const refresh = async () => {
     setLoading(true);
     setError('');
     try {
-      const next = await fetchStCourierShipmentTrack(awb, { bookingId });
+      const next = provider === 'trackon'
+        ? await fetchTrackonShipmentTrack(awb, { bookingId })
+        : await fetchStCourierShipmentTrack(awb, { bookingId });
       setResult(next);
       onTrackUpdated?.(next);
     } catch (err) {

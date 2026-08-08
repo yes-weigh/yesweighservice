@@ -480,7 +480,8 @@ export function stCourierTrackingUrl(consignmentNo: string): string {
 
 /**
  * Partner tracking URL encoded in the TO-column QR (null when not applicable).
- * ST Courier → https://service.yesweigh.in/track/st-courier?awb={AWB}
+ * ST Courier → /track/st-courier?awb=
+ * Trackon → /track/trackon?awb=
  */
 export function buildShippingLabelTrackingUrl(
   label: Pick<ShippingLabelViewModel, 'partnerId' | 'consignmentNo'>,
@@ -488,6 +489,13 @@ export function buildShippingLabelTrackingUrl(
   const awb = label.consignmentNo?.trim();
   if (!awb || awb === '—') return null;
   if (label.partnerId === 'st_courier') return stCourierTrackingUrl(awb);
+  if (
+    label.partnerId === 'trackon_air'
+    || label.partnerId === 'trackon_surface'
+    || label.partnerId === 'trackon'
+  ) {
+    return logisticsTrackingUrl(label.partnerId, awb);
+  }
   return null;
 }
 

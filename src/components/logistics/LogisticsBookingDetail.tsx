@@ -145,6 +145,11 @@ export const LogisticsBookingDetail: React.FC<LogisticsBookingDetailProps> = ({
   const trackAwb = (booking.trackingNo || booking.consignmentNo || '').trim();
   const trackUrl = logisticsTrackingUrl(booking.partnerId, trackAwb);
   const isStCourier = booking.partnerId === 'st_courier';
+  const isTrackon = (
+    booking.partnerId === 'trackon_air'
+    || booking.partnerId === 'trackon_surface'
+  );
+  const showInAppTrack = (isStCourier || isTrackon) && Boolean(trackAwb);
 
   const markDocumentGenerated = useCallback(async (document: LogisticsDocumentType) => {
     if (!user || !isOps) return;
@@ -377,13 +382,13 @@ export const LogisticsBookingDetail: React.FC<LogisticsBookingDetailProps> = ({
           <h3>{logisticsPartnerLabel(booking.partnerId)}</h3>
           <p className="text-muted text-sm">
             {booking.orderRef} · {booking.trackingNo}
-            {isStCourier && booking.courierTrack?.ok && booking.courierTrack.status
+            {showInAppTrack && booking.courierTrack?.ok && booking.courierTrack.status
               ? ` · ${booking.courierTrack.status}`
               : ''}
           </p>
         </div>
         <div className="logistics-booking__header-actions">
-          {!isStCourier && trackUrl && (
+          {!showInAppTrack && trackUrl && (
             <a
               href={trackUrl}
               target="_blank"
@@ -461,12 +466,13 @@ export const LogisticsBookingDetail: React.FC<LogisticsBookingDetailProps> = ({
         </div>
       )}
 
-      {isStCourier && trackAwb && (
+      {showInAppTrack && (
         <StCourierTrackPanel
           awb={trackAwb}
           bookingId={booking.id}
+          provider={isTrackon ? 'trackon' : 'st_courier'}
           shipFromSite={booking.shipFromSite}
-          courierDeliveryOffice={booking.courierDeliveryOffice}
+          courierDeliveryOffice={isStCourier ? booking.courierDeliveryOffice : null}
           cachedTrack={booking.courierTrack}
           onTrackUpdated={(track) => {
             let nextStatus = booking.status;

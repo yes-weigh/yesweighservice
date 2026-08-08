@@ -24,7 +24,8 @@ export function logisticsTrackingUrl(
     case 'trackon':
     case 'trackon_air':
     case 'trackon_surface':
-      return `https://trackon.in/Tracking/t1.jsp?txtAction=track&txtAWBNo=${encoded}`;
+      // Legacy t1.jsp 404s. Use our proxy that scrapes trackon.in multi-track.
+      return trackonAppTrackingUrl(awb);
     case 'st_courier':
       // Old erpstcourier.com AWB page now 404s. Use our proxy that scrapes
       // https://www.stcourier.com/track/shipment and shows status.
@@ -41,7 +42,19 @@ export function stCourierAppTrackingUrl(awb: string, origin?: string): string {
   return `${base}/track/st-courier?awb=${value}`;
 }
 
+/** Absolute app URL that auto-fetches Trackon status for an AWB. */
+export function trackonAppTrackingUrl(awb: string, origin?: string): string {
+  const value = encodeURIComponent(String(awb ?? '').trim());
+  const base = (origin || APP_TRACK_ORIGIN).replace(/\/$/, '');
+  return `${base}/track/trackon?awb=${value}`;
+}
+
 /** Official ST Courier track form (manual entry). */
 export function stCourierOfficialTrackingUrl(): string {
   return 'https://www.stcourier.com/track/shipment';
+}
+
+/** Official Trackon track form (manual entry). */
+export function trackonOfficialTrackingUrl(): string {
+  return 'https://www.trackon.in/courier-tracking';
 }

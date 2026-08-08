@@ -156,6 +156,14 @@ import {
   syncStCourierTrackingForBookings,
 } from './lib/st-courier-track-sync.js';
 import {
+  fetchTrackonTrack,
+  renderTrackonTrackHtml,
+} from './lib/trackon-track.js';
+import {
+  persistTrackonTrackOnBooking,
+  syncTrackonTrackingForBookings,
+} from './lib/trackon-track-sync.js';
+import {
   submitDealerOrder as submitDealerOrderRecord,
   createStaffSalesOrder as createStaffSalesOrderRecord,
   confirmMirroredSalesOrder as confirmMirroredSalesOrderRecord,
@@ -4175,6 +4183,106 @@ export const syncStCourierTrackingScheduled = onSchedule(
     });
     console.log(
       `syncStCourierTracking: scanned=${summary.scanned}, targeted=${summary.targeted}, `
+      + `ok=${summary.fetchedOk}, fail=${summary.fetchedFail}, updated=${summary.updated}, `
+      + `statusAdvanced=${summary.statusAdvanced}, errors=${summary.errors.length}`,
+    );
+  },
+);
+
+/**
+ * Hosting rewrite: GET /track/trackon?awb=XXXXXXXX
+ */
+export const trackTrackonShipmentHttp = onRequest(
+  {
+    region: 'asia-south1',
+    invoker: 'public',
+    timeoutSeconds: 60,
+    memory: '256MiB',
+  },
+  async (req, res) => {
+    if (req.method !== 'GET' && req.method !== 'HEAD') {
+      res.status(405).send('Method not allowed');
+      return;
+    }
+    try {
+      const awb = String(req.query?.awb ?? req.query?.keyword ?? '').trim();
+      const result = await fetchTrackonTrack(awb);
+      res.set('Cache-Control', 'no-store');
+      res.status(result.ok ? 200 : 404).type('html').send(renderTrackonTrackHtml(result));
+    } catch (err) {
+      console.error('trackTrackonShipmentHttp failed:', err);
+      res.status(500).type('html').send(
+        '<!doctype html><title>Track unavailable</title><p>Could not fetch Trackon status right now.</p>',
+      );
+    }
+  },
+);
+
+/** Authenticated Trackon tracking JSON for in-app track panel. */
+export const trackTrackonShipmentFn = onCall(
+  {
+    region: 'asia-south1',
+    timeoutSeconds: 60,
+    memory: '256MiB',
+  },
+  async request => {
+    await requireActiveUser(request.auth?.uid, ALLOWED_ROLES, { allowViewOnly: true });
+    const awb = String(request.data?.awb ?? request.data?.trackingNo ?? '').trim();
+    const bookingId = String(request.data?.bookingId ?? '').trim();
+    try {
+      const result = await fetchTrackonTrack(awb);
+      if (bookingId && result) {
+        try {
+          await persistTrackonTrackOnBooking(getFirestore(), bookingId, result, {
+            updatePipelineStatus: true,
+          });
+        } catch (persistErr) {
+          console.warn(
+            'trackTrackonShipmentFn: persist failed for',
+            bookingId,
+            persistErr?.message || persistErr,
+          );
+        }
+      }
+      return result;
+    } catch (err) {
+      if (err instanceof HttpsError) throw err;
+      throw new HttpsError(
+        'internal',
+        err?.message ?? 'Could not fetch Trackon shipment status.',
+      );
+    }
+  },
+);
+
+/**
+ * Hourly: sync open Trackon logistics bookings (air + surface) from trackon.in,
+ * persist courierTrack (+ history), and advance status when delivered.
+ */
+export const syncTrackonTrackingScheduled = onSchedule(
+  {
+    schedule: '5 * * * *',
+    timeZone: 'Asia/Kolkata',
+    region: 'asia-south1',
+    timeoutSeconds: 540,
+    memory: '512MiB',
+  },
+  async () => {
+    const summary = await syncTrackonTrackingForBookings(getFirestore(), {
+      includeDelivered: false,
+      includeCancelled: false,
+      concurrency: 2,
+      delayMs: 350,
+      onProgress: (event) => {
+        if (event.type === 'error' || event.type === 'write_error') {
+          console.warn(
+            `syncTrackonTracking: ${event.type} id=${event.id} awb=${event.awb}: ${event.error}`,
+          );
+        }
+      },
+    });
+    console.log(
+      `syncTrackonTracking: scanned=${summary.scanned}, targeted=${summary.targeted}, `
       + `ok=${summary.fetchedOk}, fail=${summary.fetchedFail}, updated=${summary.updated}, `
       + `statusAdvanced=${summary.statusAdvanced}, errors=${summary.errors.length}`,
     );

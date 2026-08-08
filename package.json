@@ -26,6 +26,7 @@
     "measure:invoices": "node scripts/measure-invoice-size.mjs",
     "import:category-thumbnails": "node scripts/import-category-thumbnails-from-crm.mjs",
     "backfill:st-courier-tracking": "node scripts/backfill-st-courier-tracking.mjs",
+    "backfill:trackon-tracking": "node scripts/backfill-trackon-tracking.mjs",
     "backfill:st-courier-delivery-office": "node scripts/backfill-st-courier-delivery-office.mjs",
     "backfill:logistics-status-rename": "node scripts/backfill-logistics-status-rename.mjs",
     "migrate:support-status": "node scripts/migrate-support-status.mjs",

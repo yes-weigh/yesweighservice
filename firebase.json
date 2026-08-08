@@ -93,6 +93,13 @@
         }
       },
       {
+        "source": "/track/trackon",
+        "function": {
+          "functionId": "trackTrackonShipmentHttp",
+          "region": "asia-south1"
+        }
+      },
+      {
         "source": "**",
         "destination": "/index.html"
       }

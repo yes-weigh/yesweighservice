@@ -179,12 +179,17 @@ function formatInstantDateTime(iso: string | null | undefined): string | null {
   return `${day} | ${time}`;
 }
 
-/** Last ST track sync label for list tiles (not tracked / failed / time). */
+/** Last ST / Trackon track sync label for list tiles (not tracked / failed / time). */
 function lastTrackedLabel(booking: LogisticsBooking): {
   text: string;
   tone: 'ok' | 'failed' | 'missing';
 } | null {
-  if (booking.partnerId !== 'st_courier') return null;
+  const trackedPartner = (
+    booking.partnerId === 'st_courier'
+    || booking.partnerId === 'trackon_air'
+    || booking.partnerId === 'trackon_surface'
+  );
+  if (!trackedPartner) return null;
   const track = booking.courierTrack;
   const fetchedAt = formatInstantDateTime(track?.fetchedAt || booking.trackFetchedAt);
   if (!track && !booking.trackFetchedAt) {
