@@ -25,7 +25,7 @@ export const LOGISTICS_BOOKING_STATUSES: ReadonlyArray<{
   id: LogisticsBookingStatus;
   label: string;
 }> = [
-  { id: 'label_generated', label: 'Label Generated' },
+  { id: 'label_generated', label: 'Booked' },
   { id: 'shipped', label: 'Shipped' },
   { id: 'in_transit', label: 'In Transit' },
   { id: 'delivered', label: 'Delivered' },
@@ -35,12 +35,12 @@ export const LOGISTICS_BOOKING_STATUSES: ReadonlyArray<{
 /** Stages shown in dashboard / filters. */
 export const LOGISTICS_DASHBOARD_STATUSES = LOGISTICS_BOOKING_STATUSES;
 
-/** Progress timeline after labels are generated. */
+/** Progress timeline after the booking is confirmed. */
 export const LOGISTICS_PIPELINE_STATUSES: ReadonlyArray<{
   id: LogisticsBookingStatus;
   label: string;
 }> = [
-  { id: 'label_generated', label: 'Label Generated' },
+  { id: 'label_generated', label: 'Booked' },
   { id: 'shipped', label: 'Shipped' },
   { id: 'in_transit', label: 'In Transit' },
   { id: 'delivered', label: 'Delivered' },
@@ -54,7 +54,7 @@ export function isLogisticsDashboardStatus(
 
 /**
  * Early wizard booking (before shipping labels). After labels, wizardStep may be
- * `final_photo` — that counts as Label Generated, not Incomplete.
+ * `final_photo` — that counts as Booked, not Incomplete.
  */
 export function isIncompleteLogisticsBooking(
   booking: Pick<LogisticsBooking, 'wizardStep'>,
@@ -219,7 +219,7 @@ export function boxChargeableWeight(box: Pick<ShipmentBox, 'weightKg' | 'volumet
 
 /**
  * Resolve the status a booking should have after a document is generated.
- * Shipping Label ⇒ at least "Label Generated".
+ * Shipping Label ⇒ at least "Booked".
  * Never regresses a booking that is already further along (or terminal).
  */
 export function statusForDocument(

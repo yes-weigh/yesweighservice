@@ -86,7 +86,7 @@ const STATUS_STAT_META: ReadonlyArray<{
   tone: CardTone;
 }> = [
   { id: 'all', label: 'All', shortLabel: 'All', Icon: LayoutGrid, tone: 'all' },
-  { id: 'label_generated', label: 'Label Generated', shortLabel: 'Label Generated', Icon: Tag, tone: 'label' },
+  { id: 'label_generated', label: 'Booked', shortLabel: 'Booked', Icon: Tag, tone: 'label' },
   { id: 'shipped', label: 'Shipped', shortLabel: 'Shipped', Icon: PackageCheck, tone: 'shipped' },
   { id: 'in_transit', label: 'In Transit', shortLabel: 'Transit', Icon: Truck, tone: 'transit' },
   { id: 'delivered', label: 'Delivered', shortLabel: 'Delivered', Icon: CheckCircle2, tone: 'delivered' },
@@ -190,7 +190,7 @@ function lastTrackedLabel(booking: LogisticsBooking): {
     return { text: 'Not tracked', tone: 'missing' };
   }
   if (track && track.ok === false) {
-    // Failed track is shown as Label Generated — no extra track line.
+    // Failed track is shown as Booked — no extra track line.
     return null;
   }
   if (fetchedAt) {
@@ -220,7 +220,7 @@ function cardToneForStatus(booking: LogisticsBooking): CardTone {
 function statusBadgeLabel(booking: LogisticsBooking): string {
   if (isIncompleteLogisticsBooking(booking)) return 'Incomplete';
   if (booking.status === 'cancelled') return 'Cancelled';
-  if (booking.status === 'label_generated') return 'Label Generated';
+  if (booking.status === 'label_generated') return 'Booked';
   if (booking.status === 'shipped') return 'Shipped';
   if (booking.status === 'in_transit') return 'In Transit';
   if (booking.status === 'delivered') return 'Delivered';
@@ -622,6 +622,12 @@ export const LogisticsPage: React.FC = () => {
   const closeBooking = useCallback(() => {
     setActiveBookingId(null);
   }, []);
+
+  // Detail replaces the list on the same route — reset scroll so it doesn't open mid-page.
+  useEffect(() => {
+    if (!activeBookingId) return;
+    window.scrollTo({ top: 0, left: 0, behavior: 'auto' });
+  }, [activeBookingId]);
 
   const applyStatFilter = useCallback((status: StatFilterId) => {
     setFilters(prev => ({ ...prev, status: '' }));

@@ -121,12 +121,15 @@ export const SoFreightExpandPanel: React.FC<Props> = ({
 
   useEffect(() => {
     if (hydratedRef.current) return;
+    // Wait until lines hydrate — first paint can be empty on SO detail.
+    if (lines.length === 0) return;
     hydratedRef.current = true;
     const freight = lines.find(isFreightDraftEditLine);
     if (!freight) return;
     const option = freightOptionByProductId(freight.productId)
       || freightOptionBySku(freight.sku);
-    const existingRate = Math.round(Number(freight.catalogRate ?? freight.rate) * 100) / 100;
+    // Prefer line.rate — catalogRate can be 0 for freight SKUs in the product catalog.
+    const existingRate = Math.round(Number(freight.rate || freight.catalogRate || 0) * 100) / 100;
     setFreightSku(option?.sku ?? null);
     setFreightAmount(Number.isFinite(existingRate) ? String(existingRate) : '');
     // Keep Zoho/manual freight amounts — auto-estimate must not overwrite them with ₹0.
@@ -143,9 +146,18 @@ export const SoFreightExpandPanel: React.FC<Props> = ({
   useEffect(() => {
     if (prevFreightInputsKeyRef.current === freightInputsKey) return;
     prevFreightInputsKeyRef.current = freightInputsKey;
-    setFreightAmountManual(false);
+    const freight = lines.find(isFreightDraftEditLine);
+    const existingRate = freight
+      ? Math.round(Number(freight.rate || freight.catalogRate || 0) * 100) / 100
+      : 0;
+    // Destination hydrate must not unlock overwrite of an existing charged freight line.
+    if (existingRate > 0) {
+      setFreightAmountManual(true);
+    } else {
+      setFreightAmountManual(false);
+    }
     lastAutoKeyRef.current = '';
-  }, [freightInputsKey]);
+  }, [freightInputsKey, lines]);
 
   const inferredZone = useMemo(
     () => inferStCourierZone(shippingDestination),
@@ -201,8 +213,14 @@ export const SoFreightExpandPanel: React.FC<Props> = ({
     const site = freightEstimate.sites[0];
     if (!site) return;
     const withoutFreight = lines.filter(line => !isFreightDraftEditLine(line));
+    const current = lines.find(isFreightDraftEditLine);
+    const currentAmount = current
+      ? Math.round(Number(current.rate || current.catalogRate || 0) * 100) / 100
+      : 0;
 
     if (isPickupPartner(site.partnerId) || site.isPickup) {
+      // Hidden SO detail panel: never strip an existing charged freight line.
+      if (!showUi && currentAmount > 0) return;
       const key = `${site.site}:pickup`;
       if (lastAutoKeyRef.current === key) return;
       lastAutoKeyRef.current = key;
@@ -215,19 +233,17 @@ export const SoFreightExpandPanel: React.FC<Props> = ({
     const sku = freightSkuForPartner(site.partnerId);
     if (!sku) return;
     const rate = Math.ceil(Number(freightEstimate.totalInr) || 0) || 0;
-    const current = lines.find(isFreightDraftEditLine);
-    const currentAmount = current
-      ? Math.round(Number(current.catalogRate ?? current.rate) * 100) / 100
-      : 0;
-    // Never clobber an existing positive freight line with a zero estimate
+    // Never clobber an existing freight line with a zero estimate
     // (common for Manual partners like Delhivery with no rate card).
-    if (rate === 0 && currentAmount > 0) {
+    if (rate === 0 && current) {
       setFreightAmountManual(true);
-      setFreightSku(String(current?.sku || sku).toUpperCase());
+      setFreightSku(String(current.sku || sku).toUpperCase());
       setFreightAmount(String(currentAmount));
       lastAutoKeyRef.current = `all:${site.partnerId}:keep:${currentAmount}`;
       return;
     }
+    // Hidden SO detail panel: only auto-apply real quotes, never invent ₹0 freight.
+    if (!showUi && rate === 0) return;
     const key = `all:${site.partnerId}:${rate}`;
     if (lastAutoKeyRef.current === key) return;
     lastAutoKeyRef.current = key;
@@ -244,7 +260,7 @@ export const SoFreightExpandPanel: React.FC<Props> = ({
     applyFreight(sku, String(rate));
     // Sync freight from estimate when courier / package / lines change.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [freightEstimate, freightAmountManual, disabled]);
+  }, [freightEstimate, freightAmountManual, disabled, showUi]);
 
   if (!showUi) return null;
 

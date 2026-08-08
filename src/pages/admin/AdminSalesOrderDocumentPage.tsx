@@ -259,6 +259,14 @@ export const AdminSalesOrderDocumentPage: React.FC = () => {
         continue;
       }
       usedDraftIds.add(draft.lineId);
+      const soRate = Number(line.rate) || 0;
+      const draftRate = Number(draft.rate) || 0;
+      // Don't let a ₹0 freight auto-estimate hide the SO's charged freight amount.
+      const rate = (
+        isFreightInvoiceLineItem(line)
+        && draftRate === 0
+        && soRate > 0
+      ) ? soRate : draftRate;
       mapped.push({
         ...line,
         id: draft.lineId === 'freight-line' ? line.id : draft.lineId,
@@ -267,9 +275,9 @@ export const AdminSalesOrderDocumentPage: React.FC = () => {
         sku: draft.sku,
         description: draft.description ?? line.description,
         imageUrl: draft.imageUrl ?? line.imageUrl,
-        rate: draft.rate,
+        rate,
         quantity: draft.quantity,
-        total: Math.round(draft.rate * draft.quantity * 100) / 100,
+        total: Math.round(rate * draft.quantity * 100) / 100,
       });
     }
 
@@ -404,6 +412,7 @@ export const AdminSalesOrderDocumentPage: React.FC = () => {
               description,
               imageUrl: line.imageUrl ?? null,
               rate: Number(line.rate) || 0,
+              total: Number(line.total) || 0,
               quantity: Math.max(1, Math.floor(line.quantity || 1)),
               unit: 'pcs',
               stockStatus: null,
@@ -470,15 +479,30 @@ export const AdminSalesOrderDocumentPage: React.FC = () => {
   };
 
   const saveLines = async () => {
-    if (!salesOrderId || savingLines) return;
+    if (!salesOrderId || savingLines || !salesOrder) return;
+    const soFreightRate = Math.round(
+      Number(
+        salesOrder.lineItems.find(line => isFreightInvoiceLineItem(line))?.rate ?? 0,
+      ) * 100,
+    ) / 100;
     const lines = withFreightDraftLinesLast(editLines)
       .filter(line => line.productId && line.quantity > 0)
-      .map(line => ({
-        productId: line.productId,
-        quantity: line.quantity,
-        rate: line.catalogRate,
-        gatcStampingPriceId: line.gatcStampingPriceId ?? null,
-      }));
+      .map(line => {
+        const isFreight = isFreightDraftEditLine(line);
+        let rate = Math.round(Number(
+          isFreight ? (line.rate || line.catalogRate || 0) : line.catalogRate,
+        ) * 100) / 100;
+        // Never push a wiped ₹0 freight over a charged SO freight line.
+        if (isFreight && rate === 0 && soFreightRate > 0) {
+          rate = soFreightRate;
+        }
+        return {
+          productId: line.productId,
+          quantity: line.quantity,
+          rate,
+          gatcStampingPriceId: line.gatcStampingPriceId ?? null,
+        };
+      });
     if (!lines.length) {
       window.alert('Add at least one line item.');
       return;

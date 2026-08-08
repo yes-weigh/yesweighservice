@@ -240,7 +240,7 @@ export const SalesOrderDraftLineEditor: React.FC<SalesOrderDraftLineEditorProps>
     if (!freight) return;
     const option = freightOptionByProductId(freight.productId)
       || freightOptionBySku(freight.sku);
-    const existingRate = Math.round(Number(freight.catalogRate ?? freight.rate) * 100) / 100;
+    const existingRate = Math.round(Number(freight.rate || freight.catalogRate || 0) * 100) / 100;
     setFreightSku(option?.sku ?? null);
     setFreightAmount(Number.isFinite(existingRate) ? String(existingRate) : '');
     // Keep Zoho/manual freight amounts — auto-estimate must not overwrite them with ₹0.
@@ -258,9 +258,17 @@ export const SalesOrderDraftLineEditor: React.FC<SalesOrderDraftLineEditorProps>
     if (!allowFreight) return;
     if (prevFreightInputsKeyRef.current === freightInputsKey) return;
     prevFreightInputsKeyRef.current = freightInputsKey;
-    setFreightAmountManual(false);
+    const freight = lines.find(isFreightDraftLine);
+    const existingRate = freight
+      ? Math.round(Number(freight.rate || freight.catalogRate || 0) * 100) / 100
+      : 0;
+    if (existingRate > 0) {
+      setFreightAmountManual(true);
+    } else {
+      setFreightAmountManual(false);
+    }
     lastAutoFreightKeyRef.current = '';
-  }, [allowFreight, freightInputsKey]);
+  }, [allowFreight, freightInputsKey, lines]);
 
   useEffect(() => {
     if (!allowFreight) return;
@@ -345,13 +353,13 @@ export const SalesOrderDraftLineEditor: React.FC<SalesOrderDraftLineEditorProps>
     const rate = Math.ceil(Number(site.totalInr) || 0) || 0;
     const current = lines.find(isFreightDraftLine);
     const currentAmount = current
-      ? Math.round(Number(current.catalogRate ?? current.rate) * 100) / 100
+      ? Math.round(Number(current.rate || current.catalogRate || 0) * 100) / 100
       : 0;
-    // Never clobber an existing positive freight line with a zero estimate
+    // Never clobber an existing freight line with a zero estimate
     // (common for Manual partners like Delhivery with no rate card).
-    if (rate === 0 && currentAmount > 0) {
+    if (rate === 0 && current) {
       setFreightAmountManual(true);
-      setFreightSku(String(current?.sku || sku).toUpperCase());
+      setFreightSku(String(current.sku || sku).toUpperCase());
       setFreightAmount(String(currentAmount));
       lastAutoFreightKeyRef.current = `${site.site}:${site.partnerId}:keep:${currentAmount}`;
       return;
@@ -935,6 +943,7 @@ export async function draftLinesFromSalesOrderItems(
     description?: string | null;
     imageUrl?: string | null;
     rate?: number;
+    total?: number;
     quantity?: number;
     unit?: string | null;
     stockStatus?: string | null;
@@ -952,10 +961,16 @@ export async function draftLinesFromSalesOrderItems(
       : Math.round(Number(item.rate ?? 0) * 100) / 100;
     // Existing SO lines already have combined rate; we cannot recover fee without meta.
     // Treat full rate as base with no stamping unless product has GATC and rate matches base+fee.
+    // Freight catalog list price is often ₹0 — prefer SO line rate/total.
+    const qty = Math.max(1, Math.floor(Number(item.quantity) || 1));
+    const fromTotal = Math.round((Number(item.total ?? 0) / qty) * 100) / 100;
+    const lineRate = Math.round(Number(item.rate ?? 0) * 100) / 100;
     let gatcFeePerUnit = 0;
     let gatcStampingPriceId: string | null = null;
     let gatcStampingRange: string | null = null;
-    let baseRate = Math.round(Number(item.rate ?? catalogRate) * 100) / 100;
+    let baseRate = Math.round(Number(
+      lineRate || fromTotal || catalogRate || 0,
+    ) * 100) / 100;
 
     if (product && productHasLinkedGatc(product)) {
       const linked = new Set(

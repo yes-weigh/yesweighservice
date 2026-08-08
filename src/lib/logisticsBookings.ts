@@ -175,7 +175,7 @@ function normalizeBookingStatus(raw: string): LogisticsBookingStatus {
     case 'delivered':
     case 'cancelled':
       return raw;
-    // Track-unavailable aliases → Label Generated
+    // Track-unavailable aliases → Booked (label_generated)
     case 'status_not_available':
     case 'tracking_failed':
       return 'label_generated';

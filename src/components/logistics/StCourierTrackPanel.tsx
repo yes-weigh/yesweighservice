@@ -65,7 +65,7 @@ export const StCourierTrackPanel: React.FC<StCourierTrackPanelProps> = ({
   // Keep panel in sync with Firestore booking data (no live ST fetch on open).
   useEffect(() => {
     setResult(stCourierTrackFromBooking(cachedTrack));
-    // Failed tracks map to Label Generated — don't surface raw courier error text.
+    // Failed tracks map to Booked — don't surface raw courier error text.
     setError('');
   }, [cachedTrack]);
 
