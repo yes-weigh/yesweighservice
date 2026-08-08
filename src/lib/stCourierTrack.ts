@@ -28,18 +28,62 @@ function callableError(err: unknown, fallback: string): Error {
 }
 
 /** Fetch live ST Courier status via Cloud Function (scrapes official site). */
-export async function fetchStCourierShipmentTrack(awb: string): Promise<StCourierTrackResult> {
+export async function fetchStCourierShipmentTrack(
+  awb: string,
+  options?: { bookingId?: string | null },
+): Promise<StCourierTrackResult> {
   try {
-    const fn = httpsCallable<{ awb: string }, StCourierTrackResult>(
+    const fn = httpsCallable<
+      { awb: string; bookingId?: string },
+      StCourierTrackResult
+    >(
       functions,
       'trackStCourierShipmentFn',
       { timeout: 60_000 },
     );
-    const result = await fn({ awb: awb.trim() });
+    const bookingId = options?.bookingId?.trim();
+    const result = await fn({
+      awb: awb.trim(),
+      ...(bookingId ? { bookingId } : {}),
+    });
     return result.data;
   } catch (err) {
     throw callableError(err, 'Could not fetch ST Courier shipment status.');
   }
+}
+
+/** Map a persisted booking.courierTrack snapshot into the live track result shape. */
+export function stCourierTrackFromBooking(
+  track: {
+    awb?: string;
+    ok?: boolean;
+    error?: string | null;
+    status?: string | null;
+    origin?: string | null;
+    destination?: string | null;
+    consignmentType?: string | null;
+    bookedAt?: string | null;
+    deliveredAt?: string | null;
+    history?: Array<{ at: string; location: string; activity: string }>;
+    sourceUrl?: string;
+    fetchedAt?: string;
+  } | null | undefined,
+): StCourierTrackResult | null {
+  if (!track) return null;
+  return {
+    awb: String(track.awb ?? ''),
+    ok: Boolean(track.ok),
+    error: track.error == null ? null : String(track.error),
+    status: track.status ?? null,
+    origin: track.origin ?? null,
+    destination: track.destination ?? null,
+    consignmentType: track.consignmentType ?? null,
+    bookedAt: track.bookedAt ?? null,
+    deliveredAt: track.deliveredAt ?? null,
+    history: Array.isArray(track.history) ? track.history : [],
+    sourceUrl: String(track.sourceUrl ?? ''),
+    fetchedAt: String(track.fetchedAt ?? ''),
+  };
 }
 
 export function openStCourierTrackPage(awb: string): void {

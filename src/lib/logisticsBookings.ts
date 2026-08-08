@@ -40,6 +40,7 @@ import type {
   LogisticsBooking,
   LogisticsBookingDraft,
   LogisticsBookingStatus,
+  LogisticsCourierTrack,
   LogisticsDealerSnapshot,
   LogisticsDocumentType,
   ShipmentBox,
@@ -49,6 +50,32 @@ import type {
 import { isStaffLogisticsSite, type StaffLogisticsSite } from '../types/staff-logistics';
 
 const COLLECTION = 'logisticsBookings';
+
+function mapCourierTrack(raw: unknown): LogisticsCourierTrack | null {
+  if (!raw || typeof raw !== 'object') return null;
+  const data = raw as DocumentData;
+  const history = Array.isArray(data.history)
+    ? data.history.map((item: DocumentData) => ({
+      at: String(item?.at ?? ''),
+      location: String(item?.location ?? ''),
+      activity: String(item?.activity ?? ''),
+    }))
+    : [];
+  return {
+    awb: String(data.awb ?? ''),
+    ok: Boolean(data.ok),
+    error: data.error == null ? null : String(data.error),
+    status: data.status == null ? null : String(data.status),
+    origin: data.origin == null ? null : String(data.origin),
+    destination: data.destination == null ? null : String(data.destination),
+    consignmentType: data.consignmentType == null ? null : String(data.consignmentType),
+    bookedAt: data.bookedAt == null ? null : String(data.bookedAt),
+    deliveredAt: data.deliveredAt == null ? null : String(data.deliveredAt),
+    history,
+    sourceUrl: String(data.sourceUrl ?? ''),
+    fetchedAt: String(data.fetchedAt ?? ''),
+  };
+}
 
 export interface LogisticsBookingListFilters {
   status?: LogisticsBookingStatus | '';
@@ -186,6 +213,7 @@ export function mapLogisticsBookingDoc(id: string, data: DocumentData): Logistic
     : boxes.length
       ? boxes.reduce((total, box) => total + Math.max(box.weightKg || 0, box.volumetricWeightKg || 0), 0)
       : Math.max(actualWeightKg, volumetricWeightKg);
+  const courierTrack = mapCourierTrack(data.courierTrack);
 
   return {
     id,
@@ -227,6 +255,12 @@ export function mapLogisticsBookingDoc(id: string, data: DocumentData): Logistic
     packingSlipGenerated: Boolean(data.packingSlipGenerated),
     status,
     wizardStep: typeof data.wizardStep === 'string' ? data.wizardStep : null,
+    courierTrack,
+    trackFetchedAt: typeof data.trackFetchedAt === 'string'
+      ? data.trackFetchedAt
+      : (courierTrack?.fetchedAt || null),
+    deliveredAt: typeof data.deliveredAt === 'string' ? data.deliveredAt : null,
+    inTransitAt: typeof data.inTransitAt === 'string' ? data.inTransitAt : null,
     createdAt: String(data.createdAt ?? ''),
     updatedAt: String(data.updatedAt ?? data.createdAt ?? ''),
     createdByUid: String(data.createdByUid ?? ''),

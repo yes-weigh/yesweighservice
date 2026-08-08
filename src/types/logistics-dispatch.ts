@@ -107,6 +107,29 @@ export interface LogisticsBookingDraft {
   labelGenerated: boolean;
 }
 
+/** Persisted ST Courier track snapshot (from hourly sync / live fetch). */
+export interface LogisticsCourierTrackHistoryItem {
+  at: string;
+  location: string;
+  activity: string;
+}
+
+export interface LogisticsCourierTrack {
+  awb: string;
+  ok: boolean;
+  error: string | null;
+  status: string | null;
+  origin: string | null;
+  destination: string | null;
+  consignmentType: string | null;
+  bookedAt: string | null;
+  /** ST Courier delivery date/time string when available. */
+  deliveredAt: string | null;
+  history: LogisticsCourierTrackHistoryItem[];
+  sourceUrl: string;
+  fetchedAt: string;
+}
+
 export interface LogisticsBooking {
   id: string;
   orderRef: string;
@@ -147,6 +170,13 @@ export interface LogisticsBooking {
   status: LogisticsBookingStatus;
   /** Wizard step while booking is still in progress (`null` once confirmed). */
   wizardStep?: string | null;
+  /** Last persisted ST Courier track (status + history). */
+  courierTrack?: LogisticsCourierTrack | null;
+  /** ISO timestamp of last ST track fetch (mirrors courierTrack.fetchedAt). */
+  trackFetchedAt?: string | null;
+  /** ISO or ST delivery timestamp when booking was marked delivered via sync. */
+  deliveredAt?: string | null;
+  inTransitAt?: string | null;
   createdAt: string;
   updatedAt: string;
   createdByUid: string;

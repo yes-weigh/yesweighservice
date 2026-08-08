@@ -5,31 +5,44 @@ import {
   fetchStCourierShipmentTrack,
   openStCourierOfficialTrackPage,
   openStCourierTrackPage,
+  stCourierTrackFromBooking,
   type StCourierTrackResult,
 } from '../../lib/stCourierTrack';
+import type { LogisticsCourierTrack } from '../../types/logistics-dispatch';
 
 interface StCourierTrackDialogProps {
   awb: string;
+  /** Persist refreshed track onto this logistics booking. */
+  bookingId?: string | null;
+  /** Last persisted snapshot (shown immediately, then refreshed live). */
+  cachedTrack?: LogisticsCourierTrack | null;
   onClose: () => void;
+  /** Called after a successful live fetch that was persisted. */
+  onTrackUpdated?: (track: StCourierTrackResult) => void;
 }
 
 export const StCourierTrackDialog: React.FC<StCourierTrackDialogProps> = ({
   awb,
+  bookingId,
+  cachedTrack,
   onClose,
+  onTrackUpdated,
 }) => {
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState('');
-  const [result, setResult] = useState<StCourierTrackResult | null>(null);
+  const cached = stCourierTrackFromBooking(cachedTrack);
+  const [loading, setLoading] = useState(!cached);
+  const [error, setError] = useState(cached && !cached.ok ? (cached.error || '') : '');
+  const [result, setResult] = useState<StCourierTrackResult | null>(cached);
 
   const load = async () => {
     setLoading(true);
     setError('');
     try {
-      const next = await fetchStCourierShipmentTrack(awb);
+      const next = await fetchStCourierShipmentTrack(awb, { bookingId });
       setResult(next);
       if (!next.ok) setError(next.error || 'Tracking details not found.');
+      else onTrackUpdated?.(next);
     } catch (err) {
-      setResult(null);
+      if (!result) setResult(null);
       setError(err instanceof Error ? err.message : 'Could not fetch status.');
     } finally {
       setLoading(false);
@@ -38,7 +51,9 @@ export const StCourierTrackDialog: React.FC<StCourierTrackDialogProps> = ({
 
   useEffect(() => {
     void load();
-  }, [awb]);
+    // Fresh open / AWB change — intentionally not depending on load.
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- refresh on awb/booking only
+  }, [awb, bookingId]);
 
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
@@ -48,6 +63,20 @@ export const StCourierTrackDialog: React.FC<StCourierTrackDialogProps> = ({
     return () => window.removeEventListener('keydown', onKey);
   }, [onClose]);
 
+  const fetchedLabel = result?.fetchedAt
+    ? (() => {
+      const parsed = Date.parse(result.fetchedAt);
+      if (Number.isNaN(parsed)) return result.fetchedAt;
+      return new Date(parsed).toLocaleString('en-IN', {
+        day: '2-digit',
+        month: 'short',
+        year: 'numeric',
+        hour: '2-digit',
+        minute: '2-digit',
+      });
+    })()
+    : null;
+
   return createPortal(
     <div className="st-track-dialog" role="dialog" aria-modal="true" aria-label="ST Courier tracking">
       <button type="button" className="st-track-dialog__backdrop" aria-label="Close" onClick={onClose} />
@@ -55,7 +84,11 @@ export const StCourierTrackDialog: React.FC<StCourierTrackDialogProps> = ({
         <header className="st-track-dialog__head">
           <div>
             <h3>ST Courier tracking</h3>
-            <p className="text-muted text-sm">AWB {awb}</p>
+            <p className="text-muted text-sm">
+              AWB {awb}
+              {fetchedLabel ? ` · Updated ${fetchedLabel}` : ''}
+              {loading ? ' · Refreshing…' : ''}
+            </p>
           </div>
           <div className="st-track-dialog__head-actions">
             <button

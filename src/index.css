@@ -20794,6 +20794,29 @@ body:has(.confirm-inline-bar) .confirm-inline-bar {
   color: #c4b5fd;
 }
 
+.logistics-shipment__tracked {
+  margin: 0.15rem 0 0;
+  font-size: 0.6875rem;
+  line-height: 1.3;
+  color: #94a3b8;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.logistics-shipment__tracked--ok {
+  color: #64748b;
+}
+
+.logistics-shipment__tracked--missing {
+  color: #94a3b8;
+  font-style: italic;
+}
+
+.logistics-shipment__tracked--failed {
+  color: #b45309;
+}
+
 .logistics-shipment__meta {
   display: flex;
   justify-content: space-between;

@@ -149,6 +149,10 @@ import {
   renderStCourierTrackHtml,
 } from './lib/st-courier-track.js';
 import {
+  persistStCourierTrackOnBooking,
+  syncStCourierTrackingForBookings,
+} from './lib/st-courier-track-sync.js';
+import {
   submitDealerOrder as submitDealerOrderRecord,
   createStaffSalesOrder as createStaffSalesOrderRecord,
   confirmMirroredSalesOrder as confirmMirroredSalesOrderRecord,
@@ -4058,8 +4062,23 @@ export const trackStCourierShipmentFn = onCall(
   async request => {
     await requireActiveUser(request.auth?.uid, ALLOWED_ROLES, { allowViewOnly: true });
     const awb = String(request.data?.awb ?? request.data?.trackingNo ?? '').trim();
+    const bookingId = String(request.data?.bookingId ?? '').trim();
     try {
-      return await fetchStCourierTrack(awb);
+      const result = await fetchStCourierTrack(awb);
+      if (bookingId && result) {
+        try {
+          await persistStCourierTrackOnBooking(getFirestore(), bookingId, result, {
+            updatePipelineStatus: true,
+          });
+        } catch (persistErr) {
+          console.warn(
+            'trackStCourierShipmentFn: persist failed for',
+            bookingId,
+            persistErr?.message || persistErr,
+          );
+        }
+      }
+      return result;
     } catch (err) {
       if (err instanceof HttpsError) throw err;
       throw new HttpsError(
@@ -4067,6 +4086,40 @@ export const trackStCourierShipmentFn = onCall(
         err?.message ?? 'Could not fetch ST Courier shipment status.',
       );
     }
+  },
+);
+
+/**
+ * Hourly: fetch ST Courier tracking for all non-delivered ST logistics bookings,
+ * persist courierTrack (+ history) on each booking, and advance status when delivered.
+ */
+export const syncStCourierTrackingScheduled = onSchedule(
+  {
+    schedule: '0 * * * *',
+    timeZone: 'Asia/Kolkata',
+    region: 'asia-south1',
+    timeoutSeconds: 540,
+    memory: '512MiB',
+  },
+  async () => {
+    const summary = await syncStCourierTrackingForBookings(getFirestore(), {
+      includeDelivered: false,
+      includeCancelled: false,
+      concurrency: 2,
+      delayMs: 350,
+      onProgress: (event) => {
+        if (event.type === 'error' || event.type === 'write_error') {
+          console.warn(
+            `syncStCourierTracking: ${event.type} id=${event.id} awb=${event.awb}: ${event.error}`,
+          );
+        }
+      },
+    });
+    console.log(
+      `syncStCourierTracking: scanned=${summary.scanned}, targeted=${summary.targeted}, `
+      + `ok=${summary.fetchedOk}, fail=${summary.fetchedFail}, updated=${summary.updated}, `
+      + `statusAdvanced=${summary.statusAdvanced}, errors=${summary.errors.length}`,
+    );
   },
 );
 

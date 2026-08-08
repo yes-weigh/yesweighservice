@@ -301,6 +301,9 @@ export const LogisticsBookingDetail: React.FC<LogisticsBookingDetailProps> = ({
           <h3>{logisticsPartnerLabel(booking.partnerId)}</h3>
           <p className="text-muted text-sm">
             {booking.orderRef} · {booking.trackingNo}
+            {isStCourier && booking.courierTrack?.ok && booking.courierTrack.status
+              ? ` · ${booking.courierTrack.status}`
+              : ''}
           </p>
         </div>
         <div className="logistics-booking__header-actions">
@@ -941,7 +944,29 @@ export const LogisticsBookingDetail: React.FC<LogisticsBookingDetailProps> = ({
       {stTrackOpen && trackAwb && (
         <StCourierTrackDialog
           awb={trackAwb}
+          bookingId={booking.id}
+          cachedTrack={booking.courierTrack}
           onClose={() => setStTrackOpen(false)}
+          onTrackUpdated={(track) => {
+            onUpdate({
+              ...booking,
+              courierTrack: {
+                awb: track.awb,
+                ok: track.ok,
+                error: track.error,
+                status: track.status,
+                origin: track.origin,
+                destination: track.destination,
+                consignmentType: track.consignmentType,
+                bookedAt: track.bookedAt,
+                deliveredAt: track.deliveredAt,
+                history: track.history,
+                sourceUrl: track.sourceUrl,
+                fetchedAt: track.fetchedAt,
+              },
+              trackFetchedAt: track.fetchedAt,
+            });
+          }}
         />
       )}
 

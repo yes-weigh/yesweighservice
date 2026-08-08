@@ -157,6 +157,47 @@ function formatShipmentDateTime(booking: LogisticsBooking): string {
   return `${day} | ${time}`;
 }
 
+function formatInstantDateTime(iso: string | null | undefined): string | null {
+  if (!iso) return null;
+  const ms = Date.parse(iso);
+  if (Number.isNaN(ms)) return iso;
+  const date = new Date(ms);
+  const day = date.toLocaleDateString('en-IN', {
+    day: '2-digit',
+    month: 'short',
+    year: 'numeric',
+  });
+  const time = date.toLocaleTimeString('en-IN', {
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: true,
+  });
+  return `${day} | ${time}`;
+}
+
+/** Last ST track sync label for list tiles (not tracked / failed / time). */
+function lastTrackedLabel(booking: LogisticsBooking): {
+  text: string;
+  tone: 'ok' | 'failed' | 'missing';
+} | null {
+  if (booking.partnerId !== 'st_courier') return null;
+  const track = booking.courierTrack;
+  const fetchedAt = formatInstantDateTime(track?.fetchedAt || booking.trackFetchedAt);
+  if (!track && !booking.trackFetchedAt) {
+    return { text: 'Not tracked', tone: 'missing' };
+  }
+  if (track && track.ok === false) {
+    return {
+      text: fetchedAt ? `Tracking failed · ${fetchedAt}` : 'Tracking failed',
+      tone: 'failed',
+    };
+  }
+  if (fetchedAt) {
+    return { text: `Last tracked ${fetchedAt}`, tone: 'ok' };
+  }
+  return { text: 'Not tracked', tone: 'missing' };
+}
+
 function cardToneForStatus(booking: LogisticsBooking): CardTone {
   if (isIncompleteLogisticsBooking(booking)) return 'incomplete';
   switch (booking.status) {
@@ -890,6 +931,7 @@ export const LogisticsPage: React.FC = () => {
                   const productItems = freight?.items.filter(
                     item => !item.isFreight && !item.isStampingFee,
                   ) ?? [];
+                  const tracked = lastTrackedLabel(booking);
                   return (
                     <li key={booking.id}>
                       <article
@@ -983,6 +1025,14 @@ export const LogisticsPage: React.FC = () => {
                                 <span>Exception · {formatShipmentDateTime(booking)}</span>
                               </div>
                             ) : null}
+
+                            {tracked && (
+                              <p
+                                className={`logistics-shipment__tracked logistics-shipment__tracked--${tracked.tone}`}
+                              >
+                                {tracked.text}
+                              </p>
+                            )}
 
                             <div className="logistics-shipment__meta">
                               <span className="logistics-shipment__meta-info">
