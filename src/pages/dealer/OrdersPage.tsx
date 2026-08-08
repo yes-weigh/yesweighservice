@@ -86,7 +86,6 @@ const DealerCartPage: React.FC = () => {
   const [courierRates, setCourierRates] = useState<LogisticsCourierRates | null>(null);
   const [deliveryRules, setDeliveryRules] = useState<LogisticsDeliveryRulesMatrix | null>(null);
   const [partnerStatuses, setPartnerStatuses] = useState<LogisticsPartnerStatuses | null>(null);
-  const [spareFreightMinimumInr, setSpareFreightMinimumInr] = useState(0);
   const [courierBySite, setCourierBySite] = useState<Partial<Record<InventorySite, LogisticsPartnerId>>>({});
 
   const base = user ? homePathForRole(user.role) : '/dealer';
@@ -110,7 +109,6 @@ const DealerCartPage: React.FC = () => {
         setCourierRates(rates);
         setDeliveryRules(settings.deliveryRules);
         setPartnerStatuses(settings.partnerStatuses);
-        setSpareFreightMinimumInr(settings.spareFreightMinimumInr);
       })
       .catch(() => { /* freight preview optional */ });
     return () => { cancelled = true; };
@@ -146,7 +144,6 @@ const DealerCartPage: React.FC = () => {
       rates: courierRates,
       deliveryRules,
       partnerStatuses,
-      spareFreightMinimumInr,
       courierBySite,
       blueDartPin,
     });
@@ -154,7 +151,6 @@ const DealerCartPage: React.FC = () => {
     courierRates,
     deliveryRules,
     partnerStatuses,
-    spareFreightMinimumInr,
     items,
     shippingDestination,
     catalogById,

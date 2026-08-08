@@ -1,6 +1,8 @@
 import {
   applyPriceLevelPercent,
   isDefaultDealerPriceLevel,
+  normalizePriceLevelSlabs,
+  resolveSlabUnitRate,
   roundMoney,
   SPARE_PRICE_LEVEL_CATEGORY_ID,
   SPARE_PRICE_LEVEL_CATEGORY_NAME,
@@ -302,8 +304,12 @@ export function currentCategoryChargeForProduct(
       return { chargeRate: list, mode: 'none', percent: 0, hasRule: true };
     }
     if (item.kind === 'fixed') {
+      const slabs = normalizePriceLevelSlabs(item.slabs);
+      const chargeRate = slabs.length > 0
+        ? resolveSlabUnitRate(slabs, 1, list)
+        : roundMoney(Number(item.customRate) || 0);
       return {
-        chargeRate: roundMoney(Number(item.customRate) || 0),
+        chargeRate,
         mode: 'fixed',
         percent: 0,
         hasRule: true,
@@ -353,28 +359,33 @@ export type ExistingSpareLevelPriceRow = {
   isDefault: boolean;
 };
 
-/** Existing category level rules for one product (saved price levels). */
+/**
+ * Effective charge for one product under every price level.
+ * Levels without a rule still appear (charge = list / default).
+ */
 export function existingCategoryLevelPricingForProduct(
   levels: PriceLevel[],
   categoryId: string,
   productId: string,
   listRate: number,
 ): ExistingSpareLevelPriceRow[] {
-  const sorted = [...levels].sort(
-    (a, b) => a.sortOrder - b.sortOrder || a.name.localeCompare(b.name),
-  );
+  // Default Dealers level first, then other levels by sortOrder.
+  const sorted = [...levels].sort((a, b) => {
+    const aDef = isDefaultDealerPriceLevel(a) ? 0 : 1;
+    const bDef = isDefaultDealerPriceLevel(b) ? 0 : 1;
+    if (aDef !== bDef) return aDef - bDef;
+    return a.sortOrder - b.sortOrder || a.name.localeCompare(b.name);
+  });
   const out: ExistingSpareLevelPriceRow[] = [];
   for (const level of sorted) {
     const summary = currentCategoryChargeForProduct(level, categoryId, productId, listRate);
-    const isDefault = isDefaultDealerPriceLevel(level);
-    if (!isDefault && !summary.hasRule) continue;
     out.push({
       levelId: level.id,
       levelName: level.name,
       chargeRate: summary.chargeRate,
       mode: summary.mode,
       percent: summary.percent,
-      isDefault,
+      isDefault: isDefaultDealerPriceLevel(level),
     });
   }
   return out;

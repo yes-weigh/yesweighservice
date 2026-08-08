@@ -13,6 +13,7 @@ import { FetchingLoader } from '../../components/FetchingLoader';
 import { DealerStatusCell } from '../../components/dealers/DealerStatusCell';
 import { DealerTile } from '../../components/dealers/DealerTile';
 import { DealerStatusLegend } from '../../components/dealers/DealerStatusLegend';
+import { DealerLevelDefinitionsPanel } from '../../components/dealers/DealerLevelDefinitionsPanel';
 import { ZohoSalespersonsPanel } from '../../components/dealers/ZohoSalespersonsPanel';
 import { useAuth } from '../../context/AuthContext';
 import { useConfirm } from '../../context/ConfirmContext';
@@ -31,13 +32,14 @@ import {
 } from '../../lib/dealers';
 import { type AssignableStaffOption, type DealerListParams, type ZohoDealer } from '../../types/dealers';
 import { homePathForRole, type Role } from '../../types';
-import { hasStaffPermission } from '../../lib/staffAccess';
-import { catalogBaseForRole } from '../../lib/catalogRoutes';
+import { canViewDealersInHr, hasStaffPermission } from '../../lib/staffAccess';
 
-type DealersMainTab = 'roster' | 'salespersons';
+type DealersMainTab = 'roster' | 'salespersons' | 'dealer-level';
 
 function parseDealersTab(value: string | null): DealersMainTab {
-  if (value === 'salespersons') return value;
+  if (value === 'salespersons' || value === 'dealer-level') return value;
+  // Legacy query from when levels lived under Products.
+  if (value === 'price-levels') return 'dealer-level';
   return 'roster';
 }
 
@@ -62,6 +64,7 @@ export function ZohoDealersPage() {
   const dealersBase = user ? dealersListBase(user.role) : '/staff/dealers';
   const canSyncDealers = hasStaffPermission(user, 'dealers.sync');
   const canEditDealers = hasStaffPermission(user, 'dealers.edit');
+  const canManageDealerLevels = canViewDealersInHr(user);
   const tabParam = searchParams.get('tab');
   const mainTab = parseDealersTab(tabParam);
   const setMainTab = (tab: DealersMainTab) => {
@@ -72,12 +75,16 @@ export function ZohoDealersPage() {
     setSearchParams({ tab }, { replace: true });
   };
 
-  /** Price level moved to Products → Price level. */
+  /** Normalize legacy ?tab=price-levels → dealer-level. */
   useEffect(() => {
     if (tabParam !== 'price-levels') return;
-    const base = user ? catalogBaseForRole(user.role) : '/super-admin/products';
-    navigate(`${base}?section=price-levels`, { replace: true });
-  }, [tabParam, user, navigate]);
+    setSearchParams({ tab: 'dealer-level' }, { replace: true });
+  }, [tabParam, setSearchParams]);
+
+  useEffect(() => {
+    if (mainTab !== 'dealer-level' || canManageDealerLevels) return;
+    setSearchParams({}, { replace: true });
+  }, [mainTab, canManageDealerLevels, setSearchParams]);
 
   const [searchTerm, setSearchTerm] = useState('');
   const debouncedSearch = useDebounce(searchTerm, 500);
@@ -371,10 +378,23 @@ export function ZohoDealersPage() {
         >
           Salesperson
         </button>
+        {canManageDealerLevels ? (
+          <button
+            type="button"
+            role="tab"
+            className={`dealers-page-tabs__tab${mainTab === 'dealer-level' ? ' dealers-page-tabs__tab--active' : ''}`}
+            aria-selected={mainTab === 'dealer-level'}
+            onClick={() => setMainTab('dealer-level')}
+          >
+            Dealer level
+          </button>
+        ) : null}
       </div>
 
       {mainTab === 'salespersons' ? (
         <ZohoSalespersonsPanel />
+      ) : mainTab === 'dealer-level' && canManageDealerLevels ? (
+        <DealerLevelDefinitionsPanel />
       ) : (
       <>
       {success && (

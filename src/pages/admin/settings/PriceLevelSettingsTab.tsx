@@ -2,7 +2,6 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   ArrowLeft,
   Check,
-  ChevronDown,
   Eye,
   EyeOff,
   Loader2,
@@ -11,8 +10,6 @@ import {
   Plus,
   Search,
   Trash2,
-  UserPlus,
-  Users,
   X,
 } from 'lucide-react';
 import { CategoryBrowseCard } from '../../../components/catalog/CategoryBrowseCard';
@@ -29,15 +26,9 @@ import {
   isGenericSparePartsCategory,
 } from '../../../lib/catalog';
 import {
-  ensureDealersCached,
-  peekCachedDealers,
-  subscribeDealerCache,
-} from '../../../lib/dealer-cache';
-import { dealerMatchesLogisticsQuery } from '../../../lib/logisticsDealers';
-import {
   applyPriceLevelPercent,
   categoryRuleHasEffect,
-  createEmptyPriceLevel,
+  DEFAULT_DEALER_PRICE_LEVEL_ID,
   emptyCategoryRule,
   enforceUniqueDealerAssignments,
   isDefaultDealerPriceLevel,
@@ -52,7 +43,6 @@ import {
   toggleRestrictedCategoryId,
 } from '../../../lib/priceLevels';
 import type { CatalogCategory, CatalogProduct } from '../../../types/catalog';
-import type { ZohoDealer } from '../../../types/dealers';
 import type {
   PriceLevel,
   PriceLevelCategoryRule,
@@ -74,12 +64,20 @@ type OverrideEditorDraft = {
 type OverrideEditorState = {
   category: CatalogCategory;
   product: CatalogProduct;
-  draft: OverrideEditorDraft;
-  isExisting: boolean;
+  /** Active level tab (default Dealers first). */
+  activeLevelId: string;
+  draftsByLevelId: Record<string, OverrideEditorDraft>;
+  existingByLevelId: Record<string, boolean>;
 };
 
-function dealerLabel(d: Pick<ZohoDealer, 'contactName' | 'companyName' | 'id'>): string {
-  return (d.companyName || d.contactName || d.id).trim();
+/** Default Dealers level first, then other levels by sortOrder / name. */
+function orderPriceLevelsForUi(levels: PriceLevel[]): PriceLevel[] {
+  return [...levels].sort((a, b) => {
+    const aDef = isDefaultDealerPriceLevel(a) ? 0 : 1;
+    const bDef = isDefaultDealerPriceLevel(b) ? 0 : 1;
+    if (aDef !== bDef) return aDef - bDef;
+    return a.sortOrder - b.sortOrder || a.name.localeCompare(b.name);
+  });
 }
 
 function draftFromItemRule(rule: PriceLevelItemRule, listRate: number): OverrideEditorDraft {
@@ -129,18 +127,6 @@ function formatCategoryRuleBadge(
     );
   }
   return parts.length ? parts.join(' · ') : null;
-}
-
-function namesFromDealers(
-  dealers: ZohoDealer[],
-  dealerIds: string[],
-): Record<string, string> {
-  const byId = new Map(dealers.map(d => [d.id, dealerLabel(d)]));
-  const names: Record<string, string> = {};
-  for (const id of dealerIds) {
-    names[id] = byId.get(id) || id;
-  }
-  return names;
 }
 
 function formatOverrideMoney(value: number): string {
@@ -196,25 +182,45 @@ function itemOverrideDisplay(rule: PriceLevelItemRule, listRate: number): {
   };
 }
 
+/** Aggregate badge across all levels for a category tile. */
+function formatCategoryAggregateBadge(
+  levels: PriceLevel[],
+  categoryId: string,
+): string | null {
+  let levelCount = 0;
+  let maxAltered = 0;
+  for (const level of levels) {
+    const rule = level.categoryRules.find(r => r.categoryId === categoryId);
+    if (!categoryRuleHasEffect(rule ?? emptyCategoryRule(categoryId, ''))) continue;
+    levelCount += 1;
+    maxAltered = Math.max(maxAltered, countAlteredItemRules(rule));
+  }
+  if (levelCount === 0) return null;
+  const parts = [`${levelCount} level${levelCount === 1 ? '' : 's'}`];
+  if (maxAltered > 0) {
+    parts.push(`${maxAltered} item${maxAltered === 1 ? '' : 's'}`);
+  }
+  return parts.join(' · ');
+}
+
 export const PriceLevelSettingsTab: React.FC = () => {
   const { user } = useAuth();
   const [levels, setLevels] = useState<PriceLevel[]>([]);
   const [savedLevels, setSavedLevels] = useState<PriceLevel[]>([]);
-  const [selectedId, setSelectedId] = useState<string | null>(null);
+  /**
+   * Level being edited in a category's Level overrides workspace
+   * (tabs inside the category — not a page-level picker).
+   */
+  const [workspaceLevelId, setWorkspaceLevelId] = useState<string>(
+    DEFAULT_DEALER_PRICE_LEVEL_ID,
+  );
   /** Shop + synthetic Spare parts card (catalogue-aligned). */
   const [categories, setCategories] = useState<CatalogCategory[]>([]);
   const [products, setProducts] = useState<CatalogProduct[]>([]);
   const [spareProducts, setSpareProducts] = useState<CatalogProduct[]>([]);
-  const [dealerNames, setDealerNames] = useState<Record<string, string>>({});
-  const [allDealers, setAllDealers] = useState<ZohoDealer[]>(() => peekCachedDealers() ?? []);
-  const [dealersLoading, setDealersLoading] = useState(() => !(peekCachedDealers()?.length));
-  const [dealerSearchError, setDealerSearchError] = useState('');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [saveStatus, setSaveStatus] = useState<SaveStatus>('idle');
-  const [dealerQuery, setDealerQuery] = useState('');
-  /** Level name + dealer assignment — rarely edited; collapsed by default. */
-  const [showLevelMeta, setShowLevelMeta] = useState(false);
   /** Category selected from productsue-style grid for editing rules (Items mode). */
   const [ruleCategoryId, setRuleCategoryId] = useState<string | null>(null);
   /** Category workspace: level overrides vs Costs & New sell. */
@@ -222,7 +228,9 @@ export const PriceLevelSettingsTab: React.FC = () => {
   /** Filters the product browse grid in Items mode only. */
   const [itemQuery, setItemQuery] = useState('');
   const [overrideEditor, setOverrideEditor] = useState<OverrideEditorState | null>(null);
-  /** Flat discount/hike applied to every category on the selected level. */
+  /** Category whose visibility rules dialog is open. */
+  const [visibilityCategory, setVisibilityCategory] = useState<CatalogCategory | null>(null);
+  /** Flat discount/hike applied to every category on every level. */
   const [flatAllMode, setFlatAllMode] = useState<PriceLevelRuleMode>('discount');
   const [flatAllPercent, setFlatAllPercent] = useState<number | ''>('');
 
@@ -249,60 +257,56 @@ export const PriceLevelSettingsTab: React.FC = () => {
     const observer = new ResizeObserver(apply);
     observer.observe(chrome);
     return () => observer.disconnect();
-  }, [spareWorkspace, selectedId, ruleCategoryId]);
+  }, [spareWorkspace, workspaceLevelId, ruleCategoryId]);
 
   const exitCategoryEdit = useCallback(() => {
     setRuleCategoryId(null);
     setItemQuery('');
     setOverrideEditor(null);
     setSpareWorkspace('overrides');
+    setWorkspaceLevelId(DEFAULT_DEALER_PRICE_LEVEL_ID);
   }, []);
-
-  useEffect(() => {
-    setFlatAllMode('discount');
-    setFlatAllPercent('');
-  }, [selectedId]);
 
   levelsRef.current = levels;
   savedRef.current = savedLevels;
 
-  const selected = useMemo(
-    () => levels.find(l => l.id === selectedId) ?? null,
-    [levels, selectedId],
+  const levelsOrdered = useMemo(() => orderPriceLevelsForUi(levels), [levels]);
+
+  const workspaceLevel = useMemo(
+    () => levelsOrdered.find(l => l.id === workspaceLevelId)
+      ?? levelsOrdered.find(isDefaultDealerPriceLevel)
+      ?? levelsOrdered[0]
+      ?? null,
+    [levelsOrdered, workspaceLevelId],
   );
 
-  const selectedIsDefault = selected ? isDefaultDealerPriceLevel(selected) : false;
-
-  const unassignedDealerCount = useMemo(() => {
-    const assigned = new Set(
-      levels
-        .filter(level => !isDefaultDealerPriceLevel(level))
-        .flatMap(level => level.dealerIds),
-    );
-    return allDealers.filter(d => d.id && !assigned.has(d.id)).length;
-  }, [levels, allDealers]);
-
   useEffect(() => {
-    setRuleCategoryId(null);
-    setItemQuery('');
-    setShowLevelMeta(false);
-    setDealerQuery('');
-    setOverrideEditor(null);
-    setSpareWorkspace('overrides');
-  }, [selectedId]);
+    if (levelsOrdered.length === 0) return;
+    if (!levelsOrdered.some(l => l.id === workspaceLevelId)) {
+      setWorkspaceLevelId(
+        levelsOrdered.find(isDefaultDealerPriceLevel)?.id
+          ?? levelsOrdered[0].id,
+      );
+    }
+  }, [levelsOrdered, workspaceLevelId]);
 
   const rulesByCategoryId = useMemo(() => {
     const map = new Map<string, PriceLevelCategoryRule>();
-    for (const rule of selected?.categoryRules ?? []) {
+    for (const rule of workspaceLevel?.categoryRules ?? []) {
       map.set(rule.categoryId, rule);
     }
     return map;
-  }, [selected]);
+  }, [workspaceLevel]);
 
-  const activeRuleCount = useMemo(
-    () => (selected?.categoryRules ?? []).filter(categoryRuleHasEffect).length,
-    [selected],
-  );
+  const activeRuleCount = useMemo(() => {
+    const ids = new Set<string>();
+    for (const level of levels) {
+      for (const rule of level.categoryRules) {
+        if (categoryRuleHasEffect(rule)) ids.add(rule.categoryId);
+      }
+    }
+    return ids.size;
+  }, [levels]);
 
   const productsByCategory = useMemo(() => {
     const map = new Map<string, CatalogProduct[]>();
@@ -334,9 +338,12 @@ export const PriceLevelSettingsTab: React.FC = () => {
       ]);
       setLevels(docData.levels);
       setSavedLevels(docData.levels);
-      setSelectedId(prev => prev && docData.levels.some(l => l.id === prev)
-        ? prev
-        : (docData.levels[0]?.id ?? null));
+      const ordered = orderPriceLevelsForUi(docData.levels);
+      setWorkspaceLevelId(
+        ordered.find(isDefaultDealerPriceLevel)?.id
+          ?? ordered[0]?.id
+          ?? DEFAULT_DEALER_PRICE_LEVEL_ID,
+      );
 
       const allItems = catalog.items ?? [];
       const allCats = catalog.categories ?? [];
@@ -360,12 +367,6 @@ export const PriceLevelSettingsTab: React.FC = () => {
         thumbnailUrl: allCats.find(isGenericSparePartsCategory)?.thumbnailUrl ?? null,
       };
       setCategories(spares.length > 0 ? [...shopCats, spareCard] : shopCats);
-
-      const allDealerIds = [...new Set(docData.levels.flatMap(l => l.dealerIds))];
-      if (allDealerIds.length) {
-        const cached = peekCachedDealers() ?? [];
-        setDealerNames(namesFromDealers(cached, allDealerIds));
-      }
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Could not load price levels.');
     } finally {
@@ -377,61 +378,9 @@ export const PriceLevelSettingsTab: React.FC = () => {
     void load();
   }, [load]);
 
-  useEffect(() => {
-    let cancelled = false;
-    const cached = peekCachedDealers();
-    if (cached?.length) {
-      setAllDealers(cached);
-      setDealersLoading(false);
-    } else {
-      setDealersLoading(true);
-    }
-
-    const unsubscribe = subscribeDealerCache((list, complete) => {
-      if (cancelled) return;
-      setAllDealers(list);
-      if (complete || list.length > 0) setDealersLoading(false);
-    });
-
-    void ensureDealersCached()
-      .then(list => {
-        if (cancelled) return;
-        setAllDealers(list);
-        setDealersLoading(false);
-        setDealerSearchError('');
-      })
-      .catch(err => {
-        if (cancelled || peekCachedDealers()?.length) return;
-        setAllDealers([]);
-        setDealersLoading(false);
-        setDealerSearchError(
-          err instanceof Error ? err.message : 'Could not load dealers for search.',
-        );
-      });
-
-    return () => {
-      cancelled = true;
-      unsubscribe();
-    };
-  }, []);
-
-  useEffect(() => {
-    const ids = [...new Set(levels.flatMap(l => l.dealerIds))];
-    if (!ids.length || !allDealers.length) return;
-    setDealerNames(prev => ({ ...prev, ...namesFromDealers(allDealers, ids) }));
-  }, [levels, allDealers]);
-
   useEffect(() => () => {
     if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
   }, []);
-
-  const dealerHits = useMemo(() => {
-    const q = dealerQuery.trim();
-    if (q.length < 2) return [];
-    return allDealers
-      .filter(dealer => dealerMatchesLogisticsQuery(dealer, q))
-      .slice(0, 20);
-  }, [allDealers, dealerQuery]);
 
   const queueSave = useCallback((nextLevels: PriceLevel[]) => {
     if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
@@ -472,26 +421,9 @@ export const PriceLevelSettingsTab: React.FC = () => {
     });
   }, [queueSave]);
 
-  const addLevel = () => {
-    const level = createEmptyPriceLevel(`Level ${levels.length + 1}`, levels.length);
-    patchLevels(prev => [...prev, level]);
-    setSelectedId(level.id);
-  };
-
-  const removeLevel = (id: string) => {
-    if (isDefaultDealerPriceLevel(id)) return;
-    patchLevels(prev => prev.filter(l => l.id !== id));
-    setSelectedId(prev => {
-      if (prev !== id) return prev;
-      const remaining = levels.filter(l => l.id !== id);
-      return remaining[0]?.id ?? null;
-    });
-  };
-
-  const updateSelected = (patch: Partial<PriceLevel>) => {
-    if (!selectedId) return;
+  const updateLevel = (levelId: string, patch: Partial<PriceLevel>) => {
     patchLevels(prev => prev.map(l => {
-      if (l.id !== selectedId) return l;
+      if (l.id !== levelId) return l;
       if (isDefaultDealerPriceLevel(l)) {
         // Catch-all: pricing + visibility — name/dealers are fixed.
         return {
@@ -508,62 +440,55 @@ export const PriceLevelSettingsTab: React.FC = () => {
     }));
   };
 
-  const setCategoryRestricted = (categoryId: string, restricted: boolean) => {
-    if (!selected) return;
-    const next = toggleRestrictedCategoryId(selected, categoryId, restricted);
-    updateSelected({ restrictedCategoryIds: next.restrictedCategoryIds });
+  const setCategoryRestrictedOnLevel = (
+    levelId: string,
+    categoryId: string,
+    restricted: boolean,
+  ) => {
+    const level = levels.find(l => l.id === levelId);
+    if (!level) return;
+    const next = toggleRestrictedCategoryId(level, categoryId, restricted);
+    updateLevel(levelId, { restrictedCategoryIds: next.restrictedCategoryIds });
   };
 
-  const addDealer = (dealer: ZohoDealer) => {
-    if (!selected || isDefaultDealerPriceLevel(selected)) return;
-    setDealerNames(prev => ({ ...prev, [dealer.id]: dealerLabel(dealer) }));
-    patchLevels(prev => prev.map(level => {
-      if (level.id === selected.id) {
-        if (level.dealerIds.includes(dealer.id)) return level;
-        return { ...level, dealerIds: [...level.dealerIds, dealer.id] };
-      }
-      return {
-        ...level,
-        dealerIds: level.dealerIds.filter(id => id !== dealer.id),
-      };
-    }));
-    setDealerQuery('');
-  };
-
-  const removeDealer = (dealerId: string) => {
-    if (!selected || isDefaultDealerPriceLevel(selected)) return;
-    updateSelected({
-      dealerIds: selected.dealerIds.filter(id => id !== dealerId),
+  const clearCategoryRule = (categoryId: string, levelId = workspaceLevel?.id) => {
+    if (!levelId) return;
+    const level = levels.find(l => l.id === levelId);
+    if (!level) return;
+    updateLevel(levelId, {
+      categoryRules: level.categoryRules.filter(r => r.categoryId !== categoryId),
     });
   };
 
-  const clearCategoryRule = (categoryId: string) => {
-    if (!selected) return;
-    updateSelected({
-      categoryRules: selected.categoryRules.filter(r => r.categoryId !== categoryId),
-    });
-  };
-
-  const replaceCategoryRule = (nextRule: PriceLevelCategoryRule) => {
-    if (!selected) return;
-    const others = selected.categoryRules.filter(r => r.categoryId !== nextRule.categoryId);
+  const replaceCategoryRule = (
+    nextRule: PriceLevelCategoryRule,
+    levelId = workspaceLevel?.id,
+  ) => {
+    if (!levelId) return;
+    const level = levels.find(l => l.id === levelId);
+    if (!level) return;
+    const others = level.categoryRules.filter(r => r.categoryId !== nextRule.categoryId);
     if (nextRule.percent <= 0 && nextRule.itemRules.length === 0) {
-      updateSelected({ categoryRules: others });
+      updateLevel(levelId, { categoryRules: others });
       return;
     }
-    updateSelected({ categoryRules: [...others, nextRule] });
+    updateLevel(levelId, { categoryRules: [...others, nextRule] });
   };
 
-  const ensureCategoryRule = (category: CatalogCategory): PriceLevelCategoryRule => {
-    return rulesByCategoryId.get(category.id)
-      ?? emptyCategoryRule(category.id, category.name);
+  const ensureCategoryRule = (
+    category: CatalogCategory,
+    levelId = workspaceLevel?.id,
+  ): PriceLevelCategoryRule => {
+    const level = levels.find(l => l.id === levelId);
+    const existing = level?.categoryRules.find(r => r.categoryId === category.id);
+    return existing ?? emptyCategoryRule(category.id, category.name);
   };
 
   const upsertCategoryRule = (
     category: CatalogCategory,
     patch: Partial<Pick<PriceLevelCategoryRule, 'mode' | 'percent'>>,
   ) => {
-    if (!selected) return;
+    if (!workspaceLevel) return;
     const existing = ensureCategoryRule(category);
     const nextRule: PriceLevelCategoryRule = {
       ...existing,
@@ -583,100 +508,74 @@ export const PriceLevelSettingsTab: React.FC = () => {
     replaceCategoryRule(nextRule);
   };
 
-  /** Same discount/hike % on every category; keeps per-item overrides. */
+  /** Same discount/hike % on every category for every level; keeps per-item overrides. */
   const applyFlatRuleToAllCategories = (
     mode: PriceLevelRuleMode,
     percentRaw: number | '',
   ) => {
-    if (!selected || categories.length === 0) return;
+    if (levels.length === 0 || categories.length === 0) return;
     const percent = percentRaw === '' || !Number.isFinite(Number(percentRaw))
       ? 0
       : Math.max(0, Math.min(1000, Number(percentRaw)));
     const knownIds = new Set(categories.map(cat => cat.id));
-    const preserved = selected.categoryRules.filter(rule => !knownIds.has(rule.categoryId));
-    const nextRules: PriceLevelCategoryRule[] = [];
-    for (const cat of categories) {
-      const existing = rulesByCategoryId.get(cat.id);
-      const itemRules = existing?.itemRules ?? [];
-      if (percent <= 0 && itemRules.length === 0) continue;
-      nextRules.push({
-        categoryId: cat.id,
-        categoryName: cat.name,
-        mode,
-        percent,
-        itemRules,
-      });
-    }
-    updateSelected({ categoryRules: [...preserved, ...nextRules] });
+    patchLevels(prev => prev.map(level => {
+      const preserved = level.categoryRules.filter(rule => !knownIds.has(rule.categoryId));
+      const nextRules: PriceLevelCategoryRule[] = [];
+      for (const cat of categories) {
+        const existing = level.categoryRules.find(r => r.categoryId === cat.id);
+        const itemRules = existing?.itemRules ?? [];
+        if (percent <= 0 && itemRules.length === 0) continue;
+        nextRules.push({
+          categoryId: cat.id,
+          categoryName: cat.name,
+          mode,
+          percent,
+          itemRules,
+        });
+      }
+      return { ...level, categoryRules: [...preserved, ...nextRules] };
+    }));
     setFlatAllMode(mode);
     setFlatAllPercent(percent > 0 ? percent : '');
   };
 
-  const upsertItemRule = (
-    category: CatalogCategory,
-    product: CatalogProduct,
-    patch: Partial<Pick<PriceLevelItemRule, 'kind' | 'percent' | 'customRate' | 'slabs'>>,
-  ) => {
-    const existing = ensureCategoryRule(category);
-    const prevItem = existing.itemRules.find(r => r.productId === product.id);
-    const kind: PriceLevelItemRuleKind = patch.kind ?? prevItem?.kind ?? 'fixed';
-    const listRate = Math.round((Number(product.rate) || 0) * 100) / 100;
-    const slabs = kind === 'fixed'
-      ? normalizePriceLevelSlabs(patch.slabs !== undefined ? patch.slabs : (prevItem?.slabs ?? []))
-      : [];
-    const customRate = kind === 'fixed'
-      ? (slabs.length > 0
-        ? slabs[0].rate
-        : (patch.customRate !== undefined
-          ? patch.customRate
-          : (prevItem?.customRate ?? listRate)))
-      : null;
-    const nextItem: PriceLevelItemRule = {
-      productId: product.id,
-      productName: product.name,
-      sku: product.sku,
-      kind,
-      percent: kind === 'except' || kind === 'fixed'
-        ? 0
-        : (patch.percent !== undefined ? patch.percent : (prevItem?.percent ?? 0)),
-      customRate,
-      slabs,
-    };
-    const itemRules = [
-      ...existing.itemRules.filter(r => r.productId !== product.id),
-      nextItem,
-    ];
-    replaceCategoryRule({
-      ...existing,
-      categoryName: category.name,
-      itemRules,
-    });
-    setRuleCategoryId(category.id);
-  };
-
   const openOverrideEditor = (category: CatalogCategory, product: CatalogProduct) => {
-    const existingRule = selected?.categoryRules
-      .find(r => r.categoryId === category.id)
-      ?.itemRules.find(r => r.productId === product.id) ?? null;
     const listRate = Math.round((Number(product.rate) || 0) * 100) / 100;
+    const draftsByLevelId: Record<string, OverrideEditorDraft> = {};
+    const existingByLevelId: Record<string, boolean> = {};
+    for (const level of levelsOrdered) {
+      const existingRule = level.categoryRules
+        .find(r => r.categoryId === category.id)
+        ?.itemRules.find(r => r.productId === product.id) ?? null;
+      existingByLevelId[level.id] = Boolean(existingRule);
+      draftsByLevelId[level.id] = existingRule
+        ? draftFromItemRule(existingRule, listRate)
+        : emptyOverrideDraft(listRate);
+    }
+    const activeLevelId = levelsOrdered.find(isDefaultDealerPriceLevel)?.id
+      ?? levelsOrdered[0]?.id
+      ?? DEFAULT_DEALER_PRICE_LEVEL_ID;
     setOverrideEditor({
       category,
       product,
-      isExisting: Boolean(existingRule),
-      draft: existingRule
-        ? draftFromItemRule(existingRule, listRate)
-        : emptyOverrideDraft(listRate),
+      activeLevelId,
+      draftsByLevelId,
+      existingByLevelId,
     });
   };
 
   const patchOverrideDraft = (patch: Partial<OverrideEditorDraft>) => {
     setOverrideEditor(prev => {
       if (!prev) return prev;
-      const nextKind = patch.kind ?? prev.draft.kind;
-      let nextSlabs = patch.slabs !== undefined ? patch.slabs : prev.draft.slabs;
-      let nextCustom = patch.customRate !== undefined ? patch.customRate : prev.draft.customRate;
-      let nextPercent = patch.percent !== undefined ? patch.percent : prev.draft.percent;
-      if (patch.kind && patch.kind !== prev.draft.kind) {
+      const levelId = prev.activeLevelId;
+      const current = prev.draftsByLevelId[levelId] ?? emptyOverrideDraft(
+        Math.round((Number(prev.product.rate) || 0) * 100) / 100,
+      );
+      const nextKind = patch.kind ?? current.kind;
+      let nextSlabs = patch.slabs !== undefined ? patch.slabs : current.slabs;
+      let nextCustom = patch.customRate !== undefined ? patch.customRate : current.customRate;
+      let nextPercent = patch.percent !== undefined ? patch.percent : current.percent;
+      if (patch.kind && patch.kind !== current.kind) {
         if (nextKind !== 'fixed') {
           nextSlabs = [];
         }
@@ -689,12 +588,15 @@ export const PriceLevelSettingsTab: React.FC = () => {
       }
       return {
         ...prev,
-        draft: {
-          kind: nextKind,
-          percent: nextPercent,
-          customRate: nextCustom,
-          // Keep editor order as typed — sorting/deduping here remounts inputs and steals focus.
-          slabs: nextKind === 'fixed' ? nextSlabs : [],
+        draftsByLevelId: {
+          ...prev.draftsByLevelId,
+          [levelId]: {
+            kind: nextKind,
+            percent: nextPercent,
+            customRate: nextCustom,
+            // Keep editor order as typed — sorting/deduping here remounts inputs and steals focus.
+            slabs: nextKind === 'fixed' ? nextSlabs : [],
+          },
         },
       };
     });
@@ -704,39 +606,107 @@ export const PriceLevelSettingsTab: React.FC = () => {
 
   const saveOverrideEditor = () => {
     if (!overrideEditor) return;
-    const { category, product, draft } = overrideEditor;
-    upsertItemRule(category, product, {
-      kind: draft.kind,
-      percent: draft.percent,
-      customRate: draft.customRate,
-      slabs: draft.kind === 'fixed' ? normalizePriceLevelSlabs(draft.slabs) : [],
-    });
+    const { category, product, draftsByLevelId, existingByLevelId } = overrideEditor;
+    const listRate = Math.round((Number(product.rate) || 0) * 100) / 100;
+    const writes: Array<{
+      levelId: string;
+      item: PriceLevelItemRule;
+    }> = [];
+    for (const level of levelsOrdered) {
+      const draft = draftsByLevelId[level.id];
+      if (!draft) continue;
+      const hadExisting = existingByLevelId[level.id];
+      const isDefaultFixed = draft.kind === 'fixed'
+        && draft.slabs.length === 0
+        && Math.round((draft.customRate || 0) * 100) / 100 === listRate;
+      if (!hadExisting && isDefaultFixed) continue;
+      if (!hadExisting && draft.kind === 'discount' && draft.percent <= 0) continue;
+      if (!hadExisting && draft.kind === 'increment' && draft.percent <= 0) continue;
+      const kind = draft.kind;
+      const slabs = kind === 'fixed' ? normalizePriceLevelSlabs(draft.slabs) : [];
+      writes.push({
+        levelId: level.id,
+        item: {
+          productId: product.id,
+          productName: product.name,
+          sku: product.sku,
+          kind,
+          percent: kind === 'except' || kind === 'fixed' ? 0 : draft.percent,
+          customRate: kind === 'fixed'
+            ? (slabs.length > 0 ? slabs[0].rate : draft.customRate)
+            : null,
+          slabs,
+        },
+      });
+    }
+    if (writes.length > 0) {
+      patchLevels(prev => prev.map(level => {
+        const write = writes.find(w => w.levelId === level.id);
+        if (!write) return level;
+        const existing = level.categoryRules.find(r => r.categoryId === category.id)
+          ?? emptyCategoryRule(category.id, category.name);
+        const itemRules = [
+          ...existing.itemRules.filter(r => r.productId !== product.id),
+          write.item,
+        ];
+        const nextRule: PriceLevelCategoryRule = {
+          ...existing,
+          categoryName: category.name,
+          itemRules,
+        };
+        const others = level.categoryRules.filter(r => r.categoryId !== category.id);
+        if (nextRule.percent <= 0 && nextRule.itemRules.length === 0) {
+          return { ...level, categoryRules: others };
+        }
+        return { ...level, categoryRules: [...others, nextRule] };
+      }));
+      setRuleCategoryId(category.id);
+    }
     setOverrideEditor(null);
   };
 
   useEffect(() => {
-    if (!overrideEditor) return;
+    if (!overrideEditor && !visibilityCategory) return;
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') setOverrideEditor(null);
+      if (e.key !== 'Escape') return;
+      if (overrideEditor) setOverrideEditor(null);
+      else setVisibilityCategory(null);
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [overrideEditor]);
+  }, [overrideEditor, visibilityCategory]);
 
-  const removeItemRule = (category: CatalogCategory, productId: string) => {
-    const existing = ensureCategoryRule(category);
+  const removeItemRuleOnLevel = (
+    levelId: string,
+    category: CatalogCategory,
+    productId: string,
+  ) => {
+    const existing = ensureCategoryRule(category, levelId);
     const itemRules = existing.itemRules.filter(r => r.productId !== productId);
     if (existing.percent <= 0 && itemRules.length === 0) {
-      clearCategoryRule(category.id);
+      clearCategoryRule(category.id, levelId);
       return;
     }
-    replaceCategoryRule({ ...existing, itemRules });
+    replaceCategoryRule({ ...existing, itemRules }, levelId);
   };
 
   const removeOverrideFromEditor = () => {
-    if (!overrideEditor?.isExisting) return;
-    removeItemRule(overrideEditor.category, overrideEditor.product.id);
-    setOverrideEditor(null);
+    if (!overrideEditor) return;
+    const { category, product, activeLevelId, existingByLevelId } = overrideEditor;
+    if (!existingByLevelId[activeLevelId]) return;
+    removeItemRuleOnLevel(activeLevelId, category, product.id);
+    const listRate = Math.round((Number(product.rate) || 0) * 100) / 100;
+    setOverrideEditor(prev => {
+      if (!prev) return prev;
+      return {
+        ...prev,
+        existingByLevelId: { ...prev.existingByLevelId, [activeLevelId]: false },
+        draftsByLevelId: {
+          ...prev.draftsByLevelId,
+          [activeLevelId]: emptyOverrideDraft(listRate),
+        },
+      };
+    });
   };
 
   const saveLabel = saveStatus === 'saving' || saveStatus === 'pending'
@@ -762,9 +732,10 @@ export const PriceLevelSettingsTab: React.FC = () => {
         <div>
           <h3>Price level setting</h3>
           <p className="text-muted text-sm">
-            Create levels, assign dealers, and set category discount or hike %.
-            Each category has Level overrides (Custom ₹ / %) and Costs & New sell —
-            single source for dealer charge rules. Changes save automatically.
+            Set category discount or hike % and item overrides per dealer level.
+            Create levels and assign dealers under Dealers → Dealer level.
+            Visibility is set per category; item pricing uses a tab per level
+            (Dealers first). Changes save automatically.
           </p>
         </div>
         {saveLabel ? (
@@ -784,179 +755,13 @@ export const PriceLevelSettingsTab: React.FC = () => {
 
       {error ? <p className="price-levels-tab__error">{error}</p> : null}
 
-      <div className="price-levels-tab__levels-bar">
-        <label className="price-levels-tab__level-picker" htmlFor="price-level-select">
-          <span>Level</span>
-          <select
-            id="price-level-select"
-            value={selectedId ?? ''}
-            onChange={event => setSelectedId(event.target.value || null)}
-            aria-label="Select price level"
-          >
-            {levels.length === 0 ? (
-              <option value="">No levels yet</option>
-            ) : null}
-            {levels.map(level => {
-              const isDefault = isDefaultDealerPriceLevel(level);
-              const rules = level.categoryRules.filter(categoryRuleHasEffect).length;
-              const dealersLabel = isDefault
-                ? `All others${allDealers.length ? ` (${unassignedDealerCount})` : ''}`
-                : `${level.dealerIds.length} dealer${level.dealerIds.length === 1 ? '' : 's'}`;
-              return (
-                <option key={level.id} value={level.id}>
-                  {level.name}
-                  {isDefault ? ' (default)' : ''}
-                  {' — '}
-                  {dealersLabel}
-                  {' · '}
-                  {rules}
-                  {' '}
-                  rule
-                  {rules === 1 ? '' : 's'}
-                </option>
-              );
-            })}
-          </select>
-        </label>
-        <div className="price-levels-tab__level-actions">
-          {selected && !selectedIsDefault ? (
-            <button
-              type="button"
-              className="btn btn-sm btn-secondary price-levels-tab__level-delete-btn"
-              title="Delete level"
-              aria-label={`Delete ${selected.name}`}
-              onClick={() => removeLevel(selected.id)}
-            >
-              <Trash2 size={14} aria-hidden />
-              Delete
-            </button>
-          ) : null}
-          <button type="button" className="btn btn-sm btn-primary" onClick={addLevel}>
-            <Plus size={14} aria-hidden />
-            Add
-          </button>
-        </div>
-      </div>
-
       <section className="price-levels-tab__detail">
-          {!selected ? (
-            <p className="text-muted">Select or create a level to edit.</p>
+          {levels.length === 0 ? (
+            <p className="text-muted">
+              No levels yet — create them under Dealers → Dealer level.
+            </p>
           ) : (
             <>
-              <div className="price-levels-tab__meta">
-                <button
-                  type="button"
-                  className={`price-levels-tab__meta-toggle ${showLevelMeta ? 'is-open' : ''}`}
-                  aria-expanded={showLevelMeta}
-                  onClick={() => setShowLevelMeta(open => !open)}
-                >
-                  <Users size={15} aria-hidden />
-                  <span>Level name & dealers</span>
-                  <span className="price-levels-tab__meta-summary">
-                    {selectedIsDefault
-                      ? `All unassigned${allDealers.length ? ` (${unassignedDealerCount})` : ''}`
-                      : `${selected.dealerIds.length} dealer${selected.dealerIds.length === 1 ? '' : 's'}`}
-                  </span>
-                  <ChevronDown size={16} aria-hidden />
-                </button>
-                {showLevelMeta ? (
-                  <div className="price-levels-tab__meta-body">
-                    <label className="price-levels-tab__field price-levels-tab__field--inline">
-                      <span>Level name</span>
-                      <input
-                        type="text"
-                        value={selected.name}
-                        onChange={e => updateSelected({ name: e.target.value })}
-                        placeholder="e.g. Directors"
-                        disabled={selectedIsDefault}
-                        readOnly={selectedIsDefault}
-                      />
-                    </label>
-
-                    {selectedIsDefault ? (
-                      <div className="price-levels-tab__block">
-                        <h4>
-                          <Users size={16} aria-hidden />
-                          Default catch-all
-                        </h4>
-                        <p className="text-muted text-sm">
-                          Covers every dealer who is not assigned to another level
-                          {allDealers.length
-                            ? ` (${unassignedDealerCount} of ${allDealers.length} right now)`
-                            : ''}
-                          . Assign dealers to Directors / Agents / etc. to exclude them from this level.
-                        </p>
-                      </div>
-                    ) : (
-                      <div className="price-levels-tab__block">
-                        <h4>
-                          <UserPlus size={16} aria-hidden />
-                          Dealers in this level
-                        </h4>
-                        <div className="price-levels-tab__dealer-search">
-                          <Search size={16} aria-hidden />
-                          <input
-                            type="search"
-                            value={dealerQuery}
-                            onChange={e => setDealerQuery(e.target.value)}
-                            placeholder="Search dealers by name, company, phone…"
-                            autoComplete="off"
-                          />
-                          {dealersLoading ? <Loader2 size={14} className="spin-icon" aria-hidden /> : null}
-                        </div>
-                        {dealerSearchError ? (
-                          <p className="price-levels-tab__error text-sm">{dealerSearchError}</p>
-                        ) : null}
-                        {dealerQuery.trim().length >= 2 && !dealersLoading && dealerHits.length === 0
-                          && !dealerSearchError ? (
-                          <p className="text-muted text-sm">No matching dealers.</p>
-                        ) : null}
-                        {dealerHits.length > 0 ? (
-                          <ul className="price-levels-tab__dealer-hits">
-                            {dealerHits.map(d => {
-                              const already = selected.dealerIds.includes(d.id);
-                              return (
-                                <li key={d.id}>
-                                  <button
-                                    type="button"
-                                    disabled={already}
-                                    onClick={() => addDealer(d)}
-                                  >
-                                    <strong>{dealerLabel(d)}</strong>
-                                    <span className="text-muted text-sm">
-                                      {[d.contactName, d.phone || d.mobile].filter(Boolean).join(' · ')}
-                                    </span>
-                                    {already ? <span className="text-muted">Added</span> : null}
-                                  </button>
-                                </li>
-                              );
-                            })}
-                          </ul>
-                        ) : null}
-                        {selected.dealerIds.length === 0 ? (
-                          <p className="text-muted text-sm">No dealers assigned yet.</p>
-                        ) : (
-                          <ul className="price-levels-tab__dealer-chips">
-                            {selected.dealerIds.map(id => (
-                              <li key={id}>
-                                <span>{dealerNames[id] || id}</span>
-                                <button
-                                  type="button"
-                                  aria-label={`Remove ${dealerNames[id] || id}`}
-                                  onClick={() => removeDealer(id)}
-                                >
-                                  <X size={14} aria-hidden />
-                                </button>
-                              </li>
-                            ))}
-                          </ul>
-                        )}
-                      </div>
-                    )}
-                  </div>
-                ) : null}
-              </div>
-
               <div className="price-levels-tab__block">
                 <h4>
                   <Percent size={16} aria-hidden />
@@ -975,14 +780,8 @@ export const PriceLevelSettingsTab: React.FC = () => {
                         <p className="text-muted text-sm price-levels-tab__visibility-legend">
                           <Eye size={14} aria-hidden />
                           {' '}
-                          Show (default) /
-                          {' '}
-                          <EyeOff size={14} aria-hidden />
-                          {' '}
-                          Hide — hidden categories and their items are invisible to dealers on this level.
-                          {selected.restrictedCategoryIds.length > 0
-                            ? ` ${selected.restrictedCategoryIds.length} hidden.`
-                            : ''}
+                          Use Visibility on each category to Show/Hide it per dealer level.
+                          Hidden categories and their items are invisible to dealers on that level.
                         </p>
                         <div className="price-levels-tab__flat-all" aria-label="Flat rule for all categories">
                           <div className="price-levels-tab__flat-all-main">
@@ -1035,7 +834,7 @@ export const PriceLevelSettingsTab: React.FC = () => {
                               className="btn btn-sm btn-secondary"
                               disabled={categories.length === 0}
                               onClick={() => applyFlatRuleToAllCategories(flatAllMode, 0)}
-                              title="Clear category % on every category (item overrides stay)"
+                              title="Clear category % on every category for every level (item overrides stay)"
                             >
                               Clear %
                             </button>
@@ -1045,70 +844,56 @@ export const PriceLevelSettingsTab: React.FC = () => {
                             {' '}
                             {flatAllMode === 'increment' ? 'hike' : 'discount'}
                             {' '}
-                            on every category for this level. Per-item overrides are kept.
-                            Tap a category to fine-tune.
+                            on every category for every level. Per-item overrides are kept.
+                            Tap a category to fine-tune per level.
                           </p>
                         </div>
                         <div className="catalog-categories catalog-categories--bare price-levels-tab__cat-grid">
                           <div className="catalog-categories__grid">
                             {categories.map((cat, idx) => {
                               const isSpare = isSparePriceLevelCategoryId(cat.id);
-                              const rule = rulesByCategoryId.get(cat.id);
-                              const active = categoryRuleHasEffect(
-                                rule ?? emptyCategoryRule(cat.id, cat.name),
-                              );
-                              const percent = rule?.percent ?? 0;
-                              const mode = rule?.mode ?? 'discount';
-                              const alteredCount = countAlteredItemRules(rule);
-                              const badge = active
-                                ? formatCategoryRuleBadge(mode, percent, alteredCount)
-                                : null;
-                              const restricted = selected.restrictedCategoryIds.includes(cat.id);
+                              const badge = formatCategoryAggregateBadge(levels, cat.id);
+                              const hiddenOnLevels = levelsOrdered.filter(level =>
+                                level.restrictedCategoryIds.includes(cat.id),
+                              ).length;
+                              const hasAnyRule = Boolean(badge);
                               return (
                                 <div
                                   key={cat.id}
                                   className={[
                                     'price-levels-tab__cat-tile',
                                     isSpare ? 'is-spare' : '',
-                                    active ? 'is-active' : '',
-                                    restricted ? 'is-restricted' : 'is-permitted',
+                                    hasAnyRule ? 'is-active' : '',
+                                    hiddenOnLevels > 0 ? 'is-restricted' : 'is-permitted',
                                   ].filter(Boolean).join(' ')}
                                 >
                                   {badge ? (
                                     <span className="price-levels-tab__cat-badge">{badge}</span>
                                   ) : null}
-                                  <div
-                                    className="price-levels-tab__visibility"
-                                    role="group"
-                                    aria-label={`Visibility for ${cat.name}`}
+                                  <button
+                                    type="button"
+                                    className={[
+                                      'price-levels-tab__visibility-open',
+                                      hiddenOnLevels > 0 ? 'is-restricted' : '',
+                                    ].filter(Boolean).join(' ')}
+                                    title={`Visibility rules for ${cat.name}`}
+                                    aria-label={`Visibility rules for ${cat.name}`}
+                                    onClick={event => {
+                                      event.stopPropagation();
+                                      setVisibilityCategory(cat);
+                                    }}
                                   >
-                                    <button
-                                      type="button"
-                                      className={`price-levels-tab__visibility-btn${restricted ? '' : ' is-active'}`}
-                                      title="Permitted — dealers on this level can see this category"
-                                      aria-pressed={!restricted}
-                                      onClick={event => {
-                                        event.stopPropagation();
-                                        setCategoryRestricted(cat.id, false);
-                                      }}
-                                    >
-                                      <Eye size={13} aria-hidden />
-                                      <span>Show</span>
-                                    </button>
-                                    <button
-                                      type="button"
-                                      className={`price-levels-tab__visibility-btn is-restrict${restricted ? ' is-active' : ''}`}
-                                      title="Restricted — dealers on this level cannot see this category"
-                                      aria-pressed={restricted}
-                                      onClick={event => {
-                                        event.stopPropagation();
-                                        setCategoryRestricted(cat.id, true);
-                                      }}
-                                    >
+                                    {hiddenOnLevels > 0 ? (
                                       <EyeOff size={13} aria-hidden />
-                                      <span>Hide</span>
-                                    </button>
-                                  </div>
+                                    ) : (
+                                      <Eye size={13} aria-hidden />
+                                    )}
+                                    <span>
+                                      {hiddenOnLevels > 0
+                                        ? `Hidden · ${hiddenOnLevels}`
+                                        : 'Visibility'}
+                                    </span>
+                                  </button>
                                   <CategoryBrowseCard
                                     category={cat}
                                     index={idx}
@@ -1116,6 +901,11 @@ export const PriceLevelSettingsTab: React.FC = () => {
                                     onClick={() => {
                                       setRuleCategoryId(cat.id);
                                       setItemQuery('');
+                                      setWorkspaceLevelId(
+                                        levelsOrdered.find(isDefaultDealerPriceLevel)?.id
+                                          ?? levelsOrdered[0]?.id
+                                          ?? DEFAULT_DEALER_PRICE_LEVEL_ID,
+                                      );
                                     }}
                                   />
                                 </div>
@@ -1245,47 +1035,67 @@ export const PriceLevelSettingsTab: React.FC = () => {
                         </p>
 
                         {spareWorkspace === 'overrides' ? (
-                          <div className="price-levels-tab__rule-main">
+                          <>
                             <div
-                              className="price-levels-tab__mode-toggle"
-                              role="group"
-                              aria-label={`Rule type for ${editCat.name}`}
+                              className="price-levels-tab__level-tabs"
+                              role="tablist"
+                              aria-label="Dealer level for category rules"
                             >
-                              <button
-                                type="button"
-                                className={mode === 'discount' ? 'is-active' : ''}
-                                onClick={() => upsertCategoryRule(editCat, { mode: 'discount' })}
-                              >
-                                Discount
-                              </button>
-                              <button
-                                type="button"
-                                className={mode === 'increment' ? 'is-active' : ''}
-                                onClick={() => upsertCategoryRule(editCat, { mode: 'increment' })}
-                              >
-                                Hike
-                              </button>
+                              {levelsOrdered.map(level => (
+                                  <button
+                                    key={level.id}
+                                    type="button"
+                                    role="tab"
+                                    aria-selected={workspaceLevel?.id === level.id}
+                                    className={workspaceLevel?.id === level.id ? 'is-active' : ''}
+                                    onClick={() => setWorkspaceLevelId(level.id)}
+                                  >
+                                    {level.name}
+                                  </button>
+                              ))}
                             </div>
-                            <label className="price-levels-tab__percent">
-                              <input
-                                type="number"
-                                min={0}
-                                max={1000}
-                                step={0.1}
-                                value={percent === 0 ? '' : percent}
-                                placeholder="0"
-                                onChange={e => {
-                                  const v = e.target.value;
-                                  upsertCategoryRule(editCat, {
-                                    mode,
-                                    percent: v === '' ? 0 : Number(v),
-                                  });
-                                }}
-                                aria-label={`Percent for ${editCat.name}`}
-                              />
-                              <span>%</span>
-                            </label>
-                          </div>
+                            <div className="price-levels-tab__rule-main">
+                              <div
+                                className="price-levels-tab__mode-toggle"
+                                role="group"
+                                aria-label={`Rule type for ${editCat.name} · ${workspaceLevel?.name ?? 'level'}`}
+                              >
+                                <button
+                                  type="button"
+                                  className={mode === 'discount' ? 'is-active' : ''}
+                                  onClick={() => upsertCategoryRule(editCat, { mode: 'discount' })}
+                                >
+                                  Discount
+                                </button>
+                                <button
+                                  type="button"
+                                  className={mode === 'increment' ? 'is-active' : ''}
+                                  onClick={() => upsertCategoryRule(editCat, { mode: 'increment' })}
+                                >
+                                  Hike
+                                </button>
+                              </div>
+                              <label className="price-levels-tab__percent">
+                                <input
+                                  type="number"
+                                  min={0}
+                                  max={1000}
+                                  step={0.1}
+                                  value={percent === 0 ? '' : percent}
+                                  placeholder="0"
+                                  onChange={e => {
+                                    const v = e.target.value;
+                                    upsertCategoryRule(editCat, {
+                                      mode,
+                                      percent: v === '' ? 0 : Number(v),
+                                    });
+                                  }}
+                                  aria-label={`Percent for ${editCat.name}`}
+                                />
+                                <span>%</span>
+                              </label>
+                            </div>
+                          </>
                         ) : null}
                       </div>
 
@@ -1411,9 +1221,114 @@ export const PriceLevelSettingsTab: React.FC = () => {
           )}
       </section>
 
+      {visibilityCategory ? (
+        <div
+          className="price-levels-tab__editor-backdrop"
+          role="presentation"
+          onClick={() => setVisibilityCategory(null)}
+        >
+          <div
+            className="price-levels-tab__editor price-levels-tab__visibility-dialog"
+            role="dialog"
+            aria-modal="true"
+            aria-label={`Visibility for ${visibilityCategory.name}`}
+            onClick={e => e.stopPropagation()}
+          >
+            <header className="price-levels-tab__editor-head">
+              <div className="price-levels-tab__item-meta">
+                <strong>{visibilityCategory.name}</strong>
+                <span className="text-muted">
+                  Show or hide this category for each dealer level
+                </span>
+              </div>
+              <button
+                type="button"
+                className="price-levels-tab__rule-delete"
+                aria-label="Close"
+                onClick={() => setVisibilityCategory(null)}
+              >
+                <X size={16} aria-hidden />
+              </button>
+            </header>
+            <div className="price-levels-tab__editor-body">
+              <p className="text-muted text-sm price-levels-tab__editor-hint">
+                Hidden categories and their items are invisible to dealers on that level.
+              </p>
+              <ul className="price-levels-tab__visibility-list">
+                {levelsOrdered.map(level => {
+                  const restricted = level.restrictedCategoryIds.includes(
+                    visibilityCategory.id,
+                  );
+                  const isDefault = isDefaultDealerPriceLevel(level);
+                  return (
+                    <li key={level.id} className="price-levels-tab__visibility-row">
+                      <div className="price-levels-tab__visibility-row-meta">
+                        <strong>{level.name}</strong>
+                        <span className="text-muted text-sm">
+                          {isDefault
+                            ? 'All other dealers'
+                            : `${level.dealerIds.length} dealer${level.dealerIds.length === 1 ? '' : 's'}`}
+                        </span>
+                      </div>
+                      <div
+                        className="price-levels-tab__visibility"
+                        role="group"
+                        aria-label={`Visibility for ${level.name}`}
+                      >
+                        <button
+                          type="button"
+                          className={`price-levels-tab__visibility-btn${restricted ? '' : ' is-active'}`}
+                          aria-pressed={!restricted}
+                          onClick={() => setCategoryRestrictedOnLevel(
+                            level.id,
+                            visibilityCategory.id,
+                            false,
+                          )}
+                        >
+                          <Eye size={13} aria-hidden />
+                          <span>Show</span>
+                        </button>
+                        <button
+                          type="button"
+                          className={`price-levels-tab__visibility-btn is-restrict${restricted ? ' is-active' : ''}`}
+                          aria-pressed={restricted}
+                          onClick={() => setCategoryRestrictedOnLevel(
+                            level.id,
+                            visibilityCategory.id,
+                            true,
+                          )}
+                        >
+                          <EyeOff size={13} aria-hidden />
+                          <span>Hide</span>
+                        </button>
+                      </div>
+                    </li>
+                  );
+                })}
+              </ul>
+            </div>
+            <footer className="price-levels-tab__editor-foot">
+              <span />
+              <div className="price-levels-tab__editor-actions">
+                <button
+                  type="button"
+                  className="price-levels-tab__editor-save"
+                  onClick={() => setVisibilityCategory(null)}
+                >
+                  Done
+                </button>
+              </div>
+            </footer>
+          </div>
+        </div>
+      ) : null}
+
       {overrideEditor ? (() => {
-        const { product, draft, isExisting } = overrideEditor;
+        const { product, activeLevelId, draftsByLevelId, existingByLevelId } = overrideEditor;
         const listRate = Math.round((Number(product.rate) || 0) * 100) / 100;
+        const activeLevel = levelsOrdered.find(l => l.id === activeLevelId) ?? null;
+        const draft = draftsByLevelId[activeLevelId] ?? emptyOverrideDraft(listRate);
+        const isExisting = Boolean(existingByLevelId[activeLevelId]);
         const editorSlabs = draft.kind === 'fixed' ? draft.slabs : [];
         const hasSlabs = editorSlabs.length > 0;
         const previewSlabs = hasSlabs ? normalizePriceLevelSlabs(editorSlabs) : [];
@@ -1436,6 +1351,7 @@ export const PriceLevelSettingsTab: React.FC = () => {
           },
           listRate,
         );
+        const anyExisting = Object.values(existingByLevelId).some(Boolean);
         return (
           <div
             className="price-levels-tab__editor-backdrop"
@@ -1446,7 +1362,7 @@ export const PriceLevelSettingsTab: React.FC = () => {
               className="price-levels-tab__editor"
               role="dialog"
               aria-modal="true"
-              aria-label={`${isExisting ? 'Edit' : 'Add'} override for ${product.name}`}
+              aria-label={`${anyExisting ? 'Edit' : 'Add'} override for ${product.name}`}
               onClick={e => e.stopPropagation()}
             >
               <header className="price-levels-tab__editor-head">
@@ -1478,6 +1394,41 @@ export const PriceLevelSettingsTab: React.FC = () => {
               </header>
 
               <div className="price-levels-tab__editor-body">
+                <div
+                  className="price-levels-tab__level-tabs"
+                  role="tablist"
+                  aria-label="Dealer level pricing"
+                >
+                  {levelsOrdered.map(level => {
+                    const hasRule = existingByLevelId[level.id];
+                    return (
+                      <button
+                        key={level.id}
+                        type="button"
+                        role="tab"
+                        aria-selected={activeLevelId === level.id}
+                        className={[
+                          activeLevelId === level.id ? 'is-active' : '',
+                          hasRule ? 'has-rule' : '',
+                        ].filter(Boolean).join(' ')}
+                        onClick={() => setOverrideEditor(prev => (
+                          prev ? { ...prev, activeLevelId: level.id } : prev
+                        ))}
+                      >
+                        {level.name}
+                      </button>
+                    );
+                  })}
+                </div>
+                <p className="text-muted text-sm price-levels-tab__editor-hint">
+                  Editing
+                  {' '}
+                  <strong>{activeLevel?.name ?? 'level'}</strong>
+                  {isDefaultDealerPriceLevel(activeLevel)
+                    ? ' — applies to all dealers not assigned to another level.'
+                    : '.'}
+                </p>
+
                 <label className="price-levels-tab__editor-field">
                   <span>Override type</span>
                   <select
@@ -1727,7 +1678,7 @@ export const PriceLevelSettingsTab: React.FC = () => {
                     className="price-levels-tab__editor-save"
                     onClick={saveOverrideEditor}
                   >
-                    {isExisting ? 'Save changes' : 'Apply override'}
+                    {anyExisting ? 'Save changes' : 'Apply override'}
                   </button>
                 </div>
               </footer>

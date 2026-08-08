@@ -192,7 +192,6 @@ export const SalesOrderDraftLineEditor: React.FC<SalesOrderDraftLineEditorProps>
   const [courierRates, setCourierRates] = useState<LogisticsCourierRates | null>(null);
   const [deliveryRules, setDeliveryRules] = useState<LogisticsDeliveryRulesMatrix | null>(null);
   const [partnerStatuses, setPartnerStatuses] = useState<LogisticsPartnerStatuses | null>(null);
-  const [spareFreightMinimumInr, setSpareFreightMinimumInr] = useState(0);
   const [courierBySite, setCourierBySite] = useState<Partial<Record<InventorySite, LogisticsPartnerId>>>({});
   const freightHydratedRef = useRef(false);
   const lastAutoFreightKeyRef = useRef('');
@@ -279,7 +278,6 @@ export const SalesOrderDraftLineEditor: React.FC<SalesOrderDraftLineEditorProps>
         setCourierRates(rates);
         setDeliveryRules(settings.deliveryRules);
         setPartnerStatuses(settings.partnerStatuses);
-        setSpareFreightMinimumInr(settings.spareFreightMinimumInr);
       })
       .catch(() => { /* estimate optional */ });
     return () => { cancelled = true; };
@@ -302,7 +300,6 @@ export const SalesOrderDraftLineEditor: React.FC<SalesOrderDraftLineEditorProps>
       rates: courierRates,
       deliveryRules,
       partnerStatuses,
-      spareFreightMinimumInr,
       courierBySite,
       blueDartPin,
     });
@@ -311,7 +308,6 @@ export const SalesOrderDraftLineEditor: React.FC<SalesOrderDraftLineEditorProps>
     courierRates,
     deliveryRules,
     partnerStatuses,
-    spareFreightMinimumInr,
     productLines,
     catalogById,
     shippingDestination,

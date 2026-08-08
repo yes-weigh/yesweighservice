@@ -16,6 +16,7 @@ import {
   resolveLineInventorySite,
   segmentAllowsFreight,
 } from './sales-order-segments.js';
+import { quoteSpareFreight } from './spare-freight-quote.js';
 
 const ST_ZONES = [
   'kerala',
@@ -400,7 +401,6 @@ export function buildDealerAutoFreightLines({
   lines,
   destination,
   courierRates,
-  spareFreightMinimumInr = 0,
   courierBySite = {},
   freightZone = null,
   blueDartPin = null,
@@ -411,7 +411,6 @@ export function buildDealerAutoFreightLines({
 }) {
   const rates = parseLogisticsCourierRates(courierRates);
   const { zone } = resolveFreightZone(destination, freightZone);
-  const spareMin = nonNeg(Number(spareFreightMinimumInr));
   const selected = normalizeCourierBySite(courierBySite);
 
   /** @type {Map<string, object[]>} */
@@ -502,9 +501,16 @@ export function buildDealerAutoFreightLines({
     }
 
     if (spareSites.has(site)) {
+      const spareQuoted = quoteSpareFreight({
+        partnerId,
+        site,
+        zone,
+        destination,
+        rates,
+      });
       freightLines.push(makeFreightLine({
         sku,
-        rate: ceilCourierChargeInr(spareMin),
+        rate: spareQuoted.totalInr,
         site,
         hostSegment: 'spare',
       }));

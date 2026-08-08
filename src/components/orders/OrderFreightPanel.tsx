@@ -95,7 +95,7 @@ function packingSummary(b: FreightLineBreakdown): string {
     parts.push(`${b.missingUnits} unit${b.missingUnits === 1 ? '' : 's'} missing dims`);
   }
   if (b.indication === 'spare_default') {
-    parts.push('spare minimum');
+    parts.push('spare freight');
   }
   return parts.join(' · ') || '—';
 }
@@ -127,9 +127,12 @@ function parcelGroupDetail(group: FreightParcelGroup): string {
 }
 
 function lineCalcSummary(line: FreightLineBreakdown): string | null {
-  if (line.indication === 'spare_default') {
+  if (
+    line.indication === 'spare_default'
+    && (!(line.chargeableKg > 0) || !(line.boxPerKgInr != null && line.boxPerKgInr > 0))
+  ) {
     return line.amountInr > 0
-      ? `Spare minimum charge ${formatCurrency(line.amountInr)}`
+      ? `Spare freight ${formatCurrency(line.amountInr)}`
       : null;
   }
   if (!(line.chargeableKg > 0) || !(line.boxPerKgInr != null && line.boxPerKgInr > 0)) {
@@ -205,7 +208,7 @@ function buildItemCalcView(
       line.sku && !isSpare ? line.sku : null,
       siteLabel || null,
       line.zoneLabel || null,
-      isSpare ? 'Spare minimum' : null,
+      isSpare ? 'Spare freight' : null,
     ].filter(Boolean).join(' · ') || null,
     quantity,
     masterCartonCount,
@@ -387,7 +390,7 @@ function ItemFreightCalcTile({
             ) : null}
             <div className="order-freight-panel__calc-formula order-freight-panel__calc-formula--simple">
               <div className="order-freight-panel__calc-formula-left">
-                <span>Spare minimum</span>
+                <span>Spare freight</span>
                 <strong>Flat charge</strong>
               </div>
               <span className="order-freight-panel__calc-formula-arrow" aria-hidden>→</span>

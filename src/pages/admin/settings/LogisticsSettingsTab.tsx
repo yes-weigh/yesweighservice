@@ -1,7 +1,6 @@
 import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { IndianRupee, MapPin, Save, Truck, Users } from 'lucide-react';
-import { DecimalAmountInput } from '../../../components/DecimalAmountInput';
+import { MapPin, Save, Truck, Users } from 'lucide-react';
 import { useAuth } from '../../../context/AuthContext';
 import { syncLogisticsShipFromAddressesToAllBookings } from '../../../lib/logisticsBookings';
 import {
@@ -9,7 +8,6 @@ import {
   loadLogisticsSettings,
   saveDefaultStaffLogisticsSite,
   saveLogisticsFromAddresses,
-  saveSpareFreightMinimumInr,
 } from '../../../lib/logisticsSettings';
 import { updateUserProfile } from '../../../lib/userAdmin';
 import { db } from '../../../firebase';
@@ -23,6 +21,7 @@ import {
 } from '../../../types/staff-logistics';
 import { StCourierRatesSettings } from './StCourierRatesSettings';
 import { DeliveryPartnerRulesSettings } from './DeliveryPartnerRulesSettings';
+import { LogisticsFreightTestingPanel } from './LogisticsFreightTestingPanel';
 import type { LogisticsDeliveryRulesMatrix } from '../../../types/logistics-delivery-rules';
 import type { LogisticsPartnerStatuses } from '../../../types/logistics-partner-status';
 
@@ -32,13 +31,19 @@ function autosizeTextarea(el: HTMLTextAreaElement | null) {
   el.style.height = `${Math.max(el.scrollHeight, 1)}px`;
 }
 
-type LogisticsSettingsSubTab = 'sites' | 'delivery-rules' | 'courier-rates' | 'staff';
+type LogisticsSettingsSubTab =
+  | 'sites'
+  | 'delivery-rules'
+  | 'courier-rates'
+  | 'staff'
+  | 'testing';
 
 const LOGISTICS_SETTINGS_SUBTABS: { id: LogisticsSettingsSubTab; label: string }[] = [
   { id: 'courier-rates', label: 'Delivery Partners' },
   { id: 'sites', label: 'Sites' },
   { id: 'delivery-rules', label: 'Delivery rules' },
   { id: 'staff', label: 'Staff' },
+  { id: 'testing', label: 'Testing' },
 ];
 
 export const LogisticsSettingsTab: React.FC = () => {
@@ -56,8 +61,6 @@ export const LogisticsSettingsTab: React.FC = () => {
   });
   const [deliveryRules, setDeliveryRules] = useState<LogisticsDeliveryRulesMatrix | null>(null);
   const [partnerStatuses, setPartnerStatuses] = useState<LogisticsPartnerStatuses | null>(null);
-  const [spareFreightMinimumInr, setSpareFreightMinimumInr] = useState(0);
-  const [draftSpareFreightMinimumInr, setDraftSpareFreightMinimumInr] = useState(0);
   const [staff, setStaff] = useState<UserRecord[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -80,8 +83,6 @@ export const LogisticsSettingsTab: React.FC = () => {
       setDraftFromAddresses(settings.fromAddresses);
       setDeliveryRules(settings.deliveryRules);
       setPartnerStatuses(settings.partnerStatuses);
-      setSpareFreightMinimumInr(settings.spareFreightMinimumInr);
-      setDraftSpareFreightMinimumInr(settings.spareFreightMinimumInr);
       setStaff(staffUsers);
 
       const hasAddress = STAFF_LOGISTICS_SITES.some(
@@ -118,8 +119,7 @@ export const LogisticsSettingsTab: React.FC = () => {
   const fromAddressesDirty = STAFF_LOGISTICS_SITES.some(
     site => draftFromAddresses[site] !== fromAddresses[site],
   );
-  const spareFreightDirty = draftSpareFreightMinimumInr !== spareFreightMinimumInr;
-  const sitesDirty = defaultDirty || fromAddressesDirty || spareFreightDirty;
+  const sitesDirty = defaultDirty || fromAddressesDirty;
 
   const staffBySite = useMemo(() => {
     const counts: Record<StaffLogisticsSite, number> = {
@@ -156,14 +156,6 @@ export const LogisticsSettingsTab: React.FC = () => {
                 ? `Saved and applied ship-from to ${result.updated} of ${result.scanned} bookings.`
                 : `Saved. All ${result.scanned} bookings already match these addresses.`,
             );
-          }),
-        );
-      }
-      if (spareFreightDirty) {
-        tasks.push(
-          saveSpareFreightMinimumInr(draftSpareFreightMinimumInr, user?.uid ?? null).then(saved => {
-            setSpareFreightMinimumInr(saved);
-            setDraftSpareFreightMinimumInr(saved);
           }),
         );
       }
@@ -310,34 +302,6 @@ export const LogisticsSettingsTab: React.FC = () => {
             })}
           </div>
 
-          <div className="settings-logistics__spare-card">
-            <div className="settings-logistics__spare-card-copy">
-              <div className="settings-logistics__spare-card-icon" aria-hidden>
-                <IndianRupee size={18} />
-              </div>
-              <div>
-                <h5 className="settings-logistics__title">Spare freight minimum</h5>
-                <p className="text-muted text-sm">
-                  Added to each spare draft order at checkout. Staff can change it when reviewing.
-                </p>
-              </div>
-            </div>
-            <label className="settings-logistics__spare-amount">
-              <span className="sr-only">Minimum spare freight in rupees</span>
-              <span className="settings-logistics__spare-amount-prefix" aria-hidden>₹</span>
-              <DecimalAmountInput
-                min={0}
-                decimals={2}
-                value={draftSpareFreightMinimumInr}
-                disabled={busyKey === 'sites'}
-                aria-label="Minimum spare freight in rupees"
-                onChange={next => {
-                  if (next == null) return;
-                  setDraftSpareFreightMinimumInr(next);
-                }}
-              />
-            </label>
-          </div>
         </div>
         )}
 
@@ -433,6 +397,8 @@ export const LogisticsSettingsTab: React.FC = () => {
           )}
         </div>
         )}
+
+        {subTab === 'testing' && <LogisticsFreightTestingPanel />}
       </div>
     </section>
   );

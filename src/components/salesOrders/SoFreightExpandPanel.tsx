@@ -96,7 +96,6 @@ export const SoFreightExpandPanel: React.FC<Props> = ({
   const [courierRates, setCourierRates] = useState<LogisticsCourierRates | null>(null);
   const [deliveryRules, setDeliveryRules] = useState<LogisticsDeliveryRulesMatrix | null>(null);
   const [partnerStatuses, setPartnerStatuses] = useState<LogisticsPartnerStatuses | null>(null);
-  const [spareFreightMinimumInr, setSpareFreightMinimumInr] = useState(0);
   const [courierBySite, setCourierBySite] = useState<Partial<Record<InventorySite, LogisticsPartnerId>>>({});
   const [freightSku, setFreightSku] = useState<string | null>(null);
   const [freightAmount, setFreightAmount] = useState('');
@@ -113,7 +112,6 @@ export const SoFreightExpandPanel: React.FC<Props> = ({
         setCourierRates(rates);
         setDeliveryRules(settings.deliveryRules);
         setPartnerStatuses(settings.partnerStatuses);
-        setSpareFreightMinimumInr(settings.spareFreightMinimumInr);
       })
       .catch(() => { /* optional */ });
     return () => { cancelled = true; };
@@ -174,7 +172,6 @@ export const SoFreightExpandPanel: React.FC<Props> = ({
       rates: courierRates,
       deliveryRules,
       partnerStatuses,
-      spareFreightMinimumInr,
       courierBySite,
       blueDartPin,
     });
@@ -182,7 +179,6 @@ export const SoFreightExpandPanel: React.FC<Props> = ({
     courierRates,
     deliveryRules,
     partnerStatuses,
-    spareFreightMinimumInr,
     productLines,
     catalogById,
     shippingDestination,

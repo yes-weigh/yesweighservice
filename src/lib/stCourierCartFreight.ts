@@ -50,6 +50,7 @@ import {
   type StCourierQuoteDims,
   type StCourierQuoteResult,
 } from './stCourierQuote';
+import { quoteSpareFreight } from './spareFreightQuote';
 import { inferStCourierZone, type StCourierDestination } from './stCourierZone';
 
 export type StCourierCartLine = {
@@ -100,7 +101,7 @@ export type FreightLineBreakdown = {
   productId: string;
   sku: string | null;
   name: string | null;
-  /** Spare-minimum row: all spare product names covered by this charge. */
+  /** Spare freight row: all spare product names covered by this charge. */
   itemNames?: string[];
   quantity: number;
   masterCartonCount: number;
@@ -163,7 +164,6 @@ export type StCourierCartFreightEstimate = {
   skipped: StCourierCartFreightSkip[];
   usable: boolean;
   warnings: string[];
-  spareFreightMinimumInr: number;
 };
 
 function cartonDimsComplete(carton: CatalogPackageCarton | null | undefined): boolean {
@@ -443,7 +443,6 @@ export function estimateStCourierCartFreight(input: {
   deliveryRules: LogisticsDeliveryRulesMatrix;
   /** Active / Inactive / Manual — Inactive partners omitted from SO options. */
   partnerStatuses?: LogisticsPartnerStatuses | null;
-  spareFreightMinimumInr?: number;
   /** Selected courier per ship-from site. Missing sites use default. */
   courierBySite?: Partial<Record<InventorySite, LogisticsPartnerId>>;
   /** Override freight charge plan (Kerala / TN-Pondy / Other). */
@@ -465,7 +464,6 @@ export function estimateStCourierCartFreight(input: {
     : inferredZone;
   const zoneOverridden = zone !== inferredZone;
 
-  const spareMin = Math.max(0, Number(input.spareFreightMinimumInr) || 0);
   const skipped: StCourierCartFreightSkip[] = [];
   const warnings: string[] = [];
 
@@ -551,8 +549,20 @@ export function estimateStCourierCartFreight(input: {
       trackonServiceForPartner(partnerId) ?? 'surface'
     );
 
+    const quoteSpareForPartner = (partnerId: LogisticsPartnerId): number => {
+      if (!hasSpare || isPickupPartner(partnerId)) return 0;
+      return quoteSpareFreight({
+        partnerId,
+        site,
+        zone,
+        destination: input.destination,
+        rates: input.rates,
+      }).totalInr;
+    };
+
     const quotePartnerTotal = (partnerId: LogisticsPartnerId): number => {
       if (isPickupPartner(partnerId)) return 0;
+      const spareFreight = quoteSpareForPartner(partnerId);
       if (isBlueDartLogisticsPartnerId(partnerId)) {
         const productFreight = quoteBlueDartPartnerTotal({
           rates: input.rates,
@@ -562,7 +572,6 @@ export function estimateStCourierCartFreight(input: {
           service: resolveBlueDartService(partnerId),
           invoiceValueInr,
         });
-        const spareFreight = hasSpare ? ceilCourierChargeInr(spareMin) : 0;
         return ceilCourierChargeInr(productFreight + spareFreight);
       }
       if (isTrackonLogisticsPartnerId(partnerId)) {
@@ -572,7 +581,6 @@ export function estimateStCourierCartFreight(input: {
           parcels: allParcels,
           service: resolveTrackonService(partnerId),
         });
-        const spareFreight = hasSpare ? ceilCourierChargeInr(spareMin) : 0;
         return ceilCourierChargeInr(productFreight + spareFreight);
       }
       const originRatesForPartner = partnerRates(input.rates, partnerId, site);
@@ -580,7 +588,6 @@ export function estimateStCourierCartFreight(input: {
         ? quoteStCourierParcels({ zone, rates: originRatesForPartner, parcels: allParcels })
         : null;
       const productFreight = quotedForPartner?.quote.totalInr ?? 0;
-      const spareFreight = hasSpare ? ceilCourierChargeInr(spareMin) : 0;
       return ceilCourierChargeInr(productFreight + spareFreight);
     };
 
@@ -803,11 +810,18 @@ export function estimateStCourierCartFreight(input: {
       });
     }
 
-    const spareFreightInr = !isPickup && hasSpare
-      ? ceilCourierChargeInr(spareMin)
-      : 0;
+    const spareQuote = !isPickup && hasSpare
+      ? quoteSpareFreight({
+        partnerId,
+        site,
+        zone,
+        destination: input.destination,
+        rates: input.rates,
+      })
+      : null;
+    const spareFreightInr = spareQuote?.totalInr ?? 0;
 
-    // One row per site: all spare names against the single spare-minimum charge.
+    // One row per site: all spare names against the auto spare freight charge.
     if (acc.spareLines.length > 0) {
       const itemNames = acc.spareLines.map(spare => {
         const label = spare.name?.trim() || spare.sku?.trim();
@@ -823,16 +837,22 @@ export function estimateStCourierCartFreight(input: {
         masterCartonCount: 0,
         singleBoxCount: 0,
         missingUnits: 0,
-        chargeableKg: 0,
+        chargeableKg: spareQuote?.chargeableKg ?? 0,
         amountInr: spareFreightInr,
         indication: 'spare_default',
+        boxPerKgInr: spareQuote?.perKgInr,
+        fuelSurchargePercent: spareQuote?.fuelSurchargePercent,
       });
     }
 
     const indications: string[] = [];
     if (isPickup) indications.push('Customer pickup — no freight');
     if (spareFreightInr > 0) {
-      indications.push(`Spare minimum ₹${spareFreightInr.toLocaleString('en-IN')}`);
+      indications.push(`Spare freight ₹${spareFreightInr.toLocaleString('en-IN')}`);
+    } else if (hasSpare && !isPickup && spareQuote?.skipped) {
+      indications.push('Spare freight — enter ₹ manually for this partner');
+    } else if (hasSpare && !isPickup && spareQuote?.rateMissing) {
+      indications.push('Spare freight — rate missing for this destination');
     }
     for (const b of lineBreakdowns) {
       if (b.indication === 'missing_package' || b.indication === 'incomplete_package') {
@@ -911,7 +931,6 @@ export function estimateStCourierCartFreight(input: {
     skipped,
     usable: sites.length > 0,
     warnings,
-    spareFreightMinimumInr: spareMin,
   };
 }
 

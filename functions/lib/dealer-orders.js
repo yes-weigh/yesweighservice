@@ -259,16 +259,8 @@ function toOrderLine(product, quantity, finalRate, catalogBaseRate) {
 
 async function loadDealerFreightConfig() {
   const db = getFirestore();
-  const [settingsSnap, ratesSnap] = await Promise.all([
-    db.doc('appSettings/logisticsSettings').get(),
-    db.doc('appSettings/logisticsCourierRates').get(),
-  ]);
-  const settings = settingsSnap.exists ? settingsSnap.data() || {} : {};
-  const spareRaw = Number(settings.spareFreightMinimumInr);
+  const ratesSnap = await db.doc('appSettings/logisticsCourierRates').get();
   return {
-    spareFreightMinimumInr: Number.isFinite(spareRaw) && spareRaw > 0
-      ? Math.round(spareRaw * 100) / 100
-      : 0,
     courierRates: ratesSnap.exists ? ratesSnap.data() || {} : {},
   };
 }
@@ -739,7 +731,6 @@ export async function submitDealerOrder(uid, role, payload = {}, secrets, orgId)
     lines: goodsLines,
     destination: freightDestination,
     courierRates: freightConfig.courierRates,
-    spareFreightMinimumInr: freightConfig.spareFreightMinimumInr,
     courierBySite: payload.courierBySite || {},
     freightZone: freightZoneMeta.zone,
     blueDartPin,
@@ -914,7 +905,6 @@ export async function createStaffSalesOrder(uid, role, payload = {}, secrets, or
     lines: goodsLines,
     destination: freightDestination,
     courierRates: freightConfig.courierRates,
-    spareFreightMinimumInr: freightConfig.spareFreightMinimumInr,
     courierBySite: payload.courierBySite || {},
     freightZone: freightZoneMeta.zone,
     blueDartPin,
