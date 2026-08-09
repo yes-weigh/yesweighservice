@@ -180,6 +180,27 @@ export async function fetchDelhiveryFreightCharges(db, lrns) {
 }
 
 /**
+ * Freight amount used in-app (excl. GST).
+ * @param {ReturnType<typeof parseDelhiveryFreightChargeEntry>} freight
+ */
+export function delhiveryFreightExclGstInr(freight) {
+  const round2 = (n) => Math.round(n * 100) / 100;
+  const preTax = freight?.breakup?.preTaxFreight;
+  if (typeof preTax === 'number' && Number.isFinite(preTax)) return round2(preTax);
+  if (
+    typeof freight?.totalInr === 'number'
+    && Number.isFinite(freight.totalInr)
+    && typeof freight?.breakup?.gst === 'number'
+    && Number.isFinite(freight.breakup.gst)
+  ) {
+    return round2(freight.totalInr - freight.breakup.gst);
+  }
+  return typeof freight?.totalInr === 'number' && Number.isFinite(freight.totalInr)
+    ? round2(freight.totalInr)
+    : null;
+}
+
+/**
  * Firestore patch fields from a single LRN freight result.
  * @param {ReturnType<typeof parseDelhiveryFreightChargeEntry>} freight
  */
@@ -189,8 +210,10 @@ export function buildDelhiveryFreightPatch(freight) {
     courierFreight: freight,
     freightFetchedAt: freight.fetchedAt,
   };
-  if (freight.ok && freight.totalInr != null) {
-    patch.actualFreightInr = freight.totalInr;
+  const exclGst = delhiveryFreightExclGstInr(freight);
+  if (freight.ok && exclGst != null) {
+    // Persist excl. GST for freight compare / ops views.
+    patch.actualFreightInr = exclGst;
   }
   if (freight.ok && freight.chargedWeightKg != null) {
     patch.chargeableWeightKg = freight.chargedWeightKg;

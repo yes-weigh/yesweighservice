@@ -702,26 +702,38 @@ export function buildLogisticsFreightCompare(input: {
     calc = quoted.calc;
   }
 
-  // Prefer Delhivery freight-breakup API once weight is captured.
+  // Prefer Delhivery freight-breakup API once weight is captured (excl. GST).
   const apiFreight = booking.courierFreight;
-  if (
-    booking.partnerId === 'delhivery'
-    && apiFreight?.ok
-    && typeof apiFreight.totalInr === 'number'
-    && Number.isFinite(apiFreight.totalInr)
-  ) {
-    actualFreightInr = apiFreight.totalInr;
-    if (typeof apiFreight.chargedWeightKg === 'number') {
+  const apiFreightExclGst = (() => {
+    if (booking.partnerId !== 'delhivery' || !apiFreight?.ok) return null;
+    const round2 = (n: number) => Math.round(n * 100) / 100;
+    const preTax = apiFreight.breakup?.preTaxFreight;
+    if (typeof preTax === 'number' && Number.isFinite(preTax)) return round2(preTax);
+    if (
+      typeof apiFreight.totalInr === 'number'
+      && Number.isFinite(apiFreight.totalInr)
+      && typeof apiFreight.breakup?.gst === 'number'
+      && Number.isFinite(apiFreight.breakup.gst)
+    ) {
+      return round2(apiFreight.totalInr - apiFreight.breakup.gst);
+    }
+    return typeof apiFreight.totalInr === 'number' && Number.isFinite(apiFreight.totalInr)
+      ? round2(apiFreight.totalInr)
+      : null;
+  })();
+  if (apiFreightExclGst != null) {
+    actualFreightInr = apiFreightExclGst;
+    if (typeof apiFreight?.chargedWeightKg === 'number') {
       chargeableKg = apiFreight.chargedWeightKg;
     }
-    actualNote = 'Delhivery freight charges (after weight captured)';
+    actualNote = 'Delhivery freight charges excl. GST (after weight captured)';
     if (calc) {
       calc = {
         ...calc,
-        totalInr: apiFreight.totalInr,
-        totalChargeableKg: apiFreight.chargedWeightKg ?? calc.totalChargeableKg,
-        freightInr: apiFreight.breakup?.baseFreightCharge ?? calc.freightInr,
-        fuelSurchargeInr: apiFreight.breakup?.fuelSurcharge ?? calc.fuelSurchargeInr,
+        totalInr: apiFreightExclGst,
+        totalChargeableKg: apiFreight?.chargedWeightKg ?? calc.totalChargeableKg,
+        freightInr: apiFreight?.breakup?.baseFreightCharge ?? calc.freightInr,
+        fuelSurchargeInr: apiFreight?.breakup?.fuelSurcharge ?? calc.fuelSurchargeInr,
       };
     }
   } else if (

@@ -4,6 +4,7 @@ import {
   AlertTriangle,
   Camera,
   Check,
+  Download,
   ExternalLink,
   Eye,
   FileText,
@@ -56,9 +57,14 @@ import { homePathForRole } from '../../types';
 import type {
   LogisticsBooking,
   LogisticsBookingStatus,
+  LogisticsCourierFreight,
   LogisticsDocumentType,
 } from '../../types/logistics-dispatch';
 import { STAFF_LOGISTICS_SITE_LABELS } from '../../types/staff-logistics';
+import {
+  buildCourierSlipFromBooking,
+  buildCourierSlipShareBlob,
+} from '../../lib/courierSlipImage';
 import { CourierSlipViewDialog } from './CourierSlipViewDialog';
 import { PhotoLightbox } from './PhotoLightbox';
 import { ShippingLabelPrintDialog } from './ShippingLabelPrintDialog';
@@ -67,6 +73,75 @@ import {
   inferDelhiveryUiStatus,
 } from '../../lib/delhiveryTrack';
 import { StCourierTrackPanel } from './StCourierTrackPanel';
+
+/** Prefer pre-tax freight; never surface GST in ops freight views. */
+function delhiveryFreightExclGst(freight: LogisticsCourierFreight): number | null {
+  const round2 = (n: number) => Math.round(n * 100) / 100;
+  const preTax = freight.breakup?.preTaxFreight;
+  if (typeof preTax === 'number' && Number.isFinite(preTax)) return round2(preTax);
+  if (
+    typeof freight.totalInr === 'number'
+    && Number.isFinite(freight.totalInr)
+    && typeof freight.breakup?.gst === 'number'
+    && Number.isFinite(freight.breakup.gst)
+  ) {
+    return round2(freight.totalInr - freight.breakup.gst);
+  }
+  return typeof freight.totalInr === 'number' && Number.isFinite(freight.totalInr)
+    ? round2(freight.totalInr)
+    : null;
+}
+
+function delhiveryFreightBreakupRows(
+  freight: LogisticsCourierFreight,
+): Array<{ label: string; value: string; emphasize?: boolean }> {
+  const rows: Array<{ label: string; value: string; emphasize?: boolean }> = [];
+  if (freight.lrn) rows.push({ label: 'LRN', value: freight.lrn });
+  if (freight.chargedWeightKg != null && freight.chargedWeightKg !== 0) {
+    rows.push({ label: 'Charged weight', value: `${freight.chargedWeightKg.toFixed(2)} kg` });
+  }
+  if (freight.minChargedWeightKg != null && freight.minChargedWeightKg !== 0) {
+    rows.push({ label: 'Min charged weight', value: `${freight.minChargedWeightKg.toFixed(2)} kg` });
+  }
+  const breakup = freight.breakup;
+  if (breakup) {
+    const money = (amount: number | null | undefined, label: string) => {
+      if (amount == null || !Number.isFinite(amount) || amount === 0) return;
+      rows.push({ label, value: formatCurrency(amount) });
+    };
+    money(breakup.baseFreightCharge, 'Base freight');
+    money(breakup.fuelSurcharge, 'Fuel surcharge');
+    money(breakup.fuelHike, 'Fuel hike');
+    money(breakup.insuranceRov, 'Insurance / ROV');
+    money(breakup.odaFm, 'ODA (first mile)');
+    money(breakup.odaLm, 'ODA (last mile)');
+    money(breakup.fm, 'First mile');
+    money(breakup.lm, 'Last mile');
+    money(breakup.green, 'Green');
+    money(breakup.otherHandlingCharges, 'Other handling');
+    money(breakup.markup, 'Markup');
+  }
+  const exclGst = delhiveryFreightExclGst(freight);
+  if (exclGst != null) {
+    rows.push({ label: 'Freight (excl. GST)', value: formatCurrency(exclGst), emphasize: true });
+  }
+  if (freight.fetchedAt) {
+    const parsed = Date.parse(freight.fetchedAt);
+    rows.push({
+      label: 'Fetched',
+      value: Number.isNaN(parsed)
+        ? freight.fetchedAt
+        : new Date(parsed).toLocaleString('en-IN', {
+          day: '2-digit',
+          month: 'short',
+          year: 'numeric',
+          hour: '2-digit',
+          minute: '2-digit',
+        }),
+    });
+  }
+  return rows;
+}
 
 interface LogisticsBookingDetailProps {
   booking: LogisticsBooking;
@@ -112,6 +187,7 @@ export const LogisticsBookingDetail: React.FC<LogisticsBookingDetailProps> = ({
   /** Prefer corrected booking immediately after ship-from fix (before parent re-render). */
   const [shippingLabelBooking, setShippingLabelBooking] = useState<LogisticsBooking | null>(null);
   const [courierSlipOpen, setCourierSlipOpen] = useState(false);
+  const [downloadingSlip, setDownloadingSlip] = useState(false);
   const [previewIndex, setPreviewIndex] = useState<number | null>(null);
   const [photosLoading, setPhotosLoading] = useState(false);
   const [uploadingFinalPhoto, setUploadingFinalPhoto] = useState(false);
@@ -173,6 +249,27 @@ export const LogisticsBookingDetail: React.FC<LogisticsBookingDetailProps> = ({
     if (!isOps || booking.courierSlipGenerated) return;
     void markDocumentGenerated('courier_slip');
   }, [booking.courierSlipGenerated, isOps, markDocumentGenerated]);
+
+  const handleDownloadCourierSlip = useCallback(async () => {
+    setDownloadingSlip(true);
+    try {
+      const slip = buildCourierSlipFromBooking(booking);
+      const { blob, fileName } = await buildCourierSlipShareBlob(slip);
+      const url = URL.createObjectURL(blob);
+      const anchor = document.createElement('a');
+      anchor.href = url;
+      anchor.download = fileName;
+      document.body.appendChild(anchor);
+      anchor.click();
+      anchor.remove();
+      URL.revokeObjectURL(url);
+      handleCourierSlipViewed();
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setDownloadingSlip(false);
+    }
+  }, [booking, handleCourierSlipViewed]);
 
   const handleShippingLabelPrinted = useCallback(() => {
     if (!isOps) return;
@@ -799,12 +896,43 @@ export const LogisticsBookingDetail: React.FC<LogisticsBookingDetailProps> = ({
 
             <p className="text-muted text-sm logistics-booking__freight-hint">
               Paid = freight on invoice.
-              Actual = rate-card estimate from booked packages.
+              Actual = Delhivery freight charges after weight captured when available,
+              otherwise rate-card estimate.
               Difference = Actual − Paid.
             </p>
             {freightCompare?.actualNote && (
               <p className="text-muted text-sm logistics-booking__freight-note">
                 {freightCompare.actualNote}
+              </p>
+            )}
+          </div>
+        </section>
+      )}
+
+      {booking.partnerId === 'delhivery' && booking.courierFreight && (
+        <section className="logistics-booking__delhivery-freight" aria-label="Delhivery freight charges">
+          <div className="logistics-booking__card logistics-booking__card--wide">
+            <h4>
+              <IndianRupee size={16} aria-hidden />
+              Delhivery freight charges
+            </h4>
+            {booking.courierFreight.ok ? (
+              <dl className="logistics-booking__freight-breakup">
+                {delhiveryFreightBreakupRows(booking.courierFreight).map(row => (
+                  <div
+                    key={row.label}
+                    className={row.emphasize ? 'is-total' : undefined}
+                  >
+                    <dt>{row.label}</dt>
+                    <dd>{row.value}</dd>
+                  </div>
+                ))}
+              </dl>
+            ) : (
+              <p className="text-muted text-sm">
+                {booking.courierFreight.error || 'Freight charges not available yet.'}
+                {' '}
+                Available after Delhivery records weight captured.
               </p>
             )}
           </div>
@@ -853,9 +981,22 @@ export const LogisticsBookingDetail: React.FC<LogisticsBookingDetailProps> = ({
             Courier details
           </h4>
           <dl className="logistics-booking__meta">
-            <div><dt>Branch</dt><dd>{booking.branch}</dd></div>
-            <div><dt>Service</dt><dd>{booking.serviceType}</dd></div>
+            <div><dt>LRN / AWB</dt><dd>{booking.consignmentNo || '—'}</dd></div>
+            {(booking.masterAwb || booking.courierTrack?.masterAwb) && (
+              <div>
+                <dt>Master AWB</dt>
+                <dd>{booking.masterAwb || booking.courierTrack?.masterAwb}</dd>
+              </div>
+            )}
+            <div><dt>Branch</dt><dd>{booking.branch || '—'}</dd></div>
+            <div><dt>Service</dt><dd>{booking.serviceType || '—'}</dd></div>
             <div><dt>Booked on</dt><dd>{booking.bookingDate}</dd></div>
+            {booking.courierFreight?.ok && delhiveryFreightExclGst(booking.courierFreight) != null && (
+              <div>
+                <dt>Freight (excl. GST)</dt>
+                <dd>{formatCurrency(delhiveryFreightExclGst(booking.courierFreight)!)}</dd>
+              </div>
+            )}
             <div>
               <dt>Ship from</dt>
               <dd>
@@ -891,18 +1032,36 @@ export const LogisticsBookingDetail: React.FC<LogisticsBookingDetailProps> = ({
                 <div><dt>Boxes</dt><dd>{booking.numberOfBoxes}</dd></div>
                 <div><dt>Actual wt.</dt><dd>{booking.actualWeightKg.toFixed(2)} kg</dd></div>
                 <div><dt>Volumetric wt.</dt><dd>{booking.volumetricWeightKg.toFixed(2)} kg</dd></div>
-                <div><dt>Chargeable wt.</dt><dd>{chargeableWeight(booking).toFixed(2)} kg</dd></div>
-                {booking.boxes.map((box, index) => (
-                  <div key={box.id}>
-                    <dt>Box {index + 1}</dt>
-                    <dd>
-                      {boxDimensionsLabel(box)} · {boxChargeableWeight(box).toFixed(2)} kg
-                    </dd>
+                <div><dt>Booked chargeable</dt><dd>{chargeableWeight(booking).toFixed(2)} kg</dd></div>
+                {booking.courierFreight?.chargedWeightKg != null && (
+                  <div>
+                    <dt>Delhivery charged</dt>
+                    <dd>{booking.courierFreight.chargedWeightKg.toFixed(2)} kg</dd>
                   </div>
-                ))}
+                )}
               </>
             )}
           </dl>
+          {!isEnvelope && booking.boxes.length > 0 && (
+            <ul className="logistics-booking__box-dims">
+              {booking.boxes.map((box, index) => (
+                <li key={box.id}>
+                  <strong>Box {index + 1}</strong>
+                  <span>
+                    L {box.lengthCm ?? '—'} × B {box.widthCm ?? '—'} × H {box.heightCm ?? '—'} cm
+                  </span>
+                  <span>
+                    Actual {(box.weightKg || 0).toFixed(2)} kg
+                    {' · '}
+                    Vol {(box.volumetricWeightKg || 0).toFixed(2)} kg
+                    {' · '}
+                    Chg {boxChargeableWeight(box).toFixed(2)} kg
+                  </span>
+                  <span className="text-muted">{boxDimensionsLabel(box)}</span>
+                </li>
+              ))}
+            </ul>
+          )}
         </div>
       </section>
 
@@ -996,6 +1155,15 @@ export const LogisticsBookingDetail: React.FC<LogisticsBookingDetailProps> = ({
           >
             <Eye size={14} aria-hidden />
             View courier slip
+          </button>
+          <button
+            type="button"
+            className="btn btn-secondary btn-sm"
+            onClick={() => void handleDownloadCourierSlip()}
+            disabled={generating !== null || downloadingSlip}
+          >
+            <Download size={14} aria-hidden />
+            {downloadingSlip ? 'Downloading…' : 'Download booking slip'}
           </button>
           {isOps && (
             <button

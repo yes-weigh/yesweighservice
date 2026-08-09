@@ -185,6 +185,8 @@ export interface LogisticsBooking {
   partnerId: LogisticsPartnerId;
   consignmentNo: string;
   trackingNo: string;
+  /** Delhivery Master AWB (MWB) when known. */
+  masterAwb?: string | null;
   branch: string;
   serviceType: string;
   bookingDate: string;

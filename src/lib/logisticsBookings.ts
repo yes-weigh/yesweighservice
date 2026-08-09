@@ -352,6 +352,11 @@ export function mapLogisticsBookingDoc(id: string, data: DocumentData): Logistic
     partnerId,
     consignmentNo: String(data.consignmentNo ?? ''),
     trackingNo: String(data.trackingNo ?? data.consignmentNo ?? ''),
+    masterAwb: typeof data.masterAwb === 'string' && data.masterAwb.trim()
+      ? data.masterAwb.trim()
+      : (typeof data.courierTrack?.masterAwb === 'string' && data.courierTrack.masterAwb.trim()
+        ? String(data.courierTrack.masterAwb).trim()
+        : null),
     branch: String(data.branch ?? ''),
     serviceType: String(data.serviceType ?? ''),
     bookingDate: String(data.bookingDate ?? ''),

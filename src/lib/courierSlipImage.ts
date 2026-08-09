@@ -33,6 +33,8 @@ export type CourierSlipViewModel = {
   partnerId: LogisticsPartnerId | string;
   partnerLabel: string;
   consignmentNo: string;
+  /** Delhivery Master AWB when known. */
+  masterAwb?: string;
   orderRef: string;
   dealerName: string;
   dealerCode: string;
@@ -57,6 +59,10 @@ export type CourierSlipViewModel = {
   shipmentMode: ShipmentMode;
   pieces: string;
   weightLabel: string;
+  /** Delhivery charged weight label when freight-breakup is present. */
+  chargedWeightLabel?: string;
+  /** Delhivery freight total label (e.g. "₹539.72"). */
+  freightTotalLabel?: string;
   bookingDate: string;
   contents: string;
   isDox: boolean;
@@ -246,9 +252,34 @@ function buildContents(input: {
 
 export function buildCourierSlipFromBooking(booking: LogisticsBooking): CourierSlipViewModel {
   const isEnvelope = booking.shipmentMode === 'envelope';
-  const weight = isEnvelope
+  const bookedChargeable = isEnvelope
     ? '—'
     : `${chargeableWeight(booking).toFixed(2)} kg`;
+  const delhiveryFreight = booking.partnerId === 'delhivery' && booking.courierFreight?.ok
+    ? booking.courierFreight
+    : null;
+  const chargedWeightLabel = delhiveryFreight?.chargedWeightKg != null
+    ? `${delhiveryFreight.chargedWeightKg.toFixed(2)} kg`
+    : undefined;
+  const weight = chargedWeightLabel || bookedChargeable;
+  const freightExclGst = (() => {
+    if (!delhiveryFreight) return null;
+    const preTax = delhiveryFreight.breakup?.preTaxFreight;
+    if (typeof preTax === 'number' && Number.isFinite(preTax)) return preTax;
+    if (
+      typeof delhiveryFreight.totalInr === 'number'
+      && typeof delhiveryFreight.breakup?.gst === 'number'
+    ) {
+      return Math.round((delhiveryFreight.totalInr - delhiveryFreight.breakup.gst) * 100) / 100;
+    }
+    return typeof delhiveryFreight.totalInr === 'number' ? delhiveryFreight.totalInr : null;
+  })();
+  const freightTotalLabel = freightExclGst != null
+    ? `₹${freightExclGst.toLocaleString('en-IN', {
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2,
+    })} excl. GST`
+    : undefined;
   const pieces = isEnvelope
     ? '1 envelope'
     : `${booking.numberOfBoxes || booking.boxes.length || 1} box(es)`;
@@ -265,10 +296,16 @@ export function buildCourierSlipFromBooking(booking: LogisticsBooking): CourierS
     contactPerson: booking.dealer.contactPerson || '',
     toMobile,
   });
+  const masterAwb = (
+    booking.courierTrack?.masterAwb
+    || booking.masterAwb
+    || (booking.trackingNo && booking.trackingNo !== booking.consignmentNo ? booking.trackingNo : '')
+  )?.trim() || undefined;
   return {
     partnerId: booking.partnerId,
     partnerLabel: logisticsPartnerLabel(booking.partnerId),
     consignmentNo: booking.consignmentNo.trim() || '—',
+    masterAwb,
     orderRef: booking.orderRef.trim() || '—',
     dealerName: booking.dealer.name,
     dealerCode: booking.dealer.code,
@@ -289,6 +326,8 @@ export function buildCourierSlipFromBooking(booking: LogisticsBooking): CourierS
     shipmentMode: booking.shipmentMode,
     pieces,
     weightLabel: weight,
+    chargedWeightLabel,
+    freightTotalLabel,
     bookingDate: booking.bookingDate || '—',
     contents: buildContents({
       pieces,
@@ -386,14 +425,22 @@ async function buildGenericCourierSlipPngBlob(slip: CourierSlipViewModel): Promi
     return wrapText(ctx, slip.toAddress || slip.deliveryAddress, contentW, 5);
   })();
 
+  const dimLines = (slip.boxDimensions || '')
+    .split('\n')
+    .map(line => line.trim())
+    .filter(Boolean);
   const metaRows: Array<[string, string]> = [
     ['Order ref', slip.orderRef],
+    ['Master AWB', slip.masterAwb || ''],
     ['Service', slip.serviceType],
     ['Branch', slip.branch],
     ['Shipment', slip.shipmentType],
     ['Pieces', slip.pieces],
     ['Weight', slip.weightLabel],
+    ['Charged wt.', slip.chargedWeightLabel || ''],
+    ['Freight', slip.freightTotalLabel || ''],
     ['Booking date', slip.bookingDate],
+    ['Box dimensions', dimLines.join(' · ')],
   ].filter(([, v]) => v && v !== '—') as Array<[string, string]>;
 
   const H = Math.max(
@@ -408,7 +455,8 @@ async function buildGenericCourierSlipPngBlob(slip: CourierSlipViewModel): Promi
       + 28
       + addressLines.length * 34
       + 28
-      + metaRows.length * 42
+      + metaRows.length * 48
+      + dimLines.length * 28
       + (slip.shipFrom && slip.shipFrom !== '—' ? 90 : 0)
       + 56
       + pad,

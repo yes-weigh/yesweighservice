@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { Share2, X } from 'lucide-react';
+import { Download, Share2, X } from 'lucide-react';
 import {
   buildCourierSlipFromBooking,
   buildCourierSlipShareBlob,
@@ -17,6 +17,17 @@ type Props = {
   onViewed?: () => void;
 };
 
+function downloadBlob(blob: Blob, fileName: string): void {
+  const url = URL.createObjectURL(blob);
+  const anchor = document.createElement('a');
+  anchor.href = url;
+  anchor.download = fileName;
+  document.body.appendChild(anchor);
+  anchor.click();
+  anchor.remove();
+  URL.revokeObjectURL(url);
+}
+
 export const CourierSlipViewDialog: React.FC<Props> = ({
   booking,
   onClose,
@@ -25,6 +36,7 @@ export const CourierSlipViewDialog: React.FC<Props> = ({
   const slip = useMemo(() => buildCourierSlipFromBooking(booking), [booking]);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [pdfBytes, setPdfBytes] = useState<Uint8Array | null>(null);
+  const [shareBlob, setShareBlob] = useState<Blob | null>(null);
   const [mimeType, setMimeType] = useState('application/pdf');
   const [fileName, setFileName] = useState('courier-slip.pdf');
   const [loading, setLoading] = useState(true);
@@ -42,12 +54,14 @@ export const CourierSlipViewDialog: React.FC<Props> = ({
     setError('');
     setPreviewUrl(null);
     setPdfBytes(null);
+    setShareBlob(null);
 
     void buildCourierSlipShareBlob(slip)
       .then(async ({ blob, fileName: name, mimeType: type }) => {
         if (cancelled) return;
         setFileName(name);
         setMimeType(type);
+        setShareBlob(blob);
 
         if (type === 'application/pdf') {
           const buffer = await blob.arrayBuffer();
@@ -101,6 +115,11 @@ export const CourierSlipViewDialog: React.FC<Props> = ({
       setSharing(false);
     }
   }, [slip]);
+
+  const handleDownload = useCallback(() => {
+    if (!shareBlob) return;
+    downloadBlob(shareBlob, fileName);
+  }, [shareBlob, fileName]);
 
   const isPdf = mimeType === 'application/pdf';
 
@@ -156,6 +175,15 @@ export const CourierSlipViewDialog: React.FC<Props> = ({
             disabled={sharing}
           >
             Close
+          </button>
+          <button
+            type="button"
+            className="btn btn-secondary"
+            onClick={handleDownload}
+            disabled={sharing || loading || Boolean(error) || !shareBlob}
+          >
+            <Download size={16} aria-hidden />
+            Download
           </button>
           <button
             type="button"
