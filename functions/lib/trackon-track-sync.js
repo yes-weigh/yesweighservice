@@ -152,6 +152,8 @@ export async function syncTrackonTrackingForBookings(db, options = {}) {
 
     const patch = buildTrackonTrackingPatch(track, {
       currentStatus,
+      currentBookingDate: String(data.bookingDate || ''),
+      bookingSource: String(data.source || ''),
       updatePipelineStatus: true,
       correctFalseDelivered,
     });
@@ -169,6 +171,7 @@ export async function syncTrackonTrackingForBookings(db, options = {}) {
       error: track.error,
       currentStatus,
       nextStatus: statusChanged ? patch.status : null,
+      bookingDate: patch.bookingDate || null,
       correctedDelivered,
       dryRun,
     });
@@ -218,7 +221,10 @@ export async function persistTrackonTrackOnBooking(db, bookingId, track, options
   const data = snap.data() || {};
   const patch = buildTrackonTrackingPatch(track, {
     currentStatus: String(data.status || ''),
+    currentBookingDate: String(data.bookingDate || ''),
+    bookingSource: String(data.source || ''),
     updatePipelineStatus: options.updatePipelineStatus !== false,
+    updateBookingDate: options.updateBookingDate,
     correctFalseDelivered: options.correctFalseDelivered !== false,
   });
   await ref.update(patch);

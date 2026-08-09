@@ -172,9 +172,12 @@ export function buildDelhiveryTrackingPatch(track, options = {}) {
   const correctFalseDelivered = Boolean(options.correctFalseDelivered);
   const currentStatus = String(options.currentStatus || '');
 
-  // Reuse ST snapshot builder for courierTrack shape, then override inference.
+  // Reuse ST snapshot builder for courierTrack shape + bookingDate sync, then override status.
   const patch = buildStCourierTrackingPatch(track, {
     currentStatus,
+    currentBookingDate: options.currentBookingDate,
+    bookingSource: options.bookingSource,
+    updateBookingDate: options.updateBookingDate,
     updatePipelineStatus: false,
     correctFalseDelivered,
   });
@@ -328,6 +331,8 @@ export async function syncDelhiveryTrackingForBookings(db, options = {}) {
 
     const patch = buildDelhiveryTrackingPatch(track, {
       currentStatus,
+      currentBookingDate: String(data.bookingDate || ''),
+      bookingSource: String(data.source || ''),
       updatePipelineStatus: true,
       correctFalseDelivered,
     });
@@ -345,6 +350,7 @@ export async function syncDelhiveryTrackingForBookings(db, options = {}) {
       error: track.error,
       currentStatus,
       nextStatus: statusChanged ? patch.status : null,
+      bookingDate: patch.bookingDate || null,
       correctedDelivered,
       dryRun,
     });
@@ -397,7 +403,10 @@ export async function persistDelhiveryTrackOnBooking(db, bookingId, track, optio
   const data = snap.data() || {};
   const patch = buildDelhiveryTrackingPatch(track, {
     currentStatus: String(data.status || ''),
+    currentBookingDate: String(data.bookingDate || ''),
+    bookingSource: String(data.source || ''),
     updatePipelineStatus: options.updatePipelineStatus !== false,
+    updateBookingDate: options.updateBookingDate,
     correctFalseDelivered: options.correctFalseDelivered !== false,
   });
   await ref.update(patch);

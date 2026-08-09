@@ -190,13 +190,53 @@ export function buildCourierTrackSnapshot(track) {
 }
 
 /**
+ * Calendar booking date (YYYY-MM-DD, Asia/Kolkata) from courier bookedAt / pickup.
+ * @param {unknown} bookedAt
+ * @returns {string | null}
+ */
+export function bookingDateFromTrackBookedAt(bookedAt) {
+  const raw = String(bookedAt ?? '').trim();
+  if (!raw) return null;
+  if (/^\d{4}-\d{2}-\d{2}$/.test(raw)) return raw;
+  const isoDay = /^(\d{4}-\d{2}-\d{2})/.exec(raw);
+  const parsed = Date.parse(raw);
+  if (Number.isNaN(parsed)) {
+    return isoDay ? isoDay[1] : null;
+  }
+  try {
+    return new Intl.DateTimeFormat('en-CA', {
+      timeZone: 'Asia/Kolkata',
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+    }).format(new Date(parsed));
+  } catch {
+    return isoDay ? isoDay[1] : null;
+  }
+}
+
+/**
+ * Whether this booking should adopt courier bookedAt as bookingDate.
+ * Manual / invoice LR entries often used today or invoice date; sync to real book/pickup.
+ * @param {unknown} source
+ */
+export function shouldSyncBookingDateFromTrack(source) {
+  const value = String(source || '').trim().toLowerCase();
+  // wizard / support API books already set bookingDate; still safe to correct from courier.
+  return value === 'manual' || value === 'invoice' || value === 'support' || value === '';
+}
+
+/**
  * Build a Firestore update patch from a track result.
  * Does not bump updatedAt unless pipeline status changes (keeps list sort stable).
  *
  * @param {Awaited<ReturnType<typeof fetchStCourierTrack>>} track
  * @param {{
  *   currentStatus?: string,
+ *   currentBookingDate?: string,
+ *   bookingSource?: string,
  *   updatePipelineStatus?: boolean,
+ *   updateBookingDate?: boolean,
  *   correctFalseDelivered?: boolean,
  * }} [options]
  */
@@ -210,6 +250,17 @@ export function buildStCourierTrackingPatch(track, options = {}) {
     courierTrack,
     trackFetchedAt: courierTrack.fetchedAt,
   };
+
+  const updateBookingDate = options.updateBookingDate != null
+    ? Boolean(options.updateBookingDate)
+    : shouldSyncBookingDateFromTrack(options.bookingSource);
+  if (updateBookingDate && track?.ok) {
+    const nextBookingDate = bookingDateFromTrackBookedAt(track.bookedAt);
+    const currentBookingDate = String(options.currentBookingDate || '').slice(0, 10);
+    if (nextBookingDate && nextBookingDate !== currentBookingDate) {
+      patch.bookingDate = nextBookingDate;
+    }
+  }
 
   if (updatePipelineStatus) {
     const nextStatus = inferLogisticsStatusFromStTrack(track, currentStatus, {
@@ -348,6 +399,8 @@ export async function syncStCourierTrackingForBookings(db, options = {}) {
 
     const patch = buildStCourierTrackingPatch(track, {
       currentStatus,
+      currentBookingDate: String(data.bookingDate || ''),
+      bookingSource: String(data.source || ''),
       updatePipelineStatus: true,
       correctFalseDelivered,
     });
@@ -365,6 +418,7 @@ export async function syncStCourierTrackingForBookings(db, options = {}) {
       error: track.error,
       currentStatus,
       nextStatus: statusChanged ? patch.status : null,
+      bookingDate: patch.bookingDate || null,
       correctedDelivered,
       dryRun,
     });
@@ -408,7 +462,7 @@ export async function syncStCourierTrackingForBookings(db, options = {}) {
  * @param {FirebaseFirestore.Firestore} db
  * @param {string} bookingId
  * @param {Awaited<ReturnType<typeof fetchStCourierTrack>>} track
- * @param {{ updatePipelineStatus?: boolean, correctFalseDelivered?: boolean }} [options]
+ * @param {{ updatePipelineStatus?: boolean, correctFalseDelivered?: boolean, updateBookingDate?: boolean }} [options]
  */
 export async function persistStCourierTrackOnBooking(db, bookingId, track, options = {}) {
   const ref = db.collection('logisticsBookings').doc(String(bookingId));
@@ -419,7 +473,10 @@ export async function persistStCourierTrackOnBooking(db, bookingId, track, optio
   const data = snap.data() || {};
   const patch = buildStCourierTrackingPatch(track, {
     currentStatus: String(data.status || ''),
+    currentBookingDate: String(data.bookingDate || ''),
+    bookingSource: String(data.source || ''),
     updatePipelineStatus: options.updatePipelineStatus !== false,
+    updateBookingDate: options.updateBookingDate,
     // Live track refresh should also fix wrongly marked delivered bookings.
     correctFalseDelivered: options.correctFalseDelivered !== false,
   });

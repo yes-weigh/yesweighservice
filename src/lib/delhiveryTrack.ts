@@ -82,6 +82,26 @@ export function delhiveryTrackFromBooking(
   };
 }
 
+/** YYYY-MM-DD (IST) from courier bookedAt — mirrors Cloud Function bookingDate sync. */
+export function bookingDateFromTrackBookedAt(bookedAt: string | null | undefined): string | null {
+  const raw = String(bookedAt ?? '').trim();
+  if (!raw) return null;
+  if (/^\d{4}-\d{2}-\d{2}$/.test(raw)) return raw;
+  const isoDay = /^(\d{4}-\d{2}-\d{2})/.exec(raw);
+  const parsed = Date.parse(raw);
+  if (Number.isNaN(parsed)) return isoDay ? isoDay[1] : null;
+  try {
+    return new Intl.DateTimeFormat('en-CA', {
+      timeZone: 'Asia/Kolkata',
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+    }).format(new Date(parsed));
+  } catch {
+    return isoDay ? isoDay[1] : null;
+  }
+}
+
 /**
  * Optimistic UI status after a live Delhivery refresh (mirrors Cloud Function inference).
  * Returns the next booking status, or the current one when unchanged.

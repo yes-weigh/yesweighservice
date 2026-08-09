@@ -62,7 +62,10 @@ import { STAFF_LOGISTICS_SITE_LABELS } from '../../types/staff-logistics';
 import { CourierSlipViewDialog } from './CourierSlipViewDialog';
 import { PhotoLightbox } from './PhotoLightbox';
 import { ShippingLabelPrintDialog } from './ShippingLabelPrintDialog';
-import { inferDelhiveryUiStatus } from '../../lib/delhiveryTrack';
+import {
+  bookingDateFromTrackBookedAt,
+  inferDelhiveryUiStatus,
+} from '../../lib/delhiveryTrack';
 import { StCourierTrackPanel } from './StCourierTrackPanel';
 
 interface LogisticsBookingDetailProps {
@@ -496,9 +499,15 @@ export const LogisticsBookingDetail: React.FC<LogisticsBookingDetailProps> = ({
             const statusType = 'statusType' in track
               ? (track as { statusType?: string | null }).statusType
               : undefined;
+            const nextBookingDate = track.ok
+              ? bookingDateFromTrackBookedAt(track.bookedAt)
+              : null;
             onUpdate({
               ...booking,
               status: nextStatus,
+              ...(nextBookingDate && nextBookingDate !== booking.bookingDate
+                ? { bookingDate: nextBookingDate }
+                : {}),
               courierTrack: {
                 awb: track.awb,
                 ok: track.ok,
