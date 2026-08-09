@@ -4406,6 +4406,7 @@ export const bookDelhiveryShipmentFn = onCall(
         sellerGstin: request.data?.sellerGstin,
         paymentMode: request.data?.paymentMode,
         shippingMode: request.data?.shippingMode,
+        freightBillingMode: request.data?.freightBillingMode,
       });
       return result;
     } catch (err) {

@@ -105,6 +105,11 @@ export interface LogisticsBookingDraft {
   /** Set when resuming a saved booking; wizard resolves this to a display URL. */
   finalPackagePhotoStoragePath?: string | null;
   labelGenerated: boolean;
+  /**
+   * Delhivery only: FOD (consignee pays freight) vs BTC (bill to client).
+   * Sent as freight_mode on manifest create when FOD.
+   */
+  freightBillingMode?: LogisticsFreightBillingMode | null;
 }
 
 /** Persisted ST Courier track snapshot (from hourly sync / live fetch). */
@@ -134,6 +139,9 @@ export interface LogisticsCourierTrack {
   fetchedAt: string;
 }
 
+/** Delhivery freight billing: FOD = consignee pays freight; BTC = bill to client. */
+export type LogisticsFreightBillingMode = 'fod' | 'btc';
+
 /** Delhivery freight-breakup snapshot (after weight captured). */
 export interface LogisticsCourierFreightBreakup {
   baseFreightCharge: number | null;
@@ -159,6 +167,8 @@ export interface LogisticsCourierFreight {
   chargedWeightKg: number | null;
   minChargedWeightKg: number | null;
   breakup: LogisticsCourierFreightBreakup | null;
+  /** FOD / BTC when known from API or ops. */
+  billingMode?: LogisticsFreightBillingMode | null;
   error: string | null;
   fetchedAt: string;
   source: string;
@@ -226,6 +236,10 @@ export interface LogisticsBooking {
   actualFreightInr?: number | null;
   /** ISO timestamp of last Delhivery freight-breakup fetch. */
   freightFetchedAt?: string | null;
+  /** Delhivery freight billing: fod (consignee) or btc (bill to client). */
+  freightBillingMode?: LogisticsFreightBillingMode | null;
+  /** How freightBillingMode was set: booking UI, Delhivery API, estimate inference, or ops. */
+  freightBillingModeSource?: 'booking' | 'api' | 'inferred' | 'manual' | null;
   /** Destination office Communication from ST pincode search (once per booking). */
   courierDeliveryOffice?: LogisticsCourierDeliveryOffice | null;
   /** ISO or ST delivery timestamp when booking was marked delivered via sync. */

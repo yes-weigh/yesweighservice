@@ -12,6 +12,8 @@ import {
 import {
   buildDelhiveryFreightPatch,
   fetchDelhiveryFreightCharges,
+  inferDelhiveryFreightBillingMode,
+  normalizeDelhiveryFreightBillingMode,
   trackHasWeightCaptured,
 } from './delhivery-freight.js';
 import {
@@ -419,14 +421,63 @@ export async function syncDelhiveryTrackingForBookings(db, options = {}) {
  * @param {Record<string, unknown>} data
  * @param {unknown} track
  */
+/**
+ * Resolve FOD/BTC: keep explicit booking/ops mode, else API hint, else estimate inference.
+ *
+ * @param {FirebaseFirestore.Firestore} db
+ * @param {Record<string, unknown>} data
+ * @param {{
+ *   previousBillingMode?: 'fod' | 'btc' | null,
+ *   trackBillingHint?: 'fod' | 'btc' | null,
+ *   apiBillingMode?: 'fod' | 'btc' | null,
+ *   actualTotalInr?: number | null,
+ * }} bits
+ */
+async function resolveFreightBillingMode(db, data, bits) {
+  if (bits.previousBillingMode === 'fod' || bits.previousBillingMode === 'btc') {
+    return { mode: bits.previousBillingMode, source: null };
+  }
+  if (bits.apiBillingMode === 'fod' || bits.apiBillingMode === 'btc') {
+    return { mode: bits.apiBillingMode, source: 'api' };
+  }
+  if (bits.trackBillingHint === 'fod' || bits.trackBillingHint === 'btc') {
+    return { mode: bits.trackBillingHint, source: 'api' };
+  }
+  try {
+    const inferred = await inferDelhiveryFreightBillingMode(db, data, bits.actualTotalInr);
+    if (inferred.mode) return { mode: inferred.mode, source: 'inferred' };
+  } catch {
+    // Inference is best-effort; freight sync should still persist amounts.
+  }
+  return { mode: null, source: null };
+}
+
 async function maybeDelhiveryFreightPatch(db, data, track) {
   const effectiveTrack = track || data.courierTrack;
   if (!trackHasWeightCaptured(effectiveTrack)) return {};
+  const previousBillingMode = (
+    data.freightBillingMode === 'fod' || data.freightBillingMode === 'btc'
+      ? data.freightBillingMode
+      : (data.courierFreight?.billingMode === 'fod' || data.courierFreight?.billingMode === 'btc'
+        ? data.courierFreight.billingMode
+        : null)
+  );
+  // Track may surface freight_mode into consignmentType — use as FOD/BTC hint.
+  const trackBillingHint = normalizeDelhiveryFreightBillingMode(
+    effectiveTrack?.consignmentType,
+    effectiveTrack?.freightMode,
+    effectiveTrack?.freight_mode,
+  );
   const lrn = lrnFromLogisticsBooking(data);
   if (!lrn) {
     const mwb = trackIdsFromLogisticsBooking(data).find(id => isDelhiveryMasterAwb(id)) || '';
     if (!mwb) return {};
     const fetchedAt = new Date().toISOString();
+    const resolved = await resolveFreightBillingMode(db, data, {
+      previousBillingMode,
+      trackBillingHint,
+      actualTotalInr: null,
+    });
     return {
       courierFreight: {
         ok: false,
@@ -435,17 +486,27 @@ async function maybeDelhiveryFreightPatch(db, data, track) {
         chargedWeightKg: null,
         minChargedWeightKg: null,
         breakup: null,
+        billingMode: resolved.mode,
         error: '9-digit LRN required for freight (this booking only has Master AWB)',
         fetchedAt,
         source: 'delhivery_freight_breakup',
       },
       freightFetchedAt: fetchedAt,
+      ...(resolved.mode ? {
+        freightBillingMode: resolved.mode,
+        ...(resolved.source ? { freightBillingModeSource: resolved.source } : {}),
+      } : {}),
     };
   }
   try {
     const result = await fetchDelhiveryFreightCharges(db, [lrn]);
     const freight = result.byLrn[lrn];
     if (!freight) {
+      const resolved = await resolveFreightBillingMode(db, data, {
+        previousBillingMode,
+        trackBillingHint,
+        actualTotalInr: null,
+      });
       return {
         courierFreight: {
           ok: false,
@@ -454,15 +515,42 @@ async function maybeDelhiveryFreightPatch(db, data, track) {
           chargedWeightKg: null,
           minChargedWeightKg: null,
           breakup: null,
+          billingMode: resolved.mode,
           error: result.error || 'No freight data',
           fetchedAt: result.fetchedAt,
           source: 'delhivery_freight_breakup',
         },
         freightFetchedAt: result.fetchedAt,
+        ...(resolved.mode ? {
+          freightBillingMode: resolved.mode,
+          ...(resolved.source ? { freightBillingModeSource: resolved.source } : {}),
+        } : {}),
       };
     }
-    return buildDelhiveryFreightPatch(freight);
+    const resolved = await resolveFreightBillingMode(db, {
+      ...data,
+      courierFreight: freight,
+      chargeableWeightKg: freight.chargedWeightKg ?? data.chargeableWeightKg,
+    }, {
+      previousBillingMode,
+      trackBillingHint,
+      apiBillingMode: freight.billingMode,
+      actualTotalInr: freight.totalInr,
+    });
+    const withMode = {
+      ...freight,
+      billingMode: resolved.mode,
+    };
+    return buildDelhiveryFreightPatch(withMode, {
+      previousBillingMode: resolved.mode,
+      billingModeSource: resolved.source,
+    });
   } catch (err) {
+    const resolved = await resolveFreightBillingMode(db, data, {
+      previousBillingMode,
+      trackBillingHint,
+      actualTotalInr: null,
+    });
     return {
       courierFreight: {
         ok: false,
@@ -471,11 +559,16 @@ async function maybeDelhiveryFreightPatch(db, data, track) {
         chargedWeightKg: null,
         minChargedWeightKg: null,
         breakup: null,
+        billingMode: resolved.mode,
         error: err?.message || String(err),
         fetchedAt: new Date().toISOString(),
         source: 'delhivery_freight_breakup',
       },
       freightFetchedAt: new Date().toISOString(),
+      ...(resolved.mode ? {
+        freightBillingMode: resolved.mode,
+        ...(resolved.source ? { freightBillingModeSource: resolved.source } : {}),
+      } : {}),
     };
   }
 }
@@ -522,7 +615,11 @@ export async function syncDelhiveryFreightForBookings(db, options = {}) {
     const lrn = lrnFromLogisticsBooking(data);
     if (!lrn) continue;
     const existingOk = Boolean(data.courierFreight?.ok && data.courierFreight?.totalInr != null);
-    if (existingOk && !force) continue;
+    const hasBillingMode = data.freightBillingMode === 'fod' || data.freightBillingMode === 'btc'
+      || data.courierFreight?.billingMode === 'fod'
+      || data.courierFreight?.billingMode === 'btc';
+    // Fetch freight when missing; also revisit rows that have freight but no FOD/BTC yet.
+    if (existingOk && hasBillingMode && !force) continue;
     targets.push(docSnap);
     if (limit && targets.length >= limit) break;
   }
@@ -540,43 +637,62 @@ export async function syncDelhiveryFreightForBookings(db, options = {}) {
   await mapPool(targets, concurrency, async (docSnap) => {
     const data = docSnap.data() || {};
     const lrn = lrnFromLogisticsBooking(data);
-    let freight;
-    try {
-      const result = await fetchDelhiveryFreightCharges(db, [lrn]);
-      freight = result.byLrn[lrn];
-      if (!freight?.ok) {
+    const existingOk = Boolean(data.courierFreight?.ok && data.courierFreight?.totalInr != null);
+    const hasBillingMode = data.freightBillingMode === 'fod' || data.freightBillingMode === 'btc'
+      || data.courierFreight?.billingMode === 'fod'
+      || data.courierFreight?.billingMode === 'btc';
+    const modeOnly = existingOk && !hasBillingMode && !force;
+    let freight = modeOnly ? data.courierFreight : null;
+    if (!modeOnly) {
+      try {
+        const result = await fetchDelhiveryFreightCharges(db, [lrn]);
+        freight = result.byLrn[lrn];
+        if (!freight?.ok) {
+          summary.fetchedFail += 1;
+          onProgress({
+            type: 'fetched',
+            id: docSnap.id,
+            awb: lrn,
+            ok: false,
+            error: freight?.error || result.error,
+            dryRun,
+          });
+        } else {
+          summary.fetchedOk += 1;
+          onProgress({
+            type: 'fetched',
+            id: docSnap.id,
+            awb: lrn,
+            ok: true,
+            totalInr: freight.totalInr,
+            chargedWeightKg: freight.chargedWeightKg,
+            dryRun,
+          });
+        }
+      } catch (err) {
         summary.fetchedFail += 1;
+        summary.errors.push({ id: docSnap.id, awb: lrn, error: err?.message || String(err) });
         onProgress({
-          type: 'fetched',
+          type: 'error',
           id: docSnap.id,
           awb: lrn,
-          ok: false,
-          error: freight?.error || result.error,
-          dryRun,
+          error: err?.message || String(err),
         });
-      } else {
-        summary.fetchedOk += 1;
-        onProgress({
-          type: 'fetched',
-          id: docSnap.id,
-          awb: lrn,
-          ok: true,
-          totalInr: freight.totalInr,
-          chargedWeightKg: freight.chargedWeightKg,
-          dryRun,
-        });
+        if (delayMs) await sleep(delayMs);
+        return;
       }
-    } catch (err) {
-      summary.fetchedFail += 1;
-      summary.errors.push({ id: docSnap.id, awb: lrn, error: err?.message || String(err) });
+    } else {
+      summary.fetchedOk += 1;
       onProgress({
-        type: 'error',
+        type: 'fetched',
         id: docSnap.id,
         awb: lrn,
-        error: err?.message || String(err),
+        ok: true,
+        totalInr: freight?.totalInr,
+        chargedWeightKg: freight?.chargedWeightKg,
+        modeOnly: true,
+        dryRun,
       });
-      if (delayMs) await sleep(delayMs);
-      return;
     }
 
     if (dryRun || !freight) {
@@ -586,7 +702,34 @@ export async function syncDelhiveryFreightForBookings(db, options = {}) {
     }
 
     try {
-      await docSnap.ref.update(buildDelhiveryFreightPatch(freight));
+      const previousBillingMode = (
+        data.freightBillingMode === 'fod' || data.freightBillingMode === 'btc'
+          ? data.freightBillingMode
+          : (data.courierFreight?.billingMode === 'fod' || data.courierFreight?.billingMode === 'btc'
+            ? data.courierFreight.billingMode
+            : null)
+      );
+      const trackBillingHint = normalizeDelhiveryFreightBillingMode(
+        data.courierTrack?.consignmentType,
+        data.courierTrack?.freightMode,
+        data.courierTrack?.freight_mode,
+        freight.billingMode,
+      );
+      const resolved = await resolveFreightBillingMode(db, {
+        ...data,
+        courierFreight: freight,
+        chargeableWeightKg: freight.chargedWeightKg ?? data.chargeableWeightKg,
+      }, {
+        previousBillingMode,
+        trackBillingHint,
+        apiBillingMode: normalizeDelhiveryFreightBillingMode(freight.billingMode),
+        actualTotalInr: freight.totalInr,
+      });
+      const withMode = { ...freight, billingMode: resolved.mode || previousBillingMode || null };
+      await docSnap.ref.update(buildDelhiveryFreightPatch(withMode, {
+        previousBillingMode: withMode.billingMode,
+        billingModeSource: resolved.source,
+      }));
       summary.updated += 1;
     } catch (err) {
       summary.errors.push({ id: docSnap.id, awb: lrn, error: err?.message || String(err) });

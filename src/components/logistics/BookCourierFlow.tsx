@@ -844,6 +844,7 @@ export const BookCourierFlow: React.FC<BookCourierFlowProps> = ({
         productsDesc: 'Weighing equipment',
         shippingMode: 'Surface',
         paymentMode: 'Prepaid',
+        freightBillingMode: draftRef.current.freightBillingMode === 'fod' ? 'fod' : 'btc',
       });
       const lrn = String(result.lrn || '').trim();
       if (!lrn) throw new Error('Delhivery did not return an LR number.');
@@ -2108,6 +2109,46 @@ export const BookCourierFlow: React.FC<BookCourierFlowProps> = ({
                   )}
                 </div>
               </div>
+
+              {isDelhivery ? (
+                <div className="book-courier__review-card">
+                  <div className="book-courier__review-head">
+                    <h4>Freight billing</h4>
+                  </div>
+                  <p className="text-muted text-sm" style={{ marginTop: 0 }}>
+                    BTC bills freight to YesWeigh. FOD collects freight from the consignee on delivery.
+                  </p>
+                  <div className="logistics-booking__billing-mode-actions">
+                    <button
+                      type="button"
+                      className={[
+                        'btn btn-secondary',
+                        (draft.freightBillingMode || 'btc') === 'btc' ? 'is-active' : '',
+                      ].filter(Boolean).join(' ')}
+                      disabled={bookingDelhivery || Boolean(draft.consignmentNo.trim())}
+                      onClick={() => applyDraft(prev => ({ ...prev, freightBillingMode: 'btc' }))}
+                    >
+                      BTC
+                    </button>
+                    <button
+                      type="button"
+                      className={[
+                        'btn btn-secondary',
+                        draft.freightBillingMode === 'fod' ? 'is-active' : '',
+                      ].filter(Boolean).join(' ')}
+                      disabled={bookingDelhivery || Boolean(draft.consignmentNo.trim())}
+                      onClick={() => applyDraft(prev => ({ ...prev, freightBillingMode: 'fod' }))}
+                    >
+                      FOD
+                    </button>
+                  </div>
+                  {draft.consignmentNo.trim() ? (
+                    <p className="text-muted text-sm" style={{ marginBottom: 0 }}>
+                      LR already created — change FOD/BTC later on the booking detail if needed.
+                    </p>
+                  ) : null}
+                </div>
+              ) : null}
 
               {boxesValid ? (
                 <button

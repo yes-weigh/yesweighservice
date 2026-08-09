@@ -60,7 +60,7 @@ import {
 } from '../../lib/logisticsFreightCompare';
 import { loadLogisticsCourierRates } from '../../lib/logisticsCourierRates';
 import { loadLogisticsSettings } from '../../lib/logisticsSettings';
-import { extractCityState, resolveDestinationPlace } from '../../lib/shippingLabel';
+import { resolveDestinationPlace } from '../../lib/shippingLabel';
 import { isInternalOpsUser } from '../../lib/staffAccess';
 import type { LogisticsBooking, LogisticsBookingDraft, LogisticsBookingStatus } from '../../types/logistics-dispatch';
 import {
@@ -71,7 +71,7 @@ import {
 import type { BookCourierStep } from '../../lib/logisticsBooking';
 import { emptyShipmentBoxDraft } from '../../lib/logisticsBooking';
 import type { LogisticsCourierRates } from '../../types/logistics-courier-rates';
-import type { StaffLogisticsSite } from '../../types/staff-logistics';
+import { staffLogisticsSiteLabel } from '../../types/staff-logistics';
 
 type FlowStep = 'closed' | 'partner' | 'book';
 type CardTone = 'all' | 'incomplete' | 'label' | 'transit' | 'delivered' | 'exception';
@@ -232,16 +232,9 @@ function statusBadgeLabel(booking: LogisticsBooking): string {
   return booking.status;
 }
 
-const ORIGIN_PLACE_FALLBACK: Record<StaffLogisticsSite, string> = {
-  cochin: 'Kochi, Kerala',
-  head_office: 'Head Office',
-};
-
 function originPlaceLabel(booking: LogisticsBooking): string {
-  const fromAddress = booking.shipFromAddress?.trim() || '';
-  return extractCityState(fromAddress)
-    || ORIGIN_PLACE_FALLBACK[booking.shipFromSite]
-    || 'Origin';
+  // List cards: site only (Cochin / Head Office) — not the full ship-from street address.
+  return staffLogisticsSiteLabel(booking.shipFromSite);
 }
 
 function destinationPlaceLabel(booking: LogisticsBooking): string {
@@ -1012,31 +1005,42 @@ export const LogisticsPage: React.FC = () => {
                               {(freight?.paidFreightInr != null
                                 || freight?.actualFreightInr != null) && (
                                 <div className="logistics-shipment__freight">
-                                  <span>
-                                    Paid{' '}
-                                    {freight.paidFreightInr != null
-                                      ? formatCurrency(freight.paidFreightInr)
-                                      : '—'}
-                                  </span>
-                                  <span>
-                                    Actual{' '}
-                                    {freight.actualFreightInr != null
-                                      ? formatCurrency(freight.actualFreightInr)
-                                      : '—'}
-                                  </span>
-                                  {freight.differenceInr != null && (
-                                    <span
-                                      className={[
-                                        'logistics-shipment__freight-diff',
-                                        freight.differenceInr > 0
-                                          ? 'is-under'
-                                          : freight.differenceInr < 0
-                                            ? 'is-over'
-                                            : 'is-matched',
-                                      ].join(' ')}
-                                    >
-                                      Diff {formatCurrency(freight.differenceInr)}
+                                  {freight.isFod ? (
+                                    <span className="logistics-shipment__freight-fod">
+                                      FOD{' '}
+                                      {freight.actualFreightInr != null
+                                        ? formatCurrency(freight.actualFreightInr)
+                                        : '—'}
                                     </span>
+                                  ) : (
+                                    <>
+                                      <span>
+                                        Paid{' '}
+                                        {freight.paidFreightInr != null
+                                          ? formatCurrency(freight.paidFreightInr)
+                                          : '—'}
+                                      </span>
+                                      <span>
+                                        Actual{' '}
+                                        {freight.actualFreightInr != null
+                                          ? formatCurrency(freight.actualFreightInr)
+                                          : '—'}
+                                      </span>
+                                      {freight.differenceInr != null && (
+                                        <span
+                                          className={[
+                                            'logistics-shipment__freight-diff',
+                                            freight.differenceInr > 0
+                                              ? 'is-under'
+                                              : freight.differenceInr < 0
+                                                ? 'is-over'
+                                                : 'is-matched',
+                                          ].join(' ')}
+                                        >
+                                          Diff {formatCurrency(freight.differenceInr)}
+                                        </span>
+                                      )}
+                                    </>
                                   )}
                                 </div>
                               )}

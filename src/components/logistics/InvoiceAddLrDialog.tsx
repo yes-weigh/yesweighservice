@@ -67,6 +67,7 @@ export const InvoiceAddLrDialog: React.FC<Props> = ({
   const [selectedPartnerId, setSelectedPartnerId] = useState<LogisticsPartnerId>(partnerId);
   const [lrn, setLrn] = useState('');
   const [boxCount, setBoxCount] = useState('1');
+  const [freightBillingMode, setFreightBillingMode] = useState<'btc' | 'fod'>('btc');
   const [candidates, setCandidates] = useState<LogisticsBooking[]>([]);
   const [selectedId, setSelectedId] = useState('');
   const [linkQuery, setLinkQuery] = useState('');
@@ -81,6 +82,7 @@ export const InvoiceAddLrDialog: React.FC<Props> = ({
     setSelectedPartnerId(partnerId);
     setLrn('');
     setBoxCount('1');
+    setFreightBillingMode('btc');
     setCandidates([]);
     setSelectedId('');
     setLinkQuery('');
@@ -143,6 +145,7 @@ export const InvoiceAddLrDialog: React.FC<Props> = ({
         createdBy: user,
         partnerId: activePartnerId,
         shipFromSite,
+        ...(activePartnerId === 'delhivery' ? { freightBillingMode } : {}),
       });
       onCreated(booking);
       onClose();
@@ -334,6 +337,32 @@ export const InvoiceAddLrDialog: React.FC<Props> = ({
                 disabled={saving}
               />
             </label>
+            {activePartnerId === 'delhivery' ? (
+              <div style={{ marginTop: 12 }}>
+                <span className="text-muted text-sm">Freight billing</span>
+                <div className="logistics-booking__billing-mode-actions" style={{ marginTop: 8 }}>
+                  <button
+                    type="button"
+                    className={['btn btn-secondary', freightBillingMode === 'btc' ? 'is-active' : ''].filter(Boolean).join(' ')}
+                    disabled={saving}
+                    onClick={() => setFreightBillingMode('btc')}
+                  >
+                    BTC
+                  </button>
+                  <button
+                    type="button"
+                    className={['btn btn-secondary', freightBillingMode === 'fod' ? 'is-active' : ''].filter(Boolean).join(' ')}
+                    disabled={saving}
+                    onClick={() => setFreightBillingMode('fod')}
+                  >
+                    FOD
+                  </button>
+                </div>
+                <p className="text-muted text-sm" style={{ marginBottom: 0 }}>
+                  Match Delhivery One: BTC = bill to client, FOD = consignee pays freight.
+                </p>
+              </div>
+            ) : null}
             {error ? <p className="dealers-modal__error">{error}</p> : null}
             <div className="dealers-modal__actions">
               <button

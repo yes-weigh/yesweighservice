@@ -38,6 +38,7 @@ import {
   generateLogisticsDocument,
   hydrateLogisticsBookingPhotos,
   updateLogisticsBookingDelhiveryIds,
+  updateLogisticsBookingFreightBillingMode,
   updateLogisticsBookingShipFrom,
   uploadLogisticsBookingFinalPackagePhoto,
 } from '../../lib/logisticsBookings';
@@ -203,6 +204,7 @@ export const LogisticsBookingDetail: React.FC<LogisticsBookingDetailProps> = ({
   const [delhiveryMwbDraft, setDelhiveryMwbDraft] = useState('');
   const [savingDelhiveryIds, setSavingDelhiveryIds] = useState(false);
   const [delhiveryIdsError, setDelhiveryIdsError] = useState('');
+  const [savingBillingMode, setSavingBillingMode] = useState(false);
   const partner = LOGISTICS_PARTNERS.find(item => item.id === booking.partnerId);
   const isEnvelope = booking.shipmentMode === 'envelope';
   const needsOuterPhoto = missingFinalPackagePhoto(booking);
@@ -864,6 +866,69 @@ export const LogisticsBookingDetail: React.FC<LogisticsBookingDetailProps> = ({
               <IndianRupee size={16} aria-hidden />
               Freight compare
             </h4>
+            {booking.partnerId === 'delhivery' && isOps && user ? (
+              <div className="logistics-booking__billing-mode">
+                <span className="text-muted text-sm">
+                  Freight billing
+                  {booking.freightBillingModeSource
+                    ? ` · ${booking.freightBillingModeSource}`
+                    : ''}
+                </span>
+                <div className="logistics-booking__billing-mode-actions">
+                  <button
+                    type="button"
+                    className={[
+                      'btn btn-secondary',
+                      (freightCompare?.freightBillingMode || booking.freightBillingMode) === 'btc'
+                        ? 'is-active'
+                        : '',
+                    ].filter(Boolean).join(' ')}
+                    disabled={savingBillingMode}
+                    onClick={() => {
+                      setSavingBillingMode(true);
+                      void updateLogisticsBookingFreightBillingMode(booking, 'btc', user)
+                        .then(next => onUpdate(next))
+                        .finally(() => setSavingBillingMode(false));
+                    }}
+                  >
+                    BTC
+                  </button>
+                  <button
+                    type="button"
+                    className={[
+                      'btn btn-secondary',
+                      (freightCompare?.freightBillingMode || booking.freightBillingMode) === 'fod'
+                        ? 'is-active'
+                        : '',
+                    ].filter(Boolean).join(' ')}
+                    disabled={savingBillingMode}
+                    onClick={() => {
+                      setSavingBillingMode(true);
+                      void updateLogisticsBookingFreightBillingMode(booking, 'fod', user)
+                        .then(next => onUpdate(next))
+                        .finally(() => setSavingBillingMode(false));
+                    }}
+                  >
+                    FOD
+                  </button>
+                </div>
+              </div>
+            ) : null}
+            {freightCompare?.isFod ? (
+              <dl className="logistics-booking__freight-compare">
+                <div className="logistics-booking__freight-fod-row">
+                  <dt>FOD</dt>
+                  <dd>
+                    {freightCompare.actualFreightInr != null
+                      ? formatCurrency(freightCompare.actualFreightInr)
+                      : (freightLoading ? '…' : '—')}
+                    <em className="logistics-booking__freight-source">
+                      Consignee pays freight — no Diff / under-billed
+                    </em>
+                  </dd>
+                </div>
+              </dl>
+            ) : (
             <dl className="logistics-booking__freight-compare">
               <div>
                 <dt>Paid freight</dt>
@@ -908,6 +973,7 @@ export const LogisticsBookingDetail: React.FC<LogisticsBookingDetailProps> = ({
                 </dd>
               </div>
             </dl>
+            )}
 
             {freightCompare?.calc && (
               <div className="logistics-booking__freight-calc">

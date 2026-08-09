@@ -112,6 +112,8 @@ export async function bookDelhiveryShipment(input: {
   sellerGstin?: string | null;
   paymentMode?: string | null;
   shippingMode?: string | null;
+  /** fod = consignee pays freight; btc/omit = bill to client. */
+  freightBillingMode?: 'fod' | 'btc' | null;
 }): Promise<DelhiveryBookResult> {
   try {
     const fn = httpsCallable<typeof input, DelhiveryBookResult>(

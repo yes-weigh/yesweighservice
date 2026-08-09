@@ -95,8 +95,11 @@ export type LogisticsFreightCompare = {
   paidFreightInr: number | null;
   /** Rate-card estimate from booked boxes / weights. */
   actualFreightInr: number | null;
-  /** actual − paid (positive = under-billed vs courier cost). */
+  /** actual − paid (positive = under-billed vs courier cost). Null for FOD. */
   differenceInr: number | null;
+  /** Delhivery FOD — consignee pays freight; skip Diff / under-billed. */
+  isFod: boolean;
+  freightBillingMode: 'fod' | 'btc' | null;
   actualNote: string | null;
   chargeableKg: number | null;
   calc: LogisticsFreightCalcDetails | null;
@@ -745,8 +748,18 @@ export function buildLogisticsFreightCompare(input: {
     actualNote = actualNote || `Delhivery freight: ${apiFreight.error}`;
   }
 
+  const freightBillingMode = (
+    booking.freightBillingMode === 'fod' || booking.freightBillingMode === 'btc'
+      ? booking.freightBillingMode
+      : (booking.courierFreight?.billingMode === 'fod' || booking.courierFreight?.billingMode === 'btc'
+        ? booking.courierFreight.billingMode
+        : null)
+  );
+  const isFod = freightBillingMode === 'fod';
   const differenceInr = (
-    paidFreightInr != null && actualFreightInr != null
+    !isFod
+    && paidFreightInr != null
+    && actualFreightInr != null
       ? actualFreightInr - paidFreightInr
       : null
   );
@@ -758,7 +771,11 @@ export function buildLogisticsFreightCompare(input: {
     paidFreightInr,
     actualFreightInr,
     differenceInr,
-    actualNote,
+    isFod,
+    freightBillingMode,
+    actualNote: isFod
+      ? (actualNote ? `${actualNote} · FOD (consignee pays freight)` : 'FOD — consignee pays freight')
+      : actualNote,
     chargeableKg,
     calc,
   };

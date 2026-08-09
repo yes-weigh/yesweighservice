@@ -20801,6 +20801,20 @@ body:has(.confirm-inline-bar) .confirm-inline-bar {
   font-weight: 700;
 }
 
+.logistics-shipment__freight-fod {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  padding: 0.18rem 0.45rem;
+  border-radius: 999px;
+  font-size: 0.6875rem;
+  font-weight: 800;
+  letter-spacing: 0.02em;
+  color: #fde68a;
+  background: rgba(245, 158, 11, 0.18);
+  border: 1px solid rgba(245, 158, 11, 0.35);
+}
+
 .logistics-shipment__sep {
   color: rgba(148, 163, 184, 0.55);
   flex-shrink: 0;
@@ -24530,6 +24544,38 @@ body:has(.confirm-inline-bar) .confirm-inline-bar {
 .logistics-booking__invoice-item-meta span:first-child {
   color: #f472b6;
   font-weight: 700;
+}
+
+.logistics-booking__billing-mode {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  margin: 0 0 0.75rem;
+}
+
+.logistics-booking__billing-mode-actions {
+  display: inline-flex;
+  gap: 0.35rem;
+}
+
+.logistics-booking__billing-mode-actions .btn {
+  min-width: 3.25rem;
+  padding: 0.35rem 0.65rem;
+  font-size: 0.75rem;
+  font-weight: 800;
+}
+
+.logistics-booking__billing-mode-actions .btn.is-active {
+  border-color: rgba(245, 130, 32, 0.55);
+  background: rgba(245, 130, 32, 0.18);
+  color: #fdba74;
+}
+
+.logistics-booking__freight-fod-row dd {
+  text-align: right;
+  font-weight: 800;
+  color: #fde68a;
 }
 
 .logistics-booking__freight-compare {

@@ -343,6 +343,7 @@ export function emptyBookingDraft(partnerId: LogisticsPartnerId): LogisticsBooki
     boxes: [emptyShipmentBoxDraft()],
     finalPackagePhoto: null,
     labelGenerated: false,
+    ...(partnerId === 'delhivery' ? { freightBillingMode: 'btc' as const } : {}),
   };
 }
 

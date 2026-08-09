@@ -65,6 +65,7 @@ function asNumber(value, fallback = 0) {
  *   sellerGstin?: string | null,
  *   paymentMode?: string | null,
  *   shippingMode?: string | null,
+ *   freightBillingMode?: 'fod' | 'btc' | string | null,
  * }} input
  */
 export function buildDelhiveryB2bManifestPayload(input) {
@@ -163,6 +164,10 @@ export function buildDelhiveryB2bManifestPayload(input) {
     ],
     ewaybill: '',
     order: String(input.orderId || `YW-${Date.now()}`),
+    // Delhivery freight_mode: fod = consignee pays. Omit for BTC — B2B often rejects explicit fop.
+    ...(String(input.freightBillingMode || '').trim().toLowerCase() === 'fod'
+      ? { freight_mode: 'fod' }
+      : {}),
   };
 }
 

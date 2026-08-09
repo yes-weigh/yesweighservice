@@ -116,6 +116,12 @@ function mapCourierTrack(raw: unknown): LogisticsCourierTrack | null {
   };
 }
 
+function mapFreightBillingMode(
+  raw: unknown,
+): import('../types/logistics-dispatch').LogisticsFreightBillingMode | null {
+  return raw === 'fod' || raw === 'btc' ? raw : null;
+}
+
 function mapCourierFreight(raw: unknown): import('../types/logistics-dispatch').LogisticsCourierFreight | null {
   if (!raw || typeof raw !== 'object') return null;
   const data = raw as DocumentData;
@@ -152,6 +158,7 @@ function mapCourierFreight(raw: unknown): import('../types/logistics-dispatch').
           : null,
       }
       : null,
+    billingMode: mapFreightBillingMode(data.billingMode),
     error: data.error == null ? null : String(data.error),
     fetchedAt: String(data.fetchedAt ?? ''),
     source: String(data.source ?? 'delhivery_freight_breakup'),
@@ -405,6 +412,17 @@ export function mapLogisticsBookingDoc(id: string, data: DocumentData): Logistic
     freightFetchedAt: typeof data.freightFetchedAt === 'string'
       ? data.freightFetchedAt
       : (courierFreight?.fetchedAt || null),
+    freightBillingMode: mapFreightBillingMode(data.freightBillingMode)
+      ?? courierFreight?.billingMode
+      ?? null,
+    freightBillingModeSource: (
+      data.freightBillingModeSource === 'booking'
+      || data.freightBillingModeSource === 'api'
+      || data.freightBillingModeSource === 'inferred'
+      || data.freightBillingModeSource === 'manual'
+        ? data.freightBillingModeSource
+        : null
+    ),
     courierDeliveryOffice,
     deliveredAt: typeof data.deliveredAt === 'string' ? data.deliveredAt : null,
     inTransitAt: typeof data.inTransitAt === 'string' ? data.inTransitAt : null,
@@ -635,6 +653,17 @@ async function buildBookingPayload(input: PersistLogisticsBookingInput & {
     status,
     wizardStep: wizardStep ?? null,
     ...(courierDeliveryOffice ? { courierDeliveryOffice } : {}),
+    // Delhivery: capture FOD/BTC at booking (default BTC). Sync may infer later if unset.
+    ...(draft.partnerId === 'delhivery'
+      ? {
+        freightBillingMode: (
+          draft.freightBillingMode === 'fod' || draft.freightBillingMode === 'btc'
+            ? draft.freightBillingMode
+            : 'btc'
+        ),
+        freightBillingModeSource: 'booking' as const,
+      }
+      : {}),
     createdAt,
     updatedAt: now,
     createdByUid: existingCreatedByUid || createdBy.uid,
@@ -1405,6 +1434,44 @@ export async function updateLogisticsBookingStatus(
 }
 
 /**
+ * Mark Delhivery freight billing as FOD (consignee) or BTC (bill to client).
+ * Used when Delhivery One is updated and the freight API does not yet return the mode.
+ */
+export async function updateLogisticsBookingFreightBillingMode(
+  booking: LogisticsBooking,
+  mode: import('../types/logistics-dispatch').LogisticsFreightBillingMode,
+  user: User,
+): Promise<LogisticsBooking> {
+  if (!isInternalOpsUser(user)) {
+    throw new Error('You do not have permission to update freight billing mode.');
+  }
+  if (booking.partnerId !== 'delhivery') {
+    throw new Error('Freight billing mode applies to Delhivery bookings only.');
+  }
+  if (mode !== 'fod' && mode !== 'btc') {
+    throw new Error('Freight billing mode must be fod or btc.');
+  }
+  const updatedAt = new Date().toISOString();
+  const courierFreight = booking.courierFreight
+    ? { ...booking.courierFreight, billingMode: mode }
+    : null;
+  const patch: Record<string, unknown> = {
+    freightBillingMode: mode,
+    freightBillingModeSource: 'manual',
+    updatedAt,
+  };
+  if (courierFreight) patch.courierFreight = courierFreight;
+  await updateDoc(doc(db, COLLECTION, booking.id), patch);
+  return {
+    ...booking,
+    freightBillingMode: mode,
+    freightBillingModeSource: 'manual',
+    courierFreight,
+    updatedAt,
+  };
+}
+
+/**
  * Fill missing Delhivery LRN and/or Master AWB on an existing booking, then caller can Refresh.
  */
 export async function updateLogisticsBookingDelhiveryIds(
@@ -1750,6 +1817,8 @@ export type RecordInvoiceLogisticsLrInput = {
   createdBy: User;
   partnerId: LogisticsPartnerId;
   shipFromSite?: StaffLogisticsSite | null;
+  /** Delhivery: FOD vs BTC when recording an existing LR. */
+  freightBillingMode?: import('../types/logistics-dispatch').LogisticsFreightBillingMode | null;
 };
 
 function dealerSnapshotFromInvoice(
@@ -1899,6 +1968,16 @@ export async function recordInvoiceLogisticsBooking(
     packingSlipGenerated: false,
     status: 'label_generated',
     wizardStep: null,
+    ...(partnerId === 'delhivery'
+      ? {
+        freightBillingMode: (
+          input.freightBillingMode === 'fod' || input.freightBillingMode === 'btc'
+            ? input.freightBillingMode
+            : 'btc'
+        ),
+        freightBillingModeSource: 'booking',
+      }
+      : {}),
     createdAt: now,
     updatedAt: now,
     createdByUid: input.createdBy.uid,
