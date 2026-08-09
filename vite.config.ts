@@ -52,8 +52,9 @@ export default defineConfig({
       workbox: {
         // Avoid verbose "No route found" logs in production SW.
         mode: 'production',
-        // Main bundle can exceed the default 2 MiB Workbox precache limit.
-        maximumFileSizeToCacheInBytes: 4 * 1024 * 1024,
+        // Main bundle can exceed the default 2 MiB Workbox precache limit
+        // (currently ~4.2 MB after Delhivery/logistics growth).
+        maximumFileSizeToCacheInBytes: 6 * 1024 * 1024,
         globPatterns: ['**/*.{js,css,html,ico,png,svg,woff2,webmanifest}'],
         navigateFallback: '/index.html',
         navigateFallbackAllowlist: [
