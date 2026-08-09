@@ -23,7 +23,7 @@ import {
   X,
 } from 'lucide-react';
 import { DecimalTextInput } from '../DecimalAmountInput';
-import { FIRM_NAME } from '../../constants/brand';
+import { FIRM_GSTIN, FIRM_NAME } from '../../constants/brand';
 import { logisticsPartnerLabel } from '../../constants/logisticsPartners';
 import type { LogisticsPartnerId } from '../../constants/logisticsPartners';
 import { fetchDealerById } from '../../lib/dealers';
@@ -841,10 +841,13 @@ export const BookCourierFlow: React.FC<BookCourierFlowProps> = ({
           quantity: 1,
         })),
         invoiceNumber: draftRef.current.invoiceNumber,
+        invoiceValueInr: 1,
         productsDesc: 'Weighing equipment',
+        sellerGstin: FIRM_GSTIN,
         shippingMode: 'Surface',
         paymentMode: 'Prepaid',
         // Freight only: FOD / BTC — never goods CoD.
+        // Note: this Delhivery client rejects FoP (BTC) on LTL /manifest; FOD works.
         freightBillingMode: draftRef.current.freightBillingMode === 'fod' ? 'fod' : 'btc',
       });
       const lrn = String(result.lrn || '').trim();

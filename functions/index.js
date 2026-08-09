@@ -4429,7 +4429,7 @@ export const testDelhiveryB2bConnectionFn = onCall(
   },
 );
 
-/** Create a Delhivery B2B LR via /v2/manifest. */
+/** Create a Delhivery B2B LR via LTL multipart POST /manifest (then poll job_id). */
 export const bookDelhiveryShipmentFn = onCall(
   {
     region: 'asia-south1',

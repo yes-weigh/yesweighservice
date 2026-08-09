@@ -1,0 +1,22 @@
+[
+  {
+    "label": "dims length/width/height count + shipment minimal",
+    "status": 400,
+    "text": "{\"success\":false,\"error\":{\"code\":400,\"message\":\"Validation Error: ['dimensions.0.box_count: field required']\"},\"request_id\":\"0682b8ee-d57f-4446-8425-0a01a30d4187\"}"
+  },
+  {
+    "label": "dims length_cm + shipment with waybills",
+    "status": 400,
+    "text": "{\"success\":false,\"error\":{\"code\":400,\"message\":\"Validation Error: ['shipment_details: value is not a valid list', 'dimensions.0.length: field required', 'dimensions.0.width: field required', 'dimensions.0.height: field required']\"},\"request_id\":\"4c60dd26-a973-43cb-9e56-2111983347fb\"}"
+  },
+  {
+    "label": "no dimensions + shipment only",
+    "status": 400,
+    "text": "{\"success\":false,\"error\":{\"code\":400,\"message\":\"Validation Error: [': Billing address is mandatory when freight mode is FoD or FoP']\"},\"request_id\":\"1f00cd32-ef8d-4aac-a67e-e4b96013f5a2\"}"
+  },
+  {
+    "label": "shipment as object not list",
+    "status": 400,
+    "text": "{\"success\":false,\"error\":{\"code\":400,\"message\":\"Validation Error: ['shipment_details: value is not a valid list', 'dimensions.0.box_count: field required']\"},\"request_id\":\"1ef1fdb4-9749-4981-b49d-db16086ea17c\"}"
+  }
+]

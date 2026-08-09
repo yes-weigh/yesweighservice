@@ -1,0 +1,12 @@
+[
+  {
+    "label": "full BTC fop",
+    "status": 400,
+    "text": "{\"success\":false,\"error\":{\"code\":400,\"message\":\"Validation Error: [': Either PAN or GSTIN must be provided in the billing address']\"},\"request_id\":\"e200cb76-7396-4183-9dd9-d2ba4855d5bc\"}"
+  },
+  {
+    "label": "FOD with billing",
+    "status": 400,
+    "text": "{\"success\":false,\"error\":{\"code\":400,\"message\":\"Validation Error: [': Either PAN or GSTIN must be provided in the billing address']\"},\"request_id\":\"0b30534b-203d-4142-8486-22351b4cf211\"}"
+  }
+]

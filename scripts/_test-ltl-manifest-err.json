@@ -1,0 +1,70 @@
+{
+  "message": "Validation Error: ['shipment_details: value is not a valid list', 'dimensions.0.length: field required', 'dimensions.0.width: field required', 'dimensions.0.height: field required']",
+  "payload": {
+    "pickup_location_name": "INTERWEIGHING B2B",
+    "payment_mode": "prepaid",
+    "weight": 5000,
+    "dropoff_location": {
+      "consignee_name": "MEEZAN ELECTRONIC SCALES PRIVATE LIMITED",
+      "address": "8/308A Meezan Tower, Calicut Road, Manjeri, Kerala 676121",
+      "city": "Manjeri",
+      "state": "Kerala",
+      "zip": "676121",
+      "phone": "9446157730",
+      "email": ""
+    },
+    "shipment_details": [
+      {
+        "order_id": "YW-LTL-1786272844546",
+        "box_count": 1,
+        "description": "Weighing equipment",
+        "weight": 5000,
+        "waybills": [],
+        "master": false
+      }
+    ],
+    "invoices": [
+      {
+        "ewaybill": "",
+        "inv_num": "YES/LTL/844546",
+        "inv_amt": 1950,
+        "inv_qr_code": ""
+      }
+    ],
+    "dimensions": [
+      {
+        "box_count": 1,
+        "length_cm": 40,
+        "width_cm": 30,
+        "height_cm": 20
+      }
+    ],
+    "freight_mode": "fop",
+    "fm_pickup": true,
+    "rov_insurance": false,
+    "return_address": {
+      "name": "INTERWEIGHING B2B",
+      "phone": "9446157730",
+      "address": "Cochin warehouse",
+      "city": "Ernakulam",
+      "state": "Kerala",
+      "zip": "682001"
+    },
+    "billing_address": {
+      "name": "INTERWEIGHING B2B",
+      "company": "INTERWEIGHING B2B",
+      "consignor": "INTERWEIGHING B2B",
+      "address": "Cochin warehouse",
+      "city": "Ernakulam",
+      "state": "Kerala",
+      "pin": "682001",
+      "phone": "9446157730"
+    },
+    "_meta": {
+      "orderId": "YW-LTL-1786272844546",
+      "boxCount": 1,
+      "totalWeightKg": 5,
+      "freightBillingMode": "btc"
+    }
+  }
+}
