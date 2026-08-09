@@ -10,6 +10,7 @@ import {
   FileText,
   IndianRupee,
   MapPin,
+  MessageSquareWarning,
   Package,
   SquareArrowOutUpRight,
   Truck,
@@ -70,6 +71,7 @@ import {
 } from '../../lib/courierSlipImage';
 import { CourierSlipViewDialog } from './CourierSlipViewDialog';
 import { PhotoLightbox } from './PhotoLightbox';
+import { RaiseLogisticsIssueDialog } from './RaiseLogisticsIssueDialog';
 import { ShippingLabelPrintDialog } from './ShippingLabelPrintDialog';
 import {
   bookingDateFromTrackBookedAt,
@@ -205,6 +207,7 @@ export const LogisticsBookingDetail: React.FC<LogisticsBookingDetailProps> = ({
   const [savingDelhiveryIds, setSavingDelhiveryIds] = useState(false);
   const [delhiveryIdsError, setDelhiveryIdsError] = useState('');
   const [savingBillingMode, setSavingBillingMode] = useState(false);
+  const [raiseIssueOpen, setRaiseIssueOpen] = useState(false);
   const partner = LOGISTICS_PARTNERS.find(item => item.id === booking.partnerId);
   const isEnvelope = booking.shipmentMode === 'envelope';
   const needsOuterPhoto = missingFinalPackagePhoto(booking);
@@ -1366,6 +1369,33 @@ export const LogisticsBookingDetail: React.FC<LogisticsBookingDetailProps> = ({
         </section>
       )}
 
+      <section className="logistics-booking__issue">
+        <h4>Support</h4>
+        <p className="text-muted text-sm">
+          Open a Warranty &amp; Support complaint with this shipment’s dealer and logistics details.
+        </p>
+        <div className="logistics-booking__issue-actions">
+          <button
+            type="button"
+            className="btn btn-primary btn-sm"
+            onClick={() => setRaiseIssueOpen(true)}
+            disabled={!user}
+          >
+            <MessageSquareWarning size={14} aria-hidden />
+            Raise issue ticket
+          </button>
+          {booking.supportRequestId && booking.supportRequestNumber && (
+            <Link
+              to={`${basePath}/warranty-support/${booking.supportRequestId}`}
+              className="btn btn-secondary btn-sm"
+            >
+              <ExternalLink size={14} aria-hidden />
+              Open {booking.supportRequestNumber}
+            </Link>
+          )}
+        </div>
+      </section>
+
       <section className="logistics-booking__slips">
         <h4>Documents</h4>
         <div className="logistics-booking__slip-actions">
@@ -1488,6 +1518,15 @@ export const LogisticsBookingDetail: React.FC<LogisticsBookingDetailProps> = ({
           ))}
         </dl>
       </details>
+
+      {raiseIssueOpen && user && (
+        <RaiseLogisticsIssueDialog
+          booking={booking}
+          user={user}
+          onClose={() => setRaiseIssueOpen(false)}
+          onCreated={onUpdate}
+        />
+      )}
 
       {courierSlipOpen && (
         <CourierSlipViewDialog

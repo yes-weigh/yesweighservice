@@ -390,7 +390,7 @@ export async function syncDelhiveryTrackingForBookings(db, options = {}) {
         ...data,
         courierTrack: track,
         consignmentNo: awb,
-      }, track);
+      }, track, { forceBillingModeRefresh: false });
       await docSnap.ref.update({ ...patch, ...freightPatch });
       summary.updated += 1;
       if (statusChanged) summary.statusAdvanced += 1;
@@ -422,7 +422,8 @@ export async function syncDelhiveryTrackingForBookings(db, options = {}) {
  * @param {unknown} track
  */
 /**
- * Resolve FOD/BTC: keep explicit booking/ops mode, else API hint, else estimate inference.
+ * Resolve FOD/BTC: ops manual wins; otherwise API hint / estimate inference.
+ * On forceRefresh (Refresh button), re-detect so Delhivery One BTC↔FOD edits apply.
  *
  * @param {FirebaseFirestore.Firestore} db
  * @param {Record<string, unknown>} data
@@ -431,10 +432,17 @@ export async function syncDelhiveryTrackingForBookings(db, options = {}) {
  *   trackBillingHint?: 'fod' | 'btc' | null,
  *   apiBillingMode?: 'fod' | 'btc' | null,
  *   actualTotalInr?: number | null,
+ *   forceRefresh?: boolean,
  * }} bits
  */
 async function resolveFreightBillingMode(db, data, bits) {
-  if (bits.previousBillingMode === 'fod' || bits.previousBillingMode === 'btc') {
+  const previousSource = String(data.freightBillingModeSource || '');
+  const hasPrevious = bits.previousBillingMode === 'fod' || bits.previousBillingMode === 'btc';
+  // Ops toggle is authoritative until they change it again.
+  if (hasPrevious && previousSource === 'manual') {
+    return { mode: bits.previousBillingMode, source: 'manual' };
+  }
+  if (!bits.forceRefresh && hasPrevious) {
     return { mode: bits.previousBillingMode, source: null };
   }
   if (bits.apiBillingMode === 'fod' || bits.apiBillingMode === 'btc') {
@@ -449,12 +457,26 @@ async function resolveFreightBillingMode(db, data, bits) {
   } catch {
     // Inference is best-effort; freight sync should still persist amounts.
   }
+  // Keep prior mode when re-detect finds nothing new.
+  if (hasPrevious) return { mode: bits.previousBillingMode, source: null };
   return { mode: null, source: null };
 }
 
-async function maybeDelhiveryFreightPatch(db, data, track) {
+/**
+ * @param {FirebaseFirestore.Firestore} db
+ * @param {Record<string, unknown>} data
+ * @param {unknown} track
+ * @param {{ forceBillingModeRefresh?: boolean }} [options]
+ */
+async function maybeDelhiveryFreightPatch(db, data, track, options = {}) {
   const effectiveTrack = track || data.courierTrack;
-  if (!trackHasWeightCaptured(effectiveTrack)) return {};
+  const alreadyHasFreight = Boolean(
+    data.courierFreight?.ok
+    || (typeof data.actualFreightInr === 'number' && Number.isFinite(data.actualFreightInr)),
+  );
+  // First freight pull waits for weight-captured; later Refresh always re-fetches.
+  if (!trackHasWeightCaptured(effectiveTrack) && !alreadyHasFreight) return {};
+  const forceRefresh = Boolean(options.forceBillingModeRefresh);
   const previousBillingMode = (
     data.freightBillingMode === 'fod' || data.freightBillingMode === 'btc'
       ? data.freightBillingMode
@@ -468,14 +490,18 @@ async function maybeDelhiveryFreightPatch(db, data, track) {
     effectiveTrack?.freightMode,
     effectiveTrack?.freight_mode,
   );
+  const resolveBits = {
+    previousBillingMode,
+    trackBillingHint,
+    forceRefresh,
+  };
   const lrn = lrnFromLogisticsBooking(data);
   if (!lrn) {
     const mwb = trackIdsFromLogisticsBooking(data).find(id => isDelhiveryMasterAwb(id)) || '';
     if (!mwb) return {};
     const fetchedAt = new Date().toISOString();
     const resolved = await resolveFreightBillingMode(db, data, {
-      previousBillingMode,
-      trackBillingHint,
+      ...resolveBits,
       actualTotalInr: null,
     });
     return {
@@ -503,8 +529,7 @@ async function maybeDelhiveryFreightPatch(db, data, track) {
     const freight = result.byLrn[lrn];
     if (!freight) {
       const resolved = await resolveFreightBillingMode(db, data, {
-        previousBillingMode,
-        trackBillingHint,
+        ...resolveBits,
         actualTotalInr: null,
       });
       return {
@@ -532,8 +557,7 @@ async function maybeDelhiveryFreightPatch(db, data, track) {
       courierFreight: freight,
       chargeableWeightKg: freight.chargedWeightKg ?? data.chargeableWeightKg,
     }, {
-      previousBillingMode,
-      trackBillingHint,
+      ...resolveBits,
       apiBillingMode: freight.billingMode,
       actualTotalInr: freight.totalInr,
     });
@@ -547,8 +571,7 @@ async function maybeDelhiveryFreightPatch(db, data, track) {
     });
   } catch (err) {
     const resolved = await resolveFreightBillingMode(db, data, {
-      previousBillingMode,
-      trackBillingHint,
+      ...resolveBits,
       actualTotalInr: null,
     });
     return {
@@ -750,7 +773,11 @@ export async function syncDelhiveryFreightForBookings(db, options = {}) {
  * @param {FirebaseFirestore.Firestore} db
  * @param {string} bookingId
  * @param {Awaited<ReturnType<typeof fetchDelhiveryTrack>>} track
- * @param {{ updatePipelineStatus?: boolean, correctFalseDelivered?: boolean }} [options]
+ * @param {{
+ *   updatePipelineStatus?: boolean,
+ *   correctFalseDelivered?: boolean,
+ *   forceBillingModeRefresh?: boolean,
+ * }} [options]
  */
 export async function persistDelhiveryTrackOnBooking(db, bookingId, track, options = {}) {
   const ref = db.collection('logisticsBookings').doc(String(bookingId));
@@ -767,10 +794,13 @@ export async function persistDelhiveryTrackOnBooking(db, bookingId, track, optio
     updateBookingDate: options.updateBookingDate,
     correctFalseDelivered: options.correctFalseDelivered !== false,
   });
+  // Manual Refresh (default): re-fetch freight and re-detect FOD/BTC unless ops locked manual.
   const freightPatch = await maybeDelhiveryFreightPatch(db, {
     ...data,
     courierTrack: track,
-  }, track);
+  }, track, {
+    forceBillingModeRefresh: options.forceBillingModeRefresh !== false,
+  });
   await ref.update({ ...patch, ...freightPatch });
   return { bookingId, patch: { ...patch, ...freightPatch } };
 }

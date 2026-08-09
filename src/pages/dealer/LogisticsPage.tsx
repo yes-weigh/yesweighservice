@@ -76,8 +76,27 @@ import { staffLogisticsSiteLabel } from '../../types/staff-logistics';
 type FlowStep = 'closed' | 'partner' | 'book';
 type CardTone = 'all' | 'incomplete' | 'label' | 'transit' | 'delivered' | 'exception';
 type StatFilterId = 'all' | LogisticsBookingStatus;
+/** Freight payment Diff filter: + under-billed, − over-billed, 0 balanced. */
+type FreightDiffFilter = '' | 'under_billed' | 'over_billed' | 'balanced';
 
 const LIST_PAGE_SIZE = 10;
+const FREIGHT_DIFF_FILTER_OPTIONS: ReadonlyArray<{ id: FreightDiffFilter; label: string }> = [
+  { id: '', label: 'All variances' },
+  { id: 'under_billed', label: 'Under-billed' },
+  { id: 'over_billed', label: 'Over-billed' },
+  { id: 'balanced', label: 'Zero balance' },
+];
+
+function matchesFreightDiffFilter(
+  freight: LogisticsFreightCompare | undefined,
+  filter: FreightDiffFilter,
+): boolean {
+  if (!filter) return true;
+  if (!freight || freight.isFod || freight.differenceInr == null) return false;
+  if (filter === 'under_billed') return freight.differenceInr > 0;
+  if (filter === 'over_billed') return freight.differenceInr < 0;
+  return freight.differenceInr === 0;
+}
 
 const STATUS_STAT_META: ReadonlyArray<{
   id: StatFilterId;
@@ -125,42 +144,6 @@ function isDefaultDateRange(range: { from: string; to: string }): boolean {
   return range.from === defaults.from && range.to === defaults.to;
 }
 
-function bookingTimestamp(booking: LogisticsBooking): number {
-  const raw = booking.createdAt || booking.bookingDate || booking.updatedAt;
-  const ms = Date.parse(raw);
-  if (!Number.isNaN(ms)) return ms;
-  if (/^\d{4}-\d{2}-\d{2}$/.test(booking.bookingDate)) {
-    return Date.parse(`${booking.bookingDate}T00:00:00`);
-  }
-  return 0;
-}
-
-function inDateRange(booking: LogisticsBooking, from: string, to: string): boolean {
-  const ts = bookingTimestamp(booking);
-  if (!ts) return true;
-  const start = Date.parse(`${from}T00:00:00`);
-  const end = Date.parse(`${to}T23:59:59.999`);
-  if (Number.isNaN(start) || Number.isNaN(end)) return true;
-  return ts >= start && ts <= end;
-}
-
-function formatShipmentDateTime(booking: LogisticsBooking): string {
-  const ts = bookingTimestamp(booking);
-  if (!ts) return booking.bookingDate || '—';
-  const date = new Date(ts);
-  const day = date.toLocaleDateString('en-IN', {
-    day: '2-digit',
-    month: 'short',
-    year: 'numeric',
-  });
-  const time = date.toLocaleTimeString('en-IN', {
-    hour: '2-digit',
-    minute: '2-digit',
-    hour12: true,
-  });
-  return `${day} | ${time}`;
-}
-
 function formatInstantDateTime(iso: string | null | undefined): string | null {
   if (!iso) return null;
   const ms = Date.parse(iso);
@@ -177,6 +160,84 @@ function formatInstantDateTime(iso: string | null | undefined): string | null {
     hour12: true,
   });
   return `${day} | ${time}`;
+}
+
+/** Earliest courier scan — used when bookedAt is missing. */
+function earliestTrackHistoryAt(booking: LogisticsBooking): string | null {
+  const history = booking.courierTrack?.history;
+  if (!Array.isArray(history) || !history.length) return null;
+  let best: string | null = null;
+  let bestMs = Infinity;
+  for (const item of history) {
+    const at = String(item?.at || '').trim();
+    if (!at) continue;
+    const ms = Date.parse(at);
+    if (!Number.isNaN(ms) && ms < bestMs) {
+      bestMs = ms;
+      best = at;
+    }
+  }
+  return best;
+}
+
+/** Shipment booking instant — never createdAt/updatedAt/trackFetchedAt. */
+function bookingTimestamp(booking: LogisticsBooking): number {
+  const bookedAt = booking.courierTrack?.bookedAt?.trim()
+    || earliestTrackHistoryAt(booking);
+  if (bookedAt) {
+    const fromTrack = Date.parse(bookedAt);
+    if (!Number.isNaN(fromTrack)) return fromTrack;
+  }
+  const bookingDate = String(booking.bookingDate || '').trim();
+  if (/^\d{4}-\d{2}-\d{2}$/.test(bookingDate)) {
+    return Date.parse(`${bookingDate}T00:00:00`);
+  }
+  if (bookingDate) {
+    const parsed = Date.parse(bookingDate);
+    if (!Number.isNaN(parsed)) return parsed;
+  }
+  return 0;
+}
+
+function inDateRange(booking: LogisticsBooking, from: string, to: string): boolean {
+  const ts = bookingTimestamp(booking);
+  if (!ts) return true;
+  const start = Date.parse(`${from}T00:00:00`);
+  const end = Date.parse(`${to}T23:59:59.999`);
+  if (Number.isNaN(start) || Number.isNaN(end)) return true;
+  return ts >= start && ts <= end;
+}
+
+function formatShipmentDateTime(booking: LogisticsBooking): string {
+  const bookedAt = booking.courierTrack?.bookedAt?.trim()
+    || earliestTrackHistoryAt(booking);
+  if (bookedAt) {
+    const withTime = formatInstantDateTime(bookedAt);
+    if (withTime) return withTime;
+  }
+  const bookingDate = String(booking.bookingDate || '').trim();
+  if (/^\d{4}-\d{2}-\d{2}$/.test(bookingDate)) {
+    const date = new Date(`${bookingDate}T00:00:00`);
+    if (!Number.isNaN(date.getTime())) {
+      // Date-only booking — do not invent a clock time from createdAt.
+      return date.toLocaleDateString('en-IN', {
+        day: '2-digit',
+        month: 'short',
+        year: 'numeric',
+      });
+    }
+  }
+  if (bookingDate) return bookingDate;
+  return '—';
+}
+
+function formatDeliveredDateTime(booking: LogisticsBooking): string {
+  const deliveredAt = booking.courierTrack?.deliveredAt?.trim();
+  if (deliveredAt) {
+    const withTime = formatInstantDateTime(deliveredAt);
+    if (withTime) return withTime;
+  }
+  return formatShipmentDateTime(booking);
 }
 
 /** Last ST / Trackon track sync label for list tiles (not tracked / failed / time). */
@@ -278,7 +339,13 @@ export const LogisticsPage: React.FC = () => {
   });
   const [filtersOpen, setFiltersOpen] = useState(false);
   const [statusFilter, setStatusFilter] = useState<LogisticsBookingStatus | ''>('');
+  const [freightDiffFilter, setFreightDiffFilter] = useState<FreightDiffFilter>('');
   const [dateRange, setDateRange] = useState(defaultDateRange);
+  /** Draft values in the Filters panel — applied only via Apply. */
+  const [draftDateRange, setDraftDateRange] = useState(defaultDateRange);
+  const [draftStatus, setDraftStatus] = useState<LogisticsBookingStatus | ''>('');
+  const [draftPartnerId, setDraftPartnerId] = useState<LogisticsPartnerId | ''>('');
+  const [draftFreightDiffFilter, setDraftFreightDiffFilter] = useState<FreightDiffFilter>('');
   const [page, setPage] = useState(1);
   /** Super-admin only — trash on list/detail stays hidden until enabled in Filters. */
   const [showDeleteButtons, setShowDeleteButtons] = useState(false);
@@ -399,7 +466,7 @@ export const LogisticsPage: React.FC = () => {
     [datedBookings],
   );
 
-  const rangedBookings = useMemo(() => {
+  const statusFilteredBookings = useMemo(() => {
     const activeStatus = statusFilter || filters.status || '';
     const source = activeStatus ? pipelineBookings : datedBookings;
     const filtered = activeStatus
@@ -408,9 +475,24 @@ export const LogisticsPage: React.FC = () => {
     return [...filtered].sort(compareLogisticsBookingsByBookingDateDesc);
   }, [datedBookings, pipelineBookings, filters.status, statusFilter]);
 
+  const rangedBookings = useMemo(() => {
+    if (!freightDiffFilter) return statusFilteredBookings;
+    return statusFilteredBookings.filter(booking => (
+      matchesFreightDiffFilter(freightByBookingId[booking.id], freightDiffFilter)
+    ));
+  }, [statusFilteredBookings, freightByBookingId, freightDiffFilter]);
+
   useEffect(() => {
     setPage(1);
-  }, [statusFilter, filters.status, filters.partnerId, filters.query, dateRange.from, dateRange.to]);
+  }, [
+    statusFilter,
+    filters.status,
+    filters.partnerId,
+    filters.query,
+    freightDiffFilter,
+    dateRange.from,
+    dateRange.to,
+  ]);
 
   const totalPages = Math.max(1, Math.ceil(rangedBookings.length / LIST_PAGE_SIZE));
   const pageBookings = useMemo(() => {
@@ -435,7 +517,11 @@ export const LogisticsPage: React.FC = () => {
   }, []);
 
   useEffect(() => {
-    const targets = pageBookings.filter(booking => booking.invoiceId?.trim());
+    // When filtering by freight Diff, load compare for the full status-filtered set.
+    const pool = freightDiffFilter ? statusFilteredBookings : pageBookings;
+    const targets = pool.filter(
+      booking => booking.invoiceId?.trim() && !freightByBookingId[booking.id],
+    );
     if (!targets.length) return;
     let cancelled = false;
     void (async () => {
@@ -450,12 +536,19 @@ export const LogisticsPage: React.FC = () => {
           // Skip failed cards; detail view can retry.
         }
       }));
-      if (!cancelled) {
+      if (!cancelled && Object.keys(next).length) {
         setFreightByBookingId(prev => ({ ...prev, ...next }));
       }
     })();
     return () => { cancelled = true; };
-  }, [pageBookings, isOps, courierRates]);
+  }, [
+    pageBookings,
+    statusFilteredBookings,
+    freightDiffFilter,
+    freightByBookingId,
+    isOps,
+    courierRates,
+  ]);
 
   const stats = useMemo(() => {
     const counts: Record<StatFilterId, number> = {
@@ -649,10 +742,43 @@ export const LogisticsPage: React.FC = () => {
     setStatusFilter(prev => (prev === status ? '' : status));
   }, []);
 
+  const openFiltersPanel = useCallback(() => {
+    setDraftDateRange(dateRange);
+    setDraftStatus(filters.status ?? '');
+    setDraftPartnerId(filters.partnerId ?? '');
+    setDraftFreightDiffFilter(freightDiffFilter);
+    setFiltersOpen(true);
+  }, [dateRange, filters.status, filters.partnerId, freightDiffFilter]);
+
+  const applyFiltersPanel = useCallback(() => {
+    setDateRange(draftDateRange);
+    setFreightDiffFilter(draftFreightDiffFilter);
+    setStatusFilter('');
+    setFilters(prev => ({
+      ...prev,
+      status: draftStatus,
+      partnerId: draftPartnerId,
+    }));
+    setFiltersOpen(false);
+  }, [draftDateRange, draftFreightDiffFilter, draftStatus, draftPartnerId]);
+
+  const clearFiltersPanel = useCallback(() => {
+    const nextRange = defaultDateRange();
+    setDraftDateRange(nextRange);
+    setDraftStatus('');
+    setDraftPartnerId('');
+    setDraftFreightDiffFilter('');
+    setDateRange(nextRange);
+    setFreightDiffFilter('');
+    setStatusFilter('');
+    setFilters(prev => ({ ...prev, status: '', partnerId: '' }));
+  }, []);
+
   const showListControls = isOps && !flowOpen && !activeBooking;
   const hasActiveFilters = Boolean(filters.status)
     || Boolean(filters.partnerId)
     || Boolean(statusFilter)
+    || Boolean(freightDiffFilter)
     || !isDefaultDateRange(dateRange);
   const hasSearchQuery = Boolean(filters.query?.trim());
 
@@ -695,7 +821,10 @@ export const LogisticsPage: React.FC = () => {
           filtersOpen ? 'catalog-header-filter-btn--open' : '',
           hasActiveFilters ? 'catalog-header-filter-btn--active' : '',
         ].filter(Boolean).join(' ')}
-        onClick={() => setFiltersOpen(open => !open)}
+        onClick={() => {
+          if (filtersOpen) setFiltersOpen(false);
+          else openFiltersPanel();
+        }}
         aria-expanded={filtersOpen}
         aria-haspopup="dialog"
         aria-label="Filter logistics bookings"
@@ -704,7 +833,7 @@ export const LogisticsPage: React.FC = () => {
         <SlidersHorizontal size={20} strokeWidth={2.25} />
       </button>
     ),
-    [filtersOpen, hasActiveFilters],
+    [filtersOpen, hasActiveFilters, openFiltersPanel],
   );
 
   const addButton = useMemo(
@@ -782,25 +911,25 @@ export const LogisticsPage: React.FC = () => {
                   <span>From</span>
                   <input
                     type="date"
-                    value={dateRange.from}
-                    max={dateRange.to}
-                    onChange={event => setDateRange(prev => ({ ...prev, from: event.target.value }))}
+                    value={draftDateRange.from}
+                    max={draftDateRange.to}
+                    onChange={event => setDraftDateRange(prev => ({ ...prev, from: event.target.value }))}
                   />
                 </label>
                 <label>
                   <span>To</span>
                   <input
                     type="date"
-                    value={dateRange.to}
-                    min={dateRange.from}
-                    onChange={event => setDateRange(prev => ({ ...prev, to: event.target.value }))}
+                    value={draftDateRange.to}
+                    min={draftDateRange.from}
+                    onChange={event => setDraftDateRange(prev => ({ ...prev, to: event.target.value }))}
                   />
                 </label>
               </div>
               <button
                 type="button"
                 className="logistics-filter-dates__preset"
-                onClick={() => setDateRange(defaultDateRange())}
+                onClick={() => setDraftDateRange(defaultDateRange())}
               >
                 <CalendarDays size={14} aria-hidden />
                 Last 30 days
@@ -810,13 +939,9 @@ export const LogisticsPage: React.FC = () => {
             <label className="logistics-filter-field">
               <span>Status</span>
               <select
-                value={filters.status ?? ''}
+                value={draftStatus}
                 onChange={event => {
-                  setStatusFilter('');
-                  setFilters(prev => ({
-                    ...prev,
-                    status: event.target.value as LogisticsBookingStatus | '',
-                  }));
+                  setDraftStatus(event.target.value as LogisticsBookingStatus | '');
                 }}
               >
                 <option value="">All statuses</option>
@@ -829,11 +954,8 @@ export const LogisticsPage: React.FC = () => {
             <label className="logistics-filter-field">
               <span>Partner</span>
               <select
-                value={filters.partnerId ?? ''}
-                onChange={event => setFilters(prev => ({
-                  ...prev,
-                  partnerId: event.target.value as LogisticsPartnerId | '',
-                }))}
+                value={draftPartnerId}
+                onChange={event => setDraftPartnerId(event.target.value as LogisticsPartnerId | '')}
               >
                 <option value="">All partners</option>
                 {LOGISTICS_PARTNERS.map(partner => (
@@ -841,6 +963,28 @@ export const LogisticsPage: React.FC = () => {
                 ))}
               </select>
             </label>
+
+            <fieldset className="logistics-filter-field logistics-filter-radios">
+              <legend>Payment difference</legend>
+              <div className="logistics-filter-radios__list" role="radiogroup" aria-label="Payment difference">
+                {FREIGHT_DIFF_FILTER_OPTIONS.map(option => {
+                  const inputId = `logistics-freight-diff-${option.id || 'all'}`;
+                  return (
+                    <label key={option.id || 'all'} className="logistics-filter-radios__option" htmlFor={inputId}>
+                      <input
+                        id={inputId}
+                        type="radio"
+                        name="logistics-freight-diff"
+                        value={option.id}
+                        checked={draftFreightDiffFilter === option.id}
+                        onChange={() => setDraftFreightDiffFilter(option.id)}
+                      />
+                      <span>{option.label}</span>
+                    </label>
+                  );
+                })}
+              </div>
+            </fieldset>
 
             {canSuperDelete && (
               <label className="logistics-filter-supermode">
@@ -863,18 +1007,27 @@ export const LogisticsPage: React.FC = () => {
               </label>
             )}
 
-            <button
-              type="button"
-              className="logistics-filter-dropdown__clear"
-              onClick={() => {
-                setStatusFilter('');
-                setDateRange(defaultDateRange());
-                setFilters(prev => ({ ...prev, status: '', partnerId: '' }));
-              }}
-              disabled={!hasActiveFilters}
-            >
-              Clear filters
-            </button>
+            <div className="logistics-filter-dropdown__actions">
+              <button
+                type="button"
+                className="logistics-filter-dropdown__clear"
+                onClick={clearFiltersPanel}
+                disabled={!hasActiveFilters
+                  && !draftStatus
+                  && !draftPartnerId
+                  && !draftFreightDiffFilter
+                  && isDefaultDateRange(draftDateRange)}
+              >
+                Clear
+              </button>
+              <button
+                type="button"
+                className="btn btn-primary logistics-filter-dropdown__apply"
+                onClick={applyFiltersPanel}
+              >
+                Apply
+              </button>
+            </div>
           </div>
         </>,
         document.body,
@@ -1069,7 +1222,7 @@ export const LogisticsPage: React.FC = () => {
                             ) : booking.status === 'delivered' ? (
                               <div className="logistics-shipment__outcome logistics-shipment__outcome--delivered">
                                 <CheckCircle2 size={14} aria-hidden />
-                                <span>Delivered on {formatShipmentDateTime(booking)}</span>
+                                <span>Delivered on {formatDeliveredDateTime(booking)}</span>
                               </div>
                             ) : booking.status === 'cancelled' ? (
                               <div className="logistics-shipment__outcome logistics-shipment__outcome--exception">

@@ -335,6 +335,23 @@ export function parseDelhiveryTrackJson(json, lrn) {
     });
   }
 
+  // When API omits booked_at, use the oldest scan (not latest status / fetchedAt).
+  let resolvedBookedAt = bookedAt;
+  if (!resolvedBookedAt && history.length) {
+    let earliest = null;
+    let earliestMs = Infinity;
+    for (const item of history) {
+      const at = item?.at ? String(item.at).trim() : '';
+      if (!at) continue;
+      const ms = Date.parse(at);
+      if (!Number.isNaN(ms) && ms < earliestMs) {
+        earliestMs = ms;
+        earliest = at;
+      }
+    }
+    resolvedBookedAt = earliest;
+  }
+
   const ok = Boolean(status || statusType || history.length || deliveredAt);
   return {
     awb: firstText(shipment.lrn, shipment.LRN, shipment.awb, shipment.AWB, data.lrn, lrn) || lrn,
@@ -349,7 +366,7 @@ export function parseDelhiveryTrackJson(json, lrn) {
       shipment.freight_mode,
       data.service_type,
     ) || null,
-    bookedAt,
+    bookedAt: resolvedBookedAt,
     deliveredAt,
     history,
     sourceUrl,

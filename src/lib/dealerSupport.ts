@@ -308,6 +308,11 @@ export function mapSupportRequest(id: string, data: DocumentData): DealerSupport
     receivedAt: data.receivedAt ? String(data.receivedAt) : null,
     resolvedAt: data.resolvedAt ? String(data.resolvedAt) : null,
     resolutionSummary: data.resolutionSummary ? String(data.resolutionSummary) : null,
+    logisticsBookingId: data.logisticsBookingId ? String(data.logisticsBookingId) : null,
+    logisticsConsignmentNo: data.logisticsConsignmentNo
+      ? String(data.logisticsConsignmentNo)
+      : null,
+    logisticsPartnerId: data.logisticsPartnerId ? String(data.logisticsPartnerId) : null,
     reopenedAt: data.reopenedAt ? String(data.reopenedAt) : null,
     reopenCount: Number(data.reopenCount ?? 0) || 0,
     reopenHistory: mapReopenHistory(data.reopenHistory),

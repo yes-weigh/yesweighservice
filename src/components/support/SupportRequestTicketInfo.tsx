@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from 'react';
+import { Link } from 'react-router-dom';
 import {
   Calendar,
   CheckCircle2,
@@ -9,6 +10,10 @@ import {
   Truck,
   Wrench,
 } from 'lucide-react';
+import {
+  LOGISTICS_OPEN_BOOKING_STATE_KEY,
+  logisticsPathForRole,
+} from '../../lib/logisticsPrefill';
 import { fetchSupportInvoiceDate } from '../../lib/supportInvoiceDates';
 import { formatInvoiceDate } from '../../lib/invoices';
 import { isInternalOpsUser } from '../../lib/staffAccess';
@@ -164,6 +169,25 @@ export const SupportRequestTicketInfo: React.FC<SupportRequestTicketInfoProps> =
             label="Tracking"
             value={request.courierTracking}
           />
+        )}
+        {request.logisticsBookingId && (
+          <div className="support-detail-info-row">
+            <span className="support-detail-info-row__icon support-detail-info-row__icon--amber" aria-hidden>
+              <Truck size={16} strokeWidth={2} />
+            </span>
+            <span className="support-detail-info-row__label">Logistics</span>
+            <span className="support-detail-info-row__value">
+              <Link
+                to={logisticsPathForRole(user.role)}
+                state={{ [LOGISTICS_OPEN_BOOKING_STATE_KEY]: request.logisticsBookingId }}
+                className="support-detail-info-row__link"
+              >
+                {request.logisticsConsignmentNo?.trim()
+                  || request.courierTracking?.trim()
+                  || 'Open shipment'}
+              </Link>
+            </span>
+          </div>
         )}
         {request.lifecycle === 'resolved' && request.resolutionSummary && (
           <InfoRow

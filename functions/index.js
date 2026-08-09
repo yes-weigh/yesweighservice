@@ -138,6 +138,7 @@ import { setManagedUserPassword as updateManagedUserPassword } from './lib/set-u
 import { prepareSupportAttachmentUpload, uploadSupportAttachment } from './lib/support-attachments.js';
 import { appendSupportMessage } from './lib/support-messages.js';
 import { markSupportMessageReceipts } from './lib/support-message-receipts.js';
+import { raiseLogisticsIssueTicket as raiseLogisticsIssueTicketHandler } from './lib/raise-logistics-issue-ticket.js';
 import { getHrStaffFileUrl, uploadHrStaffFile } from './lib/hr-staff-upload.js';
 import { getYesStorePhotoUrl, uploadYesStorePhoto } from './lib/yes-store-upload.js';
 import {
@@ -3344,6 +3345,22 @@ export const appendSupportMessageFn = onCall(
   },
 );
 
+/** Raise a Warranty & Support complaint from a logistics booking (all portal roles). */
+export const raiseLogisticsIssueTicketFn = onCall(
+  { region: 'asia-south1', timeoutSeconds: 60, memory: '256MiB' },
+  async request => {
+    if (!request.auth?.uid) {
+      throw new HttpsError('unauthenticated', 'Sign in required.');
+    }
+    try {
+      return await raiseLogisticsIssueTicketHandler(request.auth.uid, request.data ?? {});
+    } catch (err) {
+      if (err instanceof HttpsError) throw err;
+      throw new HttpsError('internal', err?.message ?? 'Could not raise issue ticket.');
+    }
+  },
+);
+
 /** Mark support messages delivered or read (WhatsApp-style receipts). */
 export const markSupportMessageReceiptsFn = onCall(
   { region: 'asia-south1', timeoutSeconds: 30, memory: '256MiB' },
@@ -4521,6 +4538,8 @@ export const trackDelhiveryShipmentFn = onCall(
         try {
           await persistDelhiveryTrackOnBooking(getFirestore(), bookingId, result, {
             updatePipelineStatus: true,
+            // Refresh button: re-detect FOD/BTC from live freight vs estimate.
+            forceBillingModeRefresh: true,
           });
         } catch (persistErr) {
           console.warn(

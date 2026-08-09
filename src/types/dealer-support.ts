@@ -72,6 +72,10 @@ export interface DealerSupportRequest {
   receivedAt: string | null;
   resolvedAt: string | null;
   resolutionSummary: string | null;
+  /** Set when ticket was raised from a logistics booking. */
+  logisticsBookingId: string | null;
+  logisticsConsignmentNo: string | null;
+  logisticsPartnerId: string | null;
   /** Most recent reopen time — used for waiting age; createdAt stays the booking date. */
   reopenedAt: string | null;
   reopenCount: number;

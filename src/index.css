@@ -21230,6 +21230,88 @@ body:has(.confirm-inline-bar) .confirm-inline-bar {
   color: #fff;
 }
 
+.logistics-filter-radios {
+  border: 0;
+  margin: 0 0 0.75rem;
+  padding: 0;
+  min-width: 0;
+}
+
+.logistics-filter-radios > legend {
+  padding: 0;
+  margin-bottom: 0.35rem;
+  font-size: 0.72rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  color: var(--text-muted);
+}
+
+.logistics-filter-radios__list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+  padding: 0.2rem;
+  border-radius: 10px;
+  border: 1px solid var(--border-glass);
+  background: rgba(15, 23, 42, 0.35);
+}
+
+.logistics-filter-radios__option {
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
+  margin: 0;
+  padding: 0.5rem 0.65rem;
+  border-radius: 8px;
+  cursor: pointer;
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: var(--text-secondary);
+}
+
+.logistics-filter-radios__option:hover {
+  background: rgba(255, 255, 255, 0.04);
+  color: var(--text-main);
+}
+
+.logistics-filter-radios__option:has(input:checked) {
+  background: rgba(245, 130, 32, 0.14);
+  color: var(--text-main);
+}
+
+.logistics-filter-radios__option input {
+  appearance: none;
+  width: 1rem;
+  height: 1rem;
+  margin: 0;
+  flex-shrink: 0;
+  border-radius: 999px;
+  border: 1.5px solid rgba(148, 163, 184, 0.55);
+  background: rgba(15, 23, 42, 0.65);
+  display: grid;
+  place-content: center;
+  cursor: pointer;
+}
+
+.logistics-filter-radios__option input::before {
+  content: '';
+  width: 0.45rem;
+  height: 0.45rem;
+  border-radius: 999px;
+  transform: scale(0);
+  background: var(--accent-primary, #f58220);
+  transition: transform 120ms ease;
+}
+
+.logistics-filter-radios__option input:checked {
+  border-color: var(--accent-primary, #f58220);
+}
+
+.logistics-filter-radios__option input:checked::before {
+  transform: scale(1);
+}
+
 .logistics-filter-dates {
   display: grid;
   grid-template-columns: 1fr 1fr;
@@ -21287,15 +21369,27 @@ body:has(.confirm-inline-bar) .confirm-inline-bar {
   color: var(--text-main);
 }
 
-.logistics-filter-dropdown__clear {
+.logistics-filter-dropdown__actions {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.55rem;
+  margin-top: 0.25rem;
+}
+
+.logistics-filter-dropdown__clear,
+.logistics-filter-dropdown__apply {
   width: 100%;
-  padding: 0.6rem;
+  padding: 0.65rem 0.75rem;
   border-radius: 10px;
+  font: inherit;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.logistics-filter-dropdown__clear {
   border: 1px solid var(--border-glass);
   background: rgba(255, 255, 255, 0.04);
   color: var(--text-primary);
-  font-weight: 600;
-  cursor: pointer;
 }
 
 .logistics-filter-dropdown__clear:hover:not(:disabled) {
@@ -21305,6 +21399,10 @@ body:has(.confirm-inline-bar) .confirm-inline-bar {
 .logistics-filter-dropdown__clear:disabled {
   opacity: 0.5;
   cursor: not-allowed;
+}
+
+.logistics-filter-dropdown__apply {
+  border: 1px solid transparent;
 }
 
 .logistics-page__error {
@@ -21414,10 +21512,101 @@ body:has(.confirm-inline-bar) .confirm-inline-bar {
   gap: 0.5rem;
 }
 
+.logistics-booking__issue {
+  margin: 1rem 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.45rem;
+}
+
+.logistics-booking__issue h4 {
+  margin: 0;
+  font-size: 0.95rem;
+}
+
+.logistics-booking__issue-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  align-items: center;
+}
+
+.logistics-issue-dialog {
+  width: min(100%, 480px);
+}
+
+.logistics-issue-dialog__subtitle {
+  margin: 0.35rem 0 0;
+  max-width: 36ch;
+}
+
+.logistics-issue-dialog__meta {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.55rem;
+  margin: 0 0 0.85rem;
+}
+
+.logistics-issue-dialog__meta > div {
+  min-width: 0;
+}
+
+.logistics-issue-dialog__meta dt {
+  font-size: 0.7rem;
+  color: var(--text-muted);
+  margin: 0 0 0.15rem;
+}
+
+.logistics-issue-dialog__meta dd {
+  margin: 0;
+  font-size: 0.82rem;
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+
+.logistics-issue-dialog .dealers-modal__field textarea {
+  padding: 0.55rem 0.65rem;
+  border-radius: 8px;
+  border: 1px solid var(--border-glass);
+  background: var(--bg-input, rgba(15, 23, 42, 0.4));
+  color: inherit;
+  resize: vertical;
+  min-height: 7rem;
+  font: inherit;
+}
+
+.logistics-issue-dialog__error {
+  margin: 0;
+  color: #f87171;
+  font-size: 0.8125rem;
+}
+
+.logistics-issue-dialog__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  justify-content: flex-end;
+}
+
+@media (max-width: 520px) {
+  .logistics-issue-dialog__meta {
+    grid-template-columns: 1fr;
+  }
+}
+
 .logistics-booking__status--cancelled,
 .logistics-booking__status--returned {
   background: rgba(248, 113, 113, 0.12);
   color: #f87171;
+}
+
+.support-detail-info-row__link {
+  color: #ff7a00;
+  text-decoration: none;
+}
+
+.support-detail-info-row__link:hover {
+  text-decoration: underline;
 }
 
 /* Book courier wizard */
