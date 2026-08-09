@@ -1,10 +1,16 @@
 /**
- * Delhivery B2B LR tracking via GET /v2/track/lr?lrn=
+ * Delhivery tracking:
+ * 1) B2B GET /v2/track/lr?lrn= (JWT)
+ * 2) Fallback Express GET track.delhivery.com/api/v1/packages/json/?waybill= (same JWT)
+ *
+ * Delhivery One shows LRN + Master AWB (MWB). B2B track/lr often returns Invalid LRN
+ * for live Surface LRs; Express packages/json tracks the Master AWB reliably.
  */
 
-import { delhiveryB2bFetch } from './delhivery-b2b.js';
+import { delhiveryB2bFetch, getValidDelhiveryJwt } from './delhivery-b2b.js';
 
 const OFFICIAL_TRACK_URL = 'https://www.delhivery.com/track/package/';
+const EXPRESS_PACKAGES_URL = 'https://track.delhivery.com/api/v1/packages/json/';
 
 /**
  * @param {unknown} raw
@@ -102,6 +108,7 @@ function pushHistory(history, item) {
  */
 function collectScanArrays(root, data, shipment) {
   const candidates = [
+    shipment.Scans,
     shipment.scans,
     shipment.ScanDetail,
     shipment.scan_details,
@@ -110,6 +117,7 @@ function collectScanArrays(root, data, shipment) {
     shipment.history,
     shipment.events,
     shipment.status_history,
+    data.Scans,
     data.scans,
     data.ScanDetail,
     data.tracking_history,
@@ -170,7 +178,12 @@ export function parseDelhiveryTrackJson(json, lrn) {
     : root;
 
   let shipment = data;
-  if (Array.isArray(data.shipments) && data.shipments[0] && typeof data.shipments[0] === 'object') {
+  if (Array.isArray(data.ShipmentData) && data.ShipmentData[0] && typeof data.ShipmentData[0] === 'object') {
+    const row = /** @type {Record<string, unknown>} */ (data.ShipmentData[0]);
+    shipment = (row.Shipment && typeof row.Shipment === 'object')
+      ? /** @type {Record<string, unknown>} */ (row.Shipment)
+      : row;
+  } else if (Array.isArray(data.shipments) && data.shipments[0] && typeof data.shipments[0] === 'object') {
     shipment = /** @type {Record<string, unknown>} */ (data.shipments[0]);
   } else if (data.shipment && typeof data.shipment === 'object') {
     shipment = /** @type {Record<string, unknown>} */ (data.shipment);
@@ -186,11 +199,18 @@ export function parseDelhiveryTrackJson(json, lrn) {
     root.error && typeof root.error === 'object'
       ? /** @type {Record<string, unknown>} */ (root.error).message
       : root.error,
+    root.Error,
     root.message,
     data.message,
     data.error,
+    data.Error,
   );
-  if (root.success === false || /invalid\s*lrn/i.test(errMessage)) {
+  if (
+    root.Success === false
+    || root.success === false
+    || /invalid\s*lrn/i.test(errMessage)
+    || /does not exists for provided waybill/i.test(errMessage)
+  ) {
     return {
       ...empty,
       error: errMessage || 'Track failed',
@@ -327,12 +347,99 @@ export function parseDelhiveryTrackJson(json, lrn) {
 }
 
 /**
+ * @param {unknown[]} values
+ * @returns {string[]}
+ */
+export function uniqueDelhiveryTrackIds(...values) {
+  /** @type {string[]} */
+  const out = [];
+  const seen = new Set();
+  for (const value of values) {
+    if (Array.isArray(value)) {
+      for (const inner of value) {
+        const id = normalizeDelhiveryLrn(inner);
+        if (!id || seen.has(id)) continue;
+        seen.add(id);
+        out.push(id);
+      }
+      continue;
+    }
+    const id = normalizeDelhiveryLrn(value);
+    if (!id || seen.has(id)) continue;
+    seen.add(id);
+    out.push(id);
+  }
+  return out;
+}
+
+/**
+ * Express packages/json track (Master AWB / waybill). Uses B2B JWT as Bearer.
+ * @param {FirebaseFirestore.Firestore} db
+ * @param {string} waybill
+ * @param {string} [displayId]
+ */
+export async function fetchDelhiveryExpressTrack(db, waybill, displayId) {
+  const id = normalizeDelhiveryLrn(waybill);
+  const label = normalizeDelhiveryLrn(displayId) || id;
+  if (!id) {
+    return parseDelhiveryTrackJson(null, label);
+  }
+
+  const auth = await getValidDelhiveryJwt(db);
+  const url = `${EXPRESS_PACKAGES_URL}?waybill=${encodeURIComponent(id)}`;
+  const res = await fetch(url, {
+    method: 'GET',
+    headers: {
+      Authorization: `Bearer ${auth.jwt}`,
+      Accept: 'application/json',
+    },
+  });
+  const text = await res.text();
+  let json = null;
+  try {
+    json = text ? JSON.parse(text) : null;
+  } catch {
+    json = null;
+  }
+
+  if (!res.ok) {
+    return {
+      awb: label,
+      ok: false,
+      error: String(json?.Error || json?.message || text || `Track failed (${res.status})`),
+      status: null,
+      origin: null,
+      destination: null,
+      consignmentType: null,
+      bookedAt: null,
+      deliveredAt: null,
+      history: [],
+      sourceUrl: `${OFFICIAL_TRACK_URL}${encodeURIComponent(id)}`,
+      fetchedAt: new Date().toISOString(),
+      statusType: null,
+      masterAwb: id,
+    };
+  }
+
+  const parsed = parseDelhiveryTrackJson(json, label);
+  const masterAwb = firstText(parsed.awb, id) || id;
+  return {
+    ...parsed,
+    // Keep LRN (displayId) as primary awb when provided; stash Master AWB separately.
+    awb: label || masterAwb,
+    masterAwb,
+    sourceUrl: `${OFFICIAL_TRACK_URL}${encodeURIComponent(masterAwb)}`,
+  };
+}
+
+/**
  * @param {FirebaseFirestore.Firestore} db
  * @param {string} rawLrn
+ * @param {{ alternateIds?: unknown[] }} [options]
  */
-export async function fetchDelhiveryTrack(db, rawLrn) {
-  const lrn = normalizeDelhiveryLrn(rawLrn);
-  if (!lrn) {
+export async function fetchDelhiveryTrack(db, rawLrn, options = {}) {
+  const ids = uniqueDelhiveryTrackIds(rawLrn, options.alternateIds);
+  if (!ids.length) {
     return {
       awb: '',
       ok: false,
@@ -347,39 +454,63 @@ export async function fetchDelhiveryTrack(db, rawLrn) {
       sourceUrl: OFFICIAL_TRACK_URL,
       fetchedAt: new Date().toISOString(),
       statusType: null,
+      masterAwb: null,
     };
   }
 
-  const res = await delhiveryB2bFetch(db, '/v2/track/lr', {
-    method: 'GET',
-    query: { lrn },
-  });
+  const primary = ids[0];
+  /** @type {string | null} */
+  let lastError = null;
 
-  if (!res.ok) {
-    const message = String(
+  // 1) B2B LR track for each candidate (usually the 9-digit LRN).
+  for (const id of ids) {
+    const res = await delhiveryB2bFetch(db, '/v2/track/lr', {
+      method: 'GET',
+      query: { lrn: id },
+    });
+    if (res.ok) {
+      const parsed = parseDelhiveryTrackJson(res.json, primary);
+      if (parsed.ok) {
+        return {
+          ...parsed,
+          awb: primary,
+          masterAwb: ids.find(candidate => candidate !== primary) || null,
+        };
+      }
+      lastError = parsed.error;
+      continue;
+    }
+    lastError = String(
       res.json?.error?.message
       || res.json?.message
       || res.text
       || `Track failed (${res.status})`,
     );
-    return {
-      awb: lrn,
-      ok: false,
-      error: message,
-      status: null,
-      origin: null,
-      destination: null,
-      consignmentType: null,
-      bookedAt: null,
-      deliveredAt: null,
-      history: [],
-      sourceUrl: `${OFFICIAL_TRACK_URL}${encodeURIComponent(lrn)}`,
-      fetchedAt: new Date().toISOString(),
-      statusType: null,
-    };
   }
 
-  return parseDelhiveryTrackJson(res.json, lrn);
+  // 2) Express packages/json — works with Master AWB using the same B2B JWT.
+  for (const id of ids) {
+    const parsed = await fetchDelhiveryExpressTrack(db, id, primary);
+    if (parsed.ok) return parsed;
+    lastError = parsed.error || lastError;
+  }
+
+  return {
+    awb: primary,
+    ok: false,
+    error: lastError || 'No tracking data',
+    status: null,
+    origin: null,
+    destination: null,
+    consignmentType: null,
+    bookedAt: null,
+    deliveredAt: null,
+    history: [],
+    sourceUrl: `${OFFICIAL_TRACK_URL}${encodeURIComponent(primary)}`,
+    fetchedAt: new Date().toISOString(),
+    statusType: null,
+    masterAwb: ids.find(candidate => candidate !== primary) || null,
+  };
 }
 
 /**

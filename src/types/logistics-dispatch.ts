@@ -121,6 +121,8 @@ export interface LogisticsCourierTrack {
   status: string | null;
   /** Delhivery StatusType when present (DL / UD / RT / CN / …). */
   statusType?: string | null;
+  /** Delhivery Master AWB (MWB) when track used Express packages/json fallback. */
+  masterAwb?: string | null;
   origin: string | null;
   destination: string | null;
   consignmentType: string | null;

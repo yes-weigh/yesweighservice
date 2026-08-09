@@ -8,6 +8,7 @@ const functions = getFunctions(app, 'asia-south1');
 /** Same shape as ST — plus optional Delhivery StatusType (DL/UD/RT/CN…). */
 export type DelhiveryTrackResult = StCourierTrackResult & {
   statusType?: string | null;
+  masterAwb?: string | null;
 };
 
 function callableError(err: unknown, fallback: string): Error {
@@ -51,6 +52,7 @@ export function delhiveryTrackFromBooking(
     error?: string | null;
     status?: string | null;
     statusType?: string | null;
+    masterAwb?: string | null;
     origin?: string | null;
     destination?: string | null;
     consignmentType?: string | null;
@@ -68,6 +70,7 @@ export function delhiveryTrackFromBooking(
     error: track.error == null ? null : String(track.error),
     status: track.status ?? null,
     statusType: track.statusType == null ? null : String(track.statusType),
+    masterAwb: track.masterAwb == null ? null : String(track.masterAwb),
     origin: track.origin ?? null,
     destination: track.destination ?? null,
     consignmentType: track.consignmentType ?? null,

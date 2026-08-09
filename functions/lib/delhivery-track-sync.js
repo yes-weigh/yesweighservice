@@ -2,7 +2,11 @@
  * Persist Delhivery track results onto logisticsBookings and advance pipeline status.
  */
 
-import { fetchDelhiveryTrack, normalizeDelhiveryLrn } from './delhivery-track.js';
+import {
+  fetchDelhiveryTrack,
+  normalizeDelhiveryLrn,
+  uniqueDelhiveryTrackIds,
+} from './delhivery-track.js';
 import {
   OPEN_LOGISTICS_STATUSES,
   buildCourierTrackSnapshot,
@@ -22,11 +26,26 @@ export function isDelhiveryPartnerId(partnerId) {
  * @param {Record<string, unknown>} data
  */
 export function lrnFromLogisticsBooking(data) {
-  for (const value of [data?.consignmentNo, data?.trackingNo]) {
-    const lrn = normalizeDelhiveryLrn(value);
-    if (lrn) return lrn;
-  }
-  return '';
+  const ids = trackIdsFromLogisticsBooking(data);
+  return ids[0] || '';
+}
+
+/**
+ * LRN + Master AWB candidates for track fallback.
+ * @param {Record<string, unknown>} data
+ */
+export function trackIdsFromLogisticsBooking(data) {
+  const track = data?.courierTrack && typeof data.courierTrack === 'object'
+    ? /** @type {Record<string, unknown>} */ (data.courierTrack)
+    : {};
+  return uniqueDelhiveryTrackIds(
+    data?.consignmentNo,
+    data?.trackingNo,
+    data?.masterAwb,
+    data?.delhiveryMasterAwb,
+    track.masterAwb,
+    track.awb,
+  );
 }
 
 /**
@@ -164,9 +183,13 @@ export function buildDelhiveryTrackingPatch(track, options = {}) {
     const statusType = track.statusType == null
       ? null
       : String(track.statusType).trim().toUpperCase() || null;
+    const masterAwb = track.masterAwb == null
+      ? null
+      : String(track.masterAwb).trim() || null;
     patch.courierTrack = {
       ...patch.courierTrack,
       statusType,
+      ...(masterAwb ? { masterAwb } : {}),
       sourceUrl: String(
         track.sourceUrl
         || patch.courierTrack.sourceUrl
@@ -256,8 +279,8 @@ export async function syncDelhiveryTrackingForBookings(db, options = {}) {
     if (!includeCancelled && (status === 'cancelled' || status === 'returned')) continue;
     if (!includeDelivered && status === 'delivered') continue;
     if (!includeDelivered && !OPEN_LOGISTICS_STATUSES.includes(status)) continue;
-    const lrn = lrnFromLogisticsBooking(data);
-    if (!lrn) continue;
+    const ids = trackIdsFromLogisticsBooking(data);
+    if (!ids.length) continue;
     targets.push(docSnap);
     if (limit && targets.length >= limit) break;
   }
@@ -276,12 +299,13 @@ export async function syncDelhiveryTrackingForBookings(db, options = {}) {
 
   await mapPool(targets, concurrency, async (docSnap) => {
     const data = docSnap.data() || {};
-    const awb = lrnFromLogisticsBooking(data);
+    const ids = trackIdsFromLogisticsBooking(data);
+    const awb = ids[0] || '';
     const currentStatus = String(data.status || '');
 
     let track;
     try {
-      track = await fetchDelhiveryTrack(db, awb);
+      track = await fetchDelhiveryTrack(db, awb, { alternateIds: ids.slice(1) });
     } catch (err) {
       summary.fetchedFail += 1;
       summary.errors.push({

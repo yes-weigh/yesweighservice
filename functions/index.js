@@ -4434,7 +4434,10 @@ export const trackDelhiveryShipmentHttp = onRequest(
     }
     try {
       const awb = String(req.query?.awb ?? req.query?.lrn ?? req.query?.keyword ?? '').trim();
-      const result = await fetchDelhiveryTrack(getFirestore(), awb);
+      const masterAwb = String(req.query?.masterAwb ?? req.query?.mwb ?? req.query?.waybill ?? '').trim();
+      const result = await fetchDelhiveryTrack(getFirestore(), awb, {
+        alternateIds: masterAwb ? [masterAwb] : [],
+      });
       res.set('Cache-Control', 'no-store');
       res.status(result.ok ? 200 : 404).type('html').send(renderDelhiveryTrackHtml(result));
     } catch (err) {
@@ -4457,8 +4460,31 @@ export const trackDelhiveryShipmentFn = onCall(
     await requireActiveUser(request.auth?.uid, ALLOWED_ROLES, { allowViewOnly: true });
     const awb = String(request.data?.awb ?? request.data?.trackingNo ?? request.data?.lrn ?? '').trim();
     const bookingId = String(request.data?.bookingId ?? '').trim();
+    const explicitMaster = String(
+      request.data?.masterAwb ?? request.data?.waybill ?? request.data?.mwb ?? '',
+    ).trim();
     try {
-      const result = await fetchDelhiveryTrack(getFirestore(), awb);
+      /** @type {string[]} */
+      let alternateIds = explicitMaster ? [explicitMaster] : [];
+      if (bookingId) {
+        try {
+          const snap = await getFirestore().collection('logisticsBookings').doc(bookingId).get();
+          if (snap.exists) {
+            const data = snap.data() || {};
+            alternateIds = [
+              ...alternateIds,
+              String(data.trackingNo || ''),
+              String(data.masterAwb || ''),
+              String(data.delhiveryMasterAwb || ''),
+              String(data.courierTrack?.masterAwb || ''),
+              String(data.consignmentNo || ''),
+            ];
+          }
+        } catch {
+          // Ignore booking lookup failures; still try primary AWB.
+        }
+      }
+      const result = await fetchDelhiveryTrack(getFirestore(), awb, { alternateIds });
       if (bookingId && result) {
         try {
           await persistDelhiveryTrackOnBooking(getFirestore(), bookingId, result, {
