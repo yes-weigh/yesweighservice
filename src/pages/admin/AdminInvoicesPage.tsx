@@ -53,7 +53,10 @@ import {
   invoiceCategoryLabel,
   invoiceStatusLabel,
 } from '../../lib/invoices';
+import { invoiceListLogisticsStatus } from '../../lib/logisticsBooking';
+import { findLogisticsBookingsForInvoices } from '../../lib/logisticsBookings';
 import { useRevealScrollbarOnScroll } from '../../lib/useRevealScrollbarOnScroll';
+import type { LogisticsBooking } from '../../types/logistics-dispatch';
 import type { InvoiceCategory, SalesRangePreset } from '../../types/invoices';
 import { SALES_RANGE_OPTIONS } from '../../types/invoices';
 
@@ -88,6 +91,31 @@ const SORT_OPTIONS: Array<{ value: AdminInvoiceSort; label: string }> = [
 function invoiceStatusClass(status: string): string {
   const key = status.toLowerCase().replace(/\s+/g, '_');
   return `invoices-status invoices-status--${key}`;
+}
+
+/** Prefer logistics status past Booked; otherwise Zoho invoice payment status. */
+function invoiceRowStatusDisplay(
+  invoiceStatus: string,
+  booking: LogisticsBooking | undefined,
+): { label: string; className: string } {
+  const logistics = invoiceListLogisticsStatus(booking);
+  if (logistics) {
+    const tone = logistics.status === 'in_transit'
+      ? 'sent'
+      : logistics.status === 'delivered'
+        ? 'delivered'
+        : logistics.status === 'cancelled'
+          ? 'void'
+          : 'overdue';
+    return {
+      label: logistics.label,
+      className: invoiceStatusClass(tone),
+    };
+  }
+  return {
+    label: invoiceStatusLabel(invoiceStatus),
+    className: invoiceStatusClass(invoiceStatus),
+  };
 }
 
 function AdminFilterSheet({
@@ -316,6 +344,9 @@ export const AdminInvoicesPage: React.FC = () => {
   const [pageCursors, setPageCursors] = useState<Array<QueryDocumentSnapshot<DocumentData> | null>>([null]);
   const [customerLocations, setCustomerLocations] = useState(
     () => new Map<string, { district: string | null; state: string | null }>(),
+  );
+  const [logisticsByInvoiceId, setLogisticsByInvoiceId] = useState(
+    () => new Map<string, LogisticsBooking>(),
   );
 
   const dealerFilterFromUrl = searchParams.get('dealerId')?.trim() || '';
@@ -694,6 +725,29 @@ export const AdminInvoicesPage: React.FC = () => {
     };
   }, [pageRows]);
 
+  useEffect(() => {
+    const invoiceIds = pageRows
+      .filter(invoice => (invoice.aggregateInvoiceCount ?? 0) <= 1)
+      .map(invoice => invoice.id);
+    if (!invoiceIds.length) {
+      setLogisticsByInvoiceId(new Map());
+      return;
+    }
+
+    let cancelled = false;
+    void findLogisticsBookingsForInvoices(invoiceIds)
+      .then(map => {
+        if (!cancelled) setLogisticsByInvoiceId(map);
+      })
+      .catch(() => {
+        if (!cancelled) setLogisticsByInvoiceId(new Map());
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [pageRows]);
+
   const openInvoice = (invoice: AdminFirestoreInvoice) => {
     navigate(`${basePath}/invoices/${invoice.customerId}/${invoice.id}/invoice`);
   };
@@ -967,6 +1021,12 @@ export const AdminInvoicesPage: React.FC = () => {
                   );
                   const categoryLabel = invoiceCategoryLabel(invoice.invoiceCategory);
                   const isAggregateRow = (invoice.aggregateInvoiceCount ?? 0) > 1;
+                  const rowStatus = isAggregateRow
+                    ? null
+                    : invoiceRowStatusDisplay(
+                      invoice.status,
+                      logisticsByInvoiceId.get(invoice.id),
+                    );
                   return (
                     <tr
                       key={`${invoice.customerId}-${invoice.id}`}
@@ -1026,14 +1086,12 @@ export const AdminInvoicesPage: React.FC = () => {
                         )}
                       </td>
                       <td>
-                        {isAggregateRow ? (
+                        {isAggregateRow || !rowStatus ? (
                           <span className="text-muted text-sm">
                             {invoice.aggregateInvoiceCount} invoices
                           </span>
                         ) : (
-                          <span className={invoiceStatusClass(invoice.status)}>
-                            {invoiceStatusLabel(invoice.status)}
-                          </span>
+                          <span className={rowStatus.className}>{rowStatus.label}</span>
                         )}
                       </td>
                     </tr>
@@ -1053,6 +1111,12 @@ export const AdminInvoicesPage: React.FC = () => {
                 customerLocations.get(invoice.customerId),
               );
               const isAggregateRow = (invoice.aggregateInvoiceCount ?? 0) > 1;
+              const rowStatus = isAggregateRow
+                ? null
+                : invoiceRowStatusDisplay(
+                  invoice.status,
+                  logisticsByInvoiceId.get(invoice.id),
+                );
               return (
                 <button
                   key={`${invoice.customerId}-${invoice.id}`}
@@ -1094,12 +1158,10 @@ export const AdminInvoicesPage: React.FC = () => {
                             : invoiceCategoryAmount(invoice, category),
                         )}
                       </strong>
-                      {isAggregateRow ? (
+                      {isAggregateRow || !rowStatus ? (
                         <span className="text-muted text-sm">Aggregated</span>
                       ) : (
-                        <span className={invoiceStatusClass(invoice.status)}>
-                          {invoiceStatusLabel(invoice.status)}
-                        </span>
+                        <span className={rowStatus.className}>{rowStatus.label}</span>
                       )}
                     </span>
                   </span>

@@ -49,6 +49,7 @@ import {
   extractIndianPincode,
   fetchStCourierDeliveryOffice,
 } from './stCourierTrack';
+import { tryRefreshLogisticsBookingTrack } from './logisticsTrackRefresh';
 import type {
   LogisticsBooking,
   LogisticsBookingDraft,
@@ -1131,7 +1132,9 @@ export async function persistLogisticsBooking(
 
     await setDoc(bookingRef, payload);
     const booking = mapLogisticsBookingDoc(bookingRef.id, payload);
-    return hydrateBookingPhotos(booking);
+    await tryRefreshLogisticsBookingTrack(booking);
+    const refreshed = await fetchLogisticsBooking(booking.id);
+    return hydrateBookingPhotos(refreshed || booking);
   } catch (err) {
     throw formatLogisticsPersistError(err, 'Could not save shipment.');
   }
@@ -1204,6 +1207,19 @@ export async function fetchLogisticsBooking(id: string): Promise<LogisticsBookin
   return hydrateBookingPhotos(booking);
 }
 
+function rankLogisticsBookingsForInvoice(
+  bookings: LogisticsBooking[],
+): LogisticsBooking | null {
+  if (!bookings.length) return null;
+  const ranked = [...bookings].sort((a, b) => {
+    const aClosed = a.status === 'returned' || a.status === 'cancelled' ? 1 : 0;
+    const bClosed = b.status === 'returned' || b.status === 'cancelled' ? 1 : 0;
+    if (aClosed !== bClosed) return aClosed - bClosed;
+    return compareLogisticsBookingsByBookingDateDesc(a, b);
+  });
+  return ranked[0] ?? null;
+}
+
 /** Latest logistics booking linked to an invoice (prefer active over cancelled/returned). */
 export async function findLogisticsBookingForInvoice(
   invoiceId: string,
@@ -1214,14 +1230,49 @@ export async function findLogisticsBookingForInvoice(
     query(collection(db, COLLECTION), where('invoiceId', '==', id), limit(10)),
   );
   if (snap.empty) return null;
-  const bookings = snap.docs.map(docSnap => mapLogisticsBookingDoc(docSnap.id, docSnap.data()));
-  const ranked = [...bookings].sort((a, b) => {
-    const aClosed = a.status === 'returned' || a.status === 'cancelled' ? 1 : 0;
-    const bClosed = b.status === 'returned' || b.status === 'cancelled' ? 1 : 0;
-    if (aClosed !== bClosed) return aClosed - bClosed;
-    return compareLogisticsBookingsByBookingDateDesc(a, b);
-  });
-  return ranked[0] ?? null;
+  return rankLogisticsBookingsForInvoice(
+    snap.docs.map(docSnap => mapLogisticsBookingDoc(docSnap.id, docSnap.data())),
+  );
+}
+
+const INVOICE_LOGISTICS_IN_CHUNK = 10;
+
+/** Batch lookup of linked logistics bookings for invoice list rows. */
+export async function findLogisticsBookingsForInvoices(
+  invoiceIds: readonly string[],
+): Promise<Map<string, LogisticsBooking>> {
+  const ids = [...new Set(invoiceIds.map(id => String(id || '').trim()).filter(Boolean))];
+  const byInvoice = new Map<string, LogisticsBooking>();
+  if (!ids.length) return byInvoice;
+
+  const chunks: string[][] = [];
+  for (let i = 0; i < ids.length; i += INVOICE_LOGISTICS_IN_CHUNK) {
+    chunks.push(ids.slice(i, i + INVOICE_LOGISTICS_IN_CHUNK));
+  }
+
+  const snaps = await Promise.all(
+    chunks.map(chunk =>
+      getDocs(query(collection(db, COLLECTION), where('invoiceId', 'in', chunk))),
+    ),
+  );
+
+  const grouped = new Map<string, LogisticsBooking[]>();
+  for (const snap of snaps) {
+    for (const docSnap of snap.docs) {
+      const booking = mapLogisticsBookingDoc(docSnap.id, docSnap.data());
+      const invoiceId = String(booking.invoiceId || '').trim();
+      if (!invoiceId) continue;
+      const list = grouped.get(invoiceId);
+      if (list) list.push(booking);
+      else grouped.set(invoiceId, [booking]);
+    }
+  }
+
+  for (const [invoiceId, list] of grouped) {
+    const best = rankLogisticsBookingsForInvoice(list);
+    if (best) byInvoice.set(invoiceId, best);
+  }
+  return byInvoice;
 }
 
 async function fetchDealerBookings(user: User): Promise<LogisticsBooking[]> {
@@ -1596,7 +1647,7 @@ export async function linkLogisticsBookingToInvoice(input: {
 
   await updateDoc(bookingRef, patch);
 
-  return {
+  const linked: LogisticsBooking = {
     ...booking,
     invoiceId,
     invoiceNumber: invoiceNumber || null,
@@ -1604,6 +1655,9 @@ export async function linkLogisticsBookingToInvoice(input: {
     orderRef: invoiceNumber || booking.orderRef,
     updatedAt,
   };
+  await tryRefreshLogisticsBookingTrack(linked);
+  const refreshed = await fetchLogisticsBooking(linked.id);
+  return refreshed || linked;
 }
 
 export function canEditLogisticsBooking(booking: LogisticsBooking, user: User): boolean {
@@ -1774,7 +1828,10 @@ export async function recordInvoiceLogisticsBooking(
 
   try {
     await setDoc(bookingRef, payload);
-    return mapLogisticsBookingDoc(bookingRef.id, payload);
+    const booking = mapLogisticsBookingDoc(bookingRef.id, payload);
+    await tryRefreshLogisticsBookingTrack(booking);
+    const refreshed = await fetchLogisticsBooking(booking.id);
+    return refreshed || booking;
   } catch (err) {
     throw formatLogisticsPersistError(err, 'Could not create logistics entry.');
   }

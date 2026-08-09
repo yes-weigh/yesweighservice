@@ -66,6 +66,20 @@ export function isIncompleteLogisticsBooking(
 }
 
 /**
+ * Invoice list Status overlay: show logistics only past Booked
+ * (In Transit / Delivered / Cancelled / Returned). Booked or incomplete → null.
+ */
+export function invoiceListLogisticsStatus(
+  booking: Pick<LogisticsBooking, 'status' | 'wizardStep'> | null | undefined,
+): { status: LogisticsBookingStatus; label: string } | null {
+  if (!booking || isIncompleteLogisticsBooking(booking)) return null;
+  if (booking.status === 'label_generated') return null;
+  const label = LOGISTICS_BOOKING_STATUSES.find(item => item.id === booking.status)?.label;
+  if (!label) return null;
+  return { status: booking.status, label };
+}
+
+/**
  * Label-generated booking still parked on the outer-photo wizard step.
  * Outer package photo is optional — missing photo alone must not force resume
  * (list opens detail so staff can finish without a photo).
