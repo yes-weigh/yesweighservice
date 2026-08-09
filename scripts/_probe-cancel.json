@@ -1,0 +1,97 @@
+[
+  {
+    "base": "https://btob.api.delhivery.com",
+    "m": "POST",
+    "p": "/lrn/cancel",
+    "body": {
+      "lrnum": "313055408"
+    },
+    "status": 403,
+    "snip": "{\"message\":\"Forbidden\"}\n"
+  },
+  {
+    "base": "https://btob.api.delhivery.com",
+    "m": "POST",
+    "p": "/cancel",
+    "body": {
+      "lrnum": "313055408"
+    },
+    "status": 403,
+    "snip": "{\"message\":\"Forbidden\"}\n"
+  },
+  {
+    "base": "https://btob.api.delhivery.com",
+    "m": "POST",
+    "p": "/shipment/cancel",
+    "body": {
+      "lrnum": "313055408"
+    },
+    "status": 403,
+    "snip": "{\"message\":\"Forbidden\"}\n"
+  },
+  {
+    "base": "https://btob.api.delhivery.com",
+    "m": "POST",
+    "p": "/v2/cancel",
+    "body": {
+      "lrn": "313055408"
+    },
+    "status": 403,
+    "snip": "{\"message\":\"Invalid key=value pair (missing equal-sign) in Authorization header (hashed with SHA-256 and encoded with Base64): '8dXtHgB55uqYgYvbJXirQU5cRdrjrHMhUDAN7/zl/vQ='.\"}\n"
+  },
+  {
+    "base": "https://btob.api.delhivery.com",
+    "m": "POST",
+    "p": "/v2/lrn/cancel",
+    "body": {
+      "lrn": "313055408"
+    },
+    "status": 403,
+    "snip": "{\"message\":\"Invalid key=value pair (missing equal-sign) in Authorization header (hashed with SHA-256 and encoded with Base64): '8dXtHgB55uqYgYvbJXirQU5cRdrjrHMhUDAN7/zl/vQ='.\"}\n"
+  },
+  {
+    "base": "https://btob.api.delhivery.com",
+    "m": "DELETE",
+    "p": "/manifest/313055408",
+    "body": null,
+    "status": 403,
+    "snip": "{\"message\":\"Forbidden\"}\n"
+  },
+  {
+    "base": "https://btob.api.delhivery.com",
+    "m": "POST",
+    "p": "/manifest/cancel",
+    "body": {
+      "job_id": "",
+      "lrnum": "313055408"
+    },
+    "status": 403,
+    "snip": "{\"message\":\"Forbidden\"}\n"
+  },
+  {
+    "base": "https://btob.api.delhivery.com",
+    "m": "POST",
+    "p": "/lr/cancel",
+    "body": {
+      "lrns": [
+        "313055408",
+        "313055397"
+      ]
+    },
+    "status": 403,
+    "snip": "{\"message\":\"Forbidden\"}\n"
+  },
+  {
+    "base": "https://btob.api.delhivery.com",
+    "m": "POST",
+    "p": "/v3/shipment/cancel",
+    "body": {
+      "lrns": [
+        "313055408",
+        "313055397"
+      ]
+    },
+    "status": 403,
+    "snip": "{\"message\":\"Invalid key=value pair (missing equal-sign) in Authorization header (hashed with SHA-256 and encoded with Base64): '8dXtHgB55uqYgYvbJXirQU5cRdrjrHMhUDAN7/zl/vQ='.\"}\n"
+  }
+]

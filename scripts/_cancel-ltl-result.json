@@ -1,0 +1,14 @@
+[
+  {
+    "lrn": "313055408",
+    "status": 200,
+    "text": "{\"success\":true,\"request_id\":\"13369dcf-e13b-46cf-9a65-53b34dc8dc3f\",\"data\":\"For LR 313055408, Shipment has been cancelled. 2\"}",
+    "url": "https://ltl-clients-api.delhivery.com/lrn/cancel/313055408"
+  },
+  {
+    "lrn": "313055397",
+    "status": 200,
+    "text": "{\"success\":true,\"request_id\":\"d0b3c1ae-c159-408b-b8f8-9bd5014ba95b\",\"data\":\"For LR 313055397, Shipment has been cancelled. 2\"}",
+    "url": "https://ltl-clients-api.delhivery.com/lrn/cancel/313055397"
+  }
+]

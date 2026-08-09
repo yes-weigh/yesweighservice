@@ -127,3 +127,25 @@ export async function bookDelhiveryShipment(input: {
     throw callableError(err, 'Could not book Delhivery shipment.');
   }
 }
+
+export type DelhiveryCancelResult = {
+  ok: boolean;
+  lrn: string;
+  env?: DelhiveryB2bEnv;
+  message?: string;
+};
+
+/** Cancel an LR on Delhivery (DELETE /lrn/cancel/{lrn}). */
+export async function cancelDelhiveryShipment(lrn: string): Promise<DelhiveryCancelResult> {
+  try {
+    const fn = httpsCallable<{ lrn: string }, DelhiveryCancelResult>(
+      functions,
+      'cancelDelhiveryShipmentFn',
+      { timeout: 60_000 },
+    );
+    const result = await fn({ lrn });
+    return result.data;
+  } catch (err) {
+    throw callableError(err, 'Could not cancel Delhivery shipment.');
+  }
+}

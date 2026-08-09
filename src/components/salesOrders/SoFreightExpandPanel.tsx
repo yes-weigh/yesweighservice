@@ -9,6 +9,8 @@ import {
   type FreightLineSku,
 } from '../../constants/freightLines';
 import { useBlueDartPincode } from '../../hooks/useBlueDartPincode';
+import { DelhiveryQuoteStrip } from '../logistics/DelhiveryQuoteStrip';
+import { pinFromText } from '../../lib/delhiveryQuote';
 import { loadLogisticsCourierRates } from '../../lib/logisticsCourierRates';
 import { loadLogisticsSettings } from '../../lib/logisticsSettings';
 import {
@@ -27,6 +29,7 @@ import type { CatalogProduct } from '../../types/catalog';
 import type { LogisticsCourierRates } from '../../types/logistics-courier-rates';
 import type { LogisticsDeliveryRulesMatrix } from '../../types/logistics-delivery-rules';
 import type { LogisticsPartnerStatuses } from '../../types/logistics-partner-status';
+import type { StaffLogisticsSite } from '../../types/staff-logistics';
 import { isFreightDraftEditLine, withFreightDraftLinesLast } from './SalesOrderDraftLineEditor';
 import type { DraftEditLine } from './SalesOrderDraftLineEditor';
 
@@ -97,6 +100,7 @@ export const SoFreightExpandPanel: React.FC<Props> = ({
   const [deliveryRules, setDeliveryRules] = useState<LogisticsDeliveryRulesMatrix | null>(null);
   const [partnerStatuses, setPartnerStatuses] = useState<LogisticsPartnerStatuses | null>(null);
   const [courierBySite, setCourierBySite] = useState<Partial<Record<InventorySite, LogisticsPartnerId>>>({});
+  const [fromAddresses, setFromAddresses] = useState<Partial<Record<StaffLogisticsSite, string>>>({});
   const [freightSku, setFreightSku] = useState<string | null>(null);
   const [freightAmount, setFreightAmount] = useState('');
   const [freightAmountManual, setFreightAmountManual] = useState(false);
@@ -112,6 +116,7 @@ export const SoFreightExpandPanel: React.FC<Props> = ({
         setCourierRates(rates);
         setDeliveryRules(settings.deliveryRules);
         setPartnerStatuses(settings.partnerStatuses);
+        setFromAddresses(settings.fromAddresses || {});
       })
       .catch(() => { /* optional */ });
     return () => { cancelled = true; };
@@ -258,6 +263,14 @@ export const SoFreightExpandPanel: React.FC<Props> = ({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [freightEstimate, freightAmountManual, disabled, showUi]);
 
+  const selectedPartner = freightEstimate?.sites[0]?.partnerId ?? null;
+  const showDelhiveryQuote = selectedPartner === 'delhivery'
+    && Boolean(shippingDestination?.zip);
+  const delhiveryOriginPin = pinFromText(
+    fromAddresses.cochin || fromAddresses.head_office || '',
+  );
+  const delhiveryWeightKg = freightEstimate?.totalChargeableKg || null;
+
   if (!showUi) return null;
 
   return (
@@ -279,7 +292,7 @@ export const SoFreightExpandPanel: React.FC<Props> = ({
             shippingDestination?.city,
             shippingDestination?.state,
           ].filter(Boolean).join(', ') || null}
-          footerNote="One freight line per draft SO. Active partners quote from rates; Manual partners need a freight ₹ when no rate card applies."
+          footerNote="One freight line per draft SO. Active partners quote from rates; Manual partners need a freight ₹ when no rate card applies. Delhivery uses live API estimate when selected."
           onManualFreightAmountChange={next => {
             const sku = freightSku
               || freightSkuForPartner(freightEstimate.sites[0]?.partnerId)
@@ -309,6 +322,28 @@ export const SoFreightExpandPanel: React.FC<Props> = ({
             : 'Shipping address needed to calculate courier freight.'}
         </p>
       )}
+      {showDelhiveryQuote ? (
+        <DelhiveryQuoteStrip
+          originPin={delhiveryOriginPin || null}
+          destinationPin={String(shippingDestination?.zip || '').replace(/\D/g, '')}
+          weightKg={delhiveryWeightKg || 5}
+          freightBillingMode="btc"
+          includeEstimate={Boolean(delhiveryOriginPin)}
+          onEstimate={(preTaxInr) => {
+            if (disabled || freightAmountManual) return;
+            const sku = freightSkuForPartner('delhivery');
+            if (!sku) return;
+            const rate = Math.ceil(preTaxInr) || 0;
+            if (rate <= 0) return;
+            const key = `delhivery-live:${rate}`;
+            if (lastAutoKeyRef.current === key) return;
+            lastAutoKeyRef.current = key;
+            setFreightSku(sku);
+            setFreightAmount(String(rate));
+            applyFreight(sku, String(rate));
+          }}
+        />
+      ) : null}
       {freightSku && !freightEstimate?.sites.some(site => (
         site.courierOptions.find(o => o.partnerId === site.partnerId)?.manualRate
       )) ? (

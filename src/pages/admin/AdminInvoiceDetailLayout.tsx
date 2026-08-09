@@ -4,6 +4,7 @@ import { AlertCircle, ClipboardList, FileText } from 'lucide-react';
 import { FetchingLoader } from '../../components/FetchingLoader';
 import { SpareOrderListViewDialog } from '../../components/invoices/SpareOrderListViewDialog';
 import { BookCourierEntryButton } from '../../components/logistics/BookCourierEntryButton';
+import { DelhiveryQuoteStrip } from '../../components/logistics/DelhiveryQuoteStrip';
 import { InvoiceAddLrDialog } from '../../components/logistics/InvoiceAddLrDialog';
 import { LogisticsAwbEntryButton } from '../../components/logistics/LogisticsAwbEntryButton';
 import { useAuth } from '../../context/AuthContext';
@@ -12,6 +13,7 @@ import {
   fetchAdminInvoiceDetail,
 } from '../../lib/admin-invoices';
 import { fetchCatalog } from '../../lib/catalog';
+import { pinFromText } from '../../lib/delhiveryQuote';
 import {
   formatInvoiceDate,
   invoiceErrorMessage,
@@ -28,6 +30,7 @@ import {
   resolveInvoiceCourierPartner,
   type LogisticsEntryState,
 } from '../../lib/logisticsPrefill';
+import { loadLogisticsSettings } from '../../lib/logisticsSettings';
 import { resolveShipFromSiteForInvoice } from '../../lib/logisticsShipFrom';
 import { isInternalOpsUser } from '../../lib/staffAccess';
 import type { CatalogProduct } from '../../types/catalog';
@@ -61,6 +64,7 @@ export const AdminInvoiceDetailLayout: React.FC = () => {
   const [addLrShipFrom, setAddLrShipFrom] = useState<StaffLogisticsSite | null>(null);
   const [addLrOpen, setAddLrOpen] = useState(false);
   const [orderListOpen, setOrderListOpen] = useState(false);
+  const [delhiveryOriginPin, setDelhiveryOriginPin] = useState('');
 
   const handleBack = useCallback(() => {
     if (isPdfView) {
@@ -80,6 +84,20 @@ export const AdminInvoiceDetailLayout: React.FC = () => {
     showBack: true,
     onBack: handleBack,
   });
+
+  useEffect(() => {
+    let cancelled = false;
+    void loadLogisticsSettings()
+      .then((settings) => {
+        if (cancelled) return;
+        const pin = pinFromText(
+          settings.fromAddresses?.cochin || settings.fromAddresses?.head_office || '',
+        );
+        setDelhiveryOriginPin(pin);
+      })
+      .catch(() => { /* optional */ });
+    return () => { cancelled = true; };
+  }, []);
 
   useEffect(() => {
     if (!customerId || !invoiceId) return;
@@ -288,6 +306,21 @@ export const AdminInvoiceDetailLayout: React.FC = () => {
                   <BookCourierEntryButton entry={courierEntry} variant="card" />
                 ) : null}
               </div>
+              {!existingBooking
+                && courierEntry?.draftPatch?.partnerId === 'delhivery'
+                && invoice
+                && pinFromText(invoice.shippingAddress || invoice.billingAddress || '') ? (
+                  <DelhiveryQuoteStrip
+                    originPin={delhiveryOriginPin || null}
+                    destinationPin={pinFromText(
+                      invoice.shippingAddress || invoice.billingAddress || '',
+                    )}
+                    weightKg={5}
+                    freightBillingMode="btc"
+                    includeEstimate={Boolean(delhiveryOriginPin)}
+                    compact
+                  />
+                ) : null}
             </div>
           )}
           <Outlet context={outletContext} />

@@ -176,6 +176,7 @@ import {
 } from './lib/delhivery-b2b.js';
 import {
   bookDelhiveryB2bShipment,
+  cancelDelhiveryB2bShipment,
   resolveDelhiveryPickupLocationName,
 } from './lib/delhivery-b2b-manifest.js';
 import {
@@ -187,6 +188,12 @@ import {
   syncDelhiveryFreightForBookings,
   syncDelhiveryTrackingForBookings,
 } from './lib/delhivery-track-sync.js';
+import {
+  checkDelhiveryPincodeServiceability,
+  fetchDelhiveryTat,
+  quoteDelhiveryLane,
+  fetchDelhiveryFreightCharges,
+} from './lib/delhivery-quote.js';
 import {
   submitDealerOrder as submitDealerOrderRecord,
   createStaffSalesOrder as createStaffSalesOrderRecord,
@@ -4467,6 +4474,102 @@ export const bookDelhiveryShipmentFn = onCall(
         'failed-precondition',
         err?.message ?? 'Could not book Delhivery shipment.',
       );
+    }
+  },
+);
+
+/** Cancel a Delhivery B2B LR via DELETE /lrn/cancel/{lrn}. */
+export const cancelDelhiveryShipmentFn = onCall(
+  {
+    region: 'asia-south1',
+    timeoutSeconds: 60,
+    memory: '256MiB',
+  },
+  async request => {
+    await requireActiveUser(request.auth?.uid, ALLOWED_ROLES);
+    const lrn = String(request.data?.lrn ?? request.data?.awb ?? '').trim();
+    try {
+      return await cancelDelhiveryB2bShipment(getFirestore(), lrn);
+    } catch (err) {
+      if (err instanceof HttpsError) throw err;
+      throw new HttpsError(
+        'failed-precondition',
+        err?.message ?? 'Could not cancel Delhivery shipment.',
+      );
+    }
+  },
+);
+
+/** Pincode serviceability — GET /pincode-service/{pincode}. */
+export const checkDelhiveryPincodeServiceabilityFn = onCall(
+  { region: 'asia-south1', timeoutSeconds: 45, memory: '256MiB' },
+  async request => {
+    await requireActiveUser(request.auth?.uid, ALLOWED_ROLES, { allowViewOnly: true });
+    try {
+      return await checkDelhiveryPincodeServiceability(getFirestore(), {
+        pincode: request.data?.pincode,
+        weightG: request.data?.weightG,
+      });
+    } catch (err) {
+      if (err instanceof HttpsError) throw err;
+      throw new HttpsError('internal', err?.message ?? 'Could not check Delhivery serviceability.');
+    }
+  },
+);
+
+/** Expected TAT — GET /tat/estimate. */
+export const fetchDelhiveryTatFn = onCall(
+  { region: 'asia-south1', timeoutSeconds: 45, memory: '256MiB' },
+  async request => {
+    await requireActiveUser(request.auth?.uid, ALLOWED_ROLES, { allowViewOnly: true });
+    try {
+      return await fetchDelhiveryTat(getFirestore(), {
+        originPin: request.data?.originPin,
+        destinationPin: request.data?.destinationPin,
+      });
+    } catch (err) {
+      if (err instanceof HttpsError) throw err;
+      throw new HttpsError('internal', err?.message ?? 'Could not fetch Delhivery TAT.');
+    }
+  },
+);
+
+/**
+ * Combined lane quote: serviceability + TAT + freight estimate.
+ * Use from SO / invoice / Book Courier when Delhivery is selected.
+ */
+export const quoteDelhiveryLaneFn = onCall(
+  { region: 'asia-south1', timeoutSeconds: 60, memory: '256MiB' },
+  async request => {
+    await requireActiveUser(request.auth?.uid, ALLOWED_ROLES, { allowViewOnly: true });
+    try {
+      return await quoteDelhiveryLane(getFirestore(), {
+        originPin: request.data?.originPin,
+        destinationPin: request.data?.destinationPin,
+        weightG: request.data?.weightG,
+        invAmount: request.data?.invAmount,
+        dimensions: request.data?.dimensions,
+        freightBillingMode: request.data?.freightBillingMode,
+        includeEstimate: request.data?.includeEstimate,
+      });
+    } catch (err) {
+      if (err instanceof HttpsError) throw err;
+      throw new HttpsError('internal', err?.message ?? 'Could not quote Delhivery lane.');
+    }
+  },
+);
+
+/** Freight charges breakup for existing LRNs — GET /lrn/freight-breakup. */
+export const fetchDelhiveryFreightChargesFn = onCall(
+  { region: 'asia-south1', timeoutSeconds: 60, memory: '256MiB' },
+  async request => {
+    await requireActiveUser(request.auth?.uid, ALLOWED_ROLES, { allowViewOnly: true });
+    const lrns = request.data?.lrns ?? request.data?.lrn ?? request.data?.awb;
+    try {
+      return await fetchDelhiveryFreightCharges(getFirestore(), lrns);
+    } catch (err) {
+      if (err instanceof HttpsError) throw err;
+      throw new HttpsError('internal', err?.message ?? 'Could not fetch Delhivery freight charges.');
     }
   },
 );

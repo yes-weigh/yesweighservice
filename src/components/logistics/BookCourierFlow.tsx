@@ -80,7 +80,9 @@ import {
   rememberLogisticsPhotoSessionKey,
 } from '../../lib/logisticsPhotoVault';
 import { bookDelhiveryShipment } from '../../lib/delhiveryB2b';
+import { pinFromText } from '../../lib/delhiveryQuote';
 import { loadLogisticsSettings } from '../../lib/logisticsSettings';
+import { DelhiveryQuoteStrip } from './DelhiveryQuoteStrip';
 import {
   fetchInvoiceBranchShipFrom,
   type InvoiceBranchShipFrom,
@@ -1227,6 +1229,16 @@ export const BookCourierFlow: React.FC<BookCourierFlowProps> = ({
     const actual = Number.parseFloat(box.weightKg) || 0;
     return sum + Math.max(actual, boxVolumetric(box));
   }, 0);
+  const delhiveryDestPin = selectedDealer
+    ? pinFromText(resolveDeliveryAddress(selectedDealer, draft.deliveryAddressKind))
+    : '';
+  const delhiveryOriginPin = pinFromText(fromAddresses[draft.shipFromSite] ?? '');
+  const delhiveryQuoteDimensions = draft.boxes.map(box => ({
+    length_cm: Math.max(1, Math.round(Number.parseFloat(box.lengthCm) || 30)),
+    width_cm: Math.max(1, Math.round(Number.parseFloat(box.widthCm) || 30)),
+    height_cm: Math.max(1, Math.round(Number.parseFloat(box.heightCm) || 30)),
+    box_count: 1,
+  }));
   const shippingLabelCount = isEnvelope ? 1 : Math.max(1, draft.boxes.length);
   const buildShippingLabelsForDealer = useCallback((
     dealer: LogisticsDealerSnapshot,
@@ -1694,6 +1706,16 @@ export const BookCourierFlow: React.FC<BookCourierFlowProps> = ({
                       <p className="text-muted text-sm">No delivery address on file for this dealer.</p>
                     )}
                   </div>
+                  {isDelhivery && delhiveryDestPin ? (
+                    <DelhiveryQuoteStrip
+                      originPin={delhiveryOriginPin || null}
+                      destinationPin={delhiveryDestPin}
+                      weightKg={totalChargeableWeight || totalActualWeight || 5}
+                      freightBillingMode={draft.freightBillingMode === 'fod' ? 'fod' : 'btc'}
+                      includeEstimate={Boolean(delhiveryOriginPin)}
+                      dimensions={delhiveryQuoteDimensions}
+                    />
+                  ) : null}
                 </div>
               )}
             </section>
@@ -1983,6 +2005,17 @@ export const BookCourierFlow: React.FC<BookCourierFlowProps> = ({
                 </div>
               )}
 
+              {isDelhivery && delhiveryDestPin ? (
+                <DelhiveryQuoteStrip
+                  originPin={delhiveryOriginPin || null}
+                  destinationPin={delhiveryDestPin}
+                  weightKg={totalChargeableWeight || totalActualWeight || 5}
+                  freightBillingMode={draft.freightBillingMode === 'fod' ? 'fod' : 'btc'}
+                  dimensions={delhiveryQuoteDimensions}
+                  includeEstimate={Boolean(delhiveryOriginPin)}
+                />
+              ) : null}
+
               <button
                 type="button"
                 className="btn btn-primary book-courier__next"
@@ -2146,6 +2179,16 @@ export const BookCourierFlow: React.FC<BookCourierFlowProps> = ({
                       FOD
                     </button>
                   </div>
+                  {delhiveryDestPin ? (
+                    <DelhiveryQuoteStrip
+                      originPin={delhiveryOriginPin || null}
+                      destinationPin={delhiveryDestPin}
+                      weightKg={totalChargeableWeight || totalActualWeight || 5}
+                      freightBillingMode={draft.freightBillingMode === 'fod' ? 'fod' : 'btc'}
+                      dimensions={delhiveryQuoteDimensions}
+                      includeEstimate={Boolean(delhiveryOriginPin)}
+                    />
+                  ) : null}
                   {draft.consignmentNo.trim() ? (
                     <p className="text-muted text-sm" style={{ marginBottom: 0 }}>
                       LR already created — change FOD/BTC later on the booking detail if needed.

@@ -409,6 +409,65 @@ function extractErrorMessage(json, text, status) {
 }
 
 /**
+ * Cancel a Delhivery B2B LR.
+ * Docs: DELETE {ltl}/lrn/cancel/{lrn}
+ * https://one.delhivery.com/developer-portal/document/b2b/detail/shipment-cancellation
+ *
+ * @param {FirebaseFirestore.Firestore} db
+ * @param {string} lrn
+ */
+export async function cancelDelhiveryB2bShipment(db, lrn) {
+  const id = String(lrn || '').replace(/\D/g, '');
+  if (!/^\d{9}$/.test(id)) {
+    throw new Error('A 9-digit Delhivery LRN is required to cancel.');
+  }
+  const config = await loadDelhiveryB2bPublicConfig(db);
+  if (!config.passwordSet) {
+    throw new Error('Delhivery B2B credentials are not configured.');
+  }
+
+  const auth = await getValidDelhiveryJwt(db);
+  const base = delhiveryLtlBaseUrl(auth.env);
+  const url = `${base}/lrn/cancel/${encodeURIComponent(id)}`;
+
+  async function send(jwt) {
+    return fetch(url, {
+      method: 'DELETE',
+      headers: {
+        Authorization: `Bearer ${jwt}`,
+        Accept: 'application/json',
+      },
+    });
+  }
+
+  let res = await send(auth.jwt);
+  if (res.status === 401 || res.status === 403) {
+    const fresh = await getValidDelhiveryJwt(db, { force: true });
+    res = await send(fresh.jwt);
+  }
+
+  const text = await res.text();
+  let json = null;
+  try {
+    json = text ? JSON.parse(text) : null;
+  } catch {
+    json = null;
+  }
+
+  if (!res.ok || json?.success === false) {
+    throw new Error(extractErrorMessage(json, text, res.status));
+  }
+
+  return {
+    ok: true,
+    lrn: id,
+    env: auth.env,
+    message: String(json?.data || json?.message || `Shipment ${id} cancelled.`),
+    raw: json,
+  };
+}
+
+/**
  * Create a Delhivery B2B LR via LTL /manifest and poll for LR.
  *
  * @param {FirebaseFirestore.Firestore} db

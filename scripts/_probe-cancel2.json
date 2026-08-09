@@ -1,0 +1,80 @@
+[
+  {
+    "m": "POST",
+    "url": "https://ltl-clients-api.delhivery.com/lrn/cancel",
+    "status": 404,
+    "text": "{\"success\":false,\"error\":{\"code\":404,\"message\":\"No Such Resource\"},\"request_id\":\"d38d941d-9b31-4e96-88e7-f9082a0bd189\"}"
+  },
+  {
+    "m": "POST",
+    "url": "https://ltl-clients-api.delhivery.com/lrn/cancel",
+    "status": 404,
+    "text": "{\"success\":false,\"error\":{\"code\":404,\"message\":\"No Such Resource\"},\"request_id\":\"a4de914c-eeda-4017-8e64-85da37f03a46\"}"
+  },
+  {
+    "m": "POST",
+    "url": "https://ltl-clients-api.delhivery.com/cancel/lrn",
+    "status": 404,
+    "text": "{\"success\":false,\"error\":{\"code\":404,\"message\":\"No Such Resource\"},\"request_id\":\"56701a4c-a510-4065-919d-7f02ab18bbdd\"}"
+  },
+  {
+    "m": "PUT",
+    "url": "https://ltl-clients-api.delhivery.com/lrn/cancel",
+    "status": 404,
+    "text": "{\"success\":false,\"error\":{\"code\":404,\"message\":\"No Such Resource\"},\"request_id\":\"9dcd66a8-c4d9-4ca9-9ab8-79608a82f20e\"}"
+  },
+  {
+    "m": "POST",
+    "url": "https://ltl-clients-api.delhivery.com/shipment/cancel",
+    "status": 404,
+    "text": "{\"success\":false,\"error\":{\"code\":404,\"message\":\"No Such Resource\"},\"request_id\":\"0133879b-6b3a-4972-ad34-c7e135ff3319\"}"
+  },
+  {
+    "m": "POST",
+    "url": "https://ltl-clients-api.delhivery.com/v2/cancel",
+    "status": 404,
+    "text": "{\"success\":false,\"error\":{\"code\":404,\"message\":\"No Such Resource\"},\"request_id\":\"8450cd50-c63c-4d1e-ae6a-9892eae8072b\"}"
+  },
+  {
+    "m": "POST",
+    "url": "https://ltl-clients-api.delhivery.com/manifest/cancel",
+    "status": 404,
+    "text": "{\"success\":false,\"error\":{\"code\":404,\"message\":\"No Such Resource\"},\"request_id\":\"998c5b45-b998-46a6-8492-5c9616bc4079\"}"
+  },
+  {
+    "m": "DELETE",
+    "url": "https://ltl-clients-api.delhivery.com/manifest?lrnum=313055408",
+    "status": 405,
+    "text": "{\"success\":false,\"error\":{\"code\":405,\"message\":\"The method is not allowed for the requested URL.\"},\"request_id\":\"ab640b11-6dda-4836-8079-1657d68f338d\"}"
+  },
+  {
+    "m": "POST",
+    "url": "https://ltl-clients-api.delhivery.com/lr/cancel",
+    "status": 404,
+    "text": "{\"success\":false,\"error\":{\"code\":404,\"message\":\"No Such Resource\"},\"request_id\":\"7806b0ac-ee74-4c90-a363-0a43ec60557c\"}"
+  },
+  {
+    "m": "POST",
+    "url": "https://btob.api.delhivery.com/v2/cancel",
+    "status": 403,
+    "text": "{\"message\":\"Invalid key=value pair (missing equal-sign) in Authorization header (hashed with SHA-256 and encoded with Base64): 'KTuqwkgbdmuCom2e5+ptD4vh7FLfoOuGx/5zhO1b04M='.\"}\n"
+  },
+  {
+    "m": "POST",
+    "url": "https://btob.api.delhivery.com/v2/lrn/cancel",
+    "status": 403,
+    "text": "{\"message\":\"Invalid key=value pair (missing equal-sign) in Authorization header (hashed with SHA-256 and encoded with Base64): 'KTuqwkgbdmuCom2e5+ptD4vh7FLfoOuGx/5zhO1b04M='.\"}\n"
+  },
+  {
+    "m": "POST",
+    "url": "https://btob.api.delhivery.com/v2/shipment/cancel",
+    "status": 403,
+    "text": "{\"message\":\"Invalid key=value pair (missing equal-sign) in Authorization header (hashed with SHA-256 and encoded with Base64): 'KTuqwkgbdmuCom2e5+ptD4vh7FLfoOuGx/5zhO1b04M='.\"}\n"
+  },
+  {
+    "m": "POST",
+    "url": "https://ucp-app-gateway.delhivery.com/api/btob/cancel",
+    "status": 404,
+    "text": "{\"module\":\"app-gateway\",\"error_code\":\"NOT_FOUND\",\"path\":\"/api/btob/cancel\",\"message\":\"\",\"translated_message\":\"\",\"request_id\":null,\"debug\":null,\"more\":null}"
+  }
+]

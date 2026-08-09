@@ -13,9 +13,12 @@ import {
   MessageSquareWarning,
   Package,
   SquareArrowOutUpRight,
+  Trash2,
   Truck,
 } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
+import { useConfirm } from '../../context/ConfirmContext';
+import { cancelDelhiveryShipment } from '../../lib/delhiveryB2b';
 import { LOGISTICS_PARTNERS } from '../../constants/logisticsPartners';
 import { logisticsPartnerLabel } from '../../constants/logisticsPartners';
 import { formatCurrency } from '../../lib/catalog';
@@ -35,6 +38,7 @@ import {
 } from '../../lib/logisticsBooking';
 import {
   canDeleteLogisticsBooking,
+  cancelLogisticsBooking,
   fetchLogisticsBooking,
   generateLogisticsDocument,
   hydrateLogisticsBookingPhotos,
@@ -77,6 +81,7 @@ import {
   bookingDateFromTrackBookedAt,
   fetchDelhiveryShipmentTrack,
   inferDelhiveryUiStatus,
+  isDelhiveryB2bLrn,
   resolveDelhiveryBookingIds,
 } from '../../lib/delhiveryTrack';
 import {
@@ -194,6 +199,7 @@ export const LogisticsBookingDetail: React.FC<LogisticsBookingDetailProps> = ({
   onDelete,
 }) => {
   const { user } = useAuth();
+  const confirm = useConfirm();
   const finalPhotoInputRef = useRef<HTMLInputElement>(null);
   const [generating, setGenerating] = useState<LogisticsDocumentType | null>(null);
   const [shippingLabelOpen, setShippingLabelOpen] = useState(false);
@@ -220,6 +226,8 @@ export const LogisticsBookingDetail: React.FC<LogisticsBookingDetailProps> = ({
   const [delhiveryDocOpening, setDelhiveryDocOpening] = useState<string | null>(null);
   const [delhiveryLightboxUrls, setDelhiveryLightboxUrls] = useState<string[]>([]);
   const [delhiveryLightboxIndex, setDelhiveryLightboxIndex] = useState<number | null>(null);
+  const [cancellingDelhivery, setCancellingDelhivery] = useState(false);
+  const [cancelDelhiveryError, setCancelDelhiveryError] = useState('');
   const partner = LOGISTICS_PARTNERS.find(item => item.id === booking.partnerId);
   const isEnvelope = booking.shipmentMode === 'envelope';
   const needsOuterPhoto = missingFinalPackagePhoto(booking);
@@ -439,6 +447,55 @@ export const LogisticsBookingDetail: React.FC<LogisticsBookingDetailProps> = ({
       setUploadingFinalPhoto(false);
     }
   }, [booking, isOps, onUpdate, user]);
+
+  const handleCancelDelhiveryLr = useCallback(async () => {
+    if (!user || !isOps || booking.partnerId !== 'delhivery') return;
+    const lrn = (delhiveryIds?.lrn || booking.consignmentNo || '').replace(/\D/g, '');
+    if (!isDelhiveryB2bLrn(lrn)) {
+      setCancelDelhiveryError('A 9-digit Delhivery LRN is required to cancel on Delhivery.');
+      return;
+    }
+    const ok = await confirm({
+      title: 'Cancel LR on Delhivery',
+      message:
+        `Cancel LR ${lrn} on Delhivery? This voids the shipment with Delhivery `
+        + '(allowed while Manifested / Pending / Open / Scheduled / In Transit). '
+        + 'This booking will also be marked cancelled here.',
+      confirmLabel: 'Cancel on Delhivery',
+      cancelLabel: 'Keep',
+      destructive: true,
+    });
+    if (!ok) return;
+    setCancellingDelhivery(true);
+    setCancelDelhiveryError('');
+    try {
+      await cancelDelhiveryShipment(lrn);
+      const updated = await cancelLogisticsBooking(booking, user);
+      onUpdate(updated);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Could not cancel Delhivery LR.';
+      // If Delhivery already cancelled it, still close locally.
+      if (/already\s*cancel|cancelled|canceled/i.test(message)) {
+        try {
+          const updated = await cancelLogisticsBooking(booking, user);
+          onUpdate(updated);
+          return;
+        } catch {
+          // fall through
+        }
+      }
+      setCancelDelhiveryError(message);
+    } finally {
+      setCancellingDelhivery(false);
+    }
+  }, [
+    booking,
+    confirm,
+    delhiveryIds?.lrn,
+    isOps,
+    onUpdate,
+    user,
+  ]);
 
   const handleSaveDelhiveryIdsAndRefresh = useCallback(async () => {
     if (!user || !isOps || booking.partnerId !== 'delhivery') return;
@@ -1588,18 +1645,33 @@ export const LogisticsBookingDetail: React.FC<LogisticsBookingDetailProps> = ({
         && booking.status !== 'delivered'
         && booking.status !== 'cancelled'
         && booking.status !== 'returned'
-        && (onCancel || onReturn) && (
+        && (onCancel || onReturn || isDelhivery) && (
         <div className="logistics-booking__ops-actions">
-          {onCancel && (
+          {isDelhivery ? (
+            <button
+              type="button"
+              className="btn btn-secondary btn-sm logistics-booking__delete-btn"
+              disabled={cancellingDelhivery || !isDelhiveryB2bLrn(delhiveryIds?.lrn || booking.consignmentNo)}
+              onClick={() => void handleCancelDelhiveryLr()}
+            >
+              <Trash2 size={14} aria-hidden />
+              {cancellingDelhivery ? 'Cancelling on Delhivery…' : 'Cancel LR on Delhivery'}
+            </button>
+          ) : onCancel ? (
             <button type="button" className="btn btn-secondary btn-sm" onClick={onCancel}>
               Cancel shipment
             </button>
-          )}
+          ) : null}
           {onReturn && (
             <button type="button" className="btn btn-secondary btn-sm" onClick={onReturn}>
               Mark returned
             </button>
           )}
+          {cancelDelhiveryError ? (
+            <p className="dealers-modal__error logistics-booking__cancel-delhivery-error">
+              {cancelDelhiveryError}
+            </p>
+          ) : null}
         </div>
       )}
 
