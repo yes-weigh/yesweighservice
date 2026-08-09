@@ -59,6 +59,11 @@ import { syncSingleInvoiceFromZoho } from './invoice-sync.js';
 import { getAccessToken, resolveOrganizationId } from './zoho.js';
 import { fetchRawCustomerDetail } from './zoho-customers.js';
 import { extractZohoListFields } from './zoho-contact-fields.js';
+import {
+  ensureFreightDiffOnInvoicingSalesOrder,
+  releaseFreightDiffReservation,
+  settleFreightDiffOnInvoice,
+} from './freight-diff-settlement.js';
 
 const SO_COLLECTION = 'salesOrders';
 const PRODUCTS = 'catalogProducts';
@@ -975,6 +980,19 @@ export async function verifySalesOrderPayment(uid, role, salesOrderId, secrets, 
     let invoiceId = data.zohoInvoiceId || null;
     let invoiceNumber = data.zohoInvoiceNumber || null;
     if (!invoiceId) {
+      try {
+        await ensureFreightDiffOnInvoicingSalesOrder(getFirestore(), {
+          secrets,
+          orgId,
+          salesOrderId: id,
+          zohoCustomerId: data.customerId,
+        });
+      } catch (freightErr) {
+        console.warn(
+          `Freight diff ensure before invoice failed for SO ${id}:`,
+          freightErr?.message || freightErr,
+        );
+      }
       const inv = await createInvoiceFromSalesOrder(secrets, orgId, {
         salesOrderId: id,
         customerId: data.customerId,
@@ -983,6 +1001,19 @@ export async function verifySalesOrderPayment(uid, role, salesOrderId, secrets, 
       });
       invoiceId = inv.invoiceId;
       invoiceNumber = inv.invoiceNumber;
+      try {
+        await settleFreightDiffOnInvoice(getFirestore(), {
+          salesOrderId: id,
+          invoiceId,
+          invoiceNumber,
+          zohoCustomerId: data.customerId,
+        });
+      } catch (freightErr) {
+        console.warn(
+          `Freight diff settle after invoice failed for SO ${id}:`,
+          freightErr?.message || freightErr,
+        );
+      }
     }
 
     let einvoicePushStatus = 'skipped_not_b2b';
@@ -1026,6 +1057,7 @@ export async function verifySalesOrderPayment(uid, role, salesOrderId, secrets, 
         await syncSingleInvoiceFromZoho(secrets, orgId, invoiceId, {
           skipPdfs: true,
           skipImages: true,
+          skipFreightDiffSettle: true,
           source: 'payment_verify',
         });
       } catch (syncErr) {
@@ -1104,6 +1136,28 @@ export async function markSalesOrderInvoicedManually(uid, role, salesOrderId, se
   }
 
   const at = nowIso();
+  try {
+    if (secrets && orgId) {
+      await ensureFreightDiffOnInvoicingSalesOrder(getFirestore(), {
+        secrets,
+        orgId,
+        salesOrderId: id,
+        zohoCustomerId: data.customerId,
+      });
+    }
+    await settleFreightDiffOnInvoice(getFirestore(), {
+      salesOrderId: id,
+      invoiceId,
+      invoiceNumber,
+      zohoCustomerId: data.customerId,
+    });
+  } catch (freightErr) {
+    console.warn(
+      `Freight diff settle on manual invoice mark failed for SO ${id}:`,
+      freightErr?.message || freightErr,
+    );
+  }
+
   await ref.set({
     yesOneStage: 'completed',
     zohoInvoiceId: invoiceId || null,
@@ -1123,6 +1177,7 @@ export async function markSalesOrderInvoicedManually(uid, role, salesOrderId, se
         await syncSingleInvoiceFromZoho(secrets, orgId, invoiceId, {
           skipPdfs: true,
           skipImages: true,
+          skipFreightDiffSettle: true,
           source: 'manual_invoice_mark',
         });
       } catch (syncErr) {
@@ -1158,6 +1213,16 @@ export async function voidSalesOrderWithWorkflow(uid, role, salesOrderId, reason
   requireOrdersManage(user);
 
   const { ref, id } = await loadSoOrThrow(salesOrderId);
+  try {
+    await releaseFreightDiffReservation(getFirestore(), {
+      salesOrderId: id,
+      secrets,
+      orgId,
+      stripZoho: true,
+    });
+  } catch (freightErr) {
+    console.warn(`Freight diff release on void failed for SO ${id}:`, freightErr?.message || freightErr);
+  }
   await voidSalesOrder(secrets, orgId, id, reason);
   await mirrorSalesOrderFromZoho(secrets, orgId, id);
   await ref.set({
@@ -1202,6 +1267,17 @@ export async function deleteDraftSalesOrder(uid, role, salesOrderId, secrets, or
       'failed-precondition',
       'This sales order can no longer be deleted.',
     );
+  }
+
+  try {
+    await releaseFreightDiffReservation(getFirestore(), {
+      salesOrderId: id,
+      secrets,
+      orgId,
+      stripZoho: true,
+    });
+  } catch (freightErr) {
+    console.warn(`Freight diff release on delete failed for SO ${id}:`, freightErr?.message || freightErr);
   }
 
   try {

@@ -851,6 +851,29 @@ export async function syncSingleInvoiceFromZoho(secrets, orgId, invoiceId, optio
     skipImages: syncOpts.skipImages,
     source: options.source ?? 'webhook',
   });
+
+  // Outside-portal invoices: move/settle pending freight Diff onto first invoiced SO with freight.
+  const soId = String(fullRaw?.salesorder_id || '').trim();
+  const customerId = String(result?.customerId || fullRaw?.customer_id || '').trim();
+  if (soId && customerId && !options.skipFreightDiffSettle) {
+    try {
+      const { settleFreightDiffForInvoicedSalesOrder } = await import('./freight-diff-settlement.js');
+      await settleFreightDiffForInvoicedSalesOrder(getFirestore(), {
+        secrets,
+        orgId,
+        salesOrderId: soId,
+        invoiceId: String(invoiceId),
+        invoiceNumber: fullRaw?.invoice_number ? String(fullRaw.invoice_number) : null,
+        zohoCustomerId: customerId,
+      });
+    } catch (freightErr) {
+      console.warn(
+        `Freight diff settle on invoice sync failed for SO ${soId}:`,
+        freightErr?.message || freightErr,
+      );
+    }
+  }
+
   return result;
 }
 

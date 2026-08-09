@@ -906,5 +906,10 @@ service cloud.firestore {
     match /dealerOrderCounters/{dayId} {
       allow read, write: if false;
     }
+
+    /** Server-only ledger for last logistics freight Diff → next SO. */
+    match /customerFreightSettlements/{customerId} {
+      allow read, write: if false;
+    }
   }
 }

@@ -188,6 +188,7 @@ import {
   voidMirroredSalesOrder as voidMirroredSalesOrderRecord,
   purgeAllDealerOrders as purgeAllDealerOrdersRecord,
 } from './lib/dealer-orders.js';
+import { getPendingFreightDiffPreview } from './lib/freight-diff-settlement.js';
 import {
   updateDraftSalesOrderLines as updateDraftSalesOrderLinesRecord,
   updateDraftSalesOrderShipping as updateDraftSalesOrderShippingRecord,
@@ -3501,6 +3502,35 @@ export const createStaffSalesOrder = onCall(
     } catch (err) {
       if (err instanceof HttpsError) throw err;
       throw new HttpsError('internal', err?.message ?? 'Could not create sales order.');
+    }
+  },
+);
+
+/** Pending last-logistics freight Diff that will apply on the next freight SO. */
+export const getPendingFreightDiff = onCall(
+  {
+    region: 'asia-south1',
+    timeoutSeconds: 60,
+    memory: '256MiB',
+  },
+  async request => {
+    const uid = request.auth?.uid;
+    const role = await requireActiveUser(
+      uid,
+      new Set(['dealer', 'dealer_staff', 'staff', 'super_admin']),
+    );
+    try {
+      let zohoCustomerId = String(request.data?.zohoCustomerId ?? '').trim();
+      if (!zohoCustomerId && (role === 'dealer' || role === 'dealer_staff')) {
+        zohoCustomerId = String(await resolveZohoCustomerIdForUser(uid, role) || '').trim();
+      }
+      if (!zohoCustomerId) {
+        throw new HttpsError('invalid-argument', 'Dealer (Zoho customer) is required.');
+      }
+      return await getPendingFreightDiffPreview(getFirestore(), zohoCustomerId);
+    } catch (err) {
+      if (err instanceof HttpsError) throw err;
+      throw new HttpsError('internal', err?.message ?? 'Could not load freight adjustment.');
     }
   },
 );

@@ -34,6 +34,11 @@ import {
 } from './zoho-locations.js';
 import { isFreightOrderLine, isFreightProductId, isFreightSku } from './freight-lines.js';
 import {
+  prepareFreightDiffForOrderCreate,
+  releaseFreightDiffReservation,
+  reserveFreightDiffOnSalesOrder,
+} from './freight-diff-settlement.js';
+import {
   buildDealerAutoFreightLines,
   mapPackageInfo,
   resolveFreightZone,
@@ -637,12 +642,32 @@ async function createSegmentSalesOrders({
       status,
       subtotal,
       itemCount: sumItemCount(segmentLines),
+      hasFreight: segmentLines.some(isFreightOrderLine),
       salespersonId: salesperson?.id || null,
       salespersonName: salesperson?.name || null,
     });
   }
 
   return created;
+}
+
+async function reserveFreightDiffAfterCreate(zohoCustomerId, salesOrders, apply) {
+  if (!apply || !Array.isArray(salesOrders) || !salesOrders.length) return;
+  const target = salesOrders.find(so => so.hasFreight) || salesOrders[0];
+  if (!target?.zohoSalesOrderId) return;
+  try {
+    await reserveFreightDiffOnSalesOrder(getFirestore(), {
+      zohoCustomerId,
+      salesOrderId: target.zohoSalesOrderId,
+      salesOrderNumber: target.zohoSalesOrderNumber,
+      apply,
+    });
+  } catch (err) {
+    console.warn(
+      `Could not reserve freight diff on SO ${target.zohoSalesOrderId}:`,
+      err?.message || err,
+    );
+  }
 }
 
 /**
@@ -735,9 +760,16 @@ export async function submitDealerOrder(uid, role, payload = {}, secrets, orgId)
     freightZone: freightZoneMeta.zone,
     blueDartPin,
   });
-  const lines = [...goodsLines, ...freightLines];
-
-  const remarks = String(payload.remarks ?? payload.notes ?? '').trim().slice(0, 2000);
+  const baseLines = [...goodsLines, ...freightLines];
+  const baseRemarks = String(payload.remarks ?? payload.notes ?? '').trim().slice(0, 2000);
+  const prepared = await prepareFreightDiffForOrderCreate(
+    getFirestore(),
+    zohoCustomerId,
+    baseLines,
+    baseRemarks,
+  );
+  const lines = prepared.lines;
+  const remarks = String(prepared.remarks || '').trim().slice(0, 2000);
   const buckets = groupLinesBySegmentAndSite(lines);
   const orderNumber = await nextOrderNumber();
 
@@ -773,6 +805,7 @@ export async function submitDealerOrder(uid, role, payload = {}, secrets, orgId)
       },
       pricedLineMapper: stripInternalLineFields,
     });
+    await reserveFreightDiffAfterCreate(zohoCustomerId, salesOrders, prepared.apply);
   } catch (err) {
     if (err instanceof HttpsError) throw err;
     const message = err?.message || 'Could not create Zoho sales order.';
@@ -794,6 +827,7 @@ export async function submitDealerOrder(uid, role, payload = {}, secrets, orgId)
     createdByUid: uid,
     createdByName: displayName(user),
     priceCustomized: priceAudit.length > 0,
+    freightAdjustInr: prepared.apply?.appliedInr ?? null,
     salesOrders,
   };
 }
@@ -910,11 +944,19 @@ export async function createStaffSalesOrder(uid, role, payload = {}, secrets, or
     blueDartPin,
     manualFreightAmountInr,
   });
-  const linesWithFreight = [...goodsLines, ...freightLines];
+  const baseLines = [...goodsLines, ...freightLines];
+  const baseRemarks = String(payload.remarks ?? payload.notes ?? '').trim().slice(0, 2000);
+  const prepared = await prepareFreightDiffForOrderCreate(
+    getFirestore(),
+    zohoCustomerId,
+    baseLines,
+    baseRemarks,
+  );
+  const linesWithFreight = prepared.lines;
+  const remarks = String(prepared.remarks || '').trim().slice(0, 2000);
   const buckets = groupLinesBySegmentAndSite(linesWithFreight);
   const subtotal = sumSubtotal(linesWithFreight);
 
-  const remarks = String(payload.remarks ?? payload.notes ?? '').trim().slice(0, 2000);
   const orderNumber = await nextOrderNumber();
   const at = nowIso();
   const actorName = displayName(user);
@@ -989,6 +1031,7 @@ export async function createStaffSalesOrder(uid, role, payload = {}, secrets, or
           : {}),
       },
     });
+    await reserveFreightDiffAfterCreate(zohoCustomerId, salesOrders, prepared.apply);
   } catch (err) {
     if (err instanceof HttpsError) throw err;
     throw new HttpsError('failed-precondition', err?.message || 'Could not create Zoho sales order.');
@@ -1008,6 +1051,7 @@ export async function createStaffSalesOrder(uid, role, payload = {}, secrets, or
     priceCustomized: priceChanges.length > 0,
     createdByUid: uid,
     createdByName: actorName,
+    freightAdjustInr: prepared.apply?.appliedInr ?? null,
     salesOrders,
   };
 }
@@ -1033,6 +1077,16 @@ export async function voidMirroredSalesOrder(uid, role, salesOrderId, reason, se
   requireOrdersManage(user);
   const soId = String(salesOrderId || '').trim();
   if (!soId) throw new HttpsError('invalid-argument', 'Sales order id is required.');
+  try {
+    await releaseFreightDiffReservation(getFirestore(), {
+      salesOrderId: soId,
+      secrets,
+      orgId,
+      stripZoho: true,
+    });
+  } catch (freightErr) {
+    console.warn(`Freight diff release on voidMirrored failed for SO ${soId}:`, freightErr?.message || freightErr);
+  }
   await voidSalesOrder(secrets, orgId, soId, reason);
   const mirrored = await mirrorSalesOrderFromZoho(secrets, orgId, soId);
   return {

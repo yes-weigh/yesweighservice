@@ -41,6 +41,11 @@ import {
   estimateStCourierCartFreight,
   type StCourierCartFreightEstimate,
 } from '../../lib/stCourierCartFreight';
+import {
+  fetchPendingFreightDiff,
+  formatPendingFreightAdjustLabel,
+  type PendingFreightDiffPreview,
+} from '../../lib/freightDiffSettlement';
 import { isInternalOpsUser } from '../../lib/staffAccess';
 import { homePathForRole } from '../../types';
 import type { CatalogProduct } from '../../types/catalog';
@@ -88,6 +93,7 @@ const DealerCartPage: React.FC = () => {
   const [partnerStatuses, setPartnerStatuses] = useState<LogisticsPartnerStatuses | null>(null);
   const [courierBySite, setCourierBySite] = useState<Partial<Record<InventorySite, LogisticsPartnerId>>>({});
   const [freightAdjustAgreed, setFreightAdjustAgreed] = useState(true);
+  const [pendingFreightDiff, setPendingFreightDiff] = useState<PendingFreightDiffPreview | null>(null);
 
   const base = user ? homePathForRole(user.role) : '/dealer';
   const productsPath = `${base}/products`;
@@ -112,6 +118,18 @@ const DealerCartPage: React.FC = () => {
         setPartnerStatuses(settings.partnerStatuses);
       })
       .catch(() => { /* freight preview optional */ });
+    return () => { cancelled = true; };
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    void fetchPendingFreightDiff()
+      .then(preview => {
+        if (!cancelled) setPendingFreightDiff(preview);
+      })
+      .catch(() => {
+        if (!cancelled) setPendingFreightDiff(null);
+      });
     return () => { cancelled = true; };
   }, []);
 
@@ -202,7 +220,7 @@ const DealerCartPage: React.FC = () => {
     return summarizeSegmentSiteBuckets(lines);
   }, [items, catalogById]);
 
-  /** Checkout total: items + estimated freight + GST (catalog tax %, freight default 18%). */
+  /** Checkout total: items + estimated freight (+ pending Diff) + GST (catalog tax %, freight default 18%). */
   const checkoutTotals = useMemo(() => {
     const round2 = (n: number) => Math.round(n * 100) / 100;
     const defaultGstPct = 18;
@@ -213,18 +231,26 @@ const DealerCartPage: React.FC = () => {
       const taxPct = Number.isFinite(pct) && (pct as number) > 0 ? (pct as number) : defaultGstPct;
       itemsGst += round2(line * (taxPct / 100));
     }
-    const freight = freightEstimate?.usable
+    const baseFreight = freightEstimate?.usable
       ? round2(Number(freightEstimate.totalInr) || 0)
       : 0;
+    const adjust = (
+      pendingFreightDiff?.willApplyOnNextFreightSo
+      && baseFreight > 0
+        ? round2(Number(pendingFreightDiff.availableInr) || 0)
+        : 0
+    );
+    const freight = round2(Math.max(0, baseFreight + adjust));
     const freightGst = freight > 0 ? round2(freight * (defaultGstPct / 100)) : 0;
     const gst = round2(itemsGst + freightGst);
     return {
       freight,
+      freightAdjust: adjust,
       gst,
       total: round2(subtotal + freight + gst),
-      hasFreight: Boolean(freightEstimate?.usable && freight > 0),
+      hasFreight: Boolean(freightEstimate?.usable && (baseFreight > 0 || Math.abs(adjust) > 0)),
     };
-  }, [items, catalogById, freightEstimate, subtotal]);
+  }, [items, catalogById, freightEstimate, subtotal, pendingFreightDiff]);
 
   const handlePlaceOrder = async () => {
     if (items.length === 0 || submitting) return;
@@ -595,6 +621,14 @@ const DealerCartPage: React.FC = () => {
                   : '—'}
               </span>
             </div>
+            {checkoutTotals.freightAdjust !== 0 ? (
+              <p className="orders-page__freight-note text-muted text-sm" style={{ margin: 0 }}>
+                {formatPendingFreightAdjustLabel(checkoutTotals.freightAdjust)}
+                {pendingFreightDiff?.sourceInvoiceNumber
+                  ? ` (${pendingFreightDiff.sourceInvoiceNumber})`
+                  : ''}
+              </p>
+            ) : null}
             <div className="orders-page__summary-row">
               <span>GST</span>
               <span>{formatCurrency(checkoutTotals.gst)}</span>

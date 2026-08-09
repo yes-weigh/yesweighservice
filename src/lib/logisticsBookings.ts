@@ -423,6 +423,15 @@ export function mapLogisticsBookingDoc(id: string, data: DocumentData): Logistic
         ? data.freightBillingModeSource
         : null
     ),
+    freightDiffSettledAt: typeof data.freightDiffSettledAt === 'string'
+      ? data.freightDiffSettledAt
+      : null,
+    freightDiffSettledInvoiceId: typeof data.freightDiffSettledInvoiceId === 'string'
+      ? data.freightDiffSettledInvoiceId
+      : null,
+    freightDiffSettledSalesOrderId: typeof data.freightDiffSettledSalesOrderId === 'string'
+      ? data.freightDiffSettledSalesOrderId
+      : null,
     courierDeliveryOffice,
     deliveredAt: typeof data.deliveredAt === 'string' ? data.deliveredAt : null,
     inTransitAt: typeof data.inTransitAt === 'string' ? data.inTransitAt : null,

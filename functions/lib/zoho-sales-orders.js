@@ -164,13 +164,29 @@ export async function createSalesOrderFromDealerOrder(secrets, configuredOrgId, 
 }
 
 /**
+ * Load a Zoho Inventory sales order by id.
+ * @param {object} secrets
+ * @param {string} configuredOrgId
+ * @param {string} salesOrderId
+ */
+export async function fetchZohoSalesOrder(secrets, configuredOrgId, salesOrderId) {
+  const soId = String(salesOrderId || '').trim();
+  if (!soId) throw new Error('Sales order id is required.');
+  const accessToken = await getAccessToken(secrets);
+  const orgId = await resolveOrganizationId(accessToken, configuredOrgId);
+  const existing = await zohoJson(accessToken, orgId, `/salesorders/${soId}`);
+  return existing?.salesorder || null;
+}
+
+/**
  * Replace line items on a Draft Zoho Inventory sales order.
  * @param {object} secrets
  * @param {string} configuredOrgId
  * @param {string} salesOrderId
  * @param {Array<{ itemId: string, name?: string, rate?: number, quantity: number, unit?: string, hsn?: string|null }>} lines
+ * @param {{ notes?: string, allowConfirmed?: boolean }} [options]
  */
-export async function updateSalesOrderLines(secrets, configuredOrgId, salesOrderId, lines) {
+export async function updateSalesOrderLines(secrets, configuredOrgId, salesOrderId, lines, options = {}) {
   const soId = String(salesOrderId || '').trim();
   if (!soId) throw new Error('Sales order id is required.');
   const lineItems = lineItemsFromOrder({ lines });
@@ -185,7 +201,7 @@ export async function updateSalesOrderLines(secrets, configuredOrgId, salesOrder
   if (!so) throw new Error('Sales order not found in Zoho.');
 
   const status = String(so.status || '').toLowerCase().replace(/\s+/g, '_');
-  if (status !== 'draft' && status !== 'pending') {
+  if (status !== 'draft' && status !== 'pending' && !options.allowConfirmed) {
     throw new Error('Only Draft sales orders can be edited.');
   }
 
@@ -194,7 +210,7 @@ export async function updateSalesOrderLines(secrets, configuredOrgId, salesOrder
     reference_number: so.reference_number || '',
     date: so.date || new Date().toISOString().slice(0, 10),
     line_items: lineItems,
-    notes: so.notes || '',
+    notes: options.notes !== undefined ? String(options.notes ?? '') : (so.notes || ''),
   };
   if (so.salesperson_id) body.salesperson_id = so.salesperson_id;
 

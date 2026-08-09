@@ -39,6 +39,11 @@ import {
   estimateStCourierCartFreight,
   type StCourierCartFreightEstimate,
 } from '../../lib/stCourierCartFreight';
+import {
+  fetchPendingFreightDiff,
+  formatPendingFreightAdjustLabel,
+  type PendingFreightDiffPreview,
+} from '../../lib/freightDiffSettlement';
 import { inferStCourierZone } from '../../lib/stCourierZone';
 import type { LogisticsCourierRates } from '../../types/logistics-courier-rates';
 import type { LogisticsDeliveryRulesMatrix } from '../../types/logistics-delivery-rules';
@@ -295,6 +300,7 @@ export const StaffCreateSalesOrderPage: React.FC = () => {
   const [partnerStatuses, setPartnerStatuses] = useState<LogisticsPartnerStatuses | null>(null);
   const [courierBySite, setCourierBySite] = useState<Partial<Record<InventorySite, LogisticsPartnerId>>>({});
   const [manualFreightAmount, setManualFreightAmount] = useState<number | null>(null);
+  const [pendingFreightDiff, setPendingFreightDiff] = useState<PendingFreightDiffPreview | null>(null);
 
   const activeSegments = allowedSegments;
 
@@ -348,6 +354,23 @@ export const StaffCreateSalesOrderPage: React.FC = () => {
       .catch(() => { /* freight preview optional */ });
     return () => { cancelled = true; };
   }, [freightAllowed]);
+
+  useEffect(() => {
+    const customerId = selectedDealer?.id?.trim() || '';
+    if (!customerId || !freightAllowed) {
+      setPendingFreightDiff(null);
+      return;
+    }
+    let cancelled = false;
+    void fetchPendingFreightDiff(customerId)
+      .then(preview => {
+        if (!cancelled) setPendingFreightDiff(preview);
+      })
+      .catch(() => {
+        if (!cancelled) setPendingFreightDiff(null);
+      });
+    return () => { cancelled = true; };
+  }, [selectedDealer?.id, freightAllowed]);
 
   const productMatchesActiveSegments = useCallback(
     (product: { categoryId?: string | null; categoryName?: string | null; productId?: string | null; id?: string | null; sku?: string | null }) => {
@@ -508,20 +531,35 @@ export const StaffCreateSalesOrderPage: React.FC = () => {
 
   const freightSubtotal = useMemo(() => {
     if (!freightAllowed || !freightEstimate?.usable) return 0;
+    let base = 0;
     if (
       selectedFreightUsesManualRate
       && manualFreightAmount != null
       && Number.isFinite(manualFreightAmount)
     ) {
-      return Math.round(manualFreightAmount * 100) / 100;
+      base = Math.round(manualFreightAmount * 100) / 100;
+    } else {
+      base = freightEstimate.totalInr;
     }
-    return freightEstimate.totalInr;
+    const adjust = (
+      pendingFreightDiff?.willApplyOnNextFreightSo && base > 0
+        ? Number(pendingFreightDiff.availableInr) || 0
+        : 0
+    );
+    return Math.round(Math.max(0, base + adjust) * 100) / 100;
   }, [
     freightAllowed,
     freightEstimate,
     selectedFreightUsesManualRate,
     manualFreightAmount,
+    pendingFreightDiff,
   ]);
+
+  const freightAdjustPreview = useMemo(() => {
+    if (!freightAllowed || !freightEstimate?.usable) return 0;
+    if (!pendingFreightDiff?.willApplyOnNextFreightSo) return 0;
+    return Number(pendingFreightDiff.availableInr) || 0;
+  }, [freightAllowed, freightEstimate, pendingFreightDiff]);
 
   const subtotal = useMemo(
     () => lines.reduce((sum, line) => sum + line.rate * line.quantity, 0) + freightSubtotal,
@@ -1698,6 +1736,14 @@ export const StaffCreateSalesOrderPage: React.FC = () => {
               <span className="text-muted">Estimated subtotal</span>
               <strong>{formatCurrency(subtotal)}</strong>
             </div>
+            {freightAdjustPreview !== 0 ? (
+              <p className="text-muted text-sm" style={{ marginTop: 0 }}>
+                {formatPendingFreightAdjustLabel(freightAdjustPreview)}
+                {pendingFreightDiff?.sourceInvoiceNumber
+                  ? ` (${pendingFreightDiff.sourceInvoiceNumber})`
+                  : ''}
+              </p>
+            ) : null}
             <div className="staff-create-so-page__actions">
               <button
                 type="button"

@@ -240,6 +240,10 @@ export interface LogisticsBooking {
   freightBillingMode?: LogisticsFreightBillingMode | null;
   /** How freightBillingMode was set: booking UI, Delhivery API, estimate inference, or ops. */
   freightBillingModeSource?: 'booking' | 'api' | 'inferred' | 'manual' | null;
+  /** Set when this booking's BTC freight Diff was fully settled onto an invoiced SO. */
+  freightDiffSettledAt?: string | null;
+  freightDiffSettledInvoiceId?: string | null;
+  freightDiffSettledSalesOrderId?: string | null;
   /** Destination office Communication from ST pincode search (once per booking). */
   courierDeliveryOffice?: LogisticsCourierDeliveryOffice | null;
   /** ISO or ST delivery timestamp when booking was marked delivered via sync. */
