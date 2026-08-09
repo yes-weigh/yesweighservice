@@ -1,10 +1,15 @@
 /**
  * Delhivery B2B manifest (create LR) via POST /v2/manifest + poll GET ?job_id=
  *
- * Payload shape follows Delhivery B2B cargo fields used by TMS connectors
- * (pickup_location name, drop_location, weight, invoices, box dims).
- * Staging currently returns SchemaValidationError without field detail when the
- * account schema differs — callers should surface that message and allow manual LR.
+ * Production schema (probed):
+ *   - dropoff_location (+ zip), not drop_location
+ *   - suborders[] with ident
+ *   - invoices[] with ident, n_value, description, count
+ *   - dimensions[] with ident, count, description
+ *   - freight_mode: FoP (BTC) | FoD (FOD)
+ *   - payment_mode: Prepaid (goods CoD not used)
+ *
+ * We never book goods CoD — only freight FoP/FoD.
  */
 
 import {
@@ -24,6 +29,13 @@ function nonEmpty(value) {
 function asNumber(value, fallback = 0) {
   const n = Number(value);
   return Number.isFinite(n) ? n : fallback;
+}
+
+/** @param {unknown} raw @returns {'FoD' | 'FoP'} */
+export function delhiveryFreightModeFromBilling(raw) {
+  const value = String(raw || '').trim().toLowerCase();
+  // FOD = consignee pays freight; BTC / default = bill to client (FoP).
+  return value === 'fod' ? 'FoD' : 'FoP';
 }
 
 /**
@@ -97,22 +109,27 @@ export function buildDelhiveryB2bManifestPayload(input) {
     const weight = Math.max(0.1, asNumber(box.weightKg, 1));
     totalWeight += weight * count;
     boxCount += count;
+    const ident = `BOX${index + 1}`;
     return {
+      ident,
       box_count: count,
+      count,
       length,
       width,
       height,
       weight,
-      ident: `BOX${index + 1}`,
+      description: `Box ${index + 1}`,
     };
   });
 
-  const invoiceValue = Math.max(0, asNumber(input.invoiceValueInr, 0));
+  const invoiceValue = Math.max(1, asNumber(input.invoiceValueInr, 1));
   const invoiceNumber = nonEmpty(input.invoiceNumber) || String(input.orderId || 'INV');
   const invoiceDate = nonEmpty(input.invoiceDate)
     || new Date().toLocaleDateString('en-GB'); // DD/MM/YYYY
+  const productsDesc = nonEmpty(input.productsDesc) || 'Goods';
+  const freightMode = delhiveryFreightModeFromBilling(input.freightBillingMode);
 
-  const drop = {
+  const dropoff_location = {
     name,
     phone,
     address,
@@ -120,6 +137,7 @@ export function buildDelhiveryB2bManifestPayload(input) {
     state: nonEmpty(consignee.state) || 'NA',
     country: nonEmpty(consignee.country) || 'India',
     pin: Number(pin),
+    zip: pin,
   };
 
   const ret = input.returnAddress || null;
@@ -132,42 +150,60 @@ export function buildDelhiveryB2bManifestPayload(input) {
       state: nonEmpty(ret.state) || 'NA',
       country: nonEmpty(ret.country) || 'India',
       pin: Number(String(ret.pincode || '').replace(/\D/g, '') || pin),
+      zip: String(ret.pincode || '').replace(/\D/g, '') || pin,
     }
     : undefined;
 
+  const suborders = dimensions.map((dim, index) => ({
+    ident: `SO${index + 1}`,
+    count: dim.count,
+    weight: dim.weight,
+    description: dim.description,
+  }));
+
+  const invoiceIdent = `INV1`;
+  const invoices = [
+    {
+      ident: invoiceIdent,
+      invoice_number: invoiceNumber,
+      invoice_date: invoiceDate,
+      invoice_value: invoiceValue,
+      n_value: invoiceValue,
+      description: productsDesc,
+      count: 1,
+      ewaybill: '',
+    },
+  ];
+
   return {
     pickup_location: pickup,
-    drop_location: drop,
+    dropoff_location,
     ...(return_address ? { return_address } : {}),
-    d_mode: nonEmpty(input.shippingMode) || 'Surface',
+    // Freight billing only: FoP = BTC, FoD = FOD. Not goods CoD.
+    freight_mode: freightMode,
+    // d_mode must mirror freight for FOD/BTC (not goods CoD / not Surface).
+    d_mode: freightMode,
     amount: invoiceValue,
     weight: Math.round(totalWeight * 1000) / 1000,
+    count: boxCount,
     box_count: boxCount,
     dimensions,
-    products_desc: nonEmpty(input.productsDesc) || 'Goods',
+    suborders,
+    products_desc: productsDesc,
+    description: productsDesc,
     cod_amount: 0,
     tax_value: 0,
-    payment_mode: nonEmpty(input.paymentMode) || 'Prepaid',
+    // Always prepaid for goods — FOD/BTC is freight_mode only.
+    payment_mode: 'Prepaid',
     seller_gst_tin: nonEmpty(input.sellerGstin) || '',
     client_gst_tin: nonEmpty(input.sellerGstin) || '',
     consignee_gst_tin: '',
     hsn_code: nonEmpty(input.hsnCode) || '',
     invoice_number: invoiceNumber,
     invoice_date: invoiceDate,
-    invoices: [
-      {
-        invoice_number: invoiceNumber,
-        invoice_date: invoiceDate,
-        invoice_value: invoiceValue,
-        ewaybill: '',
-      },
-    ],
+    invoices,
     ewaybill: '',
     order: String(input.orderId || `YW-${Date.now()}`),
-    // Delhivery freight_mode: fod = consignee pays. Omit for BTC — B2B often rejects explicit fop.
-    ...(String(input.freightBillingMode || '').trim().toLowerCase() === 'fod'
-      ? { freight_mode: 'fod' }
-      : {}),
   };
 }
 
@@ -207,7 +243,6 @@ function extractLrn(json) {
     const text = String(value ?? '').trim();
     if (text) return text;
   }
-  // Deep scan for a 9-digit LRN-like value.
   const blob = JSON.stringify(json);
   const match = /\b(\d{9})\b/.exec(blob);
   return match?.[1] || '';
@@ -221,6 +256,32 @@ function extractErrorMessage(json, text, status) {
     || text
     || `Delhivery manifest failed (${status})`,
   );
+}
+
+function formatManifestError(message) {
+  const raw = String(message || '').trim();
+  if (/CoD is not allowed/i.test(raw)) {
+    return (
+      'Delhivery blocked this booking: goods CoD is not enabled for INTERWEIGHING B2B. '
+      + 'We only send FOD/BTC freight (FoD/FoP) with prepaid goods. '
+      + 'Ask Delhivery to enable FoP/FoD on the API client (d_mode), or enter the LR manually.'
+    );
+  }
+  if (/not one of \['CoD'\]/i.test(raw)) {
+    return (
+      'Delhivery API schema for this account only lists d_mode=CoD, but we book FOD/BTC (FoD/FoP), not goods CoD. '
+      + 'Ask Delhivery B2B support to allow FoP/FoD on manifest d_mode for INTERWEIGHING B2B, '
+      + 'or enter the LR manually.'
+    );
+  }
+  if (/SchemaValidationError/i.test(raw)) {
+    const detail = raw.replace(/^.*SchemaValidationError<?/i, '').replace(/>$/, '').trim();
+    return (
+      `Delhivery rejected the booking payload (${detail || 'SchemaValidationError'}). `
+      + 'Enter the LR manually if booking must proceed now.'
+    );
+  }
+  return raw;
 }
 
 /**
@@ -243,14 +304,9 @@ export async function bookDelhiveryB2bShipment(db, input, options = {}) {
   });
 
   if (!created.ok) {
-    const message = extractErrorMessage(created.json, created.text, created.status);
-    if (/SchemaValidationError/i.test(message)) {
-      throw new Error(
-        'Delhivery rejected the booking payload (SchemaValidationError). '
-        + 'Check pickup location name and account API docs, or enter an LR manually.',
-      );
-    }
-    throw new Error(message);
+    throw new Error(formatManifestError(
+      extractErrorMessage(created.json, created.text, created.status),
+    ));
   }
 
   let lrn = extractLrn(created.json);
@@ -286,7 +342,7 @@ export async function bookDelhiveryB2bShipment(db, input, options = {}) {
     if (!polled.ok) {
       const message = extractErrorMessage(polled.json, polled.text, polled.status);
       if (/invalid job/i.test(message) && attempt < 3) continue;
-      throw new Error(message);
+      throw new Error(formatManifestError(message));
     }
     lrn = extractLrn(polled.json);
     if (lrn) {
@@ -306,7 +362,9 @@ export async function bookDelhiveryB2bShipment(db, input, options = {}) {
       || '',
     ).toLowerCase();
     if (statusText.includes('fail') || statusText.includes('error')) {
-      throw new Error(extractErrorMessage(polled.json, polled.text, polled.status));
+      throw new Error(formatManifestError(
+        extractErrorMessage(polled.json, polled.text, polled.status),
+      ));
     }
   }
 

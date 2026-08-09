@@ -1,0 +1,58 @@
+{
+  "payload": {
+    "pickup_location": "INTERWEIGHING B2B",
+    "dropoff_location": {
+      "name": "MEEZAN",
+      "phone": "9446157730",
+      "address": "Manjeri Kerala",
+      "city": "Manjeri",
+      "state": "Kerala",
+      "country": "India",
+      "zip": 676121
+    },
+    "d_mode": "CoD",
+    "weight": 5,
+    "amount": 1950,
+    "count": 1,
+    "box_count": 1,
+    "description": "Weighing equipment",
+    "payment_mode": "Prepaid",
+    "invoices": [
+      {
+        "ident": "INV1",
+        "invoice_number": "INV-TEST-1786272174736",
+        "invoice_date": "09/08/2026",
+        "invoice_value": 1950,
+        "n_value": 1950,
+        "description": "Weighing equipment",
+        "count": 1
+      }
+    ],
+    "suborders": [
+      {
+        "ident": "A1",
+        "weight": 5,
+        "count": 1,
+        "description": "Box 1"
+      }
+    ],
+    "dimensions": [
+      {
+        "ident": "B1",
+        "length": 40,
+        "width": 30,
+        "height": 20,
+        "weight": 5,
+        "count": 1,
+        "description": "Box"
+      }
+    ],
+    "order": "OK-zip1-1786272175576"
+  },
+  "status": 400,
+  "text": "{\"request_id\": \"2f12171c-205f-4a1b-a685-d6591a9903df\", \"message\": \"CoD is not allowed for cilent: INTERWEIGHING B2B\"}",
+  "json": {
+    "request_id": "2f12171c-205f-4a1b-a685-d6591a9903df",
+    "message": "CoD is not allowed for cilent: INTERWEIGHING B2B"
+  }
+}

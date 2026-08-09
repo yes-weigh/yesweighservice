@@ -1,0 +1,54 @@
+{
+  "payload": {
+    "pickup_location": "INTERWEIGHING B2B",
+    "drop_location": {
+      "name": "MEEZAN ELECTRONIC SCALES PRIVATE LIMITED",
+      "phone": "9446157730",
+      "address": "Riyas, MEEZAN ELECTRONIC SCALES PRIVATE LIMITED, 8/308A Meezan Tower, Calicut Road, Manjeri, Manjeri, Kerala, 676121, India.",
+      "city": "Manjeri",
+      "state": "Kerala",
+      "country": "India",
+      "pin": 676121
+    },
+    "d_mode": "Express",
+    "amount": 1000,
+    "weight": 5,
+    "box_count": 1,
+    "dimensions": [
+      {
+        "box_count": 1,
+        "length": 40,
+        "width": 30,
+        "height": 20,
+        "weight": 5,
+        "ident": "BOX1"
+      }
+    ],
+    "products_desc": "Weighing equipment",
+    "cod_amount": 0,
+    "tax_value": 0,
+    "payment_mode": "Prepaid",
+    "seller_gst_tin": "",
+    "client_gst_tin": "",
+    "consignee_gst_tin": "",
+    "hsn_code": "",
+    "invoice_number": "YES/PROBE/1",
+    "invoice_date": "09/08/2026",
+    "invoices": [
+      {
+        "invoice_number": "YES/PROBE/1",
+        "invoice_date": "09/08/2026",
+        "invoice_value": 1000,
+        "ewaybill": ""
+      }
+    ],
+    "ewaybill": "",
+    "order": "PROBE-SCHEMA-1786271979338"
+  },
+  "status": 400,
+  "json": {
+    "request_id": "84cc1ba8-37d1-47fe-bf19-20488d0fb05d",
+    "message": "SchemaValidationError<'dropoff_location' is a required property>"
+  },
+  "text": "{\"request_id\": \"84cc1ba8-37d1-47fe-bf19-20488d0fb05d\", \"message\": \"SchemaValidationError<'dropoff_location' is a required property>\"}"
+}

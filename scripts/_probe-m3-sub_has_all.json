@@ -1,0 +1,49 @@
+{
+  "payload": {
+    "pickup_location": "INTERWEIGHING B2B",
+    "dropoff_location": {
+      "name": "MEEZAN ELECTRONIC SCALES PRIVATE LIMITED",
+      "phone": "9446157730",
+      "address": "8/308A Meezan Tower, Calicut Road, Manjeri, Kerala 676121",
+      "city": "Manjeri",
+      "state": "Kerala",
+      "country": "India",
+      "pin": 676121
+    },
+    "d_mode": "CoD",
+    "order": "MIN5-1786272086051",
+    "weight": 5,
+    "amount": 1950,
+    "box_count": 1,
+    "products_desc": "Goods",
+    "payment_mode": "Prepaid",
+    "suborders": [
+      {
+        "ident": "A1",
+        "weight": 5,
+        "count": 1,
+        "amount": 1950,
+        "dropoff_location": {
+          "name": "MEEZAN ELECTRONIC SCALES PRIVATE LIMITED",
+          "phone": "9446157730",
+          "address": "8/308A Meezan Tower, Calicut Road, Manjeri, Kerala 676121",
+          "city": "Manjeri",
+          "state": "Kerala",
+          "country": "India",
+          "pin": 676121
+        },
+        "dimensions": [
+          {
+            "ident": "B1",
+            "length": 40,
+            "width": 30,
+            "height": 20,
+            "weight": 5
+          }
+        ]
+      }
+    ]
+  },
+  "status": 400,
+  "text": "{\"request_id\": \"2fa5604b-1df3-4dd0-95e9-91e4d81926e5\", \"message\": \"SchemaValidationError<'invoices' is a required property>\"}"
+}

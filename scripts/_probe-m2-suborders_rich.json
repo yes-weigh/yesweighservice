@@ -1,0 +1,88 @@
+{
+  "payload": {
+    "pickup_location": "INTERWEIGHING B2B",
+    "dropoff_location": {
+      "name": "MEEZAN ELECTRONIC SCALES PRIVATE LIMITED",
+      "phone": "9446157730",
+      "address": "8/308A Meezan Tower, Calicut Road, Manjeri, Kerala, 676121",
+      "city": "Manjeri",
+      "state": "Kerala",
+      "country": "India",
+      "pin": 676121
+    },
+    "d_mode": "CoD",
+    "amount": 1950,
+    "weight": 5,
+    "box_count": 1,
+    "dimensions": [
+      {
+        "box_count": 1,
+        "length": 40,
+        "width": 30,
+        "height": 20,
+        "weight": 5,
+        "ident": "BOX1"
+      }
+    ],
+    "products_desc": "Weighing equipment",
+    "cod_amount": 0,
+    "tax_value": 0,
+    "payment_mode": "Prepaid",
+    "invoice_number": "YES/PROBE/X",
+    "invoice_date": "09/08/2026",
+    "invoices": [
+      {
+        "invoice_number": "YES/PROBE/X",
+        "invoice_date": "09/08/2026",
+        "invoice_value": 1950,
+        "ewaybill": ""
+      }
+    ],
+    "ewaybill": "",
+    "suborders": [
+      {
+        "ident": "SO1",
+        "order": "SO1",
+        "count": 1,
+        "weight": 5,
+        "box_count": 1,
+        "amount": 1950,
+        "products_desc": "Weighing equipment",
+        "dropoff_location": {
+          "name": "MEEZAN ELECTRONIC SCALES PRIVATE LIMITED",
+          "phone": "9446157730",
+          "address": "8/308A Meezan Tower, Calicut Road, Manjeri, Kerala, 676121",
+          "city": "Manjeri",
+          "state": "Kerala",
+          "country": "India",
+          "pin": 676121
+        },
+        "dimensions": [
+          {
+            "ident": "BOX1",
+            "box_count": 1,
+            "length": 40,
+            "width": 30,
+            "height": 20,
+            "weight": 5
+          }
+        ],
+        "invoices": [
+          {
+            "invoice_number": "YES/PROBE/X",
+            "invoice_date": "09/08/2026",
+            "invoice_value": 1950,
+            "ewaybill": ""
+          }
+        ]
+      }
+    ],
+    "order": "PROBE-suborders_rich-1786272064158"
+  },
+  "status": 400,
+  "text": "{\"request_id\": \"6d98b7e6-92af-43bf-bf16-5e4ca4c3344c\", \"message\": \"SchemaValidationError<'ident' is a required property>\"}",
+  "json": {
+    "request_id": "6d98b7e6-92af-43bf-bf16-5e4ca4c3344c",
+    "message": "SchemaValidationError<'ident' is a required property>"
+  }
+}

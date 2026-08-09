@@ -1,0 +1,59 @@
+{
+  "payload": {
+    "pickup_location": "INTERWEIGHING B2B",
+    "dropoff_location": {
+      "name": "MEEZAN ELECTRONIC SCALES PRIVATE LIMITED",
+      "phone": "9446157730",
+      "address": "8/308A Meezan Tower, Calicut Road, Manjeri, Kerala 676121",
+      "city": "Manjeri",
+      "state": "Kerala",
+      "country": "India",
+      "pin": 676121,
+      "zip": "676121"
+    },
+    "d_mode": "Warehouse",
+    "weight": 5,
+    "amount": 1950,
+    "count": 1,
+    "box_count": 1,
+    "description": "Weighing equipment",
+    "payment_mode": "Prepaid",
+    "invoices": [
+      {
+        "ident": "INV1",
+        "invoice_number": "INV-1786272197680",
+        "invoice_date": "09/08/2026",
+        "invoice_value": 1950,
+        "n_value": 1950,
+        "description": "Weighing equipment",
+        "count": 1
+      }
+    ],
+    "suborders": [
+      {
+        "ident": "A1",
+        "weight": 5,
+        "count": 1,
+        "description": "Box 1"
+      }
+    ],
+    "dimensions": [
+      {
+        "ident": "B1",
+        "length": 40,
+        "width": 30,
+        "height": 20,
+        "weight": 5,
+        "count": 1,
+        "description": "Box"
+      }
+    ],
+    "order": "OK-dm_Warehouse-1786272205052"
+  },
+  "status": 400,
+  "text": "{\"request_id\": \"630058ad-eabf-4881-ab02-f4c99d49e554\", \"message\": \"SchemaValidationError<'Warehouse' is not one of ['CoD']>\"}",
+  "json": {
+    "request_id": "630058ad-eabf-4881-ab02-f4c99d49e554",
+    "message": "SchemaValidationError<'Warehouse' is not one of ['CoD']>"
+  }
+}

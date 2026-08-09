@@ -844,6 +844,7 @@ export const BookCourierFlow: React.FC<BookCourierFlowProps> = ({
         productsDesc: 'Weighing equipment',
         shippingMode: 'Surface',
         paymentMode: 'Prepaid',
+        // Freight only: FOD / BTC — never goods CoD.
         freightBillingMode: draftRef.current.freightBillingMode === 'fod' ? 'fod' : 'btc',
       });
       const lrn = String(result.lrn || '').trim();
@@ -852,8 +853,8 @@ export const BookCourierFlow: React.FC<BookCourierFlowProps> = ({
         ...prev,
         consignmentNo: lrn,
         barcodeRaw: prev.barcodeRaw || lrn,
-        serviceType: prev.serviceType || 'Surface',
-        branch: prev.branch || 'Delhivery B2B',
+        serviceType: 'Surface',
+        branch: 'Delhivery B2B',
       }));
       return true;
     } catch (err) {
