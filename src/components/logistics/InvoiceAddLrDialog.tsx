@@ -1,11 +1,15 @@
 import React, { useEffect, useState } from 'react';
 import { Link2, Loader2, PenLine, Truck, X } from 'lucide-react';
 import {
+  LOGISTICS_PARTNERS,
   logisticsPartnerImage,
   logisticsPartnerLabel,
   type LogisticsPartnerId,
 } from '../../constants/logisticsPartners';
 import { formatInvoiceDate } from '../../lib/invoices';
+import {
+  ENABLED_LOGISTICS_PARTNER_IDS,
+} from '../../lib/logisticsBooking';
 import {
   linkLogisticsBookingToInvoice,
   listUnlinkedLogisticsBookingsForPartner,
@@ -24,11 +28,17 @@ type Props = {
   invoiceId: string;
   zohoCustomerId: string;
   partnerId: LogisticsPartnerId;
+  /** When true (no freight line), show partner picker. */
+  allowPartnerPick?: boolean;
   shipFromSite?: StaffLogisticsSite | null;
   user: User;
   onClose: () => void;
   onCreated: (booking: LogisticsBooking) => void;
 };
+
+const PICKABLE_PARTNERS = LOGISTICS_PARTNERS.filter(partner => (
+  ENABLED_LOGISTICS_PARTNER_IDS.includes(partner.id)
+));
 
 function formatBookingDate(value: string): string {
   const raw = value.slice(0, 10);
@@ -47,12 +57,14 @@ export const InvoiceAddLrDialog: React.FC<Props> = ({
   invoiceId,
   zohoCustomerId,
   partnerId,
+  allowPartnerPick = false,
   shipFromSite,
   user,
   onClose,
   onCreated,
 }) => {
   const [mode, setMode] = useState<Mode>('choose');
+  const [selectedPartnerId, setSelectedPartnerId] = useState<LogisticsPartnerId>(partnerId);
   const [lrn, setLrn] = useState('');
   const [boxCount, setBoxCount] = useState('1');
   const [candidates, setCandidates] = useState<LogisticsBooking[]>([]);
@@ -61,10 +73,12 @@ export const InvoiceAddLrDialog: React.FC<Props> = ({
   const [loadingList, setLoadingList] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
+  const activePartnerId = allowPartnerPick ? selectedPartnerId : partnerId;
 
   useEffect(() => {
     if (!open) return;
     setMode('choose');
+    setSelectedPartnerId(partnerId);
     setLrn('');
     setBoxCount('1');
     setCandidates([]);
@@ -73,14 +87,14 @@ export const InvoiceAddLrDialog: React.FC<Props> = ({
     setError('');
     setSaving(false);
     setLoadingList(false);
-  }, [open]);
+  }, [open, partnerId]);
 
   useEffect(() => {
     if (!open || mode !== 'link') return;
     let cancelled = false;
     setLoadingList(true);
     setError('');
-    void listUnlinkedLogisticsBookingsForPartner(partnerId, {
+    void listUnlinkedLogisticsBookingsForPartner(activePartnerId, {
       preferZohoCustomerId: zohoCustomerId,
     })
       .then(rows => {
@@ -99,7 +113,7 @@ export const InvoiceAddLrDialog: React.FC<Props> = ({
     return () => {
       cancelled = true;
     };
-  }, [open, mode, partnerId, zohoCustomerId]);
+  }, [open, mode, activePartnerId, zohoCustomerId]);
 
   if (!open) return null;
 
@@ -127,7 +141,7 @@ export const InvoiceAddLrDialog: React.FC<Props> = ({
         consignmentNo: lrn,
         boxCount: Number(boxCount),
         createdBy: user,
-        partnerId,
+        partnerId: activePartnerId,
         shipFromSite,
       });
       onCreated(booking);
@@ -201,8 +215,25 @@ export const InvoiceAddLrDialog: React.FC<Props> = ({
               </p>
             </div>
             <p className="text-muted text-sm">
-              No courier API automation.
+              {allowPartnerPick
+                ? 'No freight line on this invoice — pick the delivery partner first.'
+                : 'No courier API automation.'}
             </p>
+            {allowPartnerPick && (
+              <label className="settings-courier-rates__field settings-courier-rates__field--plain">
+                <span>Delivery partner</span>
+                <select
+                  value={selectedPartnerId}
+                  onChange={e => setSelectedPartnerId(e.target.value as LogisticsPartnerId)}
+                >
+                  {PICKABLE_PARTNERS.map(partner => (
+                    <option key={partner.id} value={partner.id}>
+                      {partner.label}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            )}
             <div className="invoice-manual-logistics-modes">
               <button
                 type="button"
@@ -226,7 +257,7 @@ export const InvoiceAddLrDialog: React.FC<Props> = ({
                   <em>
                     Attach an existing unlinked
                     {' '}
-                    {logisticsPartnerLabel(partnerId)}
+                    {logisticsPartnerLabel(activePartnerId)}
                     {' '}
                     booking
                   </em>
@@ -252,12 +283,28 @@ export const InvoiceAddLrDialog: React.FC<Props> = ({
               </p>
             </div>
             <p className="text-muted text-sm">
-              {partnerId === 'delhivery'
+              {activePartnerId === 'delhivery'
                 ? 'Enter the Delhivery LRN (9 digits). Freight and status use this number.'
-                : `Save tracking (${logisticsPartnerLabel(partnerId)}).`}
+                : `Save tracking (${logisticsPartnerLabel(activePartnerId)}).`}
             </p>
+            {allowPartnerPick && (
+              <label className="settings-courier-rates__field settings-courier-rates__field--plain">
+                <span>Delivery partner</span>
+                <select
+                  value={selectedPartnerId}
+                  onChange={e => setSelectedPartnerId(e.target.value as LogisticsPartnerId)}
+                  disabled={saving}
+                >
+                  {PICKABLE_PARTNERS.map(partner => (
+                    <option key={partner.id} value={partner.id}>
+                      {partner.label}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            )}
             <label className="settings-courier-rates__field settings-courier-rates__field--plain">
-              <span>{partnerId === 'delhivery' ? 'LRN' : 'Tracking number'}</span>
+              <span>{activePartnerId === 'delhivery' ? 'LRN' : 'Tracking number'}</span>
               <input
                 type="text"
                 value={lrn}
@@ -267,8 +314,8 @@ export const InvoiceAddLrDialog: React.FC<Props> = ({
                 spellCheck={false}
                 required
                 disabled={saving}
-                placeholder={partnerId === 'delhivery' ? 'e.g. 298833418' : 'LR / AWB / consignment no.'}
-                inputMode={partnerId === 'delhivery' ? 'numeric' : undefined}
+                placeholder={activePartnerId === 'delhivery' ? 'e.g. 298833418' : 'LR / AWB / consignment no.'}
+                inputMode={activePartnerId === 'delhivery' ? 'numeric' : undefined}
               />
             </label>
             <label
@@ -322,10 +369,26 @@ export const InvoiceAddLrDialog: React.FC<Props> = ({
             <p className="text-muted text-sm">
               Unlinked
               {' '}
-              {logisticsPartnerLabel(partnerId)}
+              {logisticsPartnerLabel(activePartnerId)}
               {' '}
               entries — pick one to attach.
             </p>
+            {allowPartnerPick && (
+              <label className="settings-courier-rates__field settings-courier-rates__field--plain">
+                <span>Delivery partner</span>
+                <select
+                  value={selectedPartnerId}
+                  onChange={e => setSelectedPartnerId(e.target.value as LogisticsPartnerId)}
+                  disabled={saving || loadingList}
+                >
+                  {PICKABLE_PARTNERS.map(partner => (
+                    <option key={partner.id} value={partner.id}>
+                      {partner.label}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            )}
             <label className="settings-courier-rates__field settings-courier-rates__field--plain">
               <span>Search</span>
               <input
@@ -343,7 +406,7 @@ export const InvoiceAddLrDialog: React.FC<Props> = ({
                 <p className="text-muted text-sm">
                   No unlinked
                   {' '}
-                  {logisticsPartnerLabel(partnerId)}
+                  {logisticsPartnerLabel(activePartnerId)}
                   {' '}
                   logistics entries found.
                 </p>

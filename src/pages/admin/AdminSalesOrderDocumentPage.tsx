@@ -838,13 +838,16 @@ export const AdminSalesOrderDocumentPage: React.FC = () => {
   const showPriceChanges = Boolean(salesOrder.yesOnePriceCustomized && priceChanges.length);
 
   const paymentScreenshotUrl = salesOrder.paymentScreenshotUrl?.trim() || '';
-  const showOrderList = invoiceHasCategory(
-    {
-      categories: salesOrder.categories,
-      invoiceCategory: salesOrder.salesOrderCategory,
-    },
-    'spare',
-  ) || salesOrder.yesOneOrderSegment === 'spare';
+  // Picking / order list is ops-only (super admin + staff) — never dealers.
+  const showOrderList = isOps && (
+    invoiceHasCategory(
+      {
+        categories: salesOrder.categories,
+        invoiceCategory: salesOrder.salesOrderCategory,
+      },
+      'spare',
+    ) || salesOrder.yesOneOrderSegment === 'spare'
+  );
   const topActionCount = 1
     + (showOrderList ? 1 : 0)
     + (paymentScreenshotUrl ? 1 : 0);

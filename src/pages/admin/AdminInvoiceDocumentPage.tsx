@@ -15,6 +15,7 @@ export const AdminInvoiceDocumentPage: React.FC = () => {
     invoiceId,
     showManualLogistics,
     manualLogisticsPartnerId,
+    manualLogisticsPartnerFromFreight,
     onOpenManualLogistics,
     existingBooking,
   } = useOutletContext<AdminInvoiceDetailOutletContext>();
@@ -63,11 +64,22 @@ export const AdminInvoiceDocumentPage: React.FC = () => {
                 Manual Logistics
               </button>
               <p className="text-muted text-sm invoice-manual-logistics__hint">
-                Record an existing
-                {' '}
-                {logisticsPartnerLabel(manualLogisticsPartnerId)}
-                {' '}
-                tracking number and box count — no booking automation.
+                {manualLogisticsPartnerFromFreight
+                  ? (
+                    <>
+                      Record an existing
+                      {' '}
+                      {logisticsPartnerLabel(manualLogisticsPartnerId)}
+                      {' '}
+                      tracking number and box count — no booking automation.
+                    </>
+                  )
+                  : (
+                    <>
+                      No freight line on this invoice — choose the delivery partner,
+                      then enter tracking number and box count.
+                    </>
+                  )}
               </p>
             </div>
           ) : existingBooking && trackingLabel ? (

@@ -31,6 +31,11 @@ const DEFAULT_INVOICE_COURIER_PARTNER: LogisticsPartnerId = 'st_courier';
 export interface LogisticsEntryState {
   draftPatch: Partial<LogisticsBookingDraft>;
   dealerQuery?: string;
+  /**
+   * When true, skip the partner picker and open Book Courier with draftPatch.partnerId.
+   * False when invoice has no freight-derived partner so ops can choose.
+   */
+  lockPartner?: boolean;
 }
 
 export type BuildInvoiceBookingDraftOptions = {
@@ -116,15 +121,24 @@ export function navigateToLogisticsBookingDetail(
 }
 
 /** Prefer freight-line partner (e.g. STFRC → st_courier); fall back to ST. */
-export function resolveInvoiceCourierPartnerId(
+export function resolveInvoiceCourierPartner(
   invoice: Pick<DealerInvoiceDetail, 'lineItems'>,
-): LogisticsPartnerId {
+): { partnerId: LogisticsPartnerId; fromFreight: boolean } {
   for (const line of invoice.lineItems ?? []) {
     if (!isFreightInvoiceLineItem(line)) continue;
     const partner = partnerIdForFreightSku(line.sku);
-    if (partner && isPipelineEnabledPartner(partner)) return partner;
+    if (partner && isPipelineEnabledPartner(partner)) {
+      return { partnerId: partner, fromFreight: true };
+    }
   }
-  return DEFAULT_INVOICE_COURIER_PARTNER;
+  return { partnerId: DEFAULT_INVOICE_COURIER_PARTNER, fromFreight: false };
+}
+
+/** Prefer freight-line partner (e.g. STFRC → st_courier); fall back to ST. */
+export function resolveInvoiceCourierPartnerId(
+  invoice: Pick<DealerInvoiceDetail, 'lineItems'>,
+): LogisticsPartnerId {
+  return resolveInvoiceCourierPartner(invoice).partnerId;
 }
 
 /** Cartonize non-freight invoice lines into booking boxes (dims + weight). */

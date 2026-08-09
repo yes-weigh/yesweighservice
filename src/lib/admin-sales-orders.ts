@@ -919,12 +919,15 @@ export function mapAdminSalesOrderDetail(
  * Portal cart remarks only — hide Zoho template / ERP notes (bank details, etc.).
  */
 export function portalSalesOrderRemarks(
-  so: Pick<AdminSalesOrderDetail, 'notes' | 'referenceNumber' | 'yesOneCreatedFromCart'>,
+  so: Pick<
+    AdminSalesOrderDetail,
+    'notes' | 'referenceNumber' | 'yesOneCreatedFromCart' | 'yesOneCreatedByStaff'
+  >,
 ): string | null {
   const notes = so.notes?.trim() || '';
   if (!notes) return null;
   const fromPortal = Boolean(so.yesOneCreatedFromCart)
-    || Boolean((so as { yesOneCreatedByStaff?: boolean }).yesOneCreatedByStaff)
+    || Boolean(so.yesOneCreatedByStaff)
     || /^YES-ORD-/i.test(String(so.referenceNumber || ''));
   if (!fromPortal) return null;
   // Default placeholder written when the dealer left remarks blank.

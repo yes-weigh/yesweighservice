@@ -20,7 +20,12 @@ import {
 import type { DealerInvoiceDetail, DealerInvoiceLineItem } from '../types/invoices';
 import type { LogisticsBooking } from '../types/logistics-dispatch';
 import { formatItemLocationShort, readItemQuantity, type YesStoreItemDoc } from '../types/yes-store';
-import type { AdminSalesOrderDetail } from './admin-sales-orders';
+import { doc, getDoc } from 'firebase/firestore';
+import { db } from '../firebase';
+import {
+  portalSalesOrderRemarks,
+  type AdminSalesOrderDetail,
+} from './admin-sales-orders';
 import { getCatalogSiteInventory } from './catalogSiteInventory/data';
 import { fetchCatalog } from './catalog';
 import { formatInvoiceDate, isFreightInvoiceLineItem, moveFreightLinesToEnd } from './invoices';
@@ -43,11 +48,9 @@ const BOX_R = 8;
 const BOTTOM_BLOCK_H = 176;
 const PAGE_FOOTER_H = 34;
 
-/** Exact copy from the picking-list model. */
-const SPECIAL_INSTRUCTION_LINES = [
-  'Handle with care. Fragile items.',
-  'Keep away from moisture.',
-] as const;
+/** Fallback when the sales order has no portal remarks. */
+const DEFAULT_SPECIAL_INSTRUCTIONS =
+  'Handle with care. Fragile items. Keep away from moisture.';
 
 /** Shared type scale — bumped for warehouse readability. */
 const FS = {
@@ -385,8 +388,10 @@ export async function buildSpareOrderListPdfInput(
     || ''
   ).trim();
 
-  const special = (invoice.notes?.trim())
-    || 'Handle with care. Fragile items. Keep away from moisture.';
+  const soRemarks = invoice.salesOrderId
+    ? await fetchLinkedSalesOrderRemarks(invoice.salesOrderId)
+    : null;
+  const special = soRemarks || DEFAULT_SPECIAL_INSTRUCTIONS;
 
   return {
     invoiceNumber: invoice.invoiceNumber?.trim() || invoice.id,
@@ -442,8 +447,7 @@ export async function buildSpareOrderListPdfInputFromSalesOrder(
     || ''
   ).trim();
 
-  const special = (salesOrder.notes?.trim())
-    || 'Handle with care. Fragile items. Keep away from moisture.';
+  const special = portalSalesOrderRemarks(salesOrder) || DEFAULT_SPECIAL_INSTRUCTIONS;
 
   return {
     invoiceNumber: invoiced ? invoiceNumber : soNumber,
@@ -466,6 +470,23 @@ export async function buildSpareOrderListPdfInputFromSalesOrder(
     currencyCode,
     lines,
   };
+}
+
+/** Best-effort SO remarks for invoice → order list (portal/cart notes only). */
+async function fetchLinkedSalesOrderRemarks(salesOrderId: string): Promise<string | null> {
+  try {
+    const snap = await getDoc(doc(db, 'salesOrders', salesOrderId));
+    if (!snap.exists()) return null;
+    const data = snap.data();
+    return portalSalesOrderRemarks({
+      notes: data.notes ? String(data.notes) : null,
+      referenceNumber: data.referenceNumber ? String(data.referenceNumber) : null,
+      yesOneCreatedFromCart: Boolean(data.yesOneCreatedFromCart),
+      yesOneCreatedByStaff: Boolean(data.yesOneCreatedByStaff),
+    });
+  } catch {
+    return null;
+  }
 }
 
 export function spareOrderListPdfFileName(invoiceNumber: string): string {
@@ -782,8 +803,15 @@ export async function buildSpareOrderListPdfBlob(input: SpareOrderListPdfInput):
     }
   }
 
-  // —— Special instructions + signatures pinned to bottom of last page ——
-  drawBottomBlock(page, font, fontBold, input.pickedBy, input.pickupDateLabel);
+  // —— Special instructions / SO remarks + signatures pinned to bottom of last page ——
+  drawBottomBlock(
+    page,
+    font,
+    fontBold,
+    input.pickedBy,
+    input.pickupDateLabel,
+    input.specialInstructions,
+  );
   drawFooter(page, font, pageIndex + 1, Math.max(totalPagesEstimate, pageIndex + 1));
 
   // Object streams break pdf.js canvas preview in some builds; keep classic xref.
@@ -941,9 +969,10 @@ function drawBottomBlock(
   fontBold: PDFFont,
   pickedBy: string,
   pickupDateLabel: string,
+  specialInstructions: string,
 ): void {
   // Bottom-up layout (PDF y increases upward):
-  // page# → signatures → special-instructions box
+  // page# → signatures → special-instructions / remarks box
   const pageNoY = MARGIN + 6;
   /** Vertical gap between name row and Date row in each sig column. */
   const sigRowGap = 26;
@@ -954,14 +983,15 @@ function drawBottomBlock(
   const instrH = 86;
   const instrTop = instrBottom + instrH;
 
-  // Outer rounded container (special instructions only)
+  // Outer rounded container (special instructions / SO remarks)
   drawRoundedRect(page, MARGIN, instrBottom, CONTENT_W, instrH, BOX_R, {
     stroke: INK,
     strokeWidth: 1.15,
   });
 
   // Pill header badge — sits on the top edge, clear of body text
-  const label = 'SPECIAL INSTRUCTIONS';
+  const isDefault = specialInstructions.trim() === DEFAULT_SPECIAL_INSTRUCTIONS;
+  const label = isDefault ? 'SPECIAL INSTRUCTIONS' : 'SO REMARKS';
   const labelSize = FS.instrTitle;
   const iconSize = 10;
   const badgePadX = 7;
@@ -984,15 +1014,23 @@ function drawBottomBlock(
     rgb(1, 1, 1),
   );
 
-  // Exact model copy — clear of the badge
+  // SO remarks (or default care copy) — clear of the badge
   const textX = MARGIN + 14;
+  const textMaxW = CONTENT_W - 28;
   let textY = badgeBottom - 14;
-  for (const line of SPECIAL_INSTRUCTION_LINES) {
+  const bodyLines = wrapLines(font, specialInstructions, FS.instrBody, textMaxW);
+  const maxBodyLines = 4;
+  const shown = bodyLines.slice(0, maxBodyLines);
+  if (bodyLines.length > maxBodyLines && shown.length > 0) {
+    const last = shown[shown.length - 1];
+    shown[shown.length - 1] = truncate(font, last, FS.instrBody, textMaxW);
+  }
+  for (const line of shown) {
     drawText(page, font, line, textX, textY, FS.instrBody);
     textY -= 13;
   }
 
-  // Three dashed note lines inside the box
+  // Dashed note lines for handwritten extras (fill remaining space in the box)
   const lineLeft = MARGIN + 12;
   const lineRight = PAGE_W - MARGIN - 12;
   for (let i = 0; i < 3; i += 1) {

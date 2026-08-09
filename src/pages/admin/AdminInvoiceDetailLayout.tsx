@@ -25,7 +25,7 @@ import {
   buildInvoiceBookingDraftPatch,
   canBookCourierForInvoice,
   canRecordInvoiceLogisticsLr,
-  resolveInvoiceCourierPartnerId,
+  resolveInvoiceCourierPartner,
   type LogisticsEntryState,
 } from '../../lib/logisticsPrefill';
 import { resolveShipFromSiteForInvoice } from '../../lib/logisticsShipFrom';
@@ -57,6 +57,7 @@ export const AdminInvoiceDetailLayout: React.FC = () => {
   const [existingBooking, setExistingBooking] = useState<LogisticsBooking | null>(null);
   const [addLrAvailable, setAddLrAvailable] = useState(false);
   const [addLrPartnerId, setAddLrPartnerId] = useState<LogisticsPartnerId>('delhivery');
+  const [addLrPartnerFromFreight, setAddLrPartnerFromFreight] = useState(false);
   const [addLrShipFrom, setAddLrShipFrom] = useState<StaffLogisticsSite | null>(null);
   const [addLrOpen, setAddLrOpen] = useState(false);
   const [orderListOpen, setOrderListOpen] = useState(false);
@@ -139,7 +140,9 @@ export const AdminInvoiceDetailLayout: React.FC = () => {
       const shipFromSite = branch?.site ?? user.staffLogisticsSite ?? 'cochin';
       if (cancelled) return;
       setAddLrShipFrom(shipFromSite);
-      setAddLrPartnerId(resolveInvoiceCourierPartnerId(invoice));
+      const courierPartner = resolveInvoiceCourierPartner(invoice);
+      setAddLrPartnerId(courierPartner.partnerId);
+      setAddLrPartnerFromFreight(courierPartner.fromFreight);
 
       const canCreate = canCreateLogisticsBooking(user);
       setAddLrAvailable(canCreate && canRecordInvoiceLogisticsLr(invoice));
@@ -162,9 +165,15 @@ export const AdminInvoiceDetailLayout: React.FC = () => {
           invoiceId,
           customerId,
           customerId,
-          { productsById, shipFromSite },
+          {
+            productsById,
+            shipFromSite,
+            partnerId: courierPartner.partnerId,
+          },
         ),
         dealerQuery: invoice.customerName ?? undefined,
+        // No freight line → ops picks partner on Logistics.
+        lockPartner: courierPartner.fromFreight,
       });
     })();
 
@@ -185,12 +194,19 @@ export const AdminInvoiceDetailLayout: React.FC = () => {
     invoicesPath,
     showManualLogistics,
     manualLogisticsPartnerId: addLrPartnerId,
+    manualLogisticsPartnerFromFreight: addLrPartnerFromFreight,
     manualLogisticsShipFrom: addLrShipFrom,
     onOpenManualLogistics: () => setAddLrOpen(true),
     existingBooking,
   };
 
-  const showOrderList = Boolean(invoice && invoiceHasCategory(invoice, 'spare'));
+  // Same picking list as sales orders — spare invoices, ops (staff / super admin) only.
+  const showOrderList = Boolean(
+    user
+    && isInternalOpsUser(user)
+    && invoice
+    && invoiceHasCategory(invoice, 'spare'),
+  );
   const showCourierCard = Boolean(courierEntry || existingBooking);
   const actionsLayout = showOrderList && showCourierCard
     ? 'triple'
@@ -289,6 +305,7 @@ export const AdminInvoiceDetailLayout: React.FC = () => {
               invoiceId={invoiceId}
               zohoCustomerId={customerId}
               partnerId={addLrPartnerId}
+              allowPartnerPick={!addLrPartnerFromFreight}
               shipFromSite={addLrShipFrom}
               user={user}
               onClose={() => setAddLrOpen(false)}

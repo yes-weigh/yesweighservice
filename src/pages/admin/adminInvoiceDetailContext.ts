@@ -13,6 +13,8 @@ export interface AdminInvoiceDetailOutletContext {
   /** Show Manual Logistics under the item list (ops, no booking yet). */
   showManualLogistics: boolean;
   manualLogisticsPartnerId: LogisticsPartnerId;
+  /** True when partner came from an invoice freight SKU (picker locked). */
+  manualLogisticsPartnerFromFreight: boolean;
   manualLogisticsShipFrom: StaffLogisticsSite | null;
   onOpenManualLogistics: () => void;
   existingBooking: LogisticsBooking | null;

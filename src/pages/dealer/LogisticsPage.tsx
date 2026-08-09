@@ -346,11 +346,13 @@ export const LogisticsPage: React.FC = () => {
     if (!entry?.draftPatch) return;
     setPendingEntry(entry);
     const preferred = entry.draftPatch.partnerId;
-    if (preferred && isPipelineEnabledPartner(preferred)) {
-      setSelectedPartnerId(preferred);
+    const preferredOk = Boolean(preferred && isPipelineEnabledPartner(preferred));
+    // Freight-derived partner locks the picker; no-freight invoices let ops choose.
+    if (preferredOk && entry.lockPartner !== false) {
+      setSelectedPartnerId(preferred!);
       setFlowStep('book');
     } else {
-      setSelectedPartnerId(null);
+      setSelectedPartnerId(preferredOk ? preferred! : null);
       setFlowStep('partner');
     }
     navigate(location.pathname, { replace: true, state: null });

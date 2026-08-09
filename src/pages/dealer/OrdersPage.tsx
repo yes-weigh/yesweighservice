@@ -87,6 +87,7 @@ const DealerCartPage: React.FC = () => {
   const [deliveryRules, setDeliveryRules] = useState<LogisticsDeliveryRulesMatrix | null>(null);
   const [partnerStatuses, setPartnerStatuses] = useState<LogisticsPartnerStatuses | null>(null);
   const [courierBySite, setCourierBySite] = useState<Partial<Record<InventorySite, LogisticsPartnerId>>>({});
+  const [freightAdjustAgreed, setFreightAdjustAgreed] = useState(true);
 
   const base = user ? homePathForRole(user.role) : '/dealer';
   const productsPath = `${base}/products`;
@@ -200,6 +201,30 @@ const DealerCartPage: React.FC = () => {
     });
     return summarizeSegmentSiteBuckets(lines);
   }, [items, catalogById]);
+
+  /** Checkout total: items + estimated freight + GST (catalog tax %, freight default 18%). */
+  const checkoutTotals = useMemo(() => {
+    const round2 = (n: number) => Math.round(n * 100) / 100;
+    const defaultGstPct = 18;
+    let itemsGst = 0;
+    for (const item of items) {
+      const line = round2(item.rate * item.quantity);
+      const pct = catalogById[item.productId]?.taxPercentage;
+      const taxPct = Number.isFinite(pct) && (pct as number) > 0 ? (pct as number) : defaultGstPct;
+      itemsGst += round2(line * (taxPct / 100));
+    }
+    const freight = freightEstimate?.usable
+      ? round2(Number(freightEstimate.totalInr) || 0)
+      : 0;
+    const freightGst = freight > 0 ? round2(freight * (defaultGstPct / 100)) : 0;
+    const gst = round2(itemsGst + freightGst);
+    return {
+      freight,
+      gst,
+      total: round2(subtotal + freight + gst),
+      hasFreight: Boolean(freightEstimate?.usable && freight > 0),
+    };
+  }, [items, catalogById, freightEstimate, subtotal]);
 
   const handlePlaceOrder = async () => {
     if (items.length === 0 || submitting) return;
@@ -557,6 +582,39 @@ const DealerCartPage: React.FC = () => {
               Select a shipping address to see freight and courier options.
             </p>
           ) : null}
+          <div className="orders-page__checkout-total" aria-label="Order total">
+            <div className="orders-page__summary-row">
+              <span>Subtotal</span>
+              <span>{formatCurrency(subtotal)}</span>
+            </div>
+            <div className="orders-page__summary-row">
+              <span>Freight</span>
+              <span>
+                {checkoutTotals.hasFreight
+                  ? formatCurrency(checkoutTotals.freight)
+                  : '—'}
+              </span>
+            </div>
+            <div className="orders-page__summary-row">
+              <span>GST</span>
+              <span>{formatCurrency(checkoutTotals.gst)}</span>
+            </div>
+            <div className="orders-page__summary-row orders-page__summary-row--total">
+              <span>Total</span>
+              <strong>{formatCurrency(checkoutTotals.total)}</strong>
+            </div>
+          </div>
+          <label className="orders-page__freight-agree">
+            <input
+              type="checkbox"
+              checked={freightAdjustAgreed}
+              disabled={submitting}
+              onChange={e => setFreightAdjustAgreed(e.target.checked)}
+            />
+            <span>
+              I agree that any difference in actual freight charges may be adjusted in my next order/bill.
+            </span>
+          </label>
           <button
             type="button"
             className="btn btn-primary orders-page__submit"
@@ -564,6 +622,7 @@ const DealerCartPage: React.FC = () => {
               submitting
               || !shipping
               || addressesLoading
+              || !freightAdjustAgreed
               || items.some(cartLineBlockedByStock)
             }
             onClick={() => void handlePlaceOrder()}
