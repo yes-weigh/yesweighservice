@@ -8,6 +8,11 @@ import {
   uniqueDelhiveryTrackIds,
 } from './delhivery-track.js';
 import {
+  buildDelhiveryFreightPatch,
+  fetchDelhiveryFreightCharges,
+  trackHasWeightCaptured,
+} from './delhivery-freight.js';
+import {
   OPEN_LOGISTICS_STATUSES,
   buildCourierTrackSnapshot,
   buildStCourierTrackingPatch,
@@ -364,7 +369,12 @@ export async function syncDelhiveryTrackingForBookings(db, options = {}) {
     }
 
     try {
-      await docSnap.ref.update(patch);
+      const freightPatch = await maybeDelhiveryFreightPatch(db, {
+        ...data,
+        courierTrack: track,
+        consignmentNo: awb,
+      }, track);
+      await docSnap.ref.update({ ...patch, ...freightPatch });
       summary.updated += 1;
       if (statusChanged) summary.statusAdvanced += 1;
       if (correctedDelivered) summary.statusCorrected += 1;
@@ -382,6 +392,178 @@ export async function syncDelhiveryTrackingForBookings(db, options = {}) {
       });
     }
 
+    if (delayMs) await sleep(delayMs);
+  });
+
+  return summary;
+}
+
+/**
+ * After weight captured, pull Delhivery freight-breakup into the booking.
+ * @param {FirebaseFirestore.Firestore} db
+ * @param {Record<string, unknown>} data
+ * @param {unknown} track
+ */
+async function maybeDelhiveryFreightPatch(db, data, track) {
+  const effectiveTrack = track || data.courierTrack;
+  if (!trackHasWeightCaptured(effectiveTrack)) return {};
+  const lrn = lrnFromLogisticsBooking(data);
+  if (!lrn) return {};
+  try {
+    const result = await fetchDelhiveryFreightCharges(db, [lrn]);
+    const freight = result.byLrn[lrn];
+    if (!freight) {
+      return {
+        courierFreight: {
+          ok: false,
+          lrn,
+          totalInr: null,
+          chargedWeightKg: null,
+          minChargedWeightKg: null,
+          breakup: null,
+          error: result.error || 'No freight data',
+          fetchedAt: result.fetchedAt,
+          source: 'delhivery_freight_breakup',
+        },
+        freightFetchedAt: result.fetchedAt,
+      };
+    }
+    return buildDelhiveryFreightPatch(freight);
+  } catch (err) {
+    return {
+      courierFreight: {
+        ok: false,
+        lrn,
+        totalInr: null,
+        chargedWeightKg: null,
+        minChargedWeightKg: null,
+        breakup: null,
+        error: err?.message || String(err),
+        fetchedAt: new Date().toISOString(),
+        source: 'delhivery_freight_breakup',
+      },
+      freightFetchedAt: new Date().toISOString(),
+    };
+  }
+}
+
+/**
+ * Sync freight charges for Delhivery bookings that already passed weight captured.
+ *
+ * @param {FirebaseFirestore.Firestore} db
+ * @param {{
+ *   includeDelivered?: boolean,
+ *   includeCancelled?: boolean,
+ *   force?: boolean,
+ *   dryRun?: boolean,
+ *   concurrency?: number,
+ *   delayMs?: number,
+ *   limit?: number,
+ *   onProgress?: (event: Record<string, unknown>) => void,
+ * }} [options]
+ */
+export async function syncDelhiveryFreightForBookings(db, options = {}) {
+  const includeDelivered = options.includeDelivered !== false;
+  const includeCancelled = Boolean(options.includeCancelled);
+  const force = Boolean(options.force);
+  const dryRun = Boolean(options.dryRun);
+  const concurrency = Number(options.concurrency) > 0 ? Number(options.concurrency) : 2;
+  const delayMs = Number(options.delayMs) >= 0 ? Number(options.delayMs) : 350;
+  const limit = Number(options.limit) > 0 ? Number(options.limit) : 0;
+  const onProgress = typeof options.onProgress === 'function' ? options.onProgress : () => {};
+
+  const snap = await db
+    .collection('logisticsBookings')
+    .where('partnerId', 'in', [...DELHIVERY_PARTNER_IDS])
+    .get();
+
+  /** @type {FirebaseFirestore.QueryDocumentSnapshot[]} */
+  const targets = [];
+  for (const docSnap of snap.docs) {
+    const data = docSnap.data() || {};
+    const status = String(data.status || '');
+    if (!includeCancelled && (status === 'cancelled' || status === 'returned')) continue;
+    if (!includeDelivered && status === 'delivered') continue;
+    const track = data.courierTrack;
+    if (!trackHasWeightCaptured(track)) continue;
+    const lrn = lrnFromLogisticsBooking(data);
+    if (!lrn) continue;
+    const existingOk = Boolean(data.courierFreight?.ok && data.courierFreight?.totalInr != null);
+    if (existingOk && !force) continue;
+    targets.push(docSnap);
+    if (limit && targets.length >= limit) break;
+  }
+
+  const summary = {
+    scanned: snap.size,
+    targeted: targets.length,
+    fetchedOk: 0,
+    fetchedFail: 0,
+    updated: 0,
+    skipped: 0,
+    errors: /** @type {Array<{ id: string, awb: string, error: string }>} */ ([]),
+  };
+
+  await mapPool(targets, concurrency, async (docSnap) => {
+    const data = docSnap.data() || {};
+    const lrn = lrnFromLogisticsBooking(data);
+    let freight;
+    try {
+      const result = await fetchDelhiveryFreightCharges(db, [lrn]);
+      freight = result.byLrn[lrn];
+      if (!freight?.ok) {
+        summary.fetchedFail += 1;
+        onProgress({
+          type: 'fetched',
+          id: docSnap.id,
+          awb: lrn,
+          ok: false,
+          error: freight?.error || result.error,
+          dryRun,
+        });
+      } else {
+        summary.fetchedOk += 1;
+        onProgress({
+          type: 'fetched',
+          id: docSnap.id,
+          awb: lrn,
+          ok: true,
+          totalInr: freight.totalInr,
+          chargedWeightKg: freight.chargedWeightKg,
+          dryRun,
+        });
+      }
+    } catch (err) {
+      summary.fetchedFail += 1;
+      summary.errors.push({ id: docSnap.id, awb: lrn, error: err?.message || String(err) });
+      onProgress({
+        type: 'error',
+        id: docSnap.id,
+        awb: lrn,
+        error: err?.message || String(err),
+      });
+      if (delayMs) await sleep(delayMs);
+      return;
+    }
+
+    if (dryRun || !freight) {
+      summary.skipped += 1;
+      if (delayMs) await sleep(delayMs);
+      return;
+    }
+
+    try {
+      await docSnap.ref.update(buildDelhiveryFreightPatch(freight));
+      summary.updated += 1;
+    } catch (err) {
+      summary.errors.push({ id: docSnap.id, awb: lrn, error: err?.message || String(err) });
+      onProgress({
+        type: 'write_error',
+        id: docSnap.id,
+        awb: lrn,
+        error: err?.message || String(err),
+      });
+    }
     if (delayMs) await sleep(delayMs);
   });
 
@@ -409,8 +591,12 @@ export async function persistDelhiveryTrackOnBooking(db, bookingId, track, optio
     updateBookingDate: options.updateBookingDate,
     correctFalseDelivered: options.correctFalseDelivered !== false,
   });
-  await ref.update(patch);
-  return { bookingId, patch };
+  const freightPatch = await maybeDelhiveryFreightPatch(db, {
+    ...data,
+    courierTrack: track,
+  }, track);
+  await ref.update({ ...patch, ...freightPatch });
+  return { bookingId, patch: { ...patch, ...freightPatch } };
 }
 
 export {

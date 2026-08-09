@@ -28,6 +28,7 @@
     "backfill:st-courier-tracking": "node scripts/backfill-st-courier-tracking.mjs",
     "backfill:trackon-tracking": "node scripts/backfill-trackon-tracking.mjs",
     "backfill:delhivery-tracking": "node scripts/backfill-delhivery-tracking.mjs",
+    "backfill:delhivery-freight": "node scripts/backfill-delhivery-freight.mjs",
     "backfill:st-courier-delivery-office": "node scripts/backfill-st-courier-delivery-office.mjs",
     "backfill:logistics-status-rename": "node scripts/backfill-logistics-status-rename.mjs",
     "migrate:support-status": "node scripts/migrate-support-status.mjs",

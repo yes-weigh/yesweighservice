@@ -702,6 +702,37 @@ export function buildLogisticsFreightCompare(input: {
     calc = quoted.calc;
   }
 
+  // Prefer Delhivery freight-breakup API once weight is captured.
+  const apiFreight = booking.courierFreight;
+  if (
+    booking.partnerId === 'delhivery'
+    && apiFreight?.ok
+    && typeof apiFreight.totalInr === 'number'
+    && Number.isFinite(apiFreight.totalInr)
+  ) {
+    actualFreightInr = apiFreight.totalInr;
+    if (typeof apiFreight.chargedWeightKg === 'number') {
+      chargeableKg = apiFreight.chargedWeightKg;
+    }
+    actualNote = 'Delhivery freight charges (after weight captured)';
+    if (calc) {
+      calc = {
+        ...calc,
+        totalInr: apiFreight.totalInr,
+        totalChargeableKg: apiFreight.chargedWeightKg ?? calc.totalChargeableKg,
+        freightInr: apiFreight.breakup?.baseFreightCharge ?? calc.freightInr,
+        fuelSurchargeInr: apiFreight.breakup?.fuelSurcharge ?? calc.fuelSurchargeInr,
+      };
+    }
+  } else if (
+    booking.partnerId === 'delhivery'
+    && apiFreight
+    && !apiFreight.ok
+    && apiFreight.error
+  ) {
+    actualNote = actualNote || `Delhivery freight: ${apiFreight.error}`;
+  }
+
   const differenceInr = (
     paidFreightInr != null && actualFreightInr != null
       ? actualFreightInr - paidFreightInr

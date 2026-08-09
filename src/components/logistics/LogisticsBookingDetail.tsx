@@ -639,6 +639,9 @@ export const LogisticsBookingDetail: React.FC<LogisticsBookingDetailProps> = ({
                   {freightCompare?.actualFreightInr != null
                     ? formatCurrency(freightCompare.actualFreightInr)
                     : (freightLoading ? '…' : '—')}
+                  {booking.courierFreight?.ok && booking.courierFreight.totalInr != null ? (
+                    <em className="logistics-booking__freight-source">Delhivery API</em>
+                  ) : null}
                 </dd>
               </div>
               <div className={[

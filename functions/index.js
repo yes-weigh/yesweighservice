@@ -178,6 +178,7 @@ import {
 } from './lib/delhivery-track.js';
 import {
   persistDelhiveryTrackOnBooking,
+  syncDelhiveryFreightForBookings,
   syncDelhiveryTrackingForBookings,
 } from './lib/delhivery-track-sync.js';
 import {
@@ -4510,7 +4511,8 @@ export const trackDelhiveryShipmentFn = onCall(
 );
 
 /**
- * Hourly: sync open Delhivery logistics bookings from B2B track API.
+ * Hourly: sync open Delhivery logistics bookings from B2B track API,
+ * then pull freight-breakup for weight-captured LRs.
  */
 export const syncDelhiveryTrackingScheduled = onSchedule(
   {
@@ -4538,6 +4540,26 @@ export const syncDelhiveryTrackingScheduled = onSchedule(
       `syncDelhiveryTracking: scanned=${summary.scanned}, targeted=${summary.targeted}, `
       + `ok=${summary.fetchedOk}, fail=${summary.fetchedFail}, updated=${summary.updated}, `
       + `statusAdvanced=${summary.statusAdvanced}, errors=${summary.errors.length}`,
+    );
+
+    const freight = await syncDelhiveryFreightForBookings(getFirestore(), {
+      includeDelivered: true,
+      includeCancelled: false,
+      force: false,
+      concurrency: 2,
+      delayMs: 350,
+      onProgress: (event) => {
+        if (event.type === 'error' || event.type === 'write_error') {
+          console.warn(
+            `syncDelhiveryFreight: ${event.type} id=${event.id} awb=${event.awb}: ${event.error}`,
+          );
+        }
+      },
+    });
+    console.log(
+      `syncDelhiveryFreight: scanned=${freight.scanned}, targeted=${freight.targeted}, `
+      + `ok=${freight.fetchedOk}, fail=${freight.fetchedFail}, updated=${freight.updated}, `
+      + `errors=${freight.errors.length}`,
     );
   },
 );

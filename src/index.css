@@ -24408,6 +24408,15 @@ body:has(.confirm-inline-bar) .confirm-inline-bar {
   color: #94a3b8;
 }
 
+.logistics-booking__freight-source {
+  display: block;
+  margin-top: 0.15rem;
+  font-size: 0.72rem;
+  font-style: normal;
+  font-weight: 500;
+  color: var(--color-text-muted, #6b7280);
+}
+
 .logistics-booking__freight-compare dd {
   margin: 0;
   color: #f8fafc;

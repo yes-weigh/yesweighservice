@@ -134,6 +134,36 @@ export interface LogisticsCourierTrack {
   fetchedAt: string;
 }
 
+/** Delhivery freight-breakup snapshot (after weight captured). */
+export interface LogisticsCourierFreightBreakup {
+  baseFreightCharge: number | null;
+  fuelSurcharge: number | null;
+  fuelHike: number | null;
+  insuranceRov: number | null;
+  odaFm: number | null;
+  odaLm: number | null;
+  fm: number | null;
+  lm: number | null;
+  green: number | null;
+  preTaxFreight: number | null;
+  gst: number | null;
+  gstPercent: number | null;
+  markup: number | null;
+  otherHandlingCharges: number | null;
+}
+
+export interface LogisticsCourierFreight {
+  ok: boolean;
+  lrn: string;
+  totalInr: number | null;
+  chargedWeightKg: number | null;
+  minChargedWeightKg: number | null;
+  breakup: LogisticsCourierFreightBreakup | null;
+  error: string | null;
+  fetchedAt: string;
+  source: string;
+}
+
 /** Destination delivery-office contact from ST pincode search (fetched once). */
 export interface LogisticsCourierDeliveryOffice {
   pincode: string;
@@ -188,6 +218,12 @@ export interface LogisticsBooking {
   courierTrack?: LogisticsCourierTrack | null;
   /** ISO timestamp of last ST track fetch (mirrors courierTrack.fetchedAt). */
   trackFetchedAt?: string | null;
+  /** Delhivery actual freight from freight-breakup API (post weight capture). */
+  courierFreight?: LogisticsCourierFreight | null;
+  /** Convenience mirror of courierFreight.totalInr when available. */
+  actualFreightInr?: number | null;
+  /** ISO timestamp of last Delhivery freight-breakup fetch. */
+  freightFetchedAt?: string | null;
   /** Destination office Communication from ST pincode search (once per booking). */
   courierDeliveryOffice?: LogisticsCourierDeliveryOffice | null;
   /** ISO or ST delivery timestamp when booking was marked delivered via sync. */

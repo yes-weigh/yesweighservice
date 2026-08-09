@@ -95,6 +95,8 @@ function mapCourierTrack(raw: unknown): LogisticsCourierTrack | null {
     ok: Boolean(data.ok),
     error: data.error == null ? null : String(data.error),
     status: data.status == null ? null : String(data.status),
+    statusType: data.statusType == null ? null : String(data.statusType),
+    masterAwb: data.masterAwb == null ? null : String(data.masterAwb),
     origin: data.origin == null ? null : String(data.origin),
     destination: data.destination == null ? null : String(data.destination),
     consignmentType: data.consignmentType == null ? null : String(data.consignmentType),
@@ -103,6 +105,48 @@ function mapCourierTrack(raw: unknown): LogisticsCourierTrack | null {
     history,
     sourceUrl: String(data.sourceUrl ?? ''),
     fetchedAt: String(data.fetchedAt ?? ''),
+  };
+}
+
+function mapCourierFreight(raw: unknown): import('../types/logistics-dispatch').LogisticsCourierFreight | null {
+  if (!raw || typeof raw !== 'object') return null;
+  const data = raw as DocumentData;
+  const breakupRaw = data.breakup && typeof data.breakup === 'object'
+    ? data.breakup as DocumentData
+    : null;
+  return {
+    ok: Boolean(data.ok),
+    lrn: String(data.lrn ?? ''),
+    totalInr: typeof data.totalInr === 'number' && Number.isFinite(data.totalInr) ? data.totalInr : null,
+    chargedWeightKg: typeof data.chargedWeightKg === 'number' && Number.isFinite(data.chargedWeightKg)
+      ? data.chargedWeightKg
+      : null,
+    minChargedWeightKg: typeof data.minChargedWeightKg === 'number' && Number.isFinite(data.minChargedWeightKg)
+      ? data.minChargedWeightKg
+      : null,
+    breakup: breakupRaw
+      ? {
+        baseFreightCharge: typeof breakupRaw.baseFreightCharge === 'number' ? breakupRaw.baseFreightCharge : null,
+        fuelSurcharge: typeof breakupRaw.fuelSurcharge === 'number' ? breakupRaw.fuelSurcharge : null,
+        fuelHike: typeof breakupRaw.fuelHike === 'number' ? breakupRaw.fuelHike : null,
+        insuranceRov: typeof breakupRaw.insuranceRov === 'number' ? breakupRaw.insuranceRov : null,
+        odaFm: typeof breakupRaw.odaFm === 'number' ? breakupRaw.odaFm : null,
+        odaLm: typeof breakupRaw.odaLm === 'number' ? breakupRaw.odaLm : null,
+        fm: typeof breakupRaw.fm === 'number' ? breakupRaw.fm : null,
+        lm: typeof breakupRaw.lm === 'number' ? breakupRaw.lm : null,
+        green: typeof breakupRaw.green === 'number' ? breakupRaw.green : null,
+        preTaxFreight: typeof breakupRaw.preTaxFreight === 'number' ? breakupRaw.preTaxFreight : null,
+        gst: typeof breakupRaw.gst === 'number' ? breakupRaw.gst : null,
+        gstPercent: typeof breakupRaw.gstPercent === 'number' ? breakupRaw.gstPercent : null,
+        markup: typeof breakupRaw.markup === 'number' ? breakupRaw.markup : null,
+        otherHandlingCharges: typeof breakupRaw.otherHandlingCharges === 'number'
+          ? breakupRaw.otherHandlingCharges
+          : null,
+      }
+      : null,
+    error: data.error == null ? null : String(data.error),
+    fetchedAt: String(data.fetchedAt ?? ''),
+    source: String(data.source ?? 'delhivery_freight_breakup'),
   };
 }
 
@@ -294,6 +338,7 @@ export function mapLogisticsBookingDoc(id: string, data: DocumentData): Logistic
       ? boxes.reduce((total, box) => total + Math.max(box.weightKg || 0, box.volumetricWeightKg || 0), 0)
       : Math.max(actualWeightKg, volumetricWeightKg);
   const courierTrack = mapCourierTrack(data.courierTrack);
+  const courierFreight = mapCourierFreight(data.courierFreight);
   const courierDeliveryOffice = mapCourierDeliveryOffice(data.courierDeliveryOffice);
 
   return {
@@ -340,6 +385,13 @@ export function mapLogisticsBookingDoc(id: string, data: DocumentData): Logistic
     trackFetchedAt: typeof data.trackFetchedAt === 'string'
       ? data.trackFetchedAt
       : (courierTrack?.fetchedAt || null),
+    courierFreight,
+    actualFreightInr: typeof data.actualFreightInr === 'number' && Number.isFinite(data.actualFreightInr)
+      ? data.actualFreightInr
+      : (courierFreight?.totalInr ?? null),
+    freightFetchedAt: typeof data.freightFetchedAt === 'string'
+      ? data.freightFetchedAt
+      : (courierFreight?.fetchedAt || null),
     courierDeliveryOffice,
     deliveredAt: typeof data.deliveredAt === 'string' ? data.deliveredAt : null,
     inTransitAt: typeof data.inTransitAt === 'string' ? data.inTransitAt : null,
