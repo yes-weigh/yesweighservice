@@ -55,6 +55,13 @@ function invoiceCalendarDay(value: string): Date | null {
   return new Date(parsed.getFullYear(), parsed.getMonth(), parsed.getDate());
 }
 
+function invoiceCategoryAllowsCourier(
+  invoice: Pick<DealerInvoiceDetail, 'invoiceCategory'>,
+): boolean {
+  const category = invoice.invoiceCategory ?? null;
+  return !(category && COURIER_BLOCKED_INVOICE_CATEGORIES.has(category));
+}
+
 /**
  * Book Courier is available only for recent product/spare/service invoices.
  * Hidden when the invoice is older than 4 days, or category is software / GATC.
@@ -62,10 +69,7 @@ function invoiceCalendarDay(value: string): Date | null {
 export function canBookCourierForInvoice(
   invoice: Pick<DealerInvoiceDetail, 'date' | 'invoiceCategory'>,
 ): boolean {
-  const category = invoice.invoiceCategory ?? null;
-  if (category && COURIER_BLOCKED_INVOICE_CATEGORIES.has(category)) {
-    return false;
-  }
+  if (!invoiceCategoryAllowsCourier(invoice)) return false;
 
   const dateRaw = invoice.date?.trim();
   if (!dateRaw) return true;
@@ -77,6 +81,16 @@ export function canBookCourierForInvoice(
   const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
   const ageDays = (today.getTime() - invoiceDay.getTime()) / (24 * 60 * 60 * 1000);
   return ageDays <= 4;
+}
+
+/**
+ * Record an existing LR on an invoice (any age) — skips the full Book Courier wizard.
+ * Still blocked for software / GATC categories.
+ */
+export function canRecordInvoiceLogisticsLr(
+  invoice: Pick<DealerInvoiceDetail, 'invoiceCategory'>,
+): boolean {
+  return invoiceCategoryAllowsCourier(invoice);
 }
 
 export function navigateToLogisticsBooking(

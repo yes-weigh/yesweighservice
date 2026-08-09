@@ -30004,6 +30004,11 @@ body:has(.confirm-inline-bar) .confirm-inline-bar {
   grid-template-columns: repeat(3, minmax(0, 8.5rem));
 }
 
+.admin-invoice-detail-top .invoice-detail-top__actions--quad,
+.so-detail__top-actions .invoice-detail-top__actions--quad {
+  grid-template-columns: repeat(4, minmax(0, 8.5rem));
+}
+
 .book-courier-entry-btn--card {
   width: 100%;
   margin: 0;
@@ -30632,6 +30637,100 @@ button.invoice-detail-top__card {
   font-size: 1.1rem;
   font-weight: 800;
   color: var(--text-primary);
+}
+
+.invoice-manual-logistics {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.45rem;
+  margin: 0.75rem 0;
+  padding: 0.85rem 1rem !important;
+}
+
+.invoice-manual-logistics__btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+}
+
+.invoice-manual-logistics__hint,
+.invoice-manual-logistics__saved {
+  margin: 0;
+}
+
+.invoice-manual-logistics-modes {
+  display: flex;
+  flex-direction: column;
+  gap: 0.65rem;
+  margin: 0.25rem 0 1rem;
+}
+
+.invoice-manual-logistics-modes__card {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.75rem;
+  width: 100%;
+  text-align: left;
+  padding: 0.85rem 1rem;
+  border-radius: 12px;
+  border: 1px solid var(--border-glass);
+  background: rgba(255, 255, 255, 0.03);
+  color: var(--text-primary);
+  cursor: pointer;
+}
+
+.invoice-manual-logistics-modes__card:hover {
+  border-color: rgba(245, 130, 32, 0.55);
+  background: rgba(245, 130, 32, 0.08);
+}
+
+.invoice-manual-logistics-modes__card strong {
+  display: block;
+  font-size: 0.95rem;
+}
+
+.invoice-manual-logistics-modes__card em {
+  display: block;
+  margin-top: 0.2rem;
+  font-style: normal;
+  font-size: 0.8rem;
+  color: var(--text-muted);
+}
+
+.invoice-manual-logistics-link-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.45rem;
+  max-height: 16rem;
+  overflow: auto;
+  margin: 0.75rem 0 0.25rem;
+}
+
+.invoice-manual-logistics-link-list__row {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.15rem;
+  width: 100%;
+  text-align: left;
+  padding: 0.65rem 0.8rem;
+  border-radius: 10px;
+  border: 1px solid var(--border-glass);
+  background: transparent;
+  color: var(--text-primary);
+  cursor: pointer;
+}
+
+.invoice-manual-logistics-link-list__row span {
+  font-size: 0.8rem;
+  color: var(--text-muted);
+}
+
+.invoice-manual-logistics-link-list__row.is-selected,
+.invoice-manual-logistics-link-list__row:hover {
+  border-color: rgba(245, 130, 32, 0.55);
+  background: rgba(245, 130, 32, 0.08);
 }
 
 .invoice-detail-pdf {

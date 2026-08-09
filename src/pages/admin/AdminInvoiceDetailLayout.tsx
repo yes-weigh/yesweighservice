@@ -4,6 +4,7 @@ import { AlertCircle, ClipboardList, FileText } from 'lucide-react';
 import { FetchingLoader } from '../../components/FetchingLoader';
 import { SpareOrderListViewDialog } from '../../components/invoices/SpareOrderListViewDialog';
 import { BookCourierEntryButton } from '../../components/logistics/BookCourierEntryButton';
+import { InvoiceAddLrDialog } from '../../components/logistics/InvoiceAddLrDialog';
 import { LogisticsAwbEntryButton } from '../../components/logistics/LogisticsAwbEntryButton';
 import { useAuth } from '../../context/AuthContext';
 import { useCatalogPageHeader } from '../../context/PageHeaderContext';
@@ -23,13 +24,17 @@ import {
 import {
   buildInvoiceBookingDraftPatch,
   canBookCourierForInvoice,
+  canRecordInvoiceLogisticsLr,
+  resolveInvoiceCourierPartnerId,
   type LogisticsEntryState,
 } from '../../lib/logisticsPrefill';
 import { resolveShipFromSiteForInvoice } from '../../lib/logisticsShipFrom';
 import { isInternalOpsUser } from '../../lib/staffAccess';
 import type { CatalogProduct } from '../../types/catalog';
+import type { LogisticsPartnerId } from '../../constants/logisticsPartners';
 import type { DealerInvoiceDetail } from '../../types/invoices';
 import type { LogisticsBooking } from '../../types/logistics-dispatch';
+import type { StaffLogisticsSite } from '../../types/staff-logistics';
 import { canNavigateBackInApp } from '../../lib/navigation';
 import type { AdminInvoiceDetailOutletContext } from './adminInvoiceDetailContext';
 
@@ -50,6 +55,10 @@ export const AdminInvoiceDetailLayout: React.FC = () => {
   const [error, setError] = useState('');
   const [courierEntry, setCourierEntry] = useState<LogisticsEntryState | null>(null);
   const [existingBooking, setExistingBooking] = useState<LogisticsBooking | null>(null);
+  const [addLrAvailable, setAddLrAvailable] = useState(false);
+  const [addLrPartnerId, setAddLrPartnerId] = useState<LogisticsPartnerId>('delhivery');
+  const [addLrShipFrom, setAddLrShipFrom] = useState<StaffLogisticsSite | null>(null);
+  const [addLrOpen, setAddLrOpen] = useState(false);
   const [orderListOpen, setOrderListOpen] = useState(false);
 
   const handleBack = useCallback(() => {
@@ -99,16 +108,18 @@ export const AdminInvoiceDetailLayout: React.FC = () => {
     };
   }, [customerId, invoiceId]);
 
-  /** Existing AWB booking wins over Book Courier; otherwise prefill book entry. */
+  /** Existing AWB booking wins; else Book Courier (≤4 days) or Add LR (any age). */
   useEffect(() => {
     if (!invoice || !customerId || !invoiceId || !user) {
       setCourierEntry(null);
       setExistingBooking(null);
+      setAddLrAvailable(false);
       return;
     }
     if (!isInternalOpsUser(user)) {
       setCourierEntry(null);
       setExistingBooking(null);
+      setAddLrAvailable(false);
       return;
     }
 
@@ -119,15 +130,24 @@ export const AdminInvoiceDetailLayout: React.FC = () => {
       if (linked) {
         setExistingBooking(linked);
         setCourierEntry(null);
+        setAddLrAvailable(false);
         return;
       }
       setExistingBooking(null);
-      if (!canCreateLogisticsBooking(user) || !canBookCourierForInvoice(invoice)) {
+
+      const branch = await resolveShipFromSiteForInvoice(invoice).catch(() => null);
+      const shipFromSite = branch?.site ?? user.staffLogisticsSite ?? 'cochin';
+      if (cancelled) return;
+      setAddLrShipFrom(shipFromSite);
+      setAddLrPartnerId(resolveInvoiceCourierPartnerId(invoice));
+
+      const canCreate = canCreateLogisticsBooking(user);
+      setAddLrAvailable(canCreate && canRecordInvoiceLogisticsLr(invoice));
+
+      if (!canCreate || !canBookCourierForInvoice(invoice)) {
         setCourierEntry(null);
         return;
       }
-      const branch = await resolveShipFromSiteForInvoice(invoice).catch(() => null);
-      const shipFromSite = branch?.site ?? user.staffLogisticsSite ?? 'cochin';
       let productsById: Map<string, CatalogProduct> | undefined;
       try {
         const catalog = await fetchCatalog();
@@ -155,6 +175,7 @@ export const AdminInvoiceDetailLayout: React.FC = () => {
 
   if (!customerId || !invoiceId) return null;
 
+  const showManualLogistics = Boolean(addLrAvailable && !existingBooking);
   const outletContext: AdminInvoiceDetailOutletContext = {
     invoice,
     loading,
@@ -162,6 +183,11 @@ export const AdminInvoiceDetailLayout: React.FC = () => {
     customerId,
     invoiceId,
     invoicesPath,
+    showManualLogistics,
+    manualLogisticsPartnerId: addLrPartnerId,
+    manualLogisticsShipFrom: addLrShipFrom,
+    onOpenManualLogistics: () => setAddLrOpen(true),
+    existingBooking,
   };
 
   const showOrderList = Boolean(invoice && invoiceHasCategory(invoice, 'spare'));
@@ -254,6 +280,23 @@ export const AdminInvoiceDetailLayout: React.FC = () => {
               invoice={invoice}
               booking={existingBooking}
               onClose={() => setOrderListOpen(false)}
+            />
+          ) : null}
+          {invoice && user && addLrOpen ? (
+            <InvoiceAddLrDialog
+              open={addLrOpen}
+              invoice={invoice}
+              invoiceId={invoiceId}
+              zohoCustomerId={customerId}
+              partnerId={addLrPartnerId}
+              shipFromSite={addLrShipFrom}
+              user={user}
+              onClose={() => setAddLrOpen(false)}
+              onCreated={booking => {
+                setExistingBooking(booking);
+                setCourierEntry(null);
+                setAddLrAvailable(false);
+              }}
             />
           ) : null}
         </>

@@ -476,8 +476,8 @@ export const StCourierRatesSettings: React.FC<Props> = ({
         ? 'Save failed'
         : 'Changes save automatically';
 
-  const showOriginPicker = isZonePartner && partnerUsesOriginRates(partnerId);
-  const showSharedRateNote = isZonePartner && !partnerUsesOriginRates(partnerId);
+  const showOriginPicker = partnerId === 'st_courier' && partnerUsesOriginRates(partnerId);
+  const showZoneRateEditor = partnerId === 'st_courier' && !!activeRates;
 
   return (
     <div className="settings-logistics__default panel settings-courier-rates">
@@ -565,11 +565,6 @@ export const StCourierRatesSettings: React.FC<Props> = ({
           </div>
         </div>
       ) : null}
-      {showSharedRateNote ? (
-        <p className="settings-courier-rates__shared-note text-muted text-sm">
-          One rate card for all ship-from sites.
-        </p>
-      ) : null}
       {isStatusOnlyPartner ? (
         <p className="settings-courier-rates__shared-note text-muted text-sm">
           No rate card for this partner — status still controls whether it appears on sales orders
@@ -579,7 +574,7 @@ export const StCourierRatesSettings: React.FC<Props> = ({
       {!partnerInDeliveryRules ? (
         <p className="settings-courier-rates__empty-partners text-muted text-sm">
           {partnerLabel(partnerId)} is not in Delivery rules yet — status
-          {isStatusOnlyPartner ? '' : ' and rates'} still save automatically.
+          {partnerId === 'st_courier' ? ' and rates' : ''} still save automatically.
         </p>
       ) : null}
 
@@ -609,6 +604,17 @@ export const StCourierRatesSettings: React.FC<Props> = ({
             setLogisticsPartnerStatus(TRACKON_SERVICE_TO_PARTNER[service], next);
           }}
         />
+      ) : partnerId === 'delhivery' ? (
+        <>
+          <PartnerStatusControl
+            status={statusDraft.delhivery}
+            ariaLabel={`Status for ${logisticsPartnerLabel('delhivery')}`}
+            onChange={next => {
+              setLogisticsPartnerStatus('delhivery', next);
+            }}
+          />
+          <DelhiveryB2bApiPanel onError={onError} />
+        </>
       ) : isStatusOnlyPartner ? (
         <PartnerStatusControl
           status={statusDraft[partnerId]}
@@ -623,7 +629,7 @@ export const StCourierRatesSettings: React.FC<Props> = ({
             setLogisticsPartnerStatus(partnerId, next);
           }}
         />
-      ) : isZonePartner && activeRates ? (
+      ) : showZoneRateEditor ? (
         <>
           <PartnerStatusControl
             status={statusDraft[partnerId]}
@@ -632,10 +638,6 @@ export const StCourierRatesSettings: React.FC<Props> = ({
               setLogisticsPartnerStatus(partnerId, next);
             }}
           />
-
-          {partnerId === 'delhivery' ? (
-            <DelhiveryB2bApiPanel onError={onError} />
-          ) : null}
 
           {ratesWarning && (
             <p className="settings-courier-rates__warn text-sm">
@@ -711,9 +713,7 @@ export const StCourierRatesSettings: React.FC<Props> = ({
 
           <fieldset className="settings-courier-rates__card settings-courier-rates__zone-card">
             <legend>
-              {partnerUsesOriginRates(partnerId)
-                ? `Prices from ${STAFF_LOGISTICS_SITE_LABELS[origin]}`
-                : 'Prices (all ship-from sites)'}
+              Prices from {STAFF_LOGISTICS_SITE_LABELS[origin]}
             </legend>
             <div className="settings-courier-rates__zone-table-wrap">
               <table className="settings-courier-rates__zone-table">

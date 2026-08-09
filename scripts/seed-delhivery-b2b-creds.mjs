@@ -68,8 +68,8 @@ await db.doc('appSettings/logisticsSettings').set({
     username,
     passwordSet: true,
     pickupLocationBySite: {
-      cochin: '',
-      head_office: '',
+      cochin: 'INTERWEIGHING B2B',
+      head_office: 'INTERWEIGHING VYTTILA',
     },
     lastTestAt: '',
     lastTestOk: false,

@@ -21,13 +21,21 @@ import { isLogisticsPartnerId, logisticsPartnerLabel } from '../constants/logist
 import type { User } from '../types';
 import { normalizeRole } from '../types';
 import { isInternalOpsUser } from './staffAccess';
-import { isPlaceholderLogisticsAddress, resolveDeliveryAddress } from './logisticsDealers';
+import {
+  isPlaceholderLogisticsAddress,
+  resolveDeliveryAddress,
+  zohoDealerToSnapshot,
+} from './logisticsDealers';
 import {
   computeVolumetricWeight,
   draftBoxesHaveRequiredPhotos,
+  emptyShipmentBoxDraft,
+  isPipelineEnabledPartner,
   statusForDocument,
   type BookCourierStep,
 } from './logisticsBooking';
+import { fetchDealerById } from './dealers';
+import type { DealerInvoiceDetail } from '../types/invoices';
 import {
   dataUrlToFile,
   deleteLogisticsPhoto,
@@ -1423,6 +1431,91 @@ export async function deleteLogisticsBookingPermanently(
   await deleteDoc(bookingRef);
 }
 
+/** Unlinked bookings for a Zoho customer (no invoiceId), newest first. */
+export async function listUnlinkedLogisticsBookingsForCustomer(
+  zohoCustomerId: string,
+  options?: { limitCount?: number },
+): Promise<LogisticsBooking[]> {
+  const customerId = zohoCustomerId.trim();
+  if (!customerId) return [];
+  const limitCount = Math.min(Math.max(options?.limitCount ?? 40, 1), 100);
+  const snap = await getDocs(
+    query(
+      collection(db, COLLECTION),
+      where('zohoCustomerId', '==', customerId),
+      orderBy('bookingDate', 'desc'),
+      limit(limitCount),
+    ),
+  );
+  return snap.docs
+    .map(docSnap => mapLogisticsBookingDoc(docSnap.id, docSnap.data()))
+    .filter(booking => {
+      if (booking.status === 'cancelled' || booking.status === 'returned') return false;
+      const linked = booking.invoiceId?.trim();
+      return !linked;
+    });
+}
+
+/** Attach an existing unlinked booking to an invoice. */
+export async function linkLogisticsBookingToInvoice(input: {
+  bookingId: string;
+  invoiceId: string;
+  invoiceNumber: string;
+  zohoCustomerId: string;
+  user: User;
+}): Promise<LogisticsBooking> {
+  if (!canCreateLogisticsBooking(input.user)) {
+    throw new Error('You do not have permission to link logistics bookings.');
+  }
+  const bookingId = input.bookingId.trim();
+  const invoiceId = input.invoiceId.trim();
+  const invoiceNumber = input.invoiceNumber.trim();
+  const zohoCustomerId = input.zohoCustomerId.trim();
+  if (!bookingId || !invoiceId) throw new Error('Booking and invoice are required.');
+
+  const already = await findLogisticsBookingForInvoice(invoiceId);
+  if (already && already.status !== 'cancelled' && already.status !== 'returned') {
+    throw new Error('This invoice already has a logistics booking.');
+  }
+
+  const bookingRef = doc(db, COLLECTION, bookingId);
+  const snap = await getDoc(bookingRef);
+  if (!snap.exists()) throw new Error('Logistics booking not found.');
+  const booking = mapLogisticsBookingDoc(snap.id, snap.data());
+
+  if (booking.invoiceId?.trim()) {
+    throw new Error('That logistics entry is already linked to an invoice.');
+  }
+  if (booking.status === 'cancelled' || booking.status === 'returned') {
+    throw new Error('Cannot link a cancelled or returned booking.');
+  }
+  if (
+    booking.dealer.zohoCustomerId.trim()
+    && zohoCustomerId
+    && booking.dealer.zohoCustomerId.trim() !== zohoCustomerId
+  ) {
+    throw new Error('That logistics entry belongs to a different customer.');
+  }
+
+  const updatedAt = new Date().toISOString();
+  await updateDoc(bookingRef, {
+    invoiceId,
+    invoiceNumber: invoiceNumber || null,
+    source: 'invoice',
+    orderRef: invoiceNumber || booking.orderRef || `INV-${invoiceId.slice(0, 8)}`,
+    updatedAt,
+  });
+
+  return {
+    ...booking,
+    invoiceId,
+    invoiceNumber: invoiceNumber || null,
+    source: 'invoice',
+    orderRef: invoiceNumber || booking.orderRef,
+    updatedAt,
+  };
+}
+
 export function canEditLogisticsBooking(booking: LogisticsBooking, user: User): boolean {
   if (!isInternalOpsUser(user)) return false;
   return isEditableStatus(booking.status);
@@ -1430,6 +1523,171 @@ export function canEditLogisticsBooking(booking: LogisticsBooking, user: User): 
 
 export function canCreateLogisticsBooking(user: User): boolean {
   return isInternalOpsUser(user);
+}
+
+export type RecordInvoiceLogisticsLrInput = {
+  invoice: Pick<
+    DealerInvoiceDetail,
+    | 'invoiceNumber'
+    | 'date'
+    | 'customerName'
+    | 'customerPhone'
+    | 'shippingAddress'
+    | 'billingAddress'
+  >;
+  invoiceId: string;
+  zohoCustomerId: string;
+  consignmentNo: string;
+  boxCount: number;
+  createdBy: User;
+  partnerId: LogisticsPartnerId;
+  shipFromSite?: StaffLogisticsSite | null;
+};
+
+function dealerSnapshotFromInvoice(
+  invoice: RecordInvoiceLogisticsLrInput['invoice'],
+  zohoCustomerId: string,
+): LogisticsDealerSnapshot {
+  const name = invoice.customerName?.trim() || zohoCustomerId;
+  const shipping = invoice.shippingAddress?.trim() || '';
+  const billing = invoice.billingAddress?.trim() || shipping;
+  return {
+    zohoCustomerId,
+    dealerId: zohoCustomerId,
+    name,
+    code: zohoCustomerId,
+    contactPerson: name,
+    mobile: invoice.customerPhone?.trim() || '',
+    shippingAddress: shipping || billing || name,
+    billingAddress: billing || shipping || name,
+  };
+}
+
+/**
+ * Create a confirmed logistics booking from an existing LR + box count
+ * (no wizard photos / label print). Used for older invoices.
+ */
+export async function recordInvoiceLogisticsBooking(
+  input: RecordInvoiceLogisticsLrInput,
+): Promise<LogisticsBooking> {
+  if (!canCreateLogisticsBooking(input.createdBy)) {
+    throw new Error('You do not have permission to create logistics bookings.');
+  }
+
+  const consignmentNo = input.consignmentNo.trim();
+  if (!consignmentNo) throw new Error('LR / consignment number is required.');
+
+  const boxCount = Math.floor(Number(input.boxCount));
+  if (!Number.isFinite(boxCount) || boxCount < 1 || boxCount > 99) {
+    throw new Error('Enter a box count between 1 and 99.');
+  }
+
+  const zohoCustomerId = input.zohoCustomerId.trim();
+  if (!zohoCustomerId) throw new Error('Customer is required.');
+
+  const existing = await findLogisticsBookingForInvoice(input.invoiceId);
+  if (existing && existing.status !== 'cancelled' && existing.status !== 'returned') {
+    throw new Error('This invoice already has a logistics booking.');
+  }
+
+  const partnerId = input.partnerId;
+  if (!isLogisticsPartnerId(partnerId) || !isPipelineEnabledPartner(partnerId)) {
+    throw new Error('This courier partner is not available for logistics booking.');
+  }
+
+  let dealer = dealerSnapshotFromInvoice(input.invoice, zohoCustomerId);
+  try {
+    const zoho = await fetchDealerById(zohoCustomerId);
+    dealer = zohoDealerToSnapshot(zoho);
+  } catch {
+    // Invoice snapshot is enough for a manual LR record.
+  }
+
+  const settings = await loadLogisticsSettings();
+  const shipFromSite = isStaffLogisticsSite(input.shipFromSite)
+    ? input.shipFromSite
+    : 'cochin';
+  const shipFromAddress = settings.fromAddresses[shipFromSite]?.trim() || '';
+
+  const boxes = Array.from({ length: boxCount }, () => {
+    const draft = emptyShipmentBoxDraft();
+    return {
+      id: draft.id,
+      lengthCm: null as number | null,
+      widthCm: null as number | null,
+      heightCm: null as number | null,
+      weightKg: 0,
+      volumetricWeightKg: 0,
+      photos: [] as Array<{ storagePath: string }>,
+    };
+  });
+
+  const now = new Date().toISOString();
+  const bookingDate = (input.invoice.date || now).slice(0, 10);
+  const bookingRef = doc(collection(db, COLLECTION));
+  const createdByName = input.createdBy.displayName?.trim()
+    || input.createdBy.loginId?.trim()
+    || input.createdBy.email?.trim()
+    || 'YESWEIGH';
+  const deliveryAddress = resolveDeliveryAddress(dealer, 'shipping');
+
+  const payload: Record<string, unknown> = {
+    orderRef: input.invoice.invoiceNumber || `INV-${bookingRef.id.slice(0, 8)}`,
+    source: 'invoice',
+    invoiceId: input.invoiceId,
+    invoiceNumber: input.invoice.invoiceNumber ?? null,
+    supportRequestId: null,
+    supportRequestNumber: null,
+    partnerId,
+    consignmentNo,
+    trackingNo: consignmentNo,
+    branch: '',
+    serviceType: '',
+    bookingDate,
+    zohoCustomerId: dealer.zohoCustomerId,
+    dealerId: dealer.dealerId,
+    dealerSnapshot: {
+      zohoCustomerId: dealer.zohoCustomerId,
+      dealerId: dealer.dealerId,
+      name: dealer.name,
+      code: dealer.code,
+      contactPerson: dealer.contactPerson,
+      mobile: dealer.mobile,
+      shippingAddress: dealer.shippingAddress,
+      billingAddress: dealer.billingAddress,
+      ...(dealer.destinationCity?.trim()
+        ? { destinationCity: dealer.destinationCity.trim() }
+        : {}),
+    },
+    deliveryAddressKind: 'shipping',
+    deliveryAddress,
+    shipFromSite,
+    shipFromAddress,
+    shipmentMode: 'box',
+    numberOfBoxes: boxes.length,
+    actualWeightKg: 0,
+    volumetricWeightKg: 0,
+    chargeableWeightKg: 0,
+    boxes,
+    finalPackagePhotoStoragePath: null,
+    labelGenerated: true,
+    courierSlipGenerated: true,
+    shippingLabelGenerated: true,
+    packingSlipGenerated: false,
+    status: 'label_generated',
+    wizardStep: null,
+    createdAt: now,
+    updatedAt: now,
+    createdByUid: input.createdBy.uid,
+    createdByName,
+  };
+
+  try {
+    await setDoc(bookingRef, payload);
+    return mapLogisticsBookingDoc(bookingRef.id, payload);
+  } catch (err) {
+    throw formatLogisticsPersistError(err, 'Could not create logistics entry.');
+  }
 }
 
 export function canDeleteLogisticsBooking(user: User): boolean {

@@ -24,6 +24,8 @@ interface InvoiceDocumentBodyProps {
   selectFreight?: boolean;
   /** Content rendered under the selected / expanded line. */
   renderExpanded?: (item: DealerInvoiceLineItem) => React.ReactNode;
+  /** Rendered after the items list (before totals when totalsAfterItems). */
+  afterItems?: React.ReactNode;
 }
 
 export const InvoiceDocumentBody: React.FC<InvoiceDocumentBodyProps> = ({
@@ -39,6 +41,7 @@ export const InvoiceDocumentBody: React.FC<InvoiceDocumentBodyProps> = ({
   freightAlert = null,
   selectFreight = false,
   renderExpanded,
+  afterItems = null,
 }) => {
   const selectable = Boolean(onSelectLineItem);
   const visibleItems = moveFreightLinesToEnd(
@@ -146,12 +149,14 @@ export const InvoiceDocumentBody: React.FC<InvoiceDocumentBodyProps> = ({
       {totalsAfterItems ? (
         <>
           {items}
+          {afterItems}
           {totals}
         </>
       ) : (
         <>
           {totals}
           {items}
+          {afterItems}
         </>
       )}
     </>
