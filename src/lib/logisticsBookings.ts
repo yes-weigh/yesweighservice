@@ -50,6 +50,13 @@ import {
   fetchStCourierDeliveryOffice,
 } from './stCourierTrack';
 import { tryRefreshLogisticsBookingTrack } from './logisticsTrackRefresh';
+import {
+  isDelhiveryB2bLrn,
+  isDelhiveryMasterAwb,
+  normalizeDelhiveryId,
+  resolveDelhiveryBookingIds,
+  splitDelhiveryEntryId,
+} from './delhiveryTrack';
 import type {
   LogisticsBooking,
   LogisticsBookingDraft,
@@ -1397,6 +1404,63 @@ export async function updateLogisticsBookingStatus(
   return { ...booking, status, updatedAt };
 }
 
+/**
+ * Fill missing Delhivery LRN and/or Master AWB on an existing booking, then caller can Refresh.
+ */
+export async function updateLogisticsBookingDelhiveryIds(
+  booking: LogisticsBooking,
+  input: { lrn?: string | null; masterAwb?: string | null },
+  user: User,
+): Promise<LogisticsBooking> {
+  if (!isInternalOpsUser(user)) {
+    throw new Error('You do not have permission to update Delhivery IDs.');
+  }
+  if (booking.partnerId !== 'delhivery') {
+    throw new Error('Only Delhivery bookings support LRN / Master AWB edits.');
+  }
+
+  const current = resolveDelhiveryBookingIds(booking);
+  const lrnRaw = input.lrn != null ? String(input.lrn).trim() : null;
+  const mwbRaw = input.masterAwb != null ? String(input.masterAwb).trim() : null;
+
+  if (lrnRaw != null && lrnRaw && !isDelhiveryB2bLrn(lrnRaw)) {
+    throw new Error('LRN must be a 9-digit Delhivery LR number.');
+  }
+  if (mwbRaw != null && mwbRaw && !isDelhiveryMasterAwb(mwbRaw)) {
+    throw new Error('Master AWB looks invalid (expected a long waybill, e.g. 14 digits).');
+  }
+
+  const lrn = lrnRaw != null
+    ? (normalizeDelhiveryId(lrnRaw) || null)
+    : current.lrn;
+  const masterAwb = mwbRaw != null
+    ? (normalizeDelhiveryId(mwbRaw) || null)
+    : current.masterAwb;
+
+  if (!lrn && !masterAwb) {
+    throw new Error('Enter an LRN or Master AWB.');
+  }
+
+  const consignmentNo = lrn || masterAwb || booking.consignmentNo;
+  const trackingNo = masterAwb || lrn || booking.trackingNo;
+  const updatedAt = new Date().toISOString();
+  const patch: Record<string, unknown> = {
+    consignmentNo,
+    trackingNo,
+    updatedAt,
+  };
+  if (masterAwb) patch.masterAwb = masterAwb;
+
+  await updateDoc(doc(db, COLLECTION, booking.id), patch);
+  return {
+    ...booking,
+    consignmentNo,
+    trackingNo,
+    ...(masterAwb ? { masterAwb } : {}),
+    updatedAt,
+  };
+}
+
 /** Correct ship-from site/address from logistics settings (e.g. match invoice branch). */
 export async function updateLogisticsBookingShipFrom(
   booking: LogisticsBooking,
@@ -1718,8 +1782,8 @@ export async function recordInvoiceLogisticsBooking(
     throw new Error('You do not have permission to create logistics bookings.');
   }
 
-  const consignmentNo = input.consignmentNo.trim();
-  if (!consignmentNo) throw new Error('LR / consignment number is required.');
+  const consignmentRaw = input.consignmentNo.trim();
+  if (!consignmentRaw) throw new Error('LR / consignment number is required.');
 
   const boxCount = Math.floor(Number(input.boxCount));
   if (!Number.isFinite(boxCount) || boxCount < 1 || boxCount > 99) {
@@ -1738,6 +1802,20 @@ export async function recordInvoiceLogisticsBooking(
   if (!isLogisticsPartnerId(partnerId) || !isPipelineEnabledPartner(partnerId)) {
     throw new Error('This courier partner is not available for logistics booking.');
   }
+
+  // Delhivery: prefer single 9-digit LRN entry (freight + identity). MWB kept if pasted.
+  const delhiveryIds = partnerId === 'delhivery'
+    ? splitDelhiveryEntryId(consignmentRaw)
+    : null;
+  if (partnerId === 'delhivery' && delhiveryIds && !delhiveryIds.lrn && delhiveryIds.masterAwb) {
+    // Allow MWB-only for track, but freight needs LRN later.
+  }
+  const consignmentNo = delhiveryIds?.lrn
+    || delhiveryIds?.masterAwb
+    || consignmentRaw;
+  const trackingNo = delhiveryIds?.masterAwb
+    || delhiveryIds?.lrn
+    || consignmentRaw;
 
   let dealer = dealerSnapshotFromInvoice(input.invoice, zohoCustomerId);
   try {
@@ -1784,9 +1862,10 @@ export async function recordInvoiceLogisticsBooking(
     supportRequestNumber: null,
     partnerId,
     consignmentNo,
-    trackingNo: consignmentNo,
+    trackingNo,
+    ...(delhiveryIds?.masterAwb ? { masterAwb: delhiveryIds.masterAwb } : {}),
     branch: '',
-    serviceType: '',
+    serviceType: partnerId === 'delhivery' ? 'Express' : '',
     bookingDate,
     zohoCustomerId: dealer.zohoCustomerId,
     dealerId: dealer.dealerId,

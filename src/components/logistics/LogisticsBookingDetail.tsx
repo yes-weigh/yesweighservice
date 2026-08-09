@@ -34,8 +34,10 @@ import {
 } from '../../lib/logisticsBooking';
 import {
   canDeleteLogisticsBooking,
+  fetchLogisticsBooking,
   generateLogisticsDocument,
   hydrateLogisticsBookingPhotos,
+  updateLogisticsBookingDelhiveryIds,
   updateLogisticsBookingShipFrom,
   uploadLogisticsBookingFinalPackagePhoto,
 } from '../../lib/logisticsBookings';
@@ -70,7 +72,9 @@ import { PhotoLightbox } from './PhotoLightbox';
 import { ShippingLabelPrintDialog } from './ShippingLabelPrintDialog';
 import {
   bookingDateFromTrackBookedAt,
+  fetchDelhiveryShipmentTrack,
   inferDelhiveryUiStatus,
+  resolveDelhiveryBookingIds,
 } from '../../lib/delhiveryTrack';
 import { StCourierTrackPanel } from './StCourierTrackPanel';
 
@@ -195,6 +199,10 @@ export const LogisticsBookingDetail: React.FC<LogisticsBookingDetailProps> = ({
   const [freightLoading, setFreightLoading] = useState(false);
   const [invoiceBranch, setInvoiceBranch] = useState<InvoiceBranchShipFrom | null>(null);
   const [updatingShipFrom, setUpdatingShipFrom] = useState(false);
+  const [delhiveryLrnDraft, setDelhiveryLrnDraft] = useState('');
+  const [delhiveryMwbDraft, setDelhiveryMwbDraft] = useState('');
+  const [savingDelhiveryIds, setSavingDelhiveryIds] = useState(false);
+  const [delhiveryIdsError, setDelhiveryIdsError] = useState('');
   const partner = LOGISTICS_PARTNERS.find(item => item.id === booking.partnerId);
   const isEnvelope = booking.shipmentMode === 'envelope';
   const needsOuterPhoto = missingFinalPackagePhoto(booking);
@@ -222,7 +230,12 @@ export const LogisticsBookingDetail: React.FC<LogisticsBookingDetailProps> = ({
     ? null
     : PROGRESS_STATUSES[currentIndex + 1]?.id ?? null;
   const basePath = user ? homePathForRole(user.role) : '/dealer';
-  const trackAwb = (booking.trackingNo || booking.consignmentNo || '').trim();
+  // Delhivery: show/fetch with LRN first; MWB stays on booking for Express track fallback.
+  const trackAwb = (
+    booking.partnerId === 'delhivery'
+      ? (booking.consignmentNo || booking.trackingNo || '')
+      : (booking.trackingNo || booking.consignmentNo || '')
+  ).trim();
   const trackUrl = logisticsTrackingUrl(booking.partnerId, trackAwb);
   const isStCourier = booking.partnerId === 'st_courier';
   const isTrackon = (
@@ -230,7 +243,24 @@ export const LogisticsBookingDetail: React.FC<LogisticsBookingDetailProps> = ({
     || booking.partnerId === 'trackon_surface'
   );
   const isDelhivery = booking.partnerId === 'delhivery';
+  const delhiveryIds = useMemo(
+    () => (isDelhivery ? resolveDelhiveryBookingIds(booking) : null),
+    [booking, isDelhivery],
+  );
+  const needsDelhiveryIds = Boolean(
+    isDelhivery
+    && isOps
+    && delhiveryIds
+    && (delhiveryIds.missingLrn || delhiveryIds.missingMasterAwb),
+  );
   const showInAppTrack = (isStCourier || isTrackon || isDelhivery) && Boolean(trackAwb);
+
+  useEffect(() => {
+    if (!delhiveryIds) return;
+    setDelhiveryLrnDraft(delhiveryIds.lrn || '');
+    setDelhiveryMwbDraft(delhiveryIds.masterAwb || '');
+    setDelhiveryIdsError('');
+  }, [booking.id, delhiveryIds?.lrn, delhiveryIds?.masterAwb]);
 
   const markDocumentGenerated = useCallback(async (document: LogisticsDocumentType) => {
     if (!user || !isOps) return;
@@ -314,6 +344,44 @@ export const LogisticsBookingDetail: React.FC<LogisticsBookingDetailProps> = ({
       setUploadingFinalPhoto(false);
     }
   }, [booking, isOps, onUpdate, user]);
+
+  const handleSaveDelhiveryIdsAndRefresh = useCallback(async () => {
+    if (!user || !isOps || booking.partnerId !== 'delhivery') return;
+    const current = resolveDelhiveryBookingIds(booking);
+    setSavingDelhiveryIds(true);
+    setDelhiveryIdsError('');
+    try {
+      const updated = await updateLogisticsBookingDelhiveryIds(
+        booking,
+        {
+          lrn: current.missingLrn ? delhiveryLrnDraft : current.lrn,
+          masterAwb: current.missingMasterAwb ? delhiveryMwbDraft : current.masterAwb,
+        },
+        user,
+      );
+      onUpdate(updated);
+      const ids = resolveDelhiveryBookingIds(updated);
+      const fetchId = ids.lrn || ids.masterAwb || updated.consignmentNo;
+      if (fetchId) {
+        await fetchDelhiveryShipmentTrack(fetchId, { bookingId: updated.id });
+      }
+      const fresh = await fetchLogisticsBooking(updated.id);
+      if (fresh) onUpdate(fresh);
+    } catch (err) {
+      setDelhiveryIdsError(
+        err instanceof Error ? err.message : 'Could not save Delhivery IDs.',
+      );
+    } finally {
+      setSavingDelhiveryIds(false);
+    }
+  }, [
+    booking,
+    delhiveryLrnDraft,
+    delhiveryMwbDraft,
+    isOps,
+    onUpdate,
+    user,
+  ]);
 
   useEffect(() => {
     if (!booking.invoiceId?.trim()) {
@@ -568,6 +636,76 @@ export const LogisticsBookingDetail: React.FC<LogisticsBookingDetailProps> = ({
         </div>
       )}
 
+      {needsDelhiveryIds && delhiveryIds && (
+        <section
+          className="logistics-booking__delhivery-ids"
+          aria-label="Missing Delhivery identifiers"
+        >
+          <div className="logistics-booking__card logistics-booking__card--wide">
+            <h4>
+              <Truck size={16} aria-hidden />
+              Add missing Delhivery ID
+            </h4>
+            <p className="text-muted text-sm">
+              LRN (9 digits) is required for freight.
+              Master AWB is required for live tracking.
+              Save, then Refresh pulls both.
+            </p>
+            <div className="logistics-booking__delhivery-ids-fields">
+              {delhiveryIds.missingLrn && (
+                <label className="settings-courier-rates__field settings-courier-rates__field--plain">
+                  <span>LRN</span>
+                  <input
+                    type="text"
+                    inputMode="numeric"
+                    value={delhiveryLrnDraft}
+                    onChange={e => setDelhiveryLrnDraft(e.target.value)}
+                    placeholder="e.g. 298833418"
+                    autoComplete="off"
+                    spellCheck={false}
+                    disabled={savingDelhiveryIds}
+                  />
+                </label>
+              )}
+              {delhiveryIds.missingMasterAwb && (
+                <label className="settings-courier-rates__field settings-courier-rates__field--plain">
+                  <span>Master AWB</span>
+                  <input
+                    type="text"
+                    inputMode="numeric"
+                    value={delhiveryMwbDraft}
+                    onChange={e => setDelhiveryMwbDraft(e.target.value)}
+                    placeholder="e.g. 20560010118230"
+                    autoComplete="off"
+                    spellCheck={false}
+                    disabled={savingDelhiveryIds}
+                  />
+                </label>
+              )}
+            </div>
+            {delhiveryIdsError ? (
+              <p className="dealers-modal__error">{delhiveryIdsError}</p>
+            ) : null}
+            <div className="logistics-booking__delhivery-ids-actions">
+              <button
+                type="button"
+                className="btn btn-primary btn-sm"
+                disabled={
+                  savingDelhiveryIds
+                  || !(
+                    (delhiveryIds.missingLrn && delhiveryLrnDraft.trim())
+                    || (delhiveryIds.missingMasterAwb && delhiveryMwbDraft.trim())
+                  )
+                }
+                onClick={() => void handleSaveDelhiveryIdsAndRefresh()}
+              >
+                {savingDelhiveryIds ? 'Saving…' : 'Save & refresh'}
+              </button>
+            </div>
+          </div>
+        </section>
+      )}
+
       {showInAppTrack && (
         <StCourierTrackPanel
           awb={trackAwb}
@@ -599,7 +737,7 @@ export const LogisticsBookingDetail: React.FC<LogisticsBookingDetailProps> = ({
             const nextBookingDate = track.ok
               ? bookingDateFromTrackBookedAt(track.bookedAt)
               : null;
-            onUpdate({
+            const optimistic: LogisticsBooking = {
               ...booking,
               status: nextStatus,
               ...(nextBookingDate && nextBookingDate !== booking.bookingDate
@@ -621,6 +759,11 @@ export const LogisticsBookingDetail: React.FC<LogisticsBookingDetailProps> = ({
                 fetchedAt: track.fetchedAt,
               },
               trackFetchedAt: track.fetchedAt,
+            };
+            onUpdate(optimistic);
+            // Reload so Delhivery freight (and other server patches) appear after Refresh.
+            void fetchLogisticsBooking(booking.id).then((fresh) => {
+              if (fresh) onUpdate(fresh);
             });
           }}
         />
@@ -931,8 +1074,9 @@ export const LogisticsBookingDetail: React.FC<LogisticsBookingDetailProps> = ({
             ) : (
               <p className="text-muted text-sm">
                 {booking.courierFreight.error || 'Freight charges not available yet.'}
-                {' '}
-                Available after Delhivery records weight captured.
+                {!/lrn required|weight captured/i.test(booking.courierFreight.error || '')
+                  ? ' Available after Delhivery records weight captured.'
+                  : ''}
               </p>
             )}
           </div>
@@ -981,12 +1125,24 @@ export const LogisticsBookingDetail: React.FC<LogisticsBookingDetailProps> = ({
             Courier details
           </h4>
           <dl className="logistics-booking__meta">
-            <div><dt>LRN / AWB</dt><dd>{booking.consignmentNo || '—'}</dd></div>
-            {(booking.masterAwb || booking.courierTrack?.masterAwb) && (
-              <div>
-                <dt>Master AWB</dt>
-                <dd>{booking.masterAwb || booking.courierTrack?.masterAwb}</dd>
-              </div>
+            {isDelhivery ? (
+              <>
+                <div>
+                  <dt>LRN</dt>
+                  <dd>{delhiveryIds?.lrn || booking.consignmentNo || '—'}</dd>
+                </div>
+                <div>
+                  <dt>Master AWB</dt>
+                  <dd>
+                    {delhiveryIds?.masterAwb
+                      || booking.masterAwb
+                      || booking.courierTrack?.masterAwb
+                      || '—'}
+                  </dd>
+                </div>
+              </>
+            ) : (
+              <div><dt>LRN / AWB</dt><dd>{booking.consignmentNo || '—'}</dd></div>
             )}
             <div><dt>Branch</dt><dd>{booking.branch || '—'}</dd></div>
             <div><dt>Service</dt><dd>{booking.serviceType || '—'}</dd></div>

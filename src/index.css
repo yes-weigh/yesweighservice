@@ -23871,6 +23871,33 @@ body:has(.confirm-inline-bar) .confirm-inline-bar {
   color: #7dd3fc;
 }
 
+.logistics-booking__delhivery-ids {
+  margin: 0 0 0.65rem;
+}
+
+.logistics-booking__delhivery-ids h4 {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  margin: 0 0 0.35rem;
+}
+
+.logistics-booking__delhivery-ids-fields {
+  display: grid;
+  gap: 0.65rem;
+  margin-top: 0.65rem;
+}
+
+@media (min-width: 640px) {
+  .logistics-booking__delhivery-ids-fields {
+    grid-template-columns: 1fr 1fr;
+  }
+}
+
+.logistics-booking__delhivery-ids-actions {
+  margin-top: 0.75rem;
+}
+
 .logistics-booking__track-panel {
   margin: 0 0 0.65rem;
 }

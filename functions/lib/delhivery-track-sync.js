@@ -4,6 +4,8 @@
 
 import {
   fetchDelhiveryTrack,
+  isDelhiveryB2bLrn,
+  isDelhiveryMasterAwb,
   normalizeDelhiveryLrn,
   uniqueDelhiveryTrackIds,
 } from './delhivery-track.js';
@@ -27,12 +29,16 @@ export function isDelhiveryPartnerId(partnerId) {
 }
 
 /**
- * Prefer alphanumeric LRN (Delhivery B2B is typically 9 digits).
+ * Prefer 9-digit B2B LRN. Never treat Master AWB as LRN (freight API rejects it).
  * @param {Record<string, unknown>} data
  */
 export function lrnFromLogisticsBooking(data) {
   const ids = trackIdsFromLogisticsBooking(data);
-  return ids[0] || '';
+  const lrn = ids.find(id => isDelhiveryB2bLrn(id));
+  if (lrn) return lrn;
+  // Legacy: short non-MWB ids only (avoid 14-digit MWB).
+  const fallback = ids.find(id => id && !isDelhiveryMasterAwb(id));
+  return fallback || '';
 }
 
 /**
@@ -204,6 +210,15 @@ export function buildDelhiveryTrackingPatch(track, options = {}) {
         || 'https://www.delhivery.com/track/package/',
       ),
     };
+    // Keep LRN as identity when track.awb is the 9-digit LR; stash MWB for Express refresh.
+    if (masterAwb) {
+      patch.masterAwb = masterAwb;
+      patch.trackingNo = masterAwb;
+    }
+    const trackAwb = String(track.awb || '').trim();
+    if (/^\d{9}$/.test(trackAwb)) {
+      patch.consignmentNo = trackAwb;
+    }
   }
 
   if (updatePipelineStatus) {
@@ -408,7 +423,25 @@ async function maybeDelhiveryFreightPatch(db, data, track) {
   const effectiveTrack = track || data.courierTrack;
   if (!trackHasWeightCaptured(effectiveTrack)) return {};
   const lrn = lrnFromLogisticsBooking(data);
-  if (!lrn) return {};
+  if (!lrn) {
+    const mwb = trackIdsFromLogisticsBooking(data).find(id => isDelhiveryMasterAwb(id)) || '';
+    if (!mwb) return {};
+    const fetchedAt = new Date().toISOString();
+    return {
+      courierFreight: {
+        ok: false,
+        lrn: mwb,
+        totalInr: null,
+        chargedWeightKg: null,
+        minChargedWeightKg: null,
+        breakup: null,
+        error: '9-digit LRN required for freight (this booking only has Master AWB)',
+        fetchedAt,
+        source: 'delhivery_freight_breakup',
+      },
+      freightFetchedAt: fetchedAt,
+    };
+  }
   try {
     const result = await fetchDelhiveryFreightCharges(db, [lrn]);
     const freight = result.byLrn[lrn];

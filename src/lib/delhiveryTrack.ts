@@ -5,6 +5,74 @@ import type { StCourierTrackResult } from './stCourierTrack';
 
 const functions = getFunctions(app, 'asia-south1');
 
+/** Normalize Delhivery LRN / MWB input. */
+export function normalizeDelhiveryId(raw: string | null | undefined): string {
+  return String(raw ?? '').replace(/[^\dA-Za-z]/g, '').trim().toUpperCase();
+}
+
+/** Classic Delhivery B2B Lorry Receipt Number (9 digits) — preferred single user entry. */
+export function isDelhiveryB2bLrn(raw: string | null | undefined): boolean {
+  return /^\d{9}$/.test(normalizeDelhiveryId(raw));
+}
+
+/** Master AWB / waybill (longer than LRN). */
+export function isDelhiveryMasterAwb(raw: string | null | undefined): boolean {
+  const id = normalizeDelhiveryId(raw);
+  if (!id || isDelhiveryB2bLrn(id)) return false;
+  return /^\d{12,}$/.test(id);
+}
+
+/**
+ * Split a single Delhivery number into LRN vs Master AWB.
+ * Users enter one value; we store LRN as consignment and MWB as tracking when known.
+ */
+export function splitDelhiveryEntryId(raw: string | null | undefined): {
+  lrn: string | null;
+  masterAwb: string | null;
+  displayId: string;
+} {
+  const id = normalizeDelhiveryId(raw);
+  if (!id) return { lrn: null, masterAwb: null, displayId: '' };
+  if (isDelhiveryB2bLrn(id)) return { lrn: id, masterAwb: null, displayId: id };
+  if (isDelhiveryMasterAwb(id)) return { lrn: null, masterAwb: id, displayId: id };
+  return { lrn: id, masterAwb: null, displayId: id };
+}
+
+/** Resolve LRN / Master AWB already stored on a logistics booking. */
+export function resolveDelhiveryBookingIds(booking: {
+  consignmentNo?: string | null;
+  trackingNo?: string | null;
+  masterAwb?: string | null;
+  courierTrack?: { awb?: string | null; masterAwb?: string | null } | null;
+}): {
+  lrn: string | null;
+  masterAwb: string | null;
+  missingLrn: boolean;
+  missingMasterAwb: boolean;
+} {
+  const candidates = [
+    booking.consignmentNo,
+    booking.trackingNo,
+    booking.masterAwb,
+    booking.courierTrack?.masterAwb,
+    booking.courierTrack?.awb,
+  ];
+  let lrn: string | null = null;
+  let masterAwb: string | null = null;
+  for (const raw of candidates) {
+    const id = normalizeDelhiveryId(raw);
+    if (!id) continue;
+    if (!lrn && isDelhiveryB2bLrn(id)) lrn = id;
+    if (!masterAwb && isDelhiveryMasterAwb(id)) masterAwb = id;
+  }
+  return {
+    lrn,
+    masterAwb,
+    missingLrn: !lrn,
+    missingMasterAwb: !masterAwb,
+  };
+}
+
 /** Same shape as ST — plus optional Delhivery StatusType (DL/UD/RT/CN…). */
 export type DelhiveryTrackResult = StCourierTrackResult & {
   statusType?: string | null;

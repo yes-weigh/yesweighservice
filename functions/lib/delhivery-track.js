@@ -19,6 +19,18 @@ export function normalizeDelhiveryLrn(raw) {
   return String(raw ?? '').replace(/[^\dA-Za-z]/g, '').trim().toUpperCase();
 }
 
+/** Classic Delhivery B2B Lorry Receipt Number (9 digits). */
+export function isDelhiveryB2bLrn(raw) {
+  return /^\d{9}$/.test(normalizeDelhiveryLrn(raw));
+}
+
+/** Master AWB / waybill (longer than LRN; commonly 14 digits starting 2056). */
+export function isDelhiveryMasterAwb(raw) {
+  const id = normalizeDelhiveryLrn(raw);
+  if (!id || isDelhiveryB2bLrn(id)) return false;
+  return /^\d{12,}$/.test(id);
+}
+
 function asText(value) {
   if (value == null) return '';
   if (typeof value === 'object') {
@@ -369,7 +381,12 @@ export function uniqueDelhiveryTrackIds(...values) {
     seen.add(id);
     out.push(id);
   }
-  return out;
+  // Prefer 9-digit LRN first (freight + display), then Master AWB for Express track.
+  return out.sort((a, b) => {
+    const aRank = isDelhiveryB2bLrn(a) ? 0 : isDelhiveryMasterAwb(a) ? 1 : 2;
+    const bRank = isDelhiveryB2bLrn(b) ? 0 : isDelhiveryMasterAwb(b) ? 1 : 2;
+    return aRank - bRank;
+  });
 }
 
 /**
@@ -458,7 +475,8 @@ export async function fetchDelhiveryTrack(db, rawLrn, options = {}) {
     };
   }
 
-  const primary = ids[0];
+  const lrn = ids.find(id => isDelhiveryB2bLrn(id)) || null;
+  const primary = lrn || ids[0];
   /** @type {string | null} */
   let lastError = null;
 
@@ -474,7 +492,9 @@ export async function fetchDelhiveryTrack(db, rawLrn, options = {}) {
         return {
           ...parsed,
           awb: primary,
-          masterAwb: ids.find(candidate => candidate !== primary) || null,
+          masterAwb: ids.find(candidate => isDelhiveryMasterAwb(candidate))
+            || ids.find(candidate => candidate !== primary)
+            || null,
         };
       }
       lastError = parsed.error;
@@ -488,10 +508,21 @@ export async function fetchDelhiveryTrack(db, rawLrn, options = {}) {
     );
   }
 
-  // 2) Express packages/json — works with Master AWB using the same B2B JWT.
-  for (const id of ids) {
+  // 2) Express packages/json — Master AWB works; LRN usually does not.
+  const expressIds = [...ids].sort((a, b) => (
+    Number(isDelhiveryB2bLrn(a)) - Number(isDelhiveryB2bLrn(b))
+  ));
+  for (const id of expressIds) {
     const parsed = await fetchDelhiveryExpressTrack(db, id, primary);
-    if (parsed.ok) return parsed;
+    if (parsed.ok) {
+      return {
+        ...parsed,
+        awb: primary,
+        masterAwb: isDelhiveryMasterAwb(id)
+          ? id
+          : (parsed.masterAwb || ids.find(candidate => isDelhiveryMasterAwb(candidate)) || id),
+      };
+    }
     lastError = parsed.error || lastError;
   }
 
@@ -509,7 +540,9 @@ export async function fetchDelhiveryTrack(db, rawLrn, options = {}) {
     sourceUrl: `${OFFICIAL_TRACK_URL}${encodeURIComponent(primary)}`,
     fetchedAt: new Date().toISOString(),
     statusType: null,
-    masterAwb: ids.find(candidate => candidate !== primary) || null,
+    masterAwb: ids.find(candidate => isDelhiveryMasterAwb(candidate))
+      || ids.find(candidate => candidate !== primary)
+      || null,
   };
 }
 

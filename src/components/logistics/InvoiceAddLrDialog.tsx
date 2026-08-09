@@ -252,12 +252,12 @@ export const InvoiceAddLrDialog: React.FC<Props> = ({
               </p>
             </div>
             <p className="text-muted text-sm">
-              Save tracking (
-              {logisticsPartnerLabel(partnerId)}
-              ).
+              {partnerId === 'delhivery'
+                ? 'Enter the Delhivery LRN (9 digits). Freight and status use this number.'
+                : `Save tracking (${logisticsPartnerLabel(partnerId)}).`}
             </p>
             <label className="settings-courier-rates__field settings-courier-rates__field--plain">
-              <span>Tracking number</span>
+              <span>{partnerId === 'delhivery' ? 'LRN' : 'Tracking number'}</span>
               <input
                 type="text"
                 value={lrn}
@@ -267,7 +267,8 @@ export const InvoiceAddLrDialog: React.FC<Props> = ({
                 spellCheck={false}
                 required
                 disabled={saving}
-                placeholder="LR / AWB / consignment no."
+                placeholder={partnerId === 'delhivery' ? 'e.g. 298833418' : 'LR / AWB / consignment no.'}
+                inputMode={partnerId === 'delhivery' ? 'numeric' : undefined}
               />
             </label>
             <label
