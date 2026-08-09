@@ -139,6 +139,11 @@ import { prepareSupportAttachmentUpload, uploadSupportAttachment } from './lib/s
 import { appendSupportMessage } from './lib/support-messages.js';
 import { markSupportMessageReceipts } from './lib/support-message-receipts.js';
 import { raiseLogisticsIssueTicket as raiseLogisticsIssueTicketHandler } from './lib/raise-logistics-issue-ticket.js';
+import {
+  listDelhiveryBookingDocuments,
+  fetchDelhiveryPodUrls,
+  fetchDelhiveryDocumentImage,
+} from './lib/delhivery-b2b-documents.js';
 import { getHrStaffFileUrl, uploadHrStaffFile } from './lib/hr-staff-upload.js';
 import { getYesStorePhotoUrl, uploadYesStorePhoto } from './lib/yes-store-upload.js';
 import {
@@ -4556,6 +4561,53 @@ export const trackDelhiveryShipmentFn = onCall(
         'internal',
         err?.message ?? 'Could not fetch Delhivery shipment status.',
       );
+    }
+  },
+);
+
+/** List Delhivery-native docs available now for an LR (skips stage-gated missing ones). */
+export const listDelhiveryBookingDocumentsFn = onCall(
+  { region: 'asia-south1', timeoutSeconds: 60, memory: '256MiB' },
+  async request => {
+    await requireActiveUser(request.auth?.uid, ALLOWED_ROLES, { allowViewOnly: true });
+    try {
+      return await listDelhiveryBookingDocuments(getFirestore(), request.data ?? {});
+    } catch (err) {
+      if (err instanceof HttpsError) throw err;
+      throw new HttpsError('internal', err?.message ?? 'Could not list Delhivery documents.');
+    }
+  },
+);
+
+/** Fresh POD image URLs for an LR (or empty when not ready). */
+export const fetchDelhiveryPodFn = onCall(
+  { region: 'asia-south1', timeoutSeconds: 60, memory: '256MiB' },
+  async request => {
+    await requireActiveUser(request.auth?.uid, ALLOWED_ROLES, { allowViewOnly: true });
+    const lrn = String(request.data?.lrn ?? request.data?.awb ?? '').trim();
+    try {
+      return await fetchDelhiveryPodUrls(getFirestore(), lrn);
+    } catch (err) {
+      if (err instanceof HttpsError) throw err;
+      throw new HttpsError('internal', err?.message ?? 'Could not fetch Delhivery POD.');
+    }
+  },
+);
+
+/** Download POD/COD image bytes (base64) when Delhivery has the file. */
+export const fetchDelhiveryDocumentImageFn = onCall(
+  { region: 'asia-south1', timeoutSeconds: 60, memory: '512MiB' },
+  async request => {
+    await requireActiveUser(request.auth?.uid, ALLOWED_ROLES, { allowViewOnly: true });
+    const lrn = String(request.data?.lrn ?? request.data?.awb ?? '').trim();
+    const docType = String(request.data?.docType ?? 'POD').trim().toUpperCase() === 'COD'
+      ? 'COD'
+      : 'POD';
+    try {
+      return await fetchDelhiveryDocumentImage(getFirestore(), lrn, docType);
+    } catch (err) {
+      if (err instanceof HttpsError) throw err;
+      throw new HttpsError('internal', err?.message ?? 'Could not download Delhivery document.');
     }
   },
 );

@@ -1,0 +1,16 @@
+{
+  "openapi": "3.0.0",
+  "info": {
+    "description": "API description",
+    "version": "1.0.0",
+    "title": "ltl-client-service API Documentation",
+    "contact": {
+      "name": "B2B-Tech",
+      "email": "b2b-tech@delhivery.com"
+    },
+    "license": {
+      "name": "Delhivery",
+      "url": "https://www.delhivery.com/"
+    }
+  }
+}

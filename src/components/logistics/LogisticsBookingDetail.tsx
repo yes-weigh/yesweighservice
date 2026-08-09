@@ -79,6 +79,12 @@ import {
   inferDelhiveryUiStatus,
   resolveDelhiveryBookingIds,
 } from '../../lib/delhiveryTrack';
+import {
+  fetchDelhiveryDocumentImage,
+  fetchDelhiveryPod,
+  listDelhiveryBookingDocuments,
+  type DelhiveryBookingDocument,
+} from '../../lib/delhiveryDocuments';
 import { StCourierTrackPanel } from './StCourierTrackPanel';
 
 /** Prefer pre-tax freight; never surface GST in ops freight views. */
@@ -208,6 +214,12 @@ export const LogisticsBookingDetail: React.FC<LogisticsBookingDetailProps> = ({
   const [delhiveryIdsError, setDelhiveryIdsError] = useState('');
   const [savingBillingMode, setSavingBillingMode] = useState(false);
   const [raiseIssueOpen, setRaiseIssueOpen] = useState(false);
+  const [delhiveryDocs, setDelhiveryDocs] = useState<DelhiveryBookingDocument[]>([]);
+  const [delhiveryDocsLoading, setDelhiveryDocsLoading] = useState(false);
+  const [delhiveryDocsError, setDelhiveryDocsError] = useState('');
+  const [delhiveryDocOpening, setDelhiveryDocOpening] = useState<string | null>(null);
+  const [delhiveryLightboxUrls, setDelhiveryLightboxUrls] = useState<string[]>([]);
+  const [delhiveryLightboxIndex, setDelhiveryLightboxIndex] = useState<number | null>(null);
   const partner = LOGISTICS_PARTNERS.find(item => item.id === booking.partnerId);
   const isEnvelope = booking.shipmentMode === 'envelope';
   const needsOuterPhoto = missingFinalPackagePhoto(booking);
@@ -266,6 +278,84 @@ export const LogisticsBookingDetail: React.FC<LogisticsBookingDetailProps> = ({
     setDelhiveryMwbDraft(delhiveryIds.masterAwb || '');
     setDelhiveryIdsError('');
   }, [booking.id, delhiveryIds?.lrn, delhiveryIds?.masterAwb]);
+
+  useEffect(() => {
+    if (!isDelhivery) {
+      setDelhiveryDocs([]);
+      setDelhiveryDocsError('');
+      return undefined;
+    }
+    const lrn = (delhiveryIds?.lrn || booking.consignmentNo || '').replace(/\D/g, '');
+    if (!lrn) {
+      setDelhiveryDocs([]);
+      return undefined;
+    }
+    let cancelled = false;
+    setDelhiveryDocsLoading(true);
+    setDelhiveryDocsError('');
+    void listDelhiveryBookingDocuments({ bookingId: booking.id, lrn })
+      .then(result => {
+        if (cancelled) return;
+        setDelhiveryDocs(result.documents);
+      })
+      .catch(err => {
+        if (cancelled) return;
+        setDelhiveryDocs([]);
+        setDelhiveryDocsError(
+          err instanceof Error ? err.message : 'Could not load Delhivery documents.',
+        );
+      })
+      .finally(() => {
+        if (!cancelled) setDelhiveryDocsLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    isDelhivery,
+    booking.id,
+    booking.consignmentNo,
+    booking.status,
+    delhiveryIds?.lrn,
+  ]);
+
+  const openDelhiveryDocument = useCallback(async (doc: DelhiveryBookingDocument) => {
+    const lrn = (delhiveryIds?.lrn || booking.consignmentNo || '').replace(/\D/g, '');
+    if (!lrn) return;
+    setDelhiveryDocOpening(doc.id);
+    setDelhiveryDocsError('');
+    try {
+      if (doc.kind === 'pod') {
+        const fresh = await fetchDelhiveryPod(lrn);
+        const urls = fresh.urls.length ? fresh.urls : (doc.urls || []);
+        if (!urls.length) {
+          setDelhiveryDocs(prev => prev.filter(item => item.id !== doc.id));
+          setDelhiveryDocsError('POD is not available yet for this shipment.');
+          return;
+        }
+        setDelhiveryLightboxUrls(urls);
+        setDelhiveryLightboxIndex(0);
+        return;
+      }
+      if (doc.kind === 'cod') {
+        const image = await fetchDelhiveryDocumentImage(lrn, 'COD');
+        if (!image.available || !image.base64) {
+          setDelhiveryDocs(prev => prev.filter(item => item.id !== doc.id));
+          setDelhiveryDocsError('COD document is not available for this shipment.');
+          return;
+        }
+        const dataUrl = `data:${image.contentType || 'image/jpeg'};base64,${image.base64}`;
+        setDelhiveryLightboxUrls([dataUrl]);
+        setDelhiveryLightboxIndex(0);
+      }
+    } catch (err) {
+      setDelhiveryDocsError(
+        err instanceof Error ? err.message : 'Could not open Delhivery document.',
+      );
+    } finally {
+      setDelhiveryDocOpening(null);
+    }
+  }, [booking.consignmentNo, delhiveryIds?.lrn]);
 
   const markDocumentGenerated = useCallback(async (document: LogisticsDocumentType) => {
     if (!user || !isOps) return;
@@ -1406,7 +1496,7 @@ export const LogisticsBookingDetail: React.FC<LogisticsBookingDetailProps> = ({
             disabled={generating !== null}
           >
             <Eye size={14} aria-hidden />
-            View courier slip
+            View booking slip
           </button>
           <button
             type="button"
@@ -1417,24 +1507,42 @@ export const LogisticsBookingDetail: React.FC<LogisticsBookingDetailProps> = ({
             <Download size={14} aria-hidden />
             {downloadingSlip ? 'Downloading…' : 'Download booking slip'}
           </button>
-          {isOps && (
+          {isOps && !shippingLabelBlocked && (
             <button
               type="button"
-              className={[
-                'btn btn-secondary btn-sm',
-                booking.shippingLabelGenerated && !shippingLabelBlocked ? 'is-done' : '',
-                shippingLabelBlocked ? 'is-blocked' : '',
-              ].filter(Boolean).join(' ')}
+              className={`btn btn-secondary btn-sm${booking.shippingLabelGenerated ? ' is-done' : ''}`}
               onClick={openShippingLabel}
-              disabled={generating !== null || shippingLabelBlocked}
-              title={shippingLabelBlocked ? 'Fix missing addresses before opening the label' : undefined}
-              aria-disabled={shippingLabelBlocked || undefined}
+              disabled={generating !== null}
             >
-              {shippingLabelBlocked ? <AlertTriangle size={14} aria-hidden /> : <Eye size={14} aria-hidden />}
-              {shippingLabelBlocked ? 'Shipping label blocked' : 'View shipping label'}
+              <Eye size={14} aria-hidden />
+              View shipping label
             </button>
           )}
+          {isDelhivery && delhiveryDocs.map(doc => (
+            <button
+              key={doc.id}
+              type="button"
+              className="btn btn-secondary btn-sm"
+              onClick={() => void openDelhiveryDocument(doc)}
+              disabled={delhiveryDocOpening != null}
+            >
+              <Eye size={14} aria-hidden />
+              {delhiveryDocOpening === doc.id ? 'Opening…' : `View ${doc.label}`}
+            </button>
+          ))}
         </div>
+        {isDelhivery && delhiveryDocsLoading && (
+          <p className="text-muted text-sm">Checking Delhivery documents…</p>
+        )}
+        {isDelhivery && !delhiveryDocsLoading && delhiveryDocs.length === 0 && !delhiveryDocsError && (
+          <p className="text-muted text-sm">
+            Delhivery POD appears here after delivery. Label / LR-copy APIs are not available for this
+            account yet.
+          </p>
+        )}
+        {delhiveryDocsError && (
+          <p className="logistics-booking__docs-error" role="alert">{delhiveryDocsError}</p>
+        )}
         {isOps && shippingLabelBlocked && (
           <div className="logistics-booking__slip-blocked" role="status">
             <AlertTriangle size={14} aria-hidden />
@@ -1546,6 +1654,19 @@ export const LogisticsBookingDetail: React.FC<LogisticsBookingDetailProps> = ({
           }}
           onPrinted={handleShippingLabelPrinted}
           onBookingRepair={onUpdate}
+        />
+      )}
+
+      {delhiveryLightboxIndex != null && delhiveryLightboxUrls[delhiveryLightboxIndex] && (
+        <PhotoLightbox
+          urls={delhiveryLightboxUrls}
+          index={delhiveryLightboxIndex}
+          onClose={() => {
+            setDelhiveryLightboxIndex(null);
+            setDelhiveryLightboxUrls([]);
+          }}
+          onIndexChange={setDelhiveryLightboxIndex}
+          alt="Delhivery document"
         />
       )}
 

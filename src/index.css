@@ -21512,6 +21512,12 @@ body:has(.confirm-inline-bar) .confirm-inline-bar {
   gap: 0.5rem;
 }
 
+.logistics-booking__docs-error {
+  margin: 0.45rem 0 0;
+  color: #f87171;
+  font-size: 0.8125rem;
+}
+
 .logistics-booking__issue {
   margin: 1rem 0;
   display: flex;
