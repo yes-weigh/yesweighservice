@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { useLocation, useNavigate, useSearchParams } from 'react-router-dom';
 import {
@@ -7,6 +7,7 @@ import {
   FileText,
   IndianRupee,
   LayoutGrid,
+  Loader2,
   Search,
   SlidersHorizontal,
   X,
@@ -35,6 +36,7 @@ import {
   filterAdminInvoices,
   formatAdminCustomerLocation,
   loadAdminInvoiceKpis,
+  searchAdminInvoicesAutocomplete,
   toInvoiceDateKey,
   type AdminFirestoreInvoice,
   type AdminInvoiceCategoryCounts,
@@ -328,6 +330,12 @@ export const AdminInvoicesPage: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [search, setSearch] = useState('');
+  const [searchOpen, setSearchOpen] = useState(false);
+  const [searchLoading, setSearchLoading] = useState(false);
+  const [searchHits, setSearchHits] = useState<AdminFirestoreInvoice[]>([]);
+  const [debouncedSearch, setDebouncedSearch] = useState('');
+  const searchWrapRef = useRef<HTMLDivElement>(null);
+  const [searchMenuRect, setSearchMenuRect] = useState<DOMRect | null>(null);
   const [sort, setSort] = useState<AdminInvoiceSort>(DEFAULT_SORT);
   const [rangePreset, setRangePreset] = useState<SalesRangePreset>(DEFAULT_RANGE);
   const [category, setCategory] = useState<InvoiceCategory | 'all'>(DEFAULT_CATEGORY);
@@ -592,11 +600,74 @@ export const AdminInvoicesPage: React.FC = () => {
     page,
   ]);
 
-  // Reset cursor stack when filters change.
+  // Reset cursor stack when filters change (search is autocomplete-only — does not reload list).
   useEffect(() => {
     setPage(1);
     setPageCursors([null]);
-  }, [search, rangePreset, category, sort, selectedCustomerKey, useAggregate, salespersonScopeKey]);
+  }, [rangePreset, category, sort, selectedCustomerKey, useAggregate, salespersonScopeKey]);
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => setDebouncedSearch(search.trim()), 250);
+    return () => window.clearTimeout(timer);
+  }, [search]);
+
+  useEffect(() => {
+    if (!searchOpen || !debouncedSearch) {
+      setSearchHits([]);
+      setSearchLoading(false);
+      return;
+    }
+    let cancelled = false;
+    setSearchLoading(true);
+    void searchAdminInvoicesAutocomplete(debouncedSearch, {
+      limitCount: 12,
+      salespersonIds,
+    })
+      .then(hits => {
+        if (!cancelled) setSearchHits(hits);
+      })
+      .catch(() => {
+        if (!cancelled) setSearchHits([]);
+      })
+      .finally(() => {
+        if (!cancelled) setSearchLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [debouncedSearch, searchOpen, salespersonIds, salespersonScopeKey]);
+
+  useEffect(() => {
+    if (!searchOpen) {
+      setSearchMenuRect(null);
+      return;
+    }
+    const updateRect = () => {
+      const el = searchWrapRef.current;
+      if (el) setSearchMenuRect(el.getBoundingClientRect());
+    };
+    updateRect();
+    window.addEventListener('resize', updateRect);
+    window.addEventListener('scroll', updateRect, true);
+    return () => {
+      window.removeEventListener('resize', updateRect);
+      window.removeEventListener('scroll', updateRect, true);
+    };
+  }, [searchOpen, search, searchHits.length, searchLoading]);
+
+  useEffect(() => {
+    if (!searchOpen) return;
+    const onPointerDown = (event: MouseEvent) => {
+      const target = event.target as Node | null;
+      if (!target) return;
+      if (searchWrapRef.current?.contains(target)) return;
+      const menu = document.getElementById('admin-invoice-search-menu');
+      if (menu?.contains(target)) return;
+      setSearchOpen(false);
+    };
+    document.addEventListener('mousedown', onPointerDown);
+    return () => document.removeEventListener('mousedown', onPointerDown);
+  }, [searchOpen]);
 
   // Dealer-scoped: fetch invoices for selected customers in the date window.
   useEffect(() => {
@@ -669,13 +740,13 @@ export const AdminInvoicesPage: React.FC = () => {
   const filtered = useMemo(
     () => filterAdminInvoices(
       rows,
-      search,
+      '',
       // Portal stamping rows are pre-filtered; avoid HSN re-filter dropping them.
       category === 'gatc'
         ? 'all'
         : (useAggregate || dealerScoped ? category : 'all'),
     ),
-    [rows, search, category, useAggregate, dealerScoped],
+    [rows, category, useAggregate, dealerScoped],
   );
 
   const displayRows = useMemo(
@@ -691,9 +762,7 @@ export const AdminInvoicesPage: React.FC = () => {
   const clientPaged = useAggregate || dealerScoped || category === 'gatc';
   const totalCount = clientPaged
     ? displayRows.length
-    : (search.trim()
-      ? displayRows.length
-      : (category === 'all' ? categoryCounts.all : categoryCounts[category]));
+    : (category === 'all' ? categoryCounts.all : categoryCounts[category]);
   const totalPages = clientPaged
     ? Math.max(1, Math.ceil(displayRows.length / LIST_PAGE_SIZE))
     : Math.max(1, Math.ceil(totalCount / LIST_PAGE_SIZE) || 1);
@@ -748,9 +817,15 @@ export const AdminInvoicesPage: React.FC = () => {
     };
   }, [pageRows]);
 
-  const openInvoice = (invoice: AdminFirestoreInvoice) => {
+  const openInvoice = useCallback((invoice: AdminFirestoreInvoice) => {
     navigate(`${basePath}/invoices/${invoice.customerId}/${invoice.id}/invoice`);
-  };
+  }, [basePath, navigate]);
+
+  const pickSearchHit = useCallback((invoice: AdminFirestoreInvoice) => {
+    setSearchOpen(false);
+    setSearch(invoice.invoiceNumber || '');
+    openInvoice(invoice);
+  }, [openInvoice]);
 
   const openAggregatedDealer = useCallback((invoice: AdminFirestoreInvoice) => {
     if (!invoice.customerId) return;
@@ -774,12 +849,10 @@ export const AdminInvoicesPage: React.FC = () => {
 
   const summary = useMemo(() => {
     const boundsForRange = getInvoicePeriodBounds(rangePreset);
-    const countFromTabs = !search.trim()
-      ? (category === 'all' ? categoryCounts.all : categoryCounts[category])
-      : displayRows.length;
+    const countFromTabs = category === 'all' ? categoryCounts.all : categoryCounts[category];
     return {
       invoiceCount: dealerScoped
-        ? (search.trim() ? displayRows.length : filtered.length)
+        ? filtered.length
         : (countFromTabs || kpiCount),
       categorySales: dealerScoped
         ? (category === 'all'
@@ -794,10 +867,8 @@ export const AdminInvoicesPage: React.FC = () => {
     };
   }, [
     rangePreset,
-    search,
     category,
     categoryCounts,
-    displayRows.length,
     dealerScoped,
     filtered,
     kpiCount,
@@ -823,25 +894,53 @@ export const AdminInvoicesPage: React.FC = () => {
   const headerTools = useMemo(
     () => (
       <div className="invoices-header-tools">
-        <div className="catalog-search invoices-header-search">
+        <div
+          ref={searchWrapRef}
+          className="catalog-search invoices-header-search invoices-header-search--autocomplete"
+        >
           <Search size={15} aria-hidden />
           <input
             type="search"
             placeholder="Search invoice #, customer…"
             value={search}
-            onChange={e => setSearch(e.target.value)}
+            onChange={e => {
+              setSearch(e.target.value);
+              setSearchOpen(true);
+            }}
+            onFocus={() => setSearchOpen(true)}
+            onKeyDown={e => {
+              if (e.key === 'Escape') {
+                setSearchOpen(false);
+                return;
+              }
+              if (e.key === 'Enter' && searchHits.length === 1) {
+                e.preventDefault();
+                pickSearchHit(searchHits[0]!);
+              }
+            }}
             aria-label="Search invoices"
+            aria-autocomplete="list"
+            aria-expanded={searchOpen}
+            aria-controls="admin-invoice-search-menu"
+            role="combobox"
+            autoComplete="off"
           />
-          {search && (
+          {searchLoading ? (
+            <Loader2 size={16} className="spin" aria-hidden />
+          ) : search ? (
             <button
               type="button"
               className="invoices-header-search__clear"
-              onClick={() => setSearch('')}
+              onClick={() => {
+                setSearch('');
+                setSearchHits([]);
+                setSearchOpen(false);
+              }}
               aria-label="Clear search"
             >
               <X size={16} />
             </button>
-          )}
+          ) : null}
         </div>
         <button
           type="button"
@@ -860,14 +959,63 @@ export const AdminInvoicesPage: React.FC = () => {
         </button>
       </div>
     ),
-    [search, filterOpen, hasActiveFilters],
+    [
+      search,
+      searchLoading,
+      searchOpen,
+      searchHits,
+      filterOpen,
+      hasActiveFilters,
+      pickSearchHit,
+    ],
   );
 
   useCatalogPageHeader({ mobileCompactHeader: true }, true);
   usePageHeaderSlot(headerTools);
 
+  const searchMenu = searchOpen && searchMenuRect && debouncedSearch
+    ? createPortal(
+      <div
+        id="admin-invoice-search-menu"
+        className="admin-invoice-search-menu"
+        role="listbox"
+        style={{
+          top: searchMenuRect.bottom + 6,
+          left: Math.max(8, searchMenuRect.left),
+          width: Math.max(searchMenuRect.width, 280),
+        }}
+      >
+        {searchLoading && (
+          <div className="admin-invoice-search-menu__status">Searching…</div>
+        )}
+        {!searchLoading && searchHits.length === 0 && (
+          <div className="admin-invoice-search-menu__status">No matching invoices</div>
+        )}
+        {!searchLoading && searchHits.map(invoice => (
+          <button
+            key={`${invoice.customerId}-${invoice.id}`}
+            type="button"
+            role="option"
+            className="admin-invoice-search-menu__item"
+            onClick={() => pickSearchHit(invoice)}
+          >
+            <span className="admin-invoice-search-menu__title">
+              {invoice.invoiceNumber || invoice.id}
+            </span>
+            <span className="admin-invoice-search-menu__meta">
+              {invoice.customerName || '—'}
+              {invoice.date ? ` · ${formatInvoiceDate(invoice.date)}` : ''}
+            </span>
+          </button>
+        ))}
+      </div>,
+      document.body,
+    )
+    : null;
+
   return (
     <div className="page-content fade-in admin-invoices-page invoices-page unified-sales-orders-page">
+      {searchMenu}
       <section className="invoices-summary" aria-label="Invoice summary">
         <div className="invoices-summary__kpis">
           <div className="invoices-summary__kpi">
@@ -975,7 +1123,6 @@ export const AdminInvoicesPage: React.FC = () => {
             <div className="invoices-pagination invoices-pagination--top" role="navigation" aria-label="Invoice list pagination">
               <span className="invoices-pagination__info text-muted text-sm">
                 {rangeLabelStart}–{rangeLabelEnd} of {rangeLabelTotal.toLocaleString('en-IN')}
-                {search.trim() && !clientPaged ? ' (this page)' : ''}
               </span>
               <div className="invoices-pagination__btns">
                 <button

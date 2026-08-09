@@ -2,6 +2,7 @@ import {
   collection,
   collectionGroup,
   doc,
+  endAt,
   getCountFromServer,
   getDoc,
   getDocs,
@@ -10,6 +11,7 @@ import {
   orderBy,
   query,
   startAfter,
+  startAt,
   where,
   type DocumentData,
   type QueryConstraint,
@@ -550,6 +552,157 @@ export function filterAdminInvoices(
       .toLowerCase();
     return haystack.includes(needle);
   });
+}
+
+const ADMIN_INVOICE_SEARCH_LIMIT = 12;
+
+/** YES/YY-YY/ prefixes for current and recent financial years (Apr–Mar). */
+function yesweighInvoiceFyPrefixes(now = new Date()): string[] {
+  const month = now.getMonth();
+  const year = now.getFullYear();
+  const fyStartYear = month >= 3 ? year : year - 1;
+  const label = (startYear: number) => {
+    const a = String(startYear).slice(-2);
+    const b = String(startYear + 1).slice(-2);
+    return `YES/${a}-${b}/`;
+  };
+  return [label(fyStartYear), label(fyStartYear - 1), label(fyStartYear - 2)];
+}
+
+function uniquePrefixes(values: string[], max = 8): string[] {
+  const out: string[] = [];
+  const seen = new Set<string>();
+  for (const value of values) {
+    const prefix = value.trim();
+    if (!prefix || seen.has(prefix)) continue;
+    seen.add(prefix);
+    out.push(prefix);
+    if (out.length >= max) break;
+  }
+  return out;
+}
+
+/** Invoice-number prefixes for Firestore startAt/endAt (no full collection scan). */
+export function adminInvoiceNumberSearchPrefixes(raw: string): string[] {
+  const q = raw.trim();
+  if (!q) return [];
+  const prefixes: string[] = [q, q.toUpperCase()];
+  const compact = q.replace(/\s+/g, '');
+  const digits = compact.replace(/\D/g, '');
+  const looksLikeSeq = Boolean(digits) && (
+    /^\d{1,6}$/.test(compact)
+    || /^\/?\d{1,6}$/.test(compact)
+    || digits.length >= 2 && digits.length === compact.replace(/^YES\/?/i, '').replace(/\D/g, '').length
+  );
+  if (looksLikeSeq && digits) {
+    for (const fy of yesweighInvoiceFyPrefixes()) {
+      prefixes.push(`${fy}${digits}`);
+    }
+  }
+  if (/^yes\b/i.test(q) || q.includes('/')) {
+    let normalized = q.toUpperCase().replace(/\s+/g, '');
+    if (!normalized.startsWith('YES')) {
+      normalized = `YES/${normalized.replace(/^\/+/, '')}`;
+    }
+    prefixes.push(normalized);
+  }
+  return uniquePrefixes(prefixes);
+}
+
+function adminCustomerNameSearchPrefixes(raw: string): string[] {
+  const q = raw.trim();
+  if (!q || q.length < 2) return [];
+  const title = q.replace(/\w\S*/g, word => (
+    word.charAt(0).toUpperCase() + word.slice(1).toLowerCase()
+  ));
+  return uniquePrefixes([q, q.toUpperCase(), q.toLowerCase(), title], 4);
+}
+
+async function prefixQueryAdminInvoices(
+  listCollection: AdminInvoiceListCollection,
+  field: 'invoiceNumber' | 'customerName',
+  prefix: string,
+  rowLimit: number,
+): Promise<AdminFirestoreInvoice[]> {
+  const snap = await getDocs(
+    query(
+      collectionGroup(db, listCollection),
+      orderBy(field),
+      startAt(prefix),
+      endAt(`${prefix}\uf8ff`),
+      limit(rowLimit),
+    ),
+  );
+  return snap.docs.map(mapAdminInvoiceDoc);
+}
+
+/**
+ * Org-wide invoice autocomplete via limited prefix queries (invoice # / customer).
+ * Does not load the full invoice corpus.
+ */
+export async function searchAdminInvoicesAutocomplete(
+  searchText: string,
+  options?: {
+    limitCount?: number;
+    salespersonIds?: string[] | null;
+  },
+): Promise<AdminFirestoreInvoice[]> {
+  const raw = searchText.trim();
+  if (!raw) return [];
+
+  const limitCount = Math.min(
+    Math.max(options?.limitCount ?? ADMIN_INVOICE_SEARCH_LIMIT, 1),
+    25,
+  );
+  const listCollection = await resolveAdminInvoiceListCollection();
+  const numberPrefixes = adminInvoiceNumberSearchPrefixes(raw);
+  const namePrefixes = adminCustomerNameSearchPrefixes(raw);
+
+  const tasks: Array<Promise<AdminFirestoreInvoice[]>> = [
+    ...numberPrefixes.map(prefix => (
+      prefixQueryAdminInvoices(listCollection, 'invoiceNumber', prefix, limitCount)
+    )),
+    ...namePrefixes.map(prefix => (
+      prefixQueryAdminInvoices(listCollection, 'customerName', prefix, limitCount)
+    )),
+  ];
+
+  const settled = await Promise.allSettled(tasks);
+  const byKey = new Map<string, AdminFirestoreInvoice>();
+  for (const result of settled) {
+    if (result.status !== 'fulfilled') continue;
+    for (const row of result.value) {
+      if (!row.customerId || !row.id) continue;
+      byKey.set(`${row.customerId}:${row.id}`, row);
+    }
+  }
+
+  let rows = [...byKey.values()];
+  rows = filterRowsBySalespersonScope(rows, options?.salespersonIds);
+
+  const needle = raw.toLowerCase();
+  const needleDigits = raw.replace(/\D/g, '');
+  rows.sort((a, b) => {
+    const aNum = (a.invoiceNumber || '').toLowerCase();
+    const bNum = (b.invoiceNumber || '').toLowerCase();
+    const aName = (a.customerName || '').toLowerCase();
+    const bName = (b.customerName || '').toLowerCase();
+    const score = (num: string, name: string) => {
+      if (num === needle || num === raw.toUpperCase()) return 0;
+      if (needleDigits && num.endsWith(needleDigits)) return 1;
+      if (num.startsWith(needle) || num.includes(needle)) return 2;
+      if (name.startsWith(needle)) return 3;
+      if (name.includes(needle)) return 4;
+      return 5;
+    };
+    const diff = score(aNum, aName) - score(bNum, bName);
+    if (diff !== 0) return diff;
+    const aDate = a.date ? Date.parse(a.date) : 0;
+    const bDate = b.date ? Date.parse(b.date) : 0;
+    return bDate - aDate;
+  });
+
+  return rows.slice(0, limitCount);
 }
 
 export function filterAdminInvoicesByPeriod(

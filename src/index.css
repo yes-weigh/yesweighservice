@@ -2235,6 +2235,56 @@ html::-webkit-scrollbar {
   background: rgba(255, 255, 255, 0.06);
 }
 
+.admin-invoice-search-menu {
+  position: fixed;
+  z-index: 80;
+  max-height: min(22rem, 60vh);
+  overflow: auto;
+  padding: 0.35rem;
+  border-radius: 0.75rem;
+  border: 1px solid var(--border-glass);
+  background: rgba(15, 23, 42, 0.96);
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.45);
+  backdrop-filter: blur(10px);
+}
+
+.admin-invoice-search-menu__status {
+  padding: 0.65rem 0.75rem;
+  font-size: 0.8125rem;
+  color: var(--text-muted);
+}
+
+.admin-invoice-search-menu__item {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.15rem;
+  width: 100%;
+  padding: 0.55rem 0.75rem;
+  border: none;
+  border-radius: 0.55rem;
+  background: transparent;
+  color: var(--text-primary);
+  text-align: left;
+  cursor: pointer;
+}
+
+.admin-invoice-search-menu__item:hover,
+.admin-invoice-search-menu__item:focus-visible {
+  background: rgba(56, 189, 248, 0.12);
+  outline: none;
+}
+
+.admin-invoice-search-menu__title {
+  font-size: 0.875rem;
+  font-weight: 700;
+}
+
+.admin-invoice-search-menu__meta {
+  font-size: 0.75rem;
+  color: var(--text-muted);
+}
+
 .catalog-header-toolbar {
   display: flex;
   align-items: center;
