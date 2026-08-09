@@ -482,6 +482,7 @@ export function stCourierTrackingUrl(consignmentNo: string): string {
  * Partner tracking URL encoded in the TO-column QR (null when not applicable).
  * ST Courier → /track/st-courier?awb=
  * Trackon → /track/trackon?awb=
+ * Delhivery → /track/delhivery?awb=
  */
 export function buildShippingLabelTrackingUrl(
   label: Pick<ShippingLabelViewModel, 'partnerId' | 'consignmentNo'>,
@@ -493,6 +494,7 @@ export function buildShippingLabelTrackingUrl(
     label.partnerId === 'trackon_air'
     || label.partnerId === 'trackon_surface'
     || label.partnerId === 'trackon'
+    || label.partnerId === 'delhivery'
   ) {
     return logisticsTrackingUrl(label.partnerId, awb);
   }

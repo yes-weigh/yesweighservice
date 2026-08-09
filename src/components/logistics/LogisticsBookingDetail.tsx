@@ -62,6 +62,7 @@ import { STAFF_LOGISTICS_SITE_LABELS } from '../../types/staff-logistics';
 import { CourierSlipViewDialog } from './CourierSlipViewDialog';
 import { PhotoLightbox } from './PhotoLightbox';
 import { ShippingLabelPrintDialog } from './ShippingLabelPrintDialog';
+import { inferDelhiveryUiStatus } from '../../lib/delhiveryTrack';
 import { StCourierTrackPanel } from './StCourierTrackPanel';
 
 interface LogisticsBookingDetailProps {
@@ -478,7 +479,9 @@ export const LogisticsBookingDetail: React.FC<LogisticsBookingDetailProps> = ({
           onTrackUpdated={(track) => {
             let nextStatus = booking.status;
             if (booking.status !== 'returned' && booking.status !== 'cancelled') {
-              if (!track.ok) {
+              if (isDelhivery) {
+                nextStatus = inferDelhiveryUiStatus(track, booking.status) as typeof booking.status;
+              } else if (!track.ok) {
                 nextStatus = 'label_generated';
               } else if (
                 booking.status === 'label_generated'
@@ -490,6 +493,9 @@ export const LogisticsBookingDetail: React.FC<LogisticsBookingDetailProps> = ({
                 nextStatus = delivered ? 'delivered' : 'in_transit';
               }
             }
+            const statusType = 'statusType' in track
+              ? (track as { statusType?: string | null }).statusType
+              : undefined;
             onUpdate({
               ...booking,
               status: nextStatus,
@@ -498,6 +504,7 @@ export const LogisticsBookingDetail: React.FC<LogisticsBookingDetailProps> = ({
                 ok: track.ok,
                 error: track.error,
                 status: track.status,
+                ...(statusType != null ? { statusType: String(statusType) } : {}),
                 origin: track.origin,
                 destination: track.destination,
                 consignmentType: track.consignmentType,

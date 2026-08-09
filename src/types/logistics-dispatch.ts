@@ -119,11 +119,13 @@ export interface LogisticsCourierTrack {
   ok: boolean;
   error: string | null;
   status: string | null;
+  /** Delhivery StatusType when present (DL / UD / RT / CN / …). */
+  statusType?: string | null;
   origin: string | null;
   destination: string | null;
   consignmentType: string | null;
   bookedAt: string | null;
-  /** ST Courier delivery date/time string when available. */
+  /** Courier delivery date/time string when available. */
   deliveredAt: string | null;
   history: LogisticsCourierTrackHistoryItem[];
   sourceUrl: string;

@@ -30698,6 +30698,28 @@ button.invoice-detail-top__card {
   color: var(--text-muted);
 }
 
+.invoice-manual-logistics-invoice-head {
+  margin: 0 0 0.65rem;
+}
+
+.invoice-manual-logistics-invoice-head__number,
+.invoice-manual-logistics-invoice-head__date {
+  margin: 0;
+  font-weight: 800;
+  line-height: 1.2;
+  color: var(--text-primary);
+}
+
+.invoice-manual-logistics-invoice-head__number {
+  font-size: 1.35rem;
+  letter-spacing: -0.02em;
+}
+
+.invoice-manual-logistics-invoice-head__date {
+  margin-top: 0.2rem;
+  font-size: 1.15rem;
+}
+
 .invoice-manual-logistics-link-list {
   display: flex;
   flex-direction: column;
@@ -30709,12 +30731,11 @@ button.invoice-detail-top__card {
 
 .invoice-manual-logistics-link-list__row {
   display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-  gap: 0.15rem;
+  align-items: center;
+  gap: 0.75rem;
   width: 100%;
   text-align: left;
-  padding: 0.65rem 0.8rem;
+  padding: 0.7rem 0.85rem;
   border-radius: 10px;
   border: 1px solid var(--border-glass);
   background: transparent;
@@ -30722,7 +30743,47 @@ button.invoice-detail-top__card {
   cursor: pointer;
 }
 
-.invoice-manual-logistics-link-list__row span {
+.invoice-manual-logistics-link-list__icon {
+  flex: 0 0 2.5rem;
+  width: 2.5rem;
+  height: 2.5rem;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.06);
+  overflow: hidden;
+}
+
+.invoice-manual-logistics-link-list__icon img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  padding: 0.2rem;
+}
+
+.invoice-manual-logistics-link-list__body {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.1rem;
+  min-width: 0;
+}
+
+.invoice-manual-logistics-link-list__date {
+  font-size: 1.1rem;
+  font-weight: 800;
+  line-height: 1.2;
+  color: var(--text-primary);
+}
+
+.invoice-manual-logistics-link-list__tracking {
+  font-size: 0.9rem;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.invoice-manual-logistics-link-list__meta {
   font-size: 0.8rem;
   color: var(--text-muted);
 }

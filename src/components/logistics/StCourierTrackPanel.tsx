@@ -13,6 +13,7 @@ import {
 import {
   fetchDelhiveryShipmentTrack,
   delhiveryTrackFromBooking,
+  type DelhiveryTrackResult,
 } from '../../lib/delhiveryTrack';
 import type {
   LogisticsCourierDeliveryOffice,
@@ -21,6 +22,8 @@ import type {
 import { isStaffLogisticsSite, type StaffLogisticsSite } from '../../types/staff-logistics';
 
 export type CourierTrackProvider = 'st_courier' | 'trackon' | 'delhivery';
+
+type CourierTrackResult = StCourierTrackResult | DelhiveryTrackResult;
 
 interface StCourierTrackPanelProps {
   awb: string;
@@ -33,7 +36,7 @@ interface StCourierTrackPanelProps {
   courierDeliveryOffice?: LogisticsCourierDeliveryOffice | null;
   /** Persisted Firestore snapshot — shown as-is until the user refreshes. */
   cachedTrack?: LogisticsCourierTrack | null;
-  onTrackUpdated?: (track: StCourierTrackResult) => void;
+  onTrackUpdated?: (track: CourierTrackResult) => void;
 }
 
 function formatFetchedAt(iso: string | null | undefined): string | null {
@@ -74,7 +77,7 @@ export const StCourierTrackPanel: React.FC<StCourierTrackPanelProps> = ({
 }) => {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
-  const [result, setResult] = useState<StCourierTrackResult | null>(() => {
+  const [result, setResult] = useState<CourierTrackResult | null>(() => {
     if (provider === 'trackon') return trackonTrackFromBooking(cachedTrack);
     if (provider === 'delhivery') return delhiveryTrackFromBooking(cachedTrack);
     return stCourierTrackFromBooking(cachedTrack);

@@ -1431,7 +1431,41 @@ export async function deleteLogisticsBookingPermanently(
   await deleteDoc(bookingRef);
 }
 
-/** Unlinked bookings for a Zoho customer (no invoiceId), newest first. */
+/**
+ * Unlinked bookings for a delivery partner (no invoiceId), newest first.
+ * Same-customer rows are sorted to the top when preferZohoCustomerId is set.
+ */
+export async function listUnlinkedLogisticsBookingsForPartner(
+  partnerId: LogisticsPartnerId,
+  options?: { preferZohoCustomerId?: string; limitCount?: number },
+): Promise<LogisticsBooking[]> {
+  if (!isLogisticsPartnerId(partnerId)) return [];
+  const preferCustomer = options?.preferZohoCustomerId?.trim() || '';
+  const limitCount = Math.min(Math.max(options?.limitCount ?? 250, 1), 250);
+  const snap = await getDocs(
+    query(collection(db, COLLECTION), orderBy('bookingDate', 'desc'), limit(limitCount)),
+  );
+  const rows = snap.docs
+    .map(docSnap => mapLogisticsBookingDoc(docSnap.id, docSnap.data()))
+    .filter(booking => {
+      if (booking.partnerId !== partnerId) return false;
+      if (booking.status === 'cancelled' || booking.status === 'returned') return false;
+      return !booking.invoiceId?.trim();
+    });
+
+  if (!preferCustomer) {
+    return rows.sort(compareLogisticsBookingsByBookingDateDesc);
+  }
+
+  return [...rows].sort((a, b) => {
+    const aSame = a.dealer.zohoCustomerId.trim() === preferCustomer ? 0 : 1;
+    const bSame = b.dealer.zohoCustomerId.trim() === preferCustomer ? 0 : 1;
+    if (aSame !== bSame) return aSame - bSame;
+    return compareLogisticsBookingsByBookingDateDesc(a, b);
+  });
+}
+
+/** @deprecated use listUnlinkedLogisticsBookingsForPartner */
 export async function listUnlinkedLogisticsBookingsForCustomer(
   zohoCustomerId: string,
   options?: { limitCount?: number },
@@ -1489,22 +1523,21 @@ export async function linkLogisticsBookingToInvoice(input: {
   if (booking.status === 'cancelled' || booking.status === 'returned') {
     throw new Error('Cannot link a cancelled or returned booking.');
   }
-  if (
-    booking.dealer.zohoCustomerId.trim()
-    && zohoCustomerId
-    && booking.dealer.zohoCustomerId.trim() !== zohoCustomerId
-  ) {
-    throw new Error('That logistics entry belongs to a different customer.');
-  }
 
   const updatedAt = new Date().toISOString();
-  await updateDoc(bookingRef, {
+  const patch: Record<string, unknown> = {
     invoiceId,
     invoiceNumber: invoiceNumber || null,
     source: 'invoice',
     orderRef: invoiceNumber || booking.orderRef || `INV-${invoiceId.slice(0, 8)}`,
     updatedAt,
-  });
+  };
+  // Keep dealer snapshot; only align top-level customer id when empty.
+  if (!booking.dealer.zohoCustomerId.trim() && zohoCustomerId) {
+    patch.zohoCustomerId = zohoCustomerId;
+  }
+
+  await updateDoc(bookingRef, patch);
 
   return {
     ...booking,

@@ -1,9 +1,14 @@
 import React, { useEffect, useState } from 'react';
-import { Link2, Loader2, PenLine, X } from 'lucide-react';
-import { logisticsPartnerLabel, type LogisticsPartnerId } from '../../constants/logisticsPartners';
+import { Link2, Loader2, PenLine, Truck, X } from 'lucide-react';
+import {
+  logisticsPartnerImage,
+  logisticsPartnerLabel,
+  type LogisticsPartnerId,
+} from '../../constants/logisticsPartners';
+import { formatInvoiceDate } from '../../lib/invoices';
 import {
   linkLogisticsBookingToInvoice,
-  listUnlinkedLogisticsBookingsForCustomer,
+  listUnlinkedLogisticsBookingsForPartner,
   recordInvoiceLogisticsBooking,
 } from '../../lib/logisticsBookings';
 import type { User } from '../../types';
@@ -75,7 +80,9 @@ export const InvoiceAddLrDialog: React.FC<Props> = ({
     let cancelled = false;
     setLoadingList(true);
     setError('');
-    void listUnlinkedLogisticsBookingsForCustomer(zohoCustomerId)
+    void listUnlinkedLogisticsBookingsForPartner(partnerId, {
+      preferZohoCustomerId: zohoCustomerId,
+    })
       .then(rows => {
         if (cancelled) return;
         setCandidates(rows);
@@ -92,7 +99,7 @@ export const InvoiceAddLrDialog: React.FC<Props> = ({
     return () => {
       cancelled = true;
     };
-  }, [open, mode, zohoCustomerId]);
+  }, [open, mode, partnerId, zohoCustomerId]);
 
   if (!open) return null;
 
@@ -102,7 +109,7 @@ export const InvoiceAddLrDialog: React.FC<Props> = ({
       return (
         b.consignmentNo.toLowerCase().includes(q)
         || b.trackingNo.toLowerCase().includes(q)
-        || logisticsPartnerLabel(b.partnerId).toLowerCase().includes(q)
+        || b.dealer.name.toLowerCase().includes(q)
         || b.orderRef.toLowerCase().includes(q)
       );
     })
@@ -185,11 +192,16 @@ export const InvoiceAddLrDialog: React.FC<Props> = ({
 
         {mode === 'choose' ? (
           <>
-            <p className="text-muted text-sm" style={{ marginTop: 0 }}>
-              For
-              {' '}
-              {invoice.invoiceNumber}
-              . No courier API automation.
+            <div className="invoice-manual-logistics-invoice-head">
+              <p className="invoice-manual-logistics-invoice-head__number">
+                {invoice.invoiceNumber}
+              </p>
+              <p className="invoice-manual-logistics-invoice-head__date">
+                {invoice.date ? formatInvoiceDate(invoice.date) : '—'}
+              </p>
+            </div>
+            <p className="text-muted text-sm">
+              No courier API automation.
             </p>
             <div className="invoice-manual-logistics-modes">
               <button
@@ -211,7 +223,13 @@ export const InvoiceAddLrDialog: React.FC<Props> = ({
                 <Link2 size={20} aria-hidden />
                 <span>
                   <strong>Link logistics</strong>
-                  <em>Attach an existing unlinked booking for this customer</em>
+                  <em>
+                    Attach an existing unlinked
+                    {' '}
+                    {logisticsPartnerLabel(partnerId)}
+                    {' '}
+                    booking
+                  </em>
                 </span>
               </button>
             </div>
@@ -225,12 +243,16 @@ export const InvoiceAddLrDialog: React.FC<Props> = ({
 
         {mode === 'manual' ? (
           <form onSubmit={e => void handleManualSubmit(e)}>
-            <p className="text-muted text-sm" style={{ marginTop: 0 }}>
-              Save tracking for
-              {' '}
-              {invoice.invoiceNumber}
-              {' '}
-              (
+            <div className="invoice-manual-logistics-invoice-head">
+              <p className="invoice-manual-logistics-invoice-head__number">
+                {invoice.invoiceNumber}
+              </p>
+              <p className="invoice-manual-logistics-invoice-head__date">
+                {invoice.date ? formatInvoiceDate(invoice.date) : '—'}
+              </p>
+            </div>
+            <p className="text-muted text-sm">
+              Save tracking (
               {logisticsPartnerLabel(partnerId)}
               ).
             </p>
@@ -288,11 +310,20 @@ export const InvoiceAddLrDialog: React.FC<Props> = ({
 
         {mode === 'link' ? (
           <form onSubmit={e => void handleLinkSubmit(e)}>
-            <p className="text-muted text-sm" style={{ marginTop: 0 }}>
-              Unlinked logistics for this customer — pick one to attach to
+            <div className="invoice-manual-logistics-invoice-head">
+              <p className="invoice-manual-logistics-invoice-head__number">
+                {invoice.invoiceNumber}
+              </p>
+              <p className="invoice-manual-logistics-invoice-head__date">
+                {invoice.date ? formatInvoiceDate(invoice.date) : '—'}
+              </p>
+            </div>
+            <p className="text-muted text-sm">
+              Unlinked
               {' '}
-              {invoice.invoiceNumber}
-              .
+              {logisticsPartnerLabel(partnerId)}
+              {' '}
+              entries — pick one to attach.
             </p>
             <label className="settings-courier-rates__field settings-courier-rates__field--plain">
               <span>Search</span>
@@ -301,7 +332,7 @@ export const InvoiceAddLrDialog: React.FC<Props> = ({
                 value={linkQuery}
                 onChange={e => setLinkQuery(e.target.value)}
                 disabled={saving || loadingList}
-                placeholder="Tracking / partner"
+                placeholder="Tracking / dealer / order ref"
               />
             </label>
             <div className="invoice-manual-logistics-link-list" role="listbox" aria-label="Unlinked logistics">
@@ -309,11 +340,17 @@ export const InvoiceAddLrDialog: React.FC<Props> = ({
                 <p className="text-muted text-sm">Loading…</p>
               ) : filtered.length === 0 ? (
                 <p className="text-muted text-sm">
-                  No unlinked logistics entries for this customer.
+                  No unlinked
+                  {' '}
+                  {logisticsPartnerLabel(partnerId)}
+                  {' '}
+                  logistics entries found.
                 </p>
               ) : (
                 filtered.map(booking => {
                   const selected = booking.id === selectedId;
+                  const sameCustomer = booking.dealer.zohoCustomerId.trim() === zohoCustomerId.trim();
+                  const partnerImg = logisticsPartnerImage(booking.partnerId);
                   return (
                     <button
                       key={booking.id}
@@ -324,14 +361,27 @@ export const InvoiceAddLrDialog: React.FC<Props> = ({
                       onClick={() => setSelectedId(booking.id)}
                       disabled={saving}
                     >
-                      <strong>{booking.consignmentNo || booking.trackingNo || '—'}</strong>
-                      <span>
-                        {logisticsPartnerLabel(booking.partnerId)}
-                        {' · '}
-                        {formatBookingDate(booking.bookingDate)}
-                        {booking.numberOfBoxes
-                          ? ` · ${booking.numberOfBoxes} box${booking.numberOfBoxes === 1 ? '' : 'es'}`
-                          : ''}
+                      <span className="invoice-manual-logistics-link-list__icon" aria-hidden>
+                        {partnerImg ? (
+                          <img src={partnerImg} alt="" />
+                        ) : (
+                          <Truck size={22} strokeWidth={1.75} />
+                        )}
+                      </span>
+                      <span className="invoice-manual-logistics-link-list__body">
+                        <strong className="invoice-manual-logistics-link-list__date">
+                          {formatBookingDate(booking.bookingDate)}
+                        </strong>
+                        <span className="invoice-manual-logistics-link-list__tracking">
+                          {booking.consignmentNo || booking.trackingNo || '—'}
+                        </span>
+                        <span className="invoice-manual-logistics-link-list__meta">
+                          {booking.dealer.name || 'Unknown dealer'}
+                          {sameCustomer ? ' · this customer' : ''}
+                          {booking.numberOfBoxes
+                            ? ` · ${booking.numberOfBoxes} box${booking.numberOfBoxes === 1 ? '' : 'es'}`
+                            : ''}
+                        </span>
                       </span>
                     </button>
                   );
