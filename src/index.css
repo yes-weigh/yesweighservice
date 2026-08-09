@@ -20805,14 +20805,15 @@ body:has(.confirm-inline-bar) .confirm-inline-bar {
   display: inline-flex;
   align-items: center;
   gap: 0.25rem;
-  padding: 0.18rem 0.45rem;
+  padding: 0.2rem 0.5rem;
   border-radius: 999px;
   font-size: 0.6875rem;
   font-weight: 800;
   letter-spacing: 0.02em;
-  color: #fde68a;
-  background: rgba(245, 158, 11, 0.18);
-  border: 1px solid rgba(245, 158, 11, 0.35);
+  color: #1c1917;
+  background: #fbbf24;
+  border: 1px solid #f59e0b;
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.35);
 }
 
 .logistics-shipment__sep {
