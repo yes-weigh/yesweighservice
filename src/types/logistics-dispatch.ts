@@ -120,6 +120,8 @@ export interface LogisticsBookingDraft {
   freightBillingMode?: LogisticsFreightBillingMode | null;
   /** Delhivery first-mile pickup after Create LR (stashed until persist). */
   delhiveryPickup?: LogisticsDelhiveryPickup | null;
+  /** Delhivery Master AWB (MWB) when known at Create LR. */
+  masterAwb?: string | null;
 }
 
 /** Persisted ST Courier track snapshot (from hourly sync / live fetch). */

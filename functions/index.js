@@ -182,6 +182,7 @@ import {
   resolveDelhiveryPickupLocationName,
 } from './lib/delhivery-b2b-manifest.js';
 import { createDelhiveryPickupRequest } from './lib/delhivery-pickup.js';
+import { resolveDelhiveryMasterAwbFromLrn } from './lib/delhivery-b2b-documents.js';
 import { syncDelhiveryWarehouseForSite } from './lib/delhivery-warehouse.js';
 import {
   fetchDelhiveryTrack,
@@ -4476,6 +4477,15 @@ export const bookDelhiveryShipmentFn = onCall(
         freightBillingMode: request.data?.freightBillingMode,
       });
 
+      // Master AWB from label URLs (soft) — usually available once LR is manifested.
+      let masterAwb = null;
+      try {
+        const resolved = await resolveDelhiveryMasterAwbFromLrn(db, result.lrn);
+        masterAwb = resolved.masterAwb || null;
+      } catch {
+        masterAwb = null;
+      }
+
       // First-mile pickup after LR — never fail the book if pickup fails.
       // Soft-OK when warehouse already has an open pickup (pr_exist / 669).
       let pickup;
@@ -4512,7 +4522,7 @@ export const bookDelhiveryShipmentFn = onCall(
         };
       }
 
-      return { ...result, pickup };
+      return { ...result, masterAwb, pickup };
     } catch (err) {
       if (err instanceof HttpsError) throw err;
       throw new HttpsError(

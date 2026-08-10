@@ -1004,6 +1004,7 @@ export const BookCourierFlow: React.FC<BookCourierFlowProps> = ({
       });
       const lrn = String(result.lrn || '').trim();
       if (!lrn) throw new Error('Delhivery did not return an LR number.');
+      const masterAwb = String(result.masterAwb || '').replace(/\D/g, '').trim() || null;
       const pickupRaw = result.pickup;
       const delhiveryPickup = pickupRaw
         ? {
@@ -1024,6 +1025,7 @@ export const BookCourierFlow: React.FC<BookCourierFlowProps> = ({
         barcodeRaw: prev.barcodeRaw || lrn,
         serviceType: 'Surface',
         branch: 'Delhivery B2B',
+        ...(masterAwb ? { masterAwb } : {}),
         ...(delhiveryPickup ? { delhiveryPickup } : {}),
       }));
       return true;

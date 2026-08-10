@@ -204,6 +204,82 @@ function parseImagePayload(dataUrlOrBase64) {
 }
 
 /**
+ * Label print URLs embed Master / child AWBs:
+ *   /label/print/a4/{MWB}?box_index=1&…
+ * Prefer box_index=1 as Master AWB (portal MWB).
+ *
+ * @param {unknown} urls
+ * @param {string} [lrn]
+ * @returns {{ masterAwb: string | null, waybills: string[] }}
+ */
+export function extractMasterAwbFromLabelUrls(urls, lrn = '') {
+  const lrnDigits = normalizeLrn(lrn);
+  const list = Array.isArray(urls) ? urls.map(u => String(u || '').trim()).filter(Boolean) : [];
+  /** @type {{ awb: string, boxIndex: number | null }[]} */
+  const parsed = [];
+  for (const url of list) {
+    const awbMatch = /\/label\/print\/[^/]+\/(\d{12,})(?:\?|$)/i.exec(url)
+      || /\/(\d{12,})(?:\?|$)/.exec(url);
+    const awb = awbMatch?.[1] || '';
+    if (!awb || awb === lrnDigits) continue;
+    const boxRaw = /[?&]box_index=(\d+)/i.exec(url)?.[1];
+    const boxIndex = boxRaw != null ? Number(boxRaw) : null;
+    parsed.push({ awb, boxIndex: Number.isFinite(boxIndex) ? boxIndex : null });
+  }
+  const waybills = [...new Set(parsed.map(item => item.awb))];
+  const box1 = parsed.find(item => item.boxIndex === 1);
+  return {
+    masterAwb: box1?.awb || waybills[0] || null,
+    waybills,
+  };
+}
+
+/**
+ * Resolve Master AWB for an LRN via LTL label URL list (lightweight; no image download).
+ *
+ * @param {FirebaseFirestore.Firestore} db
+ * @param {string} lrn
+ * @param {'std' | 'md' | 'sm' | 'a4'} [size]
+ */
+export async function resolveDelhiveryMasterAwbFromLrn(db, lrn, size = 'a4') {
+  const id = normalizeLrn(lrn);
+  if (!id) {
+    return { masterAwb: null, waybills: [], urls: [], error: 'LRN is required.' };
+  }
+  const labelSize = ['std', 'md', 'sm', 'a4'].includes(String(size)) ? String(size) : 'a4';
+  try {
+    const listRes = await ltlGet(db, `/label/get_urls/${labelSize}/${id}`);
+    let listJson = null;
+    try {
+      listJson = JSON.parse(listRes.buf.toString('utf8'));
+    } catch {
+      listJson = null;
+    }
+    if (!listRes.res.ok || listJson?.success === false) {
+      const message = listJson?.error?.message || listJson?.message || `Label URLs failed (${listRes.res.status})`;
+      return { masterAwb: null, waybills: [], urls: [], error: String(message) };
+    }
+    const urls = Array.isArray(listJson?.data)
+      ? listJson.data.map(item => String(item || '').trim()).filter(Boolean)
+      : [];
+    const extracted = extractMasterAwbFromLabelUrls(urls, id);
+    return {
+      masterAwb: extracted.masterAwb,
+      waybills: extracted.waybills,
+      urls,
+      error: extracted.masterAwb ? null : 'No Master AWB in label URLs yet.',
+    };
+  } catch (err) {
+    return {
+      masterAwb: null,
+      waybills: [],
+      urls: [],
+      error: err?.message || 'Could not resolve Master AWB.',
+    };
+  }
+}
+
+/**
  * @param {FirebaseFirestore.Firestore} db
  * @param {string} lrn
  * @param {'std' | 'md' | 'sm' | 'a4'} [size]

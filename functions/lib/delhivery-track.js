@@ -8,6 +8,7 @@
  */
 
 import { delhiveryB2bFetch, getValidDelhiveryJwt } from './delhivery-b2b.js';
+import { resolveDelhiveryMasterAwbFromLrn } from './delhivery-b2b-documents.js';
 
 const OFFICIAL_TRACK_URL = 'https://www.delhivery.com/track/package/';
 const EXPRESS_PACKAGES_URL = 'https://track.delhivery.com/api/v1/packages/json/';
@@ -525,8 +526,20 @@ export async function fetchDelhiveryTrack(db, rawLrn, options = {}) {
     );
   }
 
-  // 2) Express packages/json — Master AWB works; LRN usually does not.
-  const expressIds = [...ids].sort((a, b) => (
+  // 2) If we only have LRN, resolve Master AWB from LTL label URLs (available once manifested).
+  /** @type {string[]} */
+  const trackIds = [...ids];
+  let resolvedMasterAwb = trackIds.find(candidate => isDelhiveryMasterAwb(candidate)) || null;
+  if (!resolvedMasterAwb && lrn) {
+    const resolved = await resolveDelhiveryMasterAwbFromLrn(db, lrn);
+    if (resolved.masterAwb && isDelhiveryMasterAwb(resolved.masterAwb)) {
+      resolvedMasterAwb = resolved.masterAwb;
+      trackIds.push(resolved.masterAwb);
+    }
+  }
+
+  // 3) Express packages/json — Master AWB works; LRN usually does not.
+  const expressIds = [...trackIds].sort((a, b) => (
     Number(isDelhiveryB2bLrn(a)) - Number(isDelhiveryB2bLrn(b))
   ));
   for (const id of expressIds) {
@@ -537,7 +550,9 @@ export async function fetchDelhiveryTrack(db, rawLrn, options = {}) {
         awb: primary,
         masterAwb: isDelhiveryMasterAwb(id)
           ? id
-          : (parsed.masterAwb || ids.find(candidate => isDelhiveryMasterAwb(candidate)) || id),
+          : (parsed.masterAwb || resolvedMasterAwb
+            || trackIds.find(candidate => isDelhiveryMasterAwb(candidate))
+            || id),
       };
     }
     lastError = parsed.error || lastError;
@@ -554,11 +569,12 @@ export async function fetchDelhiveryTrack(db, rawLrn, options = {}) {
     bookedAt: null,
     deliveredAt: null,
     history: [],
-    sourceUrl: `${OFFICIAL_TRACK_URL}${encodeURIComponent(primary)}`,
+    sourceUrl: `${OFFICIAL_TRACK_URL}${encodeURIComponent(resolvedMasterAwb || primary)}`,
     fetchedAt: new Date().toISOString(),
     statusType: null,
-    masterAwb: ids.find(candidate => isDelhiveryMasterAwb(candidate))
-      || ids.find(candidate => candidate !== primary)
+    masterAwb: resolvedMasterAwb
+      || trackIds.find(candidate => isDelhiveryMasterAwb(candidate))
+      || trackIds.find(candidate => candidate !== primary)
       || null,
   };
 }

@@ -121,6 +121,8 @@ export type DelhiveryPickupResult = {
 export type DelhiveryBookResult = {
   ok: boolean;
   lrn: string;
+  /** Master AWB from label URLs when available after manifest. */
+  masterAwb?: string | null;
   jobId?: string | null;
   env?: DelhiveryB2bEnv;
   /** First-mile pickup after Create LR (soft-fail; LR still succeeds). */

@@ -642,7 +642,16 @@ async function buildBookingPayload(input: PersistLogisticsBookingInput & {
     supportRequestNumber: draft.supportRequestNumber ?? null,
     partnerId: draft.partnerId,
     consignmentNo: draft.consignmentNo.trim(),
-    trackingNo: draft.consignmentNo.trim(),
+    trackingNo: (
+      (draft.partnerId === 'delhivery' && draft.masterAwb?.trim())
+        ? draft.masterAwb.trim()
+        : draft.consignmentNo.trim()
+    ),
+    ...(draft.partnerId === 'delhivery' && draft.masterAwb?.trim()
+      ? { masterAwb: draft.masterAwb.trim() }
+      : (draft.partnerId === 'delhivery' && typeof existingData?.masterAwb === 'string' && existingData.masterAwb.trim()
+        ? { masterAwb: existingData.masterAwb.trim() }
+        : {})),
     branch: draft.branch.trim(),
     serviceType: draft.serviceType.trim(),
     bookingDate: draft.bookingDate || new Date().toISOString().slice(0, 10),
@@ -1264,6 +1273,7 @@ export function bookingToWizardState(booking: LogisticsBooking): {
       ...(booking.partnerId === 'delhivery'
         ? {
           freightBillingMode: booking.freightBillingMode === 'fod' ? 'fod' as const : 'btc' as const,
+          ...(booking.masterAwb ? { masterAwb: booking.masterAwb } : {}),
           ...(booking.delhiveryPickup ? { delhiveryPickup: booking.delhiveryPickup } : {}),
         }
         : {}),
