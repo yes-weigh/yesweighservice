@@ -116,6 +116,31 @@ function mapCourierTrack(raw: unknown): LogisticsCourierTrack | null {
   };
 }
 
+function mapDelhiveryPickup(raw: unknown): import('../types/logistics-dispatch').LogisticsDelhiveryPickup | null {
+  if (!raw || typeof raw !== 'object') return null;
+  const data = raw as Record<string, unknown>;
+  const pickupId = typeof data.pickupId === 'string' && data.pickupId.trim()
+    ? data.pickupId.trim()
+    : null;
+  const requestedAt = typeof data.requestedAt === 'string' && data.requestedAt.trim()
+    ? data.requestedAt.trim()
+    : '';
+  if (!pickupId && !requestedAt && data.ok !== true && data.ok !== false) return null;
+  return {
+    ok: data.ok === true,
+    alreadyExisted: data.alreadyExisted === true,
+    pickupId,
+    pickupLocationName: typeof data.pickupLocationName === 'string' ? data.pickupLocationName : null,
+    pickupDate: typeof data.pickupDate === 'string' ? data.pickupDate : null,
+    pickupTime: typeof data.pickupTime === 'string' ? data.pickupTime : null,
+    expectedPackageCount: typeof data.expectedPackageCount === 'number' && Number.isFinite(data.expectedPackageCount)
+      ? data.expectedPackageCount
+      : null,
+    message: typeof data.message === 'string' ? data.message : null,
+    requestedAt: requestedAt || new Date(0).toISOString(),
+  };
+}
+
 function mapFreightBillingMode(
   raw: unknown,
 ): import('../types/logistics-dispatch').LogisticsFreightBillingMode | null {
@@ -423,6 +448,7 @@ export function mapLogisticsBookingDoc(id: string, data: DocumentData): Logistic
         ? data.freightBillingModeSource
         : null
     ),
+    delhiveryPickup: mapDelhiveryPickup(data.delhiveryPickup),
     freightDiffSettledAt: typeof data.freightDiffSettledAt === 'string'
       ? data.freightDiffSettledAt
       : null,
@@ -664,14 +690,18 @@ async function buildBookingPayload(input: PersistLogisticsBookingInput & {
     ...(courierDeliveryOffice ? { courierDeliveryOffice } : {}),
     // Delhivery: capture FOD/BTC at booking (default BTC). Sync may infer later if unset.
     ...(draft.partnerId === 'delhivery'
-      ? {
-        freightBillingMode: (
-          draft.freightBillingMode === 'fod' || draft.freightBillingMode === 'btc'
-            ? draft.freightBillingMode
-            : 'btc'
-        ),
-        freightBillingModeSource: 'booking' as const,
-      }
+      ? (() => {
+        const pickup = draft.delhiveryPickup || mapDelhiveryPickup(existingData?.delhiveryPickup);
+        return {
+          freightBillingMode: (
+            draft.freightBillingMode === 'fod' || draft.freightBillingMode === 'btc'
+              ? draft.freightBillingMode
+              : 'btc'
+          ),
+          freightBillingModeSource: 'booking' as const,
+          ...(pickup ? { delhiveryPickup: pickup } : {}),
+        };
+      })()
       : {}),
     createdAt,
     updatedAt: now,
@@ -1231,6 +1261,12 @@ export function bookingToWizardState(booking: LogisticsBooking): {
       finalPackagePhoto: booking.finalPackagePhoto,
       finalPackagePhotoStoragePath: booking.finalPackagePhotoStoragePath,
       labelGenerated: booking.labelGenerated,
+      ...(booking.partnerId === 'delhivery'
+        ? {
+          freightBillingMode: booking.freightBillingMode === 'fod' ? 'fod' as const : 'btc' as const,
+          ...(booking.delhiveryPickup ? { delhiveryPickup: booking.delhiveryPickup } : {}),
+        }
+        : {}),
     },
   };
 }
@@ -1535,6 +1571,25 @@ export async function updateLogisticsBookingDelhiveryIds(
     ...(masterAwb ? { masterAwb } : {}),
     updatedAt,
   };
+}
+
+export async function updateLogisticsBookingDelhiveryPickup(
+  booking: LogisticsBooking,
+  pickup: import('../types/logistics-dispatch').LogisticsDelhiveryPickup,
+  user: User,
+): Promise<LogisticsBooking> {
+  if (!isInternalOpsUser(user)) {
+    throw new Error('You do not have permission to update Delhivery pickup.');
+  }
+  if (booking.partnerId !== 'delhivery') {
+    throw new Error('Only Delhivery bookings support pickup requests.');
+  }
+  const updatedAt = new Date().toISOString();
+  await updateDoc(doc(db, COLLECTION, booking.id), {
+    delhiveryPickup: pickup,
+    updatedAt,
+  });
+  return { ...booking, delhiveryPickup: pickup, updatedAt };
 }
 
 /** Correct ship-from site/address from logistics settings (e.g. match invoice branch). */

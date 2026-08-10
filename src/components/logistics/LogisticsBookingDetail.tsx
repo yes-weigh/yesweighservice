@@ -18,7 +18,7 @@ import {
 } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import { useConfirm } from '../../context/ConfirmContext';
-import { cancelDelhiveryShipment } from '../../lib/delhiveryB2b';
+import { cancelDelhiveryShipment, createDelhiveryPickupRequest } from '../../lib/delhiveryB2b';
 import { LOGISTICS_PARTNERS } from '../../constants/logisticsPartners';
 import { logisticsPartnerLabel } from '../../constants/logisticsPartners';
 import { formatCurrency } from '../../lib/catalog';
@@ -43,6 +43,7 @@ import {
   generateLogisticsDocument,
   hydrateLogisticsBookingPhotos,
   updateLogisticsBookingDelhiveryIds,
+  updateLogisticsBookingDelhiveryPickup,
   updateLogisticsBookingFreightBillingMode,
   updateLogisticsBookingShipFrom,
   uploadLogisticsBookingFinalPackagePhoto,
@@ -238,6 +239,8 @@ export const LogisticsBookingDetail: React.FC<LogisticsBookingDetailProps> = ({
   const delhiveryDocObjectUrlsRef = React.useRef<string[]>([]);
   const [cancellingDelhivery, setCancellingDelhivery] = useState(false);
   const [cancelDelhiveryError, setCancelDelhiveryError] = useState('');
+  const [requestingPickup, setRequestingPickup] = useState(false);
+  const [pickupError, setPickupError] = useState('');
   const partner = LOGISTICS_PARTNERS.find(item => item.id === booking.partnerId);
   const isEnvelope = booking.shipmentMode === 'envelope';
   const needsOuterPhoto = missingFinalPackagePhoto(booking);
@@ -551,6 +554,38 @@ export const LogisticsBookingDetail: React.FC<LogisticsBookingDetailProps> = ({
     onUpdate,
     user,
   ]);
+
+  const handleRequestDelhiveryPickup = useCallback(async () => {
+    if (!user || !isOps || booking.partnerId !== 'delhivery') return;
+    setRequestingPickup(true);
+    setPickupError('');
+    try {
+      const result = await createDelhiveryPickupRequest({
+        shipFromSite: booking.shipFromSite,
+        expectedPackageCount: Math.max(1, booking.numberOfBoxes || booking.boxes.length || 1),
+      });
+      const updated = await updateLogisticsBookingDelhiveryPickup(
+        booking,
+        {
+          ok: result.ok === true,
+          alreadyExisted: result.alreadyExisted === true,
+          pickupId: result.pickupId?.trim() || null,
+          pickupLocationName: result.pickupLocationName ?? null,
+          pickupDate: result.pickupDate ?? null,
+          pickupTime: result.pickupTime ?? null,
+          expectedPackageCount: result.expectedPackageCount ?? null,
+          message: result.message ?? null,
+          requestedAt: result.requestedAt || new Date().toISOString(),
+        },
+        user,
+      );
+      onUpdate(updated);
+    } catch (err) {
+      setPickupError(err instanceof Error ? err.message : 'Could not create pickup request.');
+    } finally {
+      setRequestingPickup(false);
+    }
+  }, [booking, isOps, onUpdate, user]);
 
   const handleSaveDelhiveryIdsAndRefresh = useCallback(async () => {
     if (!user || !isOps || booking.partnerId !== 'delhivery') return;
@@ -1411,6 +1446,47 @@ export const LogisticsBookingDetail: React.FC<LogisticsBookingDetailProps> = ({
                       || '—'}
                   </dd>
                 </div>
+                <div>
+                  <dt>Pickup</dt>
+                  <dd>
+                    {booking.delhiveryPickup?.ok && booking.delhiveryPickup.pickupId
+                      ? (
+                        <>
+                          {booking.delhiveryPickup.pickupId}
+                          {booking.delhiveryPickup.alreadyExisted ? ' (already open)' : ''}
+                          {booking.delhiveryPickup.pickupDate
+                            ? ` · ${booking.delhiveryPickup.pickupDate}`
+                            : ''}
+                          {booking.delhiveryPickup.pickupLocationName
+                            ? ` · ${booking.delhiveryPickup.pickupLocationName}`
+                            : ''}
+                        </>
+                      )
+                      : (booking.delhiveryPickup && !booking.delhiveryPickup.ok
+                        ? (booking.delhiveryPickup.message || 'Pickup request failed')
+                        : 'Not requested')}
+                  </dd>
+                </div>
+                {isOps && user && (
+                  !booking.delhiveryPickup?.ok || !booking.delhiveryPickup?.pickupId
+                ) && (
+                  <div>
+                    <dt />
+                    <dd>
+                      <button
+                        type="button"
+                        className="btn btn-secondary"
+                        disabled={requestingPickup}
+                        onClick={() => { void handleRequestDelhiveryPickup(); }}
+                      >
+                        {requestingPickup ? 'Requesting pickup…' : 'Request pickup'}
+                      </button>
+                      {pickupError ? (
+                        <p className="text-danger text-sm" style={{ marginTop: 6 }}>{pickupError}</p>
+                      ) : null}
+                    </dd>
+                  </div>
+                )}
               </>
             ) : (
               <div><dt>LRN / AWB</dt><dd>{booking.consignmentNo || '—'}</dd></div>

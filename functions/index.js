@@ -181,6 +181,7 @@ import {
   cancelDelhiveryB2bShipment,
   resolveDelhiveryPickupLocationName,
 } from './lib/delhivery-b2b-manifest.js';
+import { createDelhiveryPickupRequest } from './lib/delhivery-pickup.js';
 import { syncDelhiveryWarehouseForSite } from './lib/delhivery-warehouse.js';
 import {
   fetchDelhiveryTrack,
@@ -4456,13 +4457,14 @@ export const bookDelhiveryShipmentFn = onCall(
         || await resolveDelhiveryPickupLocationName(db, site);
       // Shipper phone/GSTIN on LR print come from the registered warehouse profile.
       await syncDelhiveryWarehouseForSite(db, site, pickupLocationName);
+      const boxes = Array.isArray(request.data?.boxes) ? request.data.boxes : [];
       const result = await bookDelhiveryB2bShipment(db, {
         pickupLocationName,
         orderId: String(request.data?.orderId ?? '').trim() || `YW-${Date.now()}`,
         consignee: request.data?.consignee || {},
         returnAddress: request.data?.returnAddress || null,
         billingAddress: request.data?.billingAddress || null,
-        boxes: Array.isArray(request.data?.boxes) ? request.data.boxes : [],
+        boxes,
         invoiceNumber: request.data?.invoiceNumber,
         invoiceValueInr: request.data?.invoiceValueInr,
         invoiceDate: request.data?.invoiceDate,
@@ -4473,12 +4475,89 @@ export const bookDelhiveryShipmentFn = onCall(
         shippingMode: request.data?.shippingMode,
         freightBillingMode: request.data?.freightBillingMode,
       });
-      return result;
+
+      // First-mile pickup after LR — never fail the book if pickup fails.
+      // Soft-OK when warehouse already has an open pickup (pr_exist / 669).
+      let pickup;
+      try {
+        const created = await createDelhiveryPickupRequest(db, {
+          shipFromSite: site,
+          pickupLocationName,
+          boxes,
+        });
+        pickup = {
+          ok: true,
+          alreadyExisted: Boolean(created.alreadyExisted),
+          pickupId: created.pickupId || null,
+          pickupLocationName: created.pickupLocationName || pickupLocationName,
+          pickupDate: created.pickupDate || null,
+          pickupTime: created.pickupTime || null,
+          expectedPackageCount: created.expectedPackageCount ?? null,
+          message: created.message || null,
+          requestedAt: new Date().toISOString(),
+        };
+      } catch (pickupErr) {
+        pickup = {
+          ok: false,
+          alreadyExisted: false,
+          pickupId: null,
+          pickupLocationName,
+          pickupDate: null,
+          pickupTime: null,
+          expectedPackageCount: null,
+          message: pickupErr instanceof HttpsError
+            ? pickupErr.message
+            : (pickupErr?.message || 'Pickup request failed.'),
+          requestedAt: new Date().toISOString(),
+        };
+      }
+
+      return { ...result, pickup };
     } catch (err) {
       if (err instanceof HttpsError) throw err;
       throw new HttpsError(
         'failed-precondition',
         err?.message ?? 'Could not book Delhivery shipment.',
+      );
+    }
+  },
+);
+
+/** Create (or attach to existing) Delhivery first-mile pickup request. */
+export const createDelhiveryPickupRequestFn = onCall(
+  {
+    region: 'asia-south1',
+    timeoutSeconds: 60,
+    memory: '256MiB',
+  },
+  async request => {
+    await requireActiveUser(request.auth?.uid, ALLOWED_ROLES);
+    const db = getFirestore();
+    try {
+      const created = await createDelhiveryPickupRequest(db, {
+        shipFromSite: String(request.data?.shipFromSite ?? 'cochin').trim() || 'cochin',
+        pickupLocationName: String(request.data?.pickupLocationName ?? '').trim() || undefined,
+        expectedPackageCount: request.data?.expectedPackageCount,
+        boxes: Array.isArray(request.data?.boxes) ? request.data.boxes : undefined,
+        pickupDate: request.data?.pickupDate,
+        pickupTime: request.data?.pickupTime,
+      });
+      return {
+        ok: true,
+        alreadyExisted: Boolean(created.alreadyExisted),
+        pickupId: created.pickupId || null,
+        pickupLocationName: created.pickupLocationName || null,
+        pickupDate: created.pickupDate || null,
+        pickupTime: created.pickupTime || null,
+        expectedPackageCount: created.expectedPackageCount ?? null,
+        message: created.message || null,
+        requestedAt: new Date().toISOString(),
+      };
+    } catch (err) {
+      if (err instanceof HttpsError) throw err;
+      throw new HttpsError(
+        'failed-precondition',
+        err?.message ?? 'Could not create Delhivery pickup request.',
       );
     }
   },

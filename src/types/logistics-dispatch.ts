@@ -118,6 +118,8 @@ export interface LogisticsBookingDraft {
    * Sent as freight_mode on manifest create when FOD.
    */
   freightBillingMode?: LogisticsFreightBillingMode | null;
+  /** Delhivery first-mile pickup after Create LR (stashed until persist). */
+  delhiveryPickup?: LogisticsDelhiveryPickup | null;
 }
 
 /** Persisted ST Courier track snapshot (from hourly sync / live fetch). */
@@ -149,6 +151,19 @@ export interface LogisticsCourierTrack {
 
 /** Delhivery freight billing: FOD = consignee pays freight; BTC = bill to client. */
 export type LogisticsFreightBillingMode = 'fod' | 'btc';
+
+/** Delhivery first-mile pickup request snapshot (after Create LR). */
+export interface LogisticsDelhiveryPickup {
+  ok: boolean;
+  alreadyExisted?: boolean;
+  pickupId: string | null;
+  pickupLocationName?: string | null;
+  pickupDate?: string | null;
+  pickupTime?: string | null;
+  expectedPackageCount?: number | null;
+  message?: string | null;
+  requestedAt: string;
+}
 
 /** Delhivery freight-breakup snapshot (after weight captured). */
 export interface LogisticsCourierFreightBreakup {
@@ -248,6 +263,8 @@ export interface LogisticsBooking {
   freightBillingMode?: LogisticsFreightBillingMode | null;
   /** How freightBillingMode was set: booking UI, Delhivery API, estimate inference, or ops. */
   freightBillingModeSource?: 'booking' | 'api' | 'inferred' | 'manual' | null;
+  /** Delhivery first-mile pickup request (auto after Create LR). */
+  delhiveryPickup?: LogisticsDelhiveryPickup | null;
   /** Set when this booking's BTC freight Diff was fully settled onto an invoiced SO. */
   freightDiffSettledAt?: string | null;
   freightDiffSettledInvoiceId?: string | null;

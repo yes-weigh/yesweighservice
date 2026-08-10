@@ -1004,12 +1004,27 @@ export const BookCourierFlow: React.FC<BookCourierFlowProps> = ({
       });
       const lrn = String(result.lrn || '').trim();
       if (!lrn) throw new Error('Delhivery did not return an LR number.');
+      const pickupRaw = result.pickup;
+      const delhiveryPickup = pickupRaw
+        ? {
+          ok: pickupRaw.ok === true,
+          alreadyExisted: pickupRaw.alreadyExisted === true,
+          pickupId: pickupRaw.pickupId?.trim() || null,
+          pickupLocationName: pickupRaw.pickupLocationName ?? null,
+          pickupDate: pickupRaw.pickupDate ?? null,
+          pickupTime: pickupRaw.pickupTime ?? null,
+          expectedPackageCount: pickupRaw.expectedPackageCount ?? null,
+          message: pickupRaw.message ?? null,
+          requestedAt: pickupRaw.requestedAt || new Date().toISOString(),
+        }
+        : null;
       applyDraft(prev => ({
         ...prev,
         consignmentNo: lrn,
         barcodeRaw: prev.barcodeRaw || lrn,
         serviceType: 'Surface',
         branch: 'Delhivery B2B',
+        ...(delhiveryPickup ? { delhiveryPickup } : {}),
       }));
       return true;
     } catch (err) {

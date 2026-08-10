@@ -106,11 +106,25 @@ export type DelhiveryBookBox = {
   quantity?: number;
 };
 
+export type DelhiveryPickupResult = {
+  ok: boolean;
+  alreadyExisted?: boolean;
+  pickupId: string | null;
+  pickupLocationName?: string | null;
+  pickupDate?: string | null;
+  pickupTime?: string | null;
+  expectedPackageCount?: number | null;
+  message?: string | null;
+  requestedAt?: string;
+};
+
 export type DelhiveryBookResult = {
   ok: boolean;
   lrn: string;
   jobId?: string | null;
   env?: DelhiveryB2bEnv;
+  /** First-mile pickup after Create LR (soft-fail; LR still succeeds). */
+  pickup?: DelhiveryPickupResult | null;
 };
 
 export async function bookDelhiveryShipment(input: {
@@ -142,6 +156,27 @@ export async function bookDelhiveryShipment(input: {
     return result.data;
   } catch (err) {
     throw callableError(err, 'Could not book Delhivery shipment.');
+  }
+}
+
+export async function createDelhiveryPickupRequest(input: {
+  shipFromSite: StaffLogisticsSite | string;
+  pickupLocationName?: string;
+  expectedPackageCount?: number;
+  boxes?: DelhiveryBookBox[];
+  pickupDate?: string;
+  pickupTime?: string;
+}): Promise<DelhiveryPickupResult> {
+  try {
+    const fn = httpsCallable<typeof input, DelhiveryPickupResult>(
+      functions,
+      'createDelhiveryPickupRequestFn',
+      { timeout: 60_000 },
+    );
+    const result = await fn(input);
+    return result.data;
+  } catch (err) {
+    throw callableError(err, 'Could not create Delhivery pickup request.');
   }
 }
 
