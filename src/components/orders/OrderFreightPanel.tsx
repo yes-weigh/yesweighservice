@@ -148,26 +148,25 @@ function ParcelGroupDetailCard({
   return (
     <li className="order-freight-panel__calc-packing-card">
       <p className="order-freight-panel__calc-packing-line">
-        <strong>
-          {kindLabel}
-          {' '}
-          #
-          {index + 1}
-          {group.count > 1 ? ` ×${group.count}` : ''}
-        </strong>
-        <span aria-hidden>·</span>
-        <span className="is-chg">
-          {formatKg(chgKg)}
-          {' '}
-          kg
+        <span className="order-freight-panel__calc-packing-left">
+          <strong>
+            {kindLabel}
+            {' '}
+            #
+            {index + 1}
+            {group.count > 1 ? ` ×${group.count}` : ''}
+          </strong>
+          <span aria-hidden>·</span>
+          <span className="is-chg">
+            {formatKg(chgKg)}
+            {' '}
+            kg
+          </span>
         </span>
         {amount > 0 ? (
-          <>
-            <span aria-hidden>·</span>
-            <strong className="order-freight-panel__calc-packing-amt">
-              {formatCurrency(amount)}
-            </strong>
-          </>
+          <strong className="order-freight-panel__calc-packing-amt">
+            {formatCurrency(amount)}
+          </strong>
         ) : null}
       </p>
     </li>

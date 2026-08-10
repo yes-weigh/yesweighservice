@@ -15861,10 +15861,9 @@ body:has(.confirm-inline-bar) .confirm-inline-bar {
 
 .order-freight-panel__calc-packing-line {
   display: flex;
-  flex-wrap: wrap;
   align-items: baseline;
-  column-gap: 0.35rem;
-  row-gap: 0.1rem;
+  justify-content: space-between;
+  gap: 0.75rem;
   margin: 0;
   font-size: 0.72rem;
   font-weight: 650;
@@ -15872,7 +15871,16 @@ body:has(.confirm-inline-bar) .confirm-inline-bar {
   color: #cbd5e1;
 }
 
-.order-freight-panel__calc-packing-line strong {
+.order-freight-panel__calc-packing-left {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  column-gap: 0.35rem;
+  row-gap: 0.1rem;
+  min-width: 0;
+}
+
+.order-freight-panel__calc-packing-left strong {
   font-weight: 750;
   color: #e2e8f0;
 }
@@ -15883,9 +15891,12 @@ body:has(.confirm-inline-bar) .confirm-inline-bar {
 }
 
 .order-freight-panel__calc-packing-amt {
+  margin-left: auto;
   color: #fbbf24;
   font-weight: 800;
   white-space: nowrap;
+  text-align: right;
+  flex-shrink: 0;
 }
 
 .order-freight-panel__calc-stack {
