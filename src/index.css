@@ -23534,6 +23534,58 @@ body:has(.confirm-inline-bar) .confirm-inline-bar {
   flex-shrink: 0;
 }
 
+.book-courier__slip-error:is(ul) {
+  padding-left: 1.25rem;
+  list-style: disc;
+}
+
+.book-courier__contact-fields {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.65rem;
+  margin: 0.75rem 0;
+}
+
+.book-courier__contact-fields label {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+  margin: 0;
+  min-width: 0;
+}
+
+.book-courier__contact-fields label span {
+  font-size: 0.6875rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: #94a3b8;
+}
+
+.book-courier__contact-fields input {
+  width: 100%;
+  margin: 0;
+  padding: 0.55rem 0.7rem;
+  border: 1px solid #334155;
+  border-radius: 10px;
+  background: #0f172a;
+  color: #f8fafc;
+  font: inherit;
+  font-size: 0.875rem;
+}
+
+.book-courier__contact-fields input:focus {
+  outline: none;
+  border-color: #ff7a00;
+  box-shadow: 0 0 0 3px rgba(255, 122, 0, 0.18);
+}
+
+@media (max-width: 640px) {
+  .book-courier__contact-fields {
+    grid-template-columns: 1fr;
+  }
+}
+
 .book-courier__label-preview .sheet {
   width: 100mm;
   height: 150mm;

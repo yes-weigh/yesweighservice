@@ -285,6 +285,11 @@ function cityStateFromAddress(address: string): { city?: string; state?: string 
   return city && city !== '—' ? { city } : {};
 }
 
+function normalizeGstinForCourier(value: string | null | undefined): string | null {
+  const text = String(value ?? '').trim().toUpperCase();
+  return /^[0-9A-Z]{15}$/.test(text) ? text : null;
+}
+
 export const BookCourierFlow: React.FC<BookCourierFlowProps> = ({
   partnerId,
   user,
@@ -704,6 +709,11 @@ export const BookCourierFlow: React.FC<BookCourierFlowProps> = ({
       zohoCustomerId: dealer.id,
       dealerId: dealer.portalUserId?.trim() || dealer.id,
       deliveryAddressKind: preferredDeliveryAddressKind(snapshot, 'shipping'),
+      customerPhone: prev.customerPhone?.trim()
+        || phoneDigitsForCourier(resolveReceiverPhoneFromSnapshot(snapshot))
+        || phoneDigitsForCourier(snapshot.mobile)
+        || prev.customerPhone
+        || null,
     }));
     setDealerQuery('');
     // List-cache rows often lack Zoho street addresses — refresh detail immediately.
@@ -726,6 +736,11 @@ export const BookCourierFlow: React.FC<BookCourierFlowProps> = ({
                 detailedSnap,
                 prev.deliveryAddressKind,
               ),
+              customerPhone: prev.customerPhone?.trim()
+                || phoneDigitsForCourier(resolveReceiverPhoneFromSnapshot(detailedSnap))
+                || phoneDigitsForCourier(detailedSnap.mobile)
+                || prev.customerPhone
+                || null,
             };
           });
         })
@@ -841,16 +856,24 @@ export const BookCourierFlow: React.FC<BookCourierFlowProps> = ({
       const siteContact = fromSiteContacts[draftRef.current.shipFromSite] ?? { phone: '', gstin: '' };
       const shipperPhone = phoneDigitsForCourier(siteContact.phone)
         || phoneDigitsForCourier(FIRM_PHONE);
-      const shipperGstin = (siteContact.gstin || FIRM_GSTIN).trim().toUpperCase();
+      const shipperGstin = normalizeGstinForCourier(siteContact.gstin)
+        || normalizeGstinForCourier(FIRM_GSTIN);
       if (!shipperPhone) {
-        throw new Error('Ship-from phone is missing. Set it in Logistics Settings → Sites (or brand firm phone).');
+        throw new Error('Ship-from phone is missing. Set it in Logistics Settings → Sites.');
+      }
+      if (!shipperGstin) {
+        throw new Error('Ship-from GSTIN is missing or invalid. Set a 15-character GSTIN in Logistics Settings → Sites.');
       }
 
-      const consigneePhone = phoneDigitsForCourier(resolveReceiverPhoneFromSnapshot(selectedDealer))
-        || phoneDigitsForCourier(draftRef.current.customerPhone)
+      const consigneePhone = phoneDigitsForCourier(draftRef.current.customerPhone)
+        || phoneDigitsForCourier(resolveReceiverPhoneFromSnapshot(selectedDealer))
         || phoneDigitsForCourier(selectedDealer.mobile);
       if (!consigneePhone) {
-        throw new Error('Consignee phone is required. Add a phone on the dealer shipping address or invoice.');
+        throw new Error('Consignee phone is required before creating a Delhivery LR.');
+      }
+      const consigneeGstin = normalizeGstinForCourier(draftRef.current.customerGstin);
+      if (!consigneeGstin) {
+        throw new Error('Consignee GSTIN is required before creating a Delhivery LR (15 characters).');
       }
 
       const deliveryPlace = cityStateFromAddress(address);
@@ -880,9 +903,7 @@ export const BookCourierFlow: React.FC<BookCourierFlowProps> = ({
           state: deliveryPlace.state,
           pincode: pin,
           country: 'India',
-          ...(draftRef.current.customerGstin?.trim()
-            ? { gstin: draftRef.current.customerGstin.trim() }
-            : {}),
+          gstin: consigneeGstin,
         },
         returnAddress: fromAddress
           ? {
@@ -1322,6 +1343,52 @@ export const BookCourierFlow: React.FC<BookCourierFlowProps> = ({
     height_cm: Math.max(1, Math.round(Number.parseFloat(box.heightCm) || 30)),
     box_count: 1,
   }));
+  const delhiveryResolvedContacts = useMemo(() => {
+    const siteContact = fromSiteContacts[draft.shipFromSite] ?? { phone: '', gstin: '' };
+    const shipperPhone = phoneDigitsForCourier(siteContact.phone)
+      || phoneDigitsForCourier(FIRM_PHONE);
+    const shipperGstin = normalizeGstinForCourier(siteContact.gstin)
+      || normalizeGstinForCourier(FIRM_GSTIN);
+    const consigneePhone = phoneDigitsForCourier(draft.customerPhone)
+      || (
+        selectedDealer
+          ? (
+            phoneDigitsForCourier(resolveReceiverPhoneFromSnapshot(selectedDealer))
+            || phoneDigitsForCourier(selectedDealer.mobile)
+          )
+          : null
+      );
+    const consigneeGstin = normalizeGstinForCourier(draft.customerGstin);
+    return { shipperPhone, shipperGstin, consigneePhone, consigneeGstin };
+  }, [
+    draft.customerGstin,
+    draft.customerPhone,
+    draft.shipFromSite,
+    fromSiteContacts,
+    selectedDealer,
+  ]);
+  const delhiveryContactIssues = useMemo(() => {
+    if (!isDelhivery) return [] as string[];
+    const issues: string[] = [];
+    if (!delhiveryResolvedContacts.shipperPhone) {
+      issues.push('Ship-from phone is missing — set it under Logistics → Sites.');
+    }
+    if (!delhiveryResolvedContacts.shipperGstin) {
+      issues.push('Ship-from GSTIN is missing or invalid — set a 15-character GSTIN under Logistics → Sites.');
+    }
+    if (!selectedDealer) {
+      issues.push('Select a delivery address.');
+    } else if (!delhiveryResolvedContacts.consigneePhone) {
+      issues.push('Consignee phone is missing — enter it below or add it on the dealer / invoice.');
+    }
+    if (!delhiveryResolvedContacts.consigneeGstin) {
+      issues.push('Consignee GSTIN is missing or invalid — enter a 15-character GSTIN below.');
+    }
+    return issues;
+  }, [delhiveryResolvedContacts, isDelhivery, selectedDealer]);
+  const canCreateDelhiveryLrn = !isDelhivery
+    || Boolean(draft.consignmentNo.trim())
+    || delhiveryContactIssues.length === 0;
   const shippingLabelCount = isEnvelope ? 1 : Math.max(1, draft.boxes.length);
   const buildShippingLabelsForDealer = useCallback((
     dealer: LogisticsDealerSnapshot,
@@ -2182,6 +2249,65 @@ export const BookCourierFlow: React.FC<BookCourierFlowProps> = ({
                 )}
               </div>
 
+              {isDelhivery && !draft.consignmentNo.trim() ? (
+                <div className="book-courier__review-card">
+                  <div className="book-courier__review-head">
+                    <h4>Phone &amp; GSTIN</h4>
+                  </div>
+                  <dl className="book-courier__kv">
+                    <div>
+                      <dt>Ship-from phone</dt>
+                      <dd>{delhiveryResolvedContacts.shipperPhone || 'Missing'}</dd>
+                    </div>
+                    <div>
+                      <dt>Ship-from GSTIN</dt>
+                      <dd>{delhiveryResolvedContacts.shipperGstin || 'Missing'}</dd>
+                    </div>
+                  </dl>
+                  <div className="book-courier__contact-fields">
+                    <label>
+                      <span>Consignee phone</span>
+                      <input
+                        type="tel"
+                        value={draft.customerPhone ?? ''}
+                        placeholder={delhiveryResolvedContacts.consigneePhone || '10-digit mobile'}
+                        disabled={bookingDelhivery}
+                        onChange={event => {
+                          const customerPhone = event.currentTarget.value;
+                          applyDraft(prev => ({ ...prev, customerPhone }));
+                        }}
+                      />
+                    </label>
+                    <label>
+                      <span>Consignee GSTIN</span>
+                      <input
+                        type="text"
+                        value={draft.customerGstin ?? ''}
+                        placeholder="15-character GSTIN"
+                        autoCapitalize="characters"
+                        maxLength={15}
+                        disabled={bookingDelhivery}
+                        onChange={event => {
+                          const customerGstin = event.currentTarget.value.toUpperCase();
+                          applyDraft(prev => ({ ...prev, customerGstin }));
+                        }}
+                      />
+                    </label>
+                  </div>
+                  {delhiveryContactIssues.length > 0 ? (
+                    <ul className="book-courier__slip-error" role="alert">
+                      {delhiveryContactIssues.map(issue => (
+                        <li key={issue}>{issue}</li>
+                      ))}
+                    </ul>
+                  ) : (
+                    <p className="text-muted text-sm" style={{ marginBottom: 0 }}>
+                      Phone and GSTIN are ready for Delhivery booking.
+                    </p>
+                  )}
+                </div>
+              ) : null}
+
               <div className="book-courier__review-card">
                 <div className="book-courier__review-head">
                   <h4>Package Details</h4>
@@ -2285,9 +2411,15 @@ export const BookCourierFlow: React.FC<BookCourierFlowProps> = ({
                 <button
                   type="button"
                   className="btn btn-primary book-courier__next"
-                  disabled={bookingDelhivery}
+                  disabled={bookingDelhivery || !canCreateDelhiveryLrn}
                   onClick={() => {
                     void (async () => {
+                      if (!canCreateDelhiveryLrn) {
+                        setDelhiveryBookError(
+                          delhiveryContactIssues[0] || 'Phone and GSTIN are required before booking.',
+                        );
+                        return;
+                      }
                       const ok = await ensureDelhiveryLrn();
                       if (!ok) return;
                       await advanceTo('label');
@@ -2297,7 +2429,7 @@ export const BookCourierFlow: React.FC<BookCourierFlowProps> = ({
                   {bookingDelhivery
                     ? 'Booking Delhivery…'
                     : (isDelhivery && !draft.consignmentNo.trim()
-                      ? 'Create LR & Next'
+                      ? (canCreateDelhiveryLrn ? 'Create LR & Next' : 'Fix phone & GSTIN to continue')
                       : 'Next')}
                 </button>
               ) : (
