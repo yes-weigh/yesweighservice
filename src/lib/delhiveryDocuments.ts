@@ -25,6 +25,20 @@ export type DelhiveryBookingDocumentsResult = {
   skipped: Array<{ id: string; reason: string }>;
 };
 
+export type DelhiveryBinaryDocument = {
+  available: boolean;
+  contentType: string | null;
+  base64: string | null;
+  fileName?: string | null;
+  error: string | null;
+};
+
+export type DelhiveryLabelImagesResult = {
+  available: boolean;
+  images: Array<{ contentType: string; base64: string; fileName: string }>;
+  error: string | null;
+};
+
 export async function listDelhiveryBookingDocuments(input: {
   bookingId?: string;
   lrn?: string;
@@ -83,4 +97,53 @@ export async function fetchDelhiveryDocumentImage(
   } catch (err) {
     throw callableError(err, 'Could not download Delhivery document.');
   }
+}
+
+export async function fetchDelhiveryLrCopy(
+  lrn: string,
+  lrCopyType: string = 'all',
+): Promise<DelhiveryBinaryDocument> {
+  try {
+    const fn = httpsCallable<
+      { lrn: string; lrCopyType?: string },
+      DelhiveryBinaryDocument
+    >(functions, 'fetchDelhiveryLrCopyFn', { timeout: 60_000 });
+    const result = await fn({ lrn, lrCopyType });
+    return result.data;
+  } catch (err) {
+    throw callableError(err, 'Could not download Delhivery LR copy.');
+  }
+}
+
+export async function fetchDelhiveryShippingLabels(
+  lrn: string,
+  size: 'std' | 'md' | 'sm' | 'a4' = 'a4',
+): Promise<DelhiveryLabelImagesResult> {
+  try {
+    const fn = httpsCallable<
+      { lrn: string; size?: string },
+      DelhiveryLabelImagesResult
+    >(functions, 'fetchDelhiveryShippingLabelsFn', { timeout: 90_000 });
+    const result = await fn({ lrn, size });
+    return result.data;
+  } catch (err) {
+    throw callableError(err, 'Could not download Delhivery shipping labels.');
+  }
+}
+
+export function delhiveryBase64ToObjectUrl(
+  base64: string,
+  contentType: string,
+): string {
+  const binary = atob(base64);
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i += 1) bytes[i] = binary.charCodeAt(i);
+  return URL.createObjectURL(new Blob([bytes], { type: contentType }));
+}
+
+export function delhiveryBase64ToUint8Array(base64: string): Uint8Array {
+  const binary = atob(base64);
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i += 1) bytes[i] = binary.charCodeAt(i);
+  return bytes;
 }

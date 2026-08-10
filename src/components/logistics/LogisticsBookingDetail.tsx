@@ -74,6 +74,10 @@ import {
   buildCourierSlipShareBlob,
 } from '../../lib/courierSlipImage';
 import { CourierSlipViewDialog } from './CourierSlipViewDialog';
+import {
+  DelhiveryDocumentDialog,
+  type DelhiveryDocumentDialogPayload,
+} from './DelhiveryDocumentDialog';
 import { PhotoLightbox } from './PhotoLightbox';
 import { RaiseLogisticsIssueDialog } from './RaiseLogisticsIssueDialog';
 import { ShippingLabelPrintDialog } from './ShippingLabelPrintDialog';
@@ -85,8 +89,12 @@ import {
   resolveDelhiveryBookingIds,
 } from '../../lib/delhiveryTrack';
 import {
+  delhiveryBase64ToObjectUrl,
+  delhiveryBase64ToUint8Array,
   fetchDelhiveryDocumentImage,
+  fetchDelhiveryLrCopy,
   fetchDelhiveryPod,
+  fetchDelhiveryShippingLabels,
   listDelhiveryBookingDocuments,
   type DelhiveryBookingDocument,
 } from '../../lib/delhiveryDocuments';
@@ -226,6 +234,8 @@ export const LogisticsBookingDetail: React.FC<LogisticsBookingDetailProps> = ({
   const [delhiveryDocOpening, setDelhiveryDocOpening] = useState<string | null>(null);
   const [delhiveryLightboxUrls, setDelhiveryLightboxUrls] = useState<string[]>([]);
   const [delhiveryLightboxIndex, setDelhiveryLightboxIndex] = useState<number | null>(null);
+  const [delhiveryDocDialog, setDelhiveryDocDialog] = useState<DelhiveryDocumentDialogPayload | null>(null);
+  const delhiveryDocObjectUrlsRef = React.useRef<string[]>([]);
   const [cancellingDelhivery, setCancellingDelhivery] = useState(false);
   const [cancelDelhiveryError, setCancelDelhiveryError] = useState('');
   const partner = LOGISTICS_PARTNERS.find(item => item.id === booking.partnerId);
@@ -327,12 +337,70 @@ export const LogisticsBookingDetail: React.FC<LogisticsBookingDetailProps> = ({
     delhiveryIds?.lrn,
   ]);
 
+  const markDocumentGenerated = useCallback(async (document: LogisticsDocumentType) => {
+    if (!user || !isOps) return;
+    setGenerating(document);
+    try {
+      const updated = await generateLogisticsDocument(booking, document, user);
+      onUpdate(updated);
+    } catch (err) {
+      window.alert(err instanceof Error ? err.message : 'Could not update document status.');
+    } finally {
+      setGenerating(null);
+    }
+  }, [booking, isOps, onUpdate, user]);
+
+  const closeDelhiveryDocDialog = useCallback(() => {
+    for (const url of delhiveryDocObjectUrlsRef.current) {
+      URL.revokeObjectURL(url);
+    }
+    delhiveryDocObjectUrlsRef.current = [];
+    setDelhiveryDocDialog(null);
+  }, []);
+
   const openDelhiveryDocument = useCallback(async (doc: DelhiveryBookingDocument) => {
     const lrn = (delhiveryIds?.lrn || booking.consignmentNo || '').replace(/\D/g, '');
     if (!lrn) return;
     setDelhiveryDocOpening(doc.id);
     setDelhiveryDocsError('');
     try {
+      if (doc.kind === 'lr_copy') {
+        const copy = await fetchDelhiveryLrCopy(lrn, 'all');
+        if (!copy.available || !copy.base64) {
+          setDelhiveryDocsError(copy.error || 'Delhivery LR copy is not available yet.');
+          return;
+        }
+        const bytes = delhiveryBase64ToUint8Array(copy.base64);
+        const blob = new Blob([Uint8Array.from(bytes)], {
+          type: copy.contentType || 'application/pdf',
+        });
+        setDelhiveryDocDialog({
+          title: 'Delhivery LR copy',
+          contentType: copy.contentType || 'application/pdf',
+          pdfBytes: bytes,
+          fileName: copy.fileName || `${lrn}-lr-copy.pdf`,
+          downloadBlob: blob,
+        });
+        return;
+      }
+      if (doc.kind === 'shipping_label') {
+        const labels = await fetchDelhiveryShippingLabels(lrn, 'a4');
+        if (!labels.available || !labels.images.length) {
+          setDelhiveryDocsError(labels.error || 'Delhivery shipping labels are not available yet.');
+          return;
+        }
+        const urls = labels.images.map(image => (
+          delhiveryBase64ToObjectUrl(image.base64, image.contentType || 'image/png')
+        ));
+        delhiveryDocObjectUrlsRef.current = urls;
+        setDelhiveryDocDialog({
+          title: 'Delhivery shipping label',
+          contentType: labels.images[0]?.contentType || 'image/png',
+          imageUrls: urls,
+          fileName: labels.images[0]?.fileName || `${lrn}-shipping-label.png`,
+        });
+        return;
+      }
       if (doc.kind === 'pod') {
         const fresh = await fetchDelhiveryPod(lrn);
         const urls = fresh.urls.length ? fresh.urls : (doc.urls || []);
@@ -364,19 +432,6 @@ export const LogisticsBookingDetail: React.FC<LogisticsBookingDetailProps> = ({
       setDelhiveryDocOpening(null);
     }
   }, [booking.consignmentNo, delhiveryIds?.lrn]);
-
-  const markDocumentGenerated = useCallback(async (document: LogisticsDocumentType) => {
-    if (!user || !isOps) return;
-    setGenerating(document);
-    try {
-      const updated = await generateLogisticsDocument(booking, document, user);
-      onUpdate(updated);
-    } catch (err) {
-      window.alert(err instanceof Error ? err.message : 'Could not update document status.');
-    } finally {
-      setGenerating(null);
-    }
-  }, [booking, isOps, onUpdate, user]);
 
   const handleCourierSlipViewed = useCallback(() => {
     if (!isOps || booking.courierSlipGenerated) return;
@@ -1545,99 +1600,120 @@ export const LogisticsBookingDetail: React.FC<LogisticsBookingDetailProps> = ({
 
       <section className="logistics-booking__slips">
         <h4>Documents</h4>
-        <div className="logistics-booking__slip-actions">
-          <button
-            type="button"
-            className={`btn btn-secondary btn-sm${booking.courierSlipGenerated ? ' is-done' : ''}`}
-            onClick={() => setCourierSlipOpen(true)}
-            disabled={generating !== null}
-          >
-            <Eye size={14} aria-hidden />
-            View booking slip
-          </button>
-          <button
-            type="button"
-            className="btn btn-secondary btn-sm"
-            onClick={() => void handleDownloadCourierSlip()}
-            disabled={generating !== null || downloadingSlip}
-          >
-            <Download size={14} aria-hidden />
-            {downloadingSlip ? 'Downloading…' : 'Download booking slip'}
-          </button>
-          {isOps && !shippingLabelBlocked && (
-            <button
-              type="button"
-              className={`btn btn-secondary btn-sm${booking.shippingLabelGenerated ? ' is-done' : ''}`}
-              onClick={openShippingLabel}
-              disabled={generating !== null}
-            >
-              <Eye size={14} aria-hidden />
-              View shipping label
-            </button>
-          )}
-          {isDelhivery && delhiveryDocs.map(doc => (
-            <button
-              key={doc.id}
-              type="button"
-              className="btn btn-secondary btn-sm"
-              onClick={() => void openDelhiveryDocument(doc)}
-              disabled={delhiveryDocOpening != null}
-            >
-              <Eye size={14} aria-hidden />
-              {delhiveryDocOpening === doc.id ? 'Opening…' : `View ${doc.label}`}
-            </button>
-          ))}
-        </div>
-        {isDelhivery && delhiveryDocsLoading && (
-          <p className="text-muted text-sm">Checking Delhivery documents…</p>
-        )}
-        {isDelhivery && !delhiveryDocsLoading && delhiveryDocs.length === 0 && !delhiveryDocsError && (
-          <p className="text-muted text-sm">
-            Delhivery POD appears here after delivery. Label / LR-copy APIs are not available for this
-            account yet.
-          </p>
-        )}
-        {delhiveryDocsError && (
-          <p className="logistics-booking__docs-error" role="alert">{delhiveryDocsError}</p>
-        )}
-        {isOps && shippingLabelBlocked && (
-          <div className="logistics-booking__slip-blocked" role="status">
-            <AlertTriangle size={14} aria-hidden />
-            <div>
-              <strong>Shipping label unavailable</strong>
-              <p>
-                {shippingLabelGate.fromMissing && shippingLabelGate.toMissing
-                  ? 'FROM and TO addresses are missing. Apply ship-from from Sites (or save it there first), and refresh the dealer address from Zoho.'
-                  : shippingLabelGate.fromMissing
-                    ? `This booking still has no ship-from address. Sites settings do not update existing shipments automatically — apply the ${STAFF_LOGISTICS_SITE_LABELS[booking.shipFromSite] || 'site'} address here.`
-                    : 'TO (dealer delivery) address is missing. Refresh the dealer from Zoho, then try again.'}
+        {isDelhivery ? (
+          <>
+            <p className="text-muted text-sm logistics-booking__slip-hint">
+              Official Delhivery documents only (LR copy, shipping labels, POD when ready).
+            </p>
+            <div className="logistics-booking__slip-actions">
+              {delhiveryDocs.map(doc => (
+                <button
+                  key={doc.id}
+                  type="button"
+                  className={`btn btn-secondary btn-sm${
+                    doc.kind === 'shipping_label' && booking.shippingLabelGenerated ? ' is-done' : ''
+                  }`}
+                  onClick={() => void openDelhiveryDocument(doc)}
+                  disabled={delhiveryDocOpening != null || !booking.consignmentNo?.trim()}
+                >
+                  <Eye size={14} aria-hidden />
+                  {delhiveryDocOpening === doc.id ? 'Opening…' : `View ${doc.label}`}
+                </button>
+              ))}
+            </div>
+            {delhiveryDocsLoading && (
+              <p className="text-muted text-sm">Loading Delhivery documents…</p>
+            )}
+            {!delhiveryDocsLoading && !booking.consignmentNo?.trim() && (
+              <p className="text-muted text-sm">
+                Create or enter an LR number to load official Delhivery documents.
               </p>
-              {shippingLabelGate.fromMissing && (
+            )}
+            {!delhiveryDocsLoading && booking.consignmentNo?.trim() && delhiveryDocs.length === 0 && !delhiveryDocsError && (
+              <p className="text-muted text-sm">No Delhivery documents available yet.</p>
+            )}
+            {delhiveryDocsError && (
+              <p className="logistics-booking__docs-error" role="alert">{delhiveryDocsError}</p>
+            )}
+            {isOps && !booking.shippingLabelGenerated && isIncompleteLogisticsBooking(booking) && (
+              <p className="text-muted text-sm logistics-booking__slip-hint">
+                Open the Delhivery shipping label to confirm this shipment.
+              </p>
+            )}
+          </>
+        ) : (
+          <>
+            <div className="logistics-booking__slip-actions">
+              <button
+                type="button"
+                className={`btn btn-secondary btn-sm${booking.courierSlipGenerated ? ' is-done' : ''}`}
+                onClick={() => setCourierSlipOpen(true)}
+                disabled={generating !== null}
+              >
+                <Eye size={14} aria-hidden />
+                View booking slip
+              </button>
+              <button
+                type="button"
+                className="btn btn-secondary btn-sm"
+                onClick={() => void handleDownloadCourierSlip()}
+                disabled={generating !== null || downloadingSlip}
+              >
+                <Download size={14} aria-hidden />
+                {downloadingSlip ? 'Downloading…' : 'Download booking slip'}
+              </button>
+              {isOps && !shippingLabelBlocked && (
                 <button
                   type="button"
-                  className="btn btn-primary btn-sm logistics-booking__slip-blocked-action"
-                  disabled={updatingShipFrom}
-                  onClick={() => void handleApplyShipFromFromSites({ openLabel: true })}
+                  className={`btn btn-secondary btn-sm${booking.shippingLabelGenerated ? ' is-done' : ''}`}
+                  onClick={openShippingLabel}
+                  disabled={generating !== null}
                 >
-                  {updatingShipFrom
-                    ? 'Applying…'
-                    : `Apply ${STAFF_LOGISTICS_SITE_LABELS[booking.shipFromSite] || 'site'} address from Sites`}
+                  <Eye size={14} aria-hidden />
+                  View shipping label
                 </button>
               )}
             </div>
-          </div>
-        )}
-        {isOps && (booking.courierSlipGenerated || booking.shippingLabelGenerated) && (
-          <p className="text-muted text-sm logistics-booking__slip-names">
-            {booking.courierSlipGenerated && courierSlipFileName(booking)}
-            {booking.courierSlipGenerated && booking.shippingLabelGenerated && ' · '}
-            {booking.shippingLabelGenerated && shippingLabelFileName(booking)}
-          </p>
-        )}
-        {isOps && !shippingLabelBlocked && !booking.shippingLabelGenerated && isIncompleteLogisticsBooking(booking) && (
-          <p className="text-muted text-sm logistics-booking__slip-hint">
-            Open and print the shipping label to confirm this shipment.
-          </p>
+            {isOps && shippingLabelBlocked && (
+              <div className="logistics-booking__slip-blocked" role="status">
+                <AlertTriangle size={14} aria-hidden />
+                <div>
+                  <strong>Shipping label unavailable</strong>
+                  <p>
+                    {shippingLabelGate.fromMissing && shippingLabelGate.toMissing
+                      ? 'FROM and TO addresses are missing. Apply ship-from from Sites (or save it there first), and refresh the dealer address from Zoho.'
+                      : shippingLabelGate.fromMissing
+                        ? `This booking still has no ship-from address. Sites settings do not update existing shipments automatically — apply the ${STAFF_LOGISTICS_SITE_LABELS[booking.shipFromSite] || 'site'} address here.`
+                        : 'TO (dealer delivery) address is missing. Refresh the dealer from Zoho, then try again.'}
+                  </p>
+                  {shippingLabelGate.fromMissing && (
+                    <button
+                      type="button"
+                      className="btn btn-primary btn-sm logistics-booking__slip-blocked-action"
+                      disabled={updatingShipFrom}
+                      onClick={() => void handleApplyShipFromFromSites({ openLabel: true })}
+                    >
+                      {updatingShipFrom
+                        ? 'Applying…'
+                        : `Apply ${STAFF_LOGISTICS_SITE_LABELS[booking.shipFromSite] || 'site'} address from Sites`}
+                    </button>
+                  )}
+                </div>
+              </div>
+            )}
+            {isOps && (booking.courierSlipGenerated || booking.shippingLabelGenerated) && (
+              <p className="text-muted text-sm logistics-booking__slip-names">
+                {booking.courierSlipGenerated && courierSlipFileName(booking)}
+                {booking.courierSlipGenerated && booking.shippingLabelGenerated && ' · '}
+                {booking.shippingLabelGenerated && shippingLabelFileName(booking)}
+              </p>
+            )}
+            {isOps && !shippingLabelBlocked && !booking.shippingLabelGenerated && isIncompleteLogisticsBooking(booking) && (
+              <p className="text-muted text-sm logistics-booking__slip-hint">
+                Open and print the shipping label to confirm this shipment.
+              </p>
+            )}
+          </>
         )}
       </section>
 
@@ -1726,6 +1802,21 @@ export const LogisticsBookingDetail: React.FC<LogisticsBookingDetailProps> = ({
           }}
           onPrinted={handleShippingLabelPrinted}
           onBookingRepair={onUpdate}
+        />
+      )}
+
+      {delhiveryDocDialog && (
+        <DelhiveryDocumentDialog
+          payload={delhiveryDocDialog}
+          onClose={closeDelhiveryDocDialog}
+          onViewed={
+            delhiveryDocDialog.title.includes('shipping label')
+              ? () => {
+                if (!isOps || booking.shippingLabelGenerated) return;
+                void markDocumentGenerated('shipping_label');
+              }
+              : undefined
+          }
         />
       )}
 

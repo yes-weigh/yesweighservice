@@ -141,6 +141,8 @@ import { markSupportMessageReceipts } from './lib/support-message-receipts.js';
 import { raiseLogisticsIssueTicket as raiseLogisticsIssueTicketHandler } from './lib/raise-logistics-issue-ticket.js';
 import {
   listDelhiveryBookingDocuments,
+  fetchDelhiveryLrCopy,
+  fetchDelhiveryShippingLabels,
   fetchDelhiveryPodUrls,
   fetchDelhiveryDocumentImage,
 } from './lib/delhivery-b2b-documents.js';
@@ -4715,6 +4717,41 @@ export const fetchDelhiveryDocumentImageFn = onCall(
     } catch (err) {
       if (err instanceof HttpsError) throw err;
       throw new HttpsError('internal', err?.message ?? 'Could not download Delhivery document.');
+    }
+  },
+);
+
+/** Official Delhivery LR copy PDF (LTL /lr_copy/print). */
+export const fetchDelhiveryLrCopyFn = onCall(
+  { region: 'asia-south1', timeoutSeconds: 60, memory: '512MiB' },
+  async request => {
+    await requireActiveUser(request.auth?.uid, ALLOWED_ROLES, { allowViewOnly: true });
+    const lrn = String(request.data?.lrn ?? request.data?.awb ?? '').trim();
+    const lrCopyType = String(request.data?.lrCopyType ?? 'all').trim() || 'all';
+    try {
+      return await fetchDelhiveryLrCopy(getFirestore(), lrn, lrCopyType);
+    } catch (err) {
+      if (err instanceof HttpsError) throw err;
+      throw new HttpsError('internal', err?.message ?? 'Could not download Delhivery LR copy.');
+    }
+  },
+);
+
+/** Official Delhivery shipping label images (LTL /label/get_urls + /label/print). */
+export const fetchDelhiveryShippingLabelsFn = onCall(
+  { region: 'asia-south1', timeoutSeconds: 90, memory: '512MiB' },
+  async request => {
+    await requireActiveUser(request.auth?.uid, ALLOWED_ROLES, { allowViewOnly: true });
+    const lrn = String(request.data?.lrn ?? request.data?.awb ?? '').trim();
+    const size = String(request.data?.size ?? 'a4').trim().toLowerCase() || 'a4';
+    try {
+      return await fetchDelhiveryShippingLabels(getFirestore(), lrn, size);
+    } catch (err) {
+      if (err instanceof HttpsError) throw err;
+      throw new HttpsError(
+        'internal',
+        err?.message ?? 'Could not download Delhivery shipping labels.',
+      );
     }
   },
 );

@@ -23534,6 +23534,13 @@ body:has(.confirm-inline-bar) .confirm-inline-bar {
   flex-shrink: 0;
 }
 
+.logistics-booking__delhivery-doc-pages {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  margin: 0 0 0.75rem;
+}
+
 .book-courier__slip-error:is(ul) {
   padding-left: 1.25rem;
   list-style: disc;
