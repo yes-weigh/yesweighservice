@@ -14,6 +14,10 @@ import {
 } from '../../../constants/logisticsPartners';
 import { partnerStatusesEqual } from '../../../constants/logisticsPartnerStatus';
 import {
+  type DeliveryPartnerGstins,
+  type DeliveryPartnerTabId,
+} from '../../../constants/deliveryPartnerTabs';
+import {
   originsUsingPartnerInDeliveryRules,
   partnersUsedInDeliveryRules,
 } from '../../../lib/logisticsDeliveryRules';
@@ -26,7 +30,7 @@ import {
   saveTrackonConfig,
   trackonConfigsEqual,
 } from '../../../lib/logisticsCourierRates';
-import { saveLogisticsPartnerStatuses } from '../../../lib/logisticsSettings';
+import { saveLogisticsPartnerGstins, saveLogisticsPartnerStatuses } from '../../../lib/logisticsSettings';
 import type { BlueDartConfig } from '../../../types/blue-dart-rates';
 import type { TrackonConfig } from '../../../types/trackon-rates';
 import type { LogisticsDeliveryRulesMatrix } from '../../../types/logistics-delivery-rules';
@@ -54,20 +58,12 @@ import {
 import { BlueDartRatesEditor } from './BlueDartRatesEditor';
 import { TrackonRatesEditor } from './TrackonRatesEditor';
 import { PartnerStatusControl } from './PartnerStatusControl';
+import { PartnerGstinControl } from './PartnerGstinControl';
 import { DelhiveryB2bApiPanel } from './DelhiveryB2bApiPanel';
 
 type SaveStatus = 'idle' | 'pending' | 'saving' | 'saved' | 'error';
 
 type ZoneRatePartnerId = Extract<CourierRatePartnerId, 'st_courier' | 'delhivery'>;
-
-/** Partner tabs: rate cards + multi-mode tiles, then status-only logistics partners. */
-type DeliveryPartnerTabId =
-  | CourierRatePartnerId
-  | Exclude<
-    LogisticsPartnerId,
-    | typeof BLUEDART_LOGISTICS_PARTNER_IDS[number]
-    | typeof TRACKON_LOGISTICS_PARTNER_IDS[number]
-  >;
 
 const LIVE_SAVE_MS = 550;
 const STATUS_SAVE_KEY = 'partnerStatuses';
@@ -141,7 +137,9 @@ function partnerLabel(id: DeliveryPartnerTabId): string {
 type Props = {
   deliveryRules: LogisticsDeliveryRulesMatrix;
   partnerStatuses: LogisticsPartnerStatuses;
+  partnerGstins: DeliveryPartnerGstins;
   onPartnerStatusesSaved: (next: LogisticsPartnerStatuses) => void;
+  onPartnerGstinsSaved: (next: DeliveryPartnerGstins) => void;
   onError: (message: string) => void;
 };
 
@@ -169,7 +167,9 @@ function withPartnerRates(
 export const StCourierRatesSettings: React.FC<Props> = ({
   deliveryRules,
   partnerStatuses,
+  partnerGstins,
   onPartnerStatusesSaved,
+  onPartnerGstinsSaved,
   onError,
 }) => {
   const { user } = useAuth();
@@ -196,7 +196,6 @@ export const StCourierRatesSettings: React.FC<Props> = ({
   savedRef.current = saved;
   statusDraftRef.current = statusDraft;
   statusSavedRef.current = partnerStatuses;
-
   const visiblePartners = DETAIL_PARTNER_ORDER;
   const isZonePartner = isZoneRatePartnerId(partnerId);
   const isStatusOnlyPartner = isStatusOnlyPartnerId(partnerId);
@@ -391,6 +390,26 @@ export const StCourierRatesSettings: React.FC<Props> = ({
     }, LIVE_SAVE_MS);
   }, [onError, onPartnerStatusesSaved, userUid]);
 
+  const savePartnerGstin = useCallback(async (
+    id: DeliveryPartnerTabId,
+    value: string,
+  ) => {
+    const next = { ...partnerGstins, [id]: value.toUpperCase() };
+    const epoch = ++saveEpochRef.current;
+    setSaveStatus('saving');
+    onError('');
+    try {
+      const normalized = await saveLogisticsPartnerGstins(next, userUid);
+      onPartnerGstinsSaved(normalized);
+      if (epoch === saveEpochRef.current) setSaveStatus('saved');
+    } catch (err) {
+      if (epoch !== saveEpochRef.current) return;
+      setSaveStatus('error');
+      onError(err instanceof Error ? err.message : 'Could not save partner GST numbers.');
+      throw err;
+    }
+  }, [onError, onPartnerGstinsSaved, partnerGstins, userUid]);
+
   const activeRates = isZonePartner
     ? originRatesForPartner(draft, partnerId, origin)
     : null;
@@ -576,6 +595,14 @@ export const StCourierRatesSettings: React.FC<Props> = ({
           {partnerLabel(partnerId)} is not in Delivery rules yet — status
           {partnerId === 'st_courier' ? ' and rates' : ''} still save automatically.
         </p>
+      ) : null}
+
+      {!loading ? (
+        <PartnerGstinControl
+          value={partnerGstins[partnerId]}
+          partnerLabel={partnerLabel(partnerId)}
+          onSave={value => savePartnerGstin(partnerId, value)}
+        />
       ) : null}
 
       {loading ? (

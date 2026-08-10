@@ -25473,6 +25473,15 @@ body:has(.confirm-inline-bar) .confirm-inline-bar {
   --doc-tone: #60a5fa;
 }
 
+.logistics-booking__doc-card--invoice {
+  --doc-tone: #fbbf24;
+}
+
+.logistics-booking__doc-card--eway {
+  /* Olive lime — dark-theme take on the classic e-way badge */
+  --doc-tone: #a3b85c;
+}
+
 .logistics-booking__doc-card--pod {
   --doc-tone: #c084fc;
 }
@@ -25483,18 +25492,36 @@ body:has(.confirm-inline-bar) .confirm-inline-bar {
 
 .logistics-booking__doc-card--slip .logistics-booking__doc-card-icon,
 .logistics-booking__doc-card--label .logistics-booking__doc-card-icon,
+.logistics-booking__doc-card--invoice .logistics-booking__doc-card-icon,
+.logistics-booking__doc-card--eway .logistics-booking__doc-card-icon,
 .logistics-booking__doc-card--pod .logistics-booking__doc-card-icon,
 .logistics-booking__doc-card--default .logistics-booking__doc-card-icon {
   color: var(--doc-tone);
   background: color-mix(in srgb, var(--doc-tone) 16%, transparent);
 }
 
+/* Badge SVG already includes its circle — no tinted square behind it */
+.logistics-booking__doc-card--eway .logistics-booking__doc-card-icon {
+  background: transparent;
+  padding: 0;
+}
+
+.logistics-booking__doc-card--eway .logistics-booking__doc-card-icon svg {
+  display: block;
+  width: 2.75rem;
+  height: 2.75rem;
+}
+
 .logistics-booking__doc-card--slip .logistics-booking__doc-card-copy strong,
 .logistics-booking__doc-card--label .logistics-booking__doc-card-copy strong,
+.logistics-booking__doc-card--invoice .logistics-booking__doc-card-copy strong,
+.logistics-booking__doc-card--eway .logistics-booking__doc-card-copy strong,
 .logistics-booking__doc-card--pod .logistics-booking__doc-card-copy strong,
 .logistics-booking__doc-card--default .logistics-booking__doc-card-copy strong,
 .logistics-booking__doc-card--slip .logistics-booking__doc-card-chevron,
 .logistics-booking__doc-card--label .logistics-booking__doc-card-chevron,
+.logistics-booking__doc-card--invoice .logistics-booking__doc-card-chevron,
+.logistics-booking__doc-card--eway .logistics-booking__doc-card-chevron,
 .logistics-booking__doc-card--pod .logistics-booking__doc-card-chevron,
 .logistics-booking__doc-card--default .logistics-booking__doc-card-chevron {
   color: var(--doc-tone);
@@ -25502,6 +25529,11 @@ body:has(.confirm-inline-bar) .confirm-inline-bar {
 
 .logistics-booking__doc-card.is-done {
   border-color: color-mix(in srgb, var(--doc-tone, #4ade80) 45%, transparent);
+}
+
+.logistics-booking__doc-card.is-disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
 }
 
 .logistics-booking__slip-actions {

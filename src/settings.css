@@ -2832,6 +2832,41 @@
   border: 1px solid transparent;
 }
 
+.settings-courier-rates__gstin-panel {
+  margin: 0 0 1rem;
+}
+
+.settings-courier-rates__gstin-toolbar {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.75rem;
+  margin: 0 0 0.65rem;
+}
+
+.settings-courier-rates__gstin-toolbar p {
+  margin: 0;
+  flex: 1;
+  min-width: 0;
+}
+
+.settings-courier-rates__gstin-panel input[readonly],
+.settings-courier-rates__gstin-panel input:disabled {
+  opacity: 0.85;
+  cursor: default;
+}
+
+.settings-courier-rates__gstin-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin-top: 0.65rem;
+}
+
+.settings-courier-rates__gstin-hint {
+  margin: 0.35rem 0 0;
+}
+
 .settings-courier-rates__status-copy {
   display: flex;
   flex-direction: column;

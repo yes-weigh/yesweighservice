@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom';
 import { MapPin, Save, Truck, Users } from 'lucide-react';
 import { useAuth } from '../../../context/AuthContext';
 import { syncLogisticsShipFromAddressesToAllBookings } from '../../../lib/logisticsBookings';
+import type { DeliveryPartnerGstins } from '../../../constants/deliveryPartnerTabs';
 import {
   listHrStaffUsers,
   loadLogisticsSettings,
@@ -72,6 +73,7 @@ export const LogisticsSettingsTab: React.FC = () => {
   });
   const [deliveryRules, setDeliveryRules] = useState<LogisticsDeliveryRulesMatrix | null>(null);
   const [partnerStatuses, setPartnerStatuses] = useState<LogisticsPartnerStatuses | null>(null);
+  const [partnerGstins, setPartnerGstins] = useState<DeliveryPartnerGstins | null>(null);
   const [staff, setStaff] = useState<UserRecord[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -96,6 +98,7 @@ export const LogisticsSettingsTab: React.FC = () => {
       setDraftFromSiteContacts(settings.fromSiteContacts);
       setDeliveryRules(settings.deliveryRules);
       setPartnerStatuses(settings.partnerStatuses);
+      setPartnerGstins(settings.partnerGstins);
       setStaff(staffUsers);
 
       const hasAddress = STAFF_LOGISTICS_SITES.some(
@@ -377,11 +380,13 @@ export const LogisticsSettingsTab: React.FC = () => {
           />
         )}
 
-        {subTab === 'courier-rates' && deliveryRules && partnerStatuses && (
+        {subTab === 'courier-rates' && deliveryRules && partnerStatuses && partnerGstins && (
           <StCourierRatesSettings
             deliveryRules={deliveryRules}
             partnerStatuses={partnerStatuses}
+            partnerGstins={partnerGstins}
             onPartnerStatusesSaved={setPartnerStatuses}
+            onPartnerGstinsSaved={setPartnerGstins}
             onError={setError}
           />
         )}

@@ -9,6 +9,11 @@ import {
   defaultLogisticsPartnerStatuses,
   normalizeLogisticsPartnerStatuses,
 } from '../constants/logisticsPartnerStatus';
+import {
+  defaultDeliveryPartnerGstins,
+  normalizeDeliveryPartnerGstins,
+  type DeliveryPartnerGstins,
+} from '../constants/deliveryPartnerTabs';
 import { normalizeLogisticsDeliveryRules } from './logisticsDeliveryRules';
 import type { LogisticsDeliveryRulesMatrix } from '../types/logistics-delivery-rules';
 import type { LogisticsPartnerStatuses } from '../types/logistics-partner-status';
@@ -96,11 +101,12 @@ export interface LogisticsSettings {
   fromSiteContacts: Record<StaffLogisticsSite, LogisticsSiteContact>;
   /** Destination region × ship-from site → ordered delivery partners. */
   deliveryRules: LogisticsDeliveryRulesMatrix;
-  /**
-   * Per-partner Active / Inactive / Manual.
+  /** Per-partner Active / Inactive / Manual.
    * Rules may list any partner; SO freight only offers Active or Manual.
    */
   partnerStatuses: LogisticsPartnerStatuses;
+  /** GSTIN per delivery partner tab (Blue Dart, Trackon, Delhivery, etc.). */
+  partnerGstins: DeliveryPartnerGstins;
   /** Public Delhivery B2B API connection metadata (password never returned). */
   delhiveryB2b: DelhiveryB2bPublicConfig;
   updatedAt: string;
@@ -117,6 +123,7 @@ export async function loadLogisticsSettings(): Promise<LogisticsSettings> {
         fromSiteContacts: EMPTY_FROM_SITE_CONTACTS(),
         deliveryRules: structuredClone(DEFAULT_LOGISTICS_DELIVERY_RULES),
         partnerStatuses: defaultLogisticsPartnerStatuses(),
+        partnerGstins: defaultDeliveryPartnerGstins(),
         delhiveryB2b: emptyDelhiveryB2bPublicConfig(),
         updatedAt: '',
       };
@@ -131,6 +138,9 @@ export async function loadLogisticsSettings(): Promise<LogisticsSettings> {
       fromSiteContacts: parseFromSiteContacts(data as Record<string, unknown>),
       deliveryRules: normalizeLogisticsDeliveryRules(data.deliveryRules),
       partnerStatuses: normalizeLogisticsPartnerStatuses(data.partnerStatuses),
+      partnerGstins: normalizeDeliveryPartnerGstins(
+        (data as Record<string, unknown>).partnerGstins,
+      ),
       delhiveryB2b: parseDelhiveryB2b(data as Record<string, unknown>),
       updatedAt: typeof data.updatedAt === 'string' ? data.updatedAt : '',
       updatedBy: typeof data.updatedBy === 'string' ? data.updatedBy : null,
@@ -142,6 +152,7 @@ export async function loadLogisticsSettings(): Promise<LogisticsSettings> {
       fromSiteContacts: EMPTY_FROM_SITE_CONTACTS(),
       deliveryRules: structuredClone(DEFAULT_LOGISTICS_DELIVERY_RULES),
       partnerStatuses: defaultLogisticsPartnerStatuses(),
+      partnerGstins: defaultDeliveryPartnerGstins(),
       delhiveryB2b: emptyDelhiveryB2bPublicConfig(),
       updatedAt: '',
     };
@@ -245,6 +256,24 @@ export async function saveLogisticsPartnerStatuses(
     doc(db, 'appSettings', LOGISTICS_SETTINGS_DOC_ID),
     {
       partnerStatuses: normalized,
+      updatedAt,
+      ...(updatedBy ? { updatedBy } : {}),
+    },
+    { merge: true },
+  );
+  return normalized;
+}
+
+export async function saveLogisticsPartnerGstins(
+  partnerGstins: DeliveryPartnerGstins,
+  updatedBy?: string | null,
+): Promise<DeliveryPartnerGstins> {
+  const normalized = normalizeDeliveryPartnerGstins(partnerGstins);
+  const updatedAt = new Date().toISOString();
+  await setDoc(
+    doc(db, 'appSettings', LOGISTICS_SETTINGS_DOC_ID),
+    {
+      partnerGstins: normalized,
       updatedAt,
       ...(updatedBy ? { updatedBy } : {}),
     },
