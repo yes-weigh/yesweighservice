@@ -1,10 +1,11 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { Download, Printer, X } from 'lucide-react';
+import { Download, Printer, Share2, X } from 'lucide-react';
 import {
   LOGISTICS_LABEL_HEIGHT_MM,
   LOGISTICS_LABEL_WIDTH_MM,
 } from '../../constants/localPrinterSettings';
+import { shareDelhiveryDocumentFile } from '../../lib/delhiveryDocuments';
 import { isNativePrintAvailable } from '../../lib/localPrinterPrint';
 import {
   printShippingLabelImages,
@@ -54,8 +55,10 @@ export const DelhiveryDocumentDialog: React.FC<Props> = ({
   const isPdf = Boolean(payload.pdfBytes?.length);
   const isShippingLabel = payload.layout === 'shipping_label' && images.length > 0;
   const [printing, setPrinting] = useState(false);
+  const [sharing, setSharing] = useState(false);
   const [printError, setPrintError] = useState('');
   const [printSuccess, setPrintSuccess] = useState('');
+  const [shareError, setShareError] = useState('');
   const native = isNativePrintAvailable();
 
   useEffect(() => {
@@ -76,8 +79,36 @@ export const DelhiveryDocumentDialog: React.FC<Props> = ({
     if (payload.downloadBlob) {
       return { blob: payload.downloadBlob, name: payload.fileName };
     }
+    if (payload.pdfBytes?.length) {
+      return {
+        blob: new Blob([Uint8Array.from(payload.pdfBytes)], {
+          type: payload.contentType || 'application/pdf',
+        }),
+        name: payload.fileName,
+      };
+    }
     return null;
-  }, [payload.downloadBlob, payload.fileName]);
+  }, [payload.downloadBlob, payload.fileName, payload.pdfBytes, payload.contentType]);
+
+  const canShare = Boolean(downloadTarget);
+
+  const handleShare = useCallback(async () => {
+    if (!downloadTarget) return;
+    setSharing(true);
+    setShareError('');
+    try {
+      await shareDelhiveryDocumentFile({
+        blob: downloadTarget.blob,
+        fileName: downloadTarget.name,
+        title: payload.title,
+      });
+    } catch (err) {
+      if (err instanceof Error && err.name === 'AbortError') return;
+      setShareError(err instanceof Error ? err.message : 'Could not share document.');
+    } finally {
+      setSharing(false);
+    }
+  }, [downloadTarget, payload.title]);
 
   const handlePrintAll = useCallback(async () => {
     if (!images.length) return;
@@ -155,6 +186,7 @@ export const DelhiveryDocumentDialog: React.FC<Props> = ({
         </div>
 
         {printError ? <p className="dealers-modal__error">{printError}</p> : null}
+        {shareError ? <p className="dealers-modal__error">{shareError}</p> : null}
         {printSuccess ? (
           <p className="shipping-label-print-dialog__success text-sm">{printSuccess}</p>
         ) : null}
@@ -207,7 +239,7 @@ export const DelhiveryDocumentDialog: React.FC<Props> = ({
             type="button"
             className="btn btn-secondary"
             onClick={onClose}
-            disabled={printing}
+            disabled={printing || sharing}
           >
             Close
           </button>
@@ -216,7 +248,7 @@ export const DelhiveryDocumentDialog: React.FC<Props> = ({
               type="button"
               className="btn btn-secondary"
               onClick={() => downloadBlob(downloadTarget.blob, downloadTarget.name)}
-              disabled={printing}
+              disabled={printing || sharing}
             >
               <Download size={16} aria-hidden />
               Download
@@ -231,12 +263,23 @@ export const DelhiveryDocumentDialog: React.FC<Props> = ({
               Download
             </a>
           ) : null}
+          {canShare && !isShippingLabel ? (
+            <button
+              type="button"
+              className="btn btn-primary"
+              onClick={() => void handleShare()}
+              disabled={printing || sharing}
+            >
+              <Share2 size={16} aria-hidden />
+              {sharing ? 'Sharing…' : 'Share'}
+            </button>
+          ) : null}
           {isShippingLabel ? (
             <button
               type="button"
               className="btn btn-primary"
               onClick={() => void handlePrintAll()}
-              disabled={printing || images.length === 0}
+              disabled={printing || sharing || images.length === 0}
             >
               <Printer size={16} aria-hidden />
               {printing

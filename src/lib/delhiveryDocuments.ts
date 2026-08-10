@@ -1,4 +1,6 @@
+import { Capacitor } from '@capacitor/core';
 import { getFunctions, httpsCallable } from 'firebase/functions';
+import { WhatsAppShare } from 'whatsapp-share';
 import { app } from '../firebase';
 
 const functions = getFunctions(app, 'asia-south1');
@@ -190,4 +192,65 @@ export function delhiveryBase64ToUint8Array(base64: string): Uint8Array {
   const bytes = new Uint8Array(binary.length);
   for (let i = 0; i < binary.length; i += 1) bytes[i] = binary.charCodeAt(i);
   return bytes;
+}
+
+function blobToBase64(blob: Blob): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => {
+      const result = reader.result;
+      if (typeof result !== 'string') {
+        reject(new Error('Could not encode file.'));
+        return;
+      }
+      const comma = result.indexOf(',');
+      resolve(comma >= 0 ? result.slice(comma + 1) : result);
+    };
+    reader.onerror = () => reject(new Error('Could not encode file.'));
+    reader.readAsDataURL(blob);
+  });
+}
+
+/**
+ * Native / Web Share for a Delhivery document (PDF or image).
+ * APK uses the system share sheet; browsers use navigator.share when files are supported.
+ */
+export async function shareDelhiveryDocumentFile(input: {
+  blob: Blob;
+  fileName: string;
+  title?: string;
+}): Promise<void> {
+  const fileName = String(input.fileName || 'document.pdf').trim() || 'document.pdf';
+  const mimeType = input.blob.type || 'application/pdf';
+  const title = String(input.title || fileName).trim() || fileName;
+
+  if (Capacitor.isNativePlatform()) {
+    const dataBase64 = await blobToBase64(input.blob);
+    await WhatsAppShare.shareImage({
+      dataBase64,
+      fileName,
+      mimeType,
+    });
+    return;
+  }
+
+  const file = new File([input.blob], fileName, { type: mimeType });
+  const shareData: ShareData = {
+    files: [file],
+    title,
+  };
+  if (typeof navigator.canShare === 'function' && navigator.canShare(shareData)) {
+    await navigator.share(shareData);
+    return;
+  }
+
+  // Fallback: download when Web Share can't attach files.
+  const url = URL.createObjectURL(input.blob);
+  const anchor = document.createElement('a');
+  anchor.href = url;
+  anchor.download = fileName;
+  document.body.appendChild(anchor);
+  anchor.click();
+  anchor.remove();
+  URL.revokeObjectURL(url);
 }
