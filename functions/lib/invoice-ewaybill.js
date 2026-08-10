@@ -10,30 +10,10 @@ import {
   createZohoEwayBillForInvoice,
   fetchZohoEwayBillPdf,
   findZohoEwayBillForInvoice,
-  loadPartnerGstin,
   mapZohoEwayBillRecord,
   normalizeGstin,
-  resolveZohoTransporterId,
+  resolveTransporterForPartner,
 } from './zoho-ewaybills.js';
-
-function partnerLabel(partnerId) {
-  const labels = {
-    delhivery: 'Delhivery',
-    st_courier: 'ST Courier',
-    bluedart: 'Blue Dart',
-    trackon: 'Trackon',
-    dtdc: 'DTDC',
-    ecosafe: 'Ecosafe',
-    aps: 'APS',
-    personal_collection: 'Customer Pickup',
-    own_vehicle: 'Own vehicle',
-  };
-  const id = String(partnerId ?? '');
-  if (labels[id]) return labels[id];
-  if (id.startsWith('bluedart_')) return 'Blue Dart';
-  if (id.startsWith('trackon_')) return 'Trackon';
-  return id || 'Courier';
-}
 
 export const EWAY_BILL_THRESHOLD_INR = 50_000;
 
@@ -212,13 +192,11 @@ export async function ensureInvoiceEwayBill(secrets, orgId, input) {
     if (!partnerId) {
       throw new Error('Delivery partner is required to generate an e-way bill.');
     }
-    const partnerGstin = await loadPartnerGstin(getFirestore(), partnerId);
-    const transporterName = partnerLabel(partnerId) || partnerId;
-    const transporterId = await resolveZohoTransporterId(
+    const { transporterId } = await resolveTransporterForPartner(
       accessToken,
       organizationId,
-      partnerGstin,
-      transporterName,
+      getFirestore(),
+      partnerId,
     );
     remote = await createZohoEwayBillForInvoice(accessToken, organizationId, {
       invoiceId,

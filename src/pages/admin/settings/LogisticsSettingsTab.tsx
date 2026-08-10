@@ -3,7 +3,7 @@ import { Link } from 'react-router-dom';
 import { MapPin, Save, Truck, Users } from 'lucide-react';
 import { useAuth } from '../../../context/AuthContext';
 import { syncLogisticsShipFromAddressesToAllBookings } from '../../../lib/logisticsBookings';
-import type { DeliveryPartnerGstins } from '../../../constants/deliveryPartnerTabs';
+import type { DeliveryPartnerGstins, DeliveryPartnerTransporters } from '../../../constants/deliveryPartnerTabs';
 import {
   listHrStaffUsers,
   loadLogisticsSettings,
@@ -74,6 +74,7 @@ export const LogisticsSettingsTab: React.FC = () => {
   const [deliveryRules, setDeliveryRules] = useState<LogisticsDeliveryRulesMatrix | null>(null);
   const [partnerStatuses, setPartnerStatuses] = useState<LogisticsPartnerStatuses | null>(null);
   const [partnerGstins, setPartnerGstins] = useState<DeliveryPartnerGstins | null>(null);
+  const [partnerTransporters, setPartnerTransporters] = useState<DeliveryPartnerTransporters | null>(null);
   const [staff, setStaff] = useState<UserRecord[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -99,6 +100,7 @@ export const LogisticsSettingsTab: React.FC = () => {
       setDeliveryRules(settings.deliveryRules);
       setPartnerStatuses(settings.partnerStatuses);
       setPartnerGstins(settings.partnerGstins);
+      setPartnerTransporters(settings.partnerTransporters);
       setStaff(staffUsers);
 
       const hasAddress = STAFF_LOGISTICS_SITES.some(
@@ -380,13 +382,15 @@ export const LogisticsSettingsTab: React.FC = () => {
           />
         )}
 
-        {subTab === 'courier-rates' && deliveryRules && partnerStatuses && partnerGstins && (
+        {subTab === 'courier-rates' && deliveryRules && partnerStatuses && partnerGstins && partnerTransporters && (
           <StCourierRatesSettings
             deliveryRules={deliveryRules}
             partnerStatuses={partnerStatuses}
             partnerGstins={partnerGstins}
+            partnerTransporters={partnerTransporters}
             onPartnerStatusesSaved={setPartnerStatuses}
             onPartnerGstinsSaved={setPartnerGstins}
+            onPartnerTransportersSaved={setPartnerTransporters}
             onError={setError}
           />
         )}

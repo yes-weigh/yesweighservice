@@ -2833,7 +2833,42 @@
 }
 
 .settings-courier-rates__gstin-panel {
+  margin: 0;
+}
+
+.settings-courier-rates__partner-tax-row {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 1rem;
   margin: 0 0 1rem;
+}
+
+@media (max-width: 960px) {
+  .settings-courier-rates__partner-tax-row {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+.settings-courier-rates__transporter-select-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  align-items: center;
+}
+
+.settings-courier-rates__transporter-select-row select {
+  flex: 1;
+  min-width: 12rem;
+}
+
+.settings-courier-rates__transporter-display {
+  margin: 0;
+  font-weight: 600;
+}
+
+.settings-courier-rates__transporter-error {
+  margin: 0.35rem 0 0;
+  color: var(--danger, #c0392b);
 }
 
 .settings-courier-rates__gstin-toolbar {

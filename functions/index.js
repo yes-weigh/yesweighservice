@@ -84,6 +84,7 @@ import {
   handleZohoInvoiceWebhook,
 } from './lib/invoice-sync.js';
 import { ensureInvoiceEwayBill, cancelInvoiceEwayBill } from './lib/invoice-ewaybill.js';
+import { listZohoTransporters } from './lib/zoho-ewaybills.js';
 import { syncOrgInvoicesToFirestore } from './lib/org-invoice-sync.js';
 import {
   backfillInvoiceCategoriesToProduct,
@@ -1947,6 +1948,28 @@ export const ensureInvoiceEwayBillFn = onCall(
     } catch (err) {
       if (err instanceof HttpsError) throw err;
       throw new HttpsError('internal', err?.message ?? 'Could not ensure e-way bill.');
+    }
+  },
+);
+
+/** List Zoho e-way transporters for logistics partner settings. */
+export const listZohoEwayTransportersFn = onCall(
+  {
+    region: 'asia-south1',
+    secrets: [zohoClientId, zohoClientSecret, zohoRefreshToken],
+    timeoutSeconds: 60,
+    memory: '256MiB',
+  },
+  async request => {
+    await requireActiveUser(request.auth?.uid, SYNC_ROLES);
+    try {
+      const accessToken = await getAccessToken(zohoSecrets());
+      const orgId = zohoOrganizationId.value();
+      const transporters = await listZohoTransporters(accessToken, orgId);
+      return { transporters };
+    } catch (err) {
+      if (err instanceof HttpsError) throw err;
+      throw new HttpsError('internal', err?.message ?? 'Could not load Zoho transporters.');
     }
   },
 );
