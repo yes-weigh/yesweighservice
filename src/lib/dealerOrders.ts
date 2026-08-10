@@ -63,6 +63,8 @@ export async function submitDealerOrder(
   freightZoneOverrideReason?: string,
   /** Live Delhivery (or other client-quoted) freight when rate card is ₹0. */
   manualFreightAmountInr?: number,
+  /** Delhivery freight billing: btc (default) or fod (₹0 on order). */
+  freightBillingMode?: 'fod' | 'btc',
 ): Promise<SubmitDealerOrderResult> {
   try {
     return await call(
@@ -80,6 +82,9 @@ export async function submitDealerOrder(
           && Number.isFinite(manualFreightAmountInr)
           && manualFreightAmountInr >= 0
           ? { manualFreightAmountInr: Math.round(manualFreightAmountInr * 100) / 100 }
+          : {}),
+        ...(freightBillingMode === 'fod' || freightBillingMode === 'btc'
+          ? { freightBillingMode }
           : {}),
       },
       180_000,

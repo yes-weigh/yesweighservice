@@ -141,6 +141,26 @@ export function resolveInvoiceCourierPartnerId(
   return resolveInvoiceCourierPartner(invoice).partnerId;
 }
 
+/**
+ * Delhivery FOD when the Delhivery freight line is present at ₹0;
+ * otherwise BTC when Delhivery freight is charged.
+ */
+export function resolveInvoiceFreightBillingMode(
+  invoice: Pick<DealerInvoiceDetail, 'lineItems'>,
+): 'fod' | 'btc' | null {
+  for (const line of invoice.lineItems ?? []) {
+    if (!isFreightInvoiceLineItem(line)) continue;
+    const partner = partnerIdForFreightSku(line.sku);
+    if (partner !== 'delhivery') continue;
+    const rate = Number(line.rate);
+    const total = Number(line.total);
+    const amount = Number.isFinite(rate) ? rate : total;
+    if (Number.isFinite(amount) && amount <= 0) return 'fod';
+    return 'btc';
+  }
+  return null;
+}
+
 /** Cartonize non-freight invoice lines into booking boxes (dims + weight). */
 export function buildInvoiceBookingBoxes(
   invoice: Pick<DealerInvoiceDetail, 'lineItems'>,
@@ -198,6 +218,9 @@ export function buildInvoiceBookingDraftPatch(
   const salesOrderNumber = invoice.salesOrderNumber?.trim() || null;
   const customerGstin = invoice.customerGstin?.trim() || null;
   const customerPhone = invoice.customerPhone?.trim() || null;
+  const freightBillingMode = partnerId === 'delhivery'
+    ? (resolveInvoiceFreightBillingMode(invoice) || 'btc')
+    : null;
 
   return {
     source: 'invoice',
@@ -212,6 +235,7 @@ export function buildInvoiceBookingDraftPatch(
     zohoCustomerId,
     dealerId,
     partnerId,
+    ...(freightBillingMode ? { freightBillingMode } : {}),
     ...(shipFromSite ? { shipFromSite } : {}),
     ...(boxes && boxes.length > 0 ? { boxes } : {}),
   };

@@ -306,6 +306,7 @@ export const StaffCreateSalesOrderPage: React.FC = () => {
   const [courierBySite, setCourierBySite] = useState<Partial<Record<InventorySite, LogisticsPartnerId>>>({});
   const [manualFreightAmount, setManualFreightAmount] = useState<number | null>(null);
   const [manualFreightAmountLocked, setManualFreightAmountLocked] = useState(false);
+  const [freightBillingMode, setFreightBillingMode] = useState<'btc' | 'fod'>('btc');
   const [fromAddresses, setFromAddresses] = useState<Partial<Record<StaffLogisticsSite, string>>>({});
   const [pendingFreightDiff, setPendingFreightDiff] = useState<PendingFreightDiffPreview | null>(null);
 
@@ -538,19 +539,28 @@ export const StaffCreateSalesOrderPage: React.FC = () => {
     originAddress: fromAddresses.cochin || fromAddresses.head_office || '',
     destinationPin: shippingDestination?.zip,
     invoiceValueInr: goodsSubtotalForDelhivery,
-    freightBillingMode: 'btc',
+    freightBillingMode,
     enabled: freightAllowed,
   });
 
   const freightEstimate = delhiveryLive.estimateWithLive ?? freightEstimateBase;
 
   useEffect(() => {
-    if (manualFreightAmountLocked) return;
     if (!selectedPartnerIsDelhivery(freightEstimate)) return;
+    if (freightBillingMode === 'fod') {
+      setManualFreightAmount(prev => (prev === 0 ? prev : 0));
+      return;
+    }
+    if (manualFreightAmountLocked) return;
     if (delhiveryLive.preTaxInr == null) return;
     const next = Math.ceil(delhiveryLive.preTaxInr);
     setManualFreightAmount(prev => (prev === next ? prev : next));
-  }, [delhiveryLive.preTaxInr, freightEstimate, manualFreightAmountLocked]);
+  }, [
+    delhiveryLive.preTaxInr,
+    freightEstimate,
+    manualFreightAmountLocked,
+    freightBillingMode,
+  ]);
 
   useEffect(() => {
     // Destination / cart change → allow live estimate to refresh the amount.
@@ -1105,7 +1115,8 @@ export const StaffCreateSalesOrderPage: React.FC = () => {
     if (
       selectedFreightUsesManualRate
       && selectedPartnerIsDelhivery(freightEstimate)
-      && !(manualFreightAmount != null && Number.isFinite(manualFreightAmount) && manualFreightAmount >= 0)
+      && freightBillingMode !== 'fod'
+      && !(manualFreightAmount != null && Number.isFinite(manualFreightAmount) && manualFreightAmount > 0)
     ) {
       setError('Wait for the Delhivery freight estimate, or enter freight ₹ before creating the order.');
       return;
@@ -1155,6 +1166,9 @@ export const StaffCreateSalesOrderPage: React.FC = () => {
           && manualFreightAmount >= 0
           ? { manualFreightAmountInr: Math.round(manualFreightAmount * 100) / 100 }
           : {}),
+        ...(selectedPartnerIsDelhivery(freightEstimate)
+          ? { freightBillingMode }
+          : {}),
         ...(needsSalespersonPicker
           ? { salespersonId: salespersonId.trim() }
           : {}),
@@ -1164,6 +1178,7 @@ export const StaffCreateSalesOrderPage: React.FC = () => {
       setCourierBySite({});
       setManualFreightAmount(null);
       setManualFreightAmountLocked(false);
+      setFreightBillingMode('btc');
       const salesOrders = Array.isArray(result.salesOrders) && result.salesOrders.length > 0
         ? result.salesOrders
         : (result.zohoSalesOrderId
@@ -1753,20 +1768,27 @@ export const StaffCreateSalesOrderPage: React.FC = () => {
                   <OrderFreightPanel
                     estimate={freightEstimate}
                     canEditPackage
-                    allowManualFreightEntry
+                    allowManualFreightEntry={freightBillingMode !== 'fod'}
                     manualFreightAmount={manualFreightAmount}
+                    freightBillingMode={freightBillingMode}
+                    onFreightBillingModeChange={mode => {
+                      setFreightBillingMode(mode);
+                      setManualFreightAmountLocked(false);
+                      if (mode === 'fod') setManualFreightAmount(0);
+                    }}
                     catalogById={catalogById}
                     destinationLabel={[
                       shippingDestination?.city,
                       shippingDestination?.state,
                     ].filter(Boolean).join(', ') || null}
-                    footerNote="One freight line per draft SO. ST / Blue Dart / Trackon use rate cards; Delhivery uses the live B2B freight estimate (read-only)."
+                    footerNote="One freight line per draft SO. ST / Blue Dart / Trackon use rate cards; Delhivery BTC uses the live B2B estimate; FOD keeps the Delhivery line at ₹0."
                     onManualFreightAmountChange={next => {
                       setManualFreightAmountLocked(true);
                       setManualFreightAmount(next);
                     }}
                     onCourierChange={(site, partnerId) => {
                       setManualFreightAmountLocked(false);
+                      if (partnerId !== 'delhivery') setFreightBillingMode('btc');
                       setCourierBySite(prev => ({ ...prev, [site]: partnerId }));
                     }}
                     onPackageInfoChange={(productId, info) => {
@@ -1784,8 +1806,8 @@ export const StaffCreateSalesOrderPage: React.FC = () => {
                       destinationPin={delhiveryLive.destinationPin}
                       weightKg={freightEstimate.totalChargeableKg || 5}
                       invAmount={goodsSubtotalForDelhivery}
-                      freightBillingMode="btc"
-                      includeEstimate={Boolean(delhiveryLive.originPin)}
+                      freightBillingMode={freightBillingMode}
+                      includeEstimate={freightBillingMode === 'btc' && Boolean(delhiveryLive.originPin)}
                       compact
                     />
                   ) : null}

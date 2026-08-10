@@ -136,8 +136,9 @@ export function useDelhiveryLiveFreightQuote(input: Input): DelhiveryLiveFreight
       loading,
       error: error || quote?.estimate.error || quote?.serviceability.error || null,
       notServiceable: quote?.serviceability.ok === true && quote.serviceability.serviceable === false,
+      freightBillingMode,
     });
-  }, [input.estimate, enabled, preTaxInr, loading, error, quote]);
+  }, [input.estimate, enabled, preTaxInr, loading, error, quote, freightBillingMode]);
 
   return {
     loading,

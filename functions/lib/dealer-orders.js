@@ -752,10 +752,17 @@ export async function submitDealerOrder(uid, role, payload = {}, secrets, orgId)
 
   const freightConfig = await loadDealerFreightConfig();
   const blueDartPin = await loadBlueDartPinForZip(freightDestination.zip);
+  const freightBillingMode = String(payload.freightBillingMode || '').trim().toLowerCase() === 'fod'
+    ? 'fod'
+    : 'btc';
   const manualFreightRaw = Number(payload.manualFreightAmountInr);
-  const manualFreightAmountInr = Number.isFinite(manualFreightRaw) && manualFreightRaw >= 0
-    ? Math.round(manualFreightRaw * 100) / 100
-    : null;
+  const manualFreightAmountInr = freightBillingMode === 'fod'
+    ? 0
+    : (
+      Number.isFinite(manualFreightRaw) && manualFreightRaw >= 0
+        ? Math.round(manualFreightRaw * 100) / 100
+        : null
+    );
   const freightLines = buildDealerAutoFreightLines({
     lines: goodsLines,
     destination: freightDestination,
@@ -804,6 +811,7 @@ export async function submitDealerOrder(uid, role, payload = {}, secrets, orgId)
         yesOnePriceChanges: priceAudit,
         yesOneFreightZone: freightZoneMeta.zone,
         yesOneFreightZoneInferred: freightZoneMeta.inferredZone,
+        yesOneFreightBillingMode: freightBillingMode,
         ...(freightZoneMeta.zoneOverridden
           ? { yesOneFreightZoneOverrideReason: freightZoneOverrideReason }
           : {}),
@@ -936,10 +944,17 @@ export async function createStaffSalesOrder(uid, role, payload = {}, secrets, or
 
   const freightConfig = await loadDealerFreightConfig();
   const blueDartPin = await loadBlueDartPinForZip(freightDestination.zip);
+  const freightBillingMode = String(payload.freightBillingMode || '').trim().toLowerCase() === 'fod'
+    ? 'fod'
+    : 'btc';
   const manualFreightRaw = Number(payload.manualFreightAmountInr);
-  const manualFreightAmountInr = Number.isFinite(manualFreightRaw) && manualFreightRaw >= 0
-    ? Math.round(manualFreightRaw * 100) / 100
-    : null;
+  const manualFreightAmountInr = freightBillingMode === 'fod'
+    ? 0
+    : (
+      Number.isFinite(manualFreightRaw) && manualFreightRaw >= 0
+        ? Math.round(manualFreightRaw * 100) / 100
+        : null
+    );
   const freightLines = buildDealerAutoFreightLines({
     lines: goodsLines,
     destination: freightDestination,
@@ -1023,6 +1038,7 @@ export async function createStaffSalesOrder(uid, role, payload = {}, secrets, or
         yesOnePriceChanges: priceAudit,
         yesOneFreightZone: freightZoneMeta.zone,
         yesOneFreightZoneInferred: freightZoneMeta.inferredZone,
+        yesOneFreightBillingMode: freightBillingMode,
         ...(freightZoneMeta.zoneOverridden
           ? { yesOneFreightZoneOverrideReason: freightZoneOverrideReason }
           : {}),

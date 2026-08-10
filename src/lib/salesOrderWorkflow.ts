@@ -196,6 +196,8 @@ export async function createStaffSalesOrder(input: {
    * Applied only when a manual-rate partner is selected.
    */
   manualFreightAmountInr?: number;
+  /** Delhivery freight billing: btc (default) or fod (₹0 on order). */
+  freightBillingMode?: 'fod' | 'btc';
 }): Promise<{
   zohoSalesOrderId: string | null;
   zohoSalesOrderNumber: string | null;
@@ -240,6 +242,9 @@ export async function createStaffSalesOrder(input: {
           && Number.isFinite(input.manualFreightAmountInr)
           && input.manualFreightAmountInr >= 0
           ? { manualFreightAmountInr: Math.round(input.manualFreightAmountInr * 100) / 100 }
+          : {}),
+        ...(input.freightBillingMode === 'fod' || input.freightBillingMode === 'btc'
+          ? { freightBillingMode: input.freightBillingMode }
           : {}),
       },
       180_000,

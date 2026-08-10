@@ -153,6 +153,7 @@ export function delhiveryDimensionsFromEstimate(
 /**
  * Overlay a live Delhivery pre-tax estimate onto cart freight options / site totals
  * so Preferred Delhivery shows a real ₹ next to ST / Blue Dart.
+ * FOD: keep Delhivery selectable with charged ₹0 (calculations are BTC-only).
  */
 export function mergeDelhiveryLiveQuoteIntoEstimate(
   estimate: StCourierCartFreightEstimate,
@@ -161,10 +162,13 @@ export function mergeDelhiveryLiveQuoteIntoEstimate(
     loading?: boolean;
     error?: string | null;
     notServiceable?: boolean;
+    /** When fod, charged freight is ₹0 (line still shown). */
+    freightBillingMode?: 'fod' | 'btc' | null;
   },
 ): StCourierCartFreightEstimate {
+  const fod = meta?.freightBillingMode === 'fod';
   const amount = Number(livePreTaxInr);
-  const hasAmount = Number.isFinite(amount) && amount > 0;
+  const hasAmount = !fod && Number.isFinite(amount) && amount > 0;
   const rounded = hasAmount ? Math.ceil(amount) : 0;
   const loading = Boolean(meta?.loading);
   const notServiceable = Boolean(meta?.notServiceable);
@@ -178,6 +182,16 @@ export function mergeDelhiveryLiveQuoteIntoEstimate(
           ...opt,
           enabled: false,
           disabledReason: error || 'Destination not serviceable on Delhivery',
+          estimatedTotalInr: 0,
+          manualRate: false,
+          liveApiRate: true,
+        };
+      }
+      if (fod) {
+        return {
+          ...opt,
+          enabled: true,
+          disabledReason: null,
           estimatedTotalInr: 0,
           manualRate: false,
           liveApiRate: true,
@@ -221,19 +235,34 @@ export function mergeDelhiveryLiveQuoteIntoEstimate(
   const delhiverySiteIndexes = sites
     .map((site, index) => (site.partnerId === 'delhivery' ? index : -1))
     .filter(index => index >= 0);
-  if (hasAmount && delhiverySiteIndexes.length > 0) {
+  if ((hasAmount || fod) && delhiverySiteIndexes.length > 0) {
     const siteWeights = delhiverySiteIndexes.map(index => (
       sites[index]!.lineBreakdowns.reduce(
         (sum, line) => sum + (Number(line.chargeableKg) || 0),
         0,
       ) || Number(sites[index]!.chargeableKg) || 0
     ));
-    const siteAmounts = allocateByChargeableKg(siteWeights, rounded);
+    const siteAmounts = allocateByChargeableKg(siteWeights, fod ? 0 : rounded);
     delhiverySiteIndexes.forEach((siteIndex, i) => {
-      sites[siteIndex] = allocateLiveFreightOnSite(
+      const next = allocateLiveFreightOnSite(
         sites[siteIndex]!,
         siteAmounts[i] ?? 0,
       );
+      sites[siteIndex] = fod
+        ? {
+          ...next,
+          rateMissing: false,
+          lineBreakdowns: next.lineBreakdowns.map(line => ({
+            ...line,
+            amountInr: 0,
+            calcSteps: [{
+              label: 'FOD — consignee pays freight',
+              detail: 'No freight charged on this order',
+              amountInr: 0,
+            }],
+          })),
+        }
+        : next;
     });
   } else if (!hasAmount) {
     for (let i = 0; i < sites.length; i += 1) {

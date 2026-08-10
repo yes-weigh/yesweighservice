@@ -52,6 +52,9 @@ type Props = {
   /** Manual freight ₹ for the selected manual-rate partner. */
   manualFreightAmount?: number | null;
   onManualFreightAmountChange?: (amount: number | null) => void;
+  /** Delhivery freight billing: BTC (charged) vs FOD (₹0 on order). */
+  freightBillingMode?: 'fod' | 'btc' | null;
+  onFreightBillingModeChange?: (mode: 'fod' | 'btc') => void;
   onCourierChange: (site: InventorySite, partnerId: LogisticsPartnerId) => void;
   onPackageInfoChange?: (productId: string, info: NonNullable<CatalogProduct['packageInfo']>) => void;
 };
@@ -287,6 +290,7 @@ function CourierOptionCard({
   allowManualFreightEntry,
   manualFreightAmount,
   onManualFreightAmountChange,
+  freightBillingMode,
   onSelect,
 }: {
   opt: OrderCourierOption;
@@ -296,6 +300,7 @@ function CourierOptionCard({
   allowManualFreightEntry?: boolean;
   manualFreightAmount?: number | null;
   onManualFreightAmountChange?: (amount: number | null) => void;
+  freightBillingMode?: 'fod' | 'btc' | null;
   onSelect: () => void;
 }) {
   const logo = logisticsPartnerImage(opt.partnerId);
@@ -306,15 +311,20 @@ function CourierOptionCard({
     && allowManualFreightEntry
     && onManualFreightAmountChange,
   );
-  const displayAmount = showManualInput && selected && manualFreightAmount != null && manualFreightAmount > 0
-    ? manualFreightAmount
+  const fod = opt.partnerId === 'delhivery' && freightBillingMode === 'fod';
+  const displayAmount = fod
+    ? 0
     : (
-      selected
-      && opt.liveApiRate
-      && manualFreightAmount != null
-      && manualFreightAmount > 0
+      showManualInput && selected && manualFreightAmount != null && manualFreightAmount > 0
         ? manualFreightAmount
-        : amountInr
+        : (
+          selected
+          && opt.liveApiRate
+          && manualFreightAmount != null
+          && manualFreightAmount > 0
+            ? manualFreightAmount
+            : amountInr
+        )
     );
 
   return (
@@ -346,7 +356,11 @@ function CourierOptionCard({
           <em className="order-freight-panel__courier-preferred">Preferred</em>
         ) : null}
         {opt.enabled && opt.liveApiRate ? (
-          <em>{displayAmount > 0 ? 'Live API estimate' : 'Estimating…'}</em>
+          <em>
+            {fod
+              ? 'FOD · ₹0 on order'
+              : (displayAmount > 0 ? 'Live API estimate' : 'Estimating…')}
+          </em>
         ) : null}
         {opt.enabled && opt.manualRate && !opt.liveApiRate ? (
           <em>{showManualInput ? 'Enter freight ₹' : 'Enter ₹ on sales order'}</em>
@@ -809,6 +823,8 @@ export const OrderFreightPanel: React.FC<Props> = ({
   allowManualFreightEntry = false,
   manualFreightAmount = null,
   onManualFreightAmountChange,
+  freightBillingMode = null,
+  onFreightBillingModeChange,
   onCourierChange,
   onPackageInfoChange,
 }) => {
@@ -860,6 +876,15 @@ export const OrderFreightPanel: React.FC<Props> = ({
     && estimate.sites.every(site => site.partnerId === estimate.sites[0].partnerId)
     ? estimate.sites[0].partnerId
     : null;
+
+  const showDelhiveryBillingMode = Boolean(
+    onFreightBillingModeChange
+    && (
+      (clubSites && clubSelectedPartner === 'delhivery')
+      || (!clubSites && estimate.sites.some(site => site.partnerId === 'delhivery'))
+    ),
+  );
+  const billingMode = freightBillingMode === 'fod' ? 'fod' : 'btc';
 
   const selectedUsesManualRate = useMemo(() => {
     if (!estimate.usable) return false;
@@ -992,6 +1017,31 @@ export const OrderFreightPanel: React.FC<Props> = ({
         </div>
       </header>
 
+      {showDelhiveryBillingMode ? (
+        <div className="logistics-booking__billing-mode order-freight-panel__billing-mode">
+          <span className="text-muted text-sm">
+            Delhivery freight billing
+            {billingMode === 'fod' ? ' · consignee pays (₹0 on order)' : ' · billed to YesWeigh'}
+          </span>
+          <div className="logistics-booking__billing-mode-actions">
+            <button
+              type="button"
+              className={['btn btn-secondary', billingMode === 'btc' ? 'is-active' : ''].filter(Boolean).join(' ')}
+              onClick={() => onFreightBillingModeChange?.('btc')}
+            >
+              BTC
+            </button>
+            <button
+              type="button"
+              className={['btn btn-secondary', billingMode === 'fod' ? 'is-active' : ''].filter(Boolean).join(' ')}
+              onClick={() => onFreightBillingModeChange?.('fod')}
+            >
+              FOD
+            </button>
+          </div>
+        </div>
+      ) : null}
+
       {clubSites ? (
         <section className="order-freight-panel__site">
           {clubCourierOptions.length > 0 ? (
@@ -1006,6 +1056,7 @@ export const OrderFreightPanel: React.FC<Props> = ({
                   allowManualFreightEntry={allowManualFreightEntry}
                   manualFreightAmount={manualFreightAmount}
                   onManualFreightAmountChange={onManualFreightAmountChange}
+                  freightBillingMode={freightBillingMode}
                   onSelect={() => {
                     for (const site of estimate.sites) {
                       onCourierChange(site.site, opt.partnerId);
@@ -1077,6 +1128,7 @@ export const OrderFreightPanel: React.FC<Props> = ({
                     allowManualFreightEntry={allowManualFreightEntry}
                     manualFreightAmount={manualFreightAmount}
                     onManualFreightAmountChange={onManualFreightAmountChange}
+                    freightBillingMode={freightBillingMode}
                     onSelect={() => onCourierChange(site.site, opt.partnerId)}
                   />
                 ))}

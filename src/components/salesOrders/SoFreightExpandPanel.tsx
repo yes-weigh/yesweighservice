@@ -105,6 +105,7 @@ export const SoFreightExpandPanel: React.FC<Props> = ({
   const [freightSku, setFreightSku] = useState<string | null>(null);
   const [freightAmount, setFreightAmount] = useState('');
   const [freightAmountManual, setFreightAmountManual] = useState(false);
+  const [freightBillingMode, setFreightBillingMode] = useState<'btc' | 'fod'>('btc');
   const hydratedRef = useRef(false);
   const lastAutoKeyRef = useRef('');
   const prevFreightInputsKeyRef = useRef(freightInputsKey);
@@ -143,6 +144,12 @@ export const SoFreightExpandPanel: React.FC<Props> = ({
     const partner = partnerIdForFreightSku(option?.sku);
     if (partner) {
       setCourierBySite({ cochin: partner, head_office: partner });
+    }
+    if (partner === 'delhivery' && existingRate === 0) {
+      setFreightBillingMode('fod');
+      setFreightAmountManual(false);
+    } else if (partner === 'delhivery') {
+      setFreightBillingMode('btc');
     }
   }, [lines]);
 
@@ -205,7 +212,7 @@ export const SoFreightExpandPanel: React.FC<Props> = ({
     originAddress: fromAddresses.cochin || fromAddresses.head_office || '',
     destinationPin: shippingDestination?.zip,
     invoiceValueInr: goodsSubtotal,
-    freightBillingMode: 'btc',
+    freightBillingMode,
   });
 
   const freightEstimate = delhiveryLive.estimateWithLive ?? freightEstimateBase;
@@ -251,8 +258,23 @@ export const SoFreightExpandPanel: React.FC<Props> = ({
 
     const sku = freightSkuForPartner(site.partnerId);
     if (!sku) return;
-    const rate = Math.ceil(Number(freightEstimate.totalInr) || 0) || 0;
+    const delhiveryFod = site.partnerId === 'delhivery' && freightBillingMode === 'fod';
+    const rate = delhiveryFod
+      ? 0
+      : (Math.ceil(Number(freightEstimate.totalInr) || 0) || 0);
     const selectedOpt = site.courierOptions.find(o => o.partnerId === site.partnerId);
+    // FOD: keep Delhivery freight line at ₹0.
+    if (delhiveryFod) {
+      const key = `all:delhivery:fod:0`;
+      if (lastAutoKeyRef.current === key) return;
+      lastAutoKeyRef.current = key;
+      setFreightSku(sku);
+      setFreightAmount('0');
+      if (!(current && String(current.sku || '').toUpperCase() === sku && currentAmount === 0)) {
+        applyFreight(sku, '0');
+      }
+      return;
+    }
     // Never clobber an existing freight line with a zero estimate
     // (common for Manual partners like Delhivery with no rate card).
     if (rate === 0 && current) {
@@ -282,11 +304,12 @@ export const SoFreightExpandPanel: React.FC<Props> = ({
     applyFreight(sku, String(rate));
     // Sync freight from estimate when courier / package / lines change.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [freightEstimate, freightAmountManual, disabled, showUi]);
+  }, [freightEstimate, freightAmountManual, disabled, showUi, freightBillingMode]);
 
   useEffect(() => {
     if (freightAmountManual || disabled) return;
     if (!selectedPartnerIsDelhivery(freightEstimate)) return;
+    if (freightBillingMode === 'fod') return;
     if (delhiveryLive.preTaxInr == null) return;
     const sku = freightSkuForPartner('delhivery');
     if (!sku) return;
@@ -299,7 +322,7 @@ export const SoFreightExpandPanel: React.FC<Props> = ({
     setFreightAmount(String(rate));
     applyFreight(sku, String(rate));
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [delhiveryLive.preTaxInr, freightEstimate, freightAmountManual, disabled]);
+  }, [delhiveryLive.preTaxInr, freightEstimate, freightAmountManual, disabled, freightBillingMode]);
 
   const showDelhiveryQuote = selectedPartnerIsDelhivery(freightEstimate)
     && Boolean(shippingDestination?.zip);
@@ -313,19 +336,33 @@ export const SoFreightExpandPanel: React.FC<Props> = ({
           estimate={freightEstimate}
           canEditPackage={canEditPackage && !disabled}
           showFreightChargePlan
-          allowManualFreightEntry={!disabled}
+          allowManualFreightEntry={!disabled && freightBillingMode !== 'fod'}
           manualFreightAmount={(() => {
             const trimmed = freightAmount.trim();
             if (!trimmed) return null;
             const n = Number(trimmed);
             return Number.isFinite(n) ? n : null;
           })()}
+          freightBillingMode={freightBillingMode}
+          onFreightBillingModeChange={mode => {
+            setFreightBillingMode(mode);
+            setFreightAmountManual(false);
+            lastAutoKeyRef.current = '';
+            if (mode === 'fod') {
+              const sku = freightSkuForPartner('delhivery');
+              if (sku) {
+                setFreightSku(sku);
+                setFreightAmount('0');
+                applyFreight(sku, '0');
+              }
+            }
+          }}
           catalogById={catalogById}
           destinationLabel={[
             shippingDestination?.city,
             shippingDestination?.state,
           ].filter(Boolean).join(', ') || null}
-          footerNote="One freight line per draft SO. Active partners quote from rates; Manual partners need a freight ₹ when no rate card applies. Delhivery live API estimate is read-only."
+          footerNote="One freight line per draft SO. Delhivery BTC uses the live B2B estimate; FOD keeps the Delhivery line at ₹0."
           onManualFreightAmountChange={next => {
             const sku = freightSku
               || freightSkuForPartner(freightEstimate.sites[0]?.partnerId)
@@ -340,6 +377,7 @@ export const SoFreightExpandPanel: React.FC<Props> = ({
           onCourierChange={(site, partnerId) => {
             setFreightAmountManual(false);
             lastAutoKeyRef.current = '';
+            if (partnerId !== 'delhivery') setFreightBillingMode('btc');
             setCourierBySite(prev => ({ ...prev, [site]: partnerId }));
           }}
           onPackageInfoChange={(productId, info) => {
@@ -361,7 +399,7 @@ export const SoFreightExpandPanel: React.FC<Props> = ({
           destinationPin={delhiveryLive.destinationPin}
           weightKg={freightEstimate?.totalChargeableKg || 5}
           invAmount={goodsSubtotal}
-          freightBillingMode="btc"
+          freightBillingMode={freightBillingMode}
           includeEstimate={false}
           compact
         />

@@ -97,6 +97,7 @@ const DealerCartPage: React.FC = () => {
   const [partnerStatuses, setPartnerStatuses] = useState<LogisticsPartnerStatuses | null>(null);
   const [courierBySite, setCourierBySite] = useState<Partial<Record<InventorySite, LogisticsPartnerId>>>({});
   const [fromAddresses, setFromAddresses] = useState<Partial<Record<StaffLogisticsSite, string>>>({});
+  const [freightBillingMode, setFreightBillingMode] = useState<'btc' | 'fod'>('btc');
   const [freightAdjustAgreed, setFreightAdjustAgreed] = useState(true);
   const [pendingFreightDiff, setPendingFreightDiff] = useState<PendingFreightDiffPreview | null>(null);
 
@@ -191,7 +192,7 @@ const DealerCartPage: React.FC = () => {
     originAddress: fromAddresses.cochin || fromAddresses.head_office || '',
     destinationPin: shippingDestination?.zip,
     invoiceValueInr: subtotal,
-    freightBillingMode: 'btc',
+    freightBillingMode,
   });
 
   const freightEstimate = delhiveryLive.estimateWithLive ?? freightEstimateBase;
@@ -261,14 +262,19 @@ const DealerCartPage: React.FC = () => {
     const freight = round2(Math.max(0, baseFreight + adjust));
     const freightGst = freight > 0 ? round2(freight * (defaultGstPct / 100)) : 0;
     const gst = round2(itemsGst + freightGst);
+    const fodZero = freightBillingMode === 'fod'
+      && selectedPartnerIsDelhivery(freightEstimate);
     return {
       freight,
       freightAdjust: adjust,
       gst,
       total: round2(subtotal + freight + gst),
-      hasFreight: Boolean(freightEstimate?.usable && (baseFreight > 0 || Math.abs(adjust) > 0)),
+      hasFreight: Boolean(
+        freightEstimate?.usable
+        && (baseFreight > 0 || Math.abs(adjust) > 0 || fodZero),
+      ),
     };
-  }, [items, catalogById, freightEstimate, subtotal, pendingFreightDiff]);
+  }, [items, catalogById, freightEstimate, subtotal, pendingFreightDiff, freightBillingMode]);
 
   const handlePlaceOrder = async () => {
     if (items.length === 0 || submitting) return;
@@ -278,6 +284,7 @@ const DealerCartPage: React.FC = () => {
     }
     if (
       selectedPartnerIsDelhivery(freightEstimate)
+      && freightBillingMode !== 'fod'
       && !(delhiveryLive.preTaxInr != null && delhiveryLive.preTaxInr > 0)
     ) {
       window.alert(
@@ -294,9 +301,15 @@ const DealerCartPage: React.FC = () => {
         return acc;
       }, {} as Partial<Record<InventorySite, LogisticsPartnerId>>);
       const delhiveryFreight = selectedPartnerIsDelhivery(freightEstimate)
-        && delhiveryLive.preTaxInr != null
-        && delhiveryLive.preTaxInr > 0
-        ? Math.ceil(delhiveryLive.preTaxInr)
+        ? (
+          freightBillingMode === 'fod'
+            ? 0
+            : (
+              delhiveryLive.preTaxInr != null && delhiveryLive.preTaxInr > 0
+                ? Math.ceil(delhiveryLive.preTaxInr)
+                : undefined
+            )
+        )
         : undefined;
       const order = await submitDealerOrder(
         items.map(item => ({
@@ -310,8 +323,10 @@ const DealerCartPage: React.FC = () => {
         inferredFreightZone ?? undefined,
         undefined,
         delhiveryFreight,
+        selectedPartnerIsDelhivery(freightEstimate) ? freightBillingMode : undefined,
       );
       clearCart();
+      setFreightBillingMode('btc');
       const salesOrders = Array.isArray(order.salesOrders) && order.salesOrders.length > 0
         ? order.salesOrders
         : (order.zohoSalesOrderId
@@ -633,8 +648,11 @@ const DealerCartPage: React.FC = () => {
                   shippingDestination?.city,
                   shippingDestination?.state,
                 ].filter(Boolean).join(', ') || null}
-                footerNote="Estimated freight for this order. Delhivery uses a live API quote; staff can adjust courier and package data when reviewing."
+                footerNote="Estimated freight for this order. Delhivery BTC uses a live API quote; FOD keeps the Delhivery line at ₹0 (consignee pays)."
+                freightBillingMode={freightBillingMode}
+                onFreightBillingModeChange={setFreightBillingMode}
                 onCourierChange={(site, partnerId) => {
+                  if (partnerId !== 'delhivery') setFreightBillingMode('btc');
                   setCourierBySite(prev => ({ ...prev, [site]: partnerId }));
                 }}
               />
@@ -644,7 +662,7 @@ const DealerCartPage: React.FC = () => {
                   destinationPin={delhiveryLive.destinationPin}
                   weightKg={freightEstimate.totalChargeableKg || 5}
                   invAmount={subtotal}
-                  freightBillingMode="btc"
+                  freightBillingMode={freightBillingMode}
                   includeEstimate={false}
                   compact
                 />
