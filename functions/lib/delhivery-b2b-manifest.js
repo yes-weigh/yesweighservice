@@ -49,6 +49,24 @@ function normalizeGstin(value) {
 }
 
 /**
+ * Delhivery Shipper Copy leaves labeled phone/GSTIN blanks even when API fields
+ * are set (verified). Embedding them in the address line is what actually prints.
+ */
+function addressWithContactPrintFields(address, phone, gstin) {
+  let text = String(address || '').replace(/\s+/g, ' ').trim();
+  if (!text) return text;
+  const phoneValue = phoneDigits(phone);
+  if (phoneValue && !text.replace(/\D/g, '').includes(phoneValue)) {
+    text = `${text}, Ph: ${phoneValue}`;
+  }
+  const gst = normalizeGstin(gstin);
+  if (gst && !text.toUpperCase().includes(gst)) {
+    text = `${text}, GSTIN: ${gst}`;
+  }
+  return text;
+}
+
+/**
  * App billing → optional Delhivery freight_mode.
  * FoP is not allowed for INTERWEIGHING B2B — omit for BTC.
  * @param {unknown} raw
@@ -172,14 +190,14 @@ export function buildDelhiveryB2bManifestPayload(input) {
 
   const dropoff_location = {
     consignee_name: name,
-    address,
+    address: addressWithContactPrintFields(address, phone, consigneeGstin),
     city: nonEmpty(consignee.city) || 'NA',
     state: nonEmpty(consignee.state) || 'NA',
     zip: pin,
-    // Docs type this as INTEGER; portal/print read it as the consignee mobile.
+    // Docs type this as INTEGER; portal stores it, but Shipper Copy phone field stays blank.
     phone: Number(phone) || phone,
     email: nonEmpty(consignee.email) || '',
-    // Accepted by /manifest (probed); used for consignee GSTIN on shipping docs.
+    // Accepted by /manifest (probed); labeled GSTIN on Shipper Copy still blank — also embedded in address.
     gst_number: consigneeGstin,
     consignee_gst: consigneeGstin,
   };
@@ -210,8 +228,13 @@ export function buildDelhiveryB2bManifestPayload(input) {
   const return_address = ret && nonEmpty(ret.address)
     ? {
       name: nonEmpty(ret.name) || pickup,
-      phone: returnPhone,
-      address: nonEmpty(ret.address),
+      // Docs type return phone as INTEGER.
+      phone: Number(returnPhone) || returnPhone,
+      address: addressWithContactPrintFields(
+        nonEmpty(ret.address),
+        returnPhone,
+        sellerGstin,
+      ),
       city: nonEmpty(ret.city) || 'NA',
       state: nonEmpty(ret.state) || 'NA',
       zip: String(ret.pincode || '').replace(/\D/g, '') || pin,
@@ -233,7 +256,7 @@ export function buildDelhiveryB2bManifestPayload(input) {
       city: nonEmpty(billing.city) || 'NA',
       state: nonEmpty(billing.state) || 'NA',
       pin: String(billing.pin || '').replace(/\D/g, '') || (return_address?.zip || pin),
-      phone: billingPhone || return_address?.phone || '',
+      phone: String(billingPhone || returnPhone || ''),
     }
     : (return_address
       ? {
@@ -244,7 +267,7 @@ export function buildDelhiveryB2bManifestPayload(input) {
         city: return_address.city,
         state: return_address.state,
         pin: return_address.zip,
-        phone: return_address.phone,
+        phone: String(returnPhone || ''),
       }
       : {
         name: pickup,
@@ -254,11 +277,13 @@ export function buildDelhiveryB2bManifestPayload(input) {
         city: 'NA',
         state: 'NA',
         pin,
-        phone: billingPhone || '',
+        phone: String(billingPhone || ''),
       });
   if (!billingBase.phone) {
     throw new Error('Shipper phone is required for Delhivery billing address (set it in Logistics Settings → Sites).');
   }
+  // billing_address.phone is documented as String.
+  billingBase.phone = String(billingBase.phone);
 
   const billing_address = {
     ...billingBase,

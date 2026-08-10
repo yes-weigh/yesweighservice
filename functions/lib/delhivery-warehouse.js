@@ -31,6 +31,19 @@ function pinFromText(value) {
   return match?.[1] || null;
 }
 
+/** Keep phone visible on LR print (Shipper Copy ignores warehouse phone_number field). */
+function addressWithPhone(address, phone) {
+  let text = String(address || '').replace(/\s+/g, ' ').trim();
+  const digits = phoneDigits(phone);
+  if (!text || !digits) return text;
+  // Drop trailing bare +91 phones so we can normalize.
+  text = text.replace(/(?:,\s*)?\+?91[- ]?\d{10}\s*$/i, '').trim();
+  if (!text.replace(/\D/g, '').includes(digits)) {
+    text = `${text}, Ph: ${digits}`;
+  }
+  return text;
+}
+
 /**
  * @param {FirebaseFirestore.Firestore} db
  * @param {string} site
@@ -81,6 +94,7 @@ export async function updateDelhiveryWarehouseContacts(db, input) {
   if (!gstin) throw new Error('Ship-from GSTIN is required to update Delhivery warehouse.');
 
   const pin = Number(String(input.pin || pinFromText(address) || '683503').replace(/\D/g, '').slice(0, 6));
+  const printAddress = addressWithPhone(address, phone);
   const auth = await getValidDelhiveryJwt(db);
   const base = delhiveryLtlBaseUrl(auth.env);
   const body = {
@@ -90,7 +104,7 @@ export async function updateDelhiveryWarehouseContacts(db, input) {
       ...(nonEmpty(input.state) ? { state: nonEmpty(input.state) } : {}),
       country: 'India',
       address_details: {
-        address,
+        address: printAddress,
         contact_person: 'Interweighing',
         phone_number: phone,
         company: 'Interweighing Pvt Ltd',

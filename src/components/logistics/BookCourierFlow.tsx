@@ -290,6 +290,25 @@ function normalizeGstinForCourier(value: string | null | undefined): string | nu
   return /^[0-9A-Z]{15}$/.test(text) ? text : null;
 }
 
+/** Delhivery Shipper Copy ignores labeled phone/GSTIN fields; embed for print. */
+function addressWithPrintContacts(
+  address: string,
+  phone: string | null | undefined,
+  gstin: string | null | undefined,
+): string {
+  let text = address.replace(/\s+/g, ' ').trim();
+  if (!text) return text;
+  const phoneValue = phoneDigitsForCourier(phone);
+  if (phoneValue && !text.replace(/\D/g, '').includes(phoneValue)) {
+    text = `${text}, Ph: ${phoneValue}`;
+  }
+  const gst = normalizeGstinForCourier(gstin);
+  if (gst && !text.toUpperCase().includes(gst)) {
+    text = `${text}, GSTIN: ${gst}`;
+  }
+  return text;
+}
+
 export const BookCourierFlow: React.FC<BookCourierFlowProps> = ({
   partnerId,
   user,
@@ -925,7 +944,7 @@ export const BookCourierFlow: React.FC<BookCourierFlowProps> = ({
         consignee: {
           name: selectedDealer.name,
           phone: consigneePhone,
-          address,
+          address: addressWithPrintContacts(address, consigneePhone, consigneeGstin),
           city: selectedDealer.destinationCity?.trim() || deliveryPlace.city,
           state: deliveryPlace.state,
           pincode: pin,
@@ -936,7 +955,7 @@ export const BookCourierFlow: React.FC<BookCourierFlowProps> = ({
           ? {
             name: siteLabel,
             phone: shipperPhone,
-            address: fromAddress,
+            address: addressWithPrintContacts(fromAddress, shipperPhone, shipperGstin),
             city: shipFromPlace.city,
             state: shipFromPlace.state,
             pincode: shipFromPin,
@@ -948,7 +967,7 @@ export const BookCourierFlow: React.FC<BookCourierFlowProps> = ({
             name: FIRM_NAME,
             company: FIRM_NAME,
             consignor: siteLabel,
-            address: fromAddress,
+            address: addressWithPrintContacts(fromAddress, shipperPhone, shipperGstin),
             city: shipFromPlace.city || 'NA',
             state: shipFromPlace.state || 'NA',
             pin: shipFromPin,
