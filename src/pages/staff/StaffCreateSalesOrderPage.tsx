@@ -40,6 +40,7 @@ import { loadLogisticsSettings } from '../../lib/logisticsSettings';
 import {
   cartLinesForFreightEstimate,
   estimateStCourierCartFreight,
+  listProductsMissingFreightPackageInfo,
   type StCourierCartFreightEstimate,
 } from '../../lib/stCourierCartFreight';
 import type { StaffLogisticsSite } from '../../types/staff-logistics';
@@ -988,6 +989,16 @@ export const StaffCreateSalesOrderPage: React.FC = () => {
     && salespersonReady,
   );
 
+  /** Product LBH/weight required before Ready for payment (draft still allowed). */
+  const missingPackageLines = useMemo(
+    () => listProductsMissingFreightPackageInfo(
+      cartLinesForFreightEstimate(lines, catalogById),
+    ),
+    [lines, catalogById],
+  );
+  const packageDataReady = missingPackageLines.length === 0;
+  const canReadyForPayment = canSubmit && packageDataReady;
+
   const setLineBaseRate = (cartLineId: string, baseRate: number) => {
     const nextBase = Number.isFinite(baseRate) && baseRate >= 0
       ? Math.round(baseRate * 100) / 100
@@ -1097,6 +1108,16 @@ export const StaffCreateSalesOrderPage: React.FC = () => {
       && !(manualFreightAmount != null && Number.isFinite(manualFreightAmount) && manualFreightAmount >= 0)
     ) {
       setError('Wait for the Delhivery freight estimate, or enter freight ₹ before creating the order.');
+      return;
+    }
+    if (stage === 'ready_for_payment' && !packageDataReady) {
+      const sample = missingPackageLines
+        .slice(0, 3)
+        .map(row => row.name || row.sku || 'Item')
+        .join(', ');
+      setError(
+        `Fill package LBH/weight before Ready for payment${sample ? ` (${sample}${missingPackageLines.length > 3 ? '…' : ''})` : ''}. You can still Save as draft.`,
+      );
       return;
     }
     {
@@ -1808,6 +1829,17 @@ export const StaffCreateSalesOrderPage: React.FC = () => {
                   : ''}
               </p>
             ) : null}
+            {!packageDataReady ? (
+              <p className="staff-create-so-page__package-gate text-muted text-sm" role="status">
+                Package LBH/weight missing on
+                {' '}
+                {missingPackageLines.length}
+                {' '}
+                product
+                {missingPackageLines.length === 1 ? '' : 's'}
+                . Save as draft is available; Ready for payment unlocks after package data is filled.
+              </p>
+            ) : null}
             <div className="staff-create-so-page__actions">
               <button
                 type="button"
@@ -1820,7 +1852,12 @@ export const StaffCreateSalesOrderPage: React.FC = () => {
               <button
                 type="button"
                 className="btn btn-primary"
-                disabled={saving || !canSubmit}
+                disabled={saving || !canReadyForPayment}
+                title={
+                  !packageDataReady
+                    ? 'Fill package LBH/weight on all products first'
+                    : undefined
+                }
                 onClick={() => void save('ready_for_payment')}
               >
                 {saving ? 'Saving…' : 'Ready for payment'}

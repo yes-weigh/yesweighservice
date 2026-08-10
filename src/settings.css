@@ -3581,6 +3581,115 @@
   }
 }
 
+.delhivery-b2b-panel__toolbar {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.75rem;
+  margin-bottom: 0.35rem;
+}
+
+.delhivery-b2b-panel__toolbar strong {
+  display: block;
+  font-size: 0.875rem;
+  font-weight: 800;
+  color: #f8fafc;
+}
+
+.delhivery-b2b-panel__toolbar p {
+  margin: 0.2rem 0 0;
+}
+
+.delhivery-b2b-panel__password {
+  position: relative;
+}
+
+.delhivery-b2b-panel__password input {
+  width: 100%;
+  padding-right: 2.5rem;
+}
+
+.delhivery-b2b-panel__password input:disabled,
+.delhivery-b2b-panel input:disabled,
+.delhivery-b2b-panel input[readonly] {
+  opacity: 0.85;
+  cursor: default;
+}
+
+.delhivery-b2b-panel__pw-toggle {
+  position: absolute;
+  right: 0.45rem;
+  top: 50%;
+  transform: translateY(-50%);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  background: transparent;
+  color: #94a3b8;
+  cursor: pointer;
+  padding: 0.25rem;
+}
+
+.delhivery-b2b-panel__pw-toggle:hover {
+  color: #e2e8f0;
+}
+
+.delhivery-b2b-panel__actions {
+  display: flex;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+  margin-top: 0.875rem;
+}
+
+.delhivery-b2b-panel__test-result {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.55rem;
+  margin-top: 0.75rem;
+  padding: 0.65rem 0.75rem;
+  border-radius: 0.55rem;
+  border: 1px solid transparent;
+}
+
+.delhivery-b2b-panel__test-result strong {
+  display: block;
+  font-size: 0.8125rem;
+  font-weight: 800;
+}
+
+.delhivery-b2b-panel__test-result p {
+  margin: 0.15rem 0 0;
+  font-size: 0.75rem;
+  font-weight: 600;
+  line-height: 1.35;
+}
+
+.delhivery-b2b-panel__test-result em {
+  display: block;
+  margin-top: 0.2rem;
+  font-size: 0.6875rem;
+  font-style: normal;
+  font-weight: 600;
+  opacity: 0.8;
+}
+
+.delhivery-b2b-panel__test-result.is-ok {
+  border-color: rgba(34, 197, 94, 0.4);
+  background: rgba(34, 197, 94, 0.1);
+  color: #86efac;
+}
+
+.delhivery-b2b-panel__test-result.is-fail {
+  border-color: rgba(248, 113, 113, 0.4);
+  background: rgba(248, 113, 113, 0.1);
+  color: #fca5a5;
+}
+
+.delhivery-b2b-panel__test-result.is-prior {
+  opacity: 0.9;
+}
+
 .settings-courier-rates__section-label {
   display: grid;
   gap: 0.2rem;
