@@ -215,6 +215,23 @@ export function countInvoicesByCategory(invoices) {
   return counts;
 }
 
+function invoiceNumberSortKey(value) {
+  const text = String(value ?? '').trim();
+  const match = /\/(\d+)\s*$/.exec(text) || /^(\d+)\s*$/.exec(text);
+  if (!match) return 0;
+  const n = Number(match[1]);
+  return Number.isFinite(n) ? n : 0;
+}
+
+function compareInvoiceNumber(a, b, dir) {
+  const aKey = invoiceNumberSortKey(a.invoiceNumber || a.id);
+  const bKey = invoiceNumberSortKey(b.invoiceNumber || b.id);
+  if (aKey !== bKey) return (aKey - bKey) * dir;
+  return String(a.invoiceNumber ?? a.id ?? '').localeCompare(
+    String(b.invoiceNumber ?? b.id ?? ''),
+  ) * dir;
+}
+
 export function sortInvoices(invoices, sortField = 'date', sortDir = 'desc') {
   const dir = sortDir === 'asc' ? 1 : -1;
   const key = sortField || 'date';
@@ -226,7 +243,16 @@ export function sortInvoices(invoices, sortField = 'date', sortDir = 'desc') {
     if (key === 'date' || key === 'dueDate') {
       const av = a[key] ? Date.parse(a[key]) : 0;
       const bv = b[key] ? Date.parse(b[key]) : 0;
-      return (av - bv) * dir;
+      const diff = (av - bv) * dir;
+      if (diff !== 0) return diff;
+      return compareInvoiceNumber(a, b, dir);
+    }
+    if (key === 'syncedAt') {
+      const av = a.syncedAt ? Date.parse(a.syncedAt) : 0;
+      const bv = b.syncedAt ? Date.parse(b.syncedAt) : 0;
+      const diff = (av - bv) * dir;
+      if (diff !== 0) return diff;
+      return compareInvoiceNumber(a, b, dir);
     }
     const av = a[key === 'invoiceNumber' ? 'invoiceNumber' : key] ?? '';
     const bv = b[key === 'invoiceNumber' ? 'invoiceNumber' : key] ?? '';

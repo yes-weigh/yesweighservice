@@ -192,9 +192,11 @@ export function buildAdminInvoicesQuery(options: AdminInvoiceListQuery & {
     if (dateStart) constraints.push(where('date', '>=', dateStart));
     if (dateEnd) constraints.push(where('date', '<=', dateEnd));
     constraints.push(orderBy('date', 'desc'));
+    constraints.push(orderBy('invoiceNumber', 'desc'));
   } else {
     const field = sort === 'syncedAt' ? 'syncedAt' : 'date';
     constraints.push(orderBy(field, 'desc'));
+    constraints.push(orderBy('invoiceNumber', 'desc'));
   }
 
   if (options.cursor) constraints.push(startAfter(options.cursor));
@@ -389,14 +391,7 @@ export async function fetchAdminPortalStampingInvoices(options: {
   );
 
   const rows = hydrated.flatMap(row => (row ? [row] : []));
-  rows.sort((a, b) => {
-    if (sort === 'syncedAt') {
-      return String(b.syncedAt ?? '').localeCompare(String(a.syncedAt ?? ''));
-    }
-    const byDate = String(b.date ?? '').localeCompare(String(a.date ?? ''));
-    if (byDate) return byDate;
-    return String(b.syncedAt ?? '').localeCompare(String(a.syncedAt ?? ''));
-  });
+  rows.sort((a, b) => compareInvoiceSortKey(a, b, sort));
 
   return {
     rows,
@@ -519,9 +514,7 @@ export async function fetchAllAdminInvoicesInRange(options: {
     if (pageSnap.size < ADMIN_INVOICES_PAGE_SIZE) break;
   }
 
-  if (sort === 'syncedAt' && (options.dateStart || options.dateEnd)) {
-    rows.sort((a, b) => String(b.syncedAt ?? '').localeCompare(String(a.syncedAt ?? '')));
-  }
+  rows.sort((a, b) => compareInvoiceSortKey(a, b, sort));
 
   return { rows: truncated ? rows.slice(0, maxRows) : rows, truncated };
 }
@@ -728,6 +721,27 @@ function parseInvoiceDay(value: string): number {
   return Number.isNaN(ts) ? NaN : ts;
 }
 
+/** Trailing numeric segment of YES/26-27/1763 style invoice numbers. */
+export function invoiceNumberSortKey(value: string | null | undefined): number {
+  const text = String(value ?? '').trim();
+  const match = /\/(\d+)\s*$/.exec(text) || /^(\d+)\s*$/.exec(text);
+  if (!match) return 0;
+  const n = Number(match[1]);
+  return Number.isFinite(n) ? n : 0;
+}
+
+function compareInvoiceNumberDesc(
+  a: Pick<AdminFirestoreInvoice, 'invoiceNumber' | 'id'>,
+  b: Pick<AdminFirestoreInvoice, 'invoiceNumber' | 'id'>,
+): number {
+  const aKey = invoiceNumberSortKey(a.invoiceNumber || a.id);
+  const bKey = invoiceNumberSortKey(b.invoiceNumber || b.id);
+  if (aKey !== bKey) return bKey - aKey;
+  return String(b.invoiceNumber ?? b.id ?? '').localeCompare(
+    String(a.invoiceNumber ?? a.id ?? ''),
+  );
+}
+
 export function buildAdminSalesEntries(rows: AdminFirestoreInvoice[]): InvoiceSalesEntry[] {
   return rows
     .filter(row => row.date)
@@ -742,13 +756,17 @@ function compareInvoiceSortKey(
   if (sort === 'syncedAt') {
     const aTs = a.syncedAt ? Date.parse(a.syncedAt) : 0;
     const bTs = b.syncedAt ? Date.parse(b.syncedAt) : 0;
-    return bTs - aTs;
+    const diff = bTs - aTs;
+    if (diff !== 0) return diff;
+    return compareInvoiceNumberDesc(a, b);
   }
   const aTs = a.date ? parseInvoiceDay(a.date) : NaN;
   const bTs = b.date ? parseInvoiceDay(b.date) : NaN;
   const aSafe = Number.isNaN(aTs) ? 0 : aTs;
   const bSafe = Number.isNaN(bTs) ? 0 : bTs;
-  return bSafe - aSafe;
+  const diff = bSafe - aSafe;
+  if (diff !== 0) return diff;
+  return compareInvoiceNumberDesc(a, b);
 }
 
 /** Club invoices into one row per dealer (sums amounts / qty; latest date). */
@@ -1471,6 +1489,7 @@ export async function fetchAdminInvoicesForCustomers(options: {
         } else {
           constraints.push(orderBy('syncedAt', 'desc'));
         }
+        constraints.push(orderBy('invoiceNumber', 'desc'));
         if (pageCursor) constraints.push(startAfter(pageCursor));
         constraints.push(limit(pageSize));
       }
@@ -1502,14 +1521,7 @@ export async function fetchAdminInvoicesForCustomers(options: {
         query(collection(db, 'zohoCustomers', customerId, 'invoices'), ...constraints),
       );
       rows.push(...snap.docs.map(mapAdminInvoiceDoc));
-      rows.sort((a, b) => {
-        if (sort === 'syncedAt') {
-          return String(b.syncedAt ?? '').localeCompare(String(a.syncedAt ?? ''));
-        }
-        const byDate = String(b.date ?? '').localeCompare(String(a.date ?? ''));
-        if (byDate) return byDate;
-        return String(b.syncedAt ?? '').localeCompare(String(a.syncedAt ?? ''));
-      });
+      rows.sort((a, b) => compareInvoiceSortKey(a, b, sort));
     }
     return rows;
   }));
@@ -1532,14 +1544,7 @@ export async function fetchAdminInvoicesForCustomers(options: {
     merged = merged.filter(row => invoiceHasCategory(row, selectedCategory));
   }
 
-  merged.sort((a, b) => {
-    if (sort === 'syncedAt') {
-      return String(b.syncedAt ?? '').localeCompare(String(a.syncedAt ?? ''));
-    }
-    const byDate = String(b.date ?? '').localeCompare(String(a.date ?? ''));
-    if (byDate) return byDate;
-    return String(b.syncedAt ?? '').localeCompare(String(a.syncedAt ?? ''));
-  });
+  merged.sort((a, b) => compareInvoiceSortKey(a, b, sort));
 
   return merged;
 }
