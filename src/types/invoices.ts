@@ -84,7 +84,51 @@ export interface DealerInvoiceDetail extends DealerInvoice {
   customerPhone?: string | null;
   customerTelHref?: string | null;
   customerWhatsappHref?: string | null;
+  /** Cached e-way bill metadata when invoice value exceeds GST threshold. */
+  ewayBill?: InvoiceEwayBillRecord | null;
 }
+
+export type InvoiceEwayBillStatus =
+  | 'generated'
+  | 'not_required'
+  | 'missing'
+  | 'pending'
+  | 'failed'
+  | 'cancelled'
+  | string;
+
+export type InvoiceEwayBillRecord = {
+  zohoEwaybillId?: string | null;
+  ewaybillNumber?: string | null;
+  status?: InvoiceEwayBillStatus | null;
+  generatedAt?: string | null;
+  expiryDate?: string | null;
+  pdfStoragePath?: string | null;
+  transporterGstin?: string | null;
+  partnerId?: string | null;
+  lrNumber?: string | null;
+  error?: string | null;
+  required?: boolean;
+  updatedAt?: string | null;
+};
+
+export type InvoiceEwayBillResult = {
+  required: boolean;
+  status: InvoiceEwayBillStatus | null;
+  ewaybillNumber?: string | null;
+  contentBase64?: string;
+  filename?: string;
+  mimeType?: string;
+  cached?: boolean;
+  message?: string;
+};
+
+export type CancelInvoiceEwayBillResult = {
+  ok: boolean;
+  status: InvoiceEwayBillStatus | null;
+  ewaybillNumber?: string | null;
+  message?: string;
+};
 
 export type InvoiceDocumentType = 'invoice' | 'salesorder';
 

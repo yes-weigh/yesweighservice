@@ -627,6 +627,15 @@ export async function upsertInvoiceFromRaw(accessToken, orgId, invoiceRaw, optio
   await invoicesCollection(customerId).doc(invoiceId).set(doc, { merge: true });
   await invoiceIndexRef(invoiceId).set({ customerId, updatedAt: FieldValue.serverTimestamp() });
 
+  if (Number(doc.total ?? 0) > 50_000) {
+    try {
+      const { syncEwayBillMetadataFromZoho } = await import('./invoice-ewaybill.js');
+      await syncEwayBillMetadataFromZoho(accessToken, orgId, customerId, invoiceId, doc.total);
+    } catch (err) {
+      console.warn(`E-way bill metadata sync failed for ${invoiceId}:`, err?.message ?? err);
+    }
+  }
+
   await customerInvoiceMetaRef(customerId).set({
     ...(options.source === 'webhook' ? { lastWebhookAt: FieldValue.serverTimestamp() } : {}),
     updatedAt: FieldValue.serverTimestamp(),

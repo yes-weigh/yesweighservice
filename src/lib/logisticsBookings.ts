@@ -464,6 +464,9 @@ export function mapLogisticsBookingDoc(id: string, data: DocumentData): Logistic
     source: (data.source === 'invoice' || data.source === 'support') ? data.source : 'manual',
     invoiceId: typeof data.invoiceId === 'string' ? data.invoiceId : null,
     invoiceNumber: typeof data.invoiceNumber === 'string' ? data.invoiceNumber : null,
+    invoiceValueInr: typeof data.invoiceValueInr === 'number' && Number.isFinite(data.invoiceValueInr)
+      ? data.invoiceValueInr
+      : null,
     supportRequestId: typeof data.supportRequestId === 'string' ? data.supportRequestId : null,
     supportRequestNumber: typeof data.supportRequestNumber === 'string' ? data.supportRequestNumber : null,
     partnerId,
@@ -527,6 +530,8 @@ export function mapLogisticsBookingDoc(id: string, data: DocumentData): Logistic
     ),
     delhiveryPickup: mapDelhiveryPickup(data.delhiveryPickup),
     delhiveryDocuments: mapDelhiveryDocuments(data.delhiveryDocuments),
+    ewayBillNumber: typeof data.ewayBillNumber === 'string' ? data.ewayBillNumber : null,
+    ewayBillStatus: typeof data.ewayBillStatus === 'string' ? data.ewayBillStatus : null,
     freightDiffSettledAt: typeof data.freightDiffSettledAt === 'string'
       ? data.freightDiffSettledAt
       : null,
@@ -716,6 +721,9 @@ async function buildBookingPayload(input: PersistLogisticsBookingInput & {
     source: draft.source,
     invoiceId: draft.invoiceId ?? null,
     invoiceNumber: draft.invoiceNumber ?? null,
+    ...(draft.invoiceValueInr != null && Number.isFinite(Number(draft.invoiceValueInr))
+      ? { invoiceValueInr: Number(draft.invoiceValueInr) }
+      : {}),
     supportRequestId: draft.supportRequestId ?? null,
     supportRequestNumber: draft.supportRequestNumber ?? null,
     partnerId: draft.partnerId,
@@ -1893,6 +1901,7 @@ export async function linkLogisticsBookingToInvoice(input: {
   invoiceId: string;
   invoiceNumber: string;
   zohoCustomerId: string;
+  invoiceValueInr?: number | null;
   user: User;
 }): Promise<LogisticsBooking> {
   if (!canCreateLogisticsBooking(input.user)) {
@@ -1925,6 +1934,9 @@ export async function linkLogisticsBookingToInvoice(input: {
   const patch: Record<string, unknown> = {
     invoiceId,
     invoiceNumber: invoiceNumber || null,
+    invoiceValueInr: Number.isFinite(Number(input.invoiceValueInr))
+      ? Number(input.invoiceValueInr)
+      : null,
     source: 'invoice',
     orderRef: invoiceNumber || booking.orderRef || `INV-${invoiceId.slice(0, 8)}`,
     updatedAt,
@@ -1940,6 +1952,9 @@ export async function linkLogisticsBookingToInvoice(input: {
     ...booking,
     invoiceId,
     invoiceNumber: invoiceNumber || null,
+    invoiceValueInr: Number.isFinite(Number(input.invoiceValueInr))
+      ? Number(input.invoiceValueInr)
+      : booking.invoiceValueInr ?? null,
     source: 'invoice',
     orderRef: invoiceNumber || booking.orderRef,
     updatedAt,
@@ -1963,6 +1978,7 @@ export type RecordInvoiceLogisticsLrInput = {
     DealerInvoiceDetail,
     | 'invoiceNumber'
     | 'date'
+    | 'total'
     | 'customerName'
     | 'customerPhone'
     | 'shippingAddress'
@@ -2085,6 +2101,7 @@ export async function recordInvoiceLogisticsBooking(
     source: 'invoice',
     invoiceId: input.invoiceId,
     invoiceNumber: input.invoice.invoiceNumber ?? null,
+    invoiceValueInr: Number.isFinite(Number(input.invoice.total)) ? Number(input.invoice.total) : null,
     supportRequestId: null,
     supportRequestNumber: null,
     partnerId,

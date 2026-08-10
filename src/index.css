@@ -21043,6 +21043,34 @@ body:has(.confirm-inline-bar) .confirm-inline-bar {
   opacity: 0.85;
 }
 
+.logistics-shipment__eway {
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  padding: 0.12rem 0.42rem;
+  border-radius: 999px;
+  border: 1px solid transparent;
+}
+
+.logistics-shipment__eway.is-pending {
+  color: #d9e896;
+  border-color: rgba(163, 184, 92, 0.45);
+  background: rgba(163, 184, 92, 0.12);
+}
+
+.logistics-shipment__eway.is-done {
+  color: #86efac;
+  border-color: rgba(74, 222, 128, 0.35);
+  background: rgba(74, 222, 128, 0.1);
+}
+
+.logistics-shipment__eway.is-cancelled {
+  color: #fca5a5;
+  border-color: rgba(248, 113, 113, 0.35);
+  background: rgba(248, 113, 113, 0.1);
+}
+
 .logistics-shipment__trail {
   display: flex;
   flex-direction: column;
@@ -21676,6 +21704,21 @@ body:has(.confirm-inline-bar) .confirm-inline-bar {
   margin: 0.45rem 0 0;
   color: #f87171;
   font-size: 0.8125rem;
+}
+
+.logistics-booking__eway-cancel {
+  margin-top: 0.55rem;
+}
+
+.logistics-eway-cancel {
+  width: min(100%, 420px);
+}
+
+.logistics-eway-cancel__body {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  padding: 0 1.25rem 1rem;
 }
 
 .logistics-booking__issue {

@@ -83,6 +83,7 @@ import {
   verifyZohoWebhookSignature,
   handleZohoInvoiceWebhook,
 } from './lib/invoice-sync.js';
+import { ensureInvoiceEwayBill, cancelInvoiceEwayBill } from './lib/invoice-ewaybill.js';
 import { syncOrgInvoicesToFirestore } from './lib/org-invoice-sync.js';
 import {
   backfillInvoiceCategoriesToProduct,
@@ -1910,6 +1911,78 @@ export const downloadAdminInvoiceDocument = onCall(
       );
     } catch (err) {
       throw new HttpsError('internal', err?.message ?? 'Could not download document.');
+    }
+  },
+);
+
+/** Generate or fetch cached e-way bill PDF for a linked invoice (logistics). */
+export const ensureInvoiceEwayBillFn = onCall(
+  {
+    region: 'asia-south1',
+    secrets: [zohoClientId, zohoClientSecret, zohoRefreshToken],
+    timeoutSeconds: 180,
+    memory: '512MiB',
+  },
+  async request => {
+    await requireActiveUser(request.auth?.uid, ALLOWED_ROLES, { allowViewOnly: true });
+    const customerId = String(request.data?.customerId ?? '').trim();
+    const invoiceId = String(request.data?.invoiceId ?? '').trim();
+    const partnerId = String(request.data?.partnerId ?? '').trim();
+    const lrNumber = String(request.data?.lrNumber ?? '').trim();
+    const bookingId = String(request.data?.bookingId ?? '').trim();
+    const autoGenerate = request.data?.autoGenerate !== false;
+    if (!customerId || !invoiceId) {
+      throw new HttpsError('invalid-argument', 'Customer id and invoice id are required.');
+    }
+    try {
+      return await ensureInvoiceEwayBill(zohoSecrets(), zohoOrganizationId.value(), {
+        customerId,
+        invoiceId,
+        partnerId: partnerId || null,
+        lrNumber: lrNumber || null,
+        bookingId: bookingId || null,
+        autoGenerate,
+        invoiceTotalInr: request.data?.invoiceTotalInr ?? null,
+      });
+    } catch (err) {
+      if (err instanceof HttpsError) throw err;
+      throw new HttpsError('internal', err?.message ?? 'Could not ensure e-way bill.');
+    }
+  },
+);
+
+/** Cancel a generated e-way bill on the GST portal (ops). */
+export const cancelInvoiceEwayBillFn = onCall(
+  {
+    region: 'asia-south1',
+    secrets: [zohoClientId, zohoClientSecret, zohoRefreshToken],
+    timeoutSeconds: 120,
+    memory: '512MiB',
+  },
+  async request => {
+    await requireActiveUser(request.auth?.uid, SYNC_ROLES);
+    const customerId = String(request.data?.customerId ?? '').trim();
+    const invoiceId = String(request.data?.invoiceId ?? '').trim();
+    const bookingId = String(request.data?.bookingId ?? '').trim();
+    const reason = String(request.data?.reason ?? '').trim();
+    const remarks = String(request.data?.remarks ?? '').trim();
+    if (!customerId || !invoiceId) {
+      throw new HttpsError('invalid-argument', 'Customer id and invoice id are required.');
+    }
+    if (!reason) {
+      throw new HttpsError('invalid-argument', 'Cancellation reason is required.');
+    }
+    try {
+      return await cancelInvoiceEwayBill(zohoSecrets(), zohoOrganizationId.value(), {
+        customerId,
+        invoiceId,
+        bookingId: bookingId || null,
+        reason,
+        remarks: remarks || null,
+      });
+    } catch (err) {
+      if (err instanceof HttpsError) throw err;
+      throw new HttpsError('internal', err?.message ?? 'Could not cancel e-way bill.');
     }
   },
 );

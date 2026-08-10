@@ -26,6 +26,10 @@ export type DelhiveryDocumentDialogPayload = {
   downloadBlob?: Blob | null;
   /** Stack all images at 100×150 mm with Print all (shipping labels). */
   layout?: 'document' | 'shipping_label';
+  /** Optional destructive action (e.g. cancel e-way bill). */
+  onCancel?: () => void;
+  cancelLabel?: string;
+  cancelBusy?: boolean;
 };
 
 type Props = {
@@ -239,10 +243,22 @@ export const DelhiveryDocumentDialog: React.FC<Props> = ({
             type="button"
             className="btn btn-secondary"
             onClick={onClose}
-            disabled={printing || sharing}
+            disabled={printing || sharing || payload.cancelBusy}
           >
             Close
           </button>
+          {payload.onCancel ? (
+            <button
+              type="button"
+              className="btn btn-danger"
+              onClick={payload.onCancel}
+              disabled={printing || sharing || payload.cancelBusy}
+            >
+              {payload.cancelBusy
+                ? 'Cancelling…'
+                : (payload.cancelLabel || 'Cancel')}
+            </button>
+          ) : null}
           {downloadTarget ? (
             <button
               type="button"

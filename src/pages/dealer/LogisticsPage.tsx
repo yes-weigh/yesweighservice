@@ -54,6 +54,7 @@ import {
   type LogisticsBookingListFilters,
 } from '../../lib/logisticsBookings';
 import { formatCurrency } from '../../lib/catalog';
+import { isEwayBillRequired } from '../../constants/ewayBill';
 import {
   loadLogisticsFreightCompare,
   type LogisticsFreightCompare,
@@ -1126,6 +1127,8 @@ export const LogisticsPage: React.FC = () => {
                     item => !item.isFreight && !item.isStampingFee,
                   ) ?? [];
                   const tracked = lastTrackedLabel(booking);
+                  const ewayNeeded = Boolean(booking.invoiceId?.trim())
+                    && isEwayBillRequired(booking.invoiceValueInr);
                   return (
                     <li key={booking.id}>
                       <article
@@ -1251,6 +1254,27 @@ export const LogisticsPage: React.FC = () => {
                                 <span className="logistics-shipment__sep" aria-hidden>·</span>
                                 <Package size={12} aria-hidden />
                                 <span>{packageCountLabel(booking)}</span>
+                                {ewayNeeded ? (
+                                  <>
+                                    <span className="logistics-shipment__sep" aria-hidden>·</span>
+                                    <span
+                                      className={[
+                                        'logistics-shipment__eway',
+                                        booking.ewayBillStatus === 'generated'
+                                          ? 'is-done'
+                                          : booking.ewayBillStatus === 'cancelled'
+                                            ? 'is-cancelled'
+                                            : 'is-pending',
+                                      ].join(' ')}
+                                    >
+                                      {booking.ewayBillStatus === 'generated'
+                                        ? `EWB ${booking.ewayBillNumber || 'ready'}`
+                                        : booking.ewayBillStatus === 'cancelled'
+                                          ? 'EWB cancelled'
+                                          : 'EWB needed'}
+                                    </span>
+                                  </>
+                                ) : null}
                               </span>
                               <span className={`logistics-shipment__badge logistics-shipment__badge--${tone}`}>
                                 {statusBadgeLabel(booking)}

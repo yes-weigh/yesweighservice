@@ -245,6 +245,8 @@ export interface LogisticsBooking {
   source: LogisticsBookingSource;
   invoiceId: string | null;
   invoiceNumber: string | null;
+  /** Invoice grand total (INR) — used for e-way bill threshold and courier FOV. */
+  invoiceValueInr?: number | null;
   supportRequestId: string | null;
   supportRequestNumber: string | null;
   partnerId: LogisticsPartnerId;
@@ -302,6 +304,9 @@ export interface LogisticsBooking {
    * (LR copy / shipping labels / POD / COD). Paths only — not file bytes.
    */
   delhiveryDocuments?: LogisticsDelhiveryDocumentsCache | null;
+  /** E-way bill number mirrored from linked invoice when generated. */
+  ewayBillNumber?: string | null;
+  ewayBillStatus?: string | null;
   /** Set when this booking's BTC freight Diff was fully settled onto an invoiced SO. */
   freightDiffSettledAt?: string | null;
   freightDiffSettledInvoiceId?: string | null;

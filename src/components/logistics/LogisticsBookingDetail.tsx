@@ -109,6 +109,9 @@ import {
   downloadDealerInvoiceDocument,
   invoiceDocumentToBlob,
 } from '../../lib/invoices';
+import { ensureInvoiceEwayBill, cancelInvoiceEwayBill } from '../../lib/invoiceEwayBill';
+import { isEwayBillRequired, type EwayBillCancelReason } from '../../constants/ewayBill';
+import { EwayBillCancelDialog } from './EwayBillCancelDialog';
 import { base64ToUint8Array } from '../../lib/pdfViewer';
 import { EwayBillIcon } from './EwayBillIcon';
 import { StCourierTrackPanel } from './StCourierTrackPanel';
@@ -315,6 +318,12 @@ export const LogisticsBookingDetail: React.FC<LogisticsBookingDetailProps> = ({
   const [delhiveryDocOpening, setDelhiveryDocOpening] = useState<string | null>(null);
   const [delhiveryDocDialog, setDelhiveryDocDialog] = useState<DelhiveryDocumentDialogPayload | null>(null);
   const delhiveryDocObjectUrlsRef = React.useRef<string[]>([]);
+  const [ewayBillStatus, setEwayBillStatus] = useState<string | null>(booking.ewayBillStatus ?? null);
+  const [ewayBillNumber, setEwayBillNumber] = useState<string | null>(booking.ewayBillNumber ?? null);
+  const [ewayEnsuring, setEwayEnsuring] = useState(false);
+  const [ewayCancelOpen, setEwayCancelOpen] = useState(false);
+  const [ewayCancelling, setEwayCancelling] = useState(false);
+  const [ewayCancelError, setEwayCancelError] = useState('');
   const [cancellingDelhivery, setCancellingDelhivery] = useState(false);
   const [cancelDelhiveryError, setCancelDelhiveryError] = useState('');
   const [requestingPickup, setRequestingPickup] = useState(false);
@@ -363,6 +372,11 @@ export const LogisticsBookingDetail: React.FC<LogisticsBookingDetailProps> = ({
     () => (isDelhivery ? resolveDelhiveryBookingIds(booking) : null),
     [booking, isDelhivery],
   );
+  const hasLinkedInvoice = Boolean(booking.invoiceId?.trim());
+  const invoiceTotalForEway = Number(booking.invoiceValueInr ?? 0);
+  const ewayRequired = hasLinkedInvoice && isEwayBillRequired(invoiceTotalForEway);
+  const ewayCustomerId = booking.dealer.zohoCustomerId?.trim() || '';
+  const ewayLrNumber = (delhiveryIds?.lrn || booking.consignmentNo || '').trim();
   const needsDelhiveryIds = Boolean(
     isDelhivery
     && isOps
@@ -418,12 +432,166 @@ export const LogisticsBookingDetail: React.FC<LogisticsBookingDetailProps> = ({
     delhiveryIds?.lrn,
   ]);
 
-  /** Waybill + shipping label + invoice + E-way placeholder; POD/COD when available. */
+  useEffect(() => {
+    setEwayBillStatus(booking.ewayBillStatus ?? null);
+    setEwayBillNumber(booking.ewayBillNumber ?? null);
+  }, [booking.ewayBillNumber, booking.ewayBillStatus]);
+
+  const ewayAutoEnsuredRef = useRef('');
+  useEffect(() => {
+    if (!ewayRequired || !hasLinkedInvoice || !ewayCustomerId) return;
+    const autoKey = `${booking.id}:${booking.invoiceId}:${isOps}`;
+    if (ewayAutoEnsuredRef.current === autoKey) return;
+    ewayAutoEnsuredRef.current = autoKey;
+    let cancelled = false;
+    setEwayEnsuring(true);
+    void ensureInvoiceEwayBill({
+      customerId: ewayCustomerId,
+      invoiceId: booking.invoiceId!.trim(),
+      partnerId: booking.partnerId,
+      lrNumber: ewayLrNumber || null,
+      bookingId: booking.id,
+      invoiceTotalInr: booking.invoiceValueInr ?? null,
+      autoGenerate: isOps,
+    })
+      .then(result => {
+        if (cancelled) return;
+        setEwayBillStatus(result.status ?? null);
+        setEwayBillNumber(result.ewaybillNumber ?? null);
+      })
+      .catch(() => undefined)
+      .finally(() => {
+        if (!cancelled) setEwayEnsuring(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    booking.id,
+    booking.invoiceId,
+    booking.invoiceValueInr,
+    booking.partnerId,
+    ewayRequired,
+    ewayCustomerId,
+    ewayLrNumber,
+    hasLinkedInvoice,
+    isOps,
+  ]);
+
+  const openEwayBillDocument = useCallback(async () => {
+    const invoiceId = booking.invoiceId?.trim();
+    if (!invoiceId) {
+      setDelhiveryDocsError('No invoice linked to this shipment.');
+      return;
+    }
+    if (!ewayCustomerId) {
+      setDelhiveryDocsError('Dealer is not linked to a Zoho customer.');
+      return;
+    }
+    setDelhiveryDocOpening('eway_bill');
+    setDelhiveryDocsError('');
+    try {
+      const result = await ensureInvoiceEwayBill({
+        customerId: ewayCustomerId,
+        invoiceId,
+        partnerId: booking.partnerId,
+        lrNumber: ewayLrNumber || null,
+        bookingId: booking.id,
+        invoiceTotalInr: booking.invoiceValueInr ?? null,
+        autoGenerate: isOps,
+      });
+      setEwayBillStatus(result.status ?? null);
+      setEwayBillNumber(result.ewaybillNumber ?? null);
+      if (!result.required) {
+        setDelhiveryDocsError(result.message || 'E-way bill is not required for this invoice.');
+        return;
+      }
+      if (!result.contentBase64) {
+        setDelhiveryDocsError(result.message || 'E-way bill is not ready yet.');
+        return;
+      }
+      const bytes = base64ToUint8Array(result.contentBase64);
+      const mimeType = result.mimeType || 'application/pdf';
+      const blob = new Blob([Uint8Array.from(bytes)], { type: mimeType });
+      if (mimeType.includes('html')) {
+        const url = URL.createObjectURL(blob);
+        window.open(url, '_blank', 'noopener,noreferrer');
+        window.setTimeout(() => URL.revokeObjectURL(url), 60_000);
+        return;
+      }
+      setDelhiveryDocDialog({
+        title: result.ewaybillNumber ? `E way bill ${result.ewaybillNumber}` : 'E way bill',
+        contentType: mimeType,
+        pdfBytes: bytes,
+        fileName: result.filename || 'eway-bill.pdf',
+        downloadBlob: blob,
+        onCancel: isOps && result.status === 'generated'
+          ? () => {
+            setEwayCancelError('');
+            setEwayCancelOpen(true);
+          }
+          : undefined,
+        cancelLabel: 'Cancel e-way bill',
+      });
+    } catch (err) {
+      setDelhiveryDocsError(
+        err instanceof Error ? err.message : 'Could not open e-way bill.',
+      );
+    } finally {
+      setDelhiveryDocOpening(null);
+    }
+  }, [
+    booking.id,
+    booking.invoiceId,
+    booking.invoiceValueInr,
+    booking.partnerId,
+    ewayCustomerId,
+    ewayLrNumber,
+    isOps,
+  ]);
+
+  const sharedDocCards = useMemo((): LogisticsDocCard[] => {
+    const cards: LogisticsDocCard[] = [];
+    if (hasLinkedInvoice) {
+      cards.push({
+        id: 'invoice',
+        kind: 'invoice',
+        label: 'Invoice',
+        enabled: true,
+      });
+    }
+    if (ewayRequired) {
+      const generated = ewayBillStatus === 'generated';
+      const cancelled = ewayBillStatus === 'cancelled';
+      cards.push({
+        id: 'eway_bill',
+        kind: 'eway_bill',
+        label: 'E way bill',
+        enabled: generated || isOps,
+        disabledReason: generated || isOps
+          ? null
+          : cancelled
+            ? 'E-way bill was cancelled.'
+            : 'E-way bill is not generated yet.',
+        note: cancelled
+          ? (isOps ? 'Cancelled — tap to regenerate' : 'Cancelled')
+          : (ewayBillNumber ? `EWB ${ewayBillNumber}` : undefined),
+      });
+    }
+    return cards;
+  }, [
+    ewayBillNumber,
+    ewayBillStatus,
+    ewayRequired,
+    hasLinkedInvoice,
+    isOps,
+  ]);
+
+  /** Waybill + shipping label + invoice + E-way; POD/COD when available. */
   const delhiveryDocCards = useMemo((): LogisticsDocCard[] => {
-    if (!isDelhivery) return [];
+    if (!isDelhivery) return sharedDocCards;
     const hasLrn = Boolean((delhiveryIds?.lrn || booking.consignmentNo || '').replace(/\D/g, ''));
     const byId = new Map(delhiveryDocs.map(doc => [doc.id, doc]));
-    const hasInvoice = Boolean(booking.invoiceId?.trim());
     const cards: LogisticsDocCard[] = [
       {
         id: 'lr_copy',
@@ -439,19 +607,7 @@ export const LogisticsBookingDetail: React.FC<LogisticsBookingDetailProps> = ({
         enabled: hasLrn,
         disabledReason: hasLrn ? null : 'Create or enter an LR number first.',
       },
-      {
-        id: 'invoice',
-        kind: 'invoice',
-        label: 'Invoice',
-        enabled: hasInvoice,
-        disabledReason: hasInvoice ? null : 'No invoice linked to this shipment.',
-      },
-      {
-        id: 'eway_bill',
-        kind: 'eway_bill',
-        label: 'E way bill',
-        enabled: true,
-      },
+      ...sharedDocCards,
     ];
     if (byId.has('pod')) {
       cards.push({
@@ -479,7 +635,7 @@ export const LogisticsBookingDetail: React.FC<LogisticsBookingDetailProps> = ({
     delhiveryDocs,
     delhiveryIds?.lrn,
     booking.consignmentNo,
-    booking.invoiceId,
+    sharedDocCards,
   ]);
 
   const markDocumentGenerated = useCallback(async (document: LogisticsDocumentType) => {
@@ -502,6 +658,42 @@ export const LogisticsBookingDetail: React.FC<LogisticsBookingDetailProps> = ({
     delhiveryDocObjectUrlsRef.current = [];
     setDelhiveryDocDialog(null);
   }, []);
+
+  const handleConfirmCancelEwayBill = useCallback(async (input: {
+    reason: EwayBillCancelReason;
+    remarks: string;
+  }) => {
+    const invoiceId = booking.invoiceId?.trim();
+    if (!invoiceId || !ewayCustomerId) return;
+    setEwayCancelling(true);
+    setEwayCancelError('');
+    try {
+      const result = await cancelInvoiceEwayBill({
+        customerId: ewayCustomerId,
+        invoiceId,
+        bookingId: booking.id,
+        reason: input.reason,
+        remarks: input.remarks || null,
+      });
+      setEwayBillStatus(result.status ?? 'cancelled');
+      setEwayBillNumber(null);
+      ewayAutoEnsuredRef.current = '';
+      setEwayCancelOpen(false);
+      closeDelhiveryDocDialog();
+      setDelhiveryDocsError('');
+    } catch (err) {
+      setEwayCancelError(
+        err instanceof Error ? err.message : 'Could not cancel e-way bill.',
+      );
+    } finally {
+      setEwayCancelling(false);
+    }
+  }, [
+    booking.id,
+    booking.invoiceId,
+    closeDelhiveryDocDialog,
+    ewayCustomerId,
+  ]);
 
   const openLinkedInvoiceDocument = useCallback(async () => {
     const invoiceId = booking.invoiceId?.trim();
@@ -667,14 +859,19 @@ export const LogisticsBookingDetail: React.FC<LogisticsBookingDetailProps> = ({
       void openLinkedInvoiceDocument();
       return;
     }
-    if (card.kind === 'eway_bill') return;
+    if (card.kind === 'eway_bill') {
+      void openEwayBillDocument();
+      return;
+    }
     void openDelhiveryDocument({
       id: card.id,
       kind: card.kind,
       label: card.label || card.kind,
       urls: card.urls,
     });
-  }, [openDelhiveryDocument, openLinkedInvoiceDocument]);
+  }, [openDelhiveryDocument, openEwayBillDocument, openLinkedInvoiceDocument]);
+
+  const showEwayCancelAction = isOps && ewayRequired && ewayBillStatus === 'generated';
 
   const handleCourierSlipViewed = useCallback(() => {
     if (!isOps || booking.courierSlipGenerated) return;
@@ -1950,9 +2147,13 @@ export const LogisticsBookingDetail: React.FC<LogisticsBookingDetailProps> = ({
                       <em>
                         {opening
                           ? 'Opening…'
-                          : (!doc.enabled && doc.disabledReason
-                            ? doc.disabledReason
-                            : meta.subtitle)}
+                          : (doc.kind === 'eway_bill' && ewayEnsuring
+                            ? 'Checking e-way bill…'
+                            : (doc.note
+                              ? doc.note
+                              : (!doc.enabled && doc.disabledReason
+                                ? doc.disabledReason
+                                : meta.subtitle)))}
                       </em>
                     </span>
                     <span className="logistics-booking__doc-card-chevron" aria-hidden>
@@ -1962,6 +2163,21 @@ export const LogisticsBookingDetail: React.FC<LogisticsBookingDetailProps> = ({
                 );
               })}
             </div>
+            {showEwayCancelAction ? (
+              <div className="logistics-booking__eway-cancel">
+                <button
+                  type="button"
+                  className="btn btn-secondary btn-sm logistics-booking__eway-cancel-btn"
+                  disabled={ewayCancelling || delhiveryDocOpening != null}
+                  onClick={() => {
+                    setEwayCancelError('');
+                    setEwayCancelOpen(true);
+                  }}
+                >
+                  {ewayCancelling ? 'Cancelling e-way bill…' : 'Cancel e-way bill'}
+                </button>
+              </div>
+            ) : null}
             {delhiveryDocsLoading && (
               <p className="text-muted text-sm">Loading Delhivery documents…</p>
             )}
@@ -1976,6 +2192,76 @@ export const LogisticsBookingDetail: React.FC<LogisticsBookingDetailProps> = ({
           </>
         ) : (
           <>
+            {sharedDocCards.length > 0 ? (
+              <>
+                <div className="logistics-booking__doc-cards">
+                  {sharedDocCards.map(doc => {
+                    const meta = delhiveryDocCardMeta(doc.kind);
+                    const opening = delhiveryDocOpening === doc.id;
+                    const disabled = !doc.enabled || delhiveryDocOpening != null;
+                    return (
+                      <button
+                        key={doc.id}
+                        type="button"
+                        className={[
+                          'logistics-booking__doc-card',
+                          `logistics-booking__doc-card--${meta.tone}`,
+                          opening ? 'is-opening' : '',
+                          !doc.enabled ? 'is-disabled' : '',
+                        ].filter(Boolean).join(' ')}
+                        onClick={() => openLogisticsDocCard(doc)}
+                        disabled={disabled}
+                        title={doc.disabledReason ?? undefined}
+                      >
+                        <span className="logistics-booking__doc-card-icon" aria-hidden>
+                          <meta.Icon size={22} strokeWidth={1.75} />
+                          {doc.enabled ? (
+                            <span className="logistics-booking__doc-card-eye">
+                              <Eye size={11} strokeWidth={2.25} />
+                            </span>
+                          ) : null}
+                        </span>
+                        <span className="logistics-booking__doc-card-copy">
+                          <strong>{meta.title}</strong>
+                          <em>
+                            {opening
+                              ? 'Opening…'
+                              : (doc.kind === 'eway_bill' && ewayEnsuring
+                                ? 'Checking e-way bill…'
+                                : (doc.note
+                                  ? doc.note
+                                  : (!doc.enabled && doc.disabledReason
+                                    ? doc.disabledReason
+                                    : meta.subtitle)))}
+                          </em>
+                        </span>
+                        <span className="logistics-booking__doc-card-chevron" aria-hidden>
+                          <ChevronRight size={18} strokeWidth={2.25} />
+                        </span>
+                      </button>
+                    );
+                  })}
+                </div>
+                {showEwayCancelAction ? (
+                  <div className="logistics-booking__eway-cancel">
+                    <button
+                      type="button"
+                      className="btn btn-secondary btn-sm logistics-booking__eway-cancel-btn"
+                      disabled={ewayCancelling || delhiveryDocOpening != null}
+                      onClick={() => {
+                        setEwayCancelError('');
+                        setEwayCancelOpen(true);
+                      }}
+                    >
+                      {ewayCancelling ? 'Cancelling e-way bill…' : 'Cancel e-way bill'}
+                    </button>
+                  </div>
+                ) : null}
+                {delhiveryDocsError ? (
+                  <p className="logistics-booking__docs-error" role="alert">{delhiveryDocsError}</p>
+                ) : null}
+              </>
+            ) : null}
             <div className="logistics-booking__slip-actions">
               <button
                 type="button"
@@ -2140,7 +2426,10 @@ export const LogisticsBookingDetail: React.FC<LogisticsBookingDetailProps> = ({
 
       {delhiveryDocDialog && (
         <DelhiveryDocumentDialog
-          payload={delhiveryDocDialog}
+          payload={{
+            ...delhiveryDocDialog,
+            cancelBusy: ewayCancelling,
+          }}
           onClose={closeDelhiveryDocDialog}
           onViewed={
             /shipping label/i.test(delhiveryDocDialog.title)
@@ -2152,6 +2441,20 @@ export const LogisticsBookingDetail: React.FC<LogisticsBookingDetailProps> = ({
           }
         />
       )}
+
+      {ewayCancelOpen ? (
+        <EwayBillCancelDialog
+          ewaybillNumber={ewayBillNumber}
+          busy={ewayCancelling}
+          error={ewayCancelError}
+          onClose={() => {
+            if (ewayCancelling) return;
+            setEwayCancelOpen(false);
+            setEwayCancelError('');
+          }}
+          onConfirm={handleConfirmCancelEwayBill}
+        />
+      ) : null}
 
       {previewIndex != null && galleryUrls[previewIndex] && (
         <PhotoLightbox

@@ -173,6 +173,7 @@ export const InvoiceAddLrDialog: React.FC<Props> = ({
         bookingId: selectedId,
         invoiceId,
         invoiceNumber: invoice.invoiceNumber,
+        invoiceValueInr: invoice.total,
         zohoCustomerId,
         user,
       });
