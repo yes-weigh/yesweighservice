@@ -752,6 +752,10 @@ export async function submitDealerOrder(uid, role, payload = {}, secrets, orgId)
 
   const freightConfig = await loadDealerFreightConfig();
   const blueDartPin = await loadBlueDartPinForZip(freightDestination.zip);
+  const manualFreightRaw = Number(payload.manualFreightAmountInr);
+  const manualFreightAmountInr = Number.isFinite(manualFreightRaw) && manualFreightRaw >= 0
+    ? Math.round(manualFreightRaw * 100) / 100
+    : null;
   const freightLines = buildDealerAutoFreightLines({
     lines: goodsLines,
     destination: freightDestination,
@@ -759,6 +763,7 @@ export async function submitDealerOrder(uid, role, payload = {}, secrets, orgId)
     courierBySite: payload.courierBySite || {},
     freightZone: freightZoneMeta.zone,
     blueDartPin,
+    manualFreightAmountInr,
   });
   const baseLines = [...goodsLines, ...freightLines];
   const baseRemarks = String(payload.remarks ?? payload.notes ?? '').trim().slice(0, 2000);

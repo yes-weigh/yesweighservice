@@ -9,6 +9,7 @@ import {
   Users,
   X,
 } from 'lucide-react';
+import { DelhiveryQuoteStrip } from '../../../components/logistics/DelhiveryQuoteStrip';
 import { OrderFreightPanel } from '../../../components/orders/OrderFreightPanel';
 import { ShippingAddressPicker } from '../../../components/orders/ShippingAddressPicker';
 import { QuantityStepper } from '../../../components/QuantityStepper';
@@ -18,6 +19,7 @@ import {
   peekCachedDealers,
   subscribeDealerCache,
 } from '../../../lib/dealer-cache';
+import { selectedPartnerIsDelhivery } from '../../../lib/delhiveryCartFreight';
 import {
   dealerMatchesLogisticsQuery,
   zohoDealerContactPerson,
@@ -48,6 +50,8 @@ import {
   type ShippingSelection,
 } from '../../../lib/shippingAddresses';
 import { useBlueDartPincode } from '../../../hooks/useBlueDartPincode';
+import { useDelhiveryLiveFreightQuote } from '../../../hooks/useDelhiveryLiveFreightQuote';
+import type { StaffLogisticsSite } from '../../../types/staff-logistics';
 import { inferStCourierZone } from '../../../lib/stCourierZone';
 import type { LogisticsPartnerId } from '../../../constants/logisticsPartners';
 import type { LogisticsCourierRates } from '../../../types/logistics-courier-rates';
@@ -113,6 +117,7 @@ export const LogisticsFreightTestingPanel: React.FC = () => {
   const [ratesError, setRatesError] = useState('');
   const [courierBySite, setCourierBySite] = useState<Partial<Record<InventorySite, LogisticsPartnerId>>>({});
   const [manualFreightAmount, setManualFreightAmount] = useState<number | null>(null);
+  const [fromAddresses, setFromAddresses] = useState<Partial<Record<StaffLogisticsSite, string>>>({});
 
   const shippingDestination = useMemo(
     () => resolveShippingDestination(shipping, addresses),
@@ -163,6 +168,7 @@ export const LogisticsFreightTestingPanel: React.FC = () => {
         setCourierRates(rates);
         setDeliveryRules(settings.deliveryRules);
         setPartnerStatuses(settings.partnerStatuses);
+        setFromAddresses(settings.fromAddresses || {});
         setRatesError('');
       })
       .catch(err => {
@@ -292,7 +298,15 @@ export const LogisticsFreightTestingPanel: React.FC = () => {
     [lines],
   );
 
-  const freightEstimate = useMemo((): StCourierCartFreightEstimate | null => {
+  const goodsSubtotal = useMemo(
+    () => lines.reduce((sum, line) => {
+      const rate = Number(catalogById[line.productId]?.rate) || 0;
+      return sum + rate * line.quantity;
+    }, 0),
+    [lines, catalogById],
+  );
+
+  const freightEstimateBase = useMemo((): StCourierCartFreightEstimate | null => {
     if (!courierRates || !deliveryRules || !partnerStatuses || lines.length === 0) return null;
     if (!shippingDestination || !inferredZone) return null;
     return estimateStCourierCartFreight({
@@ -303,6 +317,7 @@ export const LogisticsFreightTestingPanel: React.FC = () => {
       partnerStatuses,
       courierBySite,
       blueDartPin,
+      invoiceValueInr: goodsSubtotal,
     });
   }, [
     courierRates,
@@ -314,7 +329,25 @@ export const LogisticsFreightTestingPanel: React.FC = () => {
     courierBySite,
     inferredZone,
     blueDartPin,
+    goodsSubtotal,
   ]);
+
+  const delhiveryLive = useDelhiveryLiveFreightQuote({
+    estimate: freightEstimateBase,
+    originAddress: fromAddresses.cochin || fromAddresses.head_office || '',
+    destinationPin: shippingDestination?.zip,
+    invoiceValueInr: goodsSubtotal,
+    freightBillingMode: 'btc',
+  });
+
+  const freightEstimate = delhiveryLive.estimateWithLive ?? freightEstimateBase;
+
+  useEffect(() => {
+    if (!selectedPartnerIsDelhivery(freightEstimate)) return;
+    if (delhiveryLive.preTaxInr == null) return;
+    const next = Math.ceil(delhiveryLive.preTaxInr);
+    setManualFreightAmount(prev => (prev === next ? prev : next));
+  }, [delhiveryLive.preTaxInr, freightEstimate]);
 
   const stepIndex = STEPS.findIndex(s => s.id === step);
   const canGoAddress = Boolean(selectedDealer);
@@ -658,38 +691,51 @@ export const LogisticsFreightTestingPanel: React.FC = () => {
           </div>
 
           {freightEstimate?.usable ? (
-            <OrderFreightPanel
-              estimate={freightEstimate}
-              canEditPackage
-              allowManualFreightEntry
-              showLineDetails
-              manualFreightAmount={manualFreightAmount}
-              catalogById={catalogById}
-              destinationLabel={[
-                shippingDestination?.city,
-                shippingDestination?.state,
-              ].filter(Boolean).join(', ') || null}
-              footerNote="Testing sandbox — selecting a partner only updates this preview."
-              onManualFreightAmountChange={setManualFreightAmount}
-              onCourierChange={(site, partnerId) => {
-                setCourierBySite(prev => ({ ...prev, [site]: partnerId }));
-              }}
-              onPackageInfoChange={(productId, info) => {
-                setCatalogById(prev => {
-                  const current = prev[productId];
-                  if (!current) return prev;
-                  return {
-                    ...prev,
-                    [productId]: { ...current, packageInfo: info },
-                  };
-                });
-                setLines(prev => prev.map(line => (
-                  line.productId === productId
-                    ? { ...line, packageInfo: info }
-                    : line
-                )));
-              }}
-            />
+            <>
+              <OrderFreightPanel
+                estimate={freightEstimate}
+                canEditPackage
+                allowManualFreightEntry
+                showLineDetails
+                manualFreightAmount={manualFreightAmount}
+                catalogById={catalogById}
+                destinationLabel={[
+                  shippingDestination?.city,
+                  shippingDestination?.state,
+                ].filter(Boolean).join(', ') || null}
+                footerNote="Testing sandbox — Delhivery uses live B2B estimate; selecting a partner only updates this preview."
+                onManualFreightAmountChange={setManualFreightAmount}
+                onCourierChange={(site, partnerId) => {
+                  setCourierBySite(prev => ({ ...prev, [site]: partnerId }));
+                }}
+                onPackageInfoChange={(productId, info) => {
+                  setCatalogById(prev => {
+                    const current = prev[productId];
+                    if (!current) return prev;
+                    return {
+                      ...prev,
+                      [productId]: { ...current, packageInfo: info },
+                    };
+                  });
+                  setLines(prev => prev.map(line => (
+                    line.productId === productId
+                      ? { ...line, packageInfo: info }
+                      : line
+                  )));
+                }}
+              />
+              {delhiveryLive.showStrip && selectedPartnerIsDelhivery(freightEstimate) ? (
+                <DelhiveryQuoteStrip
+                  originPin={delhiveryLive.originPin || null}
+                  destinationPin={delhiveryLive.destinationPin}
+                  weightKg={freightEstimate.totalChargeableKg || 5}
+                  invAmount={goodsSubtotal}
+                  freightBillingMode="btc"
+                  includeEstimate={false}
+                  compact
+                />
+              ) : null}
+            </>
           ) : (
             <p className="text-muted text-sm">
               Freight needs a destination with a resolvable zone and at least one quotable line.

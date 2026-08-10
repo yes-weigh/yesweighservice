@@ -28,10 +28,13 @@ import { StaffSoProductPeek } from '../../components/salesOrders/StaffSoProductP
 import { ThemeSelect } from '../../components/ThemeSelect';
 import { DecimalAmountInput } from '../../components/DecimalAmountInput';
 import { QuantityStepper } from '../../components/QuantityStepper';
+import { DelhiveryQuoteStrip } from '../../components/logistics/DelhiveryQuoteStrip';
 import { OrderFreightPanel } from '../../components/orders/OrderFreightPanel';
 import { ShippingAddressPicker } from '../../components/orders/ShippingAddressPicker';
 import type { LogisticsPartnerId } from '../../constants/logisticsPartners';
 import { useBlueDartPincode } from '../../hooks/useBlueDartPincode';
+import { useDelhiveryLiveFreightQuote } from '../../hooks/useDelhiveryLiveFreightQuote';
+import { selectedPartnerIsDelhivery } from '../../lib/delhiveryCartFreight';
 import { loadLogisticsCourierRates } from '../../lib/logisticsCourierRates';
 import { loadLogisticsSettings } from '../../lib/logisticsSettings';
 import {
@@ -39,6 +42,7 @@ import {
   estimateStCourierCartFreight,
   type StCourierCartFreightEstimate,
 } from '../../lib/stCourierCartFreight';
+import type { StaffLogisticsSite } from '../../types/staff-logistics';
 import {
   fetchPendingFreightDiff,
   formatPendingFreightAdjustLabel,
@@ -300,6 +304,8 @@ export const StaffCreateSalesOrderPage: React.FC = () => {
   const [partnerStatuses, setPartnerStatuses] = useState<LogisticsPartnerStatuses | null>(null);
   const [courierBySite, setCourierBySite] = useState<Partial<Record<InventorySite, LogisticsPartnerId>>>({});
   const [manualFreightAmount, setManualFreightAmount] = useState<number | null>(null);
+  const [manualFreightAmountLocked, setManualFreightAmountLocked] = useState(false);
+  const [fromAddresses, setFromAddresses] = useState<Partial<Record<StaffLogisticsSite, string>>>({});
   const [pendingFreightDiff, setPendingFreightDiff] = useState<PendingFreightDiffPreview | null>(null);
 
   const activeSegments = allowedSegments;
@@ -350,6 +356,7 @@ export const StaffCreateSalesOrderPage: React.FC = () => {
         setCourierRates(rates);
         setDeliveryRules(settings.deliveryRules);
         setPartnerStatuses(settings.partnerStatuses);
+        setFromAddresses(settings.fromAddresses || {});
       })
       .catch(() => { /* freight preview optional */ });
     return () => { cancelled = true; };
@@ -492,7 +499,7 @@ export const StaffCreateSalesOrderPage: React.FC = () => {
     [shippingDestination],
   );
 
-  const freightEstimate = useMemo((): StCourierCartFreightEstimate | null => {
+  const freightEstimateBase = useMemo((): StCourierCartFreightEstimate | null => {
     if (!freightAllowed || !courierRates || !deliveryRules || !partnerStatuses || lines.length === 0) {
       return null;
     }
@@ -505,6 +512,7 @@ export const StaffCreateSalesOrderPage: React.FC = () => {
       partnerStatuses,
       courierBySite,
       blueDartPin,
+      invoiceValueInr: lines.reduce((sum, line) => sum + line.rate * line.quantity, 0),
     });
   }, [
     freightAllowed,
@@ -519,13 +527,42 @@ export const StaffCreateSalesOrderPage: React.FC = () => {
     blueDartPin,
   ]);
 
+  const goodsSubtotalForDelhivery = useMemo(
+    () => lines.reduce((sum, line) => sum + line.rate * line.quantity, 0),
+    [lines],
+  );
+
+  const delhiveryLive = useDelhiveryLiveFreightQuote({
+    estimate: freightEstimateBase,
+    originAddress: fromAddresses.cochin || fromAddresses.head_office || '',
+    destinationPin: shippingDestination?.zip,
+    invoiceValueInr: goodsSubtotalForDelhivery,
+    freightBillingMode: 'btc',
+    enabled: freightAllowed,
+  });
+
+  const freightEstimate = delhiveryLive.estimateWithLive ?? freightEstimateBase;
+
+  useEffect(() => {
+    if (manualFreightAmountLocked) return;
+    if (!selectedPartnerIsDelhivery(freightEstimate)) return;
+    if (delhiveryLive.preTaxInr == null) return;
+    const next = Math.ceil(delhiveryLive.preTaxInr);
+    setManualFreightAmount(prev => (prev === next ? prev : next));
+  }, [delhiveryLive.preTaxInr, freightEstimate, manualFreightAmountLocked]);
+
+  useEffect(() => {
+    // Destination / cart change → allow live estimate to refresh the amount.
+    setManualFreightAmountLocked(false);
+  }, [shippingDestination?.zip, lines.length, goodsSubtotalForDelhivery]);
+
   const segmentPreview = useMemo(() => summarizeSegmentSiteBuckets(submitLines), [submitLines]);
 
   const selectedFreightUsesManualRate = useMemo(() => {
     if (!freightEstimate?.usable) return false;
     return freightEstimate.sites.some(site => {
       const opt = site.courierOptions.find(o => o.partnerId === site.partnerId);
-      return Boolean(opt?.manualRate);
+      return Boolean(opt?.manualRate || opt?.liveApiRate || site.partnerId === 'delhivery');
     });
   }, [freightEstimate]);
 
@@ -1054,6 +1091,14 @@ export const StaffCreateSalesOrderPage: React.FC = () => {
       setError('Select a salesperson for the product sales order.');
       return;
     }
+    if (
+      selectedFreightUsesManualRate
+      && selectedPartnerIsDelhivery(freightEstimate)
+      && !(manualFreightAmount != null && Number.isFinite(manualFreightAmount) && manualFreightAmount >= 0)
+    ) {
+      setError('Wait for the Delhivery freight estimate, or enter freight ₹ before creating the order.');
+      return;
+    }
     {
       const cartSegments = summarizeSegments(submitLines);
       const missingSp = cartSegments.find(segment => !segmentSpReady(segment));
@@ -1097,6 +1142,7 @@ export const StaffCreateSalesOrderPage: React.FC = () => {
       setRateOverrides({});
       setCourierBySite({});
       setManualFreightAmount(null);
+      setManualFreightAmountLocked(false);
       const salesOrders = Array.isArray(result.salesOrders) && result.salesOrders.length > 0
         ? result.salesOrders
         : (result.zohoSalesOrderId
@@ -1682,29 +1728,47 @@ export const StaffCreateSalesOrderPage: React.FC = () => {
           {freightAllowed ? (
             <section className="panel glass staff-create-so-page__section">
               {freightEstimate?.usable ? (
-                <OrderFreightPanel
-                  estimate={freightEstimate}
-                  canEditPackage
-                  allowManualFreightEntry
-                  manualFreightAmount={manualFreightAmount}
-                  catalogById={catalogById}
-                  destinationLabel={[
-                    shippingDestination?.city,
-                    shippingDestination?.state,
-                  ].filter(Boolean).join(', ') || null}
-                  footerNote="One freight line per draft SO. Active partners quote from rates; Manual partners need a freight ₹ when no rate card applies."
-                  onManualFreightAmountChange={setManualFreightAmount}
-                  onCourierChange={(site, partnerId) => {
-                    setCourierBySite(prev => ({ ...prev, [site]: partnerId }));
-                  }}
-                  onPackageInfoChange={(productId, info) => {
-                    setCatalogProducts(prev => prev.map(product => (
-                      product.id === productId
-                        ? { ...product, packageInfo: info }
-                        : product
-                    )));
-                  }}
-                />
+                <>
+                  <OrderFreightPanel
+                    estimate={freightEstimate}
+                    canEditPackage
+                    allowManualFreightEntry
+                    manualFreightAmount={manualFreightAmount}
+                    catalogById={catalogById}
+                    destinationLabel={[
+                      shippingDestination?.city,
+                      shippingDestination?.state,
+                    ].filter(Boolean).join(', ') || null}
+                    footerNote="One freight line per draft SO. ST / Blue Dart / Trackon use rate cards; Delhivery uses the live B2B freight estimate (editable)."
+                    onManualFreightAmountChange={next => {
+                      setManualFreightAmountLocked(true);
+                      setManualFreightAmount(next);
+                    }}
+                    onCourierChange={(site, partnerId) => {
+                      setManualFreightAmountLocked(false);
+                      setCourierBySite(prev => ({ ...prev, [site]: partnerId }));
+                    }}
+                    onPackageInfoChange={(productId, info) => {
+                      setManualFreightAmountLocked(false);
+                      setCatalogProducts(prev => prev.map(product => (
+                        product.id === productId
+                          ? { ...product, packageInfo: info }
+                          : product
+                      )));
+                    }}
+                  />
+                  {delhiveryLive.showStrip && selectedPartnerIsDelhivery(freightEstimate) ? (
+                    <DelhiveryQuoteStrip
+                      originPin={delhiveryLive.originPin || null}
+                      destinationPin={delhiveryLive.destinationPin}
+                      weightKg={freightEstimate.totalChargeableKg || 5}
+                      invAmount={goodsSubtotalForDelhivery}
+                      freightBillingMode="btc"
+                      includeEstimate={Boolean(delhiveryLive.originPin)}
+                      compact
+                    />
+                  ) : null}
+                </>
               ) : (
                 <>
                   <h2>Freight</h2>

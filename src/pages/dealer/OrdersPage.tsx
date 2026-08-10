@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { Link, Navigate, useNavigate } from 'react-router-dom';
 import { IndianRupee, Package, ShoppingCart, Trash2 } from 'lucide-react';
 import { QuantityStepper } from '../../components/QuantityStepper';
+import { DelhiveryQuoteStrip } from '../../components/logistics/DelhiveryQuoteStrip';
 import { OrderFreightPanel } from '../../components/orders/OrderFreightPanel';
 import { ShippingAddressPicker } from '../../components/orders/ShippingAddressPicker';
 import { inferStCourierZone } from '../../lib/stCourierZone';
@@ -22,6 +23,7 @@ import {
   submitDealerOrder,
   type SegmentSalesOrderResult,
 } from '../../lib/dealerOrders';
+import { selectedPartnerIsDelhivery } from '../../lib/delhiveryCartFreight';
 import {
   summarizeSegmentSiteBuckets,
 } from '../../lib/salesOrderSegments';
@@ -33,6 +35,7 @@ import {
 } from '../../lib/shippingAddresses';
 import type { LogisticsPartnerId } from '../../constants/logisticsPartners';
 import { useBlueDartPincode } from '../../hooks/useBlueDartPincode';
+import { useDelhiveryLiveFreightQuote } from '../../hooks/useDelhiveryLiveFreightQuote';
 import { loadLogisticsCourierRates } from '../../lib/logisticsCourierRates';
 import { loadLogisticsSettings } from '../../lib/logisticsSettings';
 import type { InventorySite } from '../../lib/salesOrderSegments';
@@ -52,6 +55,7 @@ import type { CatalogProduct } from '../../types/catalog';
 import type { LogisticsCourierRates } from '../../types/logistics-courier-rates';
 import type { LogisticsDeliveryRulesMatrix } from '../../types/logistics-delivery-rules';
 import type { LogisticsPartnerStatuses } from '../../types/logistics-partner-status';
+import type { StaffLogisticsSite } from '../../types/staff-logistics';
 
 export const OrdersPage: React.FC = () => {
   const { user } = useAuth();
@@ -92,6 +96,7 @@ const DealerCartPage: React.FC = () => {
   const [deliveryRules, setDeliveryRules] = useState<LogisticsDeliveryRulesMatrix | null>(null);
   const [partnerStatuses, setPartnerStatuses] = useState<LogisticsPartnerStatuses | null>(null);
   const [courierBySite, setCourierBySite] = useState<Partial<Record<InventorySite, LogisticsPartnerId>>>({});
+  const [fromAddresses, setFromAddresses] = useState<Partial<Record<StaffLogisticsSite, string>>>({});
   const [freightAdjustAgreed, setFreightAdjustAgreed] = useState(true);
   const [pendingFreightDiff, setPendingFreightDiff] = useState<PendingFreightDiffPreview | null>(null);
 
@@ -116,6 +121,7 @@ const DealerCartPage: React.FC = () => {
         setCourierRates(rates);
         setDeliveryRules(settings.deliveryRules);
         setPartnerStatuses(settings.partnerStatuses);
+        setFromAddresses(settings.fromAddresses || {});
       })
       .catch(() => { /* freight preview optional */ });
     return () => { cancelled = true; };
@@ -154,7 +160,7 @@ const DealerCartPage: React.FC = () => {
     return () => { cancelled = true; };
   }, [items]);
 
-  const freightEstimate = useMemo((): StCourierCartFreightEstimate | null => {
+  const freightEstimateBase = useMemo((): StCourierCartFreightEstimate | null => {
     if (!courierRates || !deliveryRules || !partnerStatuses || items.length === 0) return null;
     if (!shippingDestination || !inferredFreightZone) return null;
     return estimateStCourierCartFreight({
@@ -165,6 +171,7 @@ const DealerCartPage: React.FC = () => {
       partnerStatuses,
       courierBySite,
       blueDartPin,
+      invoiceValueInr: subtotal,
     });
   }, [
     courierRates,
@@ -176,7 +183,18 @@ const DealerCartPage: React.FC = () => {
     courierBySite,
     inferredFreightZone,
     blueDartPin,
+    subtotal,
   ]);
+
+  const delhiveryLive = useDelhiveryLiveFreightQuote({
+    estimate: freightEstimateBase,
+    originAddress: fromAddresses.cochin || fromAddresses.head_office || '',
+    destinationPin: shippingDestination?.zip,
+    invoiceValueInr: subtotal,
+    freightBillingMode: 'btc',
+  });
+
+  const freightEstimate = delhiveryLive.estimateWithLive ?? freightEstimateBase;
 
   const loadAddresses = useCallback(() => {
     setAddressesLoading(true);
@@ -258,12 +276,28 @@ const DealerCartPage: React.FC = () => {
       window.alert('Select or enter a complete shipping address before placing the order.');
       return;
     }
+    if (
+      selectedPartnerIsDelhivery(freightEstimate)
+      && !(delhiveryLive.preTaxInr != null && delhiveryLive.preTaxInr > 0)
+    ) {
+      window.alert(
+        delhiveryLive.loading
+          ? 'Still estimating Delhivery freight. Try again in a moment.'
+          : (delhiveryLive.error || 'Delhivery freight estimate is unavailable for this destination.'),
+      );
+      return;
+    }
     setSubmitting(true);
     try {
       const courierSelection = freightEstimate?.sites.reduce((acc, site) => {
         acc[site.site] = site.partnerId;
         return acc;
       }, {} as Partial<Record<InventorySite, LogisticsPartnerId>>);
+      const delhiveryFreight = selectedPartnerIsDelhivery(freightEstimate)
+        && delhiveryLive.preTaxInr != null
+        && delhiveryLive.preTaxInr > 0
+        ? Math.ceil(delhiveryLive.preTaxInr)
+        : undefined;
       const order = await submitDealerOrder(
         items.map(item => ({
           productId: item.productId,
@@ -274,6 +308,8 @@ const DealerCartPage: React.FC = () => {
         remarks,
         courierSelection,
         inferredFreightZone ?? undefined,
+        undefined,
+        delhiveryFreight,
       );
       clearCart();
       const salesOrders = Array.isArray(order.salesOrders) && order.salesOrders.length > 0
@@ -597,11 +633,22 @@ const DealerCartPage: React.FC = () => {
                   shippingDestination?.city,
                   shippingDestination?.state,
                 ].filter(Boolean).join(', ') || null}
-                footerNote="Estimated freight for this order. Staff can adjust courier and package data when reviewing."
+                footerNote="Estimated freight for this order. Delhivery uses a live API quote; staff can adjust courier and package data when reviewing."
                 onCourierChange={(site, partnerId) => {
                   setCourierBySite(prev => ({ ...prev, [site]: partnerId }));
                 }}
               />
+              {delhiveryLive.showStrip && selectedPartnerIsDelhivery(freightEstimate) ? (
+                <DelhiveryQuoteStrip
+                  originPin={delhiveryLive.originPin || null}
+                  destinationPin={delhiveryLive.destinationPin}
+                  weightKg={freightEstimate.totalChargeableKg || 5}
+                  invAmount={subtotal}
+                  freightBillingMode="btc"
+                  includeEstimate={false}
+                  compact
+                />
+              ) : null}
             </>
           ) : !shipping && !addressesLoading ? (
             <p className="orders-page__freight-note text-muted text-sm">

@@ -61,6 +61,8 @@ export async function submitDealerOrder(
   courierBySite?: Partial<Record<'cochin' | 'head_office', string>>,
   freightZone?: string,
   freightZoneOverrideReason?: string,
+  /** Live Delhivery (or other client-quoted) freight when rate card is ₹0. */
+  manualFreightAmountInr?: number,
 ): Promise<SubmitDealerOrderResult> {
   try {
     return await call(
@@ -73,6 +75,11 @@ export async function submitDealerOrder(
         ...(freightZone ? { freightZone } : {}),
         ...(freightZoneOverrideReason?.trim()
           ? { freightZoneOverrideReason: freightZoneOverrideReason.trim() }
+          : {}),
+        ...(manualFreightAmountInr != null
+          && Number.isFinite(manualFreightAmountInr)
+          && manualFreightAmountInr >= 0
+          ? { manualFreightAmountInr: Math.round(manualFreightAmountInr * 100) / 100 }
           : {}),
       },
       180_000,

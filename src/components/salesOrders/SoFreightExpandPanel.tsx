@@ -9,8 +9,9 @@ import {
   type FreightLineSku,
 } from '../../constants/freightLines';
 import { useBlueDartPincode } from '../../hooks/useBlueDartPincode';
+import { useDelhiveryLiveFreightQuote } from '../../hooks/useDelhiveryLiveFreightQuote';
 import { DelhiveryQuoteStrip } from '../logistics/DelhiveryQuoteStrip';
-import { pinFromText } from '../../lib/delhiveryQuote';
+import { selectedPartnerIsDelhivery } from '../../lib/delhiveryCartFreight';
 import { loadLogisticsCourierRates } from '../../lib/logisticsCourierRates';
 import { loadLogisticsSettings } from '../../lib/logisticsSettings';
 import {
@@ -168,7 +169,12 @@ export const SoFreightExpandPanel: React.FC<Props> = ({
   );
   const blueDartPin = useBlueDartPincode(shippingDestination?.zip);
 
-  const freightEstimate = useMemo((): StCourierCartFreightEstimate | null => {
+  const goodsSubtotal = useMemo(
+    () => productLines.reduce((sum, line) => sum + line.rate * line.quantity, 0),
+    [productLines],
+  );
+
+  const freightEstimateBase = useMemo((): StCourierCartFreightEstimate | null => {
     if (!courierRates || !deliveryRules || !partnerStatuses || productLines.length === 0) return null;
     if (!shippingDestination || !inferredZone) return null;
     return estimateStCourierCartFreight({
@@ -179,6 +185,7 @@ export const SoFreightExpandPanel: React.FC<Props> = ({
       partnerStatuses,
       courierBySite,
       blueDartPin,
+      invoiceValueInr: goodsSubtotal,
     });
   }, [
     courierRates,
@@ -190,7 +197,18 @@ export const SoFreightExpandPanel: React.FC<Props> = ({
     courierBySite,
     inferredZone,
     blueDartPin,
+    goodsSubtotal,
   ]);
+
+  const delhiveryLive = useDelhiveryLiveFreightQuote({
+    estimate: freightEstimateBase,
+    originAddress: fromAddresses.cochin || fromAddresses.head_office || '',
+    destinationPin: shippingDestination?.zip,
+    invoiceValueInr: goodsSubtotal,
+    freightBillingMode: 'btc',
+  });
+
+  const freightEstimate = delhiveryLive.estimateWithLive ?? freightEstimateBase;
 
   const applyFreight = (sku: string | null, amountRaw: string) => {
     const withoutFreight = lines.filter(line => !isFreightDraftEditLine(line));
@@ -234,6 +252,7 @@ export const SoFreightExpandPanel: React.FC<Props> = ({
     const sku = freightSkuForPartner(site.partnerId);
     if (!sku) return;
     const rate = Math.ceil(Number(freightEstimate.totalInr) || 0) || 0;
+    const selectedOpt = site.courierOptions.find(o => o.partnerId === site.partnerId);
     // Never clobber an existing freight line with a zero estimate
     // (common for Manual partners like Delhivery with no rate card).
     if (rate === 0 && current) {
@@ -243,6 +262,8 @@ export const SoFreightExpandPanel: React.FC<Props> = ({
       lastAutoKeyRef.current = `all:${site.partnerId}:keep:${currentAmount}`;
       return;
     }
+    // Live Delhivery quote arrives async — don't invent ₹0 while waiting.
+    if (rate === 0 && (selectedOpt?.liveApiRate || site.partnerId === 'delhivery')) return;
     // Hidden SO detail panel: only auto-apply real quotes, never invent ₹0 freight.
     if (!showUi && rate === 0) return;
     const key = `all:${site.partnerId}:${rate}`;
@@ -263,13 +284,25 @@ export const SoFreightExpandPanel: React.FC<Props> = ({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [freightEstimate, freightAmountManual, disabled, showUi]);
 
-  const selectedPartner = freightEstimate?.sites[0]?.partnerId ?? null;
-  const showDelhiveryQuote = selectedPartner === 'delhivery'
+  useEffect(() => {
+    if (freightAmountManual || disabled) return;
+    if (!selectedPartnerIsDelhivery(freightEstimate)) return;
+    if (delhiveryLive.preTaxInr == null) return;
+    const sku = freightSkuForPartner('delhivery');
+    if (!sku) return;
+    const rate = Math.ceil(delhiveryLive.preTaxInr) || 0;
+    if (rate <= 0) return;
+    const key = `delhivery-live:${rate}`;
+    if (lastAutoKeyRef.current === key) return;
+    lastAutoKeyRef.current = key;
+    setFreightSku(sku);
+    setFreightAmount(String(rate));
+    applyFreight(sku, String(rate));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [delhiveryLive.preTaxInr, freightEstimate, freightAmountManual, disabled]);
+
+  const showDelhiveryQuote = selectedPartnerIsDelhivery(freightEstimate)
     && Boolean(shippingDestination?.zip);
-  const delhiveryOriginPin = pinFromText(
-    fromAddresses.cochin || fromAddresses.head_office || '',
-  );
-  const delhiveryWeightKg = freightEstimate?.totalChargeableKg || null;
 
   if (!showUi) return null;
 
@@ -324,24 +357,13 @@ export const SoFreightExpandPanel: React.FC<Props> = ({
       )}
       {showDelhiveryQuote ? (
         <DelhiveryQuoteStrip
-          originPin={delhiveryOriginPin || null}
-          destinationPin={String(shippingDestination?.zip || '').replace(/\D/g, '')}
-          weightKg={delhiveryWeightKg || 5}
+          originPin={delhiveryLive.originPin || null}
+          destinationPin={delhiveryLive.destinationPin}
+          weightKg={freightEstimate?.totalChargeableKg || 5}
+          invAmount={goodsSubtotal}
           freightBillingMode="btc"
-          includeEstimate={Boolean(delhiveryOriginPin)}
-          onEstimate={(preTaxInr) => {
-            if (disabled || freightAmountManual) return;
-            const sku = freightSkuForPartner('delhivery');
-            if (!sku) return;
-            const rate = Math.ceil(preTaxInr) || 0;
-            if (rate <= 0) return;
-            const key = `delhivery-live:${rate}`;
-            if (lastAutoKeyRef.current === key) return;
-            lastAutoKeyRef.current = key;
-            setFreightSku(sku);
-            setFreightAmount(String(rate));
-            applyFreight(sku, String(rate));
-          }}
+          includeEstimate={false}
+          compact
         />
       ) : null}
       {freightSku && !freightEstimate?.sites.some(site => (

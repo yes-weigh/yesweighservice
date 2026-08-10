@@ -290,7 +290,14 @@ function CourierOptionCard({
         {opt.preferred ? (
           <em className="order-freight-panel__courier-preferred">Preferred</em>
         ) : null}
-        {opt.enabled && opt.manualRate ? (
+        {opt.enabled && opt.liveApiRate ? (
+          <em>
+            {displayAmount > 0
+              ? 'Live API estimate'
+              : (showManualInput ? 'Estimating… / enter ₹' : 'Live API estimate')}
+          </em>
+        ) : null}
+        {opt.enabled && opt.manualRate && !opt.liveApiRate ? (
           <em>{showManualInput ? 'Enter freight ₹' : 'Enter ₹ on sales order'}</em>
         ) : null}
         {!opt.enabled && opt.disabledReason ? <em>{opt.disabledReason}</em> : null}

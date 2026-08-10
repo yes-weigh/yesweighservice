@@ -12,9 +12,9 @@ import {
 
 function defaultStatusForPartner(id: LogisticsPartnerId): LogisticsPartnerStatus {
   if (id === 'personal_collection') return 'active';
-  if (id === 'delhivery') return 'manual';
   if (
-    id === 'st_courier'
+    id === 'delhivery'
+    || id === 'st_courier'
     || (TRACKON_LOGISTICS_PARTNER_IDS as readonly string[]).includes(id)
     || (BLUEDART_LOGISTICS_PARTNER_IDS as readonly string[]).includes(id)
   ) {
@@ -23,7 +23,7 @@ function defaultStatusForPartner(id: LogisticsPartnerId): LogisticsPartnerStatus
   return 'inactive';
 }
 
-/** Defaults: rate-card partners active, Delhivery manual, others inactive. */
+/** Defaults: rate-card + Delhivery (live API) active; others inactive. */
 export function defaultLogisticsPartnerStatuses(): LogisticsPartnerStatuses {
   const out = {} as LogisticsPartnerStatuses;
   for (const id of LOGISTICS_PARTNER_IDS) {

@@ -99,10 +99,16 @@ export function partnerHasZoneRate(
     return typeof boxPerKg === 'number' && Number.isFinite(boxPerKg) && boxPerKg > 0;
   }
   if (partnerId === 'delhivery') {
+    // Legacy shared ₹/kg card (settings UI no longer edits it). Prefer live API.
     const boxPerKg = rates.delhivery?.zones?.[zone]?.boxPerKgInr;
     return typeof boxPerKg === 'number' && Number.isFinite(boxPerKg) && boxPerKg > 0;
   }
   return false;
+}
+
+/** Delhivery is offered on SO via live B2B estimate when destination zone is known. */
+export function partnerUsesLiveApiFreight(partnerId: LogisticsPartnerId): boolean {
+  return partnerId === 'delhivery';
 }
 
 /**
@@ -130,6 +136,11 @@ export type OrderCourierOption = {
    * True when enabled without a zone ₹/kg — quote is ₹0 until staff enter freight.
    */
   manualRate?: boolean;
+  /**
+   * Delhivery (and similar): priced via live partner API, not the unused ₹/kg card.
+   * Client overlays estimate; create SO still sends amount as manualFreightAmountInr.
+   */
+  liveApiRate?: boolean;
   /** Quoted freight ₹ for this partner at this ship-from (set by cart estimate). */
   estimatedTotalInr?: number;
 };
@@ -204,7 +215,8 @@ export function listOrderCourierOptions(input: {
     const hasRate = zone
       ? partnerHasZoneRate(input.rates, partnerId, input.site, zone)
       : false;
-    if (hasRate || input.spareOnly || (allowManual && Boolean(zone))) {
+    const liveApi = partnerUsesLiveApiFreight(partnerId);
+    if (hasRate || input.spareOnly || (allowManual && Boolean(zone)) || (liveApi && Boolean(zone))) {
       return {
         partnerId,
         label: logisticsPartnerLabel(partnerId),
@@ -212,7 +224,8 @@ export function listOrderCourierOptions(input: {
         preferred: false,
         enabled: true,
         disabledReason: null,
-        manualRate: allowManual && !hasRate && !input.spareOnly,
+        manualRate: (!hasRate && !input.spareOnly) && (allowManual || liveApi),
+        liveApiRate: liveApi && !hasRate,
       };
     }
     return {

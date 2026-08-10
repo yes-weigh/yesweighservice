@@ -508,9 +508,20 @@ export function buildDealerAutoFreightLines({
         destination,
         rates,
       });
+      let spareRate = spareQuoted.totalInr;
+      const manualAmt = Number(manualFreightAmountInr);
+      // Spare-only Delhivery (live API) has no rate card — accept client quote.
+      if (
+        Number.isFinite(manualAmt)
+        && manualAmt >= 0
+        && !(spareRate > 0)
+        && !productSites.has(site)
+      ) {
+        spareRate = ceilCourierChargeInr(manualAmt);
+      }
       freightLines.push(makeFreightLine({
         sku,
-        rate: spareQuoted.totalInr,
+        rate: spareRate,
         site,
         hostSegment: 'spare',
       }));
