@@ -667,6 +667,7 @@ export const LogisticsBookingDetail: React.FC<LogisticsBookingDetailProps> = ({
   const handleConfirmCancelEwayBill = useCallback(async (input: {
     reason: EwayBillCancelReason;
     remarks: string;
+    localOnly?: boolean;
   }) => {
     const invoiceId = booking.invoiceId?.trim();
     if (!invoiceId || !ewayCustomerId) return;
@@ -679,13 +680,14 @@ export const LogisticsBookingDetail: React.FC<LogisticsBookingDetailProps> = ({
         bookingId: booking.id,
         reason: input.reason,
         remarks: input.remarks || null,
+        localOnly: input.localOnly === true,
       });
       setEwayBillStatus(result.status ?? 'cancelled');
       setEwayBillNumber(null);
       ewayAutoEnsuredRef.current = '';
       setEwayCancelOpen(false);
       closeDelhiveryDocDialog();
-      setDelhiveryDocsError('');
+      setDelhiveryDocsError(result.message ?? '');
     } catch (err) {
       setEwayCancelError(
         err instanceof Error ? err.message : 'Could not cancel e-way bill.',
@@ -2426,6 +2428,7 @@ export const LogisticsBookingDetail: React.FC<LogisticsBookingDetailProps> = ({
             setEwayCancelError('');
           }}
           onConfirm={handleConfirmCancelEwayBill}
+          onConfirmLocalOnly={input => handleConfirmCancelEwayBill({ ...input, localOnly: true })}
         />
       ) : null}
 

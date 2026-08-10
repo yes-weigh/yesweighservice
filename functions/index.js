@@ -2006,6 +2006,7 @@ export const cancelInvoiceEwayBillFn = onCall(
         bookingId: bookingId || null,
         reason,
         remarks: remarks || null,
+        localOnly: request.data?.localOnly === true,
       });
     } catch (err) {
       if (err instanceof HttpsError) throw err;

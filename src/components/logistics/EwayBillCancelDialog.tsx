@@ -12,6 +12,7 @@ type Props = {
   error?: string;
   onClose: () => void;
   onConfirm: (input: { reason: EwayBillCancelReason; remarks: string }) => void | Promise<void>;
+  onConfirmLocalOnly?: (input: { reason: EwayBillCancelReason; remarks: string }) => void | Promise<void>;
 };
 
 export const EwayBillCancelDialog: React.FC<Props> = ({
@@ -20,6 +21,7 @@ export const EwayBillCancelDialog: React.FC<Props> = ({
   error = '',
   onClose,
   onConfirm,
+  onConfirmLocalOnly,
 }) => {
   const [reason, setReason] = useState<EwayBillCancelReason>('order_cancelled');
   const [remarks, setRemarks] = useState('');
@@ -103,6 +105,18 @@ export const EwayBillCancelDialog: React.FC<Props> = ({
           >
             Keep e-way bill
           </button>
+          {error && onConfirmLocalOnly ? (
+            <button
+              type="button"
+              className="btn btn-secondary"
+              disabled={busy}
+              onClick={() => {
+                void onConfirmLocalOnly({ reason, remarks: remarks.trim() });
+              }}
+            >
+              {busy ? 'Clearing…' : 'Clear locally for retest'}
+            </button>
+          ) : null}
           <button
             type="button"
             className="btn btn-danger"

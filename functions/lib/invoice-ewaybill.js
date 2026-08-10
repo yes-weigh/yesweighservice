@@ -285,6 +285,22 @@ async function deletePdfFromStorage(storagePath) {
   }
 }
 
+function formatEwayBillCancelError(message) {
+  const text = String(message ?? '').trim();
+  if (/api access is not available/i.test(text)) {
+    return (
+      'Zoho could not reach the GST e-way bill portal (API access is not available). '
+      + 'Cancel the e-way bill in Zoho Inventory → E-Way Bills → Actions → Cancel, '
+      + 'or fix GSP/API credentials under E-Way Bill Portal settings in Zoho. '
+      + 'You can also clear it locally here to retest logistics — the GST record may still be active.'
+    );
+  }
+  if (/24 hour|verified during transit|cannot be cancel/i.test(text)) {
+    return `${text} Cancel from Zoho Inventory within 24 hours of generation if still allowed.`;
+  }
+  return text || 'Could not cancel e-way bill on the GST portal.';
+}
+
 /**
  * @param {object} secrets
  * @param {string} orgId
@@ -294,6 +310,7 @@ async function deletePdfFromStorage(storagePath) {
  *   bookingId?: string | null;
  *   reason: string;
  *   remarks?: string | null;
+ *   localOnly?: boolean;
  * }} input
  */
 export async function cancelInvoiceEwayBill(secrets, orgId, input) {
@@ -333,11 +350,42 @@ export async function cancelInvoiceEwayBill(secrets, orgId, input) {
     };
   }
 
-  const remote = await cancelZohoEwayBill(accessToken, organizationId, zohoEwaybillId, {
-    reason: input.reason,
-    remarks: input.remarks ?? null,
-  });
-  const mapped = mapZohoEwayBillRecord(remote) ?? {};
+  const localOnly = input.localOnly === true;
+  let mapped = {};
+
+  if (localOnly) {
+    if (existing?.pdfStoragePath) {
+      await deletePdfFromStorage(existing.pdfStoragePath);
+    }
+    const saved = await persistEwayBill(customerId, invoiceId, {
+      ...existing,
+      zohoEwaybillId,
+      required: true,
+      status: 'cancelled',
+      ewaybillNumber: existing?.ewaybillNumber ?? null,
+      pdfStoragePath: null,
+      error: 'Cancelled locally — GST portal may still show this e-way bill as active.',
+      cancelReason: String(input.reason ?? ''),
+      cancelRemarks: String(input.remarks ?? '').trim() || null,
+    }, bookingId);
+    return {
+      ok: true,
+      status: saved.status || 'cancelled',
+      ewaybillNumber: saved.ewaybillNumber ?? null,
+      localOnly: true,
+      message: 'E-way bill cleared locally for retest. Cancel it in Zoho Inventory if the GST portal still shows it active.',
+    };
+  }
+
+  try {
+    const remote = await cancelZohoEwayBill(accessToken, organizationId, zohoEwaybillId, {
+      reason: input.reason,
+      remarks: input.remarks ?? null,
+    });
+    mapped = mapZohoEwayBillRecord(remote) ?? {};
+  } catch (err) {
+    throw new Error(formatEwayBillCancelError(err instanceof Error ? err.message : String(err)));
+  }
 
   if (existing?.pdfStoragePath) {
     await deletePdfFromStorage(existing.pdfStoragePath);

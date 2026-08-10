@@ -127,6 +127,7 @@ export type CancelInvoiceEwayBillResult = {
   ok: boolean;
   status: InvoiceEwayBillStatus | null;
   ewaybillNumber?: string | null;
+  localOnly?: boolean;
   message?: string;
 };
 

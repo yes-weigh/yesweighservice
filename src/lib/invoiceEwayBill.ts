@@ -54,6 +54,7 @@ export async function cancelInvoiceEwayBill(input: {
   bookingId?: string | null;
   reason: EwayBillCancelReason;
   remarks?: string | null;
+  localOnly?: boolean;
 }): Promise<CancelInvoiceEwayBillResult> {
   try {
     const fn = httpsCallable<typeof input, CancelInvoiceEwayBillResult>(
