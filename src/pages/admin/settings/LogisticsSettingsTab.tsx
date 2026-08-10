@@ -8,7 +8,10 @@ import {
   loadLogisticsSettings,
   saveDefaultStaffLogisticsSite,
   saveLogisticsFromAddresses,
+  saveLogisticsFromSiteContacts,
+  type LogisticsSiteContact,
 } from '../../../lib/logisticsSettings';
+import { FIRM_GSTIN, FIRM_PHONE } from '../../../constants/brand';
 import { updateUserProfile } from '../../../lib/userAdmin';
 import { db } from '../../../firebase';
 import { staffDepartmentLabel } from '../../../lib/staffAccess';
@@ -59,6 +62,14 @@ export const LogisticsSettingsTab: React.FC = () => {
     cochin: '',
     head_office: '',
   });
+  const [fromSiteContacts, setFromSiteContacts] = useState<Record<StaffLogisticsSite, LogisticsSiteContact>>({
+    cochin: { phone: '', gstin: '' },
+    head_office: { phone: '', gstin: '' },
+  });
+  const [draftFromSiteContacts, setDraftFromSiteContacts] = useState<Record<StaffLogisticsSite, LogisticsSiteContact>>({
+    cochin: { phone: '', gstin: '' },
+    head_office: { phone: '', gstin: '' },
+  });
   const [deliveryRules, setDeliveryRules] = useState<LogisticsDeliveryRulesMatrix | null>(null);
   const [partnerStatuses, setPartnerStatuses] = useState<LogisticsPartnerStatuses | null>(null);
   const [staff, setStaff] = useState<UserRecord[]>([]);
@@ -81,6 +92,8 @@ export const LogisticsSettingsTab: React.FC = () => {
       setDraftDefaultSite(settings.defaultStaffLogisticsSite);
       setFromAddresses(settings.fromAddresses);
       setDraftFromAddresses(settings.fromAddresses);
+      setFromSiteContacts(settings.fromSiteContacts);
+      setDraftFromSiteContacts(settings.fromSiteContacts);
       setDeliveryRules(settings.deliveryRules);
       setPartnerStatuses(settings.partnerStatuses);
       setStaff(staffUsers);
@@ -119,7 +132,11 @@ export const LogisticsSettingsTab: React.FC = () => {
   const fromAddressesDirty = STAFF_LOGISTICS_SITES.some(
     site => draftFromAddresses[site] !== fromAddresses[site],
   );
-  const sitesDirty = defaultDirty || fromAddressesDirty;
+  const fromSiteContactsDirty = STAFF_LOGISTICS_SITES.some(site => (
+    draftFromSiteContacts[site].phone !== fromSiteContacts[site].phone
+    || draftFromSiteContacts[site].gstin !== fromSiteContacts[site].gstin
+  ));
+  const sitesDirty = defaultDirty || fromAddressesDirty || fromSiteContactsDirty;
 
   const staffBySite = useMemo(() => {
     const counts: Record<StaffLogisticsSite, number> = {
@@ -156,6 +173,14 @@ export const LogisticsSettingsTab: React.FC = () => {
                 ? `Saved and applied ship-from to ${result.updated} of ${result.scanned} bookings.`
                 : `Saved. All ${result.scanned} bookings already match these addresses.`,
             );
+          }),
+        );
+      }
+      if (fromSiteContactsDirty) {
+        tasks.push(
+          saveLogisticsFromSiteContacts(draftFromSiteContacts, user?.uid ?? null).then(saved => {
+            setFromSiteContacts(saved);
+            setDraftFromSiteContacts(saved);
           }),
         );
       }
@@ -224,8 +249,9 @@ export const LogisticsSettingsTab: React.FC = () => {
             <div>
               <h4 className="settings-logistics__title">Logistics sites</h4>
               <p className="text-muted text-sm">
-                Ship-from address on courier labels. Saving applies these addresses to all existing
-                bookings for each site. Mark one site as default for new staff.
+                Ship-from address, phone, and GSTIN for courier docs. Address save also applies to
+                existing bookings. Empty phone/GSTIN fall back to firm defaults
+                ({FIRM_PHONE} / {FIRM_GSTIN}). Mark one site as default for new staff.
               </p>
             </div>
             <button
@@ -294,9 +320,46 @@ export const LogisticsSettingsTab: React.FC = () => {
                         autosizeTextarea(el);
                       }}
                       onInput={event => autosizeTextarea(event.currentTarget)}
-                      placeholder="Company name, address, city, state, pincode, phone"
+                      placeholder="Company name, address, city, state, pincode"
                     />
                   </label>
+                  <div className="settings-logistics__site-card-contacts">
+                    <label className="settings-logistics__site-card-contact">
+                      <span className="settings-logistics__site-card-address-label">Phone</span>
+                      <input
+                        type="tel"
+                        className="settings-logistics__site-card-input"
+                        value={draftFromSiteContacts[site].phone}
+                        disabled={busyKey === 'sites'}
+                        placeholder={FIRM_PHONE}
+                        onChange={event => {
+                          const phone = event.currentTarget.value;
+                          setDraftFromSiteContacts(prev => ({
+                            ...prev,
+                            [site]: { ...prev[site], phone },
+                          }));
+                        }}
+                      />
+                    </label>
+                    <label className="settings-logistics__site-card-contact">
+                      <span className="settings-logistics__site-card-address-label">GSTIN</span>
+                      <input
+                        type="text"
+                        className="settings-logistics__site-card-input"
+                        value={draftFromSiteContacts[site].gstin}
+                        disabled={busyKey === 'sites'}
+                        placeholder={FIRM_GSTIN}
+                        autoCapitalize="characters"
+                        onChange={event => {
+                          const gstin = event.currentTarget.value.toUpperCase();
+                          setDraftFromSiteContacts(prev => ({
+                            ...prev,
+                            [site]: { ...prev[site], gstin },
+                          }));
+                        }}
+                      />
+                    </label>
+                  </div>
                 </div>
               );
             })}

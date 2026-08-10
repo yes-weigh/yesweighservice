@@ -9,11 +9,12 @@
  *   staging:    https://ltl-clients-api-dev.delhivery.com
  *   production: https://ltl-clients-api.delhivery.com
  *
- * Freight: freight_mode = fop (BTC) | fod (FOD). Goods payment_mode = prepaid.
+ * Freight: freight_mode = fod (FOD). BTC omits freight_mode — this client rejects FoP.
+ * Goods payment_mode = prepaid.
  */
 
 import { getValidDelhiveryJwt, loadDelhiveryB2bPublicConfig } from './delhivery-b2b.js';
-import { delhiveryLtlBaseUrl } from './delhivery-freight.js';
+import { delhiveryFreightModeForApi, delhiveryLtlBaseUrl } from './delhivery-freight.js';
 
 function sleep(ms) {
   return new Promise(resolve => setTimeout(resolve, ms));
@@ -29,10 +30,32 @@ function asNumber(value, fallback = 0) {
   return Number.isFinite(n) ? n : fallback;
 }
 
-/** @param {unknown} raw @returns {'fod' | 'fop'} */
+/** Digits-only phone; prefer last 10 digits for Indian mobiles. */
+function phoneDigits(value, fallback = '') {
+  const primary = String(value ?? '').replace(/\D/g, '');
+  if (primary.length >= 8) {
+    return primary.length > 10 ? primary.slice(-10) : primary;
+  }
+  const secondary = String(fallback ?? '').replace(/\D/g, '');
+  if (secondary.length >= 8) {
+    return secondary.length > 10 ? secondary.slice(-10) : secondary;
+  }
+  return '';
+}
+
+function normalizeGstin(value) {
+  const text = String(value ?? '').trim().toUpperCase();
+  return /^[0-9A-Z]{15}$/.test(text) ? text : null;
+}
+
+/**
+ * App billing → optional Delhivery freight_mode.
+ * FoP is not allowed for INTERWEIGHING B2B — omit for BTC.
+ * @param {unknown} raw
+ * @returns {'fod' | null}
+ */
 export function delhiveryFreightModeFromBilling(raw) {
-  const value = String(raw || '').trim().toLowerCase();
-  return value === 'fod' ? 'fod' : 'fop';
+  return delhiveryFreightModeForApi(raw);
 }
 
 /**
@@ -50,6 +73,7 @@ export function delhiveryFreightModeFromBilling(raw) {
  *     pincode: string,
  *     country?: string,
  *     email?: string,
+ *     gstin?: string,
  *   },
  *   returnAddress?: {
  *     name?: string,
@@ -97,13 +121,12 @@ export function buildDelhiveryB2bManifestPayload(input) {
   }
   const consignee = input.consignee || {};
   const name = nonEmpty(consignee.name);
-  const phone = String(consignee.phone || '').replace(/\D/g, '');
+  const phone = phoneDigits(consignee.phone);
   const address = nonEmpty(consignee.address);
   const pin = String(consignee.pincode || '').replace(/\D/g, '');
   if (!name || !phone || !address || pin.length !== 6) {
     throw new Error('Consignee name, phone, address, and 6-digit pincode are required.');
   }
-
   const boxes = Array.isArray(input.boxes) ? input.boxes : [];
   if (!boxes.length) {
     throw new Error('At least one box is required to book Delhivery.');
@@ -135,6 +158,9 @@ export function buildDelhiveryB2bManifestPayload(input) {
   const invoiceNumber = nonEmpty(input.invoiceNumber) || String(input.orderId || 'INV');
   const productsDesc = nonEmpty(input.productsDesc) || 'Goods';
   const freightMode = delhiveryFreightModeFromBilling(input.freightBillingMode);
+  const freightBillingMode = String(input.freightBillingMode || '').trim().toLowerCase() === 'fod'
+    ? 'fod'
+    : 'btc';
   const orderId = String(input.orderId || `YW-${Date.now()}`);
   // Interweighing firm GSTIN — LTL requires PAN or GSTIN on billing_address for FoD/FoP.
   const DEFAULT_GSTIN = '32AAFCI1950F1ZZ';
@@ -171,19 +197,25 @@ export function buildDelhiveryB2bManifestPayload(input) {
   ];
 
   const ret = input.returnAddress || null;
+  // Shipper/return phone must never fall back to consignee phone.
+  const returnPhone = phoneDigits(ret?.phone);
   const return_address = ret && nonEmpty(ret.address)
     ? {
       name: nonEmpty(ret.name) || pickup,
-      phone: String(ret.phone || phone).replace(/\D/g, '') || phone,
+      phone: returnPhone,
       address: nonEmpty(ret.address),
       city: nonEmpty(ret.city) || 'NA',
       state: nonEmpty(ret.state) || 'NA',
       zip: String(ret.pincode || '').replace(/\D/g, '') || pin,
     }
     : undefined;
+  if (return_address && !return_address.phone) {
+    throw new Error('Ship-from phone is required for Delhivery return address (set it in Logistics Settings → Sites).');
+  }
 
   // FoD/FoP both require billing_address with PAN or GSTIN.
   const billing = input.billingAddress || null;
+  const billingPhone = phoneDigits(billing?.phone, return_address?.phone || '');
   const billingBase = billing && nonEmpty(billing.address)
     ? {
       name: nonEmpty(billing.name) || pickup,
@@ -193,7 +225,7 @@ export function buildDelhiveryB2bManifestPayload(input) {
       city: nonEmpty(billing.city) || 'NA',
       state: nonEmpty(billing.state) || 'NA',
       pin: String(billing.pin || '').replace(/\D/g, '') || (return_address?.zip || pin),
-      phone: String(billing.phone || phone).replace(/\D/g, '') || phone,
+      phone: billingPhone || return_address?.phone || '',
     }
     : (return_address
       ? {
@@ -214,12 +246,15 @@ export function buildDelhiveryB2bManifestPayload(input) {
         city: 'NA',
         state: 'NA',
         pin,
-        phone,
+        phone: billingPhone || '',
       });
+  if (!billingBase.phone) {
+    throw new Error('Shipper phone is required for Delhivery billing address (set it in Logistics Settings → Sites).');
+  }
 
   const billing_address = {
     ...billingBase,
-    gst_number: nonEmpty(billing?.gst_number) || sellerGstin,
+    gst_number: normalizeGstin(billing?.gst_number) || sellerGstin,
     ...(nonEmpty(billing?.pan_number) ? { pan_number: nonEmpty(billing.pan_number) } : {}),
   };
 
@@ -231,7 +266,8 @@ export function buildDelhiveryB2bManifestPayload(input) {
     shipment_details,
     invoices,
     dimensions,
-    freight_mode: freightMode,
+    // Only send for FOD. Explicit fop → DataError "FoP orders not allowed for this client".
+    ...(freightMode ? { freight_mode: freightMode } : {}),
     fm_pickup: true,
     rov_insurance: false,
     billing_address,
@@ -241,7 +277,7 @@ export function buildDelhiveryB2bManifestPayload(input) {
       orderId,
       boxCount,
       totalWeightKg,
-      freightBillingMode: freightMode === 'fod' ? 'fod' : 'btc',
+      freightBillingMode,
     },
   };
 }
@@ -258,7 +294,9 @@ function buildManifestFormData(payload) {
   form.append('dropoff_location', JSON.stringify(payload.dropoff_location));
   form.append('shipment_details', JSON.stringify(payload.shipment_details));
   form.append('invoices', JSON.stringify(payload.invoices));
-  form.append('freight_mode', String(payload.freight_mode || 'fop'));
+  if (payload.freight_mode) {
+    form.append('freight_mode', String(payload.freight_mode));
+  }
   form.append('fm_pickup', payload.fm_pickup === false ? 'False' : 'True');
   form.append('rov_insurance', payload.rov_insurance === true ? 'True' : 'False');
   if (Array.isArray(payload.dimensions) && payload.dimensions.length) {

@@ -4456,6 +4456,7 @@ export const bookDelhiveryShipmentFn = onCall(
         orderId: String(request.data?.orderId ?? '').trim() || `YW-${Date.now()}`,
         consignee: request.data?.consignee || {},
         returnAddress: request.data?.returnAddress || null,
+        billingAddress: request.data?.billingAddress || null,
         boxes: Array.isArray(request.data?.boxes) ? request.data.boxes : [],
         invoiceNumber: request.data?.invoiceNumber,
         invoiceValueInr: request.data?.invoiceValueInr,

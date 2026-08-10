@@ -27,6 +27,16 @@ const EMPTY_FROM_ADDRESSES = (): Record<StaffLogisticsSite, string> => ({
   head_office: '',
 });
 
+export type LogisticsSiteContact = {
+  phone: string;
+  gstin: string;
+};
+
+const EMPTY_FROM_SITE_CONTACTS = (): Record<StaffLogisticsSite, LogisticsSiteContact> => ({
+  cochin: { phone: '', gstin: '' },
+  head_office: { phone: '', gstin: '' },
+});
+
 function parseFromAddresses(data: Record<string, unknown> | undefined): Record<StaffLogisticsSite, string> {
   const base = EMPTY_FROM_ADDRESSES();
   if (!data?.fromAddresses || typeof data.fromAddresses !== 'object') return base;
@@ -34,6 +44,24 @@ function parseFromAddresses(data: Record<string, unknown> | undefined): Record<S
   for (const site of STAFF_LOGISTICS_SITES) {
     const value = raw[site];
     if (typeof value === 'string') base[site] = value;
+  }
+  return base;
+}
+
+function parseFromSiteContacts(
+  data: Record<string, unknown> | undefined,
+): Record<StaffLogisticsSite, LogisticsSiteContact> {
+  const base = EMPTY_FROM_SITE_CONTACTS();
+  if (!data?.fromSiteContacts || typeof data.fromSiteContacts !== 'object') return base;
+  const raw = data.fromSiteContacts as Record<string, unknown>;
+  for (const site of STAFF_LOGISTICS_SITES) {
+    const value = raw[site];
+    if (!value || typeof value !== 'object') continue;
+    const obj = value as Record<string, unknown>;
+    base[site] = {
+      phone: typeof obj.phone === 'string' ? obj.phone : '',
+      gstin: typeof obj.gstin === 'string' ? obj.gstin : '',
+    };
   }
   return base;
 }
@@ -64,6 +92,8 @@ export interface LogisticsSettings {
   defaultStaffLogisticsSite: StaffLogisticsSite;
   /** Free-text ship-from address per logistics site. */
   fromAddresses: Record<StaffLogisticsSite, string>;
+  /** Named ship-from phone / GSTIN per site (used on Delhivery return + billing). */
+  fromSiteContacts: Record<StaffLogisticsSite, LogisticsSiteContact>;
   /** Destination region × ship-from site → ordered delivery partners. */
   deliveryRules: LogisticsDeliveryRulesMatrix;
   /**
@@ -84,6 +114,7 @@ export async function loadLogisticsSettings(): Promise<LogisticsSettings> {
       return {
         defaultStaffLogisticsSite: DEFAULT_STAFF_LOGISTICS_SITE,
         fromAddresses: EMPTY_FROM_ADDRESSES(),
+        fromSiteContacts: EMPTY_FROM_SITE_CONTACTS(),
         deliveryRules: structuredClone(DEFAULT_LOGISTICS_DELIVERY_RULES),
         partnerStatuses: defaultLogisticsPartnerStatuses(),
         delhiveryB2b: emptyDelhiveryB2bPublicConfig(),
@@ -97,6 +128,7 @@ export async function loadLogisticsSettings(): Promise<LogisticsSettings> {
         ? site
         : DEFAULT_STAFF_LOGISTICS_SITE,
       fromAddresses: parseFromAddresses(data as Record<string, unknown>),
+      fromSiteContacts: parseFromSiteContacts(data as Record<string, unknown>),
       deliveryRules: normalizeLogisticsDeliveryRules(data.deliveryRules),
       partnerStatuses: normalizeLogisticsPartnerStatuses(data.partnerStatuses),
       delhiveryB2b: parseDelhiveryB2b(data as Record<string, unknown>),
@@ -107,6 +139,7 @@ export async function loadLogisticsSettings(): Promise<LogisticsSettings> {
     return {
       defaultStaffLogisticsSite: DEFAULT_STAFF_LOGISTICS_SITE,
       fromAddresses: EMPTY_FROM_ADDRESSES(),
+      fromSiteContacts: EMPTY_FROM_SITE_CONTACTS(),
       deliveryRules: structuredClone(DEFAULT_LOGISTICS_DELIVERY_RULES),
       partnerStatuses: defaultLogisticsPartnerStatuses(),
       delhiveryB2b: emptyDelhiveryB2bPublicConfig(),
@@ -157,6 +190,31 @@ export async function saveLogisticsFromAddresses(
     { merge: true },
   );
   return fromAddresses;
+}
+
+export async function saveLogisticsFromSiteContacts(
+  fromSiteContacts: Record<StaffLogisticsSite, LogisticsSiteContact>,
+  updatedBy?: string | null,
+): Promise<Record<StaffLogisticsSite, LogisticsSiteContact>> {
+  const normalized = EMPTY_FROM_SITE_CONTACTS();
+  for (const site of STAFF_LOGISTICS_SITES) {
+    const raw = fromSiteContacts[site] ?? { phone: '', gstin: '' };
+    normalized[site] = {
+      phone: String(raw.phone ?? '').trim(),
+      gstin: String(raw.gstin ?? '').trim().toUpperCase(),
+    };
+  }
+  const updatedAt = new Date().toISOString();
+  await setDoc(
+    doc(db, 'appSettings', LOGISTICS_SETTINGS_DOC_ID),
+    {
+      fromSiteContacts: normalized,
+      updatedAt,
+      ...(updatedBy ? { updatedBy } : {}),
+    },
+    { merge: true },
+  );
+  return normalized;
 }
 
 export async function saveLogisticsDeliveryRules(

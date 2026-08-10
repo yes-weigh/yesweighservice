@@ -23,7 +23,7 @@ import {
   X,
 } from 'lucide-react';
 import { DecimalTextInput } from '../DecimalAmountInput';
-import { FIRM_GSTIN, FIRM_NAME } from '../../constants/brand';
+import { FIRM_GSTIN, FIRM_NAME, FIRM_PHONE } from '../../constants/brand';
 import { logisticsPartnerLabel } from '../../constants/logisticsPartners';
 import type { LogisticsPartnerId } from '../../constants/logisticsPartners';
 import { fetchDealerById } from '../../lib/dealers';
@@ -51,9 +51,11 @@ import {
   isPlaceholderLogisticsAddress,
   logisticsDealerHasDeliveryAddress,
   mergeZohoDealerLists,
+  phoneDigitsForCourier,
   preferRicherZohoDealer,
   preferredDeliveryAddressKind,
   resolveDeliveryAddress,
+  resolveReceiverPhoneFromSnapshot,
   zohoDealerToSnapshot,
 } from '../../lib/logisticsDealers';
 import {
@@ -70,6 +72,10 @@ import {
   uploadLogisticsPhoto,
 } from '../../lib/logisticsPhotos';
 import {
+  extractCityState,
+  extractDestinationCity,
+} from '../../lib/shippingLabel';
+import {
   bindLogisticsVaultSessionToBooking,
   clearUploadedLogisticsVaultPhotos,
   deleteLogisticsVaultPhoto,
@@ -81,7 +87,10 @@ import {
 } from '../../lib/logisticsPhotoVault';
 import { bookDelhiveryShipment } from '../../lib/delhiveryB2b';
 import { pinFromText } from '../../lib/delhiveryQuote';
-import { loadLogisticsSettings } from '../../lib/logisticsSettings';
+import {
+  loadLogisticsSettings,
+  type LogisticsSiteContact,
+} from '../../lib/logisticsSettings';
 import { DelhiveryQuoteStrip } from './DelhiveryQuoteStrip';
 import {
   fetchInvoiceBranchShipFrom,
@@ -265,6 +274,17 @@ function pincodeFromAddress(address: string): string {
   return match?.[1] ?? '';
 }
 
+function cityStateFromAddress(address: string): { city?: string; state?: string } {
+  const pair = extractCityState(address);
+  if (pair) {
+    const [city, state] = pair.split(',').map(part => part.trim());
+    if (city && state) return { city, state };
+    if (city) return { city };
+  }
+  const city = extractDestinationCity(address);
+  return city && city !== '—' ? { city } : {};
+}
+
 export const BookCourierFlow: React.FC<BookCourierFlowProps> = ({
   partnerId,
   user,
@@ -321,6 +341,10 @@ export const BookCourierFlow: React.FC<BookCourierFlowProps> = ({
   const [fromAddresses, setFromAddresses] = useState<Record<StaffLogisticsSite, string>>({
     cochin: '',
     head_office: '',
+  });
+  const [fromSiteContacts, setFromSiteContacts] = useState<Record<StaffLogisticsSite, LogisticsSiteContact>>({
+    cochin: { phone: '', gstin: '' },
+    head_office: { phone: '', gstin: '' },
   });
   const [invoiceBranchShipFrom, setInvoiceBranchShipFrom] = useState<InvoiceBranchShipFrom | null>(null);
   const shipFromLockedByInvoice = Boolean(invoiceBranchShipFrom);
@@ -562,6 +586,7 @@ export const BookCourierFlow: React.FC<BookCourierFlowProps> = ({
   useEffect(() => {
     void loadLogisticsSettings().then(settings => {
       setFromAddresses(settings.fromAddresses);
+      setFromSiteContacts(settings.fromSiteContacts);
       // Resuming a saved booking: keep its ship-from (don't clobber with staff/default).
       if (existingBookingId) return;
       setDraft(prev => {
@@ -813,28 +838,86 @@ export const BookCourierFlow: React.FC<BookCourierFlowProps> = ({
         throw new Error('Delivery address needs a 6-digit pincode for Delhivery booking.');
       }
       const fromAddress = (fromAddresses[draftRef.current.shipFromSite] ?? '').trim();
+      const siteContact = fromSiteContacts[draftRef.current.shipFromSite] ?? { phone: '', gstin: '' };
+      const shipperPhone = phoneDigitsForCourier(siteContact.phone)
+        || phoneDigitsForCourier(FIRM_PHONE);
+      const shipperGstin = (siteContact.gstin || FIRM_GSTIN).trim().toUpperCase();
+      if (!shipperPhone) {
+        throw new Error('Ship-from phone is missing. Set it in Logistics Settings → Sites (or brand firm phone).');
+      }
+
+      const consigneePhone = phoneDigitsForCourier(resolveReceiverPhoneFromSnapshot(selectedDealer))
+        || phoneDigitsForCourier(draftRef.current.customerPhone)
+        || phoneDigitsForCourier(selectedDealer.mobile);
+      if (!consigneePhone) {
+        throw new Error('Consignee phone is required. Add a phone on the dealer shipping address or invoice.');
+      }
+
+      const deliveryPlace = cityStateFromAddress(address);
+      const shipFromPlace = cityStateFromAddress(fromAddress);
+      const shipFromPin = pincodeFromAddress(fromAddress) || pin;
+      const invoiceValueRaw = Number(draftRef.current.invoiceValueInr);
+      const invoiceValueInr = Number.isFinite(invoiceValueRaw) && invoiceValueRaw > 0
+        ? invoiceValueRaw
+        : 1;
+      const shipperRef = (
+        draftRef.current.salesOrderNumber?.trim()
+        || invoiceBranchShipFrom?.salesOrderNumber?.trim()
+        || draftRef.current.invoiceNumber?.trim()
+        || draftBookingIdRef.current
+        || `YW-${Date.now()}`
+      );
+      const siteLabel = STAFF_LOGISTICS_SITE_LABELS[draftRef.current.shipFromSite];
+
       const result = await bookDelhiveryShipment({
         shipFromSite: draftRef.current.shipFromSite,
-        orderId: draftRef.current.invoiceNumber
-          || draftBookingIdRef.current
-          || `YW-${Date.now()}`,
+        orderId: shipperRef,
         consignee: {
           name: selectedDealer.name,
-          phone: selectedDealer.mobile,
+          phone: consigneePhone,
           address,
-          city: selectedDealer.destinationCity || undefined,
+          city: selectedDealer.destinationCity?.trim() || deliveryPlace.city,
+          state: deliveryPlace.state,
           pincode: pin,
           country: 'India',
+          ...(draftRef.current.customerGstin?.trim()
+            ? { gstin: draftRef.current.customerGstin.trim() }
+            : {}),
         },
         returnAddress: fromAddress
           ? {
-            name: STAFF_LOGISTICS_SITE_LABELS[draftRef.current.shipFromSite],
-            phone: selectedDealer.mobile,
+            name: siteLabel,
+            phone: shipperPhone,
             address: fromAddress,
-            pincode: pincodeFromAddress(fromAddress) || pin,
+            city: shipFromPlace.city,
+            state: shipFromPlace.state,
+            pincode: shipFromPin,
             country: 'India',
           }
           : null,
+        billingAddress: fromAddress
+          ? {
+            name: FIRM_NAME,
+            company: FIRM_NAME,
+            consignor: siteLabel,
+            address: fromAddress,
+            city: shipFromPlace.city || 'NA',
+            state: shipFromPlace.state || 'NA',
+            pin: shipFromPin,
+            phone: shipperPhone,
+            gst_number: shipperGstin,
+          }
+          : {
+            name: FIRM_NAME,
+            company: FIRM_NAME,
+            consignor: FIRM_NAME,
+            address: 'Pickup warehouse',
+            city: 'NA',
+            state: 'NA',
+            pin,
+            phone: shipperPhone,
+            gst_number: shipperGstin,
+          },
         boxes: draftRef.current.boxes.map(box => ({
           lengthCm: Number.parseFloat(box.lengthCm) || undefined,
           widthCm: Number.parseFloat(box.widthCm) || undefined,
@@ -843,9 +926,9 @@ export const BookCourierFlow: React.FC<BookCourierFlowProps> = ({
           quantity: 1,
         })),
         invoiceNumber: draftRef.current.invoiceNumber,
-        invoiceValueInr: 1,
+        invoiceValueInr,
         productsDesc: 'Weighing equipment',
-        sellerGstin: FIRM_GSTIN,
+        sellerGstin: shipperGstin,
         shippingMode: 'Surface',
         paymentMode: 'Prepaid',
         // Freight only: FOD / BTC — never goods CoD.
@@ -868,7 +951,7 @@ export const BookCourierFlow: React.FC<BookCourierFlowProps> = ({
     } finally {
       setBookingDelhivery(false);
     }
-  }, [applyDraft, fromAddresses, isDelhivery, selectedDealer]);
+  }, [applyDraft, fromAddresses, fromSiteContacts, invoiceBranchShipFrom, isDelhivery, selectedDealer]);
 
   const ensureDealerAddressHydrated = useCallback(async (): Promise<LogisticsDealerSnapshot | null> => {
     const zohoId = draftRef.current.zohoCustomerId?.trim();
@@ -2153,7 +2236,8 @@ export const BookCourierFlow: React.FC<BookCourierFlowProps> = ({
                     <h4>Freight billing</h4>
                   </div>
                   <p className="text-muted text-sm" style={{ marginTop: 0 }}>
-                    BTC bills freight to YesWeigh. FOD collects freight from the consignee on delivery.
+                    BTC bills freight to YesWeigh (default when FoP is not enabled on the Delhivery account).
+                    FOD collects freight from the consignee on delivery.
                   </p>
                   <div className="logistics-booking__billing-mode-actions">
                     <button

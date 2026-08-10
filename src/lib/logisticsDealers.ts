@@ -38,6 +38,16 @@ function cleanPhone(value: string | null | undefined): string | null {
   return trimmed;
 }
 
+/** Digits-only phone for courier APIs; null when missing / placeholder. */
+export function phoneDigitsForCourier(value: string | null | undefined): string | null {
+  const cleaned = cleanPhone(value);
+  if (!cleaned) return null;
+  const digits = cleaned.replace(/\D/g, '');
+  if (digits.length < 8) return null;
+  // Prefer last 10 digits for Indian mobiles when longer (e.g. 91XXXXXXXXXX).
+  return digits.length > 10 ? digits.slice(-10) : digits;
+}
+
 /** Pull a phone-like token from free-form address / notes text. */
 export function extractPhoneFromText(text: string | null | undefined): string | null {
   if (!text?.trim()) return null;

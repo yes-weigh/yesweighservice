@@ -1828,6 +1828,61 @@
   cursor: not-allowed;
 }
 
+.settings-logistics__site-card-contacts {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.65rem;
+  margin-top: 0.65rem;
+}
+
+.settings-logistics__site-card-contact {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  margin: 0;
+  min-width: 0;
+}
+
+.settings-logistics__site-card-input {
+  width: 100%;
+  margin: 0;
+  padding: 0.65rem 0.75rem;
+  border: 1px solid #262626;
+  border-radius: 12px;
+  background: #171717;
+  color: #f8fafc;
+  font: inherit;
+  font-size: 0.8125rem;
+  font-weight: 500;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease, background-color 0.15s ease;
+}
+
+.settings-logistics__site-card-input::placeholder {
+  color: #64748b;
+}
+
+.settings-logistics__site-card-input:hover:not(:disabled) {
+  border-color: rgba(255, 122, 0, 0.45);
+}
+
+.settings-logistics__site-card-input:focus {
+  outline: none;
+  border-color: #ff7a00;
+  box-shadow: 0 0 0 3px rgba(255, 122, 0, 0.18);
+  background: #1a1a1a;
+}
+
+.settings-logistics__site-card-input:disabled {
+  opacity: 0.65;
+  cursor: not-allowed;
+}
+
+@media (max-width: 640px) {
+  .settings-logistics__site-card-contacts {
+    grid-template-columns: 1fr;
+  }
+}
+
 .settings-logistics__spare-card {
   display: flex;
   flex-wrap: wrap;

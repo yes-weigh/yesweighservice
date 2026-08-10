@@ -87,6 +87,14 @@ export interface LogisticsBookingDraft {
   source: LogisticsBookingSource;
   invoiceId: string | null;
   invoiceNumber: string | null;
+  /** Linked SO number when booking from an invoice (used as Delhivery shipper reference). */
+  salesOrderNumber?: string | null;
+  /** Invoice grand total (INR) for courier invoice value / FOV. */
+  invoiceValueInr?: number | null;
+  /** Consignee GSTIN from invoice / Zoho customer when available. */
+  customerGstin?: string | null;
+  /** Consignee phone from invoice when dealer snapshot phone is missing. */
+  customerPhone?: string | null;
   supportRequestId: string | null;
   supportRequestNumber: string | null;
   barcodeRaw: string;

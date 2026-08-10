@@ -194,10 +194,19 @@ export function buildInvoiceBookingDraftPatch(
     ? options.shipFromSite
     : undefined;
 
+  const invoiceValue = Number(invoice.total);
+  const salesOrderNumber = invoice.salesOrderNumber?.trim() || null;
+  const customerGstin = invoice.customerGstin?.trim() || null;
+  const customerPhone = invoice.customerPhone?.trim() || null;
+
   return {
     source: 'invoice',
     invoiceId,
     invoiceNumber: invoice.invoiceNumber,
+    salesOrderNumber,
+    invoiceValueInr: Number.isFinite(invoiceValue) && invoiceValue > 0 ? invoiceValue : null,
+    customerGstin,
+    customerPhone,
     supportRequestId: null,
     supportRequestNumber: null,
     zohoCustomerId,

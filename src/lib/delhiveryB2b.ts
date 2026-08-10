@@ -80,6 +80,22 @@ export type DelhiveryBookConsignee = {
   state?: string;
   pincode: string;
   country?: string;
+  email?: string;
+  /** Consignee GSTIN when available (sent on dropoff when API accepts it). */
+  gstin?: string;
+};
+
+export type DelhiveryBillingAddress = {
+  name?: string;
+  company?: string;
+  consignor?: string;
+  address?: string;
+  city?: string;
+  state?: string;
+  pin?: string;
+  phone?: string;
+  pan_number?: string;
+  gst_number?: string;
 };
 
 export type DelhiveryBookBox = {
@@ -103,6 +119,7 @@ export async function bookDelhiveryShipment(input: {
   orderId?: string;
   consignee: DelhiveryBookConsignee;
   returnAddress?: DelhiveryBookConsignee | null;
+  billingAddress?: DelhiveryBillingAddress | null;
   boxes: DelhiveryBookBox[];
   invoiceNumber?: string | null;
   invoiceValueInr?: number | null;
