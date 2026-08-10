@@ -3,6 +3,10 @@ import {
   LOGISTICS_LABEL_HEIGHT_MM,
   LOGISTICS_LABEL_WIDTH_MM,
 } from '../constants/localPrinterSettings';
+import { LABEL_DPI, mmToDots } from './labelLayouts/units';
+import {
+  buildCanvasTsplBitmapJob,
+} from './localPrinterLabelBitmap';
 import {
   isNativePrintAvailable,
   logisticsLastHostStorageKey,
@@ -562,4 +566,83 @@ export function printShippingLabelCanvases(
   }
   // Safety net if load events never fire
   window.setTimeout(triggerPrint, 1500);
+}
+
+function loadLabelImage(src: string): Promise<HTMLImageElement> {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    img.crossOrigin = 'anonymous';
+    img.onload = () => resolve(img);
+    img.onerror = () => reject(new Error('Could not load shipping label image.'));
+    img.src = src;
+  });
+}
+
+/**
+ * Fit a Delhivery (or other) label image into our 100×150 mm @ 203 DPI canvas
+ * so preview matches the logistics thermal printer stock.
+ * Equal side insets keep the artwork centered on the die-cut.
+ */
+export async function renderImageToLogisticsLabelCanvas(
+  src: string,
+): Promise<HTMLCanvasElement> {
+  const width = mmToDots(LOGISTICS_LABEL_WIDTH_MM, LABEL_DPI);
+  const height = mmToDots(LOGISTICS_LABEL_HEIGHT_MM, LABEL_DPI);
+  /** Quiet margin so thermal print is not hard against the left edge. */
+  const padX = mmToDots(4, LABEL_DPI);
+  const padY = mmToDots(3, LABEL_DPI);
+  const img = await loadLabelImage(src);
+  const canvas = document.createElement('canvas');
+  canvas.width = width;
+  canvas.height = height;
+  const ctx = canvas.getContext('2d');
+  if (!ctx) throw new Error('Could not prepare label canvas.');
+  ctx.fillStyle = '#ffffff';
+  ctx.fillRect(0, 0, width, height);
+  const availW = Math.max(1, width - padX * 2);
+  const availH = Math.max(1, height - padY * 2);
+  const scale = Math.min(availW / img.naturalWidth, availH / img.naturalHeight);
+  const drawW = Math.round(img.naturalWidth * scale);
+  const drawH = Math.round(img.naturalHeight * scale);
+  const x = padX + Math.round((availW - drawW) / 2);
+  const y = padY + Math.round((availH - drawH) / 2);
+  ctx.imageSmoothingEnabled = true;
+  ctx.imageSmoothingQuality = 'high';
+  ctx.drawImage(img, x, y, drawW, drawH);
+  return canvas;
+}
+
+/** Thermal print for pre-rendered label images (e.g. official Delhivery labels). */
+export async function tryPrintLabelImagesThermal(
+  imageUrls: string[],
+): Promise<{ usedThermal: boolean; bytesSent: number }> {
+  if (!isNativePrintAvailable() || !imageUrls.length) {
+    return { usedThermal: false, bytesSent: 0 };
+  }
+  const printer = await resolveLogisticsPrinterOrThrow();
+  const media = getLabelMediaForUsage('logistics_shipping');
+  let bytesSent = 0;
+  for (const url of imageUrls) {
+    const canvas = await renderImageToLogisticsLabelCanvas(url);
+    const payload = buildCanvasTsplBitmapJob(canvas, {
+      labelWidthMm: media.labelWidthMm || LOGISTICS_LABEL_WIDTH_MM,
+      labelHeightMm: media.labelHeightMm || LOGISTICS_LABEL_HEIGHT_MM,
+      labelGapMm: media.labelGapMm || LOGISTICS_LABEL_GAP_MM,
+    });
+    const result = await sendRawToPrinter({ ...printer, payload });
+    bytesSent += result.bytesSent;
+  }
+  return { usedThermal: true, bytesSent };
+}
+
+/** Browser print fallback: each image → one 100×150 mm page. */
+export async function printShippingLabelImages(
+  imageUrls: string[],
+  title = 'Shipping label',
+): Promise<void> {
+  if (!imageUrls.length) throw new Error('No shipping labels to print.');
+  const canvases = await Promise.all(
+    imageUrls.map(url => renderImageToLogisticsLabelCanvas(url)),
+  );
+  printShippingLabelCanvases(canvases, title);
 }

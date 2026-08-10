@@ -143,6 +143,81 @@ function mapDelhiveryPickup(raw: unknown): import('../types/logistics-dispatch')
   };
 }
 
+function mapDelhiveryDocuments(
+  raw: unknown,
+): import('../types/logistics-dispatch').LogisticsDelhiveryDocumentsCache | null {
+  if (!raw || typeof raw !== 'object') return null;
+  const data = raw as Record<string, unknown>;
+  const lrn = String(data.lrn ?? '').replace(/\D/g, '').trim();
+  if (!lrn) return null;
+
+  const lrCopyRaw = data.lrCopy && typeof data.lrCopy === 'object'
+    ? data.lrCopy as Record<string, unknown>
+    : null;
+  const lrCopyPath = typeof lrCopyRaw?.storagePath === 'string' ? lrCopyRaw.storagePath.trim() : '';
+  const labelsRaw = data.shippingLabels && typeof data.shippingLabels === 'object'
+    ? data.shippingLabels as Record<string, unknown>
+    : null;
+  const labelImages = Array.isArray(labelsRaw?.images)
+    ? labelsRaw.images
+      .map((row) => {
+        if (!row || typeof row !== 'object') return null;
+        const image = row as Record<string, unknown>;
+        const storagePath = typeof image.storagePath === 'string' ? image.storagePath.trim() : '';
+        if (!storagePath) return null;
+        return {
+          storagePath,
+          contentType: typeof image.contentType === 'string' ? image.contentType : 'image/png',
+          fileName: typeof image.fileName === 'string' ? image.fileName : 'label.png',
+        };
+      })
+      .filter((row): row is NonNullable<typeof row> => Boolean(row))
+    : [];
+  const podRaw = data.pod && typeof data.pod === 'object'
+    ? data.pod as Record<string, unknown>
+    : null;
+  const podPaths = Array.isArray(podRaw?.storagePaths)
+    ? podRaw.storagePaths.map(path => String(path || '').trim()).filter(Boolean)
+    : [];
+  const codRaw = data.cod && typeof data.cod === 'object'
+    ? data.cod as Record<string, unknown>
+    : null;
+  const codPath = typeof codRaw?.storagePath === 'string' ? codRaw.storagePath.trim() : '';
+
+  return {
+    lrn,
+    lrCopy: lrCopyPath
+      ? {
+        storagePath: lrCopyPath,
+        contentType: typeof lrCopyRaw?.contentType === 'string' ? lrCopyRaw.contentType : 'application/pdf',
+        fileName: typeof lrCopyRaw?.fileName === 'string' ? lrCopyRaw.fileName : `${lrn}-lr-copy.pdf`,
+        cachedAt: typeof lrCopyRaw?.cachedAt === 'string' ? lrCopyRaw.cachedAt : '',
+      }
+      : null,
+    shippingLabels: labelImages.length
+      ? {
+        size: typeof labelsRaw?.size === 'string' ? labelsRaw.size : 'a4',
+        images: labelImages,
+        cachedAt: typeof labelsRaw?.cachedAt === 'string' ? labelsRaw.cachedAt : '',
+      }
+      : null,
+    pod: podPaths.length
+      ? {
+        storagePaths: podPaths,
+        cachedAt: typeof podRaw?.cachedAt === 'string' ? podRaw.cachedAt : '',
+      }
+      : null,
+    cod: codPath
+      ? {
+        storagePath: codPath,
+        contentType: typeof codRaw?.contentType === 'string' ? codRaw.contentType : 'image/jpeg',
+        fileName: typeof codRaw?.fileName === 'string' ? codRaw.fileName : `${lrn}-cod.jpg`,
+        cachedAt: typeof codRaw?.cachedAt === 'string' ? codRaw.cachedAt : '',
+      }
+      : null,
+  };
+}
+
 function mapFreightBillingMode(
   raw: unknown,
 ): import('../types/logistics-dispatch').LogisticsFreightBillingMode | null {
@@ -451,6 +526,7 @@ export function mapLogisticsBookingDoc(id: string, data: DocumentData): Logistic
         : null
     ),
     delhiveryPickup: mapDelhiveryPickup(data.delhiveryPickup),
+    delhiveryDocuments: mapDelhiveryDocuments(data.delhiveryDocuments),
     freightDiffSettledAt: typeof data.freightDiffSettledAt === 'string'
       ? data.freightDiffSettledAt
       : null,

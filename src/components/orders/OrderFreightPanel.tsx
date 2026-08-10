@@ -352,18 +352,6 @@ function CourierOptionCard({
       ) : null}
       <span className="order-freight-panel__courier-copy">
         <strong>{opt.label}</strong>
-        {opt.preferred ? (
-          <em className="order-freight-panel__courier-preferred">Preferred</em>
-        ) : null}
-        {opt.enabled && opt.liveApiRate ? (
-          <em>
-            {fod
-              ? (displayAmount > 0
-                ? 'To pay on delivery · not invoiced'
-                : 'Estimating FOD…')
-              : (displayAmount > 0 ? 'Live API estimate' : 'Estimating…')}
-          </em>
-        ) : null}
         {opt.enabled && opt.manualRate && !opt.liveApiRate ? (
           <em>{showManualInput ? 'Enter freight ₹' : 'Enter ₹ on sales order'}</em>
         ) : null}

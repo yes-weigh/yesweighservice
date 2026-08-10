@@ -141,10 +141,10 @@ import { markSupportMessageReceipts } from './lib/support-message-receipts.js';
 import { raiseLogisticsIssueTicket as raiseLogisticsIssueTicketHandler } from './lib/raise-logistics-issue-ticket.js';
 import {
   listDelhiveryBookingDocuments,
-  fetchDelhiveryLrCopy,
-  fetchDelhiveryShippingLabels,
-  fetchDelhiveryPodUrls,
-  fetchDelhiveryDocumentImage,
+  ensureDelhiveryLrCopy,
+  ensureDelhiveryShippingLabels,
+  ensureDelhiveryPod,
+  ensureDelhiveryDocumentImage,
 } from './lib/delhivery-b2b-documents.js';
 import { getHrStaffFileUrl, uploadHrStaffFile } from './lib/hr-staff-upload.js';
 import { getYesStorePhotoUrl, uploadYesStorePhoto } from './lib/yes-store-upload.js';
@@ -4777,14 +4777,15 @@ export const listDelhiveryBookingDocumentsFn = onCall(
   },
 );
 
-/** Fresh POD image URLs for an LR (or empty when not ready). */
+/** Fresh POD image URLs for an LR (caches on booking when bookingId is sent). */
 export const fetchDelhiveryPodFn = onCall(
-  { region: 'asia-south1', timeoutSeconds: 60, memory: '256MiB' },
+  { region: 'asia-south1', timeoutSeconds: 90, memory: '512MiB' },
   async request => {
     await requireActiveUser(request.auth?.uid, ALLOWED_ROLES, { allowViewOnly: true });
     const lrn = String(request.data?.lrn ?? request.data?.awb ?? '').trim();
+    const bookingId = String(request.data?.bookingId ?? '').trim();
     try {
-      return await fetchDelhiveryPodUrls(getFirestore(), lrn);
+      return await ensureDelhiveryPod(getFirestore(), { lrn, bookingId });
     } catch (err) {
       if (err instanceof HttpsError) throw err;
       throw new HttpsError('internal', err?.message ?? 'Could not fetch Delhivery POD.');
@@ -4792,17 +4793,18 @@ export const fetchDelhiveryPodFn = onCall(
   },
 );
 
-/** Download POD/COD image bytes (base64) when Delhivery has the file. */
+/** Download POD/COD image bytes (caches on booking when bookingId is sent). */
 export const fetchDelhiveryDocumentImageFn = onCall(
-  { region: 'asia-south1', timeoutSeconds: 60, memory: '512MiB' },
+  { region: 'asia-south1', timeoutSeconds: 90, memory: '512MiB' },
   async request => {
     await requireActiveUser(request.auth?.uid, ALLOWED_ROLES, { allowViewOnly: true });
     const lrn = String(request.data?.lrn ?? request.data?.awb ?? '').trim();
+    const bookingId = String(request.data?.bookingId ?? '').trim();
     const docType = String(request.data?.docType ?? 'POD').trim().toUpperCase() === 'COD'
       ? 'COD'
       : 'POD';
     try {
-      return await fetchDelhiveryDocumentImage(getFirestore(), lrn, docType);
+      return await ensureDelhiveryDocumentImage(getFirestore(), { lrn, bookingId, docType });
     } catch (err) {
       if (err instanceof HttpsError) throw err;
       throw new HttpsError('internal', err?.message ?? 'Could not download Delhivery document.');
@@ -4810,15 +4812,16 @@ export const fetchDelhiveryDocumentImageFn = onCall(
   },
 );
 
-/** Official Delhivery LR copy PDF (LTL /lr_copy/print). */
+/** Official Delhivery LR copy PDF (caches on booking when bookingId is sent). */
 export const fetchDelhiveryLrCopyFn = onCall(
-  { region: 'asia-south1', timeoutSeconds: 60, memory: '512MiB' },
+  { region: 'asia-south1', timeoutSeconds: 90, memory: '512MiB' },
   async request => {
     await requireActiveUser(request.auth?.uid, ALLOWED_ROLES, { allowViewOnly: true });
     const lrn = String(request.data?.lrn ?? request.data?.awb ?? '').trim();
+    const bookingId = String(request.data?.bookingId ?? '').trim();
     const lrCopyType = String(request.data?.lrCopyType ?? 'all').trim() || 'all';
     try {
-      return await fetchDelhiveryLrCopy(getFirestore(), lrn, lrCopyType);
+      return await ensureDelhiveryLrCopy(getFirestore(), { lrn, bookingId, lrCopyType });
     } catch (err) {
       if (err instanceof HttpsError) throw err;
       throw new HttpsError('internal', err?.message ?? 'Could not download Delhivery LR copy.');
@@ -4826,15 +4829,16 @@ export const fetchDelhiveryLrCopyFn = onCall(
   },
 );
 
-/** Official Delhivery shipping label images (LTL /label/get_urls + /label/print). */
+/** Official Delhivery shipping label images (caches on booking when bookingId is sent). */
 export const fetchDelhiveryShippingLabelsFn = onCall(
-  { region: 'asia-south1', timeoutSeconds: 90, memory: '512MiB' },
+  { region: 'asia-south1', timeoutSeconds: 120, memory: '512MiB' },
   async request => {
     await requireActiveUser(request.auth?.uid, ALLOWED_ROLES, { allowViewOnly: true });
     const lrn = String(request.data?.lrn ?? request.data?.awb ?? '').trim();
+    const bookingId = String(request.data?.bookingId ?? '').trim();
     const size = String(request.data?.size ?? 'a4').trim().toLowerCase() || 'a4';
     try {
-      return await fetchDelhiveryShippingLabels(getFirestore(), lrn, size);
+      return await ensureDelhiveryShippingLabels(getFirestore(), { lrn, bookingId, size });
     } catch (err) {
       if (err instanceof HttpsError) throw err;
       throw new HttpsError(

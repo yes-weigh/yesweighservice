@@ -187,7 +187,7 @@ function expandDelhiveryCourierOptions(
     if (meta.notServiceable) {
       out.push({
         ...base,
-        label: 'Delhivery prepaid (BTC)',
+        label: 'Delhivery prepaid',
         preferred: opt.preferred,
         freightBillingMode: 'btc',
         enabled: false,
@@ -196,7 +196,7 @@ function expandDelhiveryCourierOptions(
       });
       out.push({
         ...base,
-        label: 'Delhivery To Pay (FOD)',
+        label: 'Delhivery To Pay',
         preferred: false,
         freightBillingMode: 'fod',
         enabled: false,
@@ -215,7 +215,7 @@ function expandDelhiveryCourierOptions(
       : btcAmount;
     out.push({
       ...base,
-      label: 'Delhivery prepaid (BTC)',
+      label: 'Delhivery prepaid',
       preferred: opt.preferred,
       freightBillingMode: 'btc',
       enabled: true,
@@ -226,7 +226,7 @@ function expandDelhiveryCourierOptions(
     });
     out.push({
       ...base,
-      label: 'Delhivery To Pay (FOD)',
+      label: 'Delhivery To Pay',
       preferred: false,
       freightBillingMode: 'fod',
       enabled: true,

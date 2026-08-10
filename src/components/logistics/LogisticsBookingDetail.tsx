@@ -2,8 +2,11 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Link } from 'react-router-dom';
 import {
   AlertTriangle,
+  Barcode,
   Camera,
   Check,
+  ChevronRight,
+  ClipboardCheck,
   Download,
   ExternalLink,
   Eye,
@@ -15,6 +18,7 @@ import {
   SquareArrowOutUpRight,
   Trash2,
   Truck,
+  type LucideIcon,
 } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import { useConfirm } from '../../context/ConfirmContext';
@@ -99,7 +103,48 @@ import {
   listDelhiveryBookingDocuments,
   type DelhiveryBookingDocument,
 } from '../../lib/delhiveryDocuments';
+import { composeDelhiveryBookingSlipPdf } from '../../lib/delhiveryLrCopyPdf';
 import { StCourierTrackPanel } from './StCourierTrackPanel';
+
+type DelhiveryDocCardTone = 'slip' | 'label' | 'pod' | 'default';
+
+function delhiveryDocCardMeta(kind: string): {
+  tone: DelhiveryDocCardTone;
+  title: string;
+  subtitle: string;
+  Icon: LucideIcon;
+} {
+  if (kind === 'lr_copy') {
+    return {
+      tone: 'slip',
+      title: 'Booking slip',
+      subtitle: 'View or download booking slip',
+      Icon: FileText,
+    };
+  }
+  if (kind === 'shipping_label') {
+    return {
+      tone: 'label',
+      title: 'Shipping label',
+      subtitle: 'View or download shipping label',
+      Icon: Barcode,
+    };
+  }
+  if (kind === 'pod') {
+    return {
+      tone: 'pod',
+      title: 'POD',
+      subtitle: 'View proof of delivery (POD)',
+      Icon: ClipboardCheck,
+    };
+  }
+  return {
+    tone: 'default',
+    title: kind === 'cod' ? 'COD document' : 'Document',
+    subtitle: 'View Delhivery document',
+    Icon: FileText,
+  };
+}
 
 /** Prefer pre-tax freight; never surface GST in ops freight views. */
 function delhiveryFreightExclGst(freight: LogisticsCourierFreight): number | null {
@@ -233,8 +278,6 @@ export const LogisticsBookingDetail: React.FC<LogisticsBookingDetailProps> = ({
   const [delhiveryDocsLoading, setDelhiveryDocsLoading] = useState(false);
   const [delhiveryDocsError, setDelhiveryDocsError] = useState('');
   const [delhiveryDocOpening, setDelhiveryDocOpening] = useState<string | null>(null);
-  const [delhiveryLightboxUrls, setDelhiveryLightboxUrls] = useState<string[]>([]);
-  const [delhiveryLightboxIndex, setDelhiveryLightboxIndex] = useState<number | null>(null);
   const [delhiveryDocDialog, setDelhiveryDocDialog] = useState<DelhiveryDocumentDialogPayload | null>(null);
   const delhiveryDocObjectUrlsRef = React.useRef<string[]>([]);
   const [cancellingDelhivery, setCancellingDelhivery] = useState(false);
@@ -340,6 +383,27 @@ export const LogisticsBookingDetail: React.FC<LogisticsBookingDetailProps> = ({
     delhiveryIds?.lrn,
   ]);
 
+  /** Booking slip + shipping label always; POD / COD only when Delhivery reports them available. */
+  const delhiveryDocCards = useMemo((): DelhiveryBookingDocument[] => {
+    if (!isDelhivery) return [];
+    const byId = new Map(delhiveryDocs.map(doc => [doc.id, doc]));
+    const core: DelhiveryBookingDocument[] = [
+      byId.get('lr_copy') || { id: 'lr_copy', label: 'LR copy', kind: 'lr_copy' },
+      byId.get('shipping_label') || {
+        id: 'shipping_label',
+        label: 'Shipping label',
+        kind: 'shipping_label',
+      },
+    ];
+    if (byId.has('pod')) {
+      core.push(byId.get('pod')!);
+    }
+    const extras = delhiveryDocs.filter(doc => (
+      doc.id !== 'lr_copy' && doc.id !== 'shipping_label' && doc.id !== 'pod'
+    ));
+    return [...core, ...extras];
+  }, [isDelhivery, delhiveryDocs]);
+
   const markDocumentGenerated = useCallback(async (document: LogisticsDocumentType) => {
     if (!user || !isOps) return;
     setGenerating(document);
@@ -364,21 +428,30 @@ export const LogisticsBookingDetail: React.FC<LogisticsBookingDetailProps> = ({
   const openDelhiveryDocument = useCallback(async (doc: DelhiveryBookingDocument) => {
     const lrn = (delhiveryIds?.lrn || booking.consignmentNo || '').replace(/\D/g, '');
     if (!lrn) return;
+    const bookingId = booking.id;
+    const card = delhiveryDocCardMeta(doc.kind);
     setDelhiveryDocOpening(doc.id);
     setDelhiveryDocsError('');
     try {
       if (doc.kind === 'lr_copy') {
-        const copy = await fetchDelhiveryLrCopy(lrn, 'all');
+        const copy = await fetchDelhiveryLrCopy(lrn, 'all', bookingId);
         if (!copy.available || !copy.base64) {
-          setDelhiveryDocsError(copy.error || 'Delhivery LR copy is not available yet.');
+          setDelhiveryDocsError(copy.error || 'Booking slip is not available yet.');
           return;
         }
-        const bytes = delhiveryBase64ToUint8Array(copy.base64);
+        const rawBytes = delhiveryBase64ToUint8Array(copy.base64);
+        let bytes = rawBytes;
+        try {
+          bytes = await composeDelhiveryBookingSlipPdf(rawBytes);
+        } catch {
+          // Fall back to the original Delhivery PDF if compose fails.
+          bytes = rawBytes;
+        }
         const blob = new Blob([Uint8Array.from(bytes)], {
           type: copy.contentType || 'application/pdf',
         });
         setDelhiveryDocDialog({
-          title: 'Delhivery LR copy',
+          title: card.title,
           contentType: copy.contentType || 'application/pdf',
           pdfBytes: bytes,
           fileName: copy.fileName || `${lrn}-lr-copy.pdf`,
@@ -387,45 +460,80 @@ export const LogisticsBookingDetail: React.FC<LogisticsBookingDetailProps> = ({
         return;
       }
       if (doc.kind === 'shipping_label') {
-        const labels = await fetchDelhiveryShippingLabels(lrn, 'a4');
+        const labels = await fetchDelhiveryShippingLabels(lrn, 'a4', bookingId);
         if (!labels.available || !labels.images.length) {
-          setDelhiveryDocsError(labels.error || 'Delhivery shipping labels are not available yet.');
+          setDelhiveryDocsError(labels.error || 'Shipping label is not available yet.');
           return;
         }
-        const urls = labels.images.map(image => (
-          delhiveryBase64ToObjectUrl(image.base64, image.contentType || 'image/png')
-        ));
-        delhiveryDocObjectUrlsRef.current = urls;
+        const objectUrls: string[] = [];
+        const urls = labels.images.map(image => {
+          if (image.url) return image.url;
+          if (!image.base64) return '';
+          const objectUrl = delhiveryBase64ToObjectUrl(
+            image.base64,
+            image.contentType || 'image/png',
+          );
+          objectUrls.push(objectUrl);
+          return objectUrl;
+        }).filter(Boolean);
+        delhiveryDocObjectUrlsRef.current = objectUrls;
+        const first = labels.images[0];
+        const firstBytes = first?.base64 ? delhiveryBase64ToUint8Array(first.base64) : null;
         setDelhiveryDocDialog({
-          title: 'Delhivery shipping label',
-          contentType: labels.images[0]?.contentType || 'image/png',
+          title: card.title,
+          contentType: first?.contentType || 'image/png',
           imageUrls: urls,
-          fileName: labels.images[0]?.fileName || `${lrn}-shipping-label.png`,
+          fileName: first?.fileName || `${lrn}-shipping-label.png`,
+          layout: 'shipping_label',
+          downloadBlob: firstBytes
+            ? new Blob([Uint8Array.from(firstBytes)], {
+              type: first?.contentType || 'image/png',
+            })
+            : null,
         });
         return;
       }
       if (doc.kind === 'pod') {
-        const fresh = await fetchDelhiveryPod(lrn);
+        const fresh = await fetchDelhiveryPod({ lrn, bookingId });
         const urls = fresh.urls.length ? fresh.urls : (doc.urls || []);
         if (!urls.length) {
-          setDelhiveryDocs(prev => prev.filter(item => item.id !== doc.id));
-          setDelhiveryDocsError('POD is not available yet for this shipment.');
+          setDelhiveryDocsError(fresh.error || 'POD is not available yet for this shipment.');
           return;
         }
-        setDelhiveryLightboxUrls(urls);
-        setDelhiveryLightboxIndex(0);
+        setDelhiveryDocDialog({
+          title: card.title,
+          contentType: 'image/jpeg',
+          imageUrls: urls,
+          fileName: `${lrn}-pod.jpg`,
+        });
         return;
       }
       if (doc.kind === 'cod') {
-        const image = await fetchDelhiveryDocumentImage(lrn, 'COD');
-        if (!image.available || !image.base64) {
-          setDelhiveryDocs(prev => prev.filter(item => item.id !== doc.id));
-          setDelhiveryDocsError('COD document is not available for this shipment.');
+        const image = await fetchDelhiveryDocumentImage(lrn, 'COD', bookingId);
+        if (!image.available || (!image.base64 && !image.url)) {
+          setDelhiveryDocsError(image.error || 'COD document is not available for this shipment.');
           return;
         }
-        const dataUrl = `data:${image.contentType || 'image/jpeg'};base64,${image.base64}`;
-        setDelhiveryLightboxUrls([dataUrl]);
-        setDelhiveryLightboxIndex(0);
+        const contentType = image.contentType || 'image/jpeg';
+        if (image.url) {
+          setDelhiveryDocDialog({
+            title: card.title,
+            contentType,
+            imageUrls: [image.url],
+            fileName: `${lrn}-cod.jpg`,
+          });
+          return;
+        }
+        const bytes = delhiveryBase64ToUint8Array(image.base64!);
+        const url = delhiveryBase64ToObjectUrl(image.base64!, contentType);
+        delhiveryDocObjectUrlsRef.current = [url];
+        setDelhiveryDocDialog({
+          title: card.title,
+          contentType,
+          imageUrls: [url],
+          fileName: `${lrn}-cod.jpg`,
+          downloadBlob: new Blob([Uint8Array.from(bytes)], { type: contentType }),
+        });
       }
     } catch (err) {
       setDelhiveryDocsError(
@@ -434,7 +542,7 @@ export const LogisticsBookingDetail: React.FC<LogisticsBookingDetailProps> = ({
     } finally {
       setDelhiveryDocOpening(null);
     }
-  }, [booking.consignmentNo, delhiveryIds?.lrn]);
+  }, [booking.consignmentNo, booking.id, delhiveryIds?.lrn]);
 
   const handleCourierSlipViewed = useCallback(() => {
     if (!isOps || booking.courierSlipGenerated) return;
@@ -1550,18 +1658,15 @@ export const LogisticsBookingDetail: React.FC<LogisticsBookingDetailProps> = ({
             <ul className="logistics-booking__box-dims">
               {booking.boxes.map((box, index) => (
                 <li key={box.id}>
-                  <strong>Box {index + 1}</strong>
-                  <span>
-                    L {box.lengthCm ?? '—'} × B {box.widthCm ?? '—'} × H {box.heightCm ?? '—'} cm
-                  </span>
-                  <span>
-                    Actual {(box.weightKg || 0).toFixed(2)} kg
-                    {' · '}
-                    Vol {(box.volumetricWeightKg || 0).toFixed(2)} kg
-                    {' · '}
-                    Chg {boxChargeableWeight(box).toFixed(2)} kg
-                  </span>
-                  <span className="text-muted">{boxDimensionsLabel(box)}</span>
+                  <div className="logistics-booking__box-dims-head">
+                    <strong>Box {index + 1}</strong>
+                    <span>{boxDimensionsLabel(box)}</span>
+                  </div>
+                  <div className="logistics-booking__box-dims-meta">
+                    <span>Actual {(box.weightKg || 0).toFixed(2)} kg</span>
+                    <span>Vol {(box.volumetricWeightKg || 0).toFixed(2)} kg</span>
+                    <span>Chg {boxChargeableWeight(box).toFixed(2)} kg</span>
+                  </div>
                 </li>
               ))}
             </ul>
@@ -1679,35 +1784,49 @@ export const LogisticsBookingDetail: React.FC<LogisticsBookingDetailProps> = ({
         <h4>Documents</h4>
         {isDelhivery ? (
           <>
-            <p className="text-muted text-sm logistics-booking__slip-hint">
-              Official Delhivery documents only (LR copy, shipping labels, POD when ready).
-            </p>
-            <div className="logistics-booking__slip-actions">
-              {delhiveryDocs.map(doc => (
-                <button
-                  key={doc.id}
-                  type="button"
-                  className={`btn btn-secondary btn-sm${
-                    doc.kind === 'shipping_label' && booking.shippingLabelGenerated ? ' is-done' : ''
-                  }`}
-                  onClick={() => void openDelhiveryDocument(doc)}
-                  disabled={delhiveryDocOpening != null || !booking.consignmentNo?.trim()}
-                >
-                  <Eye size={14} aria-hidden />
-                  {delhiveryDocOpening === doc.id ? 'Opening…' : `View ${doc.label}`}
-                </button>
-              ))}
-            </div>
-            {delhiveryDocsLoading && (
-              <p className="text-muted text-sm">Loading Delhivery documents…</p>
-            )}
-            {!delhiveryDocsLoading && !booking.consignmentNo?.trim() && (
+            {(delhiveryIds?.lrn || booking.consignmentNo)?.trim() ? (
+              <div className="logistics-booking__doc-cards">
+                {delhiveryDocCards.map(doc => {
+                  const meta = delhiveryDocCardMeta(doc.kind);
+                  const opening = delhiveryDocOpening === doc.id;
+                  const done = doc.kind === 'shipping_label' && booking.shippingLabelGenerated;
+                  return (
+                    <button
+                      key={doc.id}
+                      type="button"
+                      className={[
+                        'logistics-booking__doc-card',
+                        `logistics-booking__doc-card--${meta.tone}`,
+                        done ? 'is-done' : '',
+                        opening ? 'is-opening' : '',
+                      ].filter(Boolean).join(' ')}
+                      onClick={() => void openDelhiveryDocument(doc)}
+                      disabled={delhiveryDocOpening != null}
+                    >
+                      <span className="logistics-booking__doc-card-icon" aria-hidden>
+                        <meta.Icon size={22} strokeWidth={1.75} />
+                        <span className="logistics-booking__doc-card-eye">
+                          <Eye size={11} strokeWidth={2.25} />
+                        </span>
+                      </span>
+                      <span className="logistics-booking__doc-card-copy">
+                        <strong>{meta.title}</strong>
+                        <em>{opening ? 'Opening…' : meta.subtitle}</em>
+                      </span>
+                      <span className="logistics-booking__doc-card-chevron" aria-hidden>
+                        <ChevronRight size={18} strokeWidth={2.25} />
+                      </span>
+                    </button>
+                  );
+                })}
+              </div>
+            ) : (
               <p className="text-muted text-sm">
                 Create or enter an LR number to load official Delhivery documents.
               </p>
             )}
-            {!delhiveryDocsLoading && booking.consignmentNo?.trim() && delhiveryDocs.length === 0 && !delhiveryDocsError && (
-              <p className="text-muted text-sm">No Delhivery documents available yet.</p>
+            {delhiveryDocsLoading && (
+              <p className="text-muted text-sm">Loading Delhivery documents…</p>
             )}
             {delhiveryDocsError && (
               <p className="logistics-booking__docs-error" role="alert">{delhiveryDocsError}</p>
@@ -1887,26 +2006,13 @@ export const LogisticsBookingDetail: React.FC<LogisticsBookingDetailProps> = ({
           payload={delhiveryDocDialog}
           onClose={closeDelhiveryDocDialog}
           onViewed={
-            delhiveryDocDialog.title.includes('shipping label')
+            /shipping label/i.test(delhiveryDocDialog.title)
               ? () => {
                 if (!isOps || booking.shippingLabelGenerated) return;
                 void markDocumentGenerated('shipping_label');
               }
               : undefined
           }
-        />
-      )}
-
-      {delhiveryLightboxIndex != null && delhiveryLightboxUrls[delhiveryLightboxIndex] && (
-        <PhotoLightbox
-          urls={delhiveryLightboxUrls}
-          index={delhiveryLightboxIndex}
-          onClose={() => {
-            setDelhiveryLightboxIndex(null);
-            setDelhiveryLightboxUrls([]);
-          }}
-          onIndexChange={setDelhiveryLightboxIndex}
-          alt="Delhivery document"
         />
       )}
 

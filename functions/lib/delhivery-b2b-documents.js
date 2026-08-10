@@ -11,6 +11,8 @@
  *   GET /v2/document/POD|COD/{lrn}        → image bytes
  */
 
+import { randomUUID } from 'node:crypto';
+import { getStorage } from 'firebase-admin/storage';
 import { HttpsError } from 'firebase-functions/v2/https';
 import {
   delhiveryB2bFetch,
@@ -363,18 +365,29 @@ export async function fetchDelhiveryShippingLabels(db, lrn, size = 'a4') {
 export async function listDelhiveryBookingDocuments(db, input = {}) {
   let lrn = normalizeLrn(input.lrn);
   const bookingId = String(input.bookingId || '').trim();
+  /** @type {object | null} */
+  let bookingDocs = null;
 
-  if (!lrn && bookingId) {
+  if (bookingId) {
     const snap = await db.collection('logisticsBookings').doc(bookingId).get();
     if (!snap.exists) {
       throw new HttpsError('not-found', 'Shipment not found.');
     }
     const data = snap.data() || {};
-    lrn = normalizeLrn(data.consignmentNo || data.trackingNo);
+    if (!lrn) lrn = normalizeLrn(data.consignmentNo || data.trackingNo);
+    bookingDocs = data.delhiveryDocuments && typeof data.delhiveryDocuments === 'object'
+      ? data.delhiveryDocuments
+      : null;
   }
   if (!lrn) {
     throw new HttpsError('invalid-argument', 'LRN is required.');
   }
+
+  const cacheMatchesLrn = Boolean(bookingDocs && normalizeLrn(bookingDocs.lrn) === lrn);
+  const cachedPod = cacheMatchesLrn
+    && Array.isArray(bookingDocs.pod?.storagePaths)
+    && bookingDocs.pod.storagePaths.length > 0;
+  const cachedCod = cacheMatchesLrn && Boolean(String(bookingDocs.cod?.storagePath || '').trim());
 
   /** @type {Array<{ id: string, label: string, kind: string, urls?: string[], note?: string }>} */
   const documents = [
@@ -382,53 +395,75 @@ export async function listDelhiveryBookingDocuments(db, input = {}) {
       id: 'lr_copy',
       label: 'LR copy',
       kind: 'lr_copy',
-      note: 'Official Delhivery shipper / accounts copy PDF',
+      note: cacheMatchesLrn && bookingDocs.lrCopy?.storagePath
+        ? 'Cached on Firebase'
+        : 'Official Delhivery shipper / accounts copy PDF',
     },
     {
       id: 'shipping_label',
       label: 'Shipping label',
       kind: 'shipping_label',
-      note: 'Official Delhivery box labels',
+      note: cacheMatchesLrn && bookingDocs.shippingLabels?.images?.length
+        ? 'Cached on Firebase'
+        : 'Official Delhivery box labels',
     },
   ];
 
   /** @type {Array<{ id: string, reason: string }>} */
   const skipped = [];
 
-  const pod = await fetchDelhiveryPodUrls(db, lrn);
-  if (pod.available) {
+  if (cachedPod) {
     documents.push({
       id: 'pod',
       label: 'Proof of delivery (POD)',
       kind: 'pod',
-      urls: pod.urls,
+      note: 'Cached on Firebase',
     });
   } else {
-    skipped.push({ id: 'pod', reason: 'POD not ready yet (usually after delivery)' });
+    const pod = await fetchDelhiveryPodUrls(db, lrn);
+    if (pod.available) {
+      documents.push({
+        id: 'pod',
+        label: 'Proof of delivery (POD)',
+        kind: 'pod',
+        urls: pod.urls,
+      });
+    } else {
+      skipped.push({ id: 'pod', reason: 'POD not ready yet (usually after delivery)' });
+    }
   }
 
-  try {
-    const auth = await getValidDelhiveryJwt(db);
-    const res = await fetch(`${auth.baseUrl}/v2/document/COD/${lrn}`, {
-      method: 'GET',
-      headers: {
-        Authorization: `Bearer ${auth.jwt}`,
-        Accept: 'image/*,application/json,*/*',
-      },
+  if (cachedCod) {
+    documents.push({
+      id: 'cod',
+      label: 'COD document',
+      kind: 'cod',
+      note: 'Cached on Firebase',
     });
-    if (res.ok) {
-      const buf = Buffer.from(await res.arrayBuffer());
-      if (buf.length > 100 && buf[0] !== 0x7b) {
-        documents.push({
-          id: 'cod',
-          label: 'COD document',
-          kind: 'cod',
-          note: 'Available from Delhivery',
-        });
+  } else {
+    try {
+      const auth = await getValidDelhiveryJwt(db);
+      const res = await fetch(`${auth.baseUrl}/v2/document/COD/${lrn}`, {
+        method: 'GET',
+        headers: {
+          Authorization: `Bearer ${auth.jwt}`,
+          Accept: 'image/*,application/json,*/*',
+        },
+      });
+      if (res.ok) {
+        const buf = Buffer.from(await res.arrayBuffer());
+        if (buf.length > 100 && buf[0] !== 0x7b) {
+          documents.push({
+            id: 'cod',
+            label: 'COD document',
+            kind: 'cod',
+            note: 'Available from Delhivery',
+          });
+        }
       }
+    } catch {
+      // Skip COD when probe fails.
     }
-  } catch {
-    // Skip COD when probe fails.
   }
 
   return {
@@ -436,4 +471,439 @@ export async function listDelhiveryBookingDocuments(db, input = {}) {
     documents,
     skipped,
   };
+}
+
+function firebaseDownloadUrl(bucketName, storagePath, token) {
+  const encoded = encodeURIComponent(storagePath);
+  return `https://firebasestorage.googleapis.com/v0/b/${bucketName}/o/${encoded}?alt=media&token=${token}`;
+}
+
+/**
+ * @param {string} storagePath
+ */
+async function durableReadUrl(storagePath) {
+  const bucket = getStorage().bucket();
+  const file = bucket.file(storagePath);
+  const [exists] = await file.exists();
+  if (!exists) {
+    throw new HttpsError('not-found', 'Cached Delhivery document not found.');
+  }
+  const [metadata] = await file.getMetadata();
+  let token = metadata?.metadata?.firebaseStorageDownloadTokens;
+  if (Array.isArray(token)) token = token[0];
+  if (typeof token === 'string' && token.includes(',')) {
+    token = token.split(',')[0].trim();
+  }
+  if (!token) {
+    token = randomUUID();
+    await file.setMetadata({
+      metadata: {
+        ...(metadata.metadata || {}),
+        firebaseStorageDownloadTokens: token,
+      },
+    });
+  }
+  return firebaseDownloadUrl(bucket.name, storagePath, token);
+}
+
+/**
+ * @param {string} storagePath
+ * @param {Buffer} buffer
+ * @param {string} contentType
+ */
+async function saveDocBuffer(storagePath, buffer, contentType) {
+  const token = randomUUID();
+  const bucket = getStorage().bucket();
+  const file = bucket.file(storagePath);
+  await file.save(buffer, {
+    resumable: false,
+    metadata: {
+      contentType: contentType || 'application/octet-stream',
+      metadata: {
+        firebaseStorageDownloadTokens: token,
+      },
+    },
+  });
+  return firebaseDownloadUrl(bucket.name, storagePath, token);
+}
+
+/**
+ * @param {string} storagePath
+ */
+async function readDocBuffer(storagePath) {
+  const bucket = getStorage().bucket();
+  const file = bucket.file(storagePath);
+  const [exists] = await file.exists();
+  if (!exists) return null;
+  const [buf] = await file.download();
+  const [metadata] = await file.getMetadata();
+  const contentType = String(metadata?.contentType || 'application/octet-stream');
+  const url = await durableReadUrl(storagePath);
+  return { buf, contentType, url };
+}
+
+/**
+ * @param {FirebaseFirestore.Firestore} db
+ * @param {string} bookingId
+ * @param {string} lrn
+ */
+async function loadBookingDocCache(db, bookingId, lrn) {
+  const id = String(bookingId || '').trim();
+  if (!id) return null;
+  const ref = db.collection('logisticsBookings').doc(id);
+  const snap = await ref.get();
+  if (!snap.exists) {
+    throw new HttpsError('not-found', 'Shipment not found.');
+  }
+  const data = snap.data() || {};
+  const bookingLrn = normalizeLrn(data.consignmentNo || data.trackingNo);
+  const requested = normalizeLrn(lrn);
+  if (requested && bookingLrn && requested !== bookingLrn) {
+    throw new HttpsError('invalid-argument', 'LRN does not match this shipment.');
+  }
+  const resolvedLrn = requested || bookingLrn;
+  if (!resolvedLrn) {
+    throw new HttpsError('invalid-argument', 'LRN is required.');
+  }
+  const docs = data.delhiveryDocuments && typeof data.delhiveryDocuments === 'object'
+    ? data.delhiveryDocuments
+    : null;
+  const cache = docs && normalizeLrn(docs.lrn) === resolvedLrn ? docs : null;
+  return { ref, data, lrn: resolvedLrn, cache };
+}
+
+/**
+ * @param {FirebaseFirestore.DocumentReference} ref
+ * @param {object | null} previous
+ * @param {string} lrn
+ * @param {Record<string, unknown>} patch
+ */
+async function mergeDelhiveryDocuments(ref, previous, lrn, patch) {
+  const next = {
+    ...(previous && normalizeLrn(previous.lrn) === lrn ? previous : {}),
+    lrn,
+    ...patch,
+  };
+  await ref.set({
+    delhiveryDocuments: next,
+    updatedAt: new Date().toISOString(),
+  }, { merge: true });
+  return next;
+}
+
+/**
+ * Get-or-fetch LR copy PDF; caches under logistics/{bookingId}/delhivery-lr-copy/.
+ *
+ * @param {FirebaseFirestore.Firestore} db
+ * @param {{ bookingId?: string, lrn?: string, lrCopyType?: string }} input
+ */
+export async function ensureDelhiveryLrCopy(db, input = {}) {
+  const bookingId = String(input.bookingId || '').trim();
+  const lrCopyType = String(input.lrCopyType || 'all').trim() || 'all';
+  if (!bookingId) {
+    return fetchDelhiveryLrCopy(db, input.lrn, lrCopyType);
+  }
+
+  const loaded = await loadBookingDocCache(db, bookingId, input.lrn);
+  const cachedPath = String(loaded.cache?.lrCopy?.storagePath || '').trim();
+  if (cachedPath) {
+    const cached = await readDocBuffer(cachedPath);
+    if (cached?.buf?.length) {
+      return {
+        available: true,
+        contentType: cached.contentType || loaded.cache.lrCopy.contentType || 'application/pdf',
+        base64: cached.buf.toString('base64'),
+        fileName: loaded.cache.lrCopy.fileName || `${loaded.lrn}-lr-copy.pdf`,
+        url: cached.url,
+        cached: true,
+        error: null,
+      };
+    }
+  }
+
+  const fresh = await fetchDelhiveryLrCopy(db, loaded.lrn, lrCopyType);
+  if (!fresh.available || !fresh.base64) return { ...fresh, url: null, cached: false };
+
+  const fileName = fresh.fileName || `${loaded.lrn}-lr-copy.pdf`;
+  const storagePath = `logistics/${bookingId}/delhivery-lr-copy/${fileName}`;
+  const buffer = Buffer.from(fresh.base64, 'base64');
+  const url = await saveDocBuffer(storagePath, buffer, fresh.contentType || 'application/pdf');
+  await mergeDelhiveryDocuments(loaded.ref, loaded.cache, loaded.lrn, {
+    lrCopy: {
+      storagePath,
+      contentType: fresh.contentType || 'application/pdf',
+      fileName,
+      cachedAt: new Date().toISOString(),
+    },
+  });
+  return { ...fresh, fileName, url, cached: false };
+}
+
+/**
+ * Get-or-fetch shipping label images; caches under logistics/{bookingId}/delhivery-shipping-label/.
+ *
+ * @param {FirebaseFirestore.Firestore} db
+ * @param {{ bookingId?: string, lrn?: string, size?: string }} input
+ */
+export async function ensureDelhiveryShippingLabels(db, input = {}) {
+  const bookingId = String(input.bookingId || '').trim();
+  const size = ['std', 'md', 'sm', 'a4'].includes(String(input.size || '').toLowerCase())
+    ? String(input.size).toLowerCase()
+    : 'a4';
+  if (!bookingId) {
+    return fetchDelhiveryShippingLabels(db, input.lrn, size);
+  }
+
+  const loaded = await loadBookingDocCache(db, bookingId, input.lrn);
+  const cached = loaded.cache?.shippingLabels;
+  if (
+    cached
+    && String(cached.size || 'a4') === size
+    && Array.isArray(cached.images)
+    && cached.images.length
+  ) {
+    /** @type {Array<{ contentType: string, base64: string, fileName: string, url: string }>} */
+    const images = [];
+    for (const image of cached.images) {
+      const path = String(image?.storagePath || '').trim();
+      if (!path) continue;
+      try {
+        const url = await durableReadUrl(path);
+        images.push({
+          contentType: image.contentType || 'image/png',
+          base64: '',
+          fileName: image.fileName || `${loaded.lrn}-label.png`,
+          url,
+        });
+      } catch {
+        // Missing file — fall through to refetch.
+      }
+    }
+    if (images.length) {
+      return {
+        available: true,
+        images,
+        urls: images.map(image => image.url),
+        cached: true,
+        error: null,
+      };
+    }
+  }
+
+  const fresh = await fetchDelhiveryShippingLabels(db, loaded.lrn, size);
+  if (!fresh.available || !fresh.images?.length) {
+    return { ...fresh, urls: [], cached: false };
+  }
+
+  /** @type {Array<{ storagePath: string, contentType: string, fileName: string }>} */
+  const metaImages = [];
+  /** @type {Array<{ contentType: string, base64: string, fileName: string, url: string }>} */
+  const images = [];
+  for (let i = 0; i < fresh.images.length; i += 1) {
+    const image = fresh.images[i];
+    const fileName = image.fileName || `${loaded.lrn}-label-${size}-${i + 1}.png`;
+    const storagePath = `logistics/${bookingId}/delhivery-shipping-label/${fileName}`;
+    const buffer = Buffer.from(image.base64, 'base64');
+    const url = await saveDocBuffer(storagePath, buffer, image.contentType || 'image/png');
+    metaImages.push({
+      storagePath,
+      contentType: image.contentType || 'image/png',
+      fileName,
+    });
+    images.push({
+      contentType: image.contentType || 'image/png',
+      base64: image.base64,
+      fileName,
+      url,
+    });
+  }
+
+  await mergeDelhiveryDocuments(loaded.ref, loaded.cache, loaded.lrn, {
+    shippingLabels: {
+      size,
+      images: metaImages,
+      cachedAt: new Date().toISOString(),
+    },
+  });
+
+  return {
+    available: true,
+    images,
+    urls: images.map(image => image.url),
+    cached: false,
+    error: null,
+  };
+}
+
+/**
+ * @param {string} url
+ * @returns {Promise<{ buf: Buffer, contentType: string } | null>}
+ */
+async function downloadRemoteImage(url) {
+  const href = String(url || '').trim();
+  if (!href) return null;
+  try {
+    const res = await fetch(href, { method: 'GET' });
+    if (!res.ok) return null;
+    const buf = Buffer.from(await res.arrayBuffer());
+    if (!buf.length || buf[0] === 0x7b) return null;
+    return {
+      buf,
+      contentType: res.headers.get('content-type') || 'image/jpeg',
+    };
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Get-or-fetch POD images; caches under logistics/{bookingId}/delhivery-pod/.
+ *
+ * @param {FirebaseFirestore.Firestore} db
+ * @param {{ bookingId?: string, lrn?: string }} input
+ */
+export async function ensureDelhiveryPod(db, input = {}) {
+  const bookingId = String(input.bookingId || '').trim();
+  if (!bookingId) {
+    return fetchDelhiveryPodUrls(db, input.lrn);
+  }
+
+  const loaded = await loadBookingDocCache(db, bookingId, input.lrn);
+  const cachedPaths = Array.isArray(loaded.cache?.pod?.storagePaths)
+    ? loaded.cache.pod.storagePaths.map(path => String(path || '').trim()).filter(Boolean)
+    : [];
+  if (cachedPaths.length) {
+    const urls = [];
+    for (const path of cachedPaths) {
+      try {
+        urls.push(await durableReadUrl(path));
+      } catch {
+        // Ignore missing files and refetch below.
+      }
+    }
+    if (urls.length) {
+      return { available: true, urls, cached: true, error: null };
+    }
+  }
+
+  const pod = await fetchDelhiveryPodUrls(db, loaded.lrn);
+  /** @type {Array<{ buf: Buffer, contentType: string }>} */
+  const downloaded = [];
+  for (const url of pod.urls || []) {
+    const file = await downloadRemoteImage(url);
+    if (file) downloaded.push(file);
+  }
+  if (!downloaded.length) {
+    const image = await fetchDelhiveryDocumentImage(db, loaded.lrn, 'POD');
+    if (image.available && image.base64) {
+      downloaded.push({
+        buf: Buffer.from(image.base64, 'base64'),
+        contentType: image.contentType || 'image/jpeg',
+      });
+    }
+  }
+  if (!downloaded.length) {
+    return {
+      available: false,
+      urls: [],
+      cached: false,
+      error: pod.error || 'POD is not available yet for this shipment.',
+    };
+  }
+
+  const storagePaths = [];
+  const urls = [];
+  for (let i = 0; i < downloaded.length; i += 1) {
+    const file = downloaded[i];
+    const ext = /png/i.test(file.contentType) ? 'png' : 'jpg';
+    const fileName = `${loaded.lrn}-pod-${i + 1}.${ext}`;
+    const storagePath = `logistics/${bookingId}/delhivery-pod/${fileName}`;
+    const url = await saveDocBuffer(storagePath, file.buf, file.contentType);
+    storagePaths.push(storagePath);
+    urls.push(url);
+  }
+
+  await mergeDelhiveryDocuments(loaded.ref, loaded.cache, loaded.lrn, {
+    pod: {
+      storagePaths,
+      cachedAt: new Date().toISOString(),
+    },
+  });
+
+  return { available: true, urls, cached: false, error: null };
+}
+
+/**
+ * Get-or-fetch COD image; caches under logistics/{bookingId}/delhivery-cod/.
+ *
+ * @param {FirebaseFirestore.Firestore} db
+ * @param {{ bookingId?: string, lrn?: string, docType?: 'POD' | 'COD' }} input
+ */
+export async function ensureDelhiveryDocumentImage(db, input = {}) {
+  const docType = input.docType === 'COD' ? 'COD' : 'POD';
+  const bookingId = String(input.bookingId || '').trim();
+  if (!bookingId) {
+    return fetchDelhiveryDocumentImage(db, input.lrn, docType);
+  }
+  if (docType === 'POD') {
+    const pod = await ensureDelhiveryPod(db, input);
+    if (!pod.available || !pod.urls?.length) {
+      return {
+        available: false,
+        contentType: null,
+        base64: null,
+        url: null,
+        cached: Boolean(pod.cached),
+        error: pod.error,
+      };
+    }
+    // Prefer first cached POD URL (client can display without base64).
+    return {
+      available: true,
+      contentType: 'image/jpeg',
+      base64: null,
+      url: pod.urls[0],
+      urls: pod.urls,
+      cached: Boolean(pod.cached),
+      error: null,
+    };
+  }
+
+  const loaded = await loadBookingDocCache(db, bookingId, input.lrn);
+  const cachedPath = String(loaded.cache?.cod?.storagePath || '').trim();
+  if (cachedPath) {
+    const cached = await readDocBuffer(cachedPath);
+    if (cached?.buf?.length) {
+      return {
+        available: true,
+        contentType: cached.contentType || loaded.cache.cod.contentType || 'image/jpeg',
+        base64: cached.buf.toString('base64'),
+        url: cached.url,
+        cached: true,
+        error: null,
+      };
+    }
+  }
+
+  const fresh = await fetchDelhiveryDocumentImage(db, loaded.lrn, 'COD');
+  if (!fresh.available || !fresh.base64) {
+    return { ...fresh, url: null, cached: false };
+  }
+
+  const fileName = `${loaded.lrn}-cod.jpg`;
+  const storagePath = `logistics/${bookingId}/delhivery-cod/${fileName}`;
+  const url = await saveDocBuffer(
+    storagePath,
+    Buffer.from(fresh.base64, 'base64'),
+    fresh.contentType || 'image/jpeg',
+  );
+  await mergeDelhiveryDocuments(loaded.ref, loaded.cache, loaded.lrn, {
+    cod: {
+      storagePath,
+      contentType: fresh.contentType || 'image/jpeg',
+      fileName,
+      cachedAt: new Date().toISOString(),
+    },
+  });
+  return { ...fresh, url, cached: false };
 }

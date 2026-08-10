@@ -167,6 +167,36 @@ export interface LogisticsDelhiveryPickup {
   requestedAt: string;
 }
 
+/** Official Delhivery documents cached in Storage (paths + metadata only). */
+export interface LogisticsDelhiveryDocumentsCache {
+  lrn: string;
+  lrCopy?: {
+    storagePath: string;
+    contentType: string;
+    fileName: string;
+    cachedAt: string;
+  } | null;
+  shippingLabels?: {
+    size: string;
+    images: Array<{
+      storagePath: string;
+      contentType: string;
+      fileName: string;
+    }>;
+    cachedAt: string;
+  } | null;
+  pod?: {
+    storagePaths: string[];
+    cachedAt: string;
+  } | null;
+  cod?: {
+    storagePath: string;
+    contentType: string;
+    fileName?: string;
+    cachedAt: string;
+  } | null;
+}
+
 /** Delhivery freight-breakup snapshot (after weight captured). */
 export interface LogisticsCourierFreightBreakup {
   baseFreightCharge: number | null;
@@ -267,6 +297,11 @@ export interface LogisticsBooking {
   freightBillingModeSource?: 'booking' | 'api' | 'inferred' | 'manual' | null;
   /** Delhivery first-mile pickup request (auto after Create LR). */
   delhiveryPickup?: LogisticsDelhiveryPickup | null;
+  /**
+   * Official Delhivery docs cached in Firebase Storage after first open
+   * (LR copy / shipping labels / POD / COD). Paths only — not file bytes.
+   */
+  delhiveryDocuments?: LogisticsDelhiveryDocumentsCache | null;
   /** Set when this booking's BTC freight Diff was fully settled onto an invoiced SO. */
   freightDiffSettledAt?: string | null;
   freightDiffSettledInvoiceId?: string | null;

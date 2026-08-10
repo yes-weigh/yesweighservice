@@ -30,12 +30,24 @@ export type DelhiveryBinaryDocument = {
   contentType: string | null;
   base64: string | null;
   fileName?: string | null;
+  /** Durable Firebase Storage URL when cached (or just saved). */
+  url?: string | null;
+  cached?: boolean;
   error: string | null;
+};
+
+export type DelhiveryLabelImage = {
+  contentType: string;
+  base64?: string;
+  fileName: string;
+  url?: string;
 };
 
 export type DelhiveryLabelImagesResult = {
   available: boolean;
-  images: Array<{ contentType: string; base64: string; fileName: string }>;
+  images: DelhiveryLabelImage[];
+  urls?: string[];
+  cached?: boolean;
   error: string | null;
 };
 
@@ -55,18 +67,29 @@ export async function listDelhiveryBookingDocuments(input: {
   }
 }
 
-export async function fetchDelhiveryPod(lrn: string): Promise<{
+export async function fetchDelhiveryPod(input: {
+  lrn: string;
+  bookingId?: string;
+}): Promise<{
   available: boolean;
   urls: string[];
+  cached?: boolean;
   error: string | null;
 }> {
   try {
-    const fn = httpsCallable<{ lrn: string }, {
-      available: boolean;
-      urls: string[];
-      error: string | null;
-    }>(functions, 'fetchDelhiveryPodFn', { timeout: 60_000 });
-    const result = await fn({ lrn });
+    const fn = httpsCallable<
+      { lrn: string; bookingId?: string },
+      {
+        available: boolean;
+        urls: string[];
+        cached?: boolean;
+        error: string | null;
+      }
+    >(functions, 'fetchDelhiveryPodFn', { timeout: 90_000 });
+    const result = await fn({
+      lrn: input.lrn,
+      ...(input.bookingId ? { bookingId: input.bookingId } : {}),
+    });
     return result.data;
   } catch (err) {
     throw callableError(err, 'Could not fetch Delhivery POD.');
@@ -76,23 +99,34 @@ export async function fetchDelhiveryPod(lrn: string): Promise<{
 export async function fetchDelhiveryDocumentImage(
   lrn: string,
   docType: 'POD' | 'COD' = 'POD',
+  bookingId?: string,
 ): Promise<{
   available: boolean;
   contentType: string | null;
   base64: string | null;
+  url?: string | null;
+  urls?: string[];
+  cached?: boolean;
   error: string | null;
 }> {
   try {
     const fn = httpsCallable<
-      { lrn: string; docType: 'POD' | 'COD' },
+      { lrn: string; docType: 'POD' | 'COD'; bookingId?: string },
       {
         available: boolean;
         contentType: string | null;
         base64: string | null;
+        url?: string | null;
+        urls?: string[];
+        cached?: boolean;
         error: string | null;
       }
-    >(functions, 'fetchDelhiveryDocumentImageFn', { timeout: 60_000 });
-    const result = await fn({ lrn, docType });
+    >(functions, 'fetchDelhiveryDocumentImageFn', { timeout: 90_000 });
+    const result = await fn({
+      lrn,
+      docType,
+      ...(bookingId ? { bookingId } : {}),
+    });
     return result.data;
   } catch (err) {
     throw callableError(err, 'Could not download Delhivery document.');
@@ -102,13 +136,18 @@ export async function fetchDelhiveryDocumentImage(
 export async function fetchDelhiveryLrCopy(
   lrn: string,
   lrCopyType: string = 'all',
+  bookingId?: string,
 ): Promise<DelhiveryBinaryDocument> {
   try {
     const fn = httpsCallable<
-      { lrn: string; lrCopyType?: string },
+      { lrn: string; lrCopyType?: string; bookingId?: string },
       DelhiveryBinaryDocument
-    >(functions, 'fetchDelhiveryLrCopyFn', { timeout: 60_000 });
-    const result = await fn({ lrn, lrCopyType });
+    >(functions, 'fetchDelhiveryLrCopyFn', { timeout: 90_000 });
+    const result = await fn({
+      lrn,
+      lrCopyType,
+      ...(bookingId ? { bookingId } : {}),
+    });
     return result.data;
   } catch (err) {
     throw callableError(err, 'Could not download Delhivery LR copy.');
@@ -118,13 +157,18 @@ export async function fetchDelhiveryLrCopy(
 export async function fetchDelhiveryShippingLabels(
   lrn: string,
   size: 'std' | 'md' | 'sm' | 'a4' = 'a4',
+  bookingId?: string,
 ): Promise<DelhiveryLabelImagesResult> {
   try {
     const fn = httpsCallable<
-      { lrn: string; size?: string },
+      { lrn: string; size?: string; bookingId?: string },
       DelhiveryLabelImagesResult
-    >(functions, 'fetchDelhiveryShippingLabelsFn', { timeout: 90_000 });
-    const result = await fn({ lrn, size });
+    >(functions, 'fetchDelhiveryShippingLabelsFn', { timeout: 120_000 });
+    const result = await fn({
+      lrn,
+      size,
+      ...(bookingId ? { bookingId } : {}),
+    });
     return result.data;
   } catch (err) {
     throw callableError(err, 'Could not download Delhivery shipping labels.');
