@@ -23,6 +23,7 @@ import type {
   OrderCourierOption,
   StCourierCartFreightEstimate,
 } from '../../lib/stCourierCartFreight';
+import { orderCourierOptionKey } from '../../lib/orderFreight';
 import type { InventorySite } from '../../lib/salesOrderSegments';
 import type { CatalogProduct } from '../../types/catalog';
 import { ST_COURIER_ZONE_LABELS } from '../../types/logistics-courier-rates';
@@ -290,7 +291,6 @@ function CourierOptionCard({
   allowManualFreightEntry,
   manualFreightAmount,
   onManualFreightAmountChange,
-  freightBillingMode,
   onSelect,
 }: {
   opt: OrderCourierOption;
@@ -300,7 +300,6 @@ function CourierOptionCard({
   allowManualFreightEntry?: boolean;
   manualFreightAmount?: number | null;
   onManualFreightAmountChange?: (amount: number | null) => void;
-  freightBillingMode?: 'fod' | 'btc' | null;
   onSelect: () => void;
 }) {
   const logo = logisticsPartnerImage(opt.partnerId);
@@ -311,9 +310,10 @@ function CourierOptionCard({
     && allowManualFreightEntry
     && onManualFreightAmountChange,
   );
-  const fod = opt.partnerId === 'delhivery' && freightBillingMode === 'fod';
+  const fod = opt.partnerId === 'delhivery' && opt.freightBillingMode === 'fod';
+  // FOD shows live estimate for info; amount is never invoiced (charged ₹0 on order).
   const displayAmount = fod
-    ? 0
+    ? amountInr
     : (
       showManualInput && selected && manualFreightAmount != null && manualFreightAmount > 0
         ? manualFreightAmount
@@ -358,7 +358,9 @@ function CourierOptionCard({
         {opt.enabled && opt.liveApiRate ? (
           <em>
             {fod
-              ? 'FOD · ₹0 on order'
+              ? (displayAmount > 0
+                ? 'To pay on delivery · not invoiced'
+                : 'Estimating FOD…')
               : (displayAmount > 0 ? 'Live API estimate' : 'Estimating…')}
           </em>
         ) : null}
@@ -853,11 +855,12 @@ export const OrderFreightPanel: React.FC<Props> = ({
     if (!clubSites || !estimate.usable || estimate.sites.length === 0) return [];
     const primary = estimate.sites[0].courierOptions;
     return primary.map(opt => {
+      const key = orderCourierOptionKey(opt);
       const enabledEverywhere = estimate.sites.every(site =>
-        site.courierOptions.some(o => o.partnerId === opt.partnerId && o.enabled),
+        site.courierOptions.some(o => orderCourierOptionKey(o) === key && o.enabled),
       );
       const estimatedTotalInr = estimate.sites.reduce((sum, site) => {
-        const siteOpt = site.courierOptions.find(o => o.partnerId === opt.partnerId);
+        const siteOpt = site.courierOptions.find(o => orderCourierOptionKey(o) === key);
         return sum + (siteOpt?.estimatedTotalInr ?? 0);
       }, 0);
       return {
@@ -877,26 +880,36 @@ export const OrderFreightPanel: React.FC<Props> = ({
     ? estimate.sites[0].partnerId
     : null;
 
-  const showDelhiveryBillingMode = Boolean(
-    onFreightBillingModeChange
-    && (
-      (clubSites && clubSelectedPartner === 'delhivery')
-      || (!clubSites && estimate.sites.some(site => site.partnerId === 'delhivery'))
-    ),
-  );
-  const billingMode = freightBillingMode === 'fod' ? 'fod' : 'btc';
+  const selectedBillingMode = freightBillingMode === 'fod' ? 'fod' : 'btc';
+
+  const isOptionSelected = (opt: OrderCourierOption, sitePartnerId: LogisticsPartnerId | null) => {
+    if (opt.partnerId !== sitePartnerId) return false;
+    if (opt.partnerId === 'delhivery' && (opt.freightBillingMode === 'btc' || opt.freightBillingMode === 'fod')) {
+      return opt.freightBillingMode === selectedBillingMode;
+    }
+    return true;
+  };
+
+  const selectCourierOption = (site: InventorySite, opt: OrderCourierOption) => {
+    if (opt.partnerId === 'delhivery' && (opt.freightBillingMode === 'btc' || opt.freightBillingMode === 'fod')) {
+      onFreightBillingModeChange?.(opt.freightBillingMode);
+    } else if (opt.partnerId !== 'delhivery') {
+      onFreightBillingModeChange?.('btc');
+    }
+    onCourierChange(site, opt.partnerId);
+  };
 
   const selectedUsesManualRate = useMemo(() => {
     if (!estimate.usable) return false;
     if (clubSites) {
-      const opt = clubCourierOptions.find(o => o.partnerId === clubSelectedPartner);
+      const opt = clubCourierOptions.find(o => isOptionSelected(o, clubSelectedPartner));
       return Boolean(opt?.manualRate);
     }
     return estimate.sites.some(site => {
-      const opt = site.courierOptions.find(o => o.partnerId === site.partnerId);
+      const opt = site.courierOptions.find(o => isOptionSelected(o, site.partnerId));
       return Boolean(opt?.manualRate);
     });
-  }, [estimate, clubSites, clubCourierOptions, clubSelectedPartner]);
+  }, [estimate, clubSites, clubCourierOptions, clubSelectedPartner, selectedBillingMode]);
 
   const displayTotalInr = allowManualFreightEntry
     && selectedUsesManualRate
@@ -1017,49 +1030,23 @@ export const OrderFreightPanel: React.FC<Props> = ({
         </div>
       </header>
 
-      {showDelhiveryBillingMode ? (
-        <div className="logistics-booking__billing-mode order-freight-panel__billing-mode">
-          <span className="text-muted text-sm">
-            Delhivery freight billing
-            {billingMode === 'fod' ? ' · consignee pays (₹0 on order)' : ' · billed to YesWeigh'}
-          </span>
-          <div className="logistics-booking__billing-mode-actions">
-            <button
-              type="button"
-              className={['btn btn-secondary', billingMode === 'btc' ? 'is-active' : ''].filter(Boolean).join(' ')}
-              onClick={() => onFreightBillingModeChange?.('btc')}
-            >
-              BTC
-            </button>
-            <button
-              type="button"
-              className={['btn btn-secondary', billingMode === 'fod' ? 'is-active' : ''].filter(Boolean).join(' ')}
-              onClick={() => onFreightBillingModeChange?.('fod')}
-            >
-              FOD
-            </button>
-          </div>
-        </div>
-      ) : null}
-
       {clubSites ? (
         <section className="order-freight-panel__site">
           {clubCourierOptions.length > 0 ? (
             <div className="order-freight-panel__couriers" role="radiogroup" aria-label="Courier">
               {clubCourierOptions.map(opt => (
                 <CourierOptionCard
-                  key={opt.partnerId}
+                  key={orderCourierOptionKey(opt)}
                   opt={opt}
-                  selected={clubSelectedPartner === opt.partnerId}
+                  selected={isOptionSelected(opt, clubSelectedPartner)}
                   name="courier-clubbed"
                   amountInr={opt.estimatedTotalInr ?? 0}
                   allowManualFreightEntry={allowManualFreightEntry}
                   manualFreightAmount={manualFreightAmount}
                   onManualFreightAmountChange={onManualFreightAmountChange}
-                  freightBillingMode={freightBillingMode}
                   onSelect={() => {
                     for (const site of estimate.sites) {
-                      onCourierChange(site.site, opt.partnerId);
+                      selectCourierOption(site.site, opt);
                     }
                   }}
                 />
@@ -1120,16 +1107,15 @@ export const OrderFreightPanel: React.FC<Props> = ({
               <div className="order-freight-panel__couriers" role="radiogroup" aria-label={`${site.siteLabel} courier`}>
                 {site.courierOptions.map(opt => (
                   <CourierOptionCard
-                    key={opt.partnerId}
+                    key={orderCourierOptionKey(opt)}
                     opt={opt}
-                    selected={opt.partnerId === site.partnerId}
+                    selected={isOptionSelected(opt, site.partnerId)}
                     name={`courier-${site.site}`}
                     amountInr={opt.estimatedTotalInr ?? 0}
                     allowManualFreightEntry={allowManualFreightEntry}
                     manualFreightAmount={manualFreightAmount}
                     onManualFreightAmountChange={onManualFreightAmountChange}
-                    freightBillingMode={freightBillingMode}
-                    onSelect={() => onCourierChange(site.site, opt.partnerId)}
+                    onSelect={() => selectCourierOption(site.site, opt)}
                   />
                 ))}
               </div>

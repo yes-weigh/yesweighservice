@@ -27,8 +27,10 @@ export type DelhiveryLiveFreightQuoteState = {
   loading: boolean;
   error: string;
   quote: DelhiveryLaneQuote | null;
-  /** Pre-tax ₹ from live estimate, or null. */
+  /** Pre-tax ₹ from live BTC estimate (invoiced when BTC selected). */
   preTaxInr: number | null;
+  /** Pre-tax ₹ from live FOD estimate (display only; never invoiced). */
+  fodPreTaxInr: number | null;
   /** Rate-card estimate with Delhivery option/site totals overlaid. */
   estimateWithLive: StCourierCartFreightEstimate | null;
   originPin: string;
@@ -36,9 +38,15 @@ export type DelhiveryLiveFreightQuoteState = {
   showStrip: boolean;
 };
 
+function preTaxFromQuote(quote: DelhiveryLaneQuote | null): number | null {
+  const raw = quote?.estimate.preTaxInr ?? quote?.estimate.totalInr ?? null;
+  if (raw == null || !Number.isFinite(raw) || raw <= 0) return null;
+  return raw;
+}
+
 /**
- * Live Delhivery lane quote for cart freight UIs (New SO / dealer / testing).
- * Debounced; merges into the rate-card estimate so Preferred Delhivery shows ₹.
+ * Live Delhivery lane quotes for cart freight UIs (New SO / dealer / testing).
+ * Fetches BTC (invoiced) and FOD (display-only) estimates in parallel.
  */
 export function useDelhiveryLiveFreightQuote(input: Input): DelhiveryLiveFreightQuoteState {
   const enabled = input.enabled !== false && estimateOffersDelhivery(input.estimate);
@@ -58,6 +66,7 @@ export function useDelhiveryLiveFreightQuote(input: Input): DelhiveryLiveFreight
   const freightBillingMode = input.freightBillingMode === 'fod' ? 'fod' : 'btc';
 
   const [quote, setQuote] = useState<DelhiveryLaneQuote | null>(null);
+  const [fodQuote, setFodQuote] = useState<DelhiveryLaneQuote | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const requestKeyRef = useRef('');
@@ -65,43 +74,44 @@ export function useDelhiveryLiveFreightQuote(input: Input): DelhiveryLiveFreight
   useEffect(() => {
     if (!enabled || destinationPin.length !== 6) {
       setQuote(null);
+      setFodQuote(null);
       setError('');
       setLoading(false);
       requestKeyRef.current = '';
       return;
     }
-    const key = [
-      destinationPin,
-      originPin,
-      weightG,
-      freightBillingMode,
-      Math.round(Number.isFinite(invAmount) && invAmount > 0 ? invAmount : 1000),
-      dimensionsKey,
-    ].join('|');
+    const inv = Math.round(Number.isFinite(invAmount) && invAmount > 0 ? invAmount : 1000);
+    const key = [destinationPin, originPin, weightG, inv, dimensionsKey].join('|');
 
     let cancelled = false;
     const timer = window.setTimeout(() => {
       if (requestKeyRef.current === key) return;
       setLoading(true);
       setError('');
-      void quoteDelhiveryLane({
+      const base = {
         originPin: originPin.length === 6 ? originPin : null,
         destinationPin,
         weightG,
-        invAmount: Number.isFinite(invAmount) && invAmount > 0 ? invAmount : 1000,
+        invAmount: inv,
         dimensions: dimensions.length ? dimensions : undefined,
-        freightBillingMode,
         includeEstimate: originPin.length === 6,
-      })
-        .then((next) => {
+      } as const;
+
+      void Promise.all([
+        quoteDelhiveryLane({ ...base, freightBillingMode: 'btc' }),
+        quoteDelhiveryLane({ ...base, freightBillingMode: 'fod' }),
+      ])
+        .then(([btc, fod]) => {
           if (cancelled) return;
           requestKeyRef.current = key;
-          setQuote(next);
+          setQuote(btc);
+          setFodQuote(fod);
         })
         .catch((err) => {
           if (cancelled) return;
           requestKeyRef.current = '';
           setQuote(null);
+          setFodQuote(null);
           setError(err instanceof Error ? err.message : 'Could not load Delhivery quote.');
         })
         .finally(() => {
@@ -118,33 +128,45 @@ export function useDelhiveryLiveFreightQuote(input: Input): DelhiveryLiveFreight
     destinationPin,
     originPin,
     weightG,
-    freightBillingMode,
     invAmount,
     dimensionsKey,
   ]);
 
-  const preTaxInr = useMemo(() => {
-    const raw = quote?.estimate.preTaxInr ?? quote?.estimate.totalInr ?? null;
-    if (raw == null || !Number.isFinite(raw) || raw <= 0) return null;
-    return raw;
-  }, [quote]);
+  const preTaxInr = useMemo(() => preTaxFromQuote(quote), [quote]);
+  const fodPreTaxInr = useMemo(() => preTaxFromQuote(fodQuote), [fodQuote]);
 
   const estimateWithLive = useMemo(() => {
     if (!input.estimate) return null;
     if (!enabled) return input.estimate;
     return mergeDelhiveryLiveQuoteIntoEstimate(input.estimate, preTaxInr, {
       loading,
-      error: error || quote?.estimate.error || quote?.serviceability.error || null,
+      error: error
+        || quote?.estimate.error
+        || quote?.serviceability.error
+        || fodQuote?.estimate.error
+        || null,
       notServiceable: quote?.serviceability.ok === true && quote.serviceability.serviceable === false,
       freightBillingMode,
+      fodPreTaxInr,
     });
-  }, [input.estimate, enabled, preTaxInr, loading, error, quote, freightBillingMode]);
+  }, [
+    input.estimate,
+    enabled,
+    preTaxInr,
+    fodPreTaxInr,
+    loading,
+    error,
+    quote,
+    fodQuote,
+    freightBillingMode,
+  ]);
 
   return {
     loading,
     error,
     quote,
     preTaxInr,
+    fodPreTaxInr,
     estimateWithLive,
     originPin,
     destinationPin,

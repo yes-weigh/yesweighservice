@@ -56,7 +56,11 @@ function withLiveDelhiveryLineShare(
             : 'Allocated from live API total',
           amountInr,
         }]
-      : undefined,
+      : [{
+          label: 'FOD — consignee pays freight',
+          detail: 'No freight charged on this order',
+          amountInr: 0,
+        }],
   };
 }
 
@@ -150,10 +154,92 @@ export function delhiveryDimensionsFromEstimate(
   return [...byKey.values()];
 }
 
+function expandDelhiveryCourierOptions(
+  options: OrderCourierOption[],
+  btcPreTaxInr: number | null,
+  fodPreTaxInr: number | null,
+  meta: {
+    loading: boolean;
+    error: string | null;
+    notServiceable: boolean;
+  },
+): OrderCourierOption[] {
+  const out: OrderCourierOption[] = [];
+  for (const opt of options) {
+    if (opt.partnerId !== 'delhivery') {
+      out.push(opt);
+      continue;
+    }
+    // Already split (idempotent).
+    if (opt.freightBillingMode === 'btc' || opt.freightBillingMode === 'fod') {
+      out.push(opt);
+      continue;
+    }
+
+    const base = {
+      partnerId: 'delhivery' as const,
+      freightSku: opt.freightSku,
+      preferred: opt.preferred,
+      manualRate: false,
+      liveApiRate: true as const,
+    };
+
+    if (meta.notServiceable) {
+      out.push({
+        ...base,
+        label: 'Delhivery prepaid (BTC)',
+        preferred: opt.preferred,
+        freightBillingMode: 'btc',
+        enabled: false,
+        disabledReason: meta.error || 'Destination not serviceable on Delhivery',
+        estimatedTotalInr: 0,
+      });
+      out.push({
+        ...base,
+        label: 'Delhivery To Pay (FOD)',
+        preferred: false,
+        freightBillingMode: 'fod',
+        enabled: false,
+        disabledReason: meta.error || 'Destination not serviceable on Delhivery',
+        estimatedTotalInr: 0,
+      });
+      continue;
+    }
+
+    const btcAmount = btcPreTaxInr != null && btcPreTaxInr > 0
+      ? Math.ceil(btcPreTaxInr)
+      : 0;
+    // FOD display estimate (info only — never charged on invoice).
+    const fodAmount = fodPreTaxInr != null && fodPreTaxInr > 0
+      ? Math.ceil(fodPreTaxInr)
+      : btcAmount;
+    out.push({
+      ...base,
+      label: 'Delhivery prepaid (BTC)',
+      preferred: opt.preferred,
+      freightBillingMode: 'btc',
+      enabled: true,
+      disabledReason: btcAmount > 0 || meta.loading
+        ? null
+        : (meta.error || opt.disabledReason),
+      estimatedTotalInr: btcAmount,
+    });
+    out.push({
+      ...base,
+      label: 'Delhivery To Pay (FOD)',
+      preferred: false,
+      freightBillingMode: 'fod',
+      enabled: true,
+      disabledReason: null,
+      estimatedTotalInr: fodAmount,
+    });
+  }
+  return out;
+}
+
 /**
- * Overlay a live Delhivery pre-tax estimate onto cart freight options / site totals
- * so Preferred Delhivery shows a real ₹ next to ST / Blue Dart.
- * FOD: keep Delhivery selectable with charged ₹0 (calculations are BTC-only).
+ * Overlay live Delhivery estimate and split into prepaid (BTC) + To Pay (FOD) options.
+ * FOD option shows estimated ₹ for info; charged site total stays ₹0 when FOD is selected.
  */
 export function mergeDelhiveryLiveQuoteIntoEstimate(
   estimate: StCourierCartFreightEstimate,
@@ -162,118 +248,96 @@ export function mergeDelhiveryLiveQuoteIntoEstimate(
     loading?: boolean;
     error?: string | null;
     notServiceable?: boolean;
-    /** When fod, charged freight is ₹0 (line still shown). */
+    /** Selected Delhivery billing mode (which of the two options is active). */
     freightBillingMode?: 'fod' | 'btc' | null;
+    /** FOD lane estimate (display only). Falls back to BTC amount when omitted. */
+    fodPreTaxInr?: number | null;
   },
 ): StCourierCartFreightEstimate {
-  const fod = meta?.freightBillingMode === 'fod';
+  const selectedMode = meta?.freightBillingMode === 'fod' ? 'fod' : 'btc';
   const amount = Number(livePreTaxInr);
-  const hasAmount = !fod && Number.isFinite(amount) && amount > 0;
-  const rounded = hasAmount ? Math.ceil(amount) : 0;
+  const btcRounded = Number.isFinite(amount) && amount > 0 ? Math.ceil(amount) : 0;
+  const fodRaw = Number(meta?.fodPreTaxInr);
+  const fodRounded = Number.isFinite(fodRaw) && fodRaw > 0 ? Math.ceil(fodRaw) : btcRounded;
   const loading = Boolean(meta?.loading);
   const notServiceable = Boolean(meta?.notServiceable);
   const error = String(meta?.error || '').trim() || null;
+  const chargedInr = selectedMode === 'fod' ? 0 : btcRounded;
 
   const sites = estimate.sites.map(site => {
-    const courierOptions: OrderCourierOption[] = site.courierOptions.map(opt => {
-      if (opt.partnerId !== 'delhivery') return opt;
-      if (notServiceable) {
-        return {
-          ...opt,
-          enabled: false,
-          disabledReason: error || 'Destination not serviceable on Delhivery',
-          estimatedTotalInr: 0,
-          manualRate: false,
-          liveApiRate: true,
-        };
-      }
-      if (fod) {
-        return {
-          ...opt,
-          enabled: true,
-          disabledReason: null,
-          estimatedTotalInr: 0,
-          manualRate: false,
-          liveApiRate: true,
-        };
-      }
-      if (hasAmount) {
-        return {
-          ...opt,
-          enabled: true,
-          disabledReason: null,
-          estimatedTotalInr: rounded,
-          manualRate: false,
-          liveApiRate: true,
-        };
-      }
-      return {
-        ...opt,
-        enabled: opt.enabled,
-        disabledReason: loading
-          ? null
-          : (error || opt.disabledReason),
-        estimatedTotalInr: 0,
-        manualRate: false,
-        liveApiRate: true,
-      };
-    });
+    const courierOptions = expandDelhiveryCourierOptions(
+      site.courierOptions,
+      btcRounded || null,
+      fodRounded || null,
+      {
+        loading,
+        error,
+        notServiceable,
+      },
+    );
 
-    const selected = courierOptions.find(o => o.partnerId === site.partnerId)
-      ?? courierOptions.find(o => o.enabled)
-      ?? courierOptions[0];
-    const partnerId = selected?.partnerId ?? site.partnerId;
+    const wasDelhivery = site.partnerId === 'delhivery';
+    let partnerId = site.partnerId;
+    let partnerLabel = site.partnerLabel;
+
+    if (wasDelhivery) {
+      const selected = courierOptions.find(o => (
+        o.partnerId === 'delhivery'
+        && o.freightBillingMode === selectedMode
+        && o.enabled
+      ))
+        ?? courierOptions.find(o => o.partnerId === 'delhivery' && o.enabled)
+        ?? courierOptions.find(o => o.enabled)
+        ?? courierOptions[0];
+      partnerId = selected?.partnerId ?? site.partnerId;
+      partnerLabel = selected?.label ?? site.partnerLabel;
+    } else {
+      const selected = courierOptions.find(o => o.partnerId === site.partnerId)
+        ?? courierOptions.find(o => o.enabled)
+        ?? courierOptions[0];
+      partnerId = selected?.partnerId ?? site.partnerId;
+      partnerLabel = selected?.label ?? site.partnerLabel;
+    }
+
     return {
       ...site,
       courierOptions,
       partnerId,
-      partnerLabel: selected?.label ?? site.partnerLabel,
+      partnerLabel,
     };
   });
 
-  // Split one live shipment estimate across Delhivery-selected sites/lines by kg.
   const delhiverySiteIndexes = sites
     .map((site, index) => (site.partnerId === 'delhivery' ? index : -1))
     .filter(index => index >= 0);
-  if ((hasAmount || fod) && delhiverySiteIndexes.length > 0) {
+
+  if (delhiverySiteIndexes.length > 0 && (selectedMode === 'fod' || btcRounded > 0)) {
     const siteWeights = delhiverySiteIndexes.map(index => (
       sites[index]!.lineBreakdowns.reduce(
         (sum, line) => sum + (Number(line.chargeableKg) || 0),
         0,
       ) || Number(sites[index]!.chargeableKg) || 0
     ));
-    const siteAmounts = allocateByChargeableKg(siteWeights, fod ? 0 : rounded);
+    const siteAmounts = allocateByChargeableKg(siteWeights, chargedInr);
     delhiverySiteIndexes.forEach((siteIndex, i) => {
       const next = allocateLiveFreightOnSite(
         sites[siteIndex]!,
         siteAmounts[i] ?? 0,
       );
-      sites[siteIndex] = fod
-        ? {
-          ...next,
-          rateMissing: false,
-          lineBreakdowns: next.lineBreakdowns.map(line => ({
-            ...line,
-            amountInr: 0,
-            calcSteps: [{
-              label: 'FOD — consignee pays freight',
-              detail: 'No freight charged on this order',
-              amountInr: 0,
-            }],
-          })),
-        }
-        : next;
+      sites[siteIndex] = {
+        ...next,
+        rateMissing: selectedMode === 'fod' ? false : next.rateMissing,
+      };
     });
-  } else if (!hasAmount) {
-    for (let i = 0; i < sites.length; i += 1) {
-      if (sites[i]!.partnerId !== 'delhivery') continue;
-      sites[i] = {
-        ...sites[i]!,
+  } else if (delhiverySiteIndexes.length > 0 && btcRounded <= 0 && selectedMode === 'btc') {
+    for (const siteIndex of delhiverySiteIndexes) {
+      sites[siteIndex] = {
+        ...sites[siteIndex]!,
         totalInr: 0,
         productFreightInr: 0,
         spareFreightInr: 0,
         rateMissing: true,
-        lineBreakdowns: sites[i]!.lineBreakdowns.map(line => ({
+        lineBreakdowns: sites[siteIndex]!.lineBreakdowns.map(line => ({
           ...line,
           amountInr: 0,
           boxPerKgInr: undefined,

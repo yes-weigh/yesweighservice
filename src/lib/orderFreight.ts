@@ -143,7 +143,20 @@ export type OrderCourierOption = {
   liveApiRate?: boolean;
   /** Quoted freight ₹ for this partner at this ship-from (set by cart estimate). */
   estimatedTotalInr?: number;
+  /**
+   * Delhivery split options: prepaid (BTC) vs to-pay (FOD).
+   * Same partnerId; selection also sets freight billing mode.
+   */
+  freightBillingMode?: 'btc' | 'fod';
 };
+
+/** Unique key for courier radio options (Delhivery BTC/FOD share partnerId). */
+export function orderCourierOptionKey(opt: Pick<OrderCourierOption, 'partnerId' | 'freightBillingMode'>): string {
+  if (opt.partnerId === 'delhivery' && (opt.freightBillingMode === 'fod' || opt.freightBillingMode === 'btc')) {
+    return `delhivery:${opt.freightBillingMode}`;
+  }
+  return String(opt.partnerId);
+}
 
 /**
  * Partners for a ship-from site: delivery-rule list for destination, plus Customer Pickup always.
