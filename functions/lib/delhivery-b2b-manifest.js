@@ -164,7 +164,11 @@ export function buildDelhiveryB2bManifestPayload(input) {
   const orderId = String(input.orderId || `YW-${Date.now()}`);
   // Interweighing firm GSTIN — LTL requires PAN or GSTIN on billing_address for FoD/FoP.
   const DEFAULT_GSTIN = '32AAFCI1950F1ZZ';
-  const sellerGstin = (nonEmpty(input.sellerGstin) || DEFAULT_GSTIN).toUpperCase();
+  const sellerGstin = normalizeGstin(input.sellerGstin) || DEFAULT_GSTIN;
+  const consigneeGstin = normalizeGstin(consignee.gstin);
+  if (!consigneeGstin) {
+    throw new Error('Consignee GSTIN is required (15-character GSTIN).');
+  }
 
   const dropoff_location = {
     consignee_name: name,
@@ -172,8 +176,12 @@ export function buildDelhiveryB2bManifestPayload(input) {
     city: nonEmpty(consignee.city) || 'NA',
     state: nonEmpty(consignee.state) || 'NA',
     zip: pin,
-    phone,
+    // Docs type this as INTEGER; portal/print read it as the consignee mobile.
+    phone: Number(phone) || phone,
     email: nonEmpty(consignee.email) || '',
+    // Accepted by /manifest (probed); used for consignee GSTIN on shipping docs.
+    gst_number: consigneeGstin,
+    consignee_gst: consigneeGstin,
   };
 
   // Keep shipment_details minimal — extra keys (waybills/master) break list parsing

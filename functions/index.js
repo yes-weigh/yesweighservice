@@ -179,6 +179,7 @@ import {
   cancelDelhiveryB2bShipment,
   resolveDelhiveryPickupLocationName,
 } from './lib/delhivery-b2b-manifest.js';
+import { syncDelhiveryWarehouseForSite } from './lib/delhivery-warehouse.js';
 import {
   fetchDelhiveryTrack,
   renderDelhiveryTrackHtml,
@@ -4451,6 +4452,8 @@ export const bookDelhiveryShipmentFn = onCall(
       const pickupOverride = String(request.data?.pickupLocationName ?? '').trim();
       const pickupLocationName = pickupOverride
         || await resolveDelhiveryPickupLocationName(db, site);
+      // Shipper phone/GSTIN on LR print come from the registered warehouse profile.
+      await syncDelhiveryWarehouseForSite(db, site, pickupLocationName);
       const result = await bookDelhiveryB2bShipment(db, {
         pickupLocationName,
         orderId: String(request.data?.orderId ?? '').trim() || `YW-${Date.now()}`,

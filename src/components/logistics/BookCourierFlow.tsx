@@ -428,9 +428,28 @@ export const BookCourierFlow: React.FC<BookCourierFlowProps> = ({
         setDraft(prev => {
           if (prev.zohoCustomerId !== dealer.id) return prev;
           const kind = preferredDeliveryAddressKind(snapshot, prev.deliveryAddressKind);
-          return kind === prev.deliveryAddressKind
-            ? prev
-            : { ...prev, deliveryAddressKind: kind };
+          const customerPhone = prev.customerPhone?.trim()
+            || phoneDigitsForCourier(resolveReceiverPhoneFromSnapshot(snapshot))
+            || phoneDigitsForCourier(snapshot.mobile)
+            || prev.customerPhone
+            || null;
+          const customerGstin = normalizeGstinForCourier(prev.customerGstin)
+            || normalizeGstinForCourier(dealer.zohoGstNo)
+            || prev.customerGstin
+            || null;
+          if (
+            kind === prev.deliveryAddressKind
+            && customerPhone === (prev.customerPhone ?? null)
+            && customerGstin === (prev.customerGstin ?? null)
+          ) {
+            return prev;
+          }
+          return {
+            ...prev,
+            deliveryAddressKind: kind,
+            customerPhone,
+            customerGstin,
+          };
         });
       })
       .catch(() => undefined);
@@ -714,6 +733,10 @@ export const BookCourierFlow: React.FC<BookCourierFlowProps> = ({
         || phoneDigitsForCourier(snapshot.mobile)
         || prev.customerPhone
         || null,
+      customerGstin: normalizeGstinForCourier(prev.customerGstin)
+        || normalizeGstinForCourier(dealer.zohoGstNo)
+        || prev.customerGstin
+        || null,
     }));
     setDealerQuery('');
     // List-cache rows often lack Zoho street addresses — refresh detail immediately.
@@ -740,6 +763,10 @@ export const BookCourierFlow: React.FC<BookCourierFlowProps> = ({
                 || phoneDigitsForCourier(resolveReceiverPhoneFromSnapshot(detailedSnap))
                 || phoneDigitsForCourier(detailedSnap.mobile)
                 || prev.customerPhone
+                || null,
+              customerGstin: normalizeGstinForCourier(prev.customerGstin)
+                || normalizeGstinForCourier(detailed.zohoGstNo)
+                || prev.customerGstin
                 || null,
             };
           });
