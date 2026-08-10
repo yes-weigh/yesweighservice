@@ -199,6 +199,13 @@ export async function resolveTransporterForPartner(accessToken, orgId, db, partn
   }
 
   const transporterName = partnerLabel(partnerId) || partnerId;
+  if (!settings.gstin) {
+    throw new Error(
+      'No Zoho transporter is linked to this delivery partner. '
+      + 'Open Settings → Logistics → Delivery Partners, pick the Zoho transporter '
+      + `(e.g. ${transporterName}), save, then retry.`,
+    );
+  }
   const transporterId = await resolveZohoTransporterId(
     accessToken,
     orgId,
@@ -236,7 +243,10 @@ function partnerLabel(partnerId) {
 export async function resolveZohoTransporterId(accessToken, orgId, gstin, name) {
   const registrationId = normalizeGstin(gstin);
   if (!registrationId) {
-    throw new Error('Delivery partner GSTIN is not configured. Set it under Logistics → Delivery Partners.');
+    throw new Error(
+      'Delivery partner GSTIN is not configured. '
+      + 'Set a Zoho transporter (preferred) or GSTIN under Settings → Logistics → Delivery Partners.',
+    );
   }
 
   const listed = await zohoJson(accessToken, orgId, '/ewaybills/transporters');
@@ -314,6 +324,7 @@ export async function createZohoEwayBillForInvoice(accessToken, orgId, input) {
   const invoice = await fetchZohoInvoice(accessToken, orgId, invoiceId);
   if (!invoice) throw new Error('Invoice not found in Zoho.');
 
+  const invoiceEwayStatus = String(invoice.ewaybill_status ?? '').trim().toLowerCase();
   const lr = String(input.lrNumber ?? '').trim();
   const distance = await resolveEwayDistanceKm(accessToken, orgId, invoice, input.distance);
   const shipToAddressId = invoice.shipping_address?.address_id
@@ -345,7 +356,16 @@ export async function createZohoEwayBillForInvoice(accessToken, orgId, input) {
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     if (/already exists/i.test(message) && invoice.ewaybill_id) {
-      return fetchZohoEwayBillRecord(accessToken, orgId, String(invoice.ewaybill_id));
+      const record = await fetchZohoEwayBillRecord(accessToken, orgId, String(invoice.ewaybill_id));
+      if (String(record?.ewaybill_status ?? '').toLowerCase() !== 'cancelled') {
+        return record;
+      }
+    }
+    if (invoiceEwayStatus === 'cancelled' || /cancel/i.test(message)) {
+      throw new Error(
+        'This invoice\'s previous e-way bill was cancelled in Zoho. '
+        + 'Open the invoice in Zoho Inventory → E-Way Bill → generate a new bill there, then retry.',
+      );
     }
     throw err;
   }

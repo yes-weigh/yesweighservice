@@ -459,7 +459,11 @@ export const LogisticsBookingDetail: React.FC<LogisticsBookingDetailProps> = ({
         setEwayBillStatus(result.status ?? null);
         setEwayBillNumber(result.ewaybillNumber ?? null);
       })
-      .catch(() => undefined)
+      .catch(err => {
+        if (cancelled) return;
+        const message = err instanceof Error ? err.message : '';
+        if (message) setDelhiveryDocsError(message);
+      })
       .finally(() => {
         if (!cancelled) setEwayEnsuring(false);
       });
@@ -525,6 +529,7 @@ export const LogisticsBookingDetail: React.FC<LogisticsBookingDetailProps> = ({
         pdfBytes: bytes,
         fileName: result.filename || 'eway-bill.pdf',
         downloadBlob: blob,
+        hideDownload: true,
         onCancel: isOps && result.status === 'generated'
           ? () => {
             setEwayCancelError('');
@@ -870,8 +875,6 @@ export const LogisticsBookingDetail: React.FC<LogisticsBookingDetailProps> = ({
       urls: card.urls,
     });
   }, [openDelhiveryDocument, openEwayBillDocument, openLinkedInvoiceDocument]);
-
-  const showEwayCancelAction = isOps && ewayRequired && ewayBillStatus === 'generated';
 
   const handleCourierSlipViewed = useCallback(() => {
     if (!isOps || booking.courierSlipGenerated) return;
@@ -2163,21 +2166,6 @@ export const LogisticsBookingDetail: React.FC<LogisticsBookingDetailProps> = ({
                 );
               })}
             </div>
-            {showEwayCancelAction ? (
-              <div className="logistics-booking__eway-cancel">
-                <button
-                  type="button"
-                  className="btn btn-secondary btn-sm logistics-booking__eway-cancel-btn"
-                  disabled={ewayCancelling || delhiveryDocOpening != null}
-                  onClick={() => {
-                    setEwayCancelError('');
-                    setEwayCancelOpen(true);
-                  }}
-                >
-                  {ewayCancelling ? 'Cancelling e-way bill…' : 'Cancel e-way bill'}
-                </button>
-              </div>
-            ) : null}
             {delhiveryDocsLoading && (
               <p className="text-muted text-sm">Loading Delhivery documents…</p>
             )}
@@ -2242,21 +2230,6 @@ export const LogisticsBookingDetail: React.FC<LogisticsBookingDetailProps> = ({
                     );
                   })}
                 </div>
-                {showEwayCancelAction ? (
-                  <div className="logistics-booking__eway-cancel">
-                    <button
-                      type="button"
-                      className="btn btn-secondary btn-sm logistics-booking__eway-cancel-btn"
-                      disabled={ewayCancelling || delhiveryDocOpening != null}
-                      onClick={() => {
-                        setEwayCancelError('');
-                        setEwayCancelOpen(true);
-                      }}
-                    >
-                      {ewayCancelling ? 'Cancelling e-way bill…' : 'Cancel e-way bill'}
-                    </button>
-                  </div>
-                ) : null}
                 {delhiveryDocsError ? (
                   <p className="logistics-booking__docs-error" role="alert">{delhiveryDocsError}</p>
                 ) : null}

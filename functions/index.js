@@ -1947,7 +1947,11 @@ export const ensureInvoiceEwayBillFn = onCall(
       });
     } catch (err) {
       if (err instanceof HttpsError) throw err;
-      throw new HttpsError('internal', err?.message ?? 'Could not ensure e-way bill.');
+      const message = err?.message ?? 'Could not ensure e-way bill.';
+      const code = /not configured|not linked|not required|not found|cancelled|Distance \(km\)/i.test(message)
+        ? 'failed-precondition'
+        : 'internal';
+      throw new HttpsError(code, message);
     }
   },
 );

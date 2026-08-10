@@ -30,6 +30,8 @@ export type DelhiveryDocumentDialogPayload = {
   onCancel?: () => void;
   cancelLabel?: string;
   cancelBusy?: boolean;
+  /** Hide download — share still uses the underlying blob/bytes. */
+  hideDownload?: boolean;
 };
 
 type Props = {
@@ -259,7 +261,7 @@ export const DelhiveryDocumentDialog: React.FC<Props> = ({
                 : (payload.cancelLabel || 'Cancel')}
             </button>
           ) : null}
-          {downloadTarget ? (
+          {!payload.hideDownload && downloadTarget ? (
             <button
               type="button"
               className="btn btn-secondary"
@@ -269,7 +271,7 @@ export const DelhiveryDocumentDialog: React.FC<Props> = ({
               <Download size={16} aria-hidden />
               Download
             </button>
-          ) : images[0] && !isShippingLabel ? (
+          ) : !payload.hideDownload && images[0] && !isShippingLabel ? (
             <a
               className="btn btn-secondary"
               href={images[0]}
