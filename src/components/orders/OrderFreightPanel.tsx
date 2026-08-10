@@ -108,13 +108,6 @@ function formatKg(value: number): string {
   });
 }
 
-function parcelChargeBasis(group: FreightParcelGroup): 'actual' | 'volumetric' | 'tie' {
-  const act = Number(group.actualKgEach) || 0;
-  const vol = Number(group.volumetricKgEach) || 0;
-  if (Math.abs(act - vol) < 0.0005) return 'tie';
-  return vol > act ? 'volumetric' : 'actual';
-}
-
 /** Split a line freight ₹ across parcel groups by chargeable kg. */
 function allocateParcelGroupAmounts(
   groups: FreightParcelGroup[],
@@ -142,30 +135,15 @@ function allocateParcelGroupAmounts(
 function ParcelGroupDetailCard({
   group,
   index,
-  volumetricDivisor,
   amountInr = 0,
 }: {
   group: FreightParcelGroup;
   index: number;
-  volumetricDivisor: number | null;
   amountInr?: number;
 }) {
-  const basis = parcelChargeBasis(group);
-  const volRaw = group.lengthCm * group.breadthCm * group.heightCm;
-  const divisor = volumetricDivisor && volumetricDivisor > 0 ? volumetricDivisor : null;
   const kindLabel = group.kind === 'master_carton' ? 'Master carton' : 'Single box';
-  const unitLabel = group.kind === 'master_carton'
-    ? (group.count === 1 ? 'carton' : 'cartons')
-    : (group.count === 1 ? 'box' : 'boxes');
-  const basisLabel = basis === 'volumetric'
-    ? 'Vol wins'
-    : basis === 'actual'
-      ? 'Act wins'
-      : 'Act = Vol';
   const amount = Number(amountInr) || 0;
-  const perBox = group.count > 1 && amount > 0
-    ? Math.round((amount / group.count) * 100) / 100
-    : null;
+  const chgKg = Number(group.chargeableKgTotal) || 0;
 
   return (
     <li className="order-freight-panel__calc-packing-card">
@@ -175,90 +153,20 @@ function ParcelGroupDetailCard({
           {' '}
           #
           {index + 1}
+          {group.count > 1 ? ` ×${group.count}` : ''}
         </strong>
         <span aria-hidden>·</span>
-        <span>
-          ×
-          {group.count}
-          {' '}
-          {unitLabel}
-        </span>
-        <span aria-hidden>·</span>
-        <span title="LBH (cm)">
-          {group.lengthCm}
-          ×
-          {group.breadthCm}
-          ×
-          {group.heightCm}
-          {' '}
-          cm
-        </span>
-        <span aria-hidden>·</span>
-        <span title="Volume">
-          {volRaw.toLocaleString('en-IN')}
-          {' '}
-          cm³
-          {divisor ? ` ÷ ${divisor}` : ''}
-        </span>
-        <span aria-hidden>·</span>
-        <em className={`order-freight-panel__calc-packing-basis is-${basis}`}>
-          {basisLabel}
-        </em>
-        {amount > 0 ? (
-          <>
-            <span aria-hidden>·</span>
-            <strong className="order-freight-panel__calc-packing-amt" title="Freight share">
-              {formatCurrency(amount)}
-              {perBox != null ? ` (${formatCurrency(perBox)}/box)` : ''}
-            </strong>
-          </>
-        ) : null}
-      </p>
-      <p className="order-freight-panel__calc-packing-weights">
-        <span className="order-freight-panel__calc-packing-weights-label">
-          {group.count > 1 ? 'Each' : 'Weight'}
-        </span>
-        <span>
-          Act
-          {' '}
-          {formatKg(group.actualKgEach)}
-        </span>
-        <span className={basis === 'volumetric' ? 'is-win' : undefined}>
-          Vol
-          {' '}
-          {formatKg(group.volumetricKgEach)}
-        </span>
         <span className="is-chg">
-          Chg
-          {' '}
-          {formatKg(group.chargeableKgEach)}
+          {formatKg(chgKg)}
           {' '}
           kg
         </span>
-        {group.count > 1 ? (
+        {amount > 0 ? (
           <>
-            <span aria-hidden className="order-freight-panel__calc-packing-sep">|</span>
-            <span className="order-freight-panel__calc-packing-weights-label">
-              ×
-              {group.count}
-            </span>
-            <span>
-              Act
-              {' '}
-              {formatKg(group.actualKgTotal)}
-            </span>
-            <span className={basis === 'volumetric' ? 'is-win' : undefined}>
-              Vol
-              {' '}
-              {formatKg(group.volumetricKgTotal)}
-            </span>
-            <span className="is-chg">
-              Chg
-              {' '}
-              {formatKg(group.chargeableKgTotal)}
-              {' '}
-              kg
-            </span>
+            <span aria-hidden>·</span>
+            <strong className="order-freight-panel__calc-packing-amt">
+              {formatCurrency(amount)}
+            </strong>
           </>
         ) : null}
       </p>
@@ -735,7 +643,6 @@ function ItemFreightCalcTile({
                       key={`${group.kind}:${group.lengthCm}:${group.breadthCm}:${group.heightCm}:${index}`}
                       group={group}
                       index={index}
-                      volumetricDivisor={calc.volumetricDivisor}
                       amountInr={groupAmounts[index] ?? 0}
                     />
                   ));
@@ -850,7 +757,6 @@ function FreightLineRow({
                     key={`${group.kind}:${index}:${group.lengthCm}x${group.breadthCm}x${group.heightCm}`}
                     group={group}
                     index={index}
-                    volumetricDivisor={line.volumetricDivisor ?? null}
                     amountInr={groupAmounts[index] ?? 0}
                   />
                 ));

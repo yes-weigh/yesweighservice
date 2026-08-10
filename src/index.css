@@ -15853,22 +15853,18 @@ body:has(.confirm-inline-bar) .confirm-inline-bar {
 }
 
 .order-freight-panel__calc-packing-card {
-  display: flex;
-  flex-direction: column;
-  gap: 0.2rem;
-  padding: 0.4rem 0.55rem;
+  padding: 0.35rem 0.55rem;
   border-radius: 0.45rem;
   border: 1px solid rgba(148, 163, 184, 0.16);
   background: rgba(15, 23, 42, 0.4);
 }
 
-.order-freight-panel__calc-packing-line,
-.order-freight-panel__calc-packing-weights {
+.order-freight-panel__calc-packing-line {
   display: flex;
   flex-wrap: wrap;
   align-items: baseline;
   column-gap: 0.35rem;
-  row-gap: 0.15rem;
+  row-gap: 0.1rem;
   margin: 0;
   font-size: 0.72rem;
   font-weight: 650;
@@ -15881,51 +15877,15 @@ body:has(.confirm-inline-bar) .confirm-inline-bar {
   color: #e2e8f0;
 }
 
-.order-freight-panel__calc-packing-basis {
-  font-style: normal;
-  font-weight: 750;
-}
-
-.order-freight-panel__calc-packing-basis.is-volumetric {
-  color: #fdba74;
-}
-
-.order-freight-panel__calc-packing-basis.is-actual,
-.order-freight-panel__calc-packing-basis.is-tie {
+.order-freight-panel__calc-packing-line .is-chg {
   color: #86efac;
+  font-weight: 750;
 }
 
 .order-freight-panel__calc-packing-amt {
   color: #fbbf24;
   font-weight: 800;
   white-space: nowrap;
-}
-
-.order-freight-panel__calc-packing-weights {
-  color: #94a3b8;
-}
-
-.order-freight-panel__calc-packing-weights-label {
-  font-weight: 750;
-  color: #64748b;
-  text-transform: uppercase;
-  font-size: 0.625rem;
-  letter-spacing: 0.03em;
-}
-
-.order-freight-panel__calc-packing-sep {
-  color: rgba(148, 163, 184, 0.45);
-  font-weight: 600;
-}
-
-.order-freight-panel__calc-packing-weights .is-win {
-  color: #fdba74;
-  font-weight: 750;
-}
-
-.order-freight-panel__calc-packing-weights .is-chg {
-  color: #86efac;
-  font-weight: 750;
 }
 
 .order-freight-panel__calc-stack {
