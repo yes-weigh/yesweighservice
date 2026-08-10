@@ -1,9 +1,102 @@
 import type { LogisticsPartnerId } from '../constants/logisticsPartners';
 import type { DelhiveryQuoteDimension } from './delhiveryQuote';
 import type {
+  FreightLineBreakdown,
   OrderCourierOption,
+  SiteFreightBucket,
   StCourierCartFreightEstimate,
 } from './stCourierCartFreight';
+
+function round2(n: number): number {
+  return Math.round(n * 100) / 100;
+}
+
+/** Split a total across items by chargeable kg (last item gets remainder). */
+function allocateByChargeableKg(
+  weightsKg: number[],
+  totalInr: number,
+): number[] {
+  const safe = weightsKg.map(w => Math.max(0, Number(w) || 0));
+  const sum = safe.reduce((a, b) => a + b, 0);
+  const out: number[] = [];
+  let allocated = 0;
+  for (let i = 0; i < safe.length; i += 1) {
+    if (i === safe.length - 1) {
+      out.push(Math.max(0, round2(totalInr - allocated)));
+      break;
+    }
+    const share = sum > 0 ? safe[i]! / sum : 1 / Math.max(1, safe.length);
+    const amount = round2(totalInr * share);
+    out.push(amount);
+    allocated = round2(allocated + amount);
+  }
+  return out;
+}
+
+function withLiveDelhiveryLineShare(
+  line: FreightLineBreakdown,
+  amountInr: number,
+  siteChargeableKg: number,
+): FreightLineBreakdown {
+  const lineKg = Math.max(0, Number(line.chargeableKg) || 0);
+  const effectivePerKg = lineKg > 0 ? round2(amountInr / lineKg) : null;
+  const pct = siteChargeableKg > 0
+    ? Math.round((lineKg / siteChargeableKg) * 1000) / 10
+    : null;
+  return {
+    ...line,
+    amountInr,
+    boxPerKgInr: effectivePerKg ?? undefined,
+    fuelSurchargePercent: 0,
+    calcSteps: amountInr > 0
+      ? [{
+          label: 'Live Delhivery estimate share',
+          detail: pct != null
+            ? `${pct}% of shipment · ${lineKg} kg chg`
+            : 'Allocated from live API total',
+          amountInr,
+        }]
+      : undefined,
+  };
+}
+
+function allocateLiveFreightOnSite(
+  site: SiteFreightBucket,
+  siteTotalInr: number,
+): SiteFreightBucket {
+  const lines = site.lineBreakdowns;
+  if (!lines.length) {
+    return {
+      ...site,
+      totalInr: siteTotalInr,
+      productFreightInr: siteTotalInr,
+      spareFreightInr: 0,
+      rateMissing: !(siteTotalInr > 0),
+    };
+  }
+  const siteKg = lines.reduce((sum, line) => sum + (Number(line.chargeableKg) || 0), 0);
+  const amounts = allocateByChargeableKg(
+    lines.map(line => Number(line.chargeableKg) || 0),
+    siteTotalInr,
+  );
+  const lineBreakdowns = lines.map((line, index) => (
+    withLiveDelhiveryLineShare(line, amounts[index] ?? 0, siteKg)
+  ));
+  const productFreightInr = lineBreakdowns
+    .filter(line => line.indication !== 'spare_default')
+    .reduce((sum, line) => sum + line.amountInr, 0);
+  const spareFreightInr = lineBreakdowns
+    .filter(line => line.indication === 'spare_default')
+    .reduce((sum, line) => sum + line.amountInr, 0);
+  return {
+    ...site,
+    lineBreakdowns,
+    totalInr: siteTotalInr,
+    productFreightInr: round2(productFreightInr),
+    spareFreightInr: round2(spareFreightInr),
+    rateMissing: !(siteTotalInr > 0),
+  };
+}
 
 /** Delhivery SO freight is priced via B2B `/freight/estimate`, not the unused ₹/kg card. */
 export function partnerUsesLiveDelhiveryQuote(
@@ -96,7 +189,7 @@ export function mergeDelhiveryLiveQuoteIntoEstimate(
           enabled: true,
           disabledReason: null,
           estimatedTotalInr: rounded,
-          manualRate: true,
+          manualRate: false,
           liveApiRate: true,
         };
       }
@@ -107,7 +200,7 @@ export function mergeDelhiveryLiveQuoteIntoEstimate(
           ? null
           : (error || opt.disabledReason),
         estimatedTotalInr: 0,
-        manualRate: true,
+        manualRate: false,
         liveApiRate: true,
       };
     });
@@ -116,21 +209,50 @@ export function mergeDelhiveryLiveQuoteIntoEstimate(
       ?? courierOptions.find(o => o.enabled)
       ?? courierOptions[0];
     const partnerId = selected?.partnerId ?? site.partnerId;
-    const isDelhivery = partnerId === 'delhivery';
-    const totalInr = isDelhivery && hasAmount
-      ? rounded
-      : (isDelhivery ? 0 : site.totalInr);
-
     return {
       ...site,
       courierOptions,
       partnerId,
       partnerLabel: selected?.label ?? site.partnerLabel,
-      totalInr,
-      productFreightInr: isDelhivery && hasAmount ? rounded : site.productFreightInr,
-      rateMissing: isDelhivery ? !hasAmount : site.rateMissing,
     };
   });
+
+  // Split one live shipment estimate across Delhivery-selected sites/lines by kg.
+  const delhiverySiteIndexes = sites
+    .map((site, index) => (site.partnerId === 'delhivery' ? index : -1))
+    .filter(index => index >= 0);
+  if (hasAmount && delhiverySiteIndexes.length > 0) {
+    const siteWeights = delhiverySiteIndexes.map(index => (
+      sites[index]!.lineBreakdowns.reduce(
+        (sum, line) => sum + (Number(line.chargeableKg) || 0),
+        0,
+      ) || Number(sites[index]!.chargeableKg) || 0
+    ));
+    const siteAmounts = allocateByChargeableKg(siteWeights, rounded);
+    delhiverySiteIndexes.forEach((siteIndex, i) => {
+      sites[siteIndex] = allocateLiveFreightOnSite(
+        sites[siteIndex]!,
+        siteAmounts[i] ?? 0,
+      );
+    });
+  } else if (!hasAmount) {
+    for (let i = 0; i < sites.length; i += 1) {
+      if (sites[i]!.partnerId !== 'delhivery') continue;
+      sites[i] = {
+        ...sites[i]!,
+        totalInr: 0,
+        productFreightInr: 0,
+        spareFreightInr: 0,
+        rateMissing: true,
+        lineBreakdowns: sites[i]!.lineBreakdowns.map(line => ({
+          ...line,
+          amountInr: 0,
+          boxPerKgInr: undefined,
+          calcSteps: undefined,
+        })),
+      };
+    }
+  }
 
   const totalInr = sites.reduce((sum, site) => sum + (Number(site.totalInr) || 0), 0);
   const warnings = [...estimate.warnings];

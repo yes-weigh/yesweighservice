@@ -1739,7 +1739,7 @@ export const StaffCreateSalesOrderPage: React.FC = () => {
                       shippingDestination?.city,
                       shippingDestination?.state,
                     ].filter(Boolean).join(', ') || null}
-                    footerNote="One freight line per draft SO. ST / Blue Dart / Trackon use rate cards; Delhivery uses the live B2B freight estimate (editable)."
+                    footerNote="One freight line per draft SO. ST / Blue Dart / Trackon use rate cards; Delhivery uses the live B2B freight estimate (read-only)."
                     onManualFreightAmountChange={next => {
                       setManualFreightAmountLocked(true);
                       setManualFreightAmount(next);

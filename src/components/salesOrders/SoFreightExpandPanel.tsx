@@ -325,7 +325,7 @@ export const SoFreightExpandPanel: React.FC<Props> = ({
             shippingDestination?.city,
             shippingDestination?.state,
           ].filter(Boolean).join(', ') || null}
-          footerNote="One freight line per draft SO. Active partners quote from rates; Manual partners need a freight ₹ when no rate card applies. Delhivery uses live API estimate when selected."
+          footerNote="One freight line per draft SO. Active partners quote from rates; Manual partners need a freight ₹ when no rate card applies. Delhivery live API estimate is read-only."
           onManualFreightAmountChange={next => {
             const sku = freightSku
               || freightSkuForPartner(freightEstimate.sites[0]?.partnerId)
@@ -366,9 +366,10 @@ export const SoFreightExpandPanel: React.FC<Props> = ({
           compact
         />
       ) : null}
-      {freightSku && !freightEstimate?.sites.some(site => (
-        site.courierOptions.find(o => o.partnerId === site.partnerId)?.manualRate
-      )) ? (
+      {freightSku && !freightEstimate?.sites.some(site => {
+        const opt = site.courierOptions.find(o => o.partnerId === site.partnerId);
+        return Boolean(opt?.manualRate || opt?.liveApiRate || site.partnerId === 'delhivery');
+      }) ? (
         <label className="so-freight-expand__amount">
           <span className="text-muted text-sm">Freight amount (editable)</span>
           <DecimalAmountInput

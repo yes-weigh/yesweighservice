@@ -108,22 +108,162 @@ function formatKg(value: number): string {
   });
 }
 
-function parcelKindLabel(kind: FreightParcelGroup['kind'], count: number): string {
-  if (kind === 'master_carton') {
-    return count === 1 ? '1 master carton' : `${count} master cartons`;
-  }
-  return count === 1 ? '1 single box' : `${count} single boxes`;
+function parcelChargeBasis(group: FreightParcelGroup): 'actual' | 'volumetric' | 'tie' {
+  const act = Number(group.actualKgEach) || 0;
+  const vol = Number(group.volumetricKgEach) || 0;
+  if (Math.abs(act - vol) < 0.0005) return 'tie';
+  return vol > act ? 'volumetric' : 'actual';
 }
 
-function parcelGroupDetail(group: FreightParcelGroup): string {
-  const lbh = `${group.lengthCm}×${group.breadthCm}×${group.heightCm} cm`;
-  const each = group.count > 1
-    ? ` · each ${formatKg(group.actualKgEach)} kg act / ${formatKg(group.volumetricKgEach)} kg vol → ${formatKg(group.chargeableKgEach)} kg chg`
-    : '';
-  const totals = group.count > 1
-    ? ` · total chg ${formatKg(group.chargeableKgTotal)} kg`
-    : ` · ${formatKg(group.actualKgEach)} kg act / ${formatKg(group.volumetricKgEach)} kg vol → ${formatKg(group.chargeableKgEach)} kg chg`;
-  return `${parcelKindLabel(group.kind, group.count)} · ${lbh}${each}${totals}`;
+/** Split a line freight ₹ across parcel groups by chargeable kg. */
+function allocateParcelGroupAmounts(
+  groups: FreightParcelGroup[],
+  totalInr: number,
+): number[] {
+  const total = Number(totalInr) || 0;
+  if (!groups.length) return [];
+  const weights = groups.map(group => Math.max(0, Number(group.chargeableKgTotal) || 0));
+  const sumKg = weights.reduce((a, b) => a + b, 0);
+  const out: number[] = [];
+  let allocated = 0;
+  for (let i = 0; i < groups.length; i += 1) {
+    if (i === groups.length - 1) {
+      out.push(Math.max(0, Math.round((total - allocated) * 100) / 100));
+      break;
+    }
+    const share = sumKg > 0 ? weights[i]! / sumKg : 1 / groups.length;
+    const amount = Math.round(total * share * 100) / 100;
+    out.push(amount);
+    allocated = Math.round((allocated + amount) * 100) / 100;
+  }
+  return out;
+}
+
+function ParcelGroupDetailCard({
+  group,
+  index,
+  volumetricDivisor,
+  amountInr = 0,
+}: {
+  group: FreightParcelGroup;
+  index: number;
+  volumetricDivisor: number | null;
+  amountInr?: number;
+}) {
+  const basis = parcelChargeBasis(group);
+  const volRaw = group.lengthCm * group.breadthCm * group.heightCm;
+  const divisor = volumetricDivisor && volumetricDivisor > 0 ? volumetricDivisor : null;
+  const kindLabel = group.kind === 'master_carton' ? 'Master carton' : 'Single box';
+  const unitLabel = group.kind === 'master_carton'
+    ? (group.count === 1 ? 'carton' : 'cartons')
+    : (group.count === 1 ? 'box' : 'boxes');
+  const basisLabel = basis === 'volumetric'
+    ? 'Vol wins'
+    : basis === 'actual'
+      ? 'Act wins'
+      : 'Act = Vol';
+  const amount = Number(amountInr) || 0;
+  const perBox = group.count > 1 && amount > 0
+    ? Math.round((amount / group.count) * 100) / 100
+    : null;
+
+  return (
+    <li className="order-freight-panel__calc-packing-card">
+      <p className="order-freight-panel__calc-packing-line">
+        <strong>
+          {kindLabel}
+          {' '}
+          #
+          {index + 1}
+        </strong>
+        <span aria-hidden>·</span>
+        <span>
+          ×
+          {group.count}
+          {' '}
+          {unitLabel}
+        </span>
+        <span aria-hidden>·</span>
+        <span title="LBH (cm)">
+          {group.lengthCm}
+          ×
+          {group.breadthCm}
+          ×
+          {group.heightCm}
+          {' '}
+          cm
+        </span>
+        <span aria-hidden>·</span>
+        <span title="Volume">
+          {volRaw.toLocaleString('en-IN')}
+          {' '}
+          cm³
+          {divisor ? ` ÷ ${divisor}` : ''}
+        </span>
+        <span aria-hidden>·</span>
+        <em className={`order-freight-panel__calc-packing-basis is-${basis}`}>
+          {basisLabel}
+        </em>
+        {amount > 0 ? (
+          <>
+            <span aria-hidden>·</span>
+            <strong className="order-freight-panel__calc-packing-amt" title="Freight share">
+              {formatCurrency(amount)}
+              {perBox != null ? ` (${formatCurrency(perBox)}/box)` : ''}
+            </strong>
+          </>
+        ) : null}
+      </p>
+      <p className="order-freight-panel__calc-packing-weights">
+        <span className="order-freight-panel__calc-packing-weights-label">
+          {group.count > 1 ? 'Each' : 'Weight'}
+        </span>
+        <span>
+          Act
+          {' '}
+          {formatKg(group.actualKgEach)}
+        </span>
+        <span className={basis === 'volumetric' ? 'is-win' : undefined}>
+          Vol
+          {' '}
+          {formatKg(group.volumetricKgEach)}
+        </span>
+        <span className="is-chg">
+          Chg
+          {' '}
+          {formatKg(group.chargeableKgEach)}
+          {' '}
+          kg
+        </span>
+        {group.count > 1 ? (
+          <>
+            <span aria-hidden className="order-freight-panel__calc-packing-sep">|</span>
+            <span className="order-freight-panel__calc-packing-weights-label">
+              ×
+              {group.count}
+            </span>
+            <span>
+              Act
+              {' '}
+              {formatKg(group.actualKgTotal)}
+            </span>
+            <span className={basis === 'volumetric' ? 'is-win' : undefined}>
+              Vol
+              {' '}
+              {formatKg(group.volumetricKgTotal)}
+            </span>
+            <span className="is-chg">
+              Chg
+              {' '}
+              {formatKg(group.chargeableKgTotal)}
+              {' '}
+              kg
+            </span>
+          </>
+        ) : null}
+      </p>
+    </li>
+  );
 }
 
 function lineCalcSummary(line: FreightLineBreakdown): string | null {
@@ -255,12 +395,20 @@ function CourierOptionCard({
   const showManualInput = Boolean(
     opt.enabled
     && opt.manualRate
+    && !opt.liveApiRate
     && allowManualFreightEntry
     && onManualFreightAmountChange,
   );
   const displayAmount = showManualInput && selected && manualFreightAmount != null && manualFreightAmount > 0
     ? manualFreightAmount
-    : amountInr;
+    : (
+      selected
+      && opt.liveApiRate
+      && manualFreightAmount != null
+      && manualFreightAmount > 0
+        ? manualFreightAmount
+        : amountInr
+    );
 
   return (
     <label
@@ -291,11 +439,7 @@ function CourierOptionCard({
           <em className="order-freight-panel__courier-preferred">Preferred</em>
         ) : null}
         {opt.enabled && opt.liveApiRate ? (
-          <em>
-            {displayAmount > 0
-              ? 'Live API estimate'
-              : (showManualInput ? 'Estimating… / enter ₹' : 'Live API estimate')}
-          </em>
+          <em>{displayAmount > 0 ? 'Live API estimate' : 'Estimating…'}</em>
         ) : null}
         {opt.enabled && opt.manualRate && !opt.liveApiRate ? (
           <em>{showManualInput ? 'Enter freight ₹' : 'Enter ₹ on sales order'}</em>
@@ -566,13 +710,36 @@ function ItemFreightCalcTile({
 
           {calc.parcelGroups.length > 0 ? (
             <div className="order-freight-panel__calc-packing">
-              <p className="order-freight-panel__calc-packing-title">Packing detail</p>
+              <div className="order-freight-panel__calc-packing-head">
+                <p className="order-freight-panel__calc-packing-title">Packing detail</p>
+                <em className="order-freight-panel__calc-packing-summary">
+                  {calc.parcelGroups.reduce((sum, group) => sum + group.count, 0)}
+                  {' '}
+                  box
+                  {calc.parcelGroups.reduce((sum, group) => sum + group.count, 0) === 1 ? '' : 'es'}
+                  {' · '}
+                  {formatKg(calc.chargeableKg)}
+                  {' '}
+                  kg chargeable
+                  {calc.rawTotal > 0 ? ` · ${formatCurrency(calc.rawTotal)}` : ''}
+                </em>
+              </div>
               <ul className="order-freight-panel__calc-packing-list">
-                {calc.parcelGroups.map((group, index) => (
-                  <li key={`${group.kind}:${group.lengthCm}:${index}`}>
-                    {parcelGroupDetail(group)}
-                  </li>
-                ))}
+                {(() => {
+                  const groupAmounts = allocateParcelGroupAmounts(
+                    calc.parcelGroups,
+                    calc.rawTotal,
+                  );
+                  return calc.parcelGroups.map((group, index) => (
+                    <ParcelGroupDetailCard
+                      key={`${group.kind}:${group.lengthCm}:${group.breadthCm}:${group.heightCm}:${index}`}
+                      group={group}
+                      index={index}
+                      volumetricDivisor={calc.volumetricDivisor}
+                      amountInr={groupAmounts[index] ?? 0}
+                    />
+                  ));
+                })()}
               </ul>
             </div>
           ) : null}
@@ -675,12 +842,19 @@ function FreightLineRow({
           )}
           <p className="text-muted text-sm">{packingSummary(line)}</p>
           {parcelGroups.length > 0 ? (
-            <ul className="order-freight-panel__parcel-details">
-              {parcelGroups.map((group, index) => (
-                <li key={`${group.kind}:${index}:${group.lengthCm}x${group.breadthCm}x${group.heightCm}`}>
-                  {parcelGroupDetail(group)}
-                </li>
-              ))}
+            <ul className="order-freight-panel__calc-packing-list order-freight-panel__parcel-details">
+              {(() => {
+                const groupAmounts = allocateParcelGroupAmounts(parcelGroups, line.amountInr);
+                return parcelGroups.map((group, index) => (
+                  <ParcelGroupDetailCard
+                    key={`${group.kind}:${index}:${group.lengthCm}x${group.breadthCm}x${group.heightCm}`}
+                    group={group}
+                    index={index}
+                    volumetricDivisor={line.volumetricDivisor ?? null}
+                    amountInr={groupAmounts[index] ?? 0}
+                  />
+                ));
+              })()}
             </ul>
           ) : null}
           {calc ? (

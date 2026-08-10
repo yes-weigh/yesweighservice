@@ -224,7 +224,8 @@ export function listOrderCourierOptions(input: {
         preferred: false,
         enabled: true,
         disabledReason: null,
-        manualRate: (!hasRate && !input.spareOnly) && (allowManual || liveApi),
+        // Live API partners are quoted automatically — not staff-editable ₹.
+        manualRate: (!hasRate && !input.spareOnly) && allowManual && !liveApi,
         liveApiRate: liveApi && !hasRate,
       };
     }
