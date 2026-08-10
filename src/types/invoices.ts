@@ -8,6 +8,11 @@ export type InvoiceStatus =
   | 'partially_paid'
   | 'viewed';
 
+/** Paid invoices lock Delhivery BTC/FOD (freight already settled on the invoice). */
+export function isInvoicePaidStatus(status: unknown): boolean {
+  return String(status ?? '').trim().toLowerCase() === 'paid';
+}
+
 /** Used across invoice, sales order, and purchase order category classification. */
 export type InvoiceCategory = 'product' | 'spare' | 'service' | 'software_key' | 'gatc';
 

@@ -6,6 +6,7 @@ import {
   trackonServiceForPartner,
 } from '../constants/logisticsPartners';
 import type { DealerInvoiceDetail, DealerInvoiceLineItem } from '../types/invoices';
+import { isInvoicePaidStatus } from '../types/invoices';
 import type { LogisticsBooking, ShipmentMode } from '../types/logistics-dispatch';
 import type { LogisticsCourierRates } from '../types/logistics-courier-rates';
 import {
@@ -90,6 +91,12 @@ export type LogisticsFreightCalcDetails = {
 export type LogisticsFreightCompare = {
   invoiceId: string | null;
   invoiceNumber: string | null;
+  /** Linked invoice status when known (e.g. paid). */
+  invoiceStatus: string | null;
+  /**
+   * True when linked invoice is paid — BTC/FOD must not change.
+   */
+  billingModeLocked: boolean;
   items: LogisticsInvoiceItemRow[];
   /** Freight billed on the linked invoice (sum of freight line totals). */
   paidFreightInr: number | null;
@@ -764,9 +771,14 @@ export function buildLogisticsFreightCompare(input: {
       : null
   );
 
+  const invoiceStatus = invoice?.status != null ? String(invoice.status) : null;
+  const billingModeLocked = isInvoicePaidStatus(invoiceStatus);
+
   return {
     invoiceId: invoice?.id ?? booking.invoiceId,
     invoiceNumber: invoice?.invoiceNumber ?? booking.invoiceNumber,
+    invoiceStatus,
+    billingModeLocked,
     items,
     paidFreightInr,
     actualFreightInr,

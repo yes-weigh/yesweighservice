@@ -17,6 +17,8 @@ import {
 } from '../../lib/logisticsBookings';
 import type { User } from '../../types';
 import type { DealerInvoiceDetail } from '../../types/invoices';
+import { isInvoicePaidStatus } from '../../types/invoices';
+import { resolveInvoiceFreightBillingMode } from '../../lib/logisticsPrefill';
 import type { LogisticsBooking } from '../../types/logistics-dispatch';
 import type { StaffLogisticsSite } from '../../types/staff-logistics';
 
@@ -75,6 +77,7 @@ export const InvoiceAddLrDialog: React.FC<Props> = ({
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
   const activePartnerId = allowPartnerPick ? selectedPartnerId : partnerId;
+  const billingModeLocked = isInvoicePaidStatus(invoice.status);
 
   useEffect(() => {
     if (!open) return;
@@ -82,14 +85,15 @@ export const InvoiceAddLrDialog: React.FC<Props> = ({
     setSelectedPartnerId(partnerId);
     setLrn('');
     setBoxCount('1');
-    setFreightBillingMode('btc');
+    const fromInvoice = resolveInvoiceFreightBillingMode(invoice);
+    setFreightBillingMode(fromInvoice || 'btc');
     setCandidates([]);
     setSelectedId('');
     setLinkQuery('');
     setError('');
     setSaving(false);
     setLoadingList(false);
-  }, [open, partnerId]);
+  }, [open, partnerId, invoice]);
 
   useEffect(() => {
     if (!open || mode !== 'link') return;
@@ -339,12 +343,15 @@ export const InvoiceAddLrDialog: React.FC<Props> = ({
             </label>
             {activePartnerId === 'delhivery' ? (
               <div style={{ marginTop: 12 }}>
-                <span className="text-muted text-sm">Freight billing</span>
+                <span className="text-muted text-sm">
+                  Freight billing
+                  {billingModeLocked ? ' · locked (invoice paid)' : ''}
+                </span>
                 <div className="logistics-booking__billing-mode-actions" style={{ marginTop: 8 }}>
                   <button
                     type="button"
                     className={['btn btn-secondary', freightBillingMode === 'btc' ? 'is-active' : ''].filter(Boolean).join(' ')}
-                    disabled={saving}
+                    disabled={saving || billingModeLocked}
                     onClick={() => setFreightBillingMode('btc')}
                   >
                     BTC
@@ -352,14 +359,16 @@ export const InvoiceAddLrDialog: React.FC<Props> = ({
                   <button
                     type="button"
                     className={['btn btn-secondary', freightBillingMode === 'fod' ? 'is-active' : ''].filter(Boolean).join(' ')}
-                    disabled={saving}
+                    disabled={saving || billingModeLocked}
                     onClick={() => setFreightBillingMode('fod')}
                   >
                     FOD
                   </button>
                 </div>
                 <p className="text-muted text-sm" style={{ marginBottom: 0 }}>
-                  Match Delhivery One: BTC = bill to client, FOD = consignee pays freight.
+                  {billingModeLocked
+                    ? 'Invoice is paid — BTC/FOD is taken from the invoice freight line.'
+                    : 'Match Delhivery One: BTC = bill to client, FOD = consignee pays freight.'}
                 </p>
               </div>
             ) : null}

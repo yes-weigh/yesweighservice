@@ -36,6 +36,8 @@ import {
 } from './logisticsBooking';
 import { fetchDealerById } from './dealers';
 import type { DealerInvoiceDetail } from '../types/invoices';
+import { isInvoicePaidStatus } from '../types/invoices';
+import { fetchInvoiceForLogisticsBooking } from './logisticsFreightCompare';
 import {
   dataUrlToFile,
   deleteLogisticsPhoto,
@@ -1505,6 +1507,12 @@ export async function updateLogisticsBookingFreightBillingMode(
   }
   if (mode !== 'fod' && mode !== 'btc') {
     throw new Error('Freight billing mode must be fod or btc.');
+  }
+  if (booking.invoiceId?.trim()) {
+    const invoice = await fetchInvoiceForLogisticsBooking(booking, { isOps: true });
+    if (invoice && isInvoicePaidStatus(invoice.status)) {
+      throw new Error('Cannot change BTC/FOD after the linked invoice is paid.');
+    }
   }
   const updatedAt = new Date().toISOString();
   const courierFreight = booking.courierFreight

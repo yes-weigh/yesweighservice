@@ -1113,6 +1113,7 @@ export const LogisticsBookingDetail: React.FC<LogisticsBookingDetailProps> = ({
                   {booking.freightBillingModeSource
                     ? ` · ${booking.freightBillingModeSource}`
                     : ''}
+                  {freightCompare?.billingModeLocked ? ' · locked (invoice paid)' : ''}
                 </span>
                 <div className="logistics-booking__billing-mode-actions">
                   <button
@@ -1123,7 +1124,7 @@ export const LogisticsBookingDetail: React.FC<LogisticsBookingDetailProps> = ({
                         ? 'is-active'
                         : '',
                     ].filter(Boolean).join(' ')}
-                    disabled={savingBillingMode}
+                    disabled={savingBillingMode || Boolean(freightCompare?.billingModeLocked)}
                     onClick={() => {
                       setSavingBillingMode(true);
                       void updateLogisticsBookingFreightBillingMode(booking, 'btc', user)
@@ -1141,7 +1142,7 @@ export const LogisticsBookingDetail: React.FC<LogisticsBookingDetailProps> = ({
                         ? 'is-active'
                         : '',
                     ].filter(Boolean).join(' ')}
-                    disabled={savingBillingMode}
+                    disabled={savingBillingMode || Boolean(freightCompare?.billingModeLocked)}
                     onClick={() => {
                       setSavingBillingMode(true);
                       void updateLogisticsBookingFreightBillingMode(booking, 'fod', user)

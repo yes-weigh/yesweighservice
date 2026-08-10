@@ -87,6 +87,9 @@ import {
 } from '../../lib/logisticsPhotoVault';
 import { bookDelhiveryShipment } from '../../lib/delhiveryB2b';
 import { pinFromText } from '../../lib/delhiveryQuote';
+import { fetchAdminInvoiceDetail } from '../../lib/admin-invoices';
+import { isInvoicePaidStatus } from '../../types/invoices';
+import { resolveInvoiceFreightBillingMode } from '../../lib/logisticsPrefill';
 import {
   loadLogisticsSettings,
   type LogisticsSiteContact,
@@ -371,6 +374,7 @@ export const BookCourierFlow: React.FC<BookCourierFlowProps> = ({
     head_office: { phone: '', gstin: '' },
   });
   const [invoiceBranchShipFrom, setInvoiceBranchShipFrom] = useState<InvoiceBranchShipFrom | null>(null);
+  const [freightBillingModeLocked, setFreightBillingModeLocked] = useState(false);
   const shipFromLockedByInvoice = Boolean(invoiceBranchShipFrom);
   const shipFromRef = useRef<HTMLDivElement>(null);
   const shippingLabelCanvasRefs = useRef<Array<HTMLCanvasElement | null>>([]);
@@ -682,6 +686,39 @@ export const BookCourierFlow: React.FC<BookCourierFlowProps> = ({
       });
     return () => { cancelled = true; };
   }, [draft.source, draft.invoiceId, draft.zohoCustomerId, existingBookingId]);
+
+  // Paid invoice: lock BTC/FOD (and sync mode from the invoice freight line).
+  useEffect(() => {
+    if (draft.source !== 'invoice' || partnerId !== 'delhivery') {
+      setFreightBillingModeLocked(false);
+      return;
+    }
+    const invoiceId = draft.invoiceId?.trim() || '';
+    const customerId = draft.zohoCustomerId?.trim() || '';
+    if (!invoiceId || !customerId) {
+      setFreightBillingModeLocked(false);
+      return;
+    }
+    let cancelled = false;
+    void fetchAdminInvoiceDetail(customerId, invoiceId)
+      .then(invoice => {
+        if (cancelled) return;
+        const paid = isInvoicePaidStatus(invoice.status);
+        setFreightBillingModeLocked(paid);
+        if (!paid) return;
+        const mode = resolveInvoiceFreightBillingMode(invoice) || 'btc';
+        setDraft(prev => {
+          if (prev.freightBillingMode === mode) return prev;
+          const next = { ...prev, freightBillingMode: mode };
+          draftRef.current = next;
+          return next;
+        });
+      })
+      .catch(() => {
+        if (!cancelled) setFreightBillingModeLocked(false);
+      });
+    return () => { cancelled = true; };
+  }, [draft.source, draft.invoiceId, draft.zohoCustomerId, partnerId]);
 
   useEffect(() => {
     if (!shipFromOpen) return undefined;
@@ -2435,7 +2472,11 @@ export const BookCourierFlow: React.FC<BookCourierFlowProps> = ({
                         'btn btn-secondary',
                         (draft.freightBillingMode || 'btc') === 'btc' ? 'is-active' : '',
                       ].filter(Boolean).join(' ')}
-                      disabled={bookingDelhivery || Boolean(draft.consignmentNo.trim())}
+                      disabled={
+                        bookingDelhivery
+                        || freightBillingModeLocked
+                        || Boolean(draft.consignmentNo.trim())
+                      }
                       onClick={() => applyDraft(prev => ({ ...prev, freightBillingMode: 'btc' }))}
                     >
                       BTC
@@ -2446,12 +2487,21 @@ export const BookCourierFlow: React.FC<BookCourierFlowProps> = ({
                         'btn btn-secondary',
                         draft.freightBillingMode === 'fod' ? 'is-active' : '',
                       ].filter(Boolean).join(' ')}
-                      disabled={bookingDelhivery || Boolean(draft.consignmentNo.trim())}
+                      disabled={
+                        bookingDelhivery
+                        || freightBillingModeLocked
+                        || Boolean(draft.consignmentNo.trim())
+                      }
                       onClick={() => applyDraft(prev => ({ ...prev, freightBillingMode: 'fod' }))}
                     >
                       FOD
                     </button>
                   </div>
+                  {freightBillingModeLocked ? (
+                    <p className="text-muted text-sm">
+                      Invoice is paid — BTC/FOD is locked.
+                    </p>
+                  ) : null}
                   {delhiveryDestPin ? (
                     <DelhiveryQuoteStrip
                       originPin={delhiveryOriginPin || null}
@@ -2464,7 +2514,8 @@ export const BookCourierFlow: React.FC<BookCourierFlowProps> = ({
                   ) : null}
                   {draft.consignmentNo.trim() ? (
                     <p className="text-muted text-sm" style={{ marginBottom: 0 }}>
-                      LR already created — change FOD/BTC later on the booking detail if needed.
+                      LR already created — change FOD/BTC later on the booking detail if needed
+                      {freightBillingModeLocked ? ' (unless the invoice is paid)' : ''}.
                     </p>
                   ) : null}
                 </div>
