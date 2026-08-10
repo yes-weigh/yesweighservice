@@ -5,6 +5,7 @@ import {
   logisticsPartnerLabel,
   trackonServiceForPartner,
 } from '../constants/logisticsPartners';
+import { invoiceTotalInclGst } from '../constants/ewayBill';
 import type { DealerInvoiceDetail, DealerInvoiceLineItem } from '../types/invoices';
 import { isInvoicePaidStatus } from '../types/invoices';
 import type { LogisticsBooking, ShipmentMode } from '../types/logistics-dispatch';
@@ -97,6 +98,8 @@ export type LogisticsFreightCompare = {
    * True when linked invoice is paid — BTC/FOD must not change.
    */
   billingModeLocked: boolean;
+  /** Linked invoice grand total incl. GST (for e-way bill threshold). */
+  invoiceTotalInclGst: number | null;
   items: LogisticsInvoiceItemRow[];
   /** Freight billed on the linked invoice (sum of freight line totals). */
   paidFreightInr: number | null;
@@ -779,6 +782,7 @@ export function buildLogisticsFreightCompare(input: {
     invoiceNumber: invoice?.invoiceNumber ?? booking.invoiceNumber,
     invoiceStatus,
     billingModeLocked,
+    invoiceTotalInclGst: invoice ? invoiceTotalInclGst(invoice) : null,
     items,
     paidFreightInr,
     actualFreightInr,

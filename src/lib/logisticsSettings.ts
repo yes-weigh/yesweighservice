@@ -10,11 +10,8 @@ import {
   normalizeLogisticsPartnerStatuses,
 } from '../constants/logisticsPartnerStatus';
 import {
-  defaultDeliveryPartnerGstins,
   defaultDeliveryPartnerTransporters,
-  normalizeDeliveryPartnerGstins,
   normalizeDeliveryPartnerTransporters,
-  type DeliveryPartnerGstins,
   type DeliveryPartnerTransporters,
 } from '../constants/deliveryPartnerTabs';
 import { normalizeLogisticsDeliveryRules } from './logisticsDeliveryRules';
@@ -108,8 +105,6 @@ export interface LogisticsSettings {
    * Rules may list any partner; SO freight only offers Active or Manual.
    */
   partnerStatuses: LogisticsPartnerStatuses;
-  /** GSTIN per delivery partner tab (Blue Dart, Trackon, Delhivery, etc.). */
-  partnerGstins: DeliveryPartnerGstins;
   /** Zoho e-way transporter per delivery partner tab. */
   partnerTransporters: DeliveryPartnerTransporters;
   /** Public Delhivery B2B API connection metadata (password never returned). */
@@ -128,7 +123,6 @@ export async function loadLogisticsSettings(): Promise<LogisticsSettings> {
         fromSiteContacts: EMPTY_FROM_SITE_CONTACTS(),
         deliveryRules: structuredClone(DEFAULT_LOGISTICS_DELIVERY_RULES),
         partnerStatuses: defaultLogisticsPartnerStatuses(),
-        partnerGstins: defaultDeliveryPartnerGstins(),
         partnerTransporters: defaultDeliveryPartnerTransporters(),
         delhiveryB2b: emptyDelhiveryB2bPublicConfig(),
         updatedAt: '',
@@ -144,9 +138,6 @@ export async function loadLogisticsSettings(): Promise<LogisticsSettings> {
       fromSiteContacts: parseFromSiteContacts(data as Record<string, unknown>),
       deliveryRules: normalizeLogisticsDeliveryRules(data.deliveryRules),
       partnerStatuses: normalizeLogisticsPartnerStatuses(data.partnerStatuses),
-      partnerGstins: normalizeDeliveryPartnerGstins(
-        (data as Record<string, unknown>).partnerGstins,
-      ),
       partnerTransporters: normalizeDeliveryPartnerTransporters(
         (data as Record<string, unknown>).partnerTransporters,
       ),
@@ -161,7 +152,6 @@ export async function loadLogisticsSettings(): Promise<LogisticsSettings> {
       fromSiteContacts: EMPTY_FROM_SITE_CONTACTS(),
       deliveryRules: structuredClone(DEFAULT_LOGISTICS_DELIVERY_RULES),
       partnerStatuses: defaultLogisticsPartnerStatuses(),
-      partnerGstins: defaultDeliveryPartnerGstins(),
       partnerTransporters: defaultDeliveryPartnerTransporters(),
       delhiveryB2b: emptyDelhiveryB2bPublicConfig(),
       updatedAt: '',
@@ -266,24 +256,6 @@ export async function saveLogisticsPartnerStatuses(
     doc(db, 'appSettings', LOGISTICS_SETTINGS_DOC_ID),
     {
       partnerStatuses: normalized,
-      updatedAt,
-      ...(updatedBy ? { updatedBy } : {}),
-    },
-    { merge: true },
-  );
-  return normalized;
-}
-
-export async function saveLogisticsPartnerGstins(
-  partnerGstins: DeliveryPartnerGstins,
-  updatedBy?: string | null,
-): Promise<DeliveryPartnerGstins> {
-  const normalized = normalizeDeliveryPartnerGstins(partnerGstins);
-  const updatedAt = new Date().toISOString();
-  await setDoc(
-    doc(db, 'appSettings', LOGISTICS_SETTINGS_DOC_ID),
-    {
-      partnerGstins: normalized,
       updatedAt,
       ...(updatedBy ? { updatedBy } : {}),
     },

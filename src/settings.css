@@ -2833,20 +2833,7 @@
 }
 
 .settings-courier-rates__gstin-panel {
-  margin: 0;
-}
-
-.settings-courier-rates__partner-tax-row {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 1rem;
   margin: 0 0 1rem;
-}
-
-@media (max-width: 960px) {
-  .settings-courier-rates__partner-tax-row {
-    grid-template-columns: minmax(0, 1fr);
-  }
 }
 
 .settings-courier-rates__transporter-select-row {
@@ -2874,7 +2861,7 @@
 .settings-courier-rates__gstin-toolbar {
   display: flex;
   align-items: flex-start;
-  justify-content: space-between;
+  justify-content: flex-end;
   gap: 0.75rem;
   margin: 0 0 0.65rem;
 }

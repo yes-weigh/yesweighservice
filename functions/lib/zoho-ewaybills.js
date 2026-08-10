@@ -135,37 +135,15 @@ export function deliveryPartnerTabForLogisticsPartner(partnerId) {
   return id;
 }
 
-/**
- * @param {import('firebase-admin/firestore').Firestore} db
- */
-export async function loadPartnerGstin(db, partnerId) {
+async function loadPartnerTransporter(db, partnerId) {
   const tab = deliveryPartnerTabForLogisticsPartner(partnerId);
   const snap = await db.doc('appSettings/logisticsSettings').get();
-  const raw = snap.data()?.partnerGstins;
-  if (!raw || typeof raw !== 'object') return '';
-  return normalizeGstin(raw[tab]);
-}
-
-async function loadPartnerEwaySettings(db, partnerId) {
-  const tab = deliveryPartnerTabForLogisticsPartner(partnerId);
-  const snap = await db.doc('appSettings/logisticsSettings').get();
-  const data = snap.data() ?? {};
-  const gstinRaw = data.partnerGstins;
-  const transporterRaw = data.partnerTransporters?.[tab];
-  let transporter = null;
-  if (transporterRaw && typeof transporterRaw === 'object') {
-    const id = String(transporterRaw.id ?? '').trim();
-    const name = String(transporterRaw.name ?? '').trim();
-    if (id && name) {
-      transporter = { id, name };
-    }
-  }
-  return {
-    gstin: gstinRaw && typeof gstinRaw === 'object'
-      ? normalizeGstin(gstinRaw[tab])
-      : '',
-    transporter,
-  };
+  const transporterRaw = snap.data()?.partnerTransporters?.[tab];
+  if (!transporterRaw || typeof transporterRaw !== 'object') return null;
+  const id = String(transporterRaw.id ?? '').trim();
+  const name = String(transporterRaw.name ?? '').trim();
+  if (!id || !name) return null;
+  return { id, name };
 }
 
 /**
@@ -186,33 +164,24 @@ export async function listZohoTransporters(accessToken, orgId) {
 }
 
 /**
- * Prefer the transporter configured in logistics settings; fall back to GSTIN lookup/create.
+ * Resolve the Zoho transporter configured for a delivery partner.
  * @param {import('firebase-admin/firestore').Firestore} db
  */
 export async function resolveTransporterForPartner(accessToken, orgId, db, partnerId) {
-  const settings = await loadPartnerEwaySettings(db, partnerId);
-  if (settings.transporter?.id) {
+  const transporter = await loadPartnerTransporter(db, partnerId);
+  if (transporter?.id) {
     return {
-      transporterId: settings.transporter.id,
-      transporterName: settings.transporter.name,
+      transporterId: transporter.id,
+      transporterName: transporter.name,
     };
   }
 
   const transporterName = partnerLabel(partnerId) || partnerId;
-  if (!settings.gstin) {
-    throw new Error(
-      'No Zoho transporter is linked to this delivery partner. '
-      + 'Open Settings → Logistics → Delivery Partners, pick the Zoho transporter '
-      + `(e.g. ${transporterName}), save, then retry.`,
-    );
-  }
-  const transporterId = await resolveZohoTransporterId(
-    accessToken,
-    orgId,
-    settings.gstin,
-    transporterName,
+  throw new Error(
+    'No Zoho transporter is linked to this delivery partner. '
+    + 'Open Settings → Logistics → Delivery Partners, pick the Zoho transporter '
+    + `(e.g. ${transporterName}), save, then retry.`,
   );
-  return { transporterId, transporterName };
 }
 
 function partnerLabel(partnerId) {
@@ -232,44 +201,6 @@ function partnerLabel(partnerId) {
   if (id.startsWith('bluedart_')) return 'Blue Dart';
   if (id.startsWith('trackon_')) return 'Trackon';
   return id || 'Courier';
-}
-
-/**
- * @param {string} accessToken
- * @param {string} orgId
- * @param {string} gstin
- * @param {string} name
- */
-export async function resolveZohoTransporterId(accessToken, orgId, gstin, name) {
-  const registrationId = normalizeGstin(gstin);
-  if (!registrationId) {
-    throw new Error(
-      'Delivery partner GSTIN is not configured. '
-      + 'Set a Zoho transporter (preferred) or GSTIN under Settings → Logistics → Delivery Partners.',
-    );
-  }
-
-  const listed = await zohoJson(accessToken, orgId, '/ewaybills/transporters');
-  const rows = Array.isArray(listed?.transporters) ? listed.transporters : [];
-  const existing = rows.find(row => (
-    normalizeGstin(row?.transporter_registration_id) === registrationId
-  ));
-  if (existing?.transporter_id) {
-    return String(existing.transporter_id);
-  }
-
-  const created = await zohoJson(accessToken, orgId, '/ewaybills/transporters', {
-    method: 'POST',
-    body: {
-      transporter_name: String(name || 'Courier').trim() || 'Courier',
-      transporter_registration_id: registrationId,
-    },
-  });
-  const transporterId = created?.transporter?.transporter_id;
-  if (!transporterId) {
-    throw new Error('Zoho did not return a transporter id.');
-  }
-  return String(transporterId);
 }
 
 /**

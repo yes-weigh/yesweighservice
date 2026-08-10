@@ -19,8 +19,6 @@ export const DELIVERY_PARTNER_TAB_IDS = [
 
 export type DeliveryPartnerTabId = typeof DELIVERY_PARTNER_TAB_IDS[number];
 
-export type DeliveryPartnerGstins = Record<DeliveryPartnerTabId, string>;
-
 /** Zoho e-way transporter linked to a delivery partner tab. */
 export type DeliveryPartnerTransporterRef = {
   id: string;
@@ -31,35 +29,6 @@ export type DeliveryPartnerTransporters = Record<
   DeliveryPartnerTabId,
   DeliveryPartnerTransporterRef | null
 >;
-
-export function defaultDeliveryPartnerGstins(): DeliveryPartnerGstins {
-  const out = {} as DeliveryPartnerGstins;
-  for (const id of DELIVERY_PARTNER_TAB_IDS) {
-    out[id] = '';
-  }
-  return out;
-}
-
-export function normalizeDeliveryPartnerGstins(raw: unknown): DeliveryPartnerGstins {
-  const defaults = defaultDeliveryPartnerGstins();
-  if (!raw || typeof raw !== 'object') return defaults;
-  const data = raw as Record<string, unknown>;
-  const out = { ...defaults };
-  for (const id of DELIVERY_PARTNER_TAB_IDS) {
-    const value = data[id];
-    if (typeof value === 'string') {
-      out[id] = value.trim().toUpperCase();
-    }
-  }
-  return out;
-}
-
-export function deliveryPartnerGstinsEqual(
-  a: DeliveryPartnerGstins,
-  b: DeliveryPartnerGstins,
-): boolean {
-  return DELIVERY_PARTNER_TAB_IDS.every(id => a[id] === b[id]);
-}
 
 export function defaultDeliveryPartnerTransporters(): DeliveryPartnerTransporters {
   const out = {} as DeliveryPartnerTransporters;

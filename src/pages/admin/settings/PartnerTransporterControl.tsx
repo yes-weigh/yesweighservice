@@ -13,7 +13,7 @@ type Props = {
   disabled?: boolean;
 };
 
-/** Zoho e-way transporter picker shown next to the partner GSTIN field. */
+/** Zoho e-way transporter picker on each Delivery Partners detail panel. */
 export const PartnerTransporterControl: React.FC<Props> = ({
   value,
   partnerLabel,
@@ -87,11 +87,6 @@ export const PartnerTransporterControl: React.FC<Props> = ({
     <fieldset className="settings-courier-rates__card settings-courier-rates__gstin-panel">
       <legend>Zoho transporter</legend>
       <div className="settings-courier-rates__gstin-toolbar">
-        <p className="text-muted text-sm">
-          {editing
-            ? 'Pick the transporter Zoho should use on e-way bills for this partner.'
-            : 'Click Edit to link a Zoho transporter for e-way bills.'}
-        </p>
         {editing ? (
           <button
             type="button"
@@ -174,9 +169,6 @@ export const PartnerTransporterControl: React.FC<Props> = ({
         <p className="settings-courier-rates__transporter-display">{displayName}</p>
       )}
 
-      <p className="settings-courier-rates__gstin-hint text-muted text-sm">
-        Used as the transporter on Zoho e-way bills when this partner books a shipment.
-      </p>
     </fieldset>
   );
 };

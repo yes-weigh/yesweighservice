@@ -14,7 +14,6 @@ import {
 } from '../../../constants/logisticsPartners';
 import { partnerStatusesEqual } from '../../../constants/logisticsPartnerStatus';
 import {
-  type DeliveryPartnerGstins,
   type DeliveryPartnerTabId,
   type DeliveryPartnerTransporterRef,
   type DeliveryPartnerTransporters,
@@ -32,7 +31,7 @@ import {
   saveTrackonConfig,
   trackonConfigsEqual,
 } from '../../../lib/logisticsCourierRates';
-import { saveLogisticsPartnerGstins, saveLogisticsPartnerStatuses, saveLogisticsPartnerTransporters } from '../../../lib/logisticsSettings';
+import { saveLogisticsPartnerStatuses, saveLogisticsPartnerTransporters } from '../../../lib/logisticsSettings';
 import type { BlueDartConfig } from '../../../types/blue-dart-rates';
 import type { TrackonConfig } from '../../../types/trackon-rates';
 import type { LogisticsDeliveryRulesMatrix } from '../../../types/logistics-delivery-rules';
@@ -60,7 +59,6 @@ import {
 import { BlueDartRatesEditor } from './BlueDartRatesEditor';
 import { TrackonRatesEditor } from './TrackonRatesEditor';
 import { PartnerStatusControl } from './PartnerStatusControl';
-import { PartnerGstinControl } from './PartnerGstinControl';
 import { PartnerTransporterControl } from './PartnerTransporterControl';
 import { DelhiveryB2bApiPanel } from './DelhiveryB2bApiPanel';
 
@@ -140,10 +138,8 @@ function partnerLabel(id: DeliveryPartnerTabId): string {
 type Props = {
   deliveryRules: LogisticsDeliveryRulesMatrix;
   partnerStatuses: LogisticsPartnerStatuses;
-  partnerGstins: DeliveryPartnerGstins;
   partnerTransporters: DeliveryPartnerTransporters;
   onPartnerStatusesSaved: (next: LogisticsPartnerStatuses) => void;
-  onPartnerGstinsSaved: (next: DeliveryPartnerGstins) => void;
   onPartnerTransportersSaved: (next: DeliveryPartnerTransporters) => void;
   onError: (message: string) => void;
 };
@@ -172,10 +168,8 @@ function withPartnerRates(
 export const StCourierRatesSettings: React.FC<Props> = ({
   deliveryRules,
   partnerStatuses,
-  partnerGstins,
   partnerTransporters,
   onPartnerStatusesSaved,
-  onPartnerGstinsSaved,
   onPartnerTransportersSaved,
   onError,
 }) => {
@@ -397,26 +391,6 @@ export const StCourierRatesSettings: React.FC<Props> = ({
     }, LIVE_SAVE_MS);
   }, [onError, onPartnerStatusesSaved, userUid]);
 
-  const savePartnerGstin = useCallback(async (
-    id: DeliveryPartnerTabId,
-    value: string,
-  ) => {
-    const next = { ...partnerGstins, [id]: value.toUpperCase() };
-    const epoch = ++saveEpochRef.current;
-    setSaveStatus('saving');
-    onError('');
-    try {
-      const normalized = await saveLogisticsPartnerGstins(next, userUid);
-      onPartnerGstinsSaved(normalized);
-      if (epoch === saveEpochRef.current) setSaveStatus('saved');
-    } catch (err) {
-      if (epoch !== saveEpochRef.current) return;
-      setSaveStatus('error');
-      onError(err instanceof Error ? err.message : 'Could not save partner GST numbers.');
-      throw err;
-    }
-  }, [onError, onPartnerGstinsSaved, partnerGstins, userUid]);
-
   const savePartnerTransporter = useCallback(async (
     id: DeliveryPartnerTabId,
     value: DeliveryPartnerTransporterRef | null,
@@ -625,18 +599,11 @@ export const StCourierRatesSettings: React.FC<Props> = ({
       ) : null}
 
       {!loading ? (
-        <div className="settings-courier-rates__partner-tax-row">
-          <PartnerGstinControl
-            value={partnerGstins[partnerId]}
-            partnerLabel={partnerLabel(partnerId)}
-            onSave={value => savePartnerGstin(partnerId, value)}
-          />
-          <PartnerTransporterControl
-            value={partnerTransporters[partnerId]}
-            partnerLabel={partnerLabel(partnerId)}
-            onSave={value => savePartnerTransporter(partnerId, value)}
-          />
-        </div>
+        <PartnerTransporterControl
+          value={partnerTransporters[partnerId]}
+          partnerLabel={partnerLabel(partnerId)}
+          onSave={value => savePartnerTransporter(partnerId, value)}
+        />
       ) : null}
 
       {loading ? (

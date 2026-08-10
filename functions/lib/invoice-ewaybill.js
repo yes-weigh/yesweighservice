@@ -17,8 +17,8 @@ import {
 
 export const EWAY_BILL_THRESHOLD_INR = 50_000;
 
-function isEwayBillRequired(totalInr) {
-  const total = Number(totalInr);
+function isEwayBillRequired(totalInclGst) {
+  const total = Number(totalInclGst);
   return Number.isFinite(total) && total > EWAY_BILL_THRESHOLD_INR;
 }
 
@@ -162,7 +162,7 @@ export async function ensureInvoiceEwayBill(secrets, orgId, input) {
       required: false,
       status: doc.status,
       ewaybillNumber: null,
-      message: `E-way bill is not required for invoices of ₹${EWAY_BILL_THRESHOLD_INR.toLocaleString('en-IN')} or below.`,
+      message: `E-way bill is not required for invoice totals incl. GST of ₹${EWAY_BILL_THRESHOLD_INR.toLocaleString('en-IN')} or below.`,
     };
   }
 
