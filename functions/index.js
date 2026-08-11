@@ -254,6 +254,7 @@ import {
   uploadCatalogMediaFile as storeCatalogMediaFile,
 } from './lib/catalog-media-upload.js';
 import { fetchBlueDartDieselFuelSurcharge } from './lib/blue-dart-diesel-fuel.js';
+import { fetchBlueDartAirSurcharges } from './lib/blue-dart-air-surcharges.js';
 import { updatePublicSalaryShare as updatePublicSalaryShareRecord } from './lib/hr-salary-share-update.js';
 import { switchPublicSalarySharePeriod as switchPublicSalarySharePeriodRecord } from './lib/hr-salary-share-switch-period.js';
 import { CI_BUILD_TAG } from './lib/ci-build.js';
@@ -5410,6 +5411,23 @@ export const fetchBlueDartDieselFuelSurchargeFn = onCall(
       throw new HttpsError(
         'internal',
         err?.message ?? 'Could not fetch Blue Dart diesel fuel surcharge.',
+      );
+    }
+  },
+);
+
+/** Scrape Blue Dart published Domestic FS + CAF (Air / DP shared). Super admin. */
+export const fetchBlueDartAirSurchargesFn = onCall(
+  { region: 'asia-south1', timeoutSeconds: 60, memory: '256MiB' },
+  async request => {
+    await requireActiveUser(request.auth?.uid, SUPER_ADMIN_ROLES, { allowViewOnly: true });
+    try {
+      return await fetchBlueDartAirSurcharges();
+    } catch (err) {
+      if (err instanceof HttpsError) throw err;
+      throw new HttpsError(
+        'internal',
+        err?.message ?? 'Could not fetch Blue Dart FS / CAF surcharges.',
       );
     }
   },

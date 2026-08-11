@@ -16,6 +16,11 @@ import {
   normalizeBlueDartOversizeSlabs,
 } from '../../../constants/blueDartRates';
 import {
+  BLUE_DART_CAF_URL,
+  BLUE_DART_FUEL_SURCHARGE_URL,
+  fetchBlueDartAirSurcharges,
+} from '../../../lib/blueDartAirSurcharges';
+import {
   BLUE_DART_DIESEL_FUEL_SURCHARGE_URL,
   fetchBlueDartDieselFuelSurcharge,
 } from '../../../lib/blueDartDieselFuel';
@@ -173,6 +178,33 @@ function SharedChargesEditor(props: {
   onPatch: (patch: Partial<BlueDartConfig['shared']>) => void;
 }) {
   const { shared, onPatch } = props;
+  const [airFetchBusy, setAirFetchBusy] = useState(false);
+  const [airFetchNote, setAirFetchNote] = useState<string | null>(null);
+  const [airFetchError, setAirFetchError] = useState<string | null>(null);
+
+  const handleFetchAirFsCaf = async () => {
+    if (airFetchBusy) return;
+    setAirFetchBusy(true);
+    setAirFetchError(null);
+    setAirFetchNote(null);
+    try {
+      const result = await fetchBlueDartAirSurcharges();
+      onPatch({
+        fuelSurchargePercent: result.fuel.percent,
+        cafPercent: result.caf.percent,
+      });
+      setAirFetchNote(
+        `Applied FS ${result.fuel.percent}% (${result.fuel.effectiveLabel}) · CAF ${result.caf.percent}% (${result.caf.effectiveLabel})`,
+      );
+    } catch (err) {
+      setAirFetchError(
+        err instanceof Error ? err.message : 'Could not fetch FS / CAF surcharges.',
+      );
+    } finally {
+      setAirFetchBusy(false);
+    }
+  };
+
   return (
     <div className="settings-bluedart__shared-block">
       <div className="settings-bluedart__shared-head">
@@ -181,19 +213,66 @@ function SharedChargesEditor(props: {
       </div>
 
       <div className="settings-bluedart__subhead">Fuel &amp; tax add-ons</div>
+      <div className="settings-bluedart__diesel settings-bluedart__air-surcharges">
+        <div className="settings-bluedart__diesel-fields">
+          <div className="settings-bluedart__diesel-col">
+            <PctInput
+              label="Fuel (FS)"
+              tip="Domestic Fuel Surcharge from Blue Dart — absolute % you bill (e.g. 99)."
+              value={shared.fuelSurchargePercent}
+              hint="published domestic"
+              onChange={fuelSurchargePercent => onPatch({ fuelSurchargePercent })}
+            />
+          </div>
+          <div className="settings-bluedart__diesel-col">
+            <PctInput
+              label="CAF"
+              tip="Currency Adjustment Factor from Blue Dart — absolute % (e.g. 22.5)."
+              value={shared.cafPercent}
+              hint="published CAF"
+              onChange={cafPercent => onPatch({ cafPercent })}
+            />
+          </div>
+        </div>
+        <div className="settings-bluedart__diesel-actions">
+          <button
+            type="button"
+            className="btn btn-secondary btn-sm"
+            disabled={airFetchBusy}
+            onClick={() => void handleFetchAirFsCaf()}
+          >
+            {airFetchBusy
+              ? <Loader2 size={14} className="spin-icon" aria-hidden />
+              : <RefreshCw size={14} aria-hidden />}
+            {airFetchBusy ? 'Fetching…' : 'Fetch current'}
+          </button>
+          <a
+            href={BLUE_DART_FUEL_SURCHARGE_URL}
+            target="_blank"
+            rel="noreferrer"
+            className="settings-bluedart__inline-link"
+          >
+            FS source
+            <ExternalLink size={12} aria-hidden />
+          </a>
+          <a
+            href={BLUE_DART_CAF_URL}
+            target="_blank"
+            rel="noreferrer"
+            className="settings-bluedart__inline-link"
+          >
+            CAF source
+            <ExternalLink size={12} aria-hidden />
+          </a>
+        </div>
+        {airFetchNote ? (
+          <p className="settings-bluedart__diesel-note text-sm">{airFetchNote}</p>
+        ) : null}
+        {airFetchError ? (
+          <p className="settings-bluedart__diesel-error text-sm" role="alert">{airFetchError}</p>
+        ) : null}
+      </div>
       <div className="settings-courier-rates__inline-fields settings-bluedart__grid">
-        <PctInput
-          label="Fuel (FS)"
-          tip="Fuel Surcharge — absolute % you bill (e.g. 92)."
-          value={shared.fuelSurchargePercent}
-          onChange={fuelSurchargePercent => onPatch({ fuelSurchargePercent })}
-        />
-        <PctInput
-          label="CAF"
-          tip="Currency Adjustment Factor — absolute % (e.g. 22)."
-          value={shared.cafPercent}
-          onChange={cafPercent => onPatch({ cafPercent })}
-        />
         <InrInput
           label="Remote area (RAS)"
           tip="Remote Area Surcharge — ₹/kg for Bihar, Jharkhand, Kerala, J&K, Ladakh."
