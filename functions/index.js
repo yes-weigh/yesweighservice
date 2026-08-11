@@ -1991,7 +1991,7 @@ export const ensureInvoiceEwayBillFn = onCall(
     } catch (err) {
       if (err instanceof HttpsError) throw err;
       const message = err?.message ?? 'Could not ensure e-way bill.';
-      const code = /not configured|not linked|not required|not found|cancelled|Distance \(km\)/i.test(message)
+      const code = /not configured|not linked|not required|not found|cancelled|Distance \(km\)|Ship-from address/i.test(message)
         ? 'failed-precondition'
         : 'internal';
       throw new HttpsError(code, message);

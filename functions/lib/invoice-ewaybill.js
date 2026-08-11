@@ -14,6 +14,7 @@ import {
   normalizeGstin,
   resolveTransporterForPartner,
 } from './zoho-ewaybills.js';
+import { loadBookingShippingContext } from './eway-shipping-context.js';
 
 export const EWAY_BILL_THRESHOLD_INR = 50_000;
 
@@ -198,10 +199,23 @@ export async function ensureInvoiceEwayBill(secrets, orgId, input) {
       getFirestore(),
       partnerId,
     );
+    const shippingContext = bookingId
+      ? await loadBookingShippingContext(getFirestore(), bookingId)
+      : null;
+    if (!shippingContext?.shipFromAddress) {
+      throw new Error(
+        'Ship-from address is missing on this shipment. '
+        + 'Apply the site address from Logistics settings, then retry e-way bill generation.',
+      );
+    }
     remote = await createZohoEwayBillForInvoice(accessToken, organizationId, {
       invoiceId,
       transporterId,
       lrNumber,
+      shipFromAddress: shippingContext.shipFromAddress,
+      deliveryAddress: shippingContext.deliveryAddress || invoice.shippingAddress || null,
+      shipFromSite: shippingContext.shipFromSite,
+      db: getFirestore(),
     });
   }
 

@@ -24585,8 +24585,12 @@ body:has(.confirm-inline-bar) .confirm-inline-bar {
   z-index: 35;
   background: var(--logistics-booking-sticky-top-bg, #0f172a);
   margin: 0;
-  padding: 0 var(--logistics-booking-edge-pad, 0.85rem) 0.45rem;
-  border-bottom: 1px solid rgba(148, 163, 184, 0.14);
+  padding: 0.45rem var(--logistics-booking-edge-pad, 0.85rem) 0;
+  border-bottom: none;
+}
+
+.logistics-booking__docs {
+  margin-top: 0;
 }
 
 .logistics-booking__sticky-section-bar {
@@ -24597,7 +24601,8 @@ body:has(.confirm-inline-bar) .confirm-inline-bar {
   z-index: 34;
   background: var(--logistics-booking-sticky-section-bg, #111827);
   margin: 0;
-  padding: 0.6rem var(--logistics-booking-edge-pad, 0.85rem);
+  padding: 0.55rem var(--logistics-booking-edge-pad, 0.85rem);
+  border-top: none;
   border-bottom: 1px solid rgba(148, 163, 184, 0.16);
   font-size: 1.0625rem;
   font-weight: 700;
@@ -24733,10 +24738,6 @@ body:has(.confirm-inline-bar) .confirm-inline-bar {
   display: flex;
   align-items: center;
   gap: 0.75rem;
-}
-
-.logistics-booking__docs {
-  margin-top: 0;
 }
 
 .logistics-booking__doc-row {

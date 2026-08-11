@@ -1416,7 +1416,8 @@ export const LogisticsBookingDetail: React.FC<LogisticsBookingDetailProps> = ({
 
     const syncStickyChrome = () => {
       if (topEl) {
-        article.style.setProperty('--logistics-booking-sticky-top-h', `${topEl.offsetHeight}px`);
+        const topHeight = topEl.getBoundingClientRect().height;
+        article.style.setProperty('--logistics-booking-sticky-top-h', `${topHeight}px`);
       }
       if (sectionBarEl) {
         article.style.setProperty(
@@ -1502,6 +1503,8 @@ export const LogisticsBookingDetail: React.FC<LogisticsBookingDetailProps> = ({
           </span>
         </div>
       </header>
+      </div>
+      <div className="logistics-booking__sticky-top-spacer" aria-hidden />
 
       <div className="logistics-booking__docs">
         <div
@@ -1603,8 +1606,7 @@ export const LogisticsBookingDetail: React.FC<LogisticsBookingDetailProps> = ({
           </p>
         )}
       </div>
-      </div>
-      <div className="logistics-booking__sticky-top-spacer" aria-hidden />
+
       <div
         ref={sectionBarRef}
         className={[

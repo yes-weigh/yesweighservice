@@ -7,6 +7,10 @@ import {
   recordZohoApiFailure,
   classifyZohoHttpError,
 } from './zoho-api-usage.js';
+import {
+  ensureZohoDispatchFromAddress,
+  resolvePortalEwayDistanceKm,
+} from './eway-shipping-context.js';
 
 function formatZohoApiError(payload, fallback) {
   const parts = [];
@@ -100,10 +104,19 @@ async function fetchZohoEwayBillRecord(accessToken, orgId, ewaybillId) {
   return payload?.ewaybill ?? null;
 }
 
-async function resolveEwayDistanceKm(accessToken, orgId, invoice, explicitDistance) {
-  const explicit = Number(explicitDistance);
+async function resolveEwayDistanceKm(accessToken, orgId, invoice, options = {}) {
+  const explicit = Number(options.explicitDistance);
   if (Number.isFinite(explicit) && explicit > 0) {
     return Math.round(explicit);
+  }
+
+  const portalDistance = await resolvePortalEwayDistanceKm({
+    shipFromAddress: options.shipFromAddress,
+    deliveryAddress: options.deliveryAddress,
+    zohoShippingAddress: invoice?.shipping_address ?? invoice?.shippingAddress,
+  });
+  if (Number.isFinite(portalDistance) && portalDistance > 0) {
+    return Math.round(portalDistance);
   }
 
   const ewaybillId = invoice?.ewaybill_id ? String(invoice.ewaybill_id) : '';
@@ -120,7 +133,7 @@ async function resolveEwayDistanceKm(accessToken, orgId, invoice, explicitDistan
   }
 
   throw new Error(
-    'Distance (km) is required for e-way bill generation. Open the invoice in Zoho Inventory, confirm dispatch-from and shipping addresses, save once in Zoho so distance is calculated, then retry.',
+    'Distance (km) could not be calculated. Confirm ship-from and delivery addresses on this shipment include valid 6-digit pincodes, then retry.',
   );
 }
 
@@ -246,6 +259,11 @@ export async function findZohoEwayBillForInvoice(accessToken, orgId, invoiceId) 
  *   transporterId: string;
  *   lrNumber?: string | null;
  *   distance?: number | null;
+ *   shipFromAddress?: string | null;
+ *   deliveryAddress?: string | null;
+ *   dispatchFromAddressId?: string | null;
+ *   shipFromSite?: string | null;
+ *   db?: import('firebase-admin/firestore').Firestore | null;
  * }} input
  */
 export async function createZohoEwayBillForInvoice(accessToken, orgId, input) {
@@ -257,7 +275,28 @@ export async function createZohoEwayBillForInvoice(accessToken, orgId, input) {
 
   const invoiceEwayStatus = String(invoice.ewaybill_status ?? '').trim().toLowerCase();
   const lr = String(input.lrNumber ?? '').trim();
-  const distance = await resolveEwayDistanceKm(accessToken, orgId, invoice, input.distance);
+  const shipFromAddress = String(input.shipFromAddress ?? '').trim();
+  const deliveryAddress = String(input.deliveryAddress ?? '').trim();
+
+  let dispatchFromAddressId = String(input.dispatchFromAddressId ?? '').trim();
+  if (!dispatchFromAddressId && shipFromAddress) {
+    dispatchFromAddressId = await ensureZohoDispatchFromAddress(
+      accessToken,
+      orgId,
+      zohoJson,
+      shipFromAddress,
+      {
+        db: input.db ?? null,
+        shipFromSite: input.shipFromSite ?? null,
+      },
+    );
+  }
+
+  const distance = await resolveEwayDistanceKm(accessToken, orgId, invoice, {
+    explicitDistance: input.distance,
+    shipFromAddress,
+    deliveryAddress,
+  });
   const shipToAddressId = invoice.shipping_address?.address_id
     ?? invoice.shipping_address_id
     ?? null;
@@ -275,6 +314,7 @@ export async function createZohoEwayBillForInvoice(accessToken, orgId, input) {
     ...(invoice.branch_id ? { branch_id: String(invoice.branch_id) } : {}),
     ...(invoice.location_id ? { location_id: String(invoice.location_id) } : {}),
     ...(shipToAddressId ? { ship_to_address_id: String(shipToAddressId) } : {}),
+    ...(dispatchFromAddressId ? { dispatch_from_address_id: dispatchFromAddressId } : {}),
     ...(lr ? { transporter_document_number: lr.slice(0, 30) } : {}),
   };
 
