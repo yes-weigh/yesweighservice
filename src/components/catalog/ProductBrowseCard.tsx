@@ -3,7 +3,6 @@ import { ArrowDown, ArrowUp, IndianRupee, Link2, Minus, Package, ShoppingCart } 
 import { getCategoryTheme } from '../../lib/category-display';
 import {
   catalogProductHasSingleBoxPackageInfo,
-  catalogProductIgnoresStockForCart,
   expectsCatalogPackageInfo,
 } from '../../lib/catalog';
 import {
@@ -111,8 +110,6 @@ export const ProductBrowseCard: React.FC<ProductBrowseCardProps> = ({
   const longPressOrigin = useRef<{ x: number; y: number } | null>(null);
   const longPressFired = useRef(false);
   const theme = getCategoryTheme(index);
-  const outOfStock = product.stockStatus === 'out_of_stock'
-    && !catalogProductIgnoresStockForCart(product);
   const inCart = isInCart(product.id);
   const showCartButton = enableCart && (!isCartable || isCartable(product));
   const hasStamping = productHasLinkedGatc(product);
@@ -226,7 +223,6 @@ export const ProductBrowseCard: React.FC<ProductBrowseCardProps> = ({
 
   const handleAddToCart = (event: React.MouseEvent<HTMLButtonElement>) => {
     event.stopPropagation();
-    if (outOfStock) return;
     // Stampable items add without stamping; dealer configures in cart.
     if (addItem(product)) {
       flyToCart(event.currentTarget, { imageUrl: product.imageUrl });
@@ -242,7 +238,6 @@ export const ProductBrowseCard: React.FC<ProductBrowseCardProps> = ({
       style={cardStyle}
       className={[
         'catalog-product-card',
-        outOfStock ? 'catalog-product-card--unavailable' : '',
         inCart ? 'catalog-product-card--in-cart' : '',
         editable ? 'catalog-product-card--editable' : '',
         dragOver ? 'catalog-product-card--drag-over' : '',
@@ -453,9 +448,8 @@ export const ProductBrowseCard: React.FC<ProductBrowseCardProps> = ({
           type="button"
           className={`catalog-product-card__cart-btn ${addedFlash ? 'catalog-product-card__cart-btn--added' : ''}`}
           onClick={handleAddToCart}
-          disabled={outOfStock}
-          aria-label={outOfStock ? 'Out of stock' : inCart ? 'Add another to cart' : 'Add to cart'}
-          title={outOfStock ? 'Out of stock' : 'Add to cart'}
+          aria-label={inCart ? 'Add another to cart' : 'Add to cart'}
+          title="Add to cart"
         >
           <ShoppingCart size={16} />
         </button>

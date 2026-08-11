@@ -30,7 +30,6 @@ import {
   fetchCatalogProductDetail,
   fetchCatalogSpareLinks,
   assignProductCategory,
-  catalogProductIgnoresStockForCart,
   expectsCatalogPackageInfo,
   formatCurrencyWhole,
   formatStockQuantity,
@@ -992,8 +991,6 @@ export const ProductDetailView: React.FC<{
     () => detail?.warehouses?.filter(w => w.warehouseName && w.stock > 0) ?? [],
     [detail?.warehouses],
   );
-  const outOfStock = product?.stockStatus === 'out_of_stock'
-    && !catalogProductIgnoresStockForCart(product ?? { categoryName: null, categoryId: null });
   const cartQty = product ? getQuantity(product.id) : 0;
 
   const parseQuantity = useCallback((value: string) => Math.max(1, parseInt(value, 10) || 1), []);
@@ -1011,7 +1008,7 @@ export const ProductDetailView: React.FC<{
   }, [productId]);
 
   const handleAddToCart = (event: React.MouseEvent<HTMLButtonElement>) => {
-    if (!product || outOfStock) return;
+    if (!product) return;
     const quantity = parseQuantity(quantityText);
     setQuantityText(String(quantity));
     // Stampable items add without stamping; dealer configures in cart.
@@ -2502,10 +2499,9 @@ export const ProductDetailView: React.FC<{
                 type="button"
                 className={`btn btn-primary product-detail-page__add-cart ${addedFlash ? 'product-detail-page__add-cart--added' : ''}`}
                 onClick={handleAddToCart}
-                disabled={outOfStock}
               >
                 <ShoppingCart size={18} />
-                {addedFlash ? 'Added to cart' : outOfStock ? 'Out of stock' : 'Add to cart'}
+                {addedFlash ? 'Added to cart' : 'Add to cart'}
               </button>
               {cartQty > 0 && (
                 <button

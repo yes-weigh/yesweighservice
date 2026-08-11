@@ -3,7 +3,6 @@ import { useNavigate } from 'react-router-dom';
 import { IndianRupee, Link2Off, Package, ShoppingCart } from 'lucide-react';
 import { useCart } from '../../context/useCart';
 import { useCartFly } from '../../context/useCartFly';
-import { catalogProductIgnoresStockForCart } from '../../lib/catalog';
 import type { CatalogNavState } from '../../lib/catalogNav';
 import type { CatalogProduct } from '../../types/catalog';
 import { QuantityStepper } from '../QuantityStepper';
@@ -36,27 +35,16 @@ function RelatedCatalogCartControls({
     );
   }
 
-  const outOfStock = item.stockStatus === 'out_of_stock'
-    && !catalogProductIgnoresStockForCart(item);
   const cartQty = getQuantity(item.id);
   const primaryLine = items.find(line => line.productId === item.id && !line.gatcStampingPriceId)
     ?? items.find(line => line.productId === item.id);
 
   const handleAdd = (event: React.MouseEvent<HTMLButtonElement>) => {
     event.stopPropagation();
-    if (outOfStock) return;
     if (addItem(item, 1)) {
       flyToCart(event.currentTarget, { imageUrl: item.imageUrl });
     }
   };
-
-  if (outOfStock) {
-    return (
-      <div className="related-catalog__actions related-catalog__actions--muted">
-        <span className="related-catalog__cart-unavailable">Out of stock</span>
-      </div>
-    );
-  }
 
   if (cartQty === 0 || !primaryLine) {
     return (

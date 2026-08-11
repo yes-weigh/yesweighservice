@@ -31813,6 +31813,31 @@ button.invoice-detail-top__card {
   font-weight: 800;
 }
 
+.invoice-detail-item__avail-chip {
+  display: inline-flex;
+  align-items: center;
+  align-self: flex-start;
+  margin-top: 0.35rem;
+  padding: 0.18rem 0.55rem;
+  border-radius: 999px;
+  font-size: 0.6875rem;
+  font-weight: 600;
+  line-height: 1.25;
+  letter-spacing: 0.01em;
+}
+
+.invoice-detail-item__avail-chip--ok {
+  background: rgba(16, 185, 129, 0.14);
+  color: #6ee7b7;
+  border: 1px solid rgba(16, 185, 129, 0.32);
+}
+
+.invoice-detail-item__avail-chip--low {
+  background: rgba(239, 68, 68, 0.12);
+  color: #fca5a5;
+  border: 1px solid rgba(239, 68, 68, 0.3);
+}
+
 .invoice-detail-item__service {
   flex-shrink: 0;
   align-self: center;

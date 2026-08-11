@@ -24,6 +24,8 @@ interface InvoiceDocumentBodyProps {
   selectFreight?: boolean;
   /** Content rendered under the selected / expanded line. */
   renderExpanded?: (item: DealerInvoiceLineItem) => React.ReactNode;
+  /** Optional meta under each line (e.g. available stock for staff review). */
+  itemMeta?: (item: DealerInvoiceLineItem) => React.ReactNode;
   /** Rendered after the items list (before totals when totalsAfterItems). */
   afterItems?: React.ReactNode;
 }
@@ -41,6 +43,7 @@ export const InvoiceDocumentBody: React.FC<InvoiceDocumentBodyProps> = ({
   freightAlert = null,
   selectFreight = false,
   renderExpanded,
+  itemMeta,
   afterItems = null,
 }) => {
   const selectable = Boolean(onSelectLineItem);
@@ -115,6 +118,7 @@ export const InvoiceDocumentBody: React.FC<InvoiceDocumentBodyProps> = ({
                       showNext={isSelected && Boolean(onConfirmLineItem) && !renderExpanded}
                       onNext={onConfirmLineItem}
                       alert={showFreightAlert ? freightAlert : null}
+                      meta={itemMeta?.(item)}
                     />
                     {isSelected ? (
                       <ChevronDown size={20} className="invoice-detail-item__chevron" aria-hidden />
@@ -127,6 +131,7 @@ export const InvoiceDocumentBody: React.FC<InvoiceDocumentBodyProps> = ({
                     item={item}
                     currencyCode={currencyCode}
                     alert={showFreightAlert ? freightAlert : null}
+                    meta={itemMeta?.(item)}
                   />
                 )}
                 {expanded ? (
@@ -169,12 +174,14 @@ function ItemContent({
   showNext = false,
   onNext,
   alert = null,
+  meta = null,
 }: {
   item: DealerInvoiceLineItem;
   currencyCode?: string;
   showNext?: boolean;
   onNext?: () => void;
   alert?: string | null;
+  meta?: React.ReactNode;
 }) {
   return (
     <>
@@ -196,6 +203,7 @@ function ItemContent({
           <span>{formatCurrency(item.rate, currencyCode)} × {item.quantity}</span>
           <strong>{formatCurrency(item.total, currencyCode)}</strong>
         </div>
+        {meta}
         {alert ? (
           <p className="invoice-detail-item__freight-alert" role="alert">
             <AlertTriangle size={14} aria-hidden />

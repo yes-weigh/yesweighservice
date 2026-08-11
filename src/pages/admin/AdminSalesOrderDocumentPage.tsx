@@ -34,7 +34,8 @@ import { SoLineEditSheet } from '../../components/salesOrders/SoLineEditSheet';
 import { SoLineInlineEditor } from '../../components/salesOrders/SoLineInlineEditor';
 import { ZoomableImageDialog } from '../../components/ZoomableImageDialog';
 import { useAuth } from '../../context/AuthContext';
-import { fetchCatalog, formatCurrency } from '../../lib/catalog';
+import { fetchCatalog, formatCurrency, formatStockQuantity } from '../../lib/catalog';
+import { resolveAvailableQtyByProductIds } from '../../lib/catalogAvailableStock';
 import { combinedCartRate, newCartLineId } from '../../lib/gatcCart';
 import type { CatalogProduct } from '../../types/catalog';
 import { dealerOrderErrorMessage } from '../../lib/dealerOrders';
@@ -127,6 +128,7 @@ export const AdminSalesOrderDocumentPage: React.FC = () => {
   const [savingShip, setSavingShip] = useState(false);
   const [catalogDescByItemId, setCatalogDescByItemId] = useState<Record<string, string>>({});
   const [catalogById, setCatalogById] = useState<Record<string, CatalogProduct>>({});
+  const [availableQtyByProductId, setAvailableQtyByProductId] = useState<Record<string, number>>({});
   const [showCatalogAdd, setShowCatalogAdd] = useState(false);
   const [catalogAddSession, setCatalogAddSession] = useState(0);
   const [salespersonStaffUid, setSalespersonStaffUid] = useState('');
@@ -139,6 +141,7 @@ export const AdminSalesOrderDocumentPage: React.FC = () => {
   const warmPromiseRef = useRef<Promise<PreparedScreenshot | null> | null>(null);
 
   const stage = String(salesOrder?.yesOneStage || '');
+  const showAvailableStock = isOps && (stage === 'review' || stage === 'payment_submitted');
   const workflowEditable = canEditSalesOrderDraft({
     role: user?.role,
     yesOneStage: stage,
@@ -182,6 +185,57 @@ export const AdminSalesOrderDocumentPage: React.FC = () => {
       .catch(() => { /* keep SO usable without catalog specs */ });
     return () => { cancelled = true; };
   }, [salesOrder?.lineItems]);
+
+  useEffect(() => {
+    if (!showAvailableStock || !salesOrder?.lineItems?.length) {
+      setAvailableQtyByProductId({});
+      return;
+    }
+    const productIds = [
+      ...new Set(
+        salesOrder.lineItems
+          .filter(line => !isFreightInvoiceLineItem(line))
+          .map(line => line.itemId?.trim())
+          .filter((id): id is string => Boolean(id)),
+      ),
+    ];
+    if (!productIds.length) {
+      setAvailableQtyByProductId({});
+      return;
+    }
+    let cancelled = false;
+    void resolveAvailableQtyByProductIds(productIds, catalogById).then(map => {
+      if (cancelled) return;
+      const next: Record<string, number> = {};
+      for (const id of productIds) {
+        next[id] = map.get(id) ?? 0;
+      }
+      setAvailableQtyByProductId(next);
+    });
+    return () => { cancelled = true; };
+  }, [showAvailableStock, salesOrder?.lineItems, catalogById]);
+
+  const renderItemStockMeta = useCallback((item: DealerInvoiceLineItem) => {
+    if (!showAvailableStock || isFreightInvoiceLineItem(item)) return null;
+    const productId = item.itemId?.trim();
+    if (!productId) return null;
+    const product = catalogById[productId];
+    const unit = product?.unit?.trim() || 'pcs';
+    const qty = availableQtyByProductId[productId];
+    const label = qty != null ? formatStockQuantity(qty, unit) : '—';
+    const orderQty = Math.max(1, Math.floor(item.quantity || 1));
+    const sufficient = qty != null && qty >= orderQty;
+    return (
+      <span
+        className={[
+          'invoice-detail-item__avail-chip',
+          sufficient ? 'invoice-detail-item__avail-chip--ok' : 'invoice-detail-item__avail-chip--low',
+        ].join(' ')}
+      >
+        Avail: {label}
+      </span>
+    );
+  }, [showAvailableStock, catalogById, availableQtyByProductId]);
 
   const hasFreightLine = useMemo(
     () => Boolean(salesOrder?.lineItems?.some(line => isFreightInvoiceLineItem(line))),
@@ -1122,6 +1176,7 @@ export const AdminSalesOrderDocumentPage: React.FC = () => {
           selectedLineItemId={canEditLines ? expandedLineId : null}
           onSelectLineItem={canEditLines ? handleSelectLineItem : undefined}
           renderExpanded={canEditLines && !isMobile ? renderLineEditor : undefined}
+          itemMeta={showAvailableStock ? renderItemStockMeta : undefined}
         />
       </section>
 

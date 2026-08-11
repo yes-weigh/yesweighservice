@@ -8,7 +8,6 @@ import { QuantityStepper } from '../QuantityStepper';
 import { useCart } from '../../context/useCart';
 import { useCartFly } from '../../context/useCartFly';
 import {
-  catalogProductIgnoresStockForCart,
   fetchCatalogProductDetail,
   fetchCatalogSpareLinks,
   formatCurrency,
@@ -44,25 +43,16 @@ function PeekCartControls({
     );
   }
 
-  const outOfStock = product.stockStatus === 'out_of_stock'
-    && !catalogProductIgnoresStockForCart(product);
   const cartQty = getQuantity(product.id);
   const primaryLine = items.find(line => line.productId === product.id && !line.gatcStampingPriceId)
     ?? items.find(line => line.productId === product.id);
 
   const handleAdd = (event: React.MouseEvent<HTMLButtonElement>) => {
     event.stopPropagation();
-    if (outOfStock) return;
     if (addItem(product, 1)) {
       flyToCart(event.currentTarget, { imageUrl: product.imageUrl });
     }
   };
-
-  if (outOfStock) {
-    return (
-      <p className="text-muted text-sm staff-so-product-peek__cart-note">Out of stock</p>
-    );
-  }
 
   if (cartQty === 0 || !primaryLine) {
     return (
