@@ -154,10 +154,8 @@ function logisticsDocCardMeta(kind: string): {
   if (kind === 'lr_copy' || kind === 'courier_slip') {
     return {
       tone: 'slip',
-      title: kind === 'courier_slip' ? 'Booking slip' : 'Waybill',
-      subtitle: kind === 'courier_slip'
-        ? 'View or download booking slip'
-        : 'View or download waybill',
+      title: 'AWB',
+      subtitle: 'View or download AWB',
       Icon: FileText,
     };
   }
@@ -706,7 +704,7 @@ export const LogisticsBookingDetail: React.FC<LogisticsBookingDetailProps> = ({
     isOps,
   ]);
 
-  /** Waybill + shipping label + invoice + E-way; POD/COD when available. */
+  /** AWB + shipping label + invoice + E-way; POD/COD when available. */
   const delhiveryDocCards = useMemo((): LogisticsDocCard[] => {
     if (!isDelhivery) return [];
     const hasLrn = Boolean((delhiveryIds?.lrn || booking.consignmentNo || '').replace(/\D/g, ''));
@@ -715,7 +713,7 @@ export const LogisticsBookingDetail: React.FC<LogisticsBookingDetailProps> = ({
       {
         id: 'lr_copy',
         kind: 'lr_copy',
-        label: 'Waybill',
+        label: 'AWB',
         enabled: hasLrn,
         disabledReason: hasLrn ? null : 'Create or enter an LR number first.',
       },
@@ -907,7 +905,7 @@ export const LogisticsBookingDetail: React.FC<LogisticsBookingDetailProps> = ({
       if (doc.kind === 'lr_copy') {
         const copy = await fetchDelhiveryLrCopy(lrn, 'all', bookingId);
         if (!copy.available || !copy.base64) {
-          setDelhiveryDocsError(copy.error || 'Waybill is not available yet.');
+          setDelhiveryDocsError(copy.error || 'AWB is not available yet.');
           return;
         }
         const rawBytes = delhiveryBase64ToUint8Array(copy.base64);
@@ -1378,7 +1376,6 @@ export const LogisticsBookingDetail: React.FC<LogisticsBookingDetailProps> = ({
   const showBottomOps = Boolean(user || showOpsCancel || showOpsReturn || showOpsDelete);
   const articleRef = useRef<HTMLElement>(null);
   const stickyTopRef = useRef<HTMLDivElement>(null);
-  const stickyBottomRef = useRef<HTMLElement>(null);
   const sectionBarRef = useRef<HTMLDivElement>(null);
   const [activeSectionLabel, setActiveSectionLabel] = useState('');
 
@@ -1410,7 +1407,6 @@ export const LogisticsBookingDetail: React.FC<LogisticsBookingDetailProps> = ({
   useEffect(() => {
     const article = articleRef.current;
     const topEl = stickyTopRef.current;
-    const bottomEl = stickyBottomRef.current;
     const sectionBarEl = sectionBarRef.current;
     if (!article) return undefined;
 
@@ -1425,9 +1421,6 @@ export const LogisticsBookingDetail: React.FC<LogisticsBookingDetailProps> = ({
           `${sectionBarEl.offsetHeight}px`,
         );
       }
-      if (bottomEl) {
-        article.style.setProperty('--logistics-booking-sticky-bottom-h', `${bottomEl.offsetHeight}px`);
-      }
       syncActiveSection();
     };
 
@@ -1435,7 +1428,6 @@ export const LogisticsBookingDetail: React.FC<LogisticsBookingDetailProps> = ({
     const observer = new ResizeObserver(syncStickyChrome);
     if (topEl) observer.observe(topEl);
     if (sectionBarEl) observer.observe(sectionBarEl);
-    if (bottomEl) observer.observe(bottomEl);
 
     const onScroll = () => { syncActiveSection(); };
     window.addEventListener('scroll', onScroll, { passive: true });
@@ -1448,7 +1440,6 @@ export const LogisticsBookingDetail: React.FC<LogisticsBookingDetailProps> = ({
     };
   }, [
     booking.id,
-    showBottomOps,
     sortedLogisticsDocCards.length,
     booking.supportRequestId,
     isDelhivery,
@@ -2469,8 +2460,7 @@ export const LogisticsBookingDetail: React.FC<LogisticsBookingDetailProps> = ({
 
       {showBottomOps ? (
         <section
-          ref={stickyBottomRef}
-          className="logistics-booking__ops-actions logistics-booking__ops-actions--bottom logistics-booking__ops-actions--sticky"
+          className="logistics-booking__ops-actions logistics-booking__ops-actions--bottom"
           aria-label="Shipment actions"
         >
           {user ? (

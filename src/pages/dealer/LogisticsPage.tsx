@@ -60,6 +60,11 @@ import { loadLogisticsCourierRates } from '../../lib/logisticsCourierRates';
 import { loadLogisticsSettings } from '../../lib/logisticsSettings';
 import { resolveDestinationPlace } from '../../lib/shippingLabel';
 import { isInternalOpsUser } from '../../lib/staffAccess';
+import {
+  ensureDealersCached,
+  subscribeDealerCache,
+} from '../../lib/dealer-cache';
+import type { ZohoDealer } from '../../types/dealers';
 import type { LogisticsBooking, LogisticsBookingStatus } from '../../types/logistics-dispatch';
 import {
   LOGISTICS_ENTRY_STATE_KEY,
@@ -96,6 +101,30 @@ function matchesFreightDiffFilter(
   if (filter === 'under_billed') return freight.differenceInr > 0;
   if (filter === 'over_billed') return freight.differenceInr < 0;
   return freight.differenceInr === 0;
+}
+
+function dealerStaffNameMap(dealers: ZohoDealer[]): Record<string, string> {
+  const next: Record<string, string> = {};
+  for (const dealer of dealers) {
+    const name = dealer.assignedStaffName?.trim();
+    if (name) next[dealer.id] = name;
+  }
+  return next;
+}
+
+function bookingStaffName(
+  booking: LogisticsBooking,
+  dealerStaffById: Record<string, string>,
+  invoiceSalespersonName?: string | null,
+): string {
+  const snap = booking.dealer.assignedStaffName?.trim();
+  if (snap) return snap;
+  const id = booking.dealer.zohoCustomerId?.trim();
+  if (id) {
+    const assigned = dealerStaffById[id]?.trim();
+    if (assigned) return assigned;
+  }
+  return invoiceSalespersonName?.trim() || '';
 }
 
 const STATUS_STAT_META: ReadonlyArray<{
@@ -317,6 +346,7 @@ export const LogisticsPage: React.FC = () => {
   const [freightByBookingId, setFreightByBookingId] = useState<
     Record<string, LogisticsFreightCompare>
   >({});
+  const [dealerStaffById, setDealerStaffById] = useState<Record<string, string>>({});
 
   const isMobile = useIsMobile();
   const isOps = user ? isInternalOpsUser(user) : false;
@@ -327,6 +357,26 @@ export const LogisticsPage: React.FC = () => {
   useEffect(() => {
     if (!canSuperDelete && showDeleteButtons) setShowDeleteButtons(false);
   }, [canSuperDelete, showDeleteButtons]);
+
+  useEffect(() => {
+    if (!isOps) return;
+    let cancelled = false;
+
+    const unsubscribe = subscribeDealerCache(list => {
+      if (!cancelled) setDealerStaffById(dealerStaffNameMap(list));
+    });
+
+    void ensureDealersCached()
+      .then(list => {
+        if (!cancelled) setDealerStaffById(dealerStaffNameMap(list));
+      })
+      .catch(() => undefined);
+
+    return () => {
+      cancelled = true;
+      unsubscribe();
+    };
+  }, [isOps]);
 
   const activeBooking = useMemo(
     () => bookings.find(item => item.id === activeBookingId) ?? null,
@@ -1029,6 +1079,9 @@ export const LogisticsPage: React.FC = () => {
                   const ewayChip = ewayBillListChip(booking, {
                     invoiceTotalInclGst: freight?.invoiceTotalInclGst ?? null,
                   });
+                  const staffName = isOps
+                    ? bookingStaffName(booking, dealerStaffById, freight?.salespersonName)
+                    : '';
                   return (
                     <li key={booking.id}>
                       <article
@@ -1044,19 +1097,38 @@ export const LogisticsPage: React.FC = () => {
                         }}
                       >
                         <div className="logistics-shipment__main">
-                          <span className="logistics-shipment__logo" aria-hidden>
-                            {partner ? (
-                              <img src={partner.image} alt="" />
-                            ) : (
-                              <Package size={20} />
-                            )}
-                          </span>
+                          <div className="logistics-shipment__logo-col">
+                            <span className="logistics-shipment__logo" aria-hidden>
+                              {partner ? (
+                                <img src={partner.image} alt="" />
+                              ) : (
+                                <Package size={20} />
+                              )}
+                            </span>
+                            {ewayChip ? (
+                              <span
+                                className={[
+                                  'logistics-shipment__eway',
+                                  ewayChip.tone === 'done'
+                                    ? 'is-done'
+                                    : ewayChip.tone === 'cancelled'
+                                      ? 'is-cancelled'
+                                      : 'is-missing',
+                                ].join(' ')}
+                              >
+                                {ewayChip.label}
+                              </span>
+                            ) : null}
+                          </div>
 
                           <div className="logistics-shipment__body">
                             <div className="logistics-shipment__top">
                               <div className="logistics-shipment__top-left">
                                 <strong className="logistics-shipment__tracking">{waybill}</strong>
                                 <span className="logistics-shipment__dealer">{booking.dealer.name}</span>
+                                {staffName ? (
+                                  <span className="logistics-shipment__staff">{staffName}</span>
+                                ) : null}
                               </div>
                               {(freight?.paidFreightInr != null
                                 || freight?.actualFreightInr != null) && (
@@ -1154,23 +1226,6 @@ export const LogisticsPage: React.FC = () => {
                                 <span className="logistics-shipment__sep" aria-hidden>·</span>
                                 <Package size={12} aria-hidden />
                                 <span>{packageCountLabel(booking)}</span>
-                                {ewayChip ? (
-                                  <>
-                                    <span className="logistics-shipment__sep" aria-hidden>·</span>
-                                    <span
-                                      className={[
-                                        'logistics-shipment__eway',
-                                        ewayChip.tone === 'done'
-                                          ? 'is-done'
-                                          : ewayChip.tone === 'cancelled'
-                                            ? 'is-cancelled'
-                                            : 'is-missing',
-                                      ].join(' ')}
-                                    >
-                                      {ewayChip.label}
-                                    </span>
-                                  </>
-                                ) : null}
                               </span>
                               <span className={`logistics-shipment__badge logistics-shipment__badge--${tone}`}>
                                 {statusBadgeLabel(booking)}

@@ -143,6 +143,9 @@ export function zohoDealerToSnapshot(dealer: ZohoDealer): LogisticsDealerSnapsho
     shippingAddress,
     billingAddress,
     ...(destinationCity ? { destinationCity } : {}),
+    ...(dealer.assignedStaffName?.trim()
+      ? { assignedStaffName: dealer.assignedStaffName.trim() }
+      : {}),
   };
 }
 

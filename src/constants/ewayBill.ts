@@ -64,7 +64,7 @@ export function ewayBillListChip(
   if (booking.ewayBillStatus === 'generated') {
     return {
       tone: 'done',
-      label: `EWB ${booking.ewayBillNumber?.trim() || 'ready'}`,
+      label: 'EWB',
     };
   }
   if (booking.ewayBillStatus === 'cancelled') {

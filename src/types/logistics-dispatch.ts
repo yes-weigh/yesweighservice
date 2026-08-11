@@ -39,6 +39,8 @@ export interface LogisticsDealerSnapshot {
   billingAddress: string;
   /** Preferred destination city for shipping labels. */
   destinationCity?: string;
+  /** Portal-assigned KAM / staff at booking time (when available). */
+  assignedStaffName?: string | null;
 }
 
 /** @deprecated use LogisticsDealerSnapshot */

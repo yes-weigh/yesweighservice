@@ -20735,6 +20735,15 @@ body:has(.confirm-inline-bar) .confirm-inline-bar {
   pointer-events: auto;
 }
 
+.logistics-shipment__logo-col {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.3rem;
+  flex-shrink: 0;
+  align-self: flex-start;
+}
+
 .logistics-shipment__logo {
   display: inline-flex;
   align-items: center;
@@ -20746,7 +20755,6 @@ body:has(.confirm-inline-bar) .confirm-inline-bar {
   background: #fff;
   flex-shrink: 0;
   overflow: hidden;
-  align-self: flex-start;
   box-shadow: 0 1px 2px rgba(0, 0, 0, 0.25);
 }
 
@@ -20821,6 +20829,17 @@ body:has(.confirm-inline-bar) .confirm-inline-bar {
   font-weight: 500;
   color: #94a3b8;
   line-height: 1.3;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.logistics-shipment__staff {
+  display: block;
+  font-size: 0.6875rem;
+  font-weight: 500;
+  color: #64748b;
+  line-height: 1.25;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -21044,13 +21063,18 @@ body:has(.confirm-inline-bar) .confirm-inline-bar {
 }
 
 .logistics-shipment__eway {
-  font-size: 0.68rem;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  max-width: 100%;
+  font-size: 0.5625rem;
   font-weight: 700;
-  letter-spacing: 0.02em;
+  letter-spacing: 0.03em;
   text-transform: uppercase;
-  padding: 0.12rem 0.42rem;
+  padding: 0.1rem 0.35rem;
   border-radius: 999px;
   border: 1px solid transparent;
+  white-space: nowrap;
 }
 
 .logistics-shipment__eway.is-done {
@@ -21177,6 +21201,11 @@ body:has(.confirm-inline-bar) .confirm-inline-bar {
     width: 2.6rem;
     height: 2.6rem;
     border-radius: 10px;
+    margin-top: 0;
+  }
+
+  .logistics-shipment__logo-col {
+    gap: 0.25rem;
   }
 
   .logistics-shipment__logo img {
@@ -21194,6 +21223,10 @@ body:has(.confirm-inline-bar) .confirm-inline-bar {
 
   .logistics-shipment__dealer {
     font-size: 0.7rem;
+  }
+
+  .logistics-shipment__staff {
+    font-size: 0.625rem;
   }
 
   .logistics-shipment__place {
@@ -24566,10 +24599,9 @@ body:has(.confirm-inline-bar) .confirm-inline-bar {
 .logistics-booking--flat {
   --logistics-booking-sticky-top-h: 0px;
   --logistics-booking-sticky-section-h: 0px;
-  --logistics-booking-sticky-bottom-h: 0px;
   --logistics-booking-sticky-top-bg: #0f172a;
   --logistics-booking-sticky-section-bg: #111827;
-  padding-bottom: calc(var(--logistics-booking-sticky-bottom-h) + env(safe-area-inset-bottom, 0px));
+  padding-bottom: env(safe-area-inset-bottom, 0px);
 }
 
 .logistics-booking__sticky-top-spacer {
@@ -24726,11 +24758,8 @@ body:has(.confirm-inline-bar) .confirm-inline-bar {
 }
 
 .logistics-booking--flat .logistics-booking__ops-actions--bottom {
-  margin-top: 0.55rem;
-  padding-top: 0.55rem;
-}
-
-.logistics-booking--flat .logistics-booking__ops-actions--bottom:not(.logistics-booking__ops-actions--sticky) {
+  margin-top: 1.25rem;
+  padding-top: 0.85rem;
   border-top: 1px solid rgba(148, 163, 184, 0.12);
 }
 

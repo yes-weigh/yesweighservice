@@ -104,6 +104,8 @@ export type LogisticsFreightCompare = {
   billingModeLocked: boolean;
   /** Linked invoice grand total incl. GST (for e-way bill threshold). */
   invoiceTotalInclGst: number | null;
+  /** Zoho KAM / salesperson on the linked invoice (when known). */
+  salespersonName: string | null;
   items: LogisticsInvoiceItemRow[];
   /** Freight billed on the linked invoice (sum of freight line totals). */
   paidFreightInr: number | null;
@@ -795,6 +797,7 @@ export function buildLogisticsFreightCompare(input: {
     invoiceStatus,
     billingModeLocked,
     invoiceTotalInclGst: invoice ? invoiceTotalInclGst(invoice) : null,
+    salespersonName: invoice?.salespersonName?.trim() || null,
     items,
     paidFreightInr,
     actualFreightInr,
