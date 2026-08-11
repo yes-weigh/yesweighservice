@@ -138,6 +138,11 @@ function partnerFilterShortLabel(label: string): string {
   return `${trimmed.slice(0, 12)}…`;
 }
 
+/** Support link is permanent once set on the booking document. */
+function isSupportLinkedLogisticsBooking(booking: LogisticsBooking): boolean {
+  return Boolean(booking.supportRequestId?.trim());
+}
+
 type PartnerStatRow = {
   id: LogisticsPartnerId;
   label: string;
@@ -352,6 +357,7 @@ export const LogisticsPage: React.FC = () => {
   const [filtersOpen, setFiltersOpen] = useState(false);
   const [statusFilter, setStatusFilter] = useState<LogisticsBookingStatus | ''>('');
   const [partnerFilter, setPartnerFilter] = useState<LogisticsPartnerId | ''>('');
+  const [supportFilter, setSupportFilter] = useState(false);
   const [freightDiffFilter, setFreightDiffFilter] = useState<FreightDiffFilter>('');
   const [dateRange, setDateRange] = useState(defaultDateRange);
   /** Draft values in the Filters panel — applied only via Apply. */
@@ -500,9 +506,19 @@ export const LogisticsPage: React.FC = () => {
 
   const activePartnerFilter = partnerFilter || filters.partnerId || '';
 
+  const supportLinkedCount = useMemo(
+    () => pipelineBookings.filter(isSupportLinkedLogisticsBooking).length,
+    [pipelineBookings],
+  );
+
+  const scopedBookings = useMemo(() => {
+    if (!supportFilter) return pipelineBookings;
+    return pipelineBookings.filter(isSupportLinkedLogisticsBooking);
+  }, [pipelineBookings, supportFilter]);
+
   const partnerStats = useMemo((): PartnerStatRow[] => {
     const counts = new Map<LogisticsPartnerId, number>();
-    for (const booking of pipelineBookings) {
+    for (const booking of scopedBookings) {
       if (!isLogisticsPartnerId(booking.partnerId)) continue;
       counts.set(booking.partnerId, (counts.get(booking.partnerId) ?? 0) + 1);
     }
@@ -516,12 +532,12 @@ export const LogisticsPage: React.FC = () => {
         count: counts.get(partner.id) ?? 0,
       }))
       .sort((a, b) => b.count - a.count || a.label.localeCompare(b.label));
-  }, [pipelineBookings]);
+  }, [scopedBookings]);
 
   const partnerFilteredBookings = useMemo(() => {
-    if (!activePartnerFilter) return pipelineBookings;
-    return pipelineBookings.filter(booking => booking.partnerId === activePartnerFilter);
-  }, [pipelineBookings, activePartnerFilter]);
+    if (!activePartnerFilter) return scopedBookings;
+    return scopedBookings.filter(booking => booking.partnerId === activePartnerFilter);
+  }, [scopedBookings, activePartnerFilter]);
 
   const statusFilteredBookings = useMemo(() => {
     const activeStatus = statusFilter || filters.status || '';
@@ -543,6 +559,7 @@ export const LogisticsPage: React.FC = () => {
   }, [
     statusFilter,
     partnerFilter,
+    supportFilter,
     filters.status,
     filters.partnerId,
     filters.query,
@@ -745,6 +762,10 @@ export const LogisticsPage: React.FC = () => {
     setPartnerFilter(prev => (prev === partnerId ? '' : partnerId));
   }, []);
 
+  const applySupportFilter = useCallback(() => {
+    setSupportFilter(prev => !prev);
+  }, []);
+
   const openFiltersPanel = useCallback(() => {
     setDraftDateRange(dateRange);
     setDraftStatus(filters.status ?? '');
@@ -776,6 +797,7 @@ export const LogisticsPage: React.FC = () => {
     setFreightDiffFilter('');
     setStatusFilter('');
     setPartnerFilter('');
+    setSupportFilter(false);
     setFilters(prev => ({ ...prev, status: '', partnerId: '' }));
   }, []);
 
@@ -784,6 +806,7 @@ export const LogisticsPage: React.FC = () => {
   const hasActiveFilters = Boolean(filters.status)
     || Boolean(filters.partnerId)
     || Boolean(partnerFilter)
+    || supportFilter
     || Boolean(statusFilter)
     || Boolean(freightDiffFilter)
     || !isDefaultDateRange(dateRange);
@@ -812,7 +835,7 @@ export const LogisticsPage: React.FC = () => {
       window.removeEventListener('resize', syncFiltersHeight);
       page.style.removeProperty('--logistics-list-filters-h');
     };
-  }, [showListFilters, partnerStats.length]);
+  }, [showListFilters, partnerStats.length, supportLinkedCount, supportFilter]);
 
   useEffect(() => {
     if (!showListControls) setFiltersOpen(false);
@@ -1097,36 +1120,58 @@ export const LogisticsPage: React.FC = () => {
                 ref={listFiltersRef}
                 className="logistics-page__filters logistics-page__filters--fixed"
               >
-              {partnerStats.length > 0 ? (
-                <div
-                  className="logistics-page__partners"
-                  role="group"
-                  aria-label="Filter by delivery partner"
+              <div className="logistics-page__partners-row">
+                {partnerStats.length > 0 ? (
+                  <div
+                    className="logistics-page__partners"
+                    role="group"
+                    aria-label="Filter by delivery partner"
+                  >
+                    {partnerStats.map(partner => {
+                      const active = activePartnerFilter === partner.id;
+                      return (
+                        <button
+                          key={partner.id}
+                          type="button"
+                          className={[
+                            'logistics-page__partner',
+                            active ? 'is-active' : '',
+                          ].filter(Boolean).join(' ')}
+                          onClick={() => applyPartnerFilter(partner.id)}
+                          title={`${partner.label} (${partner.count})`}
+                          aria-pressed={active}
+                        >
+                          <span className="logistics-page__partner-logo" aria-hidden>
+                            <img src={partner.image} alt="" />
+                          </span>
+                          <strong>{partner.count}</strong>
+                          <span className="logistics-page__partner-label">{partner.shortLabel}</span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                ) : null}
+
+                <button
+                  type="button"
+                  className={[
+                    'logistics-page__support-filter',
+                    supportFilter ? 'is-active' : '',
+                    supportLinkedCount === 0 ? 'is-empty' : '',
+                  ].filter(Boolean).join(' ')}
+                  onClick={applySupportFilter}
+                  title={`Support-linked shipments (${supportLinkedCount})`}
+                  aria-pressed={supportFilter}
+                  aria-label={`Filter support-linked shipments (${supportLinkedCount})`}
+                  disabled={supportLinkedCount === 0}
                 >
-                  {partnerStats.map(partner => {
-                    const active = activePartnerFilter === partner.id;
-                    return (
-                      <button
-                        key={partner.id}
-                        type="button"
-                        className={[
-                          'logistics-page__partner',
-                          active ? 'is-active' : '',
-                        ].filter(Boolean).join(' ')}
-                        onClick={() => applyPartnerFilter(partner.id)}
-                        title={`${partner.label} (${partner.count})`}
-                        aria-pressed={active}
-                      >
-                        <span className="logistics-page__partner-logo" aria-hidden>
-                          <img src={partner.image} alt="" />
-                        </span>
-                        <strong>{partner.count}</strong>
-                        <span className="logistics-page__partner-label">{partner.shortLabel}</span>
-                      </button>
-                    );
-                  })}
-                </div>
-              ) : null}
+                  <span className="logistics-page__support-filter-icon" aria-hidden>
+                    <LifeBuoy size={18} strokeWidth={2.1} />
+                    <span className="logistics-page__support-filter-badge">{supportLinkedCount}</span>
+                  </span>
+                  <span className="logistics-page__support-filter-label">Support</span>
+                </button>
+              </div>
 
               <div className="logistics-page__stats" role="group" aria-label="Shipment summary">
                 {STATUS_STAT_META.map(stat => {
@@ -1183,6 +1228,7 @@ export const LogisticsPage: React.FC = () => {
                   onClick={() => {
                     setStatusFilter('');
                     setPartnerFilter('');
+                    setSupportFilter(false);
                     setDateRange(defaultDateRange());
                     setFilters({ status: '', partnerId: '', query: '' });
                   }}
@@ -1217,6 +1263,7 @@ export const LogisticsPage: React.FC = () => {
                   const supportHref = user && supportRequestId
                     ? supportDetailPath(user.role, supportRequestId)
                     : null;
+                  const supportLinked = isSupportLinkedLogisticsBooking(booking);
                   return (
                     <li key={booking.id}>
                       <article
@@ -1254,7 +1301,7 @@ export const LogisticsPage: React.FC = () => {
                                 {ewayChip.label}
                               </span>
                             ) : null}
-                            {supportHref ? (
+                            {supportLinked && supportHref ? (
                               <Link
                                 to={supportHref}
                                 className="logistics-shipment__support"
