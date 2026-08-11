@@ -137,6 +137,22 @@ function isZohoAuthDeniedError(err) {
   );
 }
 
+function zohoAddressSyncFailureHint(zohoError) {
+  if (!isZohoAuthDeniedError(zohoError)) return '';
+  return (
+    ' Zoho rejected the contacts request — this is usually transient (retry), a wrong organization ID, '
+    + 'or an invalid customer id. OAuth already has ZohoInventory.fullaccess.all; re-authorizing scopes '
+    + 'is unlikely to help unless the refresh token was replaced with a narrower one.'
+  );
+}
+
+function zohoAddressSyncWarningText() {
+  return (
+    'Showing saved dealer addresses. Live Zoho sync failed — try Refresh in a moment. '
+    + 'If it keeps failing, check Firebase Functions logs for this customer id.'
+  );
+}
+
 function extractPinFromText(text) {
   const match = String(text ?? '').match(/\b(\d{6})\b/);
   return match ? match[1] : null;
@@ -321,7 +337,7 @@ export async function listContactAddressesForCustomer(secrets, configuredOrgId, 
     if (isZohoAuthDeniedError(zohoError)) {
       throw new HttpsError(
         'failed-precondition',
-        `${message} The Zoho connection may lack Contacts access — re-authorize the Inventory OAuth app with ZohoInventory.contacts.READ (and CREATE to add addresses).`,
+        `${message}${zohoAddressSyncFailureHint(zohoError)}`,
       );
     }
     throw new HttpsError('internal', message);
@@ -340,11 +356,8 @@ export async function listContactAddressesForCustomer(secrets, configuredOrgId, 
   }
 
   const result = { customerId: contactId, addresses: rows };
-  if (usedCachedFallback || (zohoError && isZohoAuthDeniedError(zohoError))) {
-    result.zohoSyncWarning = (
-      'Showing saved dealer addresses. Live Zoho sync is unavailable — ask an admin to re-authorize '
-      + 'the Inventory OAuth app with ZohoInventory.contacts.READ (and CREATE to add addresses).'
-    );
+  if (usedCachedFallback || zohoError) {
+    result.zohoSyncWarning = zohoAddressSyncWarningText();
   }
   return result;
 }
