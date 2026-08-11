@@ -20526,14 +20526,146 @@ body:has(.confirm-inline-bar) .confirm-inline-bar {
   gap: 0.85rem;
 }
 
+.logistics-page--list {
+  --logistics-list-filters-h: 0px;
+}
+
+.logistics-page__filters {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+
+.logistics-page__filters--fixed {
+  position: fixed;
+  top: var(--header-height);
+  left: var(--sidebar-width);
+  right: 0;
+  z-index: 35;
+  margin: 0;
+  padding: 0.35rem 1.5rem 0.45rem;
+  background: var(--bg-app);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+  box-shadow: 0 8px 18px rgba(3, 7, 18, 0.32);
+}
+
+.main-content.expanded .logistics-page__filters--fixed {
+  left: var(--sidebar-collapsed);
+}
+
+.logistics-page__filters-spacer {
+  height: var(--logistics-list-filters-h, 0px);
+  flex-shrink: 0;
+}
+
+.content-area:has(.logistics-page--list) {
+  padding-top: 0.5rem;
+}
+
+.logistics-page__partners {
+  display: flex;
+  align-items: stretch;
+  gap: 0.45rem;
+  padding: 0 0 0.38rem;
+  overflow-x: auto;
+  overflow-y: hidden;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: none;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.logistics-page__partners::-webkit-scrollbar {
+  display: none;
+}
+
+.logistics-page__partner {
+  flex: 0 0 auto;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.22rem;
+  min-width: 4.35rem;
+  max-width: 5.5rem;
+  min-height: 4.35rem;
+  padding: 0.4rem 0.35rem 0.35rem;
+  border: 1.5px solid rgba(255, 255, 255, 0.08);
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.02);
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+  transition: background 0.15s ease, border-color 0.15s ease, transform 0.12s ease, box-shadow 0.15s ease;
+}
+
+.logistics-page__partner:hover {
+  background: rgba(255, 255, 255, 0.05);
+  border-color: rgba(255, 255, 255, 0.14);
+}
+
+.logistics-page__partner.is-active {
+  background: rgba(255, 255, 255, 0.08);
+  border-color: rgba(251, 146, 60, 0.75);
+  box-shadow: 0 6px 18px rgba(251, 146, 60, 0.12);
+}
+
+.logistics-page__partner-logo {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.85rem;
+  height: 1.85rem;
+  border-radius: 6px;
+  background: #fff;
+  overflow: hidden;
+}
+
+.logistics-page__partner-logo img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+
+.logistics-page__partner strong {
+  font-size: 0.9375rem;
+  font-weight: 800;
+  line-height: 1;
+  letter-spacing: -0.03em;
+  font-variant-numeric: tabular-nums;
+  color: #e2e8f0;
+}
+
+.logistics-page__partner.is-active strong {
+  color: #fdba74;
+}
+
+.logistics-page__partner-label {
+  max-width: 100%;
+  font-size: 0.5rem;
+  font-weight: 650;
+  line-height: 1.15;
+  letter-spacing: 0.01em;
+  text-align: center;
+  color: rgba(226, 232, 240, 0.72);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.logistics-page__partner.is-active .logistics-page__partner-label {
+  color: #f8fafc;
+}
+
+.logistics-page__partner:active {
+  transform: scale(0.97);
+}
+
 .logistics-page__stats {
   display: grid;
   grid-template-columns: repeat(6, minmax(0, 1fr));
   gap: 1px;
-  padding: 3px;
-  border-radius: 12px;
-  background: rgba(255, 255, 255, 0.04);
-  border: 1px solid rgba(255, 255, 255, 0.06);
+  padding: 0;
 }
 
 .logistics-page__stat {
@@ -20836,9 +20968,9 @@ body:has(.confirm-inline-bar) .confirm-inline-bar {
 
 .logistics-shipment__staff {
   display: block;
-  font-size: 0.6875rem;
-  font-weight: 500;
-  color: #64748b;
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: #fbbf24;
   line-height: 1.25;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -21090,6 +21222,32 @@ body:has(.confirm-inline-bar) .confirm-inline-bar {
   background: rgba(248, 113, 113, 0.1);
 }
 
+.logistics-shipment__support {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.35rem;
+  height: 1.35rem;
+  border-radius: 999px;
+  color: #c4b5fd;
+  border: 1px solid rgba(167, 139, 250, 0.42);
+  background: rgba(139, 92, 246, 0.14);
+  text-decoration: none;
+  flex-shrink: 0;
+  transition: background 0.15s ease, border-color 0.15s ease, color 0.15s ease;
+}
+
+.logistics-shipment__support:hover {
+  color: #ddd6fe;
+  border-color: rgba(196, 181, 253, 0.55);
+  background: rgba(139, 92, 246, 0.24);
+}
+
+.logistics-shipment__support:focus-visible {
+  outline: 2px solid rgba(167, 139, 250, 0.65);
+  outline-offset: 2px;
+}
+
 .logistics-shipment__trail {
   display: flex;
   flex-direction: column;
@@ -21226,7 +21384,7 @@ body:has(.confirm-inline-bar) .confirm-inline-bar {
   }
 
   .logistics-shipment__staff {
-    font-size: 0.625rem;
+    font-size: 0.7rem;
   }
 
   .logistics-shipment__place {
@@ -21252,11 +21410,43 @@ body:has(.confirm-inline-bar) .confirm-inline-bar {
   margin-top: 0.75rem;
 }
 
+@media (max-width: 768px) {
+  .logistics-page__filters--fixed {
+    left: 0;
+    padding-left: max(1rem, env(safe-area-inset-left, 0px));
+    padding-right: max(1rem, env(safe-area-inset-right, 0px));
+  }
+}
+
 @media (max-width: 720px) {
+  .logistics-page__partners {
+    gap: 0.35rem;
+    padding-bottom: 0.32rem;
+  }
+
+  .logistics-page__partner {
+    min-width: 3.85rem;
+    max-width: 4.75rem;
+    min-height: 3.95rem;
+    padding: 0.32rem 0.28rem 0.28rem;
+    border-radius: 9px;
+  }
+
+  .logistics-page__partner-logo {
+    width: 1.65rem;
+    height: 1.65rem;
+  }
+
+  .logistics-page__partner strong {
+    font-size: 0.8125rem;
+  }
+
+  .logistics-page__partner-label {
+    font-size: 0.4375rem;
+  }
+
   .logistics-page__stats {
     gap: 1px;
-    padding: 2px;
-    border-radius: 11px;
   }
 
   .logistics-page__stat {

@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import {
   AlertCircle,
@@ -6,6 +6,7 @@ import {
   CheckCircle2,
   ChevronRight,
   LayoutGrid,
+  LifeBuoy,
   MapPin,
   Package,
   Plus,
@@ -17,7 +18,7 @@ import {
   Undo2,
   X,
 } from 'lucide-react';
-import { useLocation, useNavigate } from 'react-router-dom';
+import { useLocation, Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
 import { useConfirm } from '../../context/ConfirmContext';
 import {
@@ -77,6 +78,7 @@ import {
 } from '../../lib/logisticsDateTime';
 import type { LogisticsCourierRates } from '../../types/logistics-courier-rates';
 import { staffLogisticsSiteLabel } from '../../types/staff-logistics';
+import { supportDetailPath } from '../../lib/dealerSupport';
 
 type FlowStep = 'closed' | 'partner' | 'book';
 type CardTone = 'all' | 'incomplete' | 'label' | 'transit' | 'delivered' | 'exception';
@@ -126,6 +128,23 @@ function bookingStaffName(
   }
   return invoiceSalespersonName?.trim() || '';
 }
+
+function partnerFilterShortLabel(label: string): string {
+  const trimmed = label.trim();
+  if (trimmed.length <= 14) return trimmed;
+  if (/^ST\s/i.test(trimmed)) return 'ST Courier';
+  if (/^BLUE DART/i.test(trimmed)) return trimmed.replace(/^BLUE DART\s+/i, 'Blue Dart ').slice(0, 14);
+  if (/^TRACKON/i.test(trimmed)) return trimmed.replace(/^TRACKON\s+/i, 'Trackon ').slice(0, 14);
+  return `${trimmed.slice(0, 12)}…`;
+}
+
+type PartnerStatRow = {
+  id: LogisticsPartnerId;
+  label: string;
+  shortLabel: string;
+  image: string;
+  count: number;
+};
 
 const STATUS_STAT_META: ReadonlyArray<{
   id: StatFilterId;
@@ -332,6 +351,7 @@ export const LogisticsPage: React.FC = () => {
   });
   const [filtersOpen, setFiltersOpen] = useState(false);
   const [statusFilter, setStatusFilter] = useState<LogisticsBookingStatus | ''>('');
+  const [partnerFilter, setPartnerFilter] = useState<LogisticsPartnerId | ''>('');
   const [freightDiffFilter, setFreightDiffFilter] = useState<FreightDiffFilter>('');
   const [dateRange, setDateRange] = useState(defaultDateRange);
   /** Draft values in the Filters panel — applied only via Apply. */
@@ -347,6 +367,8 @@ export const LogisticsPage: React.FC = () => {
     Record<string, LogisticsFreightCompare>
   >({});
   const [dealerStaffById, setDealerStaffById] = useState<Record<string, string>>({});
+  const pageRef = useRef<HTMLDivElement>(null);
+  const listFiltersRef = useRef<HTMLDivElement>(null);
 
   const isMobile = useIsMobile();
   const isOps = user ? isInternalOpsUser(user) : false;
@@ -442,11 +464,11 @@ export const LogisticsPage: React.FC = () => {
         setError(err.message);
         setLoading(false);
       },
-      // Status is filtered client-side so summary tiles stay stable.
-      { partnerId: filters.partnerId, query: filters.query },
+      // Status and partner are filtered client-side so summary tiles stay stable.
+      { query: filters.query },
     );
     return unsubscribe;
-  }, [user, filters.partnerId, filters.query]);
+  }, [user, filters.query]);
 
   /** Once per session: push Sites ship-from addresses onto all bookings for ops. */
   useEffect(() => {
@@ -476,13 +498,38 @@ export const LogisticsPage: React.FC = () => {
     [datedBookings],
   );
 
+  const activePartnerFilter = partnerFilter || filters.partnerId || '';
+
+  const partnerStats = useMemo((): PartnerStatRow[] => {
+    const counts = new Map<LogisticsPartnerId, number>();
+    for (const booking of pipelineBookings) {
+      if (!isLogisticsPartnerId(booking.partnerId)) continue;
+      counts.set(booking.partnerId, (counts.get(booking.partnerId) ?? 0) + 1);
+    }
+    return LOGISTICS_PARTNERS
+      .filter(partner => (counts.get(partner.id) ?? 0) > 0)
+      .map(partner => ({
+        id: partner.id,
+        label: partner.label,
+        shortLabel: partnerFilterShortLabel(partner.label),
+        image: partner.image,
+        count: counts.get(partner.id) ?? 0,
+      }))
+      .sort((a, b) => b.count - a.count || a.label.localeCompare(b.label));
+  }, [pipelineBookings]);
+
+  const partnerFilteredBookings = useMemo(() => {
+    if (!activePartnerFilter) return pipelineBookings;
+    return pipelineBookings.filter(booking => booking.partnerId === activePartnerFilter);
+  }, [pipelineBookings, activePartnerFilter]);
+
   const statusFilteredBookings = useMemo(() => {
     const activeStatus = statusFilter || filters.status || '';
     const filtered = activeStatus
-      ? pipelineBookings.filter(booking => booking.status === activeStatus)
-      : pipelineBookings;
+      ? partnerFilteredBookings.filter(booking => booking.status === activeStatus)
+      : partnerFilteredBookings;
     return [...filtered].sort(compareLogisticsBookingsByBookingDateDesc);
-  }, [pipelineBookings, filters.status, statusFilter]);
+  }, [partnerFilteredBookings, filters.status, statusFilter]);
 
   const rangedBookings = useMemo(() => {
     if (!freightDiffFilter) return statusFilteredBookings;
@@ -495,6 +542,7 @@ export const LogisticsPage: React.FC = () => {
     setPage(1);
   }, [
     statusFilter,
+    partnerFilter,
     filters.status,
     filters.partnerId,
     filters.query,
@@ -561,18 +609,18 @@ export const LogisticsPage: React.FC = () => {
 
   const stats = useMemo(() => {
     const counts: Record<StatFilterId, number> = {
-      all: pipelineBookings.length,
+      all: partnerFilteredBookings.length,
       label_generated: 0,
       in_transit: 0,
       delivered: 0,
       cancelled: 0,
       returned: 0,
     };
-    for (const booking of pipelineBookings) {
+    for (const booking of partnerFilteredBookings) {
       counts[booking.status] += 1;
     }
     return counts;
-  }, [pipelineBookings]);
+  }, [partnerFilteredBookings]);
 
   const openFlow = useCallback(() => {
     setFlowStep('partner');
@@ -692,18 +740,24 @@ export const LogisticsPage: React.FC = () => {
     setStatusFilter(prev => (prev === status ? '' : status));
   }, []);
 
+  const applyPartnerFilter = useCallback((partnerId: LogisticsPartnerId) => {
+    setFilters(prev => ({ ...prev, partnerId: '' }));
+    setPartnerFilter(prev => (prev === partnerId ? '' : partnerId));
+  }, []);
+
   const openFiltersPanel = useCallback(() => {
     setDraftDateRange(dateRange);
     setDraftStatus(filters.status ?? '');
-    setDraftPartnerId(filters.partnerId ?? '');
+    setDraftPartnerId((filters.partnerId || partnerFilter || '') as LogisticsPartnerId | '');
     setDraftFreightDiffFilter(freightDiffFilter);
     setFiltersOpen(true);
-  }, [dateRange, filters.status, filters.partnerId, freightDiffFilter]);
+  }, [dateRange, filters.status, filters.partnerId, partnerFilter, freightDiffFilter]);
 
   const applyFiltersPanel = useCallback(() => {
     setDateRange(draftDateRange);
     setFreightDiffFilter(draftFreightDiffFilter);
     setStatusFilter('');
+    setPartnerFilter('');
     setFilters(prev => ({
       ...prev,
       status: draftStatus,
@@ -721,16 +775,44 @@ export const LogisticsPage: React.FC = () => {
     setDateRange(nextRange);
     setFreightDiffFilter('');
     setStatusFilter('');
+    setPartnerFilter('');
     setFilters(prev => ({ ...prev, status: '', partnerId: '' }));
   }, []);
 
   const showListControls = isOps && !flowOpen && !activeBooking;
+  const showListFilters = !loading && !activeBooking;
   const hasActiveFilters = Boolean(filters.status)
     || Boolean(filters.partnerId)
+    || Boolean(partnerFilter)
     || Boolean(statusFilter)
     || Boolean(freightDiffFilter)
     || !isDefaultDateRange(dateRange);
   const hasSearchQuery = Boolean(filters.query?.trim());
+
+  useEffect(() => {
+    if (!showListFilters) return;
+    const page = pageRef.current;
+    const filters = listFiltersRef.current;
+    if (!page || !filters) return;
+
+    const syncFiltersHeight = () => {
+      page.style.setProperty(
+        '--logistics-list-filters-h',
+        `${filters.getBoundingClientRect().height}px`,
+      );
+    };
+
+    syncFiltersHeight();
+    const observer = new ResizeObserver(syncFiltersHeight);
+    observer.observe(filters);
+    window.addEventListener('resize', syncFiltersHeight);
+
+    return () => {
+      observer.disconnect();
+      window.removeEventListener('resize', syncFiltersHeight);
+      page.style.removeProperty('--logistics-list-filters-h');
+    };
+  }, [showListFilters, partnerStats.length]);
 
   useEffect(() => {
     if (!showListControls) setFiltersOpen(false);
@@ -827,7 +909,13 @@ export const LogisticsPage: React.FC = () => {
   useTopBarAction(topBarAction, !flowOpen && (canCreate || showListControls));
 
   return (
-    <div className="page-content fade-in logistics-page">
+    <div
+      ref={pageRef}
+      className={[
+        'page-content fade-in logistics-page',
+        showListFilters ? 'logistics-page--list' : '',
+      ].filter(Boolean).join(' ')}
+    >
       {filtersOpen && showListControls && createPortal(
         <>
           <button
@@ -1002,39 +1090,81 @@ export const LogisticsPage: React.FC = () => {
             : undefined}
         />
       ) : (
-        <div className="logistics-page__dashboard">
-          <div className="logistics-page__stats" role="group" aria-label="Shipment summary">
-            {STATUS_STAT_META.map(stat => {
-              const count = stats[stat.id];
-              const active = stat.id === 'all'
-                ? !statusFilter && !filters.status
-                : statusFilter === stat.id
-                  || (!statusFilter && filters.status === stat.id);
-              const empty = count === 0 && !active;
-              return (
-                <button
-                  key={stat.id}
-                  type="button"
-                  className={[
-                    'logistics-page__stat',
-                    `logistics-page__stat--${stat.tone}`,
-                    active ? 'is-active' : '',
-                    empty ? 'is-empty' : '',
-                  ].filter(Boolean).join(' ')}
-                  onClick={() => applyStatFilter(stat.id)}
-                  title={stat.label}
-                  aria-pressed={active}
+        <>
+          {showListFilters ? (
+            <>
+              <div
+                ref={listFiltersRef}
+                className="logistics-page__filters logistics-page__filters--fixed"
+              >
+              {partnerStats.length > 0 ? (
+                <div
+                  className="logistics-page__partners"
+                  role="group"
+                  aria-label="Filter by delivery partner"
                 >
-                  <strong>{count}</strong>
-                  <span>
-                    <stat.Icon size={11} aria-hidden />
-                    <em>{stat.shortLabel}</em>
-                  </span>
-                </button>
-              );
-            })}
-          </div>
+                  {partnerStats.map(partner => {
+                    const active = activePartnerFilter === partner.id;
+                    return (
+                      <button
+                        key={partner.id}
+                        type="button"
+                        className={[
+                          'logistics-page__partner',
+                          active ? 'is-active' : '',
+                        ].filter(Boolean).join(' ')}
+                        onClick={() => applyPartnerFilter(partner.id)}
+                        title={`${partner.label} (${partner.count})`}
+                        aria-pressed={active}
+                      >
+                        <span className="logistics-page__partner-logo" aria-hidden>
+                          <img src={partner.image} alt="" />
+                        </span>
+                        <strong>{partner.count}</strong>
+                        <span className="logistics-page__partner-label">{partner.shortLabel}</span>
+                      </button>
+                    );
+                  })}
+                </div>
+              ) : null}
 
+              <div className="logistics-page__stats" role="group" aria-label="Shipment summary">
+                {STATUS_STAT_META.map(stat => {
+                  const count = stats[stat.id];
+                  const active = stat.id === 'all'
+                    ? !statusFilter && !filters.status
+                    : statusFilter === stat.id
+                      || (!statusFilter && filters.status === stat.id);
+                  const empty = count === 0 && !active;
+                  return (
+                    <button
+                      key={stat.id}
+                      type="button"
+                      className={[
+                        'logistics-page__stat',
+                        `logistics-page__stat--${stat.tone}`,
+                        active ? 'is-active' : '',
+                        empty ? 'is-empty' : '',
+                      ].filter(Boolean).join(' ')}
+                      onClick={() => applyStatFilter(stat.id)}
+                      title={stat.label}
+                      aria-pressed={active}
+                    >
+                      <strong>{count}</strong>
+                      <span>
+                        <stat.Icon size={11} aria-hidden />
+                        <em>{stat.shortLabel}</em>
+                      </span>
+                    </button>
+                  );
+                })}
+              </div>
+              </div>
+              <div className="logistics-page__filters-spacer" aria-hidden />
+            </>
+          ) : null}
+
+          <div className="logistics-page__dashboard">
           {rangedBookings.length === 0 ? (
             <div className="logistics-page__empty panel glass">
               <Truck size={40} aria-hidden />
@@ -1052,6 +1182,7 @@ export const LogisticsPage: React.FC = () => {
                   className="btn btn-secondary btn-sm"
                   onClick={() => {
                     setStatusFilter('');
+                    setPartnerFilter('');
                     setDateRange(defaultDateRange());
                     setFilters({ status: '', partnerId: '', query: '' });
                   }}
@@ -1082,6 +1213,10 @@ export const LogisticsPage: React.FC = () => {
                   const staffName = isOps
                     ? bookingStaffName(booking, dealerStaffById, freight?.salespersonName)
                     : '';
+                  const supportRequestId = booking.supportRequestId?.trim() || '';
+                  const supportHref = user && supportRequestId
+                    ? supportDetailPath(user.role, supportRequestId)
+                    : null;
                   return (
                     <li key={booking.id}>
                       <article
@@ -1118,6 +1253,26 @@ export const LogisticsPage: React.FC = () => {
                               >
                                 {ewayChip.label}
                               </span>
+                            ) : null}
+                            {supportHref ? (
+                              <Link
+                                to={supportHref}
+                                className="logistics-shipment__support"
+                                title={
+                                  booking.supportRequestNumber
+                                    ? `Support ${booking.supportRequestNumber}`
+                                    : 'Open support ticket'
+                                }
+                                aria-label={
+                                  booking.supportRequestNumber
+                                    ? `Open support ticket ${booking.supportRequestNumber}`
+                                    : 'Open support ticket'
+                                }
+                                onClick={event => event.stopPropagation()}
+                                onKeyDown={event => event.stopPropagation()}
+                              >
+                                <LifeBuoy size={11} aria-hidden />
+                              </Link>
                             ) : null}
                           </div>
 
@@ -1290,7 +1445,8 @@ export const LogisticsPage: React.FC = () => {
               )}
             </section>
           )}
-        </div>
+          </div>
+        </>
       )}
 
       {flowStep === 'partner' && (
