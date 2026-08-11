@@ -5,7 +5,11 @@ import type { DealerSupportRequest } from '../types/dealer-support';
 import type { DealerInvoiceDetail, InvoiceCategory } from '../types/invoices';
 import type { Role } from '../types';
 import { homePathForRole } from '../types';
-import type { LogisticsBookingDraft, ShipmentBoxDraft } from '../types/logistics-dispatch';
+import type {
+  LogisticsBookingDraft,
+  LogisticsFreightBillingMode,
+  ShipmentBoxDraft,
+} from '../types/logistics-dispatch';
 import type { StaffLogisticsSite } from '../types/staff-logistics';
 import { isFreightInvoiceLineItem } from './invoices';
 import {
@@ -159,6 +163,36 @@ export function resolveInvoiceFreightBillingMode(
     return 'btc';
   }
   return null;
+}
+
+/** Delhivery BTC/FOD for invoice-linked bookings — always from the freight line. */
+export function resolveDelhiveryFreightBillingModeFromInvoice(
+  invoice: Pick<DealerInvoiceDetail, 'lineItems'> | null | undefined,
+): LogisticsFreightBillingMode {
+  return resolveInvoiceFreightBillingMode(invoice ?? { lineItems: [] }) || 'btc';
+}
+
+/** Invoice-linked Delhivery or any booking after LR creation — mode cannot change. */
+export function isDelhiveryFreightBillingModeLocked(booking: {
+  partnerId: string;
+  invoiceId?: string | null;
+  consignmentNo?: string | null;
+}): boolean {
+  if (booking.partnerId !== 'delhivery') return false;
+  if (booking.invoiceId?.trim()) return true;
+  if (booking.consignmentNo?.trim()) return true;
+  return false;
+}
+
+export function delhiveryFreightBillingLockLabel(booking: {
+  partnerId: string;
+  invoiceId?: string | null;
+  consignmentNo?: string | null;
+}): string | null {
+  if (!isDelhiveryFreightBillingModeLocked(booking)) return null;
+  if (booking.invoiceId?.trim()) return 'locked (from invoice freight line)';
+  if (booking.consignmentNo?.trim()) return 'locked (LR created)';
+  return 'locked';
 }
 
 /** Cartonize non-freight invoice lines into booking boxes (dims + weight). */

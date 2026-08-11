@@ -36,8 +36,7 @@ import {
 } from './logisticsBooking';
 import { fetchDealerById } from './dealers';
 import type { DealerInvoiceDetail } from '../types/invoices';
-import { isInvoicePaidStatus } from '../types/invoices';
-import { fetchInvoiceForLogisticsBooking } from './logisticsFreightCompare';
+import { isDelhiveryFreightBillingModeLocked } from './logisticsPrefill';
 import {
   dataUrlToFile,
   deleteLogisticsPhoto,
@@ -57,7 +56,6 @@ import {
   isDelhiveryMasterAwb,
   normalizeDelhiveryId,
   resolveDelhiveryBookingIds,
-  splitDelhiveryEntryId,
 } from './delhiveryTrack';
 import type {
   LogisticsBooking,
@@ -1592,11 +1590,8 @@ export async function updateLogisticsBookingFreightBillingMode(
   if (mode !== 'fod' && mode !== 'btc') {
     throw new Error('Freight billing mode must be fod or btc.');
   }
-  if (booking.invoiceId?.trim()) {
-    const invoice = await fetchInvoiceForLogisticsBooking(booking, { isOps: true });
-    if (invoice && isInvoicePaidStatus(invoice.status)) {
-      throw new Error('Cannot change BTC/FOD after the linked invoice is paid.');
-    }
+  if (isDelhiveryFreightBillingModeLocked(booking)) {
+    throw new Error('BTC/FOD is fixed from the invoice freight line and cannot be changed.');
   }
   const updatedAt = new Date().toISOString();
   const courierFreight = booking.courierFreight
@@ -1902,6 +1897,8 @@ export async function linkLogisticsBookingToInvoice(input: {
   invoiceNumber: string;
   zohoCustomerId: string;
   invoiceValueInr?: number | null;
+  /** Delhivery BTC/FOD from invoice freight line when linking. */
+  freightBillingMode?: import('../types/logistics-dispatch').LogisticsFreightBillingMode | null;
   user: User;
 }): Promise<LogisticsBooking> {
   if (!canCreateLogisticsBooking(input.user)) {
@@ -1945,6 +1942,13 @@ export async function linkLogisticsBookingToInvoice(input: {
   if (!booking.dealer.zohoCustomerId.trim() && zohoCustomerId) {
     patch.zohoCustomerId = zohoCustomerId;
   }
+  if (
+    booking.partnerId === 'delhivery'
+    && (input.freightBillingMode === 'fod' || input.freightBillingMode === 'btc')
+  ) {
+    patch.freightBillingMode = input.freightBillingMode;
+    patch.freightBillingModeSource = 'booking';
+  }
 
   await updateDoc(bookingRef, patch);
 
@@ -1957,6 +1961,13 @@ export async function linkLogisticsBookingToInvoice(input: {
       : booking.invoiceValueInr ?? null,
     source: 'invoice',
     orderRef: invoiceNumber || booking.orderRef,
+    ...(booking.partnerId === 'delhivery'
+      && (input.freightBillingMode === 'fod' || input.freightBillingMode === 'btc')
+      ? {
+        freightBillingMode: input.freightBillingMode,
+        freightBillingModeSource: 'booking' as const,
+      }
+      : {}),
     updatedAt,
   };
   await tryRefreshLogisticsBookingTrack(linked);
@@ -1991,8 +2002,6 @@ export type RecordInvoiceLogisticsLrInput = {
   createdBy: User;
   partnerId: LogisticsPartnerId;
   shipFromSite?: StaffLogisticsSite | null;
-  /** Delhivery: FOD vs BTC when recording an existing LR. */
-  freightBillingMode?: import('../types/logistics-dispatch').LogisticsFreightBillingMode | null;
 };
 
 function dealerSnapshotFromInvoice(
@@ -2045,20 +2054,14 @@ export async function recordInvoiceLogisticsBooking(
   if (!isLogisticsPartnerId(partnerId) || !isPipelineEnabledPartner(partnerId)) {
     throw new Error('This courier partner is not available for logistics booking.');
   }
-
-  // Delhivery: prefer single 9-digit LRN entry (freight + identity). MWB kept if pasted.
-  const delhiveryIds = partnerId === 'delhivery'
-    ? splitDelhiveryEntryId(consignmentRaw)
-    : null;
-  if (partnerId === 'delhivery' && delhiveryIds && !delhiveryIds.lrn && delhiveryIds.masterAwb) {
-    // Allow MWB-only for track, but freight needs LRN later.
+  if (partnerId === 'delhivery') {
+    throw new Error(
+      'Delhivery must be booked from the invoice (Book Courier) or by linking an existing LR.',
+    );
   }
-  const consignmentNo = delhiveryIds?.lrn
-    || delhiveryIds?.masterAwb
-    || consignmentRaw;
-  const trackingNo = delhiveryIds?.masterAwb
-    || delhiveryIds?.lrn
-    || consignmentRaw;
+
+  const consignmentNo = consignmentRaw;
+  const trackingNo = consignmentRaw;
 
   let dealer = dealerSnapshotFromInvoice(input.invoice, zohoCustomerId);
   try {
@@ -2107,9 +2110,8 @@ export async function recordInvoiceLogisticsBooking(
     partnerId,
     consignmentNo,
     trackingNo,
-    ...(delhiveryIds?.masterAwb ? { masterAwb: delhiveryIds.masterAwb } : {}),
     branch: '',
-    serviceType: partnerId === 'delhivery' ? 'Express' : '',
+    serviceType: '',
     bookingDate,
     zohoCustomerId: dealer.zohoCustomerId,
     dealerId: dealer.dealerId,
@@ -2143,16 +2145,6 @@ export async function recordInvoiceLogisticsBooking(
     packingSlipGenerated: false,
     status: 'label_generated',
     wizardStep: null,
-    ...(partnerId === 'delhivery'
-      ? {
-        freightBillingMode: (
-          input.freightBillingMode === 'fod' || input.freightBillingMode === 'btc'
-            ? input.freightBillingMode
-            : 'btc'
-        ),
-        freightBillingModeSource: 'booking',
-      }
-      : {}),
     createdAt: now,
     updatedAt: now,
     createdByUid: input.createdBy.uid,

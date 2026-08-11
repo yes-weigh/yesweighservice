@@ -62,6 +62,7 @@ import {
   shipFromSiteLabel,
   type InvoiceBranchShipFrom,
 } from '../../lib/logisticsShipFrom';
+import { delhiveryFreightBillingLockLabel } from '../../lib/logisticsPrefill';
 import { isPlaceholderLogisticsAddress } from '../../lib/logisticsDealers';
 import { loadLogisticsSettings } from '../../lib/logisticsSettings';
 import { logisticsTrackingUrl } from '../../lib/logisticsTracking';
@@ -1555,45 +1556,74 @@ export const LogisticsBookingDetail: React.FC<LogisticsBookingDetailProps> = ({
                   {booking.freightBillingModeSource
                     ? ` · ${booking.freightBillingModeSource}`
                     : ''}
-                  {freightCompare?.billingModeLocked ? ' · locked (invoice paid)' : ''}
+                  {freightCompare?.billingModeLocked
+                    ? ` · ${delhiveryFreightBillingLockLabel(booking) ?? 'locked'}`
+                    : ''}
                 </span>
                 <div className="logistics-booking__billing-mode-actions">
-                  <button
-                    type="button"
-                    className={[
-                      'btn btn-secondary',
-                      (freightCompare?.freightBillingMode || booking.freightBillingMode) === 'btc'
-                        ? 'is-active'
-                        : '',
-                    ].filter(Boolean).join(' ')}
-                    disabled={savingBillingMode || Boolean(freightCompare?.billingModeLocked)}
-                    onClick={() => {
-                      setSavingBillingMode(true);
-                      void updateLogisticsBookingFreightBillingMode(booking, 'btc', user)
-                        .then(next => onUpdate(next))
-                        .finally(() => setSavingBillingMode(false));
-                    }}
-                  >
-                    BTC
-                  </button>
-                  <button
-                    type="button"
-                    className={[
-                      'btn btn-secondary',
-                      (freightCompare?.freightBillingMode || booking.freightBillingMode) === 'fod'
-                        ? 'is-active'
-                        : '',
-                    ].filter(Boolean).join(' ')}
-                    disabled={savingBillingMode || Boolean(freightCompare?.billingModeLocked)}
-                    onClick={() => {
-                      setSavingBillingMode(true);
-                      void updateLogisticsBookingFreightBillingMode(booking, 'fod', user)
-                        .then(next => onUpdate(next))
-                        .finally(() => setSavingBillingMode(false));
-                    }}
-                  >
-                    FOD
-                  </button>
+                  {freightCompare?.billingModeLocked ? (
+                    <>
+                      <span
+                        className={[
+                          'btn btn-secondary',
+                          (freightCompare?.freightBillingMode || booking.freightBillingMode) === 'btc'
+                            ? 'is-active'
+                            : '',
+                        ].filter(Boolean).join(' ')}
+                      >
+                        BTC
+                      </span>
+                      <span
+                        className={[
+                          'btn btn-secondary',
+                          (freightCompare?.freightBillingMode || booking.freightBillingMode) === 'fod'
+                            ? 'is-active'
+                            : '',
+                        ].filter(Boolean).join(' ')}
+                      >
+                        FOD
+                      </span>
+                    </>
+                  ) : (
+                    <>
+                      <button
+                        type="button"
+                        className={[
+                          'btn btn-secondary',
+                          (freightCompare?.freightBillingMode || booking.freightBillingMode) === 'btc'
+                            ? 'is-active'
+                            : '',
+                        ].filter(Boolean).join(' ')}
+                        disabled={savingBillingMode}
+                        onClick={() => {
+                          setSavingBillingMode(true);
+                          void updateLogisticsBookingFreightBillingMode(booking, 'btc', user)
+                            .then(next => onUpdate(next))
+                            .finally(() => setSavingBillingMode(false));
+                        }}
+                      >
+                        BTC
+                      </button>
+                      <button
+                        type="button"
+                        className={[
+                          'btn btn-secondary',
+                          (freightCompare?.freightBillingMode || booking.freightBillingMode) === 'fod'
+                            ? 'is-active'
+                            : '',
+                        ].filter(Boolean).join(' ')}
+                        disabled={savingBillingMode}
+                        onClick={() => {
+                          setSavingBillingMode(true);
+                          void updateLogisticsBookingFreightBillingMode(booking, 'fod', user)
+                            .then(next => onUpdate(next))
+                            .finally(() => setSavingBillingMode(false));
+                        }}
+                      >
+                        FOD
+                      </button>
+                    </>
+                  )}
                 </div>
               </div>
             ) : null}

@@ -18,6 +18,10 @@ export const ENABLED_LOGISTICS_PARTNER_IDS: ReadonlyArray<LogisticsPartnerId> = 
   'delhivery',
 ];
 
+/** Partners allowed for Logistics → New booking (Delhivery requires an invoice). */
+export const STANDALONE_LOGISTICS_PARTNER_IDS: ReadonlyArray<LogisticsPartnerId> =
+  ENABLED_LOGISTICS_PARTNER_IDS.filter(id => id !== 'delhivery');
+
 export function isPipelineEnabledPartner(id: string): boolean {
   return ENABLED_LOGISTICS_PARTNER_IDS.includes(id as LogisticsPartnerId);
 }
@@ -343,7 +347,6 @@ export function emptyBookingDraft(partnerId: LogisticsPartnerId): LogisticsBooki
     boxes: [emptyShipmentBoxDraft()],
     finalPackagePhoto: null,
     labelGenerated: false,
-    ...(partnerId === 'delhivery' ? { freightBillingMode: 'btc' as const } : {}),
   };
 }
 

@@ -15,10 +15,11 @@ import {
   listUnlinkedLogisticsBookingsForPartner,
   recordInvoiceLogisticsBooking,
 } from '../../lib/logisticsBookings';
+import {
+  resolveDelhiveryFreightBillingModeFromInvoice,
+} from '../../lib/logisticsPrefill';
 import type { User } from '../../types';
 import type { DealerInvoiceDetail } from '../../types/invoices';
-import { isInvoicePaidStatus } from '../../types/invoices';
-import { resolveInvoiceFreightBillingMode } from '../../lib/logisticsPrefill';
 import type { LogisticsBooking } from '../../types/logistics-dispatch';
 import type { StaffLogisticsSite } from '../../types/staff-logistics';
 
@@ -40,6 +41,7 @@ type Props = {
 
 const PICKABLE_PARTNERS = LOGISTICS_PARTNERS.filter(partner => (
   ENABLED_LOGISTICS_PARTNER_IDS.includes(partner.id)
+  && partner.id !== 'delhivery'
 ));
 
 function formatBookingDate(value: string): string {
@@ -69,7 +71,6 @@ export const InvoiceAddLrDialog: React.FC<Props> = ({
   const [selectedPartnerId, setSelectedPartnerId] = useState<LogisticsPartnerId>(partnerId);
   const [lrn, setLrn] = useState('');
   const [boxCount, setBoxCount] = useState('1');
-  const [freightBillingMode, setFreightBillingMode] = useState<'btc' | 'fod'>('btc');
   const [candidates, setCandidates] = useState<LogisticsBooking[]>([]);
   const [selectedId, setSelectedId] = useState('');
   const [linkQuery, setLinkQuery] = useState('');
@@ -77,22 +78,20 @@ export const InvoiceAddLrDialog: React.FC<Props> = ({
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
   const activePartnerId = allowPartnerPick ? selectedPartnerId : partnerId;
-  const billingModeLocked = isInvoicePaidStatus(invoice.status);
+  const delhiveryLinkOnly = activePartnerId === 'delhivery';
 
   useEffect(() => {
     if (!open) return;
-    setMode('choose');
     setSelectedPartnerId(partnerId);
     setLrn('');
     setBoxCount('1');
-    const fromInvoice = resolveInvoiceFreightBillingMode(invoice);
-    setFreightBillingMode(fromInvoice || 'btc');
     setCandidates([]);
     setSelectedId('');
     setLinkQuery('');
     setError('');
     setSaving(false);
     setLoadingList(false);
+    setMode(partnerId === 'delhivery' ? 'link' : 'choose');
   }, [open, partnerId, invoice]);
 
   useEffect(() => {
@@ -149,7 +148,6 @@ export const InvoiceAddLrDialog: React.FC<Props> = ({
         createdBy: user,
         partnerId: activePartnerId,
         shipFromSite,
-        ...(activePartnerId === 'delhivery' ? { freightBillingMode } : {}),
       });
       onCreated(booking);
       onClose();
@@ -174,6 +172,9 @@ export const InvoiceAddLrDialog: React.FC<Props> = ({
         invoiceId,
         invoiceNumber: invoice.invoiceNumber,
         invoiceValueInr: invoice.total,
+        freightBillingMode: activePartnerId === 'delhivery'
+          ? resolveDelhiveryFreightBillingModeFromInvoice(invoice)
+          : undefined,
         zohoCustomerId,
         user,
       });
@@ -200,7 +201,9 @@ export const InvoiceAddLrDialog: React.FC<Props> = ({
         onClick={e => e.stopPropagation()}
       >
         <div className="dealers-modal__header">
-          <h3 id="invoice-add-lr-title">Manual logistics</h3>
+          <h3 id="invoice-add-lr-title">
+            {delhiveryLinkOnly ? 'Link Delhivery LR' : 'Manual logistics'}
+          </h3>
           <button
             type="button"
             className="dealers-modal__close"
@@ -291,9 +294,7 @@ export const InvoiceAddLrDialog: React.FC<Props> = ({
               </p>
             </div>
             <p className="text-muted text-sm">
-              {activePartnerId === 'delhivery'
-                ? 'Enter the Delhivery LRN (9 digits). Freight and status use this number.'
-                : `Save tracking (${logisticsPartnerLabel(activePartnerId)}).`}
+              {`Save tracking (${logisticsPartnerLabel(activePartnerId)}).`}
             </p>
             {allowPartnerPick && (
               <label className="settings-courier-rates__field settings-courier-rates__field--plain">
@@ -312,7 +313,7 @@ export const InvoiceAddLrDialog: React.FC<Props> = ({
               </label>
             )}
             <label className="settings-courier-rates__field settings-courier-rates__field--plain">
-              <span>{activePartnerId === 'delhivery' ? 'LRN' : 'Tracking number'}</span>
+              <span>Tracking number</span>
               <input
                 type="text"
                 value={lrn}
@@ -322,8 +323,7 @@ export const InvoiceAddLrDialog: React.FC<Props> = ({
                 spellCheck={false}
                 required
                 disabled={saving}
-                placeholder={activePartnerId === 'delhivery' ? 'e.g. 298833418' : 'LR / AWB / consignment no.'}
-                inputMode={activePartnerId === 'delhivery' ? 'numeric' : undefined}
+                placeholder="LR / AWB / consignment no."
               />
             </label>
             <label
@@ -342,37 +342,6 @@ export const InvoiceAddLrDialog: React.FC<Props> = ({
                 disabled={saving}
               />
             </label>
-            {activePartnerId === 'delhivery' ? (
-              <div style={{ marginTop: 12 }}>
-                <span className="text-muted text-sm">
-                  Freight billing
-                  {billingModeLocked ? ' · locked (invoice paid)' : ''}
-                </span>
-                <div className="logistics-booking__billing-mode-actions" style={{ marginTop: 8 }}>
-                  <button
-                    type="button"
-                    className={['btn btn-secondary', freightBillingMode === 'btc' ? 'is-active' : ''].filter(Boolean).join(' ')}
-                    disabled={saving || billingModeLocked}
-                    onClick={() => setFreightBillingMode('btc')}
-                  >
-                    BTC
-                  </button>
-                  <button
-                    type="button"
-                    className={['btn btn-secondary', freightBillingMode === 'fod' ? 'is-active' : ''].filter(Boolean).join(' ')}
-                    disabled={saving || billingModeLocked}
-                    onClick={() => setFreightBillingMode('fod')}
-                  >
-                    FOD
-                  </button>
-                </div>
-                <p className="text-muted text-sm" style={{ marginBottom: 0 }}>
-                  {billingModeLocked
-                    ? 'Invoice is paid — BTC/FOD is taken from the invoice freight line.'
-                    : 'Match Delhivery One: BTC = bill to client, FOD = consignee pays freight.'}
-                </p>
-              </div>
-            ) : null}
             {error ? <p className="dealers-modal__error">{error}</p> : null}
             <div className="dealers-modal__actions">
               <button
@@ -406,13 +375,19 @@ export const InvoiceAddLrDialog: React.FC<Props> = ({
               </p>
             </div>
             <p className="text-muted text-sm">
-              Unlinked
-              {' '}
-              {logisticsPartnerLabel(activePartnerId)}
-              {' '}
-              entries — pick one to attach.
+              {delhiveryLinkOnly
+                ? 'Delhivery LRs must be created via Book Courier from the invoice. Link an existing unlinked LR here if the shipment was booked outside this flow.'
+                : (
+                  <>
+                    Unlinked
+                    {' '}
+                    {logisticsPartnerLabel(activePartnerId)}
+                    {' '}
+                    entries — pick one to attach.
+                  </>
+                )}
             </p>
-            {allowPartnerPick && (
+            {allowPartnerPick && !delhiveryLinkOnly && (
               <label className="settings-courier-rates__field settings-courier-rates__field--plain">
                 <span>Delivery partner</span>
                 <select
@@ -493,14 +468,25 @@ export const InvoiceAddLrDialog: React.FC<Props> = ({
             </div>
             {error ? <p className="dealers-modal__error">{error}</p> : null}
             <div className="dealers-modal__actions">
-              <button
-                type="button"
-                className="btn btn-secondary"
-                onClick={() => { setMode('choose'); setError(''); }}
-                disabled={saving}
-              >
-                Back
-              </button>
+              {!delhiveryLinkOnly ? (
+                <button
+                  type="button"
+                  className="btn btn-secondary"
+                  onClick={() => { setMode('choose'); setError(''); }}
+                  disabled={saving}
+                >
+                  Back
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  className="btn btn-secondary"
+                  onClick={onClose}
+                  disabled={saving}
+                >
+                  Cancel
+                </button>
+              )}
               <button
                 type="submit"
                 className="btn btn-primary"

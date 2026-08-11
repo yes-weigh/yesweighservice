@@ -33,6 +33,10 @@ import {
   boxDimensionsLabel,
   computeVolumetricWeight,
 } from './logisticsBooking';
+import {
+  isDelhiveryFreightBillingModeLocked,
+  resolveInvoiceFreightBillingMode,
+} from './logisticsPrefill';
 import { loadLogisticsCourierRates } from './logisticsCourierRates';
 import { extractCityState, resolveDestinationPlace } from './shippingLabel';
 import { quoteStCourierParcels, type StCourierParcel } from './stCourierCartFreight';
@@ -758,7 +762,14 @@ export function buildLogisticsFreightCompare(input: {
     actualNote = actualNote || `Delhivery freight: ${apiFreight.error}`;
   }
 
-  const freightBillingMode = (
+  const invoiceDerivedMode = (
+    invoice
+    && booking.invoiceId?.trim()
+    && booking.partnerId === 'delhivery'
+      ? (resolveInvoiceFreightBillingMode(invoice) || 'btc')
+      : null
+  );
+  const freightBillingMode = invoiceDerivedMode ?? (
     booking.freightBillingMode === 'fod' || booking.freightBillingMode === 'btc'
       ? booking.freightBillingMode
       : (booking.courierFreight?.billingMode === 'fod' || booking.courierFreight?.billingMode === 'btc'
@@ -775,7 +786,8 @@ export function buildLogisticsFreightCompare(input: {
   );
 
   const invoiceStatus = invoice?.status != null ? String(invoice.status) : null;
-  const billingModeLocked = isInvoicePaidStatus(invoiceStatus);
+  const billingModeLocked = booking.partnerId === 'delhivery'
+    && (isDelhiveryFreightBillingModeLocked(booking) || isInvoicePaidStatus(invoiceStatus));
 
   return {
     invoiceId: invoice?.id ?? booking.invoiceId,

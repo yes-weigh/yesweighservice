@@ -88,7 +88,6 @@ import {
 import { bookDelhiveryShipment } from '../../lib/delhiveryB2b';
 import { pinFromText } from '../../lib/delhiveryQuote';
 import { fetchAdminInvoiceDetail } from '../../lib/admin-invoices';
-import { isInvoicePaidStatus } from '../../types/invoices';
 import { resolveInvoiceFreightBillingMode } from '../../lib/logisticsPrefill';
 import {
   loadLogisticsSettings,
@@ -687,7 +686,7 @@ export const BookCourierFlow: React.FC<BookCourierFlowProps> = ({
     return () => { cancelled = true; };
   }, [draft.source, draft.invoiceId, draft.zohoCustomerId, existingBookingId]);
 
-  // Paid invoice: lock BTC/FOD (and sync mode from the invoice freight line).
+  // Invoice-linked Delhivery: BTC/FOD always from the invoice freight line (read-only).
   useEffect(() => {
     if (draft.source !== 'invoice' || partnerId !== 'delhivery') {
       setFreightBillingModeLocked(false);
@@ -703,13 +702,23 @@ export const BookCourierFlow: React.FC<BookCourierFlowProps> = ({
     void fetchAdminInvoiceDetail(customerId, invoiceId)
       .then(invoice => {
         if (cancelled) return;
-        const paid = isInvoicePaidStatus(invoice.status);
-        setFreightBillingModeLocked(paid);
-        if (!paid) return;
+        setFreightBillingModeLocked(true);
         const mode = resolveInvoiceFreightBillingMode(invoice) || 'btc';
+        const invoiceTotal = Number(invoice.total);
         setDraft(prev => {
-          if (prev.freightBillingMode === mode) return prev;
-          const next = { ...prev, freightBillingMode: mode };
+          const next = {
+            ...prev,
+            freightBillingMode: mode,
+            ...(Number.isFinite(invoiceTotal) && invoiceTotal > 0
+              ? { invoiceValueInr: invoiceTotal }
+              : {}),
+          };
+          if (
+            prev.freightBillingMode === next.freightBillingMode
+            && prev.invoiceValueInr === next.invoiceValueInr
+          ) {
+            return prev;
+          }
           draftRef.current = next;
           return next;
         });
@@ -963,9 +972,20 @@ export const BookCourierFlow: React.FC<BookCourierFlowProps> = ({
       const shipFromPlace = cityStateFromAddress(fromAddress);
       const shipFromPin = pincodeFromAddress(fromAddress) || pin;
       const invoiceValueRaw = Number(draftRef.current.invoiceValueInr);
-      const invoiceValueInr = Number.isFinite(invoiceValueRaw) && invoiceValueRaw > 0
-        ? invoiceValueRaw
-        : 1;
+      const fromInvoice = draftRef.current.source === 'invoice';
+      let invoiceValueInr: number;
+      if (fromInvoice) {
+        if (!Number.isFinite(invoiceValueRaw) || invoiceValueRaw <= 0) {
+          throw new Error(
+            'Invoice total (incl. GST) is required before booking Delhivery. Use Book Courier from the invoice.',
+          );
+        }
+        invoiceValueInr = invoiceValueRaw;
+      } else {
+        invoiceValueInr = Number.isFinite(invoiceValueRaw) && invoiceValueRaw > 0
+          ? invoiceValueRaw
+          : 1;
+      }
       const shipperRef = (
         draftRef.current.salesOrderNumber?.trim()
         || invoiceBranchShipFrom?.salesOrderNumber?.trim()
@@ -2461,45 +2481,75 @@ export const BookCourierFlow: React.FC<BookCourierFlowProps> = ({
                   <div className="book-courier__review-head">
                     <h4>Freight billing</h4>
                   </div>
-                  <p className="text-muted text-sm" style={{ marginTop: 0 }}>
-                    BTC bills freight to YesWeigh (default when FoP is not enabled on the Delhivery account).
-                    FOD collects freight from the consignee on delivery.
-                  </p>
-                  <div className="logistics-booking__billing-mode-actions">
-                    <button
-                      type="button"
-                      className={[
-                        'btn btn-secondary',
-                        (draft.freightBillingMode || 'btc') === 'btc' ? 'is-active' : '',
-                      ].filter(Boolean).join(' ')}
-                      disabled={
-                        bookingDelhivery
-                        || freightBillingModeLocked
-                        || Boolean(draft.consignmentNo.trim())
-                      }
-                      onClick={() => applyDraft(prev => ({ ...prev, freightBillingMode: 'btc' }))}
-                    >
-                      BTC
-                    </button>
-                    <button
-                      type="button"
-                      className={[
-                        'btn btn-secondary',
-                        draft.freightBillingMode === 'fod' ? 'is-active' : '',
-                      ].filter(Boolean).join(' ')}
-                      disabled={
-                        bookingDelhivery
-                        || freightBillingModeLocked
-                        || Boolean(draft.consignmentNo.trim())
-                      }
-                      onClick={() => applyDraft(prev => ({ ...prev, freightBillingMode: 'fod' }))}
-                    >
-                      FOD
-                    </button>
-                  </div>
                   {freightBillingModeLocked ? (
-                    <p className="text-muted text-sm">
-                      Invoice is paid — BTC/FOD is locked.
+                    <>
+                      <p className="text-muted text-sm" style={{ marginTop: 0 }}>
+                        Taken from the invoice Delhivery freight line — not editable here.
+                        {' '}
+                        ₹0 freight = FOD; charged freight = BTC.
+                      </p>
+                      <div className="logistics-booking__billing-mode-actions">
+                        <span
+                          className={[
+                            'btn btn-secondary',
+                            (draft.freightBillingMode || 'btc') === 'btc' ? 'is-active' : '',
+                          ].filter(Boolean).join(' ')}
+                          aria-current={(draft.freightBillingMode || 'btc') === 'btc'}
+                        >
+                          BTC
+                        </span>
+                        <span
+                          className={[
+                            'btn btn-secondary',
+                            draft.freightBillingMode === 'fod' ? 'is-active' : '',
+                          ].filter(Boolean).join(' ')}
+                          aria-current={draft.freightBillingMode === 'fod'}
+                        >
+                          FOD
+                        </span>
+                      </div>
+                    </>
+                  ) : (
+                    <>
+                      <p className="text-muted text-sm" style={{ marginTop: 0 }}>
+                        BTC bills freight to YesWeigh (default when FoP is not enabled on the Delhivery account).
+                        FOD collects freight from the consignee on delivery.
+                      </p>
+                      <div className="logistics-booking__billing-mode-actions">
+                        <button
+                          type="button"
+                          className={[
+                            'btn btn-secondary',
+                            (draft.freightBillingMode || 'btc') === 'btc' ? 'is-active' : '',
+                          ].filter(Boolean).join(' ')}
+                          disabled={
+                            bookingDelhivery
+                            || Boolean(draft.consignmentNo.trim())
+                          }
+                          onClick={() => applyDraft(prev => ({ ...prev, freightBillingMode: 'btc' }))}
+                        >
+                          BTC
+                        </button>
+                        <button
+                          type="button"
+                          className={[
+                            'btn btn-secondary',
+                            draft.freightBillingMode === 'fod' ? 'is-active' : '',
+                          ].filter(Boolean).join(' ')}
+                          disabled={
+                            bookingDelhivery
+                            || Boolean(draft.consignmentNo.trim())
+                          }
+                          onClick={() => applyDraft(prev => ({ ...prev, freightBillingMode: 'fod' }))}
+                        >
+                          FOD
+                        </button>
+                      </div>
+                    </>
+                  )}
+                  {Boolean(draft.consignmentNo.trim()) ? (
+                    <p className="text-muted text-sm" style={{ marginBottom: 0 }}>
+                      LR already created — billing mode is fixed for this shipment.
                     </p>
                   ) : null}
                   {delhiveryDestPin ? (
@@ -2511,12 +2561,6 @@ export const BookCourierFlow: React.FC<BookCourierFlowProps> = ({
                       dimensions={delhiveryQuoteDimensions}
                       includeEstimate={Boolean(delhiveryOriginPin)}
                     />
-                  ) : null}
-                  {draft.consignmentNo.trim() ? (
-                    <p className="text-muted text-sm" style={{ marginBottom: 0 }}>
-                      LR already created — change FOD/BTC later on the booking detail if needed
-                      {freightBillingModeLocked ? ' (unless the invoice is paid)' : ''}.
-                    </p>
                   ) : null}
                 </div>
               ) : null}

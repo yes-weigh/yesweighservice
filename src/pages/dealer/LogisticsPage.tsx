@@ -32,7 +32,7 @@ import { LOGISTICS_PARTNERS } from '../../constants/logisticsPartners';
 import { isLogisticsPartnerId } from '../../constants/logisticsPartners';
 import type { LogisticsPartnerId } from '../../constants/logisticsPartners';
 import {
-  ENABLED_LOGISTICS_PARTNER_IDS,
+  STANDALONE_LOGISTICS_PARTNER_IDS,
   LOGISTICS_DASHBOARD_STATUSES,
   isIncompleteLogisticsBooking,
   isPipelineEnabledPartner,
@@ -620,9 +620,9 @@ export const LogisticsPage: React.FC = () => {
 
   const handlePartnerSelect = useCallback((methodId: string) => {
     if (!isLogisticsPartnerId(methodId)) return;
-    if (!ENABLED_LOGISTICS_PARTNER_IDS.includes(methodId)) return;
+    if (!STANDALONE_LOGISTICS_PARTNER_IDS.includes(methodId)) return;
     setSelectedPartnerId(methodId);
-    setResumeStep(methodId === 'delhivery' ? 'address' : undefined);
+    setResumeStep(undefined);
     setFlowStep('book');
   }, []);
 
@@ -1341,10 +1341,10 @@ export const LogisticsPage: React.FC = () => {
 
       {flowStep === 'partner' && (
         <CourierPartnerPicker
-          availableIds={ENABLED_LOGISTICS_PARTNER_IDS}
+          availableIds={STANDALONE_LOGISTICS_PARTNER_IDS}
           titleLead="LOGISTIC"
           titleAccent="PARTNER"
-          subtitle="Select a logistics partner to book courier"
+          subtitle="Select a logistics partner to book courier (Delhivery: use Book Courier from the invoice)"
           ariaLabel="Logistics partners"
           onClose={closeFlow}
           onSelect={handlePartnerSelect}

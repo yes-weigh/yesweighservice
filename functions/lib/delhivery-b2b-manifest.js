@@ -172,8 +172,15 @@ export function buildDelhiveryB2bManifestPayload(input) {
   }
 
   const weightG = Math.max(1, Math.round(totalWeightKg * 1000));
-  const invoiceValue = Math.max(1, asNumber(input.invoiceValueInr, 1));
-  const invoiceNumber = nonEmpty(input.invoiceNumber) || String(input.orderId || 'INV');
+  const rawInvoiceValue = asNumber(input.invoiceValueInr, 0);
+  const invoiceNumberRaw = nonEmpty(input.invoiceNumber);
+  if (invoiceNumberRaw && rawInvoiceValue <= 0) {
+    throw new Error(
+      'Invoice total (invoiceValueInr) is required before booking Delhivery for an invoice shipment.',
+    );
+  }
+  const invoiceValue = Math.max(1, rawInvoiceValue || 1);
+  const invoiceNumber = invoiceNumberRaw || String(input.orderId || 'INV');
   const productsDesc = nonEmpty(input.productsDesc) || 'Goods';
   const freightMode = delhiveryFreightModeFromBilling(input.freightBillingMode);
   const freightBillingMode = String(input.freightBillingMode || '').trim().toLowerCase() === 'fod'
