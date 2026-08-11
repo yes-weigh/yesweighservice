@@ -24694,6 +24694,124 @@ body:has(.confirm-inline-bar) .confirm-inline-bar {
   color: #94a3b8;
 }
 
+.logistics-booking__order-history {
+  margin-top: 0.75rem;
+}
+
+.logistics-booking__order-history-list {
+  list-style: none;
+  margin: 0.75rem 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.logistics-booking__order-history-list > li {
+  position: relative;
+  display: grid;
+  grid-template-columns: 0.85rem minmax(0, 1fr);
+  gap: 0.65rem;
+  padding: 0 0 1rem;
+}
+
+.logistics-booking__order-history-list > li:last-child {
+  padding-bottom: 0;
+}
+
+.logistics-booking__order-history-list > li:not(:last-child)::before {
+  content: '';
+  position: absolute;
+  left: 0.32rem;
+  top: 0.85rem;
+  bottom: 0;
+  width: 2px;
+  background: rgba(71, 85, 105, 0.85);
+}
+
+.logistics-booking__order-history-dot {
+  width: 0.7rem;
+  height: 0.7rem;
+  margin-top: 0.25rem;
+  border-radius: 999px;
+  background: #64748b;
+  box-shadow: 0 0 0 3px rgba(15, 23, 42, 0.85);
+  z-index: 1;
+}
+
+.logistics-booking__order-history-list > li.is-latest .logistics-booking__order-history-dot {
+  background: #38bdf8;
+}
+
+.logistics-booking__order-history-copy {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  min-width: 0;
+}
+
+.logistics-booking__order-history-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.35rem 0.75rem;
+}
+
+.logistics-booking__order-history-head strong {
+  font-size: 0.875rem;
+  color: #e2e8f0;
+}
+
+.logistics-booking__order-history-at {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  font-size: 0.75rem;
+  color: #94a3b8;
+  white-space: nowrap;
+}
+
+.logistics-booking__order-history-details {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+}
+
+.logistics-booking__order-history-details p {
+  margin: 0;
+  font-size: 0.8125rem;
+  line-height: 1.45;
+  color: #94a3b8;
+}
+
+.logistics-booking__order-history-links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem 0.75rem;
+}
+
+.logistics-booking__order-history-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  color: #fb923c;
+  text-decoration: none;
+}
+
+.logistics-booking__order-history-link:hover {
+  text-decoration: underline;
+}
+
+.logistics-booking__order-history-error {
+  color: #f87171;
+  margin: 0.5rem 0 0;
+}
+
 .logistics-booking__track-branch-contact {
   margin-top: 0.9rem;
   padding-top: 0.75rem;

@@ -7,7 +7,6 @@ import {
   Check,
   ChevronRight,
   ClipboardCheck,
-  Download,
   ExternalLink,
   Eye,
   FileText,
@@ -34,11 +33,9 @@ import {
   bookingStatusIndex,
   bookingSummaryLines,
   chargeableWeight,
-  courierSlipFileName,
   isIncompleteLogisticsBooking,
   missingFinalPackagePhoto,
   shipmentModeLabel,
-  shippingLabelFileName,
 } from '../../lib/logisticsBooking';
 import {
   canDeleteLogisticsBooking,
@@ -63,6 +60,7 @@ import {
   type InvoiceBranchShipFrom,
 } from '../../lib/logisticsShipFrom';
 import { delhiveryFreightBillingLockLabel } from '../../lib/logisticsPrefill';
+import { formatLogisticsDateTimeLabel } from '../../lib/logisticsDateTime';
 import { isPlaceholderLogisticsAddress } from '../../lib/logisticsDealers';
 import { loadLogisticsSettings } from '../../lib/logisticsSettings';
 import { logisticsTrackingUrl } from '../../lib/logisticsTracking';
@@ -75,10 +73,6 @@ import type {
   LogisticsDocumentType,
 } from '../../types/logistics-dispatch';
 import { STAFF_LOGISTICS_SITE_LABELS } from '../../types/staff-logistics';
-import {
-  buildCourierSlipFromBooking,
-  buildCourierSlipShareBlob,
-} from '../../lib/courierSlipImage';
 import { CourierSlipViewDialog } from './CourierSlipViewDialog';
 import {
   DelhiveryDocumentDialog,
@@ -116,6 +110,7 @@ import { EwayBillCancelDialog } from './EwayBillCancelDialog';
 import { base64ToUint8Array } from '../../lib/pdfViewer';
 import { EwayBillIcon } from './EwayBillIcon';
 import { StCourierTrackPanel } from './StCourierTrackPanel';
+import { LogisticsOrderTimeline } from './LogisticsOrderTimeline';
 
 type DelhiveryDocCardTone = 'slip' | 'label' | 'pod' | 'invoice' | 'eway' | 'default';
 
@@ -131,17 +126,19 @@ type LogisticsDocCard = {
 
 type DocCardIcon = React.FC<{ size?: number; strokeWidth?: number; className?: string }>;
 
-function delhiveryDocCardMeta(kind: string): {
+function logisticsDocCardMeta(kind: string): {
   tone: DelhiveryDocCardTone;
   title: string;
   subtitle: string;
   Icon: DocCardIcon | LucideIcon;
 } {
-  if (kind === 'lr_copy') {
+  if (kind === 'lr_copy' || kind === 'courier_slip') {
     return {
       tone: 'slip',
-      title: 'Waybill',
-      subtitle: 'View or download waybill',
+      title: kind === 'courier_slip' ? 'Booking slip' : 'Waybill',
+      subtitle: kind === 'courier_slip'
+        ? 'View or download booking slip'
+        : 'View or download waybill',
       Icon: FileText,
     };
   }
@@ -237,18 +234,9 @@ function delhiveryFreightBreakupRows(
     rows.push({ label: 'Freight (excl. GST)', value: formatCurrency(exclGst), emphasize: true });
   }
   if (freight.fetchedAt) {
-    const parsed = Date.parse(freight.fetchedAt);
     rows.push({
       label: 'Fetched',
-      value: Number.isNaN(parsed)
-        ? freight.fetchedAt
-        : new Date(parsed).toLocaleString('en-IN', {
-          day: '2-digit',
-          month: 'short',
-          year: 'numeric',
-          hour: '2-digit',
-          minute: '2-digit',
-        }),
+      value: formatLogisticsDateTimeLabel(freight.fetchedAt),
     });
   }
   return rows;
@@ -299,7 +287,6 @@ export const LogisticsBookingDetail: React.FC<LogisticsBookingDetailProps> = ({
   /** Prefer corrected booking immediately after ship-from fix (before parent re-render). */
   const [shippingLabelBooking, setShippingLabelBooking] = useState<LogisticsBooking | null>(null);
   const [courierSlipOpen, setCourierSlipOpen] = useState(false);
-  const [downloadingSlip, setDownloadingSlip] = useState(false);
   const [previewIndex, setPreviewIndex] = useState<number | null>(null);
   const [photosLoading, setPhotosLoading] = useState(false);
   const [uploadingFinalPhoto, setUploadingFinalPhoto] = useState(false);
@@ -385,6 +372,8 @@ export const LogisticsBookingDetail: React.FC<LogisticsBookingDetailProps> = ({
     && (delhiveryIds.missingLrn || delhiveryIds.missingMasterAwb),
   );
   const showInAppTrack = (isStCourier || isTrackon || isDelhivery) && Boolean(trackAwb);
+  const shippingLabelGate = useMemo(() => shippingLabelAddressGate(booking), [booking]);
+  const shippingLabelBlocked = Boolean(shippingLabelGate.message);
 
   useEffect(() => {
     if (!delhiveryIds) return;
@@ -595,7 +584,7 @@ export const LogisticsBookingDetail: React.FC<LogisticsBookingDetailProps> = ({
 
   /** Waybill + shipping label + invoice + E-way; POD/COD when available. */
   const delhiveryDocCards = useMemo((): LogisticsDocCard[] => {
-    if (!isDelhivery) return sharedDocCards;
+    if (!isDelhivery) return [];
     const hasLrn = Boolean((delhiveryIds?.lrn || booking.consignmentNo || '').replace(/\D/g, ''));
     const byId = new Map(delhiveryDocs.map(doc => [doc.id, doc]));
     const cards: LogisticsDocCard[] = [
@@ -643,6 +632,42 @@ export const LogisticsBookingDetail: React.FC<LogisticsBookingDetailProps> = ({
     booking.consignmentNo,
     sharedDocCards,
   ]);
+
+  const logisticsDocCards = useMemo((): LogisticsDocCard[] => {
+    if (isDelhivery) return delhiveryDocCards;
+    const cards: LogisticsDocCard[] = [
+      {
+        id: 'courier_slip',
+        kind: 'courier_slip',
+        enabled: true,
+      },
+    ];
+    if (isOps) {
+      cards.push({
+        id: 'shipping_label',
+        kind: 'shipping_label',
+        enabled: !shippingLabelBlocked,
+        disabledReason: shippingLabelBlocked ? shippingLabelGate.message : null,
+      });
+    }
+    return [...cards, ...sharedDocCards];
+  }, [
+    delhiveryDocCards,
+    isDelhivery,
+    isOps,
+    sharedDocCards,
+    shippingLabelBlocked,
+    shippingLabelGate.message,
+  ]);
+
+  const openShippingLabel = useCallback(() => {
+    if (shippingLabelGate.message) {
+      window.alert(shippingLabelGate.message);
+      return;
+    }
+    setShippingLabelBooking(booking);
+    setShippingLabelOpen(true);
+  }, [booking, shippingLabelGate.message]);
 
   const markDocumentGenerated = useCallback(async (document: LogisticsDocumentType) => {
     if (!user || !isOps) return;
@@ -743,7 +768,7 @@ export const LogisticsBookingDetail: React.FC<LogisticsBookingDetailProps> = ({
     const lrn = (delhiveryIds?.lrn || booking.consignmentNo || '').replace(/\D/g, '');
     if (!lrn) return;
     const bookingId = booking.id;
-    const card = delhiveryDocCardMeta(doc.kind);
+    const card = logisticsDocCardMeta(doc.kind);
     setDelhiveryDocOpening(doc.id);
     setDelhiveryDocsError('');
     try {
@@ -863,6 +888,10 @@ export const LogisticsBookingDetail: React.FC<LogisticsBookingDetailProps> = ({
       if (card.disabledReason) setDelhiveryDocsError(card.disabledReason);
       return;
     }
+    if (card.kind === 'courier_slip') {
+      setCourierSlipOpen(true);
+      return;
+    }
     if (card.kind === 'invoice') {
       void openLinkedInvoiceDocument();
       return;
@@ -871,39 +900,28 @@ export const LogisticsBookingDetail: React.FC<LogisticsBookingDetailProps> = ({
       void openEwayBillDocument();
       return;
     }
+    if (card.kind === 'shipping_label' && !isDelhivery) {
+      openShippingLabel();
+      return;
+    }
     void openDelhiveryDocument({
       id: card.id,
       kind: card.kind,
       label: card.label || card.kind,
       urls: card.urls,
     });
-  }, [openDelhiveryDocument, openEwayBillDocument, openLinkedInvoiceDocument]);
+  }, [
+    isDelhivery,
+    openDelhiveryDocument,
+    openEwayBillDocument,
+    openLinkedInvoiceDocument,
+    openShippingLabel,
+  ]);
 
   const handleCourierSlipViewed = useCallback(() => {
     if (!isOps || booking.courierSlipGenerated) return;
     void markDocumentGenerated('courier_slip');
   }, [booking.courierSlipGenerated, isOps, markDocumentGenerated]);
-
-  const handleDownloadCourierSlip = useCallback(async () => {
-    setDownloadingSlip(true);
-    try {
-      const slip = buildCourierSlipFromBooking(booking);
-      const { blob, fileName } = await buildCourierSlipShareBlob(slip);
-      const url = URL.createObjectURL(blob);
-      const anchor = document.createElement('a');
-      anchor.href = url;
-      anchor.download = fileName;
-      document.body.appendChild(anchor);
-      anchor.click();
-      anchor.remove();
-      URL.revokeObjectURL(url);
-      handleCourierSlipViewed();
-    } catch (err) {
-      console.error(err);
-    } finally {
-      setDownloadingSlip(false);
-    }
-  }, [booking, handleCourierSlipViewed]);
 
   const handleShippingLabelPrinted = useCallback(() => {
     if (!isOps) return;
@@ -1206,18 +1224,6 @@ export const LogisticsBookingDetail: React.FC<LogisticsBookingDetailProps> = ({
     user,
   ]);
 
-  const shippingLabelGate = useMemo(() => shippingLabelAddressGate(booking), [booking]);
-  const shippingLabelBlocked = Boolean(shippingLabelGate.message);
-
-  const openShippingLabel = useCallback(() => {
-    if (shippingLabelGate.message) {
-      window.alert(shippingLabelGate.message);
-      return;
-    }
-    setShippingLabelBooking(booking);
-    setShippingLabelOpen(true);
-  }, [booking, shippingLabelGate.message]);
-
   const productItems = freightCompare?.items.filter(
     item => !item.isFreight && !item.isStampingFee,
   ) ?? [];
@@ -1453,6 +1459,14 @@ export const LogisticsBookingDetail: React.FC<LogisticsBookingDetailProps> = ({
           }}
         />
       )}
+
+      {user ? (
+        <LogisticsOrderTimeline
+          booking={booking}
+          isOps={isOps}
+          role={user.role}
+        />
+      ) : null}
 
       {booking.invoiceId && (
         <section className="logistics-booking__invoice-freight" aria-label="Invoice and freight">
@@ -1928,7 +1942,7 @@ export const LogisticsBookingDetail: React.FC<LogisticsBookingDetailProps> = ({
                           {booking.delhiveryPickup.pickupId}
                           {booking.delhiveryPickup.alreadyExisted ? ' (already open)' : ''}
                           {booking.delhiveryPickup.pickupDate
-                            ? ` · ${booking.delhiveryPickup.pickupDate}`
+                            ? ` · ${formatLogisticsDateTimeLabel(booking.delhiveryPickup.pickupDate)}`
                             : ''}
                           {booking.delhiveryPickup.pickupLocationName
                             ? ` · ${booking.delhiveryPickup.pickupLocationName}`
@@ -1966,7 +1980,7 @@ export const LogisticsBookingDetail: React.FC<LogisticsBookingDetailProps> = ({
             )}
             <div><dt>Branch</dt><dd>{booking.branch || '—'}</dd></div>
             <div><dt>Service</dt><dd>{booking.serviceType || '—'}</dd></div>
-            <div><dt>Booked on</dt><dd>{booking.bookingDate}</dd></div>
+            <div><dt>Booked on</dt><dd>{formatLogisticsDateTimeLabel(booking.bookingDate)}</dd></div>
             {booking.courierFreight?.ok && delhiveryFreightExclGst(booking.courierFreight) != null && (
               <div>
                 <dt>Freight (excl. GST)</dt>
@@ -2146,198 +2160,99 @@ export const LogisticsBookingDetail: React.FC<LogisticsBookingDetailProps> = ({
 
       <section className="logistics-booking__slips">
         <h4>Documents</h4>
-        {isDelhivery ? (
-          <>
-            <div className="logistics-booking__doc-cards">
-              {delhiveryDocCards.map(doc => {
-                const meta = delhiveryDocCardMeta(doc.kind);
-                const opening = delhiveryDocOpening === doc.id;
-                const done = doc.kind === 'shipping_label' && booking.shippingLabelGenerated;
-                const disabled = !doc.enabled || delhiveryDocOpening != null;
-                return (
-                  <button
-                    key={doc.id}
-                    type="button"
-                    className={[
-                      'logistics-booking__doc-card',
-                      `logistics-booking__doc-card--${meta.tone}`,
-                      done ? 'is-done' : '',
-                      opening ? 'is-opening' : '',
-                      !doc.enabled ? 'is-disabled' : '',
-                    ].filter(Boolean).join(' ')}
-                    onClick={() => openLogisticsDocCard(doc)}
-                    disabled={disabled}
-                    title={doc.disabledReason ?? undefined}
-                  >
-                    <span className="logistics-booking__doc-card-icon" aria-hidden>
-                      <meta.Icon size={22} strokeWidth={1.75} />
-                      {doc.enabled ? (
-                        <span className="logistics-booking__doc-card-eye">
-                          <Eye size={11} strokeWidth={2.25} />
-                        </span>
-                      ) : null}
-                    </span>
-                    <span className="logistics-booking__doc-card-copy">
-                      <strong>{meta.title}</strong>
-                      <em>
-                        {opening
-                          ? 'Opening…'
-                          : (doc.kind === 'eway_bill' && ewayEnsuring
-                            ? 'Checking e-way bill…'
-                            : (doc.note
-                              ? doc.note
-                              : (!doc.enabled && doc.disabledReason
-                                ? doc.disabledReason
-                                : meta.subtitle)))}
-                      </em>
-                    </span>
-                    <span className="logistics-booking__doc-card-chevron" aria-hidden>
-                      <ChevronRight size={18} strokeWidth={2.25} />
-                    </span>
-                  </button>
-                );
-              })}
-            </div>
-            {delhiveryDocsLoading && (
-              <p className="text-muted text-sm">Loading Delhivery documents…</p>
-            )}
-            {delhiveryDocsError && (
-              <p className="logistics-booking__docs-error" role="alert">{delhiveryDocsError}</p>
-            )}
-            {isOps && !booking.shippingLabelGenerated && isIncompleteLogisticsBooking(booking) && (
-              <p className="text-muted text-sm logistics-booking__slip-hint">
-                Open the Delhivery shipping label to confirm this shipment.
+        {logisticsDocCards.length > 0 ? (
+          <div className="logistics-booking__doc-cards">
+            {logisticsDocCards.map(doc => {
+              const meta = logisticsDocCardMeta(doc.kind);
+              const opening = delhiveryDocOpening === doc.id;
+              const done = (doc.kind === 'shipping_label' && booking.shippingLabelGenerated)
+                || (doc.kind === 'courier_slip' && booking.courierSlipGenerated);
+              const disabled = !doc.enabled || delhiveryDocOpening != null || generating != null;
+              return (
+                <button
+                  key={doc.id}
+                  type="button"
+                  className={[
+                    'logistics-booking__doc-card',
+                    `logistics-booking__doc-card--${meta.tone}`,
+                    done ? 'is-done' : '',
+                    opening ? 'is-opening' : '',
+                    !doc.enabled ? 'is-disabled' : '',
+                  ].filter(Boolean).join(' ')}
+                  onClick={() => openLogisticsDocCard(doc)}
+                  disabled={disabled}
+                  title={doc.disabledReason ?? undefined}
+                >
+                  <span className="logistics-booking__doc-card-icon" aria-hidden>
+                    <meta.Icon size={22} strokeWidth={1.75} />
+                    {doc.enabled ? (
+                      <span className="logistics-booking__doc-card-eye">
+                        <Eye size={11} strokeWidth={2.25} />
+                      </span>
+                    ) : null}
+                  </span>
+                  <span className="logistics-booking__doc-card-copy">
+                    <strong>{meta.title}</strong>
+                    <em>
+                      {opening
+                        ? 'Opening…'
+                        : (doc.kind === 'eway_bill' && ewayEnsuring
+                          ? 'Checking e-way bill…'
+                          : (doc.note
+                            ? doc.note
+                            : (!doc.enabled && doc.disabledReason
+                              ? doc.disabledReason
+                              : meta.subtitle)))}
+                    </em>
+                  </span>
+                  <span className="logistics-booking__doc-card-chevron" aria-hidden>
+                    <ChevronRight size={18} strokeWidth={2.25} />
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+        ) : null}
+        {isDelhivery && delhiveryDocsLoading && (
+          <p className="text-muted text-sm">Loading Delhivery documents…</p>
+        )}
+        {delhiveryDocsError ? (
+          <p className="logistics-booking__docs-error" role="alert">{delhiveryDocsError}</p>
+        ) : null}
+        {isOps && shippingLabelBlocked && (
+          <div className="logistics-booking__slip-blocked" role="status">
+            <AlertTriangle size={14} aria-hidden />
+            <div>
+              <strong>Shipping label unavailable</strong>
+              <p>
+                {shippingLabelGate.fromMissing && shippingLabelGate.toMissing
+                  ? 'FROM and TO addresses are missing. Apply ship-from from Sites (or save it there first), and refresh the dealer address from Zoho.'
+                  : shippingLabelGate.fromMissing
+                    ? `This booking still has no ship-from address. Sites settings do not update existing shipments automatically — apply the ${STAFF_LOGISTICS_SITE_LABELS[booking.shipFromSite] || 'site'} address here.`
+                    : 'TO (dealer delivery) address is missing. Refresh the dealer from Zoho, then try again.'}
               </p>
-            )}
-          </>
-        ) : (
-          <>
-            {sharedDocCards.length > 0 ? (
-              <>
-                <div className="logistics-booking__doc-cards">
-                  {sharedDocCards.map(doc => {
-                    const meta = delhiveryDocCardMeta(doc.kind);
-                    const opening = delhiveryDocOpening === doc.id;
-                    const disabled = !doc.enabled || delhiveryDocOpening != null;
-                    return (
-                      <button
-                        key={doc.id}
-                        type="button"
-                        className={[
-                          'logistics-booking__doc-card',
-                          `logistics-booking__doc-card--${meta.tone}`,
-                          opening ? 'is-opening' : '',
-                          !doc.enabled ? 'is-disabled' : '',
-                        ].filter(Boolean).join(' ')}
-                        onClick={() => openLogisticsDocCard(doc)}
-                        disabled={disabled}
-                        title={doc.disabledReason ?? undefined}
-                      >
-                        <span className="logistics-booking__doc-card-icon" aria-hidden>
-                          <meta.Icon size={22} strokeWidth={1.75} />
-                          {doc.enabled ? (
-                            <span className="logistics-booking__doc-card-eye">
-                              <Eye size={11} strokeWidth={2.25} />
-                            </span>
-                          ) : null}
-                        </span>
-                        <span className="logistics-booking__doc-card-copy">
-                          <strong>{meta.title}</strong>
-                          <em>
-                            {opening
-                              ? 'Opening…'
-                              : (doc.kind === 'eway_bill' && ewayEnsuring
-                                ? 'Checking e-way bill…'
-                                : (doc.note
-                                  ? doc.note
-                                  : (!doc.enabled && doc.disabledReason
-                                    ? doc.disabledReason
-                                    : meta.subtitle)))}
-                          </em>
-                        </span>
-                        <span className="logistics-booking__doc-card-chevron" aria-hidden>
-                          <ChevronRight size={18} strokeWidth={2.25} />
-                        </span>
-                      </button>
-                    );
-                  })}
-                </div>
-                {delhiveryDocsError ? (
-                  <p className="logistics-booking__docs-error" role="alert">{delhiveryDocsError}</p>
-                ) : null}
-              </>
-            ) : null}
-            <div className="logistics-booking__slip-actions">
-              <button
-                type="button"
-                className={`btn btn-secondary btn-sm${booking.courierSlipGenerated ? ' is-done' : ''}`}
-                onClick={() => setCourierSlipOpen(true)}
-                disabled={generating !== null}
-              >
-                <Eye size={14} aria-hidden />
-                View booking slip
-              </button>
-              <button
-                type="button"
-                className="btn btn-secondary btn-sm"
-                onClick={() => void handleDownloadCourierSlip()}
-                disabled={generating !== null || downloadingSlip}
-              >
-                <Download size={14} aria-hidden />
-                {downloadingSlip ? 'Downloading…' : 'Download booking slip'}
-              </button>
-              {isOps && !shippingLabelBlocked && (
+              {shippingLabelGate.fromMissing && (
                 <button
                   type="button"
-                  className={`btn btn-secondary btn-sm${booking.shippingLabelGenerated ? ' is-done' : ''}`}
-                  onClick={openShippingLabel}
-                  disabled={generating !== null}
+                  className="btn btn-primary btn-sm logistics-booking__slip-blocked-action"
+                  disabled={updatingShipFrom}
+                  onClick={() => void handleApplyShipFromFromSites({ openLabel: true })}
                 >
-                  <Eye size={14} aria-hidden />
-                  View shipping label
+                  {updatingShipFrom
+                    ? 'Applying…'
+                    : `Apply ${STAFF_LOGISTICS_SITE_LABELS[booking.shipFromSite] || 'site'} address from Sites`}
                 </button>
               )}
             </div>
-            {isOps && shippingLabelBlocked && (
-              <div className="logistics-booking__slip-blocked" role="status">
-                <AlertTriangle size={14} aria-hidden />
-                <div>
-                  <strong>Shipping label unavailable</strong>
-                  <p>
-                    {shippingLabelGate.fromMissing && shippingLabelGate.toMissing
-                      ? 'FROM and TO addresses are missing. Apply ship-from from Sites (or save it there first), and refresh the dealer address from Zoho.'
-                      : shippingLabelGate.fromMissing
-                        ? `This booking still has no ship-from address. Sites settings do not update existing shipments automatically — apply the ${STAFF_LOGISTICS_SITE_LABELS[booking.shipFromSite] || 'site'} address here.`
-                        : 'TO (dealer delivery) address is missing. Refresh the dealer from Zoho, then try again.'}
-                  </p>
-                  {shippingLabelGate.fromMissing && (
-                    <button
-                      type="button"
-                      className="btn btn-primary btn-sm logistics-booking__slip-blocked-action"
-                      disabled={updatingShipFrom}
-                      onClick={() => void handleApplyShipFromFromSites({ openLabel: true })}
-                    >
-                      {updatingShipFrom
-                        ? 'Applying…'
-                        : `Apply ${STAFF_LOGISTICS_SITE_LABELS[booking.shipFromSite] || 'site'} address from Sites`}
-                    </button>
-                  )}
-                </div>
-              </div>
-            )}
-            {isOps && (booking.courierSlipGenerated || booking.shippingLabelGenerated) && (
-              <p className="text-muted text-sm logistics-booking__slip-names">
-                {booking.courierSlipGenerated && courierSlipFileName(booking)}
-                {booking.courierSlipGenerated && booking.shippingLabelGenerated && ' · '}
-                {booking.shippingLabelGenerated && shippingLabelFileName(booking)}
-              </p>
-            )}
-            {isOps && !shippingLabelBlocked && !booking.shippingLabelGenerated && isIncompleteLogisticsBooking(booking) && (
-              <p className="text-muted text-sm logistics-booking__slip-hint">
-                Open and print the shipping label to confirm this shipment.
-              </p>
-            )}
-          </>
+          </div>
+        )}
+        {isOps && !booking.shippingLabelGenerated && isIncompleteLogisticsBooking(booking)
+          && (isDelhivery || !shippingLabelBlocked) && (
+          <p className="text-muted text-sm logistics-booking__slip-hint">
+            {isDelhivery
+              ? 'Open the Delhivery shipping label to confirm this shipment.'
+              : 'Open and print the shipping label to confirm this shipment.'}
+          </p>
         )}
       </section>
 

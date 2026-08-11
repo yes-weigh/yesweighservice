@@ -671,7 +671,21 @@ async function detailPayload(id, data, { includePaymentUrl = false } = {}) {
     readyForPaymentByName: data.readyForPaymentByName ?? null,
     zohoInvoiceId: data.zohoInvoiceId ?? null,
     zohoInvoiceNumber: data.zohoInvoiceNumber ?? null,
+    yesOneSyncError: data.yesOneSyncError ? String(data.yesOneSyncError) : null,
+    manuallyMarkedInvoicedAt: data.manuallyMarkedInvoicedAt ?? null,
   };
+}
+
+function inferWorkflowStageAfterRepair(data) {
+  if (
+    data.paymentSubmittedAt
+    || String(data.paymentScreenshotStoragePath || '').trim()
+    || String(data.paymentNotes || '').trim()
+  ) {
+    return 'payment_submitted';
+  }
+  if (data.readyForPaymentAt) return 'ready_for_payment';
+  return 'review';
 }
 
 /** Seed YesOne workflow after cart creates a Draft SO. */
@@ -981,6 +995,20 @@ export async function verifySalesOrderPayment(uid, role, salesOrderId, secrets, 
     let invoiceNumber = data.zohoInvoiceNumber || null;
     if (!invoiceId) {
       try {
+        const linked = await getSalesOrderLinkedInvoice(secrets, orgId, id);
+        if (linked.invoiceId) {
+          invoiceId = linked.invoiceId;
+          invoiceNumber = linked.invoiceNumber || invoiceNumber;
+        }
+      } catch (linkErr) {
+        console.warn(
+          `Could not load linked Zoho invoice before verify for SO ${id}:`,
+          linkErr?.message || linkErr,
+        );
+      }
+    }
+    if (!invoiceId) {
+      try {
         await ensureFreightDiffOnInvoicingSalesOrder(getFirestore(), {
           secrets,
           orgId,
@@ -1125,6 +1153,7 @@ export async function markSalesOrderInvoicedManually(uid, role, salesOrderId, se
     console.warn(`Mirror before manual invoice mark failed for SO ${id}:`, err?.message || err);
   }
 
+  let linkedLookupError = null;
   try {
     const linked = await getSalesOrderLinkedInvoice(secrets, orgId, id);
     if (linked.invoiceId) {
@@ -1132,7 +1161,15 @@ export async function markSalesOrderInvoicedManually(uid, role, salesOrderId, se
       invoiceNumber = linked.invoiceNumber || invoiceNumber;
     }
   } catch (err) {
+    linkedLookupError = err;
     console.warn(`Could not load linked Zoho invoices for SO ${id}:`, err?.message || err);
+  }
+
+  if (!invoiceId) {
+    const message = linkedLookupError
+      ? `Could not confirm a Zoho invoice for this sales order: ${linkedLookupError.message || linkedLookupError}`
+      : 'No invoice is linked to this sales order in Zoho. Create the invoice in Zoho first, or use Verify & invoice here to create it.';
+    throw new HttpsError('failed-precondition', message);
   }
 
   const at = nowIso();
@@ -1202,6 +1239,51 @@ export async function markSalesOrderInvoicedManually(uid, role, salesOrderId, se
       );
     }
   }
+
+  const snap = await ref.get();
+  return detailPayload(snap.id, snap.data() || {}, { includePaymentUrl: true });
+}
+
+/**
+ * Reset a false "completed" mark (yesOneStage completed but no linked Zoho invoice).
+ * Restores the workflow stage from payment / ready-for-payment history.
+ */
+export async function repairSalesOrderInvoicingMismatch(uid, role, salesOrderId) {
+  const user = await loadUser(uid);
+  requireOrdersManage(user);
+
+  const { ref, data } = await loadSoOrThrow(salesOrderId);
+  if (yesOneStageOf(data) !== 'completed') {
+    throw new HttpsError(
+      'failed-precondition',
+      'This sales order is not marked completed in YesOne.',
+    );
+  }
+  if (String(data.zohoInvoiceId || '').trim()) {
+    throw new HttpsError(
+      'failed-precondition',
+      'This sales order already has a linked invoice.',
+    );
+  }
+  if (data.paymentVerifiedAt) {
+    throw new HttpsError(
+      'failed-precondition',
+      'Payment was verified on this order. Contact support instead of resetting the workflow.',
+    );
+  }
+
+  const restoredStage = inferWorkflowStageAfterRepair(data);
+  const at = nowIso();
+  await ref.set({
+    yesOneStage: restoredStage,
+    zohoInvoiceId: null,
+    zohoInvoiceNumber: null,
+    manuallyMarkedInvoicedAt: FieldValue.delete(),
+    manuallyMarkedInvoicedByUid: FieldValue.delete(),
+    manuallyMarkedInvoicedByName: FieldValue.delete(),
+    yesOneSyncError: null,
+    yesOneUpdatedAt: at,
+  }, { merge: true });
 
   const snap = await ref.get();
   return detailPayload(snap.id, snap.data() || {}, { includePaymentUrl: true });

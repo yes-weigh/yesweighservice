@@ -18,6 +18,7 @@ import {
 import {
   resolveDelhiveryFreightBillingModeFromInvoice,
 } from '../../lib/logisticsPrefill';
+import { formatLogisticsDateTimeLabel } from '../../lib/logisticsDateTime';
 import type { User } from '../../types';
 import type { DealerInvoiceDetail } from '../../types/invoices';
 import type { LogisticsBooking } from '../../types/logistics-dispatch';
@@ -45,14 +46,7 @@ const PICKABLE_PARTNERS = LOGISTICS_PARTNERS.filter(partner => (
 ));
 
 function formatBookingDate(value: string): string {
-  const raw = value.slice(0, 10);
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(raw)) return value || '—';
-  const [y, m, d] = raw.split('-').map(Number);
-  return new Date(y, m - 1, d).toLocaleDateString('en-IN', {
-    day: '2-digit',
-    month: 'short',
-    year: 'numeric',
-  });
+  return formatLogisticsDateTimeLabel(value);
 }
 
 export const InvoiceAddLrDialog: React.FC<Props> = ({

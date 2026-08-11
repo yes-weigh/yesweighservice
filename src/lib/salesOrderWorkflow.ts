@@ -84,8 +84,58 @@ export function yesOneStageStatusClass(stage: string | null | undefined): string
     return 'invoices-status invoices-status--partially_paid so-status--yesone-verify';
   }
   if (key === 'completed') return 'invoices-status invoices-status--paid so-status--yesone-done';
+  if (key === 'invoicing_mismatch') {
+    return 'invoices-status invoices-status--partially_paid so-status--yesone-mismatch';
+  }
   if (key === 'void') return 'invoices-status invoices-status--void so-status--yesone-void';
   return 'invoices-status invoices-status--draft';
+}
+
+/** True when YesOne completed and a Zoho invoice is linked (verify or manual mark). */
+export function isSalesOrderInvoicingComplete(input: {
+  yesOneStage?: string | null;
+  zohoInvoiceId?: string | null;
+  paymentVerifiedAt?: string | null;
+}): boolean {
+  if (String(input.yesOneStage || '').trim() !== 'completed') return false;
+  if (String(input.zohoInvoiceId || '').trim()) return true;
+  // Legacy verified orders should always have both fields; treat as complete if verified.
+  return Boolean(String(input.paymentVerifiedAt || '').trim());
+}
+
+/** Completed in YesOne but no invoice was ever linked — false "invoiced" state. */
+export function isSalesOrderInvoicingMismatch(input: {
+  yesOneStage?: string | null;
+  zohoInvoiceId?: string | null;
+  paymentVerifiedAt?: string | null;
+}): boolean {
+  return String(input.yesOneStage || '').trim() === 'completed'
+    && !isSalesOrderInvoicingComplete(input);
+}
+
+/** Stage key for badges / filters — surfaces mismatch instead of false "invoiced". */
+export function effectiveYesOneStageForDisplay(input: {
+  yesOneStage?: string | null;
+  zohoInvoiceId?: string | null;
+  paymentVerifiedAt?: string | null;
+}): string {
+  if (isSalesOrderInvoicingMismatch(input)) return 'invoicing_mismatch';
+  return String(input.yesOneStage || '').trim();
+}
+
+export function yesOneStageLabelForInvoicingDisplay(
+  input: {
+    yesOneStage?: string | null;
+    zohoInvoiceId?: string | null;
+    paymentVerifiedAt?: string | null;
+  },
+  audience: YesOneStageAudience,
+): string {
+  const stage = effectiveYesOneStageForDisplay(input);
+  if (stage === 'invoicing_mismatch') {
+    return audience === 'dealer' ? 'processing issue' : 'invoicing incomplete';
+  }
+  return yesOneStageLabelForAudience(stage, audience);
 }
 
 const BLOCKED_YESONE_EDIT_STAGES = new Set<YesOneSalesOrderStage | string>([
@@ -147,6 +197,8 @@ export interface SalesOrderWorkflowDetail extends AdminSalesOrderDetail {
   readyForPaymentByName: string | null;
   zohoInvoiceId: string | null;
   zohoInvoiceNumber: string | null;
+  yesOneSyncError: string | null;
+  manuallyMarkedInvoicedAt: string | null;
 }
 
 async function call<TReq, TRes>(name: string, data?: TReq, timeout = 60_000): Promise<TRes> {
@@ -329,6 +381,17 @@ export async function markSalesOrderInvoicedManually(
 ): Promise<SalesOrderWorkflowDetail> {
   try {
     return await call('markSalesOrderInvoicedManually', { salesOrderId }, 120_000);
+  } catch (err) {
+    throw new Error(dealerOrderErrorMessage(err));
+  }
+}
+
+/** Reset false completed state (completed without linked Zoho invoice). */
+export async function repairSalesOrderInvoicingMismatch(
+  salesOrderId: string,
+): Promise<SalesOrderWorkflowDetail> {
+  try {
+    return await call('repairSalesOrderInvoicingMismatch', { salesOrderId }, 60_000);
   } catch (err) {
     throw new Error(dealerOrderErrorMessage(err));
   }

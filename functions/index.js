@@ -214,6 +214,7 @@ import {
   updateDraftSalesOrderShipping as updateDraftSalesOrderShippingRecord,
   markSalesOrderReadyForPayment as markSalesOrderReadyForPaymentRecord,
   markSalesOrderInvoicedManually as markSalesOrderInvoicedManuallyRecord,
+  repairSalesOrderInvoicingMismatch as repairSalesOrderInvoicingMismatchRecord,
   uploadSalesOrderPaymentScreenshot as uploadSalesOrderPaymentScreenshotRecord,
   submitSalesOrderPayment as submitSalesOrderPaymentRecord,
   verifySalesOrderPayment as verifySalesOrderPaymentRecord,
@@ -4102,6 +4103,24 @@ export const markSalesOrderInvoicedManually = onCall(
     } catch (err) {
       if (err instanceof HttpsError) throw err;
       throw new HttpsError('internal', err?.message ?? 'Could not mark sales order as invoiced.');
+    }
+  },
+);
+
+export const repairSalesOrderInvoicingMismatch = onCall(
+  { region: 'asia-south1', timeoutSeconds: 60, memory: '256MiB' },
+  async request => {
+    const uid = request.auth?.uid;
+    const role = await requireActiveUser(uid, SYNC_ROLES);
+    try {
+      return await repairSalesOrderInvoicingMismatchRecord(
+        uid,
+        role,
+        request.data?.salesOrderId,
+      );
+    } catch (err) {
+      if (err instanceof HttpsError) throw err;
+      throw new HttpsError('internal', err?.message ?? 'Could not repair sales order workflow.');
     }
   },
 );

@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useOutletContext } from 'react-router-dom';
 import {
+  AlertCircle,
   BadgeCheck,
   Ban,
   Check,
@@ -52,6 +53,7 @@ import { hasStaffPermission } from '../../lib/staffAccess';
 import {
   submitSalesOrderPayment,
   canEditSalesOrderDraft,
+  isSalesOrderInvoicingMismatch,
   updateDraftSalesOrderLines,
   updateDraftSalesOrderShipping,
   uploadSalesOrderPaymentScreenshot,
@@ -823,10 +825,13 @@ export const AdminSalesOrderDocumentPage: React.FC = () => {
       || workflowActions.canApplySalesperson
       || workflowActions.canAssignSalespersonStaff
       || workflowActions.canMarkInvoiced
+      || workflowActions.canRepairInvoicing
       || workflowActions.canVoid
       || workflowActions.canDelete
     ),
   );
+  const invoicingMismatch = isSalesOrderInvoicingMismatch(salesOrder);
+  const syncError = String(salesOrder.yesOneSyncError || '').trim();
   const showPayment = canPay
     || (isOps && (
       stage === 'payment_submitted'
@@ -1032,6 +1037,47 @@ export const AdminSalesOrderDocumentPage: React.FC = () => {
                     : 'Set salesperson'}
                 </button>
               </div>
+            ) : null}
+          </div>
+        </div>
+      ) : null}
+
+      {isOps && syncError ? (
+        <div
+          className="products-inline-error panel glass so-detail__sync-error-banner"
+          data-capture-ignore="1"
+        >
+          <AlertCircle size={18} aria-hidden />
+          <div className="so-detail__sync-error-copy">
+            <strong>Last invoicing attempt failed</strong>
+            <span>{syncError}</span>
+          </div>
+        </div>
+      ) : null}
+
+      {isOps && invoicingMismatch ? (
+        <div
+          className="products-inline-error panel glass so-detail__invoicing-mismatch-banner"
+          data-capture-ignore="1"
+        >
+          <AlertCircle size={18} aria-hidden />
+          <div className="so-detail__invoicing-mismatch-copy">
+            <strong>Invoicing incomplete</strong>
+            <span>
+              This order was marked invoiced without a linked Zoho invoice.
+              Reset the workflow, then use Verify &amp; invoice (or Mark as invoiced only after the invoice exists in Zoho).
+            </span>
+            {workflowActions?.canRepairInvoicing ? (
+              <button
+                type="button"
+                className="btn btn-primary btn-sm"
+                disabled={Boolean(workflowActions.actionBusy)}
+                onClick={() => workflowActions.onRepairInvoicing()}
+              >
+                {workflowActions.actionBusy === 'repairInvoicing'
+                  ? 'Resetting…'
+                  : 'Reset invoicing status'}
+              </button>
             ) : null}
           </div>
         </div>
@@ -1373,7 +1419,7 @@ export const AdminSalesOrderDocumentPage: React.FC = () => {
               title={
                 packageBlocksActions
                   ? freightPackageAlert ?? undefined
-                  : 'Use when this order was already invoiced in Zoho'
+                  : 'Sync only — invoice must already exist in Zoho'
               }
               onClick={() => {
                 if (packageBlocksActions) return;
@@ -1384,6 +1430,22 @@ export const AdminSalesOrderDocumentPage: React.FC = () => {
               {workflowActions.actionBusy === 'markInvoiced' ? 'Marking…' : 'Mark as invoiced'}
             </button>
           )}
+          {workflowActions.canRepairInvoicing && !invoicingMismatch ? (
+            <button
+              type="button"
+              className="btn btn-secondary"
+              disabled={Boolean(workflowActions.actionBusy) || packageBlocksActions}
+              onClick={() => {
+                if (packageBlocksActions) return;
+                workflowActions.onRepairInvoicing();
+              }}
+            >
+              <AlertCircle size={16} aria-hidden />
+              {workflowActions.actionBusy === 'repairInvoicing'
+                ? 'Resetting…'
+                : 'Reset invoicing status'}
+            </button>
+          ) : null}
           {workflowActions.canVoid && (
             <button
               type="button"

@@ -27,8 +27,11 @@ import {
   deleteDraftSalesOrder,
   markSalesOrderInvoicedManually,
   markSalesOrderReadyForPayment,
+  repairSalesOrderInvoicingMismatch,
   verifySalesOrderPayment,
-  yesOneStageLabelForAudience,
+  effectiveYesOneStageForDisplay,
+  isSalesOrderInvoicingMismatch,
+  yesOneStageLabelForInvoicingDisplay,
   yesOneStageStatusClass,
 } from '../../lib/salesOrderWorkflow';
 import { listAssignableDealerStaff } from '../../lib/dealers';
@@ -86,19 +89,25 @@ export const AdminSalesOrderDetailLayout: React.FC = () => {
   const stageAudience = isDealerView ? 'dealer' : 'admin';
   const yesOneStage = String(salesOrder?.yesOneStage || '').trim()
     || (salesOrder?.yesOneCreatedFromCart ? 'review' : '');
+  const invoicingMismatch = Boolean(
+    salesOrder && isSalesOrderInvoicingMismatch(salesOrder),
+  );
+  const displayStage = salesOrder
+    ? effectiveYesOneStageForDisplay(salesOrder)
+    : yesOneStage;
   const sealKind = salesOrder
     ? sealKindForSalesOrder({
-      yesOneStage: yesOneStage || salesOrder.yesOneStage,
+      yesOneStage: invoicingMismatch ? 'payment_submitted' : (yesOneStage || salesOrder.yesOneStage),
       yesOneCreatedFromCart: salesOrder.yesOneCreatedFromCart,
       status: salesOrder.status,
       referenceNumber: salesOrder.referenceNumber,
     })
     : null;
-  const titleStatusLabel = yesOneStage
-    ? yesOneStageLabelForAudience(yesOneStage, stageAudience)
+  const titleStatusLabel = displayStage
+    ? yesOneStageLabelForInvoicingDisplay(salesOrder ?? {}, stageAudience)
     : (salesOrder?.status ? invoiceStatusLabel(salesOrder.status) : '');
-  const titleStatusClass = yesOneStage
-    ? yesOneStageStatusClass(yesOneStage)
+  const titleStatusClass = displayStage
+    ? yesOneStageStatusClass(displayStage)
     : `invoices-status invoices-status--${String(salesOrder?.status || 'draft').toLowerCase().replace(/\s+/g, '_')}`;
 
   const titleMeta = useMemo(() => {
@@ -163,13 +172,18 @@ export const AdminSalesOrderDetailLayout: React.FC = () => {
   const dealerPath = salesOrder?.customerId
     ? `${basePath}/dealers/${salesOrder.customerId}`
     : null;
+  const canRepairInvoicing = Boolean(
+    canManageZoho && invoicingMismatch,
+  );
   const canReady = canManageZoho
+    && !invoicingMismatch
     && (statusKey === 'draft' || statusKey === 'pending' || statusKey === 'confirmed' || statusKey === 'open')
     && (stage === 'review' || !salesOrder?.yesOneStage);
   const needsSalesperson = canVerifyPayment && stage === 'payment_submitted' && !hasSalesperson;
   const canVerify = canVerifyPayment && stage === 'payment_submitted' && hasSalesperson;
   const canMarkInvoiced = Boolean(
     canManageZoho
+    && !invoicingMismatch
     && stage !== 'completed'
     && stage !== 'void'
     && statusKey !== 'void'
@@ -240,11 +254,27 @@ export const AdminSalesOrderDetailLayout: React.FC = () => {
   const handleMarkInvoiced = useCallback(async () => {
     if (!salesOrderId || actionBusy) return;
     if (!window.confirm(
-      'Mark this sales order as invoiced here? Use this when the order was already invoiced in Zoho. YesOne will refresh from Zoho and will not create a new invoice.',
+      'Mark this sales order as invoiced here? Use only when the invoice already exists in Zoho — this will not create a new invoice. If payment is ready, use Verify & invoice instead.',
     )) return;
     setActionBusy('markInvoiced');
     try {
       const next = await markSalesOrderInvoicedManually(salesOrderId);
+      setSalesOrder(next);
+    } catch (err) {
+      window.alert(dealerOrderErrorMessage(err));
+    } finally {
+      setActionBusy(null);
+    }
+  }, [salesOrderId, actionBusy]);
+
+  const handleRepairInvoicing = useCallback(async () => {
+    if (!salesOrderId || actionBusy) return;
+    if (!window.confirm(
+      'Reset this order\'s invoicing status? YesOne will restore the previous workflow stage so you can submit payment or verify & invoice correctly.',
+    )) return;
+    setActionBusy('repairInvoicing');
+    try {
+      const next = await repairSalesOrderInvoicingMismatch(salesOrderId);
       setSalesOrder(next);
     } catch (err) {
       window.alert(dealerOrderErrorMessage(err));
@@ -324,12 +354,14 @@ export const AdminSalesOrderDetailLayout: React.FC = () => {
         canAssignSalespersonStaff: false,
         assignableStaff: [],
         canMarkInvoiced: false,
+        canRepairInvoicing: false,
         canVoid: false,
         canDelete,
         dealerPath: null,
         onReady: () => {},
         onVerify: () => {},
         onMarkInvoiced: () => {},
+        onRepairInvoicing: () => {},
         onApplySalesperson: () => {},
         onApplySalespersonFromStaff: () => {},
         onVoid: () => {},
@@ -345,12 +377,14 @@ export const AdminSalesOrderDetailLayout: React.FC = () => {
       canAssignSalespersonStaff,
       assignableStaff,
       canMarkInvoiced,
+      canRepairInvoicing,
       canVoid,
       canDelete,
       dealerPath,
       onReady: () => { void handleReady(); },
       onVerify: () => { void handleVerify(); },
       onMarkInvoiced: () => { void handleMarkInvoiced(); },
+      onRepairInvoicing: () => { void handleRepairInvoicing(); },
       onApplySalesperson: () => { void handleApplySalesperson(); },
       onApplySalespersonFromStaff: (staffUid: string) => {
         void handleApplySalespersonFromStaff(staffUid);
@@ -369,12 +403,14 @@ export const AdminSalesOrderDetailLayout: React.FC = () => {
     canAssignSalespersonStaff,
     assignableStaff,
     canMarkInvoiced,
+    canRepairInvoicing,
     canVoid,
     canDelete,
     dealerPath,
     handleReady,
     handleVerify,
     handleMarkInvoiced,
+    handleRepairInvoicing,
     handleApplySalesperson,
     handleApplySalespersonFromStaff,
     handleVoid,

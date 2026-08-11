@@ -71,6 +71,10 @@ import {
 } from '../../lib/logisticsPrefill';
 import type { BookCourierStep } from '../../lib/logisticsBooking';
 import { emptyShipmentBoxDraft } from '../../lib/logisticsBooking';
+import {
+  formatLogisticsDateTime,
+  formatLogisticsDateTimeLabel,
+} from '../../lib/logisticsDateTime';
 import type { LogisticsCourierRates } from '../../types/logistics-courier-rates';
 import { staffLogisticsSiteLabel } from '../../types/staff-logistics';
 
@@ -145,24 +149,6 @@ function isDefaultDateRange(range: { from: string; to: string }): boolean {
   return range.from === defaults.from && range.to === defaults.to;
 }
 
-function formatInstantDateTime(iso: string | null | undefined): string | null {
-  if (!iso) return null;
-  const ms = Date.parse(iso);
-  if (Number.isNaN(ms)) return iso;
-  const date = new Date(ms);
-  const day = date.toLocaleDateString('en-IN', {
-    day: '2-digit',
-    month: 'short',
-    year: 'numeric',
-  });
-  const time = date.toLocaleTimeString('en-IN', {
-    hour: '2-digit',
-    minute: '2-digit',
-    hour12: true,
-  });
-  return `${day} | ${time}`;
-}
-
 /** Earliest courier scan — used when bookedAt is missing. */
 function earliestTrackHistoryAt(booking: LogisticsBooking): string | null {
   const history = booking.courierTrack?.history;
@@ -213,35 +199,22 @@ function formatShipmentDateTime(booking: LogisticsBooking): string {
   const bookedAt = booking.courierTrack?.bookedAt?.trim()
     || earliestTrackHistoryAt(booking);
   if (bookedAt) {
-    const withTime = formatInstantDateTime(bookedAt);
+    const withTime = formatLogisticsDateTime(bookedAt);
     if (withTime) return withTime;
   }
-  const bookingDate = String(booking.bookingDate || '').trim();
-  if (/^\d{4}-\d{2}-\d{2}$/.test(bookingDate)) {
-    const date = new Date(`${bookingDate}T00:00:00`);
-    if (!Number.isNaN(date.getTime())) {
-      // Date-only booking — do not invent a clock time from createdAt.
-      return date.toLocaleDateString('en-IN', {
-        day: '2-digit',
-        month: 'short',
-        year: 'numeric',
-      });
-    }
-  }
-  if (bookingDate) return bookingDate;
-  return '—';
+  return formatLogisticsDateTimeLabel(booking.bookingDate);
 }
 
 function formatDeliveredDateTime(booking: LogisticsBooking): string {
   const deliveredAt = booking.courierTrack?.deliveredAt?.trim();
   if (deliveredAt) {
-    const withTime = formatInstantDateTime(deliveredAt);
+    const withTime = formatLogisticsDateTime(deliveredAt);
     if (withTime) return withTime;
   }
   return formatShipmentDateTime(booking);
 }
 
-/** Last ST / Trackon track sync label for list tiles (not tracked / failed / time). */
+/** Last courier track sync label for list tiles (not tracked / failed / time). */
 function lastTrackedLabel(booking: LogisticsBooking): {
   text: string;
   tone: 'ok' | 'failed' | 'missing';
@@ -250,10 +223,11 @@ function lastTrackedLabel(booking: LogisticsBooking): {
     booking.partnerId === 'st_courier'
     || booking.partnerId === 'trackon_air'
     || booking.partnerId === 'trackon_surface'
+    || booking.partnerId === 'delhivery'
   );
   if (!trackedPartner) return null;
   const track = booking.courierTrack;
-  const fetchedAt = formatInstantDateTime(track?.fetchedAt || booking.trackFetchedAt);
+  const fetchedAt = formatLogisticsDateTime(track?.fetchedAt || booking.trackFetchedAt);
   if (!track && !booking.trackFetchedAt) {
     return { text: 'Not tracked', tone: 'missing' };
   }

@@ -15,6 +15,7 @@ import {
   delhiveryTrackFromBooking,
   type DelhiveryTrackResult,
 } from '../../lib/delhiveryTrack';
+import { formatLogisticsDateTime, formatLogisticsDateTimeLabel } from '../../lib/logisticsDateTime';
 import type {
   LogisticsCourierDeliveryOffice,
   LogisticsCourierTrack,
@@ -37,19 +38,6 @@ interface StCourierTrackPanelProps {
   /** Persisted Firestore snapshot — shown as-is until the user refreshes. */
   cachedTrack?: LogisticsCourierTrack | null;
   onTrackUpdated?: (track: CourierTrackResult) => void;
-}
-
-function formatFetchedAt(iso: string | null | undefined): string | null {
-  if (!iso) return null;
-  const parsed = Date.parse(iso);
-  if (Number.isNaN(parsed)) return iso;
-  return new Date(parsed).toLocaleString('en-IN', {
-    day: '2-digit',
-    month: 'short',
-    year: 'numeric',
-    hour: '2-digit',
-    minute: '2-digit',
-  });
 }
 
 function branchContactForSite(
@@ -114,7 +102,7 @@ export const StCourierTrackPanel: React.FC<StCourierTrackPanelProps> = ({
     }
   };
 
-  const fetchedLabel = formatFetchedAt(result?.fetchedAt);
+  const fetchedLabel = formatLogisticsDateTime(result?.fetchedAt);
   const hasSnapshot = Boolean(result);
   const branchContact = branchContactForSite(provider, shipFromSite);
   const bookingPhoneHref = branchContact ? phoneHrefFromContact(branchContact) : null;
@@ -172,8 +160,12 @@ export const StCourierTrackPanel: React.FC<StCourierTrackPanelProps> = ({
                 {result.origin && <div><dt>Origin</dt><dd>{result.origin}</dd></div>}
                 {result.destination && <div><dt>Destination</dt><dd>{result.destination}</dd></div>}
                 {result.consignmentType && <div><dt>Consignment</dt><dd>{result.consignmentType}</dd></div>}
-                {result.bookedAt && <div><dt>Booked</dt><dd>{result.bookedAt}</dd></div>}
-                {result.deliveredAt && <div><dt>Delivered</dt><dd>{result.deliveredAt}</dd></div>}
+                {result.bookedAt && (
+                  <div><dt>Booked</dt><dd>{formatLogisticsDateTimeLabel(result.bookedAt)}</dd></div>
+                )}
+                {result.deliveredAt && (
+                  <div><dt>Delivered</dt><dd>{formatLogisticsDateTimeLabel(result.deliveredAt)}</dd></div>
+                )}
               </dl>
               {result.history.length > 0 ? (
                 <div className="logistics-booking__track-panel-history">
@@ -193,7 +185,9 @@ export const StCourierTrackPanel: React.FC<StCourierTrackPanelProps> = ({
                             </span>
                           ) : null}
                           {item.at ? (
-                            <time className="logistics-booking__track-timeline-at">{item.at}</time>
+                            <time className="logistics-booking__track-timeline-at">
+                              {formatLogisticsDateTimeLabel(item.at)}
+                            </time>
                           ) : null}
                         </div>
                       </li>

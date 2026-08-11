@@ -172,6 +172,8 @@ export interface AdminSalesOrderDetail {
   readyForPaymentByName?: string | null;
   zohoInvoiceId?: string | null;
   zohoInvoiceNumber?: string | null;
+  yesOneSyncError?: string | null;
+  manuallyMarkedInvoicedAt?: string | null;
 }
 
 export interface AdminSalesOrdersPageResult {
@@ -890,6 +892,8 @@ export function mapAdminSalesOrderDetail(
     readyForPaymentByName: data.readyForPaymentByName ? String(data.readyForPaymentByName) : null,
     zohoInvoiceId: data.zohoInvoiceId ? String(data.zohoInvoiceId) : null,
     zohoInvoiceNumber: data.zohoInvoiceNumber ? String(data.zohoInvoiceNumber) : null,
+    yesOneSyncError: data.yesOneSyncError ? String(data.yesOneSyncError) : null,
+    manuallyMarkedInvoicedAt: data.manuallyMarkedInvoicedAt ? String(data.manuallyMarkedInvoicedAt) : null,
     yesOnePriceCustomized: Boolean(data.yesOnePriceCustomized),
     yesOnePriceChanges: Array.isArray(data.yesOnePriceChanges)
       ? data.yesOnePriceChanges.map((raw: Record<string, unknown>) => ({
