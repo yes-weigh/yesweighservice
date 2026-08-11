@@ -51,6 +51,7 @@ import {
   fetchStCourierDeliveryOffice,
 } from './stCourierTrack';
 import { tryRefreshLogisticsBookingTrack } from './logisticsTrackRefresh';
+import { scheduleDelhiveryDocumentsPrefetch } from './delhiveryDocuments';
 import {
   isDelhiveryB2bLrn,
   isDelhiveryMasterAwb,
@@ -181,6 +182,9 @@ function mapDelhiveryDocuments(
     ? data.cod as Record<string, unknown>
     : null;
   const codPath = typeof codRaw?.storagePath === 'string' ? codRaw.storagePath.trim() : '';
+  const prefetchRaw = data.prefetchStatus && typeof data.prefetchStatus === 'object'
+    ? data.prefetchStatus as Record<string, unknown>
+    : null;
 
   return {
     lrn,
@@ -213,7 +217,28 @@ function mapDelhiveryDocuments(
         cachedAt: typeof codRaw?.cachedAt === 'string' ? codRaw.cachedAt : '',
       }
       : null,
+    prefetchStatus: prefetchRaw
+      ? {
+        lastAttemptAt: typeof prefetchRaw.lastAttemptAt === 'string' ? prefetchRaw.lastAttemptAt : undefined,
+        completedAt: typeof prefetchRaw.completedAt === 'string' ? prefetchRaw.completedAt : undefined,
+        lrCopy: typeof prefetchRaw.lrCopy === 'string' ? prefetchRaw.lrCopy : undefined,
+        shippingLabels: typeof prefetchRaw.shippingLabels === 'string' ? prefetchRaw.shippingLabels : undefined,
+        pod: typeof prefetchRaw.pod === 'string' ? prefetchRaw.pod : undefined,
+        cod: typeof prefetchRaw.cod === 'string' ? prefetchRaw.cod : undefined,
+      }
+      : null,
   };
+}
+
+function maybeScheduleDelhiveryDocumentsPrefetch(booking: LogisticsBooking): void {
+  if (booking.partnerId !== 'delhivery') return;
+  if (booking.wizardStep) return;
+  const lrn = (booking.consignmentNo || booking.trackingNo || '').replace(/\D/g, '');
+  if (!lrn) return;
+  scheduleDelhiveryDocumentsPrefetch({
+    bookingId: booking.id,
+    includePodCod: booking.status === 'delivered',
+  });
 }
 
 function mapFreightBillingMode(
@@ -1302,7 +1327,9 @@ export async function persistLogisticsBooking(
     const booking = mapLogisticsBookingDoc(bookingRef.id, payload);
     await tryRefreshLogisticsBookingTrack(booking);
     const refreshed = await fetchLogisticsBooking(booking.id);
-    return hydrateBookingPhotos(refreshed || booking);
+    const result = await hydrateBookingPhotos(refreshed || booking);
+    maybeScheduleDelhiveryDocumentsPrefetch(result);
+    return result;
   } catch (err) {
     throw formatLogisticsPersistError(err, 'Could not save shipment.');
   }
@@ -1661,13 +1688,15 @@ export async function updateLogisticsBookingDelhiveryIds(
   if (masterAwb) patch.masterAwb = masterAwb;
 
   await updateDoc(doc(db, COLLECTION, booking.id), patch);
-  return {
+  const updated = {
     ...booking,
     consignmentNo,
     trackingNo,
     ...(masterAwb ? { masterAwb } : {}),
     updatedAt,
   };
+  if (lrn) maybeScheduleDelhiveryDocumentsPrefetch(updated);
+  return updated;
 }
 
 export async function updateLogisticsBookingDelhiveryPickup(
@@ -1972,7 +2001,9 @@ export async function linkLogisticsBookingToInvoice(input: {
   };
   await tryRefreshLogisticsBookingTrack(linked);
   const refreshed = await fetchLogisticsBooking(linked.id);
-  return refreshed || linked;
+  const result = refreshed || linked;
+  maybeScheduleDelhiveryDocumentsPrefetch(result);
+  return result;
 }
 
 export function canEditLogisticsBooking(booking: LogisticsBooking, user: User): boolean {
@@ -2156,7 +2187,9 @@ export async function recordInvoiceLogisticsBooking(
     const booking = mapLogisticsBookingDoc(bookingRef.id, payload);
     await tryRefreshLogisticsBookingTrack(booking);
     const refreshed = await fetchLogisticsBooking(booking.id);
-    return refreshed || booking;
+    const result = refreshed || booking;
+    maybeScheduleDelhiveryDocumentsPrefetch(result);
+    return result;
   } catch (err) {
     throw formatLogisticsPersistError(err, 'Could not create logistics entry.');
   }

@@ -333,8 +333,9 @@ export const AdminSalesOrderDocumentPage: React.FC = () => {
     setShipLoading(true);
     setShipError('');
     void listCustomerShippingAddresses(customerId)
-      .then(rows => {
+      .then(({ addresses: rows, warning }) => {
         setShipAddresses(rows);
+        if (warning) setShipError(warning);
         const id = currentAddressId?.trim();
         if (id && rows.some(r => r.addressId === id)) {
           setShipSelection({ mode: 'saved', addressId: id });

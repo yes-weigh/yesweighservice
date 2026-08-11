@@ -20,6 +20,7 @@ type ShippingAddressPickerProps = {
   addresses: ShippingAddress[];
   loading?: boolean;
   error?: string;
+  warning?: string;
   disabled?: boolean;
   value: ShippingSelection | null;
   onChange: (next: ShippingSelection | null) => void;
@@ -75,6 +76,7 @@ export const ShippingAddressPicker: React.FC<ShippingAddressPickerProps> = ({
   addresses,
   loading = false,
   error = '',
+  warning = '',
   disabled = false,
   value,
   onChange,
@@ -314,6 +316,9 @@ export const ShippingAddressPicker: React.FC<ShippingAddressPickerProps> = ({
         </p>
       ) : null}
       {error ? <p className="ship-addr-picker__error text-sm">{error}</p> : null}
+      {!error && warning ? (
+        <p className="ship-addr-picker__status text-muted text-sm">{warning}</p>
+      ) : null}
       {actionError ? <p className="ship-addr-picker__error text-sm">{actionError}</p> : null}
 
       {!expanded ? (

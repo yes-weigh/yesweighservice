@@ -254,3 +254,22 @@ export async function shareDelhiveryDocumentFile(input: {
   anchor.remove();
   URL.revokeObjectURL(url);
 }
+
+/** Fire-and-forget: prefetch Delhivery docs into Storage (also runs via Cloud trigger). */
+export function scheduleDelhiveryDocumentsPrefetch(input: {
+  bookingId: string;
+  includePodCod?: boolean;
+  force?: boolean;
+}): void {
+  const bookingId = input.bookingId?.trim();
+  if (!bookingId) return;
+  const fn = httpsCallable<
+    { bookingId: string; includePodCod?: boolean; force?: boolean },
+    { ok?: boolean; skipped?: boolean; reason?: string }
+  >(functions, 'prefetchDelhiveryDocumentsFn', { timeout: 540_000 });
+  void fn({
+    bookingId,
+    includePodCod: input.includePodCod === true,
+    force: input.force === true,
+  }).catch(() => undefined);
+}

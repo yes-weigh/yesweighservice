@@ -5,10 +5,8 @@ import {
   Barcode,
   Camera,
   Check,
-  ChevronRight,
   ClipboardCheck,
   ExternalLink,
-  Eye,
   FileText,
   IndianRupee,
   MapPin,
@@ -125,6 +123,23 @@ type LogisticsDocCard = {
 };
 
 type DocCardIcon = React.FC<{ size?: number; strokeWidth?: number; className?: string }>;
+
+const LOGISTICS_DOC_KIND_ORDER: Record<string, number> = {
+  lr_copy: 10,
+  courier_slip: 10,
+  shipping_label: 20,
+  invoice: 30,
+  eway_bill: 40,
+  pod: 50,
+};
+
+function logisticsTopCardTone(kind: string): 'green' | 'blue' | 'orange' | 'purple' {
+  if (kind === 'lr_copy' || kind === 'courier_slip') return 'green';
+  if (kind === 'shipping_label') return 'blue';
+  if (kind === 'invoice') return 'orange';
+  if (kind === 'eway_bill') return 'purple';
+  return 'blue';
+}
 
 function logisticsDocCardMeta(kind: string): {
   tone: DelhiveryDocCardTone;
@@ -419,6 +434,9 @@ export const LogisticsBookingDetail: React.FC<LogisticsBookingDetailProps> = ({
     booking.id,
     booking.consignmentNo,
     booking.status,
+    booking.delhiveryDocuments?.lrCopy?.cachedAt,
+    booking.delhiveryDocuments?.shippingLabels?.cachedAt,
+    booking.delhiveryDocuments?.prefetchStatus?.completedAt,
     delhiveryIds?.lrn,
   ]);
 
@@ -659,6 +677,13 @@ export const LogisticsBookingDetail: React.FC<LogisticsBookingDetailProps> = ({
     shippingLabelBlocked,
     shippingLabelGate.message,
   ]);
+
+  const sortedLogisticsDocCards = useMemo(
+    () => [...logisticsDocCards].sort(
+      (a, b) => (LOGISTICS_DOC_KIND_ORDER[a.kind] ?? 100) - (LOGISTICS_DOC_KIND_ORDER[b.kind] ?? 100),
+    ),
+    [logisticsDocCards],
+  );
 
   const openShippingLabel = useCallback(() => {
     if (shippingLabelGate.message) {
@@ -1231,6 +1256,18 @@ export const LogisticsBookingDetail: React.FC<LogisticsBookingDetailProps> = ({
     item => item.isFreight || item.isStampingFee,
   ) ?? [];
 
+  const showOpsCancel = isOps
+    && booking.status !== 'delivered'
+    && booking.status !== 'cancelled'
+    && booking.status !== 'returned'
+    && (isDelhivery || Boolean(onCancel));
+  const showOpsReturn = isOps
+    && booking.status !== 'delivered'
+    && booking.status !== 'cancelled'
+    && booking.status !== 'returned'
+    && Boolean(onReturn);
+  const showOpsDelete = Boolean(user && canDeleteLogisticsBooking(user) && onDelete);
+
   return (
     <article className="logistics-booking panel glass">
       <header className="logistics-booking__header">
@@ -1271,6 +1308,175 @@ export const LogisticsBookingDetail: React.FC<LogisticsBookingDetailProps> = ({
           </span>
         </div>
       </header>
+
+      <div className="invoice-detail-top logistics-booking__top-actions">
+        <div
+          className="logistics-booking__top-actions-row"
+          role="group"
+          aria-label="Shipment actions"
+        >
+          {sortedLogisticsDocCards.map(doc => {
+            const meta = logisticsDocCardMeta(doc.kind);
+            const opening = delhiveryDocOpening === doc.id;
+            const done = (doc.kind === 'shipping_label' && booking.shippingLabelGenerated)
+              || (doc.kind === 'courier_slip' && booking.courierSlipGenerated);
+            const disabled = !doc.enabled || delhiveryDocOpening != null || generating != null;
+            const statusLabel = opening
+              ? 'Opening…'
+              : (doc.kind === 'eway_bill' && ewayEnsuring
+                ? 'Checking…'
+                : (doc.note
+                  ? doc.note
+                  : (!doc.enabled && doc.disabledReason ? doc.disabledReason : null)));
+            return (
+              <button
+                key={doc.id}
+                type="button"
+                className={[
+                  'invoice-detail-top__card',
+                  `invoice-detail-top__card--${logisticsTopCardTone(doc.kind)}`,
+                  done ? 'is-active' : '',
+                  disabled ? 'is-disabled' : '',
+                ].filter(Boolean).join(' ')}
+                onClick={() => openLogisticsDocCard(doc)}
+                disabled={disabled}
+                title={doc.disabledReason ?? meta.subtitle}
+              >
+                <span className="invoice-detail-top__card-icon">
+                  <meta.Icon size={28} strokeWidth={1.75} aria-hidden />
+                </span>
+                <span className="invoice-detail-top__card-label">{meta.title}</span>
+                {statusLabel ? (
+                  <span className="invoice-detail-top__card-sub">{statusLabel}</span>
+                ) : null}
+              </button>
+            );
+          })}
+
+          {booking.supportRequestId && booking.supportRequestNumber ? (
+            <Link
+              to={`${basePath}/warranty-support/${booking.supportRequestId}`}
+              className="invoice-detail-top__card invoice-detail-top__card--purple"
+              title={`Open ${booking.supportRequestNumber}`}
+            >
+              <span className="invoice-detail-top__card-icon">
+                <ExternalLink size={28} strokeWidth={1.75} aria-hidden />
+              </span>
+              <span className="invoice-detail-top__card-label">Ticket</span>
+            </Link>
+          ) : null}
+
+          <button
+            type="button"
+            className="invoice-detail-top__card invoice-detail-top__card--purple"
+            onClick={() => setRaiseIssueOpen(true)}
+            disabled={!user}
+            title="Raise a Warranty & Support issue ticket"
+          >
+            <span className="invoice-detail-top__card-icon">
+              <MessageSquareWarning size={28} strokeWidth={1.75} aria-hidden />
+            </span>
+            <span className="invoice-detail-top__card-label">Support</span>
+          </button>
+
+          {showOpsReturn ? (
+            <button
+              type="button"
+              className="invoice-detail-top__card invoice-detail-top__card--blue"
+              onClick={onReturn}
+              title="Mark shipment returned"
+            >
+              <span className="invoice-detail-top__card-icon">
+                <Package size={28} strokeWidth={1.75} aria-hidden />
+              </span>
+              <span className="invoice-detail-top__card-label">Returned</span>
+            </button>
+          ) : null}
+
+          {showOpsCancel ? (
+            <button
+              type="button"
+              className="invoice-detail-top__card invoice-detail-top__card--red"
+              disabled={isDelhivery && (cancellingDelhivery || !isDelhiveryB2bLrn(delhiveryIds?.lrn || booking.consignmentNo))}
+              onClick={() => {
+                if (isDelhivery) void handleCancelDelhiveryLr();
+                else onCancel?.();
+              }}
+              title={isDelhivery ? 'Cancel LR on Delhivery' : 'Cancel shipment'}
+            >
+              <span className="invoice-detail-top__card-icon">
+                <Trash2 size={28} strokeWidth={1.75} aria-hidden />
+              </span>
+              <span className="invoice-detail-top__card-label">
+                {isDelhivery
+                  ? (cancellingDelhivery ? 'Cancelling…' : 'Cancel LR')
+                  : 'Cancel'}
+              </span>
+            </button>
+          ) : null}
+
+          {showOpsDelete ? (
+            <button
+              type="button"
+              className="invoice-detail-top__card invoice-detail-top__card--red"
+              onClick={onDelete}
+              title="Delete booking permanently"
+            >
+              <span className="invoice-detail-top__card-icon">
+                <Trash2 size={28} strokeWidth={1.75} aria-hidden />
+              </span>
+              <span className="invoice-detail-top__card-label">Delete</span>
+            </button>
+          ) : null}
+        </div>
+
+        {isDelhivery && delhiveryDocsLoading && (
+          <p className="text-muted text-sm">Loading Delhivery documents…</p>
+        )}
+        {delhiveryDocsError ? (
+          <p className="logistics-booking__docs-error" role="alert">{delhiveryDocsError}</p>
+        ) : null}
+        {cancelDelhiveryError ? (
+          <p className="dealers-modal__error logistics-booking__cancel-delhivery-error">
+            {cancelDelhiveryError}
+          </p>
+        ) : null}
+        {isOps && shippingLabelBlocked && (
+          <div className="logistics-booking__slip-blocked" role="status">
+            <AlertTriangle size={14} aria-hidden />
+            <div>
+              <strong>Shipping label unavailable</strong>
+              <p>
+                {shippingLabelGate.fromMissing && shippingLabelGate.toMissing
+                  ? 'FROM and TO addresses are missing. Apply ship-from from Sites (or save it there first), and refresh the dealer address from Zoho.'
+                  : shippingLabelGate.fromMissing
+                    ? `This booking still has no ship-from address. Sites settings do not update existing shipments automatically — apply the ${STAFF_LOGISTICS_SITE_LABELS[booking.shipFromSite] || 'site'} address here.`
+                    : 'TO (dealer delivery) address is missing. Refresh the dealer from Zoho, then try again.'}
+              </p>
+              {shippingLabelGate.fromMissing && (
+                <button
+                  type="button"
+                  className="btn btn-primary btn-sm logistics-booking__slip-blocked-action"
+                  disabled={updatingShipFrom}
+                  onClick={() => void handleApplyShipFromFromSites({ openLabel: true })}
+                >
+                  {updatingShipFrom
+                    ? 'Applying…'
+                    : `Apply ${STAFF_LOGISTICS_SITE_LABELS[booking.shipFromSite] || 'site'} address from Sites`}
+                </button>
+              )}
+            </div>
+          </div>
+        )}
+        {isOps && !booking.shippingLabelGenerated && isIncompleteLogisticsBooking(booking)
+          && (isDelhivery || !shippingLabelBlocked) && (
+          <p className="text-muted text-sm logistics-booking__slip-hint">
+            {isDelhivery
+              ? 'Open the Delhivery shipping label to confirm this shipment.'
+              : 'Open and print the shipping label to confirm this shipment.'}
+          </p>
+        )}
+      </div>
 
       {(booking.invoiceId || booking.supportRequestId) && (
         <section className="logistics-booking__links">
@@ -1459,14 +1665,6 @@ export const LogisticsBookingDetail: React.FC<LogisticsBookingDetailProps> = ({
           }}
         />
       )}
-
-      {user ? (
-        <LogisticsOrderTimeline
-          booking={booking}
-          isOps={isOps}
-          role={user.role}
-        />
-      ) : null}
 
       {booking.invoiceId && (
         <section className="logistics-booking__invoice-freight" aria-label="Invoice and freight">
@@ -2131,177 +2329,6 @@ export const LogisticsBookingDetail: React.FC<LogisticsBookingDetailProps> = ({
         </section>
       )}
 
-      <section className="logistics-booking__issue">
-        <h4>Support</h4>
-        <p className="text-muted text-sm">
-          Open a Warranty &amp; Support complaint with this shipment’s dealer and logistics details.
-        </p>
-        <div className="logistics-booking__issue-actions">
-          <button
-            type="button"
-            className="btn btn-primary btn-sm"
-            onClick={() => setRaiseIssueOpen(true)}
-            disabled={!user}
-          >
-            <MessageSquareWarning size={14} aria-hidden />
-            Raise issue ticket
-          </button>
-          {booking.supportRequestId && booking.supportRequestNumber && (
-            <Link
-              to={`${basePath}/warranty-support/${booking.supportRequestId}`}
-              className="btn btn-secondary btn-sm"
-            >
-              <ExternalLink size={14} aria-hidden />
-              Open {booking.supportRequestNumber}
-            </Link>
-          )}
-        </div>
-      </section>
-
-      <section className="logistics-booking__slips">
-        <h4>Documents</h4>
-        {logisticsDocCards.length > 0 ? (
-          <div className="logistics-booking__doc-cards">
-            {logisticsDocCards.map(doc => {
-              const meta = logisticsDocCardMeta(doc.kind);
-              const opening = delhiveryDocOpening === doc.id;
-              const done = (doc.kind === 'shipping_label' && booking.shippingLabelGenerated)
-                || (doc.kind === 'courier_slip' && booking.courierSlipGenerated);
-              const disabled = !doc.enabled || delhiveryDocOpening != null || generating != null;
-              return (
-                <button
-                  key={doc.id}
-                  type="button"
-                  className={[
-                    'logistics-booking__doc-card',
-                    `logistics-booking__doc-card--${meta.tone}`,
-                    done ? 'is-done' : '',
-                    opening ? 'is-opening' : '',
-                    !doc.enabled ? 'is-disabled' : '',
-                  ].filter(Boolean).join(' ')}
-                  onClick={() => openLogisticsDocCard(doc)}
-                  disabled={disabled}
-                  title={doc.disabledReason ?? undefined}
-                >
-                  <span className="logistics-booking__doc-card-icon" aria-hidden>
-                    <meta.Icon size={22} strokeWidth={1.75} />
-                    {doc.enabled ? (
-                      <span className="logistics-booking__doc-card-eye">
-                        <Eye size={11} strokeWidth={2.25} />
-                      </span>
-                    ) : null}
-                  </span>
-                  <span className="logistics-booking__doc-card-copy">
-                    <strong>{meta.title}</strong>
-                    <em>
-                      {opening
-                        ? 'Opening…'
-                        : (doc.kind === 'eway_bill' && ewayEnsuring
-                          ? 'Checking e-way bill…'
-                          : (doc.note
-                            ? doc.note
-                            : (!doc.enabled && doc.disabledReason
-                              ? doc.disabledReason
-                              : meta.subtitle)))}
-                    </em>
-                  </span>
-                  <span className="logistics-booking__doc-card-chevron" aria-hidden>
-                    <ChevronRight size={18} strokeWidth={2.25} />
-                  </span>
-                </button>
-              );
-            })}
-          </div>
-        ) : null}
-        {isDelhivery && delhiveryDocsLoading && (
-          <p className="text-muted text-sm">Loading Delhivery documents…</p>
-        )}
-        {delhiveryDocsError ? (
-          <p className="logistics-booking__docs-error" role="alert">{delhiveryDocsError}</p>
-        ) : null}
-        {isOps && shippingLabelBlocked && (
-          <div className="logistics-booking__slip-blocked" role="status">
-            <AlertTriangle size={14} aria-hidden />
-            <div>
-              <strong>Shipping label unavailable</strong>
-              <p>
-                {shippingLabelGate.fromMissing && shippingLabelGate.toMissing
-                  ? 'FROM and TO addresses are missing. Apply ship-from from Sites (or save it there first), and refresh the dealer address from Zoho.'
-                  : shippingLabelGate.fromMissing
-                    ? `This booking still has no ship-from address. Sites settings do not update existing shipments automatically — apply the ${STAFF_LOGISTICS_SITE_LABELS[booking.shipFromSite] || 'site'} address here.`
-                    : 'TO (dealer delivery) address is missing. Refresh the dealer from Zoho, then try again.'}
-              </p>
-              {shippingLabelGate.fromMissing && (
-                <button
-                  type="button"
-                  className="btn btn-primary btn-sm logistics-booking__slip-blocked-action"
-                  disabled={updatingShipFrom}
-                  onClick={() => void handleApplyShipFromFromSites({ openLabel: true })}
-                >
-                  {updatingShipFrom
-                    ? 'Applying…'
-                    : `Apply ${STAFF_LOGISTICS_SITE_LABELS[booking.shipFromSite] || 'site'} address from Sites`}
-                </button>
-              )}
-            </div>
-          </div>
-        )}
-        {isOps && !booking.shippingLabelGenerated && isIncompleteLogisticsBooking(booking)
-          && (isDelhivery || !shippingLabelBlocked) && (
-          <p className="text-muted text-sm logistics-booking__slip-hint">
-            {isDelhivery
-              ? 'Open the Delhivery shipping label to confirm this shipment.'
-              : 'Open and print the shipping label to confirm this shipment.'}
-          </p>
-        )}
-      </section>
-
-      {isOps
-        && booking.status !== 'delivered'
-        && booking.status !== 'cancelled'
-        && booking.status !== 'returned'
-        && (onCancel || onReturn || isDelhivery) && (
-        <div className="logistics-booking__ops-actions">
-          {isDelhivery ? (
-            <button
-              type="button"
-              className="btn btn-secondary btn-sm logistics-booking__delete-btn"
-              disabled={cancellingDelhivery || !isDelhiveryB2bLrn(delhiveryIds?.lrn || booking.consignmentNo)}
-              onClick={() => void handleCancelDelhiveryLr()}
-            >
-              <Trash2 size={14} aria-hidden />
-              {cancellingDelhivery ? 'Cancelling on Delhivery…' : 'Cancel LR on Delhivery'}
-            </button>
-          ) : onCancel ? (
-            <button type="button" className="btn btn-secondary btn-sm" onClick={onCancel}>
-              Cancel shipment
-            </button>
-          ) : null}
-          {onReturn && (
-            <button type="button" className="btn btn-secondary btn-sm" onClick={onReturn}>
-              Mark returned
-            </button>
-          )}
-          {cancelDelhiveryError ? (
-            <p className="dealers-modal__error logistics-booking__cancel-delhivery-error">
-              {cancelDelhiveryError}
-            </p>
-          ) : null}
-        </div>
-      )}
-
-      {user && canDeleteLogisticsBooking(user) && onDelete && (
-        <div className="logistics-booking__ops-actions logistics-booking__ops-actions--danger">
-          <button
-            type="button"
-            className="btn btn-secondary btn-sm logistics-booking__delete-btn"
-            onClick={onDelete}
-          >
-            Delete permanently
-          </button>
-        </div>
-      )}
-
       <details className="logistics-booking__summary">
         <summary>Full booking summary</summary>
         <dl className="book-courier__review">
@@ -2313,6 +2340,14 @@ export const LogisticsBookingDetail: React.FC<LogisticsBookingDetailProps> = ({
           ))}
         </dl>
       </details>
+
+      {user ? (
+        <LogisticsOrderTimeline
+          booking={booking}
+          isOps={isOps}
+          role={user.role}
+        />
+      ) : null}
 
       {raiseIssueOpen && user && (
         <RaiseLogisticsIssueDialog

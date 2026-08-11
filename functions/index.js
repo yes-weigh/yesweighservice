@@ -1,6 +1,6 @@
 import { initializeApp } from 'firebase-admin/app';
 import { getFirestore } from 'firebase-admin/firestore';
-import { onDocumentCreated } from 'firebase-functions/v2/firestore';
+import { onDocumentCreated, onDocumentWritten } from 'firebase-functions/v2/firestore';
 import { onCall, onRequest, HttpsError } from 'firebase-functions/v2/https';
 import { onSchedule } from 'firebase-functions/v2/scheduler';
 import { defineSecret, defineString } from 'firebase-functions/params';
@@ -147,6 +147,8 @@ import {
   ensureDelhiveryShippingLabels,
   ensureDelhiveryPod,
   ensureDelhiveryDocumentImage,
+  prefetchDelhiveryDocumentsForBooking,
+  shouldPrefetchDelhiveryDocumentsOnWrite,
 } from './lib/delhivery-b2b-documents.js';
 import { getHrStaffFileUrl, uploadHrStaffFile } from './lib/hr-staff-upload.js';
 import { getYesStorePhotoUrl, uploadYesStorePhoto } from './lib/yes-store-upload.js';
@@ -4358,6 +4360,47 @@ export const fillStCourierDeliveryOfficeOnCreate = onDocumentCreated(
 );
 
 /**
+ * When a Delhivery booking is confirmed, gets an LRN, or is marked delivered:
+ * prefetch waybill + shipping labels (and POD/COD after delivery) into Storage.
+ */
+export const prefetchDelhiveryDocumentsOnBookingWrite = onDocumentWritten(
+  {
+    document: 'logisticsBookings/{bookingId}',
+    region: 'asia-south1',
+    timeoutSeconds: 540,
+    memory: '512MiB',
+  },
+  async event => {
+    const after = event.data?.after?.data();
+    if (!after) return;
+    const before = event.data?.before?.exists
+      ? (event.data.before.data() || {})
+      : null;
+    const bookingId = event.params.bookingId;
+    const trigger = shouldPrefetchDelhiveryDocumentsOnWrite(before, after);
+    if (!trigger) return;
+    try {
+      const result = await prefetchDelhiveryDocumentsForBooking(
+        getFirestore(),
+        bookingId,
+        { includePodCod: trigger.includePodCod },
+      );
+      console.log(
+        `prefetchDelhiveryDocumentsOnBookingWrite: ${bookingId} reason=${trigger.reason}`,
+        result.prefetchStatus || result.reason || result.skipped,
+      );
+    } catch (err) {
+      console.warn(
+        'prefetchDelhiveryDocumentsOnBookingWrite failed',
+        bookingId,
+        trigger.reason,
+        err?.message || err,
+      );
+    }
+  },
+);
+
+/**
  * Hourly: fetch ST Courier tracking for all non-delivered ST logistics bookings,
  * persist courierTrack (+ history) on each booking, and advance status when delivered.
  */
@@ -4879,6 +4922,29 @@ export const trackDelhiveryShipmentFn = onCall(
         'internal',
         err?.message ?? 'Could not fetch Delhivery shipment status.',
       );
+    }
+  },
+);
+
+/** Prefetch Delhivery waybill, labels, and delivery docs into Storage + Firestore cache. */
+export const prefetchDelhiveryDocumentsFn = onCall(
+  { region: 'asia-south1', timeoutSeconds: 540, memory: '512MiB' },
+  async request => {
+    await requireActiveUser(request.auth?.uid, ALLOWED_ROLES, { allowViewOnly: true });
+    const bookingId = String(request.data?.bookingId ?? '').trim();
+    if (!bookingId) {
+      throw new HttpsError('invalid-argument', 'bookingId is required.');
+    }
+    const includePodCod = request.data?.includePodCod === true;
+    const force = request.data?.force === true;
+    try {
+      return await prefetchDelhiveryDocumentsForBooking(getFirestore(), bookingId, {
+        includePodCod,
+        force,
+      });
+    } catch (err) {
+      if (err instanceof HttpsError) throw err;
+      throw new HttpsError('internal', err?.message ?? 'Could not prefetch Delhivery documents.');
     }
   },
 );

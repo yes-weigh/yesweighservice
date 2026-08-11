@@ -292,6 +292,7 @@ export const StaffCreateSalesOrderPage: React.FC = () => {
   const [addresses, setAddresses] = useState<ShippingAddress[]>([]);
   const [addressesLoading, setAddressesLoading] = useState(false);
   const [addressError, setAddressError] = useState('');
+  const [addressWarning, setAddressWarning] = useState('');
   const [shipping, setShipping] = useState<ShippingSelection | null>(null);
   const [salespersonId, setSalespersonId] = useState('');
   const [salespersons, setSalespersons] = useState<ZohoSalespersonOption[]>([]);
@@ -966,18 +967,21 @@ export const StaffCreateSalesOrderPage: React.FC = () => {
   const loadAddresses = useCallback(async (customerId: string, dealerHint?: ZohoDealer | null) => {
     setAddressesLoading(true);
     setAddressError('');
+    setAddressWarning('');
     setShipping(null);
     const cachedDealer = dealerHint
       ?? dealers.find(dealer => dealer.id === customerId)
       ?? null;
     try {
-      const next = await listCustomerShippingAddresses(customerId);
+      const { addresses: next, warning } = await listCustomerShippingAddresses(customerId);
       setAddresses(next);
+      setAddressWarning(warning || '');
     } catch (err) {
       const fallback = addressesFromDealerCache(cachedDealer);
       if (fallback.length) {
         setAddresses(fallback);
         setAddressError('');
+        setAddressWarning('');
       } else {
         setAddresses([]);
         setAddressError(err instanceof Error ? err.message : 'Could not load addresses.');
@@ -1407,6 +1411,7 @@ export const StaffCreateSalesOrderPage: React.FC = () => {
                 addresses={addresses}
                 loading={addressesLoading}
                 error={addressError}
+                warning={addressWarning}
                 value={shipping}
                 onChange={setShipping}
                 onRefresh={() => void loadAddresses(selectedDealer.id)}

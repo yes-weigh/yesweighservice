@@ -99,13 +99,19 @@ export async function addDealerShippingAddress(
 
 export async function listCustomerShippingAddresses(
   customerId: string,
-): Promise<ShippingAddress[]> {
+): Promise<CustomerShippingAddressesResult> {
   try {
-    const res = await call<{ customerId: string }, { addresses?: ShippingAddress[] }>(
+    const res = await call<
+      { customerId: string },
+      { addresses?: ShippingAddress[]; zohoSyncWarning?: string }
+    >(
       'listCustomerShippingAddresses',
       { customerId },
     );
-    return Array.isArray(res.addresses) ? res.addresses : [];
+    return {
+      addresses: Array.isArray(res.addresses) ? res.addresses : [],
+      warning: res.zohoSyncWarning?.trim() || undefined,
+    };
   } catch (err) {
     throw new Error(dealerOrderErrorMessage(err));
   }
@@ -244,6 +250,51 @@ export function validateNewShippingAddress(
   return null;
 }
 
+export interface CustomerShippingAddressesResult {
+  addresses: ShippingAddress[];
+  warning?: string;
+}
+
+function extractPinFromText(text: string | null | undefined): string | null {
+  const match = String(text ?? '').match(/\b(\d{6})\b/);
+  return match ? match[1] : null;
+}
+
+function mapFormattedDealerAddress(
+  formatted: string | null | undefined,
+  kind: 'billing' | 'shipping',
+  label: string,
+  dealer: Pick<
+    ZohoDealer,
+    | 'contactName'
+    | 'companyName'
+    | 'zipCode'
+    | 'billingState'
+    | 'district'
+    | 'mobile'
+    | 'phone'
+  >,
+): ShippingAddress | null {
+  const text = formatted?.trim();
+  if (!text) return null;
+  const zip = dealer.zipCode?.trim() || extractPinFromText(text);
+  if (!zip) return null;
+  return {
+    addressId: null,
+    kind,
+    label,
+    formatted: text,
+    attention: dealer.contactName?.trim() || dealer.companyName?.trim() || null,
+    address: text,
+    street2: null,
+    city: dealer.district?.trim() || null,
+    state: dealer.billingState?.trim() || null,
+    zip,
+    country: 'India',
+    phone: dealer.mobile?.trim() || dealer.phone?.trim() || null,
+  };
+}
+
 function formatRawAddress(raw: ZohoAddressRaw | null | undefined): string | null {
   if (!raw) return null;
   const parts = [
@@ -284,11 +335,46 @@ function mapRawDealerAddress(
 
 /** Build selectable addresses from a synced dealer when Zoho address APIs fail. */
 export function addressesFromDealerCache(
-  dealer: Pick<ZohoDealer, 'zohoBillingAddressRaw' | 'zohoShippingAddressRaw'> | null | undefined,
+  dealer: Pick<
+    ZohoDealer,
+    | 'zohoBillingAddressRaw'
+    | 'zohoShippingAddressRaw'
+    | 'zohoBillingAddress'
+    | 'zohoShippingAddress'
+    | 'billingAddress'
+    | 'shippingAddress'
+    | 'contactName'
+    | 'companyName'
+    | 'zipCode'
+    | 'billingState'
+    | 'district'
+    | 'mobile'
+    | 'phone'
+  > | null | undefined,
 ): ShippingAddress[] {
   if (!dealer) return [];
-  return [
+  const rows = [
     mapRawDealerAddress(dealer.zohoBillingAddressRaw, 'billing', 'Billing address'),
     mapRawDealerAddress(dealer.zohoShippingAddressRaw, 'shipping', 'Default shipping'),
+    mapFormattedDealerAddress(
+      dealer.zohoShippingAddress || dealer.shippingAddress,
+      'shipping',
+      'Default shipping',
+      dealer,
+    ),
+    mapFormattedDealerAddress(
+      dealer.zohoBillingAddress || dealer.billingAddress,
+      'billing',
+      'Billing address',
+      dealer,
+    ),
   ].filter((row): row is ShippingAddress => Boolean(row));
+
+  const seen = new Set<string>();
+  return rows.filter(row => {
+    const key = row.addressId ? `id:${row.addressId}` : `kind:${row.kind}`;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return Boolean((row.formatted || row.address) && row.zip?.trim());
+  });
 }

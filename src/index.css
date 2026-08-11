@@ -21603,6 +21603,22 @@ body:has(.confirm-inline-bar) .confirm-inline-bar {
   padding-top: 0.7rem;
 }
 
+.logistics-booking__ops-actions--top {
+  flex-direction: column;
+  align-items: stretch;
+  margin-top: 0;
+  padding-top: 0;
+}
+
+.logistics-booking__ops-actions--top .btn {
+  width: 100%;
+  justify-content: center;
+}
+
+.logistics-booking__ops-actions--top.logistics-booking__ops-actions--danger {
+  margin-top: -0.35rem;
+}
+
 .logistics-booking__ops-actions .logistics-booking__delete-btn {
   display: inline-flex;
   align-items: center;
@@ -21733,6 +21749,20 @@ body:has(.confirm-inline-bar) .confirm-inline-bar {
   flex-wrap: wrap;
   gap: 0.5rem;
   align-items: center;
+}
+
+.logistics-booking__issue--top {
+  margin: 0;
+}
+
+.logistics-booking__issue--top .logistics-booking__issue-actions {
+  flex-direction: column;
+  align-items: stretch;
+}
+
+.logistics-booking__issue--top .logistics-booking__issue-actions .btn {
+  width: 100%;
+  justify-content: center;
 }
 
 .logistics-issue-dialog {
@@ -24481,6 +24511,58 @@ body:has(.confirm-inline-bar) .confirm-inline-bar {
   gap: 0.75rem;
 }
 
+.logistics-booking__top-actions {
+  position: static;
+  margin: 0;
+  padding: 0;
+  background: none;
+}
+
+.logistics-booking__top-actions-row {
+  display: flex;
+  flex-wrap: nowrap;
+  align-items: stretch;
+  gap: 0.45rem;
+  overflow-x: auto;
+  overflow-y: hidden;
+  overscroll-behavior-x: contain;
+  scrollbar-width: thin;
+  -webkit-overflow-scrolling: touch;
+  padding-bottom: 0.15rem;
+}
+
+.logistics-booking__top-actions-row .invoice-detail-top__card {
+  flex: 0 0 auto;
+  width: 5.25rem;
+  min-width: 5.25rem;
+}
+
+.logistics-booking__top-actions-row .invoice-detail-top__card.is-disabled,
+.logistics-booking__top-actions-row .invoice-detail-top__card:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+  transform: none;
+}
+
+.logistics-booking__top-actions .logistics-booking__docs-error,
+.logistics-booking__top-actions .logistics-booking__cancel-delhivery-error,
+.logistics-booking__top-actions .logistics-booking__slip-hint {
+  margin-top: 0.5rem;
+}
+
+.logistics-booking__top-actions .logistics-booking__slip-blocked {
+  margin-top: 0.65rem;
+}
+
+.invoice-detail-top__card--red {
+  border-color: rgba(248, 113, 113, 0.85);
+  color: #f87171;
+}
+
+.invoice-detail-top__card--red.is-active {
+  box-shadow: 0 8px 22px rgba(248, 113, 113, 0.18);
+}
+
 .logistics-booking__header-actions {
   display: inline-flex;
   align-items: center;
@@ -25525,6 +25607,10 @@ body:has(.confirm-inline-bar) .confirm-inline-bar {
   font-size: 1rem;
   font-weight: 700;
   color: #f8fafc;
+}
+
+.logistics-booking__slips--top {
+  margin: 0;
 }
 
 .logistics-booking__doc-cards {

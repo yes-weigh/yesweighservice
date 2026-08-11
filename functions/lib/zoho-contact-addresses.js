@@ -137,6 +137,51 @@ function isZohoAuthDeniedError(err) {
   );
 }
 
+function extractPinFromText(text) {
+  const match = String(text ?? '').match(/\b(\d{6})\b/);
+  return match ? match[1] : null;
+}
+
+/** Build selectable rows from synced dealer doc when live Zoho address APIs fail. */
+function mapFormattedDealerAddress(formatted, { kind, label, data = {} } = {}) {
+  const text = clean(formatted);
+  if (!text) return null;
+  return {
+    addressId: null,
+    kind,
+    label,
+    formatted: text,
+    attention: clean(data.contactName) || clean(data.companyName),
+    address: text,
+    street2: null,
+    city: clean(data.district),
+    state: clean(data.billingState),
+    zip: clean(data.zipCode) || extractPinFromText(text),
+    country: 'India',
+    phone: clean(data.mobile) || clean(data.phone),
+  };
+}
+
+function buildAddressRowsFromDealerDoc(data) {
+  if (!data || typeof data !== 'object') return [];
+  const rows = [];
+  const hasKind = kind => rows.some(row => row.kind === kind);
+
+  const shipping = mapFormattedDealerAddress(
+    data.zohoShippingAddress || data.shippingAddress,
+    { kind: 'shipping', label: 'Default shipping', data },
+  );
+  if (shipping?.formatted && shipping.zip && !hasKind('shipping')) rows.push(shipping);
+
+  const billing = mapFormattedDealerAddress(
+    data.zohoBillingAddress || data.billingAddress,
+    { kind: 'billing', label: 'Billing address', data },
+  );
+  if (billing?.formatted && billing.zip && !hasKind('billing')) rows.push(billing);
+
+  return rows;
+}
+
 function buildAddressRowsFromContact(contact, additional = []) {
   const rows = [];
   const billing = mapAddressRow(contact?.billing_address, {
@@ -172,7 +217,7 @@ async function loadCachedCustomerAddresses(contactId) {
     const data = snap.data() || {};
 
     if (Array.isArray(data.zohoAddresses) && data.zohoAddresses.length) {
-      return data.zohoAddresses
+      const fromCache = data.zohoAddresses
         .map(row => {
           if (!row || typeof row !== 'object') return null;
           const kind = String(row.kind || 'additional');
@@ -197,12 +242,18 @@ async function loadCachedCustomerAddresses(contactId) {
           });
         })
         .filter(Boolean);
+      if (fromCache.length) return fromCache;
     }
 
-    return buildAddressRowsFromContact({
+    let rows = buildAddressRowsFromContact({
       billing_address: data.zohoBillingAddressRaw || null,
       shipping_address: data.zohoShippingAddressRaw || null,
     });
+
+    const formattedFallback = buildAddressRowsFromDealerDoc(data).filter(
+      row => !rows.some(existing => existing.kind === row.kind),
+    );
+    return [...rows, ...formattedFallback];
   } catch {
     return [];
   }
@@ -262,6 +313,8 @@ export async function listContactAddressesForCustomer(secrets, configuredOrgId, 
     rows = await loadCachedCustomerAddresses(contactId);
   }
 
+  const usedCachedFallback = Boolean(zohoError && !contact && !additional.length && rows.length);
+
   if (!rows.length) {
     const message = zohoError?.message
       || 'Could not load shipping addresses from Zoho.';
@@ -286,7 +339,14 @@ export async function listContactAddressesForCustomer(secrets, configuredOrgId, 
     }
   }
 
-  return { customerId: contactId, addresses: rows };
+  const result = { customerId: contactId, addresses: rows };
+  if (usedCachedFallback || (zohoError && isZohoAuthDeniedError(zohoError))) {
+    result.zohoSyncWarning = (
+      'Showing saved dealer addresses. Live Zoho sync is unavailable — ask an admin to re-authorize '
+      + 'the Inventory OAuth app with ZohoInventory.contacts.READ (and CREATE to add addresses).'
+    );
+  }
+  return result;
 }
 
 /** Create an additional address on the Zoho contact; returns mapped row. */

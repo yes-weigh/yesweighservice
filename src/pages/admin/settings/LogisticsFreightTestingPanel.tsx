@@ -184,8 +184,9 @@ export const LogisticsFreightTestingPanel: React.FC = () => {
     setAddressError('');
     setShipping(null);
     try {
-      const next = await listCustomerShippingAddresses(dealer.id);
+      const { addresses: next, warning } = await listCustomerShippingAddresses(dealer.id);
       setAddresses(next);
+      setAddressError(warning || '');
     } catch (err) {
       const fallback = addressesFromDealerCache(dealer);
       if (fallback.length) {

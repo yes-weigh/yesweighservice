@@ -367,6 +367,7 @@ export async function listDelhiveryBookingDocuments(db, input = {}) {
   const bookingId = String(input.bookingId || '').trim();
   /** @type {object | null} */
   let bookingDocs = null;
+  let bookingStatus = '';
 
   if (bookingId) {
     const snap = await db.collection('logisticsBookings').doc(bookingId).get();
@@ -378,6 +379,7 @@ export async function listDelhiveryBookingDocuments(db, input = {}) {
     bookingDocs = data.delhiveryDocuments && typeof data.delhiveryDocuments === 'object'
       ? data.delhiveryDocuments
       : null;
+    bookingStatus = String(data.status || '');
   }
   if (!lrn) {
     throw new HttpsError('invalid-argument', 'LRN is required.');
@@ -419,7 +421,7 @@ export async function listDelhiveryBookingDocuments(db, input = {}) {
       kind: 'pod',
       note: 'Cached on Firebase',
     });
-  } else {
+  } else if (bookingStatus === 'delivered') {
     const pod = await fetchDelhiveryPodUrls(db, lrn);
     if (pod.available) {
       documents.push({
@@ -431,6 +433,8 @@ export async function listDelhiveryBookingDocuments(db, input = {}) {
     } else {
       skipped.push({ id: 'pod', reason: 'POD not ready yet (usually after delivery)' });
     }
+  } else {
+    skipped.push({ id: 'pod', reason: 'POD not ready yet (usually after delivery)' });
   }
 
   if (cachedCod) {
@@ -440,7 +444,7 @@ export async function listDelhiveryBookingDocuments(db, input = {}) {
       kind: 'cod',
       note: 'Cached on Firebase',
     });
-  } else {
+  } else if (bookingStatus === 'delivered') {
     try {
       const auth = await getValidDelhiveryJwt(db);
       const res = await fetch(`${auth.baseUrl}/v2/document/COD/${lrn}`, {
@@ -906,4 +910,205 @@ export async function ensureDelhiveryDocumentImage(db, input = {}) {
     },
   });
   return { ...fresh, url, cached: false };
+}
+
+/**
+ * Whether a booking write should trigger background Delhivery doc prefetch.
+ *
+ * @param {Record<string, unknown> | null | undefined} before
+ * @param {Record<string, unknown>} after
+ * @returns {{ includePodCod: boolean, reason: string } | null}
+ */
+export function shouldPrefetchDelhiveryDocumentsOnWrite(before, after) {
+  if (!after || String(after.partnerId || '') !== 'delhivery') return null;
+  if (after.wizardStep != null && String(after.wizardStep).trim() !== '') return null;
+
+  const lrn = normalizeLrn(after.consignmentNo || after.trackingNo);
+  if (!lrn) return null;
+
+  const beforeLrn = before ? normalizeLrn(before.consignmentNo || before.trackingNo) : '';
+  const statusAfter = String(after.status || '');
+  const statusBefore = before ? String(before.status || '') : '';
+  const deliveredNow = statusAfter === 'delivered' && statusBefore !== 'delivered';
+  const lrnChanged = lrn !== beforeLrn;
+  const created = !before;
+
+  const docs = after.delhiveryDocuments && typeof after.delhiveryDocuments === 'object'
+    ? after.delhiveryDocuments
+    : null;
+  const cacheMatches = Boolean(docs && normalizeLrn(docs.lrn) === lrn);
+  const missingLr = !cacheMatches || !String(docs?.lrCopy?.storagePath || '').trim();
+  const missingLabels = !cacheMatches
+    || !Array.isArray(docs?.shippingLabels?.images)
+    || docs.shippingLabels.images.length === 0;
+  const missingPod = statusAfter === 'delivered'
+    && (!cacheMatches || !Array.isArray(docs?.pod?.storagePaths) || docs.pod.storagePaths.length === 0);
+  const missingCod = statusAfter === 'delivered'
+    && (!cacheMatches || !String(docs?.cod?.storagePath || '').trim());
+
+  const needsBase = created || lrnChanged || missingLr || missingLabels;
+  const needsDeliveryDocs = deliveredNow || missingPod || missingCod;
+  if (!needsBase && !needsDeliveryDocs) return null;
+
+  if (!created && !lrnChanged && !deliveredNow) {
+    const lastAttempt = String(docs?.prefetchStatus?.lastAttemptAt || '').trim();
+    if (lastAttempt) {
+      const ms = Date.parse(lastAttempt);
+      if (Number.isFinite(ms) && Date.now() - ms < 3 * 60 * 1000) {
+        return null;
+      }
+    }
+  }
+
+  let reason = 'missing_cache';
+  if (created) reason = 'created';
+  else if (lrnChanged) reason = 'lrn_changed';
+  else if (deliveredNow) reason = 'delivered';
+
+  return {
+    includePodCod: statusAfter === 'delivered' || deliveredNow,
+    reason,
+  };
+}
+
+/**
+ * Prefetch Delhivery LR copy, shipping labels, and (when delivered) POD/COD into Storage
+ * + `delhiveryDocuments` on the booking. Idempotent — skips docs already cached.
+ *
+ * @param {FirebaseFirestore.Firestore} db
+ * @param {string} bookingId
+ * @param {{ includePodCod?: boolean, force?: boolean }} [options]
+ */
+export async function prefetchDelhiveryDocumentsForBooking(db, bookingId, options = {}) {
+  const id = String(bookingId || '').trim();
+  if (!id) return { skipped: true, reason: 'no_booking_id' };
+
+  const snap = await db.collection('logisticsBookings').doc(id).get();
+  if (!snap.exists) return { skipped: true, reason: 'not_found' };
+  const data = snap.data() || {};
+
+  if (String(data.partnerId || '') !== 'delhivery') {
+    return { skipped: true, reason: 'not_delhivery' };
+  }
+  if (data.wizardStep != null && String(data.wizardStep).trim() !== '') {
+    return { skipped: true, reason: 'draft' };
+  }
+
+  const lrn = normalizeLrn(data.consignmentNo || data.trackingNo);
+  if (!lrn) return { skipped: true, reason: 'no_lrn' };
+
+  const includePodCod = options.includePodCod === true || String(data.status || '') === 'delivered';
+  const force = options.force === true;
+  const cache = data.delhiveryDocuments && typeof data.delhiveryDocuments === 'object'
+    && normalizeLrn(data.delhiveryDocuments.lrn) === lrn
+    ? data.delhiveryDocuments
+    : null;
+
+  const ref = snap.ref;
+  const startedAt = new Date().toISOString();
+  /** @type {Record<string, unknown>} */
+  const prefetchStatus = {
+    lastAttemptAt: startedAt,
+    lrCopy: 'skipped',
+    shippingLabels: 'skipped',
+    pod: 'skipped',
+    cod: 'skipped',
+  };
+
+  /** @type {Array<Promise<void>>} */
+  const tasks = [];
+
+  if (force || !String(cache?.lrCopy?.storagePath || '').trim()) {
+    tasks.push((async () => {
+      try {
+        const result = await ensureDelhiveryLrCopy(db, {
+          bookingId: id,
+          lrn,
+          lrCopyType: 'all',
+        });
+        prefetchStatus.lrCopy = result.available
+          ? (result.cached ? 'cached' : 'fetched')
+          : 'unavailable';
+        if (result.error) prefetchStatus.lrCopyError = result.error;
+      } catch (err) {
+        prefetchStatus.lrCopy = 'error';
+        prefetchStatus.lrCopyError = String(err?.message || err);
+      }
+    })());
+  }
+
+  if (
+    force
+    || !cache?.shippingLabels?.images?.length
+    || String(cache.shippingLabels.size || 'a4') !== 'a4'
+  ) {
+    tasks.push((async () => {
+      try {
+        const result = await ensureDelhiveryShippingLabels(db, {
+          bookingId: id,
+          lrn,
+          size: 'a4',
+        });
+        prefetchStatus.shippingLabels = result.available
+          ? (result.cached ? 'cached' : 'fetched')
+          : 'unavailable';
+        if (result.error) prefetchStatus.shippingLabelsError = result.error;
+      } catch (err) {
+        prefetchStatus.shippingLabels = 'error';
+        prefetchStatus.shippingLabelsError = String(err?.message || err);
+      }
+    })());
+  }
+
+  if (includePodCod) {
+    if (force || !Array.isArray(cache?.pod?.storagePaths) || cache.pod.storagePaths.length === 0) {
+      tasks.push((async () => {
+        try {
+          const result = await ensureDelhiveryPod(db, { bookingId: id, lrn });
+          prefetchStatus.pod = result.available
+            ? (result.cached ? 'cached' : 'fetched')
+            : 'unavailable';
+          if (result.error) prefetchStatus.podError = result.error;
+        } catch (err) {
+          prefetchStatus.pod = 'error';
+          prefetchStatus.podError = String(err?.message || err);
+        }
+      })());
+    }
+
+    if (force || !String(cache?.cod?.storagePath || '').trim()) {
+      tasks.push((async () => {
+        try {
+          const result = await ensureDelhiveryDocumentImage(db, {
+            bookingId: id,
+            lrn,
+            docType: 'COD',
+          });
+          prefetchStatus.cod = result.available
+            ? (result.cached ? 'cached' : 'fetched')
+            : 'unavailable';
+          if (result.error) prefetchStatus.codError = result.error;
+        } catch (err) {
+          prefetchStatus.cod = 'error';
+          prefetchStatus.codError = String(err?.message || err);
+        }
+      })());
+    }
+  }
+
+  if (tasks.length) {
+    await Promise.all(tasks);
+  }
+
+  prefetchStatus.completedAt = new Date().toISOString();
+  await ref.set({
+    delhiveryDocuments: {
+      ...(cache || {}),
+      lrn,
+      prefetchStatus,
+    },
+    updatedAt: new Date().toISOString(),
+  }, { merge: true });
+
+  return { ok: true, bookingId: id, lrn, prefetchStatus };
 }

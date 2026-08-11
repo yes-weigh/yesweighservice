@@ -195,6 +195,18 @@ export interface LogisticsDelhiveryDocumentsCache {
     fileName?: string;
     cachedAt: string;
   } | null;
+  prefetchStatus?: {
+    lastAttemptAt?: string;
+    completedAt?: string;
+    lrCopy?: string;
+    shippingLabels?: string;
+    pod?: string;
+    cod?: string;
+    lrCopyError?: string;
+    shippingLabelsError?: string;
+    podError?: string;
+    codError?: string;
+  } | null;
 }
 
 /** Delhivery freight-breakup snapshot (after weight captured). */

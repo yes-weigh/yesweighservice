@@ -30,6 +30,12 @@ const DEV_QUICK_LOGIN_PROFILES: readonly DevQuickLoginProfile[] = import.meta.en
         password: 'Yes@2026',
       },
       {
+        id: 'vishnu',
+        label: 'Vishnu (invoice access)',
+        loginId: '261870165022',
+        password: 'Yesweigh@2026',
+      },
+      {
         id: 'safna',
         label: 'Safna (admin)',
         loginId: '788971879465',
