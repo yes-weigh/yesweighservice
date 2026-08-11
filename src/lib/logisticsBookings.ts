@@ -799,9 +799,15 @@ async function buildBookingPayload(input: PersistLogisticsBookingInput & {
       photos: firestoreBoxPhotos(box.photos),
     })),
     finalPackagePhotoStoragePath: finalPackagePhotoStoragePath ?? null,
-    labelGenerated: Boolean(draft.labelGenerated),
-    courierSlipGenerated: Boolean(draft.labelGenerated),
-    shippingLabelGenerated: Boolean(draft.labelGenerated),
+    labelGenerated: draft.partnerId === 'delhivery'
+      ? Boolean(draft.consignmentNo.trim())
+      : Boolean(draft.labelGenerated),
+    courierSlipGenerated: draft.partnerId === 'delhivery'
+      ? false
+      : Boolean(draft.labelGenerated),
+    shippingLabelGenerated: draft.partnerId === 'delhivery'
+      ? false
+      : Boolean(draft.labelGenerated),
     packingSlipGenerated: false,
     status,
     wizardStep: wizardStep ?? null,
@@ -1303,9 +1309,15 @@ export async function persistLogisticsBooking(
   }
 
   try {
-    const labelsPrinted = Boolean(draft.labelGenerated);
+    const labelsPrinted = draft.partnerId === 'delhivery'
+      ? Boolean(draft.consignmentNo.trim())
+      : Boolean(draft.labelGenerated);
     if (!labelsPrinted) {
-      throw new Error('Generate the shipping label before confirming the shipment.');
+      throw new Error(
+        draft.partnerId === 'delhivery'
+          ? 'Create the Delhivery LR before confirming the shipment.'
+          : 'Generate the shipping label before confirming the shipment.',
+      );
     }
     const payload = await buildBookingPayload({
       draft,

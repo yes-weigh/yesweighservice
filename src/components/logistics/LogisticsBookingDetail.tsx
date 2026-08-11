@@ -353,7 +353,11 @@ export const LogisticsBookingDetail: React.FC<LogisticsBookingDetailProps> = ({
     || booking.status === 'returned'
     || booking.status === 'cancelled'
     || booking.status === 'delivered'
-    || (booking.status === 'label_generated' && !booking.shippingLabelGenerated)
+    || (
+      booking.status === 'label_generated'
+      && !booking.shippingLabelGenerated
+      && booking.partnerId !== 'delhivery'
+    )
   )
     ? null
     : PROGRESS_STATUSES[currentIndex + 1]?.id ?? null;

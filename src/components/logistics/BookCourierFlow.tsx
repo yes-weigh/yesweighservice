@@ -33,8 +33,8 @@ import {
   subscribeDealerCache,
 } from '../../lib/dealer-cache';
 import {
-  BOOK_COURIER_STEPS,
   SHIPMENT_MODES,
+  bookCourierStepsForPartner,
   bookStepProgressIndex,
   combineShipmentBoxDrafts,
   computeVolumetricWeight,
@@ -59,17 +59,12 @@ import {
   zohoDealerToSnapshot,
 } from '../../lib/logisticsDealers';
 import {
-  attachLogisticsBoxPhoto,
-  attachLogisticsFinalPackagePhoto,
   persistLogisticsBooking,
-  persistLogisticsBookingDraft,
   uploadLogisticsBookingFinalPackagePhoto,
 } from '../../lib/logisticsBookings';
 import {
-  dataUrlToFile,
   logisticsCaptureToDataUrl,
   resolveLogisticsPhotoUrls,
-  uploadLogisticsPhoto,
 } from '../../lib/logisticsPhotos';
 import {
   extractCityState,
@@ -81,9 +76,7 @@ import {
   deleteLogisticsVaultPhoto,
   listLogisticsVaultPhotos,
   logisticsPhotoSessionKey,
-  patchLogisticsVaultPhoto,
   putLogisticsVaultPhoto,
-  rememberLogisticsPhotoSessionKey,
 } from '../../lib/logisticsPhotoVault';
 import { bookDelhiveryShipment } from '../../lib/delhiveryB2b';
 import { pinFromText } from '../../lib/delhiveryQuote';
@@ -122,7 +115,6 @@ import type {
   LogisticsBookingDraft,
   LogisticsDealerSnapshot,
   ShipmentBoxDraft,
-  ShipmentBoxPhotoDraft,
   ShipmentMode,
 } from '../../types/logistics-dispatch';
 import type { StaffLogisticsSite } from '../../types/staff-logistics';
@@ -140,72 +132,6 @@ function newPhotoId(): string {
   return `photo-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
 }
 
-function mergeLocalAndSavedPhotos(
-  localPhotos: ShipmentBoxPhotoDraft[],
-  savedPhotos: Array<{ storagePath: string; url?: string | null; clientPhotoId?: string | null }>,
-  boxId: string,
-): ShipmentBoxPhotoDraft[] {
-  const usedPaths = new Set<string>();
-  const savedByClientId = new Map(
-    savedPhotos
-      .filter(photo => photo.clientPhotoId?.trim())
-      .map(photo => [photo.clientPhotoId!.trim(), photo]),
-  );
-  const savedByPath = new Map(
-    savedPhotos
-      .filter(photo => photo.storagePath?.trim())
-      .map(photo => [photo.storagePath.trim(), photo]),
-  );
-
-  const merged = localPhotos.map((local, index) => {
-    const byId = savedByClientId.get(local.id);
-    if (byId?.storagePath) {
-      usedPaths.add(byId.storagePath);
-      return {
-        ...local,
-        storagePath: byId.storagePath,
-        url: local.url || byId.url || '',
-      };
-    }
-    if (local.storagePath && savedByPath.has(local.storagePath)) {
-      const saved = savedByPath.get(local.storagePath)!;
-      usedPaths.add(local.storagePath);
-      return {
-        ...local,
-        storagePath: saved.storagePath,
-        url: local.url || saved.url || '',
-      };
-    }
-    const savedAtIndex = savedPhotos[index];
-    if (
-      !local.storagePath
-      && savedAtIndex?.storagePath
-      && !usedPaths.has(savedAtIndex.storagePath)
-      && local.url.startsWith('data:')
-    ) {
-      usedPaths.add(savedAtIndex.storagePath);
-      return {
-        ...local,
-        storagePath: savedAtIndex.storagePath,
-        url: local.url || savedAtIndex.url || '',
-      };
-    }
-    // Always keep local captures (data URLs) even if save returned fewer photos.
-    return local;
-  });
-
-  for (const saved of savedPhotos) {
-    if (!saved.storagePath || usedPaths.has(saved.storagePath)) continue;
-    if (merged.some(photo => photo.storagePath === saved.storagePath)) continue;
-    merged.push({
-      id: saved.clientPhotoId?.trim() || `saved-${boxId}-${saved.storagePath.slice(-10)}`,
-      url: saved.url || '',
-      storagePath: saved.storagePath,
-    });
-  }
-  return merged;
-}
-
 function boxVolumetric(box: ShipmentBoxDraft): number {
   return computeVolumetricWeight(
     box.lengthCm ? Number.parseFloat(box.lengthCm) : null,
@@ -220,34 +146,27 @@ interface BookCourierFlowProps {
   initialDraft?: Partial<LogisticsBookingDraft>;
   initialDealerQuery?: string;
   initialStep?: BookCourierStep;
-  existingBookingId?: string | null;
   onClose: () => void;
   onComplete: (booking: LogisticsBooking) => void;
-  /** Called when a draft is persisted and the flow should return to the list. */
-  onDraftSaved?: (booking: LogisticsBooking) => void;
-  /** Called when a draft is auto-updated while the wizard stays open. */
-  onDraftUpdated?: (booking: LogisticsBooking) => void;
+  /** Called when a saved booking is updated after final submit (e.g. late outer photo). */
+  onBookingUpdated?: (booking: LogisticsBooking) => void;
 }
 
-const AUTO_DRAFT_STEPS: ReadonlyArray<BookCourierStep> = [
-  'box',
-  'review',
-  'label',
-  'final_photo',
-];
-
-function isAutoDraftStep(step: BookCourierStep): boolean {
-  return AUTO_DRAFT_STEPS.includes(step);
-}
-
-function StepProgress({ step }: { step: BookCourierStep }) {
-  const activeIndex = bookStepProgressIndex(step);
-  const total = BOOK_COURIER_STEPS.length;
+function StepProgress({
+  step,
+  partnerId,
+}: {
+  step: BookCourierStep;
+  partnerId: LogisticsPartnerId;
+}) {
+  const steps = bookCourierStepsForPartner(partnerId);
+  const activeIndex = bookStepProgressIndex(step, partnerId);
+  const total = steps.length;
   const allDone = step === 'complete' || activeIndex >= total;
 
   return (
     <ol className="book-courier__progress" aria-label="Booking progress">
-      {BOOK_COURIER_STEPS.map((item, index) => {
+      {steps.map((item, index) => {
         const done = allDone || index < activeIndex;
         const current = !allDone && index === activeIndex;
         return (
@@ -317,11 +236,9 @@ export const BookCourierFlow: React.FC<BookCourierFlowProps> = ({
   initialDraft,
   initialDealerQuery,
   initialStep: initialStepProp,
-  existingBookingId = null,
   onClose,
   onComplete,
-  onDraftSaved,
-  onDraftUpdated,
+  onBookingUpdated,
 }) => {
   const isDelhivery = partnerId === 'delhivery';
   const initialStep = initialStepProp
@@ -346,21 +263,13 @@ export const BookCourierFlow: React.FC<BookCourierFlowProps> = ({
   }));
   const draftRef = useRef(draft);
   draftRef.current = draft;
-  const [draftBookingId, setDraftBookingId] = useState<string | null>(existingBookingId);
-  const draftBookingIdRef = useRef<string | null>(existingBookingId);
-  draftBookingIdRef.current = draftBookingId;
-  const photoSessionKeyRef = useRef(
-    logisticsPhotoSessionKey(existingBookingId, partnerId),
-  );
-  const draftSaveChainRef = useRef<Promise<unknown>>(Promise.resolve());
-  const photoUploadChainRef = useRef<Promise<unknown>>(Promise.resolve());
+  const photoSessionKeyRef = useRef(logisticsPhotoSessionKey(null, partnerId));
   const [booking, setBooking] = useState<LogisticsBooking | null>(null);
   const [cameraOpen, setCameraOpen] = useState(false);
   const [dealerQuery, setDealerQuery] = useState(initialDealerQuery ?? '');
   const [dealers, setDealers] = useState<ZohoDealer[]>([]);
   const [dealersLoading, setDealersLoading] = useState(false);
   const [saving, setSaving] = useState(false);
-  const [savingDraft, setSavingDraft] = useState(false);
   const [editingCourier, setEditingCourier] = useState(false);
   const [previewIndex, setPreviewIndex] = useState<number | null>(null);
   const [shipFromOpen, setShipFromOpen] = useState(false);
@@ -485,7 +394,6 @@ export const BookCourierFlow: React.FC<BookCourierFlowProps> = ({
 
     const restore = async () => {
       const vaultPhotos = await listLogisticsVaultPhotos({
-        bookingId: draftBookingIdRef.current,
         sessionKey: photoSessionKeyRef.current,
       });
 
@@ -590,7 +498,7 @@ export const BookCourierFlow: React.FC<BookCourierFlowProps> = ({
 
     void restore().catch(() => undefined);
     return () => { cancelled = true; };
-  }, [existingBookingId]);
+  }, []);
 
   useEffect(() => {
     if (step !== 'address') return;
@@ -633,8 +541,6 @@ export const BookCourierFlow: React.FC<BookCourierFlowProps> = ({
     void loadLogisticsSettings().then(settings => {
       setFromAddresses(settings.fromAddresses);
       setFromSiteContacts(settings.fromSiteContacts);
-      // Resuming a saved booking: keep its ship-from (don't clobber with staff/default).
-      if (existingBookingId) return;
       setDraft(prev => {
         // Invoice-linked: keep SO/invoice branch prefill — never override with staff site.
         if (prev.source === 'invoice') {
@@ -653,11 +559,10 @@ export const BookCourierFlow: React.FC<BookCourierFlowProps> = ({
         return { ...prev, shipFromSite: settings.defaultStaffLogisticsSite };
       });
     });
-  }, [user.staffLogisticsSite, existingBookingId]);
+  }, [user.staffLogisticsSite]);
 
   // Lock ship-from to the invoice’s sales-order branch when booking from an invoice.
   useEffect(() => {
-    if (existingBookingId) return;
     if (draft.source !== 'invoice') {
       setInvoiceBranchShipFrom(null);
       return;
@@ -684,7 +589,7 @@ export const BookCourierFlow: React.FC<BookCourierFlowProps> = ({
         if (!cancelled) setInvoiceBranchShipFrom(null);
       });
     return () => { cancelled = true; };
-  }, [draft.source, draft.invoiceId, draft.zohoCustomerId, existingBookingId]);
+  }, [draft.source, draft.invoiceId, draft.zohoCustomerId]);
 
   // Invoice-linked Delhivery: BTC/FOD always from the invoice freight line (read-only).
   useEffect(() => {
@@ -990,7 +895,6 @@ export const BookCourierFlow: React.FC<BookCourierFlowProps> = ({
         draftRef.current.salesOrderNumber?.trim()
         || invoiceBranchShipFrom?.salesOrderNumber?.trim()
         || draftRef.current.invoiceNumber?.trim()
-        || draftBookingIdRef.current
         || `YW-${Date.now()}`
       );
       const siteLabel = STAFF_LOGISTICS_SITE_LABELS[draftRef.current.shipFromSite];
@@ -1143,125 +1047,46 @@ export const BookCourierFlow: React.FC<BookCourierFlowProps> = ({
         draft: draftRef.current,
         dealer,
         createdBy: user,
-        existingBookingId: draftBookingId,
+      });
+      const previousSession = photoSessionKeyRef.current;
+      photoSessionKeyRef.current = created.id;
+      void bindLogisticsVaultSessionToBooking(previousSession, created.id);
+      void clearUploadedLogisticsVaultPhotos({
+        bookingId: created.id,
+        sessionKey: created.id,
       });
       setBooking(created);
+      if (isDelhivery) {
+        onComplete(created);
+        return;
+      }
       setStep('complete');
     } catch (err) {
       window.alert(err instanceof Error ? err.message : 'Could not save shipment.');
     } finally {
       setSaving(false);
     }
-  }, [ensureDealerAddressHydrated, user, draftBookingId]);
+  }, [ensureDealerAddressHydrated, isDelhivery, onComplete, user]);
 
-  const persistDraft = useCallback(async (
-    wizardStep: BookCourierStep,
-    options?: { close?: boolean; draftOverride?: LogisticsBookingDraft },
-  ): Promise<LogisticsBooking | null> => {
-    const hydratedDealer = await ensureDealerAddressHydrated();
-    const dealerToSave = hydratedDealer ?? selectedDealer;
-    if (!dealerToSave) {
-      if (options?.close) onClose();
-      return null;
-    }
-
-    const run = async (): Promise<LogisticsBooking | null> => {
-      setSavingDraft(true);
-      try {
-        // Always persist the latest draft at execution time so photos captured
-        // while a previous save was in-flight are never dropped.
-        const draftToPersist = options?.draftOverride ?? draftRef.current;
-        const saved = await persistLogisticsBookingDraft({
-          draft: draftToPersist,
-          dealer: dealerToSave,
-          createdBy: user,
-          existingBookingId: draftBookingIdRef.current,
-          wizardStep,
-        });
-        draftBookingIdRef.current = saved.id;
-        setDraftBookingId(saved.id);
-        const previousSession = photoSessionKeyRef.current;
-        photoSessionKeyRef.current = saved.id;
-        rememberLogisticsPhotoSessionKey(partnerId, saved.id);
-        if (previousSession !== saved.id) {
-          void bindLogisticsVaultSessionToBooking(previousSession, saved.id);
-        }
-
-        applyDraft(prev => ({
-          ...prev,
-          boxes: prev.boxes.map(box => {
-            const savedBox = saved.boxes.find(item => item.id === box.id);
-            if (!savedBox) return box;
-            return {
-              ...box,
-              photos: mergeLocalAndSavedPhotos(box.photos, savedBox.photos, box.id),
-            };
-          }),
-          finalPackagePhoto: prev.finalPackagePhoto?.startsWith('data:')
-            ? prev.finalPackagePhoto
-            : (saved.finalPackagePhoto || prev.finalPackagePhoto),
-          finalPackagePhotoStoragePath: saved.finalPackagePhotoStoragePath
-            || prev.finalPackagePhotoStoragePath,
-        }));
-
-        void clearUploadedLogisticsVaultPhotos({
-          bookingId: saved.id,
-          sessionKey: photoSessionKeyRef.current,
-        });
-
-        if (options?.close) {
-          onDraftSaved?.(saved);
-        } else {
-          onDraftUpdated?.(saved);
-        }
-        return saved;
-      } catch (err) {
-        if (options?.close) {
-          const leave = window.confirm(
-            `${err instanceof Error ? err.message : 'Could not save draft.'}\n\nLeave without saving?`,
-          );
-          if (leave) onClose();
-        } else {
-          window.alert(err instanceof Error ? err.message : 'Could not save draft.');
-        }
-        return null;
-      } finally {
-        setSavingDraft(false);
-      }
-    };
-
-    const queued = draftSaveChainRef.current.then(run, run);
-    draftSaveChainRef.current = queued.then(() => undefined, () => undefined);
-    return queued;
-  }, [
-    applyDraft,
-    ensureDealerAddressHydrated,
-    onClose,
-    onDraftSaved,
-    onDraftUpdated,
-    partnerId,
-    selectedDealer,
-    user,
-  ]);
-
-  const queuePhotoUpload = useCallback((task: () => Promise<void>) => {
-    const queued = photoUploadChainRef.current.then(task, task);
-    photoUploadChainRef.current = queued.then(() => undefined, () => undefined);
-    return queued;
-  }, []);
+  const wizardHasProgress = useCallback((): boolean => {
+    const current = draftRef.current;
+    if (current.zohoCustomerId.trim()) return true;
+    if (current.consignmentNo.trim() || current.barcodeRaw.trim()) return true;
+    if (current.boxes.some(box => box.photos.length > 0)) return true;
+    if (current.finalPackagePhoto?.trim()) return true;
+    return step !== 'scan' && step !== 'address' && step !== 'complete';
+  }, [step]);
 
   const addBoxPhoto = useCallback(async (boxId: string, file: File | undefined) => {
     if (!file) return;
     const photoId = newPhotoId();
     const dataUrl = await logisticsCaptureToDataUrl(file);
     const sessionKey = photoSessionKeyRef.current;
-    const bookingId = draftBookingIdRef.current;
 
-    // 1) Durable local copy first — survives refresh before upload finishes.
     await putLogisticsVaultPhoto({
       photoId,
       sessionKey,
-      bookingId,
+      bookingId: null,
       boxId,
       kind: 'box',
       dataUrl,
@@ -1270,72 +1095,13 @@ export const BookCourierFlow: React.FC<BookCourierFlowProps> = ({
       createdAt: Date.now(),
     });
 
-    // 2) Show in UI immediately (and sync draftRef for in-flight saves).
     applyDraft(prev => ({
       ...prev,
       boxes: prev.boxes.map(box => (box.id === boxId
         ? { ...box, photos: [...box.photos, { id: photoId, url: dataUrl }] }
         : box)),
     }));
-
-    // 3) Upload + link to booking as soon as a dealer/booking exists.
-    void queuePhotoUpload(async () => {
-      try {
-        let linkedBookingId = draftBookingIdRef.current;
-        if (!linkedBookingId && selectedDealer) {
-          const saved = await persistDraft('box');
-          linkedBookingId = saved?.id ?? draftBookingIdRef.current;
-        }
-        if (!linkedBookingId) return;
-
-        // Draft save may have uploaded this photo already — don't double-upload.
-        const alreadyLinked = draftRef.current.boxes
-          .find(box => box.id === boxId)
-          ?.photos.find(photo => photo.id === photoId)
-          ?.storagePath
-          ?.trim();
-        if (alreadyLinked) {
-          await patchLogisticsVaultPhoto(photoId, {
-            bookingId: linkedBookingId,
-            sessionKey: linkedBookingId,
-            storagePath: alreadyLinked,
-          });
-          return;
-        }
-
-        const fileForUpload = await dataUrlToFile(dataUrl, `${photoId}.jpg`);
-        const storagePath = await uploadLogisticsPhoto(
-          linkedBookingId,
-          `box-${boxId}-${photoId}`,
-          fileForUpload,
-        );
-        await attachLogisticsBoxPhoto({
-          bookingId: linkedBookingId,
-          boxId,
-          storagePath,
-          clientPhotoId: photoId,
-        });
-        await patchLogisticsVaultPhoto(photoId, {
-          bookingId: linkedBookingId,
-          sessionKey: linkedBookingId,
-          storagePath,
-        });
-        applyDraft(prev => ({
-          ...prev,
-          boxes: prev.boxes.map(box => (box.id === boxId
-            ? {
-              ...box,
-              photos: box.photos.map(photo => (photo.id === photoId
-                ? { ...photo, storagePath, url: photo.url || dataUrl }
-                : photo)),
-            }
-            : box)),
-        }));
-      } catch {
-        // Vault + draft data URL remain — next draft save will retry upload.
-      }
-    });
-  }, [applyDraft, persistDraft, queuePhotoUpload, selectedDealer]);
+  }, [applyDraft]);
 
   const removeBoxPhoto = useCallback((boxId: string, photoId: string) => {
     void deleteLogisticsVaultPhoto(photoId);
@@ -1354,7 +1120,7 @@ export const BookCourierFlow: React.FC<BookCourierFlowProps> = ({
     await putLogisticsVaultPhoto({
       photoId,
       sessionKey: photoSessionKeyRef.current,
-      bookingId: draftBookingIdRef.current,
+      bookingId: null,
       boxId: null,
       kind: 'final',
       dataUrl,
@@ -1367,70 +1133,21 @@ export const BookCourierFlow: React.FC<BookCourierFlowProps> = ({
       finalPackagePhoto: dataUrl,
       finalPackagePhotoStoragePath: null,
     }));
-
-    void queuePhotoUpload(async () => {
-      try {
-        let linkedBookingId = draftBookingIdRef.current;
-        if (!linkedBookingId && selectedDealer) {
-          const saved = await persistDraft('final_photo');
-          linkedBookingId = saved?.id ?? draftBookingIdRef.current;
-        }
-        if (!linkedBookingId) return;
-        const fileForUpload = await dataUrlToFile(dataUrl, 'final-package.jpg');
-        const storagePath = await uploadLogisticsPhoto(
-          linkedBookingId,
-          'final-package',
-          fileForUpload,
-        );
-        await attachLogisticsFinalPackagePhoto({
-          bookingId: linkedBookingId,
-          storagePath,
-        });
-        await patchLogisticsVaultPhoto(photoId, {
-          bookingId: linkedBookingId,
-          sessionKey: linkedBookingId,
-          storagePath,
-        });
-        applyDraft(prev => ({
-          ...prev,
-          finalPackagePhoto: prev.finalPackagePhoto?.startsWith('data:')
-            ? prev.finalPackagePhoto
-            : dataUrl,
-          finalPackagePhotoStoragePath: storagePath,
-        }));
-      } catch {
-        // Keep local vault/data URL until a later save retries.
-      }
-    });
-  }, [applyDraft, persistDraft, queuePhotoUpload, selectedDealer]);
+  }, [applyDraft]);
 
   const requestClose = useCallback(() => {
     if (step === 'complete' || saving) {
       onClose();
       return;
     }
-    if (isAutoDraftStep(step) && selectedDealer) {
-      void persistDraft(step, { close: true, draftOverride: draftRef.current });
-      return;
+    if (wizardHasProgress()) {
+      const leave = window.confirm(
+        'Leave without submitting this shipment? Your progress will be lost.',
+      );
+      if (!leave) return;
     }
     onClose();
-  }, [step, saving, selectedDealer, persistDraft, onClose]);
-
-  const advanceTo = useCallback(async (
-    next: BookCourierStep,
-    draftOverride?: LogisticsBookingDraft,
-  ) => {
-    const nextDraft = draftOverride ?? draftRef.current;
-    if (draftOverride) {
-      draftRef.current = draftOverride;
-      setDraft(draftOverride);
-    }
-    if (selectedDealer && isAutoDraftStep(next)) {
-      const saved = await persistDraft(next, { draftOverride: nextDraft });
-      if (!saved) return;
-    }
-    setStep(next);
-  }, [selectedDealer, persistDraft]);
+  }, [step, saving, wizardHasProgress, onClose]);
 
   const handleFinish = useCallback(() => {
     if (booking) onComplete(booking);
@@ -1444,7 +1161,6 @@ export const BookCourierFlow: React.FC<BookCourierFlowProps> = ({
       return (Number.parseFloat(box.weightKg) || 0) > 0;
     });
   const canProceedBox = boxesValid;
-  const showDraftStatus = Boolean(selectedDealer) && isAutoDraftStep(step);
   const totalActualWeight = draft.boxes.reduce(
     (total, box) => total + (Number.parseFloat(box.weightKg) || 0),
     0,
@@ -1509,6 +1225,24 @@ export const BookCourierFlow: React.FC<BookCourierFlowProps> = ({
   const canCreateDelhiveryLrn = !isDelhivery
     || Boolean(draft.consignmentNo.trim())
     || delhiveryContactIssues.length === 0;
+
+  const confirmDelhiveryFromReview = useCallback(async () => {
+    if (!canCreateDelhiveryLrn) {
+      setDelhiveryBookError(
+        delhiveryContactIssues[0] || 'Phone and GSTIN are required before booking.',
+      );
+      return;
+    }
+    const ok = await ensureDelhiveryLrn();
+    if (!ok) return;
+    await handleConfirmShipment();
+  }, [
+    canCreateDelhiveryLrn,
+    delhiveryContactIssues,
+    ensureDelhiveryLrn,
+    handleConfirmShipment,
+  ]);
+
   const shippingLabelCount = isEnvelope ? 1 : Math.max(1, draft.boxes.length);
   const buildShippingLabelsForDealer = useCallback((
     dealer: LogisticsDealerSnapshot,
@@ -1545,7 +1279,6 @@ export const BookCourierFlow: React.FC<BookCourierFlowProps> = ({
         bookingTime,
         bookedBy: user.displayName?.trim() || user.loginId?.trim() || 'YESWEIGH',
         shipmentMode: draft.shipmentMode,
-        bookingId: draftBookingId,
         insidePhotoUrl: inside?.url,
         insidePhotoStoragePath: inside?.storagePath,
       });
@@ -1559,7 +1292,6 @@ export const BookCourierFlow: React.FC<BookCourierFlowProps> = ({
     draft.serviceType,
     draft.shipmentMode,
     draft.boxes,
-    draftBookingId,
     fromAddresses,
     shippingLabelCount,
     totalActualWeight,
@@ -1721,7 +1453,7 @@ export const BookCourierFlow: React.FC<BookCourierFlowProps> = ({
       case 'review': setStep('box'); break;
       case 'label': setStep('review'); break;
       case 'final_photo':
-        setStep('label');
+        setStep(isDelhivery ? 'review' : 'label');
         break;
       case 'complete': break;
       default: onClose();
@@ -1730,10 +1462,11 @@ export const BookCourierFlow: React.FC<BookCourierFlowProps> = ({
 
   const stepNumberLabel = (() => {
     if (step === 'complete') return 'Completed';
-    const idx = bookStepProgressIndex(step);
-    const current = BOOK_COURIER_STEPS[idx];
+    const steps = bookCourierStepsForPartner(partnerId);
+    const idx = bookStepProgressIndex(step, partnerId);
+    const current = steps[idx];
     const stage = current?.label ?? 'Step';
-    return `${stage} · Step ${idx + 1} of ${BOOK_COURIER_STEPS.length}`;
+    return `${stage} · Step ${idx + 1} of ${steps.length}`;
   })();
 
   return createPortal(
@@ -1771,7 +1504,7 @@ export const BookCourierFlow: React.FC<BookCourierFlowProps> = ({
               className="delivery-method-dialog__close"
               onClick={() => void requestClose()}
               aria-label="Close and return to list"
-              disabled={savingDraft || saving}
+              disabled={saving}
             >
               <X size={20} aria-hidden />
             </button>
@@ -1780,19 +1513,7 @@ export const BookCourierFlow: React.FC<BookCourierFlowProps> = ({
           )}
         </header>
 
-        <StepProgress step={step} />
-
-        {showDraftStatus && (
-          <div className="book-courier__draft-bar">
-            <span className="book-courier__draft-status text-muted text-sm">
-              {savingDraft
-                ? 'Saving draft…'
-                : draftBookingId
-                  ? 'Draft saved · closes update the list'
-                  : 'Draft saves automatically from this step'}
-            </span>
-          </div>
-        )}
+        <StepProgress step={step} partnerId={partnerId} />
 
         <div className="book-courier__body">
           {/* SCREEN 1 — SCAN */}
@@ -1964,7 +1685,7 @@ export const BookCourierFlow: React.FC<BookCourierFlowProps> = ({
                             <button
                               type="button"
                               className="btn btn-primary book-courier__address-next"
-                              onClick={() => void advanceTo('box')}
+                              onClick={() => setStep('box')}
                             >
                               Next
                             </button>
@@ -2289,10 +2010,10 @@ export const BookCourierFlow: React.FC<BookCourierFlowProps> = ({
               <button
                 type="button"
                 className="btn btn-primary book-courier__next"
-                disabled={!canProceedBox || savingDraft || combineSelectMode}
-                onClick={() => void advanceTo('review')}
+                disabled={!canProceedBox || combineSelectMode}
+                onClick={() => setStep('review')}
               >
-                {savingDraft ? 'Saving photos…' : 'Confirm & Next'}
+                Confirm & Next
               </button>
             </section>
           )}
@@ -2569,25 +2290,21 @@ export const BookCourierFlow: React.FC<BookCourierFlowProps> = ({
                 <button
                   type="button"
                   className="btn btn-primary book-courier__next"
-                  disabled={bookingDelhivery || !canCreateDelhiveryLrn}
+                  disabled={bookingDelhivery || saving || !canCreateDelhiveryLrn}
                   onClick={() => {
-                    void (async () => {
-                      if (!canCreateDelhiveryLrn) {
-                        setDelhiveryBookError(
-                          delhiveryContactIssues[0] || 'Phone and GSTIN are required before booking.',
-                        );
-                        return;
-                      }
-                      const ok = await ensureDelhiveryLrn();
-                      if (!ok) return;
-                      await advanceTo('label');
-                    })();
+                    if (isDelhivery) {
+                      void confirmDelhiveryFromReview();
+                      return;
+                    }
+                    setStep('label');
                   }}
                 >
-                  {bookingDelhivery
-                    ? 'Booking Delhivery…'
-                    : (isDelhivery && !draft.consignmentNo.trim()
-                      ? (canCreateDelhiveryLrn ? 'Create LR & Next' : 'Fix phone & GSTIN to continue')
+                  {bookingDelhivery || saving
+                    ? (isDelhivery ? 'Booking Delhivery…' : 'Saving…')
+                    : (isDelhivery
+                      ? (canCreateDelhiveryLrn
+                        ? (draft.consignmentNo.trim() ? 'Confirm shipment' : 'Create LR & Confirm')
+                        : 'Fix phone & GSTIN to continue')
                       : 'Next')}
                 </button>
               ) : (
@@ -2602,8 +2319,8 @@ export const BookCourierFlow: React.FC<BookCourierFlowProps> = ({
             </section>
           )}
 
-          {/* SCREEN 5 — LABELS */}
-          {step === 'label' && selectedDealer && (
+          {/* SCREEN 5 — LABELS (non-Delhivery) */}
+          {!isDelhivery && step === 'label' && selectedDealer && (
             <section className="book-courier__section">
               <h3 className="book-courier__section-title">
                 Print <span className="accent">Labels</span>
@@ -2719,20 +2436,20 @@ export const BookCourierFlow: React.FC<BookCourierFlowProps> = ({
                 <button
                   type="button"
                   className="btn btn-secondary book-courier__next"
-                  disabled={saving || savingDraft}
+                  disabled={saving}
                   onClick={() => {
-                    void advanceTo('final_photo', {
-                      ...draftRef.current,
-                      labelGenerated: true,
-                    });
+                    const next = { ...draftRef.current, labelGenerated: true };
+                    draftRef.current = next;
+                    setDraft(next);
+                    setStep('final_photo');
                   }}
                 >
-                  {savingDraft ? 'Saving…' : 'Add outer photo'}
+                  Add outer photo
                 </button>
                 <button
                   type="button"
                   className="btn btn-primary book-courier__next"
-                  disabled={saving || savingDraft}
+                  disabled={saving}
                   onClick={() => {
                     const next = { ...draftRef.current, labelGenerated: true };
                     draftRef.current = next;
@@ -2747,8 +2464,8 @@ export const BookCourierFlow: React.FC<BookCourierFlowProps> = ({
             </section>
           )}
 
-          {/* SCREEN 6 — FINAL PACKAGE PHOTO (optional) */}
-          {step === 'final_photo' && (
+          {/* SCREEN 6 — FINAL PACKAGE PHOTO (optional, non-Delhivery) */}
+          {!isDelhivery && step === 'final_photo' && (
             <section className="book-courier__section">
               <h3 className="book-courier__section-title">
                 Capture <span className="accent">Outer</span> Package Photo
@@ -2863,7 +2580,7 @@ export const BookCourierFlow: React.FC<BookCourierFlowProps> = ({
                             user,
                           );
                           setBooking(updated);
-                          onDraftUpdated?.(updated);
+                          onBookingUpdated?.(updated);
                         } catch (err) {
                           window.alert(err instanceof Error ? err.message : 'Could not upload photo.');
                         } finally {

@@ -36,15 +36,12 @@ import {
   LOGISTICS_DASHBOARD_STATUSES,
   isIncompleteLogisticsBooking,
   isPipelineEnabledPartner,
-  needsFinalPackagePhoto,
 } from '../../lib/logisticsBooking';
 import {
-  bookingToWizardState,
   canCreateLogisticsBooking,
   canDeleteLogisticsBooking,
   cancelLogisticsBooking,
   returnLogisticsBooking,
-  clampWizardStepForDraftPhotos,
   compareLogisticsBookingsByBookingDateDesc,
   deleteLogisticsBookingPermanently,
   fetchLogisticsBooking,
@@ -63,14 +60,12 @@ import { loadLogisticsCourierRates } from '../../lib/logisticsCourierRates';
 import { loadLogisticsSettings } from '../../lib/logisticsSettings';
 import { resolveDestinationPlace } from '../../lib/shippingLabel';
 import { isInternalOpsUser } from '../../lib/staffAccess';
-import type { LogisticsBooking, LogisticsBookingDraft, LogisticsBookingStatus } from '../../types/logistics-dispatch';
+import type { LogisticsBooking, LogisticsBookingStatus } from '../../types/logistics-dispatch';
 import {
   LOGISTICS_ENTRY_STATE_KEY,
   LOGISTICS_OPEN_BOOKING_STATE_KEY,
   type LogisticsEntryState,
 } from '../../lib/logisticsPrefill';
-import type { BookCourierStep } from '../../lib/logisticsBooking';
-import { emptyShipmentBoxDraft } from '../../lib/logisticsBooking';
 import {
   formatLogisticsDateTime,
   formatLogisticsDateTimeLabel,
@@ -242,7 +237,6 @@ function lastTrackedLabel(booking: LogisticsBooking): {
 }
 
 function cardToneForStatus(booking: LogisticsBooking): CardTone {
-  if (isIncompleteLogisticsBooking(booking)) return 'incomplete';
   switch (booking.status) {
     case 'label_generated':
       return 'label';
@@ -254,12 +248,11 @@ function cardToneForStatus(booking: LogisticsBooking): CardTone {
     case 'returned':
       return 'exception';
     default:
-      return 'incomplete';
+      return 'label';
   }
 }
 
 function statusBadgeLabel(booking: LogisticsBooking): string {
-  if (isIncompleteLogisticsBooking(booking)) return 'Incomplete';
   if (booking.status === 'cancelled') return 'Cancelled';
   if (booking.status === 'returned') return 'Returned';
   if (booking.status === 'label_generated') return 'Booked';
@@ -299,10 +292,6 @@ export const LogisticsPage: React.FC = () => {
   const [flowStep, setFlowStep] = useState<FlowStep>('closed');
   const [selectedPartnerId, setSelectedPartnerId] = useState<LogisticsPartnerId | null>(null);
   const [pendingEntry, setPendingEntry] = useState<LogisticsEntryState | null>(null);
-  const [resumeBookingId, setResumeBookingId] = useState<string | null>(null);
-  const [resumeDraft, setResumeDraft] = useState<Partial<LogisticsBookingDraft> | null>(null);
-  const [resumeStep, setResumeStep] = useState<BookCourierStep | undefined>(undefined);
-  const [resumeDealerQuery, setResumeDealerQuery] = useState<string | undefined>(undefined);
   const [bookings, setBookings] = useState<LogisticsBooking[]>([]);
   const [activeBookingId, setActiveBookingId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
@@ -358,10 +347,6 @@ export const LogisticsPage: React.FC = () => {
       setFlowStep('closed');
       setSelectedPartnerId(null);
       setPendingEntry(null);
-      setResumeBookingId(null);
-      setResumeDraft(null);
-      setResumeStep(undefined);
-      setResumeDealerQuery(undefined);
       setActiveBookingId(openBookingId);
       void fetchLogisticsBooking(openBookingId)
         .then(hydrated => {
@@ -443,12 +428,11 @@ export const LogisticsPage: React.FC = () => {
 
   const statusFilteredBookings = useMemo(() => {
     const activeStatus = statusFilter || filters.status || '';
-    const source = activeStatus ? pipelineBookings : datedBookings;
     const filtered = activeStatus
-      ? source.filter(booking => booking.status === activeStatus)
-      : source;
+      ? pipelineBookings.filter(booking => booking.status === activeStatus)
+      : pipelineBookings;
     return [...filtered].sort(compareLogisticsBookingsByBookingDateDesc);
-  }, [datedBookings, pipelineBookings, filters.status, statusFilter]);
+  }, [pipelineBookings, filters.status, statusFilter]);
 
   const rangedBookings = useMemo(() => {
     if (!freightDiffFilter) return statusFilteredBookings;
@@ -527,7 +511,7 @@ export const LogisticsPage: React.FC = () => {
 
   const stats = useMemo(() => {
     const counts: Record<StatFilterId, number> = {
-      all: datedBookings.length,
+      all: pipelineBookings.length,
       label_generated: 0,
       in_transit: 0,
       delivered: 0,
@@ -538,7 +522,7 @@ export const LogisticsPage: React.FC = () => {
       counts[booking.status] += 1;
     }
     return counts;
-  }, [datedBookings.length, pipelineBookings]);
+  }, [pipelineBookings]);
 
   const openFlow = useCallback(() => {
     setFlowStep('partner');
@@ -549,73 +533,17 @@ export const LogisticsPage: React.FC = () => {
     setFlowStep('closed');
     setSelectedPartnerId(null);
     setPendingEntry(null);
-    setResumeBookingId(null);
-    setResumeDraft(null);
-    setResumeStep(undefined);
-    setResumeDealerQuery(undefined);
   }, []);
 
   const handleUpdateBooking = useCallback((next: LogisticsBooking) => {
     setBookings(prev => prev.map(item => (item.id === next.id ? next : item)));
   }, []);
 
-  const openResumeDraft = useCallback((booking: LogisticsBooking) => {
-    if (!canCreate) return;
-    setError('');
-    // Open immediately with list data — photo URLs hydrate inside the wizard.
-    const wizard = bookingToWizardState(booking);
-    const draft: Partial<LogisticsBookingDraft> = {
-      ...wizard.draft,
-      boxes: wizard.draft.boxes.length ? wizard.draft.boxes : [emptyShipmentBoxDraft()],
-    };
-    const rawStep = needsFinalPackagePhoto(booking)
-      ? 'final_photo' as BookCourierStep
-      : (
-        ['scan', 'address', 'box', 'review', 'label', 'final_photo'] as BookCourierStep[]
-      ).includes(wizard.step as BookCourierStep)
-        ? wizard.step as BookCourierStep
-        : 'box';
-    const step = clampWizardStepForDraftPhotos(rawStep, draft.boxes ?? []);
-    setResumeBookingId(booking.id);
-    setResumeDraft(draft);
-    setResumeStep(step);
-    setResumeDealerQuery(wizard.dealerQuery);
-    setSelectedPartnerId(booking.partnerId);
-    setPendingEntry(null);
-    setActiveBookingId(null);
-    setFlowStep('book');
-
-    void fetchLogisticsBooking(booking.id)
-      .then(hydrated => {
-        if (hydrated) handleUpdateBooking(hydrated);
-      })
-      .catch(() => undefined);
-  }, [canCreate, handleUpdateBooking]);
-
   const handlePartnerSelect = useCallback((methodId: string) => {
     if (!isLogisticsPartnerId(methodId)) return;
     if (!STANDALONE_LOGISTICS_PARTNER_IDS.includes(methodId)) return;
     setSelectedPartnerId(methodId);
-    setResumeStep(undefined);
     setFlowStep('book');
-  }, []);
-
-  const handleDraftSaved = useCallback((booking: LogisticsBooking) => {
-    setBookings(prev => {
-      const rest = prev.filter(item => item.id !== booking.id);
-      return [booking, ...rest];
-    });
-    setError('');
-    closeFlow();
-  }, [closeFlow]);
-
-  const handleDraftUpdated = useCallback((booking: LogisticsBooking) => {
-    setBookings(prev => {
-      const rest = prev.filter(item => item.id !== booking.id);
-      return [booking, ...rest];
-    });
-    setResumeBookingId(booking.id);
-    setError('');
   }, []);
 
   const handleBookingComplete = useCallback((booking: LogisticsBooking) => {
@@ -686,17 +614,14 @@ export const LogisticsPage: React.FC = () => {
   }, [user, bookings, confirm]);
 
   const openBooking = useCallback((booking: LogisticsBooking) => {
-    if (isIncompleteLogisticsBooking(booking) || needsFinalPackagePhoto(booking)) {
-      void openResumeDraft(booking);
-      return;
-    }
+    if (isIncompleteLogisticsBooking(booking)) return;
     setActiveBookingId(booking.id);
     void fetchLogisticsBooking(booking.id)
       .then(hydrated => {
         if (hydrated) handleUpdateBooking(hydrated);
       })
       .catch(() => undefined);
-  }, [openResumeDraft, handleUpdateBooking]);
+  }, [handleUpdateBooking]);
 
   const closeBooking = useCallback(() => {
     setActiveBookingId(null);
@@ -1329,14 +1254,11 @@ export const LogisticsPage: React.FC = () => {
         <BookCourierFlow
           partnerId={selectedPartnerId}
           user={user}
-          initialDraft={resumeDraft ?? pendingEntry?.draftPatch}
-          initialDealerQuery={resumeDealerQuery ?? pendingEntry?.dealerQuery}
-          initialStep={resumeStep}
-          existingBookingId={resumeBookingId}
+          initialDraft={pendingEntry?.draftPatch}
+          initialDealerQuery={pendingEntry?.dealerQuery}
           onClose={closeFlow}
           onComplete={handleBookingComplete}
-          onDraftSaved={handleDraftSaved}
-          onDraftUpdated={handleDraftUpdated}
+          onBookingUpdated={handleUpdateBooking}
         />
       )}
     </div>

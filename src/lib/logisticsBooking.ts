@@ -290,10 +290,33 @@ export const BOOK_COURIER_STEPS: ReadonlyArray<{ id: BookCourierStep; label: str
   { id: 'final_photo', label: 'Photo' },
 ];
 
-export function bookStepProgressIndex(step: BookCourierStep): number {
-  if (step === 'complete') return BOOK_COURIER_STEPS.length;
-  const idx = BOOK_COURIER_STEPS.findIndex(item => item.id === step);
-  return idx >= 0 ? idx : 0;
+/** Delhivery: LR is created on Review — no local label / outer-photo wizard steps. */
+export const DELHIVERY_BOOK_COURIER_STEPS: ReadonlyArray<{ id: BookCourierStep; label: string }> = [
+  { id: 'address', label: 'Address' },
+  { id: 'box', label: 'Box' },
+  { id: 'review', label: 'Review' },
+];
+
+export function bookCourierStepsForPartner(
+  partnerId: LogisticsPartnerId,
+): ReadonlyArray<{ id: BookCourierStep; label: string }> {
+  return partnerId === 'delhivery' ? DELHIVERY_BOOK_COURIER_STEPS : BOOK_COURIER_STEPS;
+}
+
+export function bookStepProgressIndex(
+  step: BookCourierStep,
+  partnerId?: LogisticsPartnerId,
+): number {
+  const steps = partnerId ? bookCourierStepsForPartner(partnerId) : BOOK_COURIER_STEPS;
+  if (step === 'complete') return steps.length;
+  const idx = steps.findIndex(item => item.id === step);
+  if (idx >= 0) return idx;
+  if (partnerId === 'delhivery') {
+    if (step === 'scan' || step === 'address') return 0;
+    if (step === 'box') return 1;
+    if (step === 'review' || step === 'label' || step === 'final_photo') return 2;
+  }
+  return 0;
 }
 
 const PARTNER_BRANCH: Record<LogisticsPartnerId, string> = {
