@@ -151,6 +151,16 @@ function boxVolumetric(box: ShipmentBoxDraft): number {
   );
 }
 
+function positiveCm(value: string | undefined): number | null {
+  const n = Number.parseFloat(String(value ?? '').trim());
+  return Number.isFinite(n) && n > 0 ? n : null;
+}
+
+/** Delhivery LTL needs real L×B×H — no silent 30 cm defaults. */
+function boxHasRequiredLbh(box: ShipmentBoxDraft): boolean {
+  return Boolean(positiveCm(box.lengthCm) && positiveCm(box.widthCm) && positiveCm(box.heightCm));
+}
+
 interface BookCourierFlowProps {
   partnerId: LogisticsPartnerId;
   user: User;
@@ -946,6 +956,11 @@ export const BookCourierFlow: React.FC<BookCourierFlowProps> = ({
       setDelhiveryBookError('Select a delivery address before booking Delhivery.');
       return false;
     }
+    if (draftRef.current.shipmentMode !== 'envelope'
+      && draftRef.current.boxes.some(box => !boxHasRequiredLbh(box))) {
+      setDelhiveryBookError('Enter L × B × H (cm) for every box before creating a Delhivery LR.');
+      return false;
+    }
     setBookingDelhivery(true);
     setDelhiveryBookError('');
     try {
@@ -1052,9 +1067,9 @@ export const BookCourierFlow: React.FC<BookCourierFlowProps> = ({
             gst_number: shipperGstin,
           },
         boxes: draftRef.current.boxes.map(box => ({
-          lengthCm: Number.parseFloat(box.lengthCm) || undefined,
-          widthCm: Number.parseFloat(box.widthCm) || undefined,
-          heightCm: Number.parseFloat(box.heightCm) || undefined,
+          lengthCm: positiveCm(box.lengthCm) ?? undefined,
+          widthCm: positiveCm(box.widthCm) ?? undefined,
+          heightCm: positiveCm(box.heightCm) ?? undefined,
           weightKg: Number.parseFloat(box.weightKg) || undefined,
           quantity: 1,
         })),
@@ -1339,9 +1354,14 @@ export const BookCourierFlow: React.FC<BookCourierFlowProps> = ({
   const boxesValid = draftBoxesHaveRequiredPhotos(draft.boxes)
     && draft.boxes.every(box => {
       if (isEnvelope) return true;
-      return (Number.parseFloat(box.weightKg) || 0) > 0;
+      if ((Number.parseFloat(box.weightKg) || 0) <= 0) return false;
+      if (isDelhivery && !boxHasRequiredLbh(box)) return false;
+      return true;
     });
   const canProceedBox = boxesValid;
+  const delhiveryNeedsLbh = isDelhivery
+    && !isEnvelope
+    && draft.boxes.some(box => !boxHasRequiredLbh(box));
   const totalActualWeight = draft.boxes.reduce(
     (total, box) => total + (Number.parseFloat(box.weightKg) || 0),
     0,
@@ -2018,6 +2038,7 @@ export const BookCourierFlow: React.FC<BookCourierFlowProps> = ({
                     box={box}
                     index={index}
                     isEnvelope={isEnvelope}
+                    dimsRequired={isDelhivery}
                     canRemove={!isEnvelope && draft.boxes.length > 1 && !combineSelectMode}
                     selectMode={combineSelectMode}
                     selected={combineSelectedIds.includes(box.id)}
@@ -2204,7 +2225,9 @@ export const BookCourierFlow: React.FC<BookCourierFlowProps> = ({
                 disabled={!canProceedBox || combineSelectMode}
                 onClick={() => setStep('review')}
               >
-                Confirm & Next
+                {delhiveryNeedsLbh
+                  ? 'Enter L × B × H to continue'
+                  : 'Confirm & Next'}
               </button>
             </section>
           )}
@@ -2504,7 +2527,9 @@ export const BookCourierFlow: React.FC<BookCourierFlowProps> = ({
                   className="btn btn-primary book-courier__next"
                   onClick={() => setStep('box')}
                 >
-                  Add package photo to continue
+                  {delhiveryNeedsLbh
+                    ? 'Enter L × B × H to continue'
+                    : 'Add package photo to continue'}
                 </button>
               )}
             </section>
@@ -2866,6 +2891,8 @@ interface BoxCardProps {
   box: ShipmentBoxDraft;
   index: number;
   isEnvelope: boolean;
+  /** When true (Delhivery), L×B×H is required before booking. */
+  dimsRequired?: boolean;
   canRemove: boolean;
   selectMode?: boolean;
   selected?: boolean;
@@ -2881,6 +2908,7 @@ const BoxCard: React.FC<BoxCardProps> = ({
   box,
   index,
   isEnvelope,
+  dimsRequired = false,
   canRemove,
   selectMode = false,
   selected = false,
@@ -2924,7 +2952,11 @@ const BoxCard: React.FC<BoxCardProps> = ({
         <>
           <p className="book-courier__box-label">
             Dimensions (cm)
-            <span className="book-courier__box-opt"> · optional</span>
+            {dimsRequired ? (
+              <span className="book-courier__box-req"> * required</span>
+            ) : (
+              <span className="book-courier__box-opt"> · optional</span>
+            )}
           </p>
           <div className="book-courier__dim-cards">
             {([
@@ -2940,7 +2972,7 @@ const BoxCard: React.FC<BoxCardProps> = ({
                     onChange={next => onField(key, next)}
                     decimals={1}
                     placeholder="—"
-                    aria-label={`${label} (optional)`}
+                    aria-label={dimsRequired ? `${label} (required)` : `${label} (optional)`}
                   />
                   <em>cm</em>
                 </span>

@@ -4,10 +4,16 @@ import { AlertCircle, ClipboardList, FileText, MapPin } from 'lucide-react';
 import { FetchingLoader } from '../../components/FetchingLoader';
 import { SpareOrderListViewDialog } from '../../components/invoices/SpareOrderListViewDialog';
 import { BookCourierEntryButton } from '../../components/logistics/BookCourierEntryButton';
+import {
+  DelhiveryDocumentDialog,
+  type DelhiveryDocumentDialogPayload,
+} from '../../components/logistics/DelhiveryDocumentDialog';
 import { DelhiveryQuoteStrip } from '../../components/logistics/DelhiveryQuoteStrip';
+import { EwayBillIcon } from '../../components/logistics/EwayBillIcon';
 import { InvoiceAddLrDialog } from '../../components/logistics/InvoiceAddLrDialog';
 import { InvoiceCustomerPickupDialog } from '../../components/logistics/InvoiceCustomerPickupDialog';
 import { LogisticsAwbEntryButton } from '../../components/logistics/LogisticsAwbEntryButton';
+import { invoiceTotalInclGst } from '../../constants/ewayBill';
 import { useAuth } from '../../context/AuthContext';
 import { useCatalogPageHeader } from '../../context/PageHeaderContext';
 import {
@@ -15,6 +21,10 @@ import {
 } from '../../lib/admin-invoices';
 import { fetchCatalog } from '../../lib/catalog';
 import { pinFromText } from '../../lib/delhiveryQuote';
+import {
+  ensureInvoiceEwayBill,
+  type InvoiceEwayBillResult,
+} from '../../lib/invoiceEwayBill';
 import {
   formatInvoiceDate,
   invoiceErrorMessage,
@@ -35,8 +45,10 @@ import { loadLogisticsSettings } from '../../lib/logisticsSettings';
 import { resolveInvoiceShipFromSiteOrDefault, shipFromSiteLabel } from '../../lib/logisticsShipFrom';
 import {
   canMarkInvoiceCustomerPickup,
+  invoiceNeedsCustomerPickupEwayVehicle,
   isInvoiceCustomerPickup,
 } from '../../lib/invoiceCustomerPickup';
+import { base64ToUint8Array } from '../../lib/pdfViewer';
 import { isInternalOpsUser } from '../../lib/staffAccess';
 import type { CatalogProduct } from '../../types/catalog';
 import type { LogisticsPartnerId } from '../../constants/logisticsPartners';
@@ -73,6 +85,9 @@ export const AdminInvoiceDetailLayout: React.FC = () => {
   const [pickupShipFromLabel, setPickupShipFromLabel] = useState('Cochin');
   const [orderListOpen, setOrderListOpen] = useState(false);
   const [delhiveryOriginPin, setDelhiveryOriginPin] = useState('');
+  const [ewayDocOpening, setEwayDocOpening] = useState(false);
+  const [ewayDocError, setEwayDocError] = useState('');
+  const [ewayDocDialog, setEwayDocDialog] = useState<DelhiveryDocumentDialogPayload | null>(null);
 
   const handleBack = useCallback(() => {
     if (isPdfView) {
@@ -250,11 +265,85 @@ export const AdminInvoiceDetailLayout: React.FC = () => {
     && invoiceHasCategory(invoice, 'spare'),
   );
   const showCourierCard = Boolean(courierEntry || existingBooking || customerPickupActive);
-  const actionsLayout = showOrderList && (showCourierCard || showCustomerPickup)
-    ? 'triple'
-    : showOrderList || showCourierCard || showCustomerPickup
-      ? 'pair'
-      : 'single';
+  const showPickupEwayCard = Boolean(
+    customerPickupActive
+    && invoice
+    && (
+      invoice.ewayBill?.status === 'generated'
+      || Boolean(invoice.ewayBill?.ewaybillNumber?.trim())
+      || invoice.ewayBill?.required === true
+      || invoiceNeedsCustomerPickupEwayVehicle(invoice)
+    ),
+  );
+  const topCardCount = 1
+    + (showOrderList ? 1 : 0)
+    + (showCourierCard || showCustomerPickup ? 1 : 0)
+    + (showPickupEwayCard ? 1 : 0);
+  const actionsLayout = topCardCount >= 4
+    ? 'quad'
+    : topCardCount === 3
+      ? 'triple'
+      : topCardCount === 2
+        ? 'pair'
+        : 'single';
+
+  const showPickupEwayFromResult = useCallback((result: InvoiceEwayBillResult) => {
+    if (!result.required) {
+      setEwayDocError(result.message || 'E-way bill is not required for this invoice.');
+      return;
+    }
+    if (!result.contentBase64) {
+      setEwayDocError(result.message || 'E-way bill is not ready yet.');
+      return;
+    }
+    const bytes = base64ToUint8Array(result.contentBase64);
+    const mimeType = result.mimeType || 'application/pdf';
+    const blob = new Blob([Uint8Array.from(bytes)], { type: mimeType });
+    if (mimeType.includes('html')) {
+      const url = URL.createObjectURL(blob);
+      window.open(url, '_blank', 'noopener,noreferrer');
+      window.setTimeout(() => URL.revokeObjectURL(url), 60_000);
+      return;
+    }
+    setEwayDocDialog({
+      title: result.ewaybillNumber ? `E way bill ${result.ewaybillNumber}` : 'E way bill',
+      contentType: mimeType,
+      pdfBytes: bytes,
+      fileName: result.filename || 'eway-bill.pdf',
+      downloadBlob: blob,
+      hideDownload: true,
+    });
+  }, []);
+
+  const openPickupEwayBillDocument = useCallback(async () => {
+    if (!invoice || !customerId || !invoiceId) return;
+    setEwayDocOpening(true);
+    setEwayDocError('');
+    try {
+      const result = await ensureInvoiceEwayBill({
+        customerId,
+        invoiceId,
+        partnerId: 'personal_collection',
+        lrNumber: invoice.customerPickup?.vehicleNumber || null,
+        invoiceTotalInr: invoiceTotalInclGst(invoice),
+        autoGenerate: invoice.ewayBill?.status !== 'generated',
+      });
+      setInvoice(prev => prev ? {
+        ...prev,
+        ewayBill: {
+          ...(prev.ewayBill ?? {}),
+          status: result.status ?? prev.ewayBill?.status ?? null,
+          ewaybillNumber: result.ewaybillNumber ?? prev.ewayBill?.ewaybillNumber ?? null,
+          required: result.required,
+        },
+      } : prev);
+      showPickupEwayFromResult(result);
+    } catch (err) {
+      setEwayDocError(err instanceof Error ? err.message : 'Could not open e-way bill.');
+    } finally {
+      setEwayDocOpening(false);
+    }
+  }, [customerId, invoice, invoiceId, showPickupEwayFromResult]);
 
   return (
     <div className={`page-content fade-in invoice-detail-page ${isPdfView ? 'invoice-detail-page--pdf-view' : ''}`}>
@@ -342,11 +431,6 @@ export const AdminInvoiceDetailLayout: React.FC = () => {
                         ? ` · ${invoice.customerPickup.vehicleNumber}`
                         : ''}
                     </span>
-                    {invoice.ewayBill?.ewaybillNumber ? (
-                      <span className="invoice-detail-top__card-meta text-sm">
-                        EWB {invoice.ewayBill.ewaybillNumber}
-                      </span>
-                    ) : null}
                   </div>
                 ) : courierEntry ? (
                   <BookCourierEntryButton entry={courierEntry} variant="card" />
@@ -364,7 +448,38 @@ export const AdminInvoiceDetailLayout: React.FC = () => {
                     <span className="invoice-detail-top__card-label">Customer pickup</span>
                   </button>
                 ) : null}
+                {showPickupEwayCard ? (
+                  <button
+                    type="button"
+                    className={[
+                      'invoice-detail-top__card',
+                      'invoice-detail-top__card--purple',
+                      invoice.ewayBill?.status === 'generated' || invoice.ewayBill?.ewaybillNumber
+                        ? 'is-active'
+                        : '',
+                      ewayDocOpening ? 'is-disabled' : '',
+                    ].filter(Boolean).join(' ')}
+                    title="View or download e-way bill"
+                    onClick={() => { void openPickupEwayBillDocument(); }}
+                    disabled={ewayDocOpening}
+                  >
+                    <span className="invoice-detail-top__card-icon" aria-hidden>
+                      <EwayBillIcon size={28} />
+                    </span>
+                    <span className="invoice-detail-top__card-label">E way bill</span>
+                    <span className="invoice-detail-top__card-sub">
+                      {ewayDocOpening
+                        ? 'Opening…'
+                        : (invoice.ewayBill?.ewaybillNumber
+                          ? `EWB ${invoice.ewayBill.ewaybillNumber}`
+                          : 'View or download e-way bill')}
+                    </span>
+                  </button>
+                ) : null}
               </div>
+              {ewayDocError ? (
+                <p className="logistics-booking__docs-error" role="alert">{ewayDocError}</p>
+              ) : null}
               {!existingBooking
                 && courierEntry?.draftPatch?.partnerId === 'delhivery'
                 && invoice
@@ -432,6 +547,15 @@ export const AdminInvoiceDetailLayout: React.FC = () => {
                 } : prev);
                 setCourierEntry(null);
                 setAddLrAvailable(false);
+              }}
+            />
+          ) : null}
+          {ewayDocDialog ? (
+            <DelhiveryDocumentDialog
+              payload={ewayDocDialog}
+              onClose={() => {
+                setEwayDocDialog(null);
+                setEwayDocError('');
               }}
             />
           ) : null}

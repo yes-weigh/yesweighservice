@@ -1450,10 +1450,11 @@ export const LogisticsPage: React.FC = () => {
 
       {flowStep === 'partner' && (
         <CourierPartnerPicker
+          partners={LOGISTICS_PARTNERS.filter(partner => partner.id !== 'personal_collection')}
           availableIds={STANDALONE_LOGISTICS_PARTNER_IDS}
           titleLead="LOGISTIC"
           titleAccent="PARTNER"
-          subtitle="Select a logistics partner to book courier (Delhivery: use Book Courier from the invoice)"
+          subtitle="Select a logistics partner to book courier"
           ariaLabel="Logistics partners"
           onClose={closeFlow}
           onSelect={handlePartnerSelect}

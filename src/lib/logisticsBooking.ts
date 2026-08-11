@@ -1,5 +1,5 @@
 import type { LogisticsPartnerId } from '../constants/logisticsPartners';
-import { logisticsPartnerLabel } from '../constants/logisticsPartners';
+import { LOGISTICS_PARTNER_IDS, logisticsPartnerLabel } from '../constants/logisticsPartners';
 import type {
   LogisticsBooking,
   LogisticsBookingDraft,
@@ -10,17 +10,16 @@ import type {
   ShipmentMode,
 } from '../types/logistics-dispatch';
 
-/** Partners that support the full booking pipeline today. */
-export const ENABLED_LOGISTICS_PARTNER_IDS: ReadonlyArray<LogisticsPartnerId> = [
-  'st_courier',
-  'trackon_air',
-  'trackon_surface',
-  'delhivery',
-];
+/**
+ * Partners that support the full booking pipeline today.
+ * Customer pickup is invoice-only — never a logistics booking partner.
+ */
+export const ENABLED_LOGISTICS_PARTNER_IDS: ReadonlyArray<LogisticsPartnerId> =
+  LOGISTICS_PARTNER_IDS.filter(id => id !== 'personal_collection');
 
-/** Partners allowed for Logistics → New booking (Delhivery requires an invoice). */
+/** Partners allowed for Logistics → New booking (manual, no invoice required). */
 export const STANDALONE_LOGISTICS_PARTNER_IDS: ReadonlyArray<LogisticsPartnerId> =
-  ENABLED_LOGISTICS_PARTNER_IDS.filter(id => id !== 'delhivery');
+  ENABLED_LOGISTICS_PARTNER_IDS;
 
 export function isPipelineEnabledPartner(id: string): boolean {
   return ENABLED_LOGISTICS_PARTNER_IDS.includes(id as LogisticsPartnerId);
