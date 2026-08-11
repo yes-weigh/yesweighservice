@@ -5,6 +5,7 @@ import type { LogisticsBookingDraft } from '../types/logistics-dispatch';
 import type { StaffLogisticsSite } from '../types/staff-logistics';
 import { STAFF_LOGISTICS_SITE_LABELS, isStaffLogisticsSite } from '../types/staff-logistics';
 import { inventorySiteLabel, parseInventorySite } from './salesOrderSegments';
+import { staffSiteFromZohoWarehouse } from './zohoWarehouseSite';
 import { fetchAdminInvoiceDetail } from './admin-invoices';
 import { fetchDealerInvoiceDetail } from './invoices';
 
@@ -13,17 +14,17 @@ export type InvoiceBranchShipFrom = {
   branchLabel: string;
   salesOrderId: string | null;
   salesOrderNumber: string | null;
-  source: 'sales_order' | 'invoice_category';
+  source: 'sales_order' | 'invoice_warehouse';
 };
 
 /**
  * Resolve ship-from site from the invoice’s linked sales-order branch
- * (`yesOneInventorySite` / `yesOneBranchLabel`).
+ * (`yesOneInventorySite` / `yesOneBranchLabel`) or Zoho warehouse on the invoice.
  */
 export async function resolveShipFromSiteForInvoice(
   invoice: Pick<
     DealerInvoiceDetail,
-    'salesOrderId' | 'salesOrderNumber' | 'invoiceCategory' | 'categories'
+    'salesOrderId' | 'salesOrderNumber' | 'zohoWarehouseId' | 'zohoWarehouseName'
   >,
 ): Promise<InvoiceBranchShipFrom | null> {
   const soId = invoice.salesOrderId?.trim() || '';
@@ -47,10 +48,40 @@ export async function resolveShipFromSiteForInvoice(
         }
       }
     } catch {
-      // Fall through — caller may use staff/default.
+      // Fall through — try invoice warehouse.
     }
   }
+
+  const fromWarehouse = staffSiteFromZohoWarehouse({
+    warehouseId: invoice.zohoWarehouseId,
+    warehouseName: invoice.zohoWarehouseName,
+  });
+  if (fromWarehouse) {
+    return {
+      site: fromWarehouse,
+      branchLabel: STAFF_LOGISTICS_SITE_LABELS[fromWarehouse],
+      salesOrderId: soId || null,
+      salesOrderNumber: invoice.salesOrderNumber?.trim() || null,
+      source: 'invoice_warehouse',
+    };
+  }
+
   return null;
+}
+
+/** Invoice ship-from site; defaults to Cochin when warehouse/SO cannot be resolved. */
+export async function resolveInvoiceShipFromSiteOrDefault(
+  invoice: Parameters<typeof resolveShipFromSiteForInvoice>[0],
+): Promise<InvoiceBranchShipFrom> {
+  const resolved = await resolveShipFromSiteForInvoice(invoice);
+  if (resolved) return resolved;
+  return {
+    site: 'cochin',
+    branchLabel: STAFF_LOGISTICS_SITE_LABELS.cochin,
+    salesOrderId: invoice.salesOrderId?.trim() || null,
+    salesOrderNumber: invoice.salesOrderNumber?.trim() || null,
+    source: 'invoice_warehouse',
+  };
 }
 
 export async function fetchInvoiceBranchShipFrom(input: {
@@ -76,7 +107,7 @@ export function shipFromSiteLabel(site: StaffLogisticsSite | string | null | und
   return String(site ?? '—');
 }
 
-/** Prefer linked SO inventory site when persisting an invoice-linked booking. */
+/** Prefer linked SO / invoice warehouse when persisting an invoice-linked booking. */
 export async function resolvePersistShipFromSite(
   draft: Pick<LogisticsBookingDraft, 'source' | 'invoiceId' | 'zohoCustomerId' | 'shipFromSite'>,
 ): Promise<StaffLogisticsSite> {

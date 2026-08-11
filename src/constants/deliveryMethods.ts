@@ -9,8 +9,7 @@ export type DeliveryMethodId =
   | 'dtdc'
   | 'ecosafe'
   | 'aps'
-  | 'personal_collection'
-  | 'own_vehicle';
+  | 'personal_collection';
 
 export interface DeliveryMethod {
   id: DeliveryMethodId;
@@ -50,7 +49,6 @@ export const DELIVERY_METHODS: DeliveryMethod[] = [
   { id: 'ecosafe', label: 'ECO SAFE', image: '/logistics/ecosafe.png' },
   { id: 'aps', label: 'ALLEPPEY PARCEL SERVICE L.L.P', image: '/logistics/aps.png' },
   { id: 'personal_collection', label: 'PERSONAL COLLECTION', image: '/logistics/personal-collection.png' },
-  { id: 'own_vehicle', label: 'OWN VEHICLE', image: '/logistics/own-vehicle.png' },
 ];
 
 export function deliveryMethodLabel(id: DeliveryMethodId): string {

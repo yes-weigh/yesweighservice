@@ -94,6 +94,7 @@ function mapInvoiceCustomerPickup(raw: unknown): InvoiceCustomerPickup | null {
     markedByUid: data.markedByUid ? String(data.markedByUid) : null,
     markedByName: data.markedByName ? String(data.markedByName) : null,
     shipFromSite: data.shipFromSite ? String(data.shipFromSite) : null,
+    shipFromLabel: data.shipFromLabel ? String(data.shipFromLabel) : null,
     vehicleNumber: data.vehicleNumber ? String(data.vehicleNumber) : null,
   };
 }
@@ -1673,6 +1674,8 @@ export function mapAdminInvoiceDetail(
       ? data.lineItems.map(item => mapAdminInvoiceLineItem(item as Record<string, unknown>))
       : [],
     customerPickup: mapInvoiceCustomerPickup(data.customerPickup),
+    zohoWarehouseId: data.zohoWarehouseId ? String(data.zohoWarehouseId) : null,
+    zohoWarehouseName: data.zohoWarehouseName ? String(data.zohoWarehouseName) : null,
     ewayBill: data.ewayBill && typeof data.ewayBill === 'object'
       ? (data.ewayBill as DealerInvoiceDetail['ewayBill'])
       : null,
@@ -1768,6 +1771,8 @@ export async function fetchAdminInvoiceDetail(
     customerTelHref: contact.telHref,
     customerWhatsappHref: contact.whatsappHref,
     customerPickup: mapInvoiceCustomerPickup(data.customerPickup),
+    zohoWarehouseId: data.zohoWarehouseId ? String(data.zohoWarehouseId) : null,
+    zohoWarehouseName: data.zohoWarehouseName ? String(data.zohoWarehouseName) : null,
     ewayBill: data.ewayBill && typeof data.ewayBill === 'object'
       ? (data.ewayBill as DealerInvoiceDetail['ewayBill'])
       : null,

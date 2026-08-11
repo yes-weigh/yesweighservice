@@ -84,6 +84,9 @@ export interface DealerInvoiceDetail extends DealerInvoice {
   customerPhone?: string | null;
   customerTelHref?: string | null;
   customerWhatsappHref?: string | null;
+  /** Zoho warehouse on the invoice (for ship-from resolution). */
+  zohoWarehouseId?: string | null;
+  zohoWarehouseName?: string | null;
   /** Cached e-way bill metadata when invoice value exceeds GST threshold. */
   ewayBill?: InvoiceEwayBillRecord | null;
   /** Customer collected goods — no courier logistics booking. */
@@ -95,6 +98,7 @@ export type InvoiceCustomerPickup = {
   markedByUid?: string | null;
   markedByName?: string | null;
   shipFromSite?: string | null;
+  shipFromLabel?: string | null;
   vehicleNumber?: string | null;
 };
 

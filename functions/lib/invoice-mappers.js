@@ -13,6 +13,38 @@ function formatAddressObject(addr) {
   return parts.join(', ').replace(/\n/g, ', ');
 }
 
+function extractZohoWarehouseFromInvoice(raw) {
+  if (!raw || typeof raw !== 'object') {
+    return { zohoWarehouseId: null, zohoWarehouseName: null };
+  }
+  const topId = raw.warehouse_id ?? raw.warehouseId ?? null;
+  const topName = raw.warehouse_name ?? raw.warehouseName ?? null;
+  if (topId != null && String(topId).trim()) {
+    return {
+      zohoWarehouseId: String(topId).trim(),
+      zohoWarehouseName: topName ? String(topName).trim() : null,
+    };
+  }
+  const lines = raw.line_items ?? raw.lineItems ?? [];
+  if (Array.isArray(lines)) {
+    for (const line of lines) {
+      const lineId = line?.warehouse_id ?? line?.warehouseId ?? null;
+      if (lineId != null && String(lineId).trim()) {
+        return {
+          zohoWarehouseId: String(lineId).trim(),
+          zohoWarehouseName: line?.warehouse_name ?? line?.warehouseName
+            ? String(line.warehouse_name ?? line.warehouseName).trim()
+            : null,
+        };
+      }
+    }
+  }
+  if (topName) {
+    return { zohoWarehouseId: null, zohoWarehouseName: String(topName).trim() };
+  }
+  return { zohoWarehouseId: null, zohoWarehouseName: null };
+}
+
 function mapInvoiceShippingFields(raw) {
   const shippingAddress = formatAddressObject(raw?.shipping_address)
     ?? (raw?.shippingAddress ? String(raw.shippingAddress).trim() || null : null);
@@ -30,6 +62,7 @@ function mapInvoiceShippingFields(raw) {
 
 export function mapInvoice(raw) {
   const shipping = mapInvoiceShippingFields(raw);
+  const warehouse = extractZohoWarehouseFromInvoice(raw);
   return {
     id: String(raw.invoice_id ?? raw.id ?? ''),
     invoiceNumber: String(raw.invoice_number ?? raw.invoiceNumber ?? ''),
@@ -62,6 +95,8 @@ export function mapInvoice(raw) {
     shippingAddress: shipping.shippingAddress,
     shippingAddressId: shipping.shippingAddressId,
     billingAddress: shipping.billingAddress,
+    zohoWarehouseId: warehouse.zohoWarehouseId,
+    zohoWarehouseName: warehouse.zohoWarehouseName,
   };
 }
 

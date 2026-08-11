@@ -79,7 +79,6 @@ const DETAIL_PARTNER_ORDER: DeliveryPartnerTabId[] = [
   'ecosafe',
   'aps',
   'personal_collection',
-  'own_vehicle',
 ];
 
 function isZoneRatePartnerId(id: DeliveryPartnerTabId): id is ZoneRatePartnerId {

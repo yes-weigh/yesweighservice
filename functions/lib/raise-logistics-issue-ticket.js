@@ -20,7 +20,6 @@ const PARTNER_LABELS = {
   ecosafe: 'EcoSafe',
   aps: 'APS',
   personal_collection: 'Personal collection',
-  own_vehicle: 'Own vehicle',
 };
 
 function normalizeRole(role) {

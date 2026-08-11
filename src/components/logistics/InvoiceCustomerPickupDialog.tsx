@@ -16,6 +16,7 @@ type Props = {
   customerId: string;
   invoiceId: string;
   shipFromSite: StaffLogisticsSite;
+  shipFromLabel: string;
   onClose: () => void;
   onComplete: (result: Awaited<ReturnType<typeof markInvoiceCustomerPickup>>) => void;
 };
@@ -26,6 +27,7 @@ export const InvoiceCustomerPickupDialog: React.FC<Props> = ({
   customerId,
   invoiceId,
   shipFromSite,
+  shipFromLabel,
   onClose,
   onComplete,
 }) => {
@@ -109,7 +111,7 @@ export const InvoiceCustomerPickupDialog: React.FC<Props> = ({
             <p className="text-sm">
               Mark this invoice as collected by the customer from
               {' '}
-              <strong>{shipFromSiteLabel(shipFromSite)}</strong>.
+              <strong>{shipFromLabel || shipFromSiteLabel(shipFromSite)}</strong>.
             </p>
 
             {ewayRequired ? (

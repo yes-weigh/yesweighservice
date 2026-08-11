@@ -162,7 +162,7 @@ export function quoteSpareFreight(input: {
   rates: LogisticsCourierRates;
 }): SpareFreightQuoteResult {
   const { partnerId } = input;
-  if (isPickupPartner(partnerId) || partnerId === 'own_vehicle') {
+  if (isPickupPartner(partnerId)) {
     return emptySpareQuote({ skipped: true });
   }
   if (

@@ -7,6 +7,7 @@ import {
   ensureInvoiceEwayBillForCustomerPickup,
   isEwayBillRequired,
 } from './invoice-ewaybill.js';
+import { resolveInvoiceShipFromSite } from './eway-shipping-context.js';
 
 const PICKUP_PARTNER_ID = 'personal_collection';
 
@@ -33,6 +34,7 @@ function normalizeCustomerPickup(raw) {
     markedByUid: String(raw.markedByUid ?? '').trim() || null,
     markedByName: String(raw.markedByName ?? '').trim() || null,
     shipFromSite: String(raw.shipFromSite ?? 'cochin').trim() || 'cochin',
+    shipFromLabel: raw.shipFromLabel ? String(raw.shipFromLabel).trim() : null,
     vehicleNumber: raw.vehicleNumber ? String(raw.vehicleNumber).trim().toUpperCase() : null,
   };
 }
@@ -52,7 +54,6 @@ function normalizeCustomerPickup(raw) {
 export async function markInvoiceCustomerPickup(secrets, orgId, input) {
   const customerId = String(input.customerId ?? '').trim();
   const invoiceId = String(input.invoiceId ?? '').trim();
-  const shipFromSite = String(input.shipFromSite ?? 'cochin').trim() || 'cochin';
   const vehicleNumber = String(input.vehicleNumber ?? '').trim().toUpperCase().replace(/\s+/g, '') || null;
   const markedByUid = String(input.markedByUid ?? '').trim();
   const markedByName = String(input.markedByName ?? '').trim() || 'YESWEIGH';
@@ -70,6 +71,9 @@ export async function markInvoiceCustomerPickup(secrets, orgId, input) {
     throw new Error('Invoice not found in portal. Sync invoices from Zoho first.');
   }
   const invoice = snap.data() ?? {};
+
+  const resolvedShipFrom = await resolveInvoiceShipFromSite(db, invoice);
+  const effectiveShipFromSite = resolvedShipFrom.site;
 
   const existingPickup = normalizeCustomerPickup(invoice.customerPickup);
   if (existingPickup) {
@@ -94,7 +98,8 @@ export async function markInvoiceCustomerPickup(secrets, orgId, input) {
     markedAt: now,
     markedByUid,
     markedByName,
-    shipFromSite,
+    shipFromSite: effectiveShipFromSite,
+    shipFromLabel: resolvedShipFrom.branchLabel,
     vehicleNumber,
   };
 
@@ -105,7 +110,7 @@ export async function markInvoiceCustomerPickup(secrets, orgId, input) {
     eway = await ensureInvoiceEwayBillForCustomerPickup(secrets, orgId, {
       customerId,
       invoiceId,
-      shipFromSite,
+      shipFromSite: effectiveShipFromSite,
       vehicleNumber,
     });
   }
@@ -132,6 +137,7 @@ export async function updateCustomerPickupEwayPartB(secrets, orgId, input) {
     throw new Error('Vehicle number is required.');
   }
 
+  const db = getFirestore();
   const snap = await invoicesCollection(customerId).doc(invoiceId).get();
   if (!snap.exists) throw new Error('Invoice not found.');
   const invoice = snap.data() ?? {};
@@ -140,19 +146,32 @@ export async function updateCustomerPickupEwayPartB(secrets, orgId, input) {
     throw new Error('This invoice is not marked as customer pickup.');
   }
 
+  const resolvedShipFrom = await resolveInvoiceShipFromSite(db, invoice);
+  const shipFromSite = resolvedShipFrom.site;
+
   const eway = await ensureInvoiceEwayBillForCustomerPickup(secrets, orgId, {
     customerId,
     invoiceId,
-    shipFromSite: pickup.shipFromSite,
+    shipFromSite,
     vehicleNumber,
   });
 
   await invoicesCollection(customerId).doc(invoiceId).set({
     customerPickup: {
       ...pickup,
+      shipFromSite,
+      shipFromLabel: resolvedShipFrom.branchLabel,
       vehicleNumber,
     },
   }, { merge: true });
 
-  return { customerPickup: { ...pickup, vehicleNumber }, eway };
+  return {
+    customerPickup: {
+      ...pickup,
+      shipFromSite,
+      shipFromLabel: resolvedShipFrom.branchLabel,
+      vehicleNumber,
+    },
+    eway,
+  };
 }

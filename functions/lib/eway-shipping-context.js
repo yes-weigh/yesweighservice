@@ -261,6 +261,60 @@ export async function loadBookingShippingContext(db, bookingId) {
   };
 }
 
+function staffSiteFromZohoWarehouse(input) {
+  const name = String(input?.warehouseName ?? '').trim().toLowerCase();
+  if (name) {
+    if (name === 'head office' || (name.includes('head') && name.includes('office'))) {
+      return 'head_office';
+    }
+    if (name === 'cochin' || name.includes('cochin')) {
+      return 'cochin';
+    }
+  }
+  return null;
+}
+
+function inventorySiteLabel(site) {
+  return site === 'head_office' ? 'Head Office' : 'Cochin';
+}
+
+/**
+ * Resolve Cochin / Head Office ship-from from invoice mirror (+ linked SO when present).
+ * @param {import('firebase-admin/firestore').Firestore} db
+ */
+export async function resolveInvoiceShipFromSite(db, invoice) {
+  const salesOrderId = String(invoice?.salesOrderId ?? '').trim();
+  if (salesOrderId) {
+    try {
+      const snap = await db.collection('salesOrders').doc(salesOrderId).get();
+      if (snap.exists) {
+        const data = snap.data() ?? {};
+        const site = String(data.yesOneInventorySite ?? '').trim();
+        if (site === 'head_office' || site === 'cochin') {
+          return {
+            site,
+            branchLabel: String(data.yesOneBranchLabel ?? '').trim() || inventorySiteLabel(site),
+          };
+        }
+      }
+    } catch {
+      // fall through
+    }
+  }
+
+  const fromWarehouse = staffSiteFromZohoWarehouse({
+    warehouseName: invoice?.zohoWarehouseName ?? null,
+  });
+  if (fromWarehouse) {
+    return {
+      site: fromWarehouse,
+      branchLabel: inventorySiteLabel(fromWarehouse),
+    };
+  }
+
+  return { site: 'cochin', branchLabel: inventorySiteLabel('cochin') };
+}
+
 /**
  * Ship-from / delivery for invoice customer pickup (no logistics booking).
  * @param {import('firebase-admin/firestore').Firestore} db

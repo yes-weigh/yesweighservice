@@ -6,7 +6,6 @@ export function deliveryMethodToCourierPartnerId(id: DeliveryMethodId): CourierP
 }
 
 export function courierPartnerToDeliveryMethodId(id: CourierPartnerId): DeliveryMethodId {
-  if (id === 'transport_lorry') return 'own_vehicle';
   return id;
 }
 

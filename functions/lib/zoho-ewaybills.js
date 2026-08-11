@@ -207,7 +207,6 @@ function partnerLabel(partnerId) {
     ecosafe: 'Ecosafe',
     aps: 'APS',
     personal_collection: 'Customer Pickup',
-    own_vehicle: 'Own vehicle',
   };
   const id = String(partnerId ?? '');
   if (labels[id]) return labels[id];

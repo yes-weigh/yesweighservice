@@ -46,7 +46,6 @@ export const RULE_PARTNER_SHORT_LABELS: Record<LogisticsPartnerId, string> = {
   ecosafe: 'Eco Safe',
   aps: 'APS',
   personal_collection: 'Pickup',
-  own_vehicle: 'Own vehicle',
 };
 
 export function rulePartnerShortLabel(id: LogisticsPartnerId): string {

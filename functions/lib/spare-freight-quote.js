@@ -158,7 +158,6 @@ export function quoteSpareFreight(input) {
   if (
     !partnerId
     || partnerId === 'personal_collection'
-    || partnerId === 'own_vehicle'
     || partnerId === 'dtdc'
     || partnerId === 'ecosafe'
     || partnerId === 'aps'

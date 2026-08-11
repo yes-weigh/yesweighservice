@@ -438,7 +438,6 @@ const PARTNER_BRANCH: Record<LogisticsPartnerId, string> = {
   ecosafe: 'Bangalore Hub',
   aps: 'Alleppey Branch',
   personal_collection: 'Counter Pickup',
-  own_vehicle: 'Head Office',
 };
 
 const PARTNER_SERVICE: Record<LogisticsPartnerId, string> = {
@@ -453,7 +452,6 @@ const PARTNER_SERVICE: Record<LogisticsPartnerId, string> = {
   ecosafe: 'Eco Express',
   aps: 'Parcel',
   personal_collection: 'Self pickup',
-  own_vehicle: 'Direct',
 };
 
 export function emptyBookingDraft(partnerId: LogisticsPartnerId): LogisticsBookingDraft {

@@ -32,7 +32,7 @@ import {
   type LogisticsEntryState,
 } from '../../lib/logisticsPrefill';
 import { loadLogisticsSettings } from '../../lib/logisticsSettings';
-import { resolveShipFromSiteForInvoice } from '../../lib/logisticsShipFrom';
+import { resolveInvoiceShipFromSiteOrDefault, shipFromSiteLabel } from '../../lib/logisticsShipFrom';
 import {
   canMarkInvoiceCustomerPickup,
   isInvoiceCustomerPickup,
@@ -70,6 +70,7 @@ export const AdminInvoiceDetailLayout: React.FC = () => {
   const [addLrOpen, setAddLrOpen] = useState(false);
   const [pickupOpen, setPickupOpen] = useState(false);
   const [pickupShipFrom, setPickupShipFrom] = useState<StaffLogisticsSite>('cochin');
+  const [pickupShipFromLabel, setPickupShipFromLabel] = useState('Cochin');
   const [orderListOpen, setOrderListOpen] = useState(false);
   const [delhiveryOriginPin, setDelhiveryOriginPin] = useState('');
 
@@ -167,11 +168,12 @@ export const AdminInvoiceDetailLayout: React.FC = () => {
         return;
       }
 
-      const branch = await resolveShipFromSiteForInvoice(invoice).catch(() => null);
-      const shipFromSite = branch?.site ?? user.staffLogisticsSite ?? 'cochin';
+      const branch = await resolveInvoiceShipFromSiteOrDefault(invoice);
+      const shipFromSite = branch.site;
       if (cancelled) return;
       setAddLrShipFrom(shipFromSite);
       setPickupShipFrom(shipFromSite);
+      setPickupShipFromLabel(branch.branchLabel);
       const courierPartner = resolveInvoiceCourierPartner(invoice);
       setAddLrPartnerId(courierPartner.partnerId);
       setAddLrPartnerFromFreight(courierPartner.fromFreight);
@@ -333,11 +335,13 @@ export const AdminInvoiceDetailLayout: React.FC = () => {
                       <MapPin size={28} strokeWidth={1.75} aria-hidden />
                     </span>
                     <span className="invoice-detail-top__card-label">Customer pickup</span>
-                    {invoice.customerPickup?.vehicleNumber ? (
-                      <span className="invoice-detail-top__card-meta text-sm">
-                        {invoice.customerPickup.vehicleNumber}
-                      </span>
-                    ) : null}
+                    <span className="invoice-detail-top__card-meta text-sm">
+                      {invoice.customerPickup?.shipFromLabel
+                        || shipFromSiteLabel(invoice.customerPickup?.shipFromSite)}
+                      {invoice.customerPickup?.vehicleNumber
+                        ? ` · ${invoice.customerPickup.vehicleNumber}`
+                        : ''}
+                    </span>
                     {invoice.ewayBill?.ewaybillNumber ? (
                       <span className="invoice-detail-top__card-meta text-sm">
                         EWB {invoice.ewayBill.ewaybillNumber}
@@ -411,6 +415,7 @@ export const AdminInvoiceDetailLayout: React.FC = () => {
               customerId={customerId}
               invoiceId={invoiceId}
               shipFromSite={pickupShipFrom}
+              shipFromLabel={pickupShipFromLabel}
               onClose={() => setPickupOpen(false)}
               onComplete={result => {
                 setInvoice(prev => prev ? {

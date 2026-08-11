@@ -15,7 +15,6 @@ export const LOGISTICS_PARTNER_IDS = [
   'ecosafe',
   'aps',
   'personal_collection',
-  'own_vehicle',
 ] as const satisfies readonly DeliveryMethodId[];
 
 export type LogisticsPartnerId = typeof LOGISTICS_PARTNER_IDS[number];

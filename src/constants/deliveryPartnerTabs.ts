@@ -14,7 +14,6 @@ export const DELIVERY_PARTNER_TAB_IDS = [
   'ecosafe',
   'aps',
   'personal_collection',
-  'own_vehicle',
 ] as const;
 
 export type DeliveryPartnerTabId = typeof DELIVERY_PARTNER_TAB_IDS[number];

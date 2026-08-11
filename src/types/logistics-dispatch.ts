@@ -337,4 +337,4 @@ export interface LogisticsBooking {
 }
 
 /** @deprecated Prefer LogisticsPartnerId from logisticsPartners */
-export type CourierPartnerId = LogisticsPartnerId | 'ecosafe' | 'aps' | 'transport_lorry';
+export type CourierPartnerId = LogisticsPartnerId | 'ecosafe' | 'aps';
