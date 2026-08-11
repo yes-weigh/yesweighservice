@@ -262,6 +262,55 @@ export async function loadBookingShippingContext(db, bookingId) {
 }
 
 /**
+ * Ship-from / delivery for invoice customer pickup (no logistics booking).
+ * @param {import('firebase-admin/firestore').Firestore} db
+ */
+export async function loadInvoiceShippingContext(db, customerId, invoiceId, shipFromSite = 'cochin') {
+  const { invoicesCollection } = await import('./invoice-sync.js');
+  const cid = String(customerId ?? '').trim();
+  const iid = String(invoiceId ?? '').trim();
+  if (!cid || !iid) return null;
+
+  const snap = await invoicesCollection(cid).doc(iid).get();
+  if (!snap.exists) return null;
+  const invoice = snap.data() ?? {};
+
+  const site = String(shipFromSite ?? 'cochin').trim() || 'cochin';
+  const settingsSnap = await db.doc('appSettings/logisticsSettings').get();
+  const fromAddresses = settingsSnap.data()?.fromAddresses;
+  const shipFromAddress = fromAddresses && typeof fromAddresses === 'object'
+    ? String(fromAddresses[site] ?? '').trim()
+    : '';
+
+  const deliveryAddress = String(invoice.shippingAddress ?? invoice.billingAddress ?? '').trim();
+  if (!shipFromAddress) return null;
+
+  return {
+    shipFromAddress,
+    deliveryAddress,
+    shipFromSite: site,
+  };
+}
+
+/** Place + GST state code for e-way Part B vehicle update. */
+export function ewayVehicleOriginFromAddress(shipFromAddress) {
+  const parsed = parsePortalLogisticsAddress(String(shipFromAddress ?? ''));
+  if (!parsed) {
+    throw new Error(
+      'Ship-from address is missing a valid 6-digit pincode. Check Logistics settings.',
+    );
+  }
+  const fromState = gstStateCode(parsed.state);
+  if (!fromState) {
+    throw new Error(
+      'Could not determine GST state from ship-from address. Check Logistics settings.',
+    );
+  }
+  const fromPlace = String(parsed.city || parsed.companyName || 'Dispatch').slice(0, 50);
+  return { fromPlace, fromState };
+}
+
+/**
  * @param {(accessToken: string, orgId: string, path: string, opts?: object) => Promise<any>} zohoJson
  * @param {string} shipFromAddress
  * @param {{ db?: import('firebase-admin/firestore').Firestore | null; shipFromSite?: string | null }} [options]

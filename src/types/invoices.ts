@@ -86,7 +86,17 @@ export interface DealerInvoiceDetail extends DealerInvoice {
   customerWhatsappHref?: string | null;
   /** Cached e-way bill metadata when invoice value exceeds GST threshold. */
   ewayBill?: InvoiceEwayBillRecord | null;
+  /** Customer collected goods — no courier logistics booking. */
+  customerPickup?: InvoiceCustomerPickup | null;
 }
+
+export type InvoiceCustomerPickup = {
+  markedAt: string;
+  markedByUid?: string | null;
+  markedByName?: string | null;
+  shipFromSite?: string | null;
+  vehicleNumber?: string | null;
+};
 
 export type InvoiceEwayBillStatus =
   | 'generated'
@@ -107,6 +117,8 @@ export type InvoiceEwayBillRecord = {
   transporterGstin?: string | null;
   partnerId?: string | null;
   lrNumber?: string | null;
+  vehicleNumber?: string | null;
+  partBUpdatedAt?: string | null;
   error?: string | null;
   required?: boolean;
   updatedAt?: string | null;

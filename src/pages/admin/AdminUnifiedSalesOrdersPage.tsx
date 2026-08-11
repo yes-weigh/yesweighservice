@@ -12,6 +12,7 @@ import {
 } from 'lucide-react';
 import type { DocumentData, QueryDocumentSnapshot } from 'firebase/firestore';
 import { FetchingLoader } from '../../components/FetchingLoader';
+import { ListTileKam } from '../../components/list/ListTileKam';
 import {
   InvoiceCategoryBadgeList,
   InvoiceCategoryIcon,
@@ -27,7 +28,9 @@ import {
   DealerMultiFilterPicker,
   type DealerFilterSelection,
 } from '../../components/dealers/DealerMultiFilterPicker';
-import { hasStaffPermission } from '../../lib/staffAccess';
+import { hasStaffPermission, isInternalOpsUser } from '../../lib/staffAccess';
+import { resolveDealerKamName } from '../../lib/dealerKamDisplay';
+import { useDealerStaffById } from '../../lib/useDealerStaffById';
 import {
   aggregateAdminSalesOrdersByDealer,
   countAdminSalesOrdersByYesOneStages,
@@ -300,6 +303,8 @@ export const AdminUnifiedSalesOrdersPage: React.FC = () => {
   const { pathname } = useLocation();
   const { user } = useAuth();
   const [searchParams, setSearchParams] = useSearchParams();
+  const showKam = isInternalOpsUser(user);
+  const dealerStaffById = useDealerStaffById(showKam);
   const dealerFilterFromUrl = searchParams.get('dealerId')?.trim() || '';
   const dealersParam = searchParams.get('dealers') || '';
   const dealersFromUrl = useMemo(
@@ -957,6 +962,15 @@ export const AdminUnifiedSalesOrdersPage: React.FC = () => {
                         <td>
                           <div className="unified-so-order-cell">
                             <span>{row.partyName}</span>
+                            {showKam ? (
+                              <ListTileKam
+                                name={resolveDealerKamName({
+                                  zohoCustomerId: row.customerId,
+                                  documentSalespersonName: row.salespersonName,
+                                  dealerStaffById,
+                                })}
+                              />
+                            ) : null}
                             {locationLabel ? (
                               <span className="invoices-table__ref text-muted text-sm">
                                 {locationLabel}
@@ -1024,6 +1038,15 @@ export const AdminUnifiedSalesOrdersPage: React.FC = () => {
                         <strong className="invoices-mobile-row__company">
                           {row.partyName}
                         </strong>
+                        {showKam ? (
+                          <ListTileKam
+                            name={resolveDealerKamName({
+                              zohoCustomerId: row.customerId,
+                              documentSalespersonName: row.salespersonName,
+                              dealerStaffById,
+                            })}
+                          />
+                        ) : null}
                         <span className="invoices-mobile-row__pair unified-so-mobile-row__footer">
                           <span className="invoices-mobile-row__meta">
                             {locationLabel ? (

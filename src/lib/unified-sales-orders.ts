@@ -24,6 +24,7 @@ export interface UnifiedSalesOrderRow {
   primaryNumber: string;
   partyName: string;
   customerId: string | null;
+  salespersonName: string | null;
   date: string | null;
   sortAt: number;
   amount: number;
@@ -164,6 +165,7 @@ export function mapZohoOrderToUnified(
     primaryNumber: so.salesOrderNumber || so.id,
     partyName: so.customerName || so.customerId || '—',
     customerId: so.customerId || null,
+    salespersonName: so.salespersonName?.trim() || null,
     date: so.date,
     sortAt: parseDayTs(so.date) || parseDayTs(so.syncedAt),
     amount: Number(so.total ?? 0),

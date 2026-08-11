@@ -84,6 +84,10 @@ import {
   handleZohoInvoiceWebhook,
 } from './lib/invoice-sync.js';
 import { ensureInvoiceEwayBill, cancelInvoiceEwayBill } from './lib/invoice-ewaybill.js';
+import {
+  markInvoiceCustomerPickup,
+  updateCustomerPickupEwayPartB,
+} from './lib/invoice-customer-pickup.js';
 import { listZohoTransporters } from './lib/zoho-ewaybills.js';
 import { syncOrgInvoicesToFirestore } from './lib/org-invoice-sync.js';
 import {
@@ -2054,6 +2058,78 @@ export const cancelInvoiceEwayBillFn = onCall(
     } catch (err) {
       if (err instanceof HttpsError) throw err;
       throw new HttpsError('internal', err?.message ?? 'Could not cancel e-way bill.');
+    }
+  },
+);
+
+/** Mark invoice as customer pickup (no logistics booking); e-way Part B when eligible. */
+export const markInvoiceCustomerPickupFn = onCall(
+  {
+    region: 'asia-south1',
+    secrets: [zohoClientId, zohoClientSecret, zohoRefreshToken],
+    timeoutSeconds: 180,
+    memory: '512MiB',
+  },
+  async request => {
+    const uid = request.auth?.uid;
+    await requireActiveUser(uid, SYNC_ROLES);
+    const userSnap = await getFirestore().doc(`users/${uid}`).get();
+    const userData = userSnap.data() ?? {};
+    const customerId = String(request.data?.customerId ?? '').trim();
+    const invoiceId = String(request.data?.invoiceId ?? '').trim();
+    const shipFromSite = String(request.data?.shipFromSite ?? 'cochin').trim() || 'cochin';
+    const vehicleNumber = String(request.data?.vehicleNumber ?? '').trim();
+    if (!customerId || !invoiceId) {
+      throw new HttpsError('invalid-argument', 'Customer id and invoice id are required.');
+    }
+    try {
+      return await markInvoiceCustomerPickup(zohoSecrets(), zohoOrganizationId.value(), {
+        customerId,
+        invoiceId,
+        shipFromSite,
+        vehicleNumber: vehicleNumber || null,
+        markedByUid: uid,
+        markedByName: String(userData.displayName ?? userData.loginId ?? userData.email ?? 'YESWEIGH').trim(),
+      });
+    } catch (err) {
+      if (err instanceof HttpsError) throw err;
+      const message = err?.message ?? 'Could not mark customer pickup.';
+      const code = /already|required|not found|missing|vehicle|Ship-from|transporter/i.test(message)
+        ? 'failed-precondition'
+        : 'internal';
+      throw new HttpsError(code, message);
+    }
+  },
+);
+
+/** Update e-way bill Part B vehicle on customer-pickup invoice. */
+export const updateCustomerPickupEwayPartBFn = onCall(
+  {
+    region: 'asia-south1',
+    secrets: [zohoClientId, zohoClientSecret, zohoRefreshToken],
+    timeoutSeconds: 180,
+    memory: '512MiB',
+  },
+  async request => {
+    await requireActiveUser(request.auth?.uid, SYNC_ROLES);
+    const customerId = String(request.data?.customerId ?? '').trim();
+    const invoiceId = String(request.data?.invoiceId ?? '').trim();
+    const vehicleNumber = String(request.data?.vehicleNumber ?? '').trim();
+    if (!customerId || !invoiceId || !vehicleNumber) {
+      throw new HttpsError(
+        'invalid-argument',
+        'Customer id, invoice id, and vehicle number are required.',
+      );
+    }
+    try {
+      return await updateCustomerPickupEwayPartB(zohoSecrets(), zohoOrganizationId.value(), {
+        customerId,
+        invoiceId,
+        vehicleNumber,
+      });
+    } catch (err) {
+      if (err instanceof HttpsError) throw err;
+      throw new HttpsError('internal', err?.message ?? 'Could not update e-way bill Part B.');
     }
   },
 );

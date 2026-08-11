@@ -61,11 +61,9 @@ import { loadLogisticsCourierRates } from '../../lib/logisticsCourierRates';
 import { loadLogisticsSettings } from '../../lib/logisticsSettings';
 import { resolveDestinationPlace } from '../../lib/shippingLabel';
 import { isInternalOpsUser } from '../../lib/staffAccess';
-import {
-  ensureDealersCached,
-  subscribeDealerCache,
-} from '../../lib/dealer-cache';
-import type { ZohoDealer } from '../../types/dealers';
+import { bookingStaffName } from '../../lib/dealerKamDisplay';
+import { useDealerStaffById } from '../../lib/useDealerStaffById';
+import { ListTileKam } from '../../components/list/ListTileKam';
 import type { LogisticsBooking, LogisticsBookingStatus } from '../../types/logistics-dispatch';
 import {
   LOGISTICS_ENTRY_STATE_KEY,
@@ -103,30 +101,6 @@ function matchesFreightDiffFilter(
   if (filter === 'under_billed') return freight.differenceInr > 0;
   if (filter === 'over_billed') return freight.differenceInr < 0;
   return freight.differenceInr === 0;
-}
-
-function dealerStaffNameMap(dealers: ZohoDealer[]): Record<string, string> {
-  const next: Record<string, string> = {};
-  for (const dealer of dealers) {
-    const name = dealer.assignedStaffName?.trim();
-    if (name) next[dealer.id] = name;
-  }
-  return next;
-}
-
-function bookingStaffName(
-  booking: LogisticsBooking,
-  dealerStaffById: Record<string, string>,
-  invoiceSalespersonName?: string | null,
-): string {
-  const snap = booking.dealer.assignedStaffName?.trim();
-  if (snap) return snap;
-  const id = booking.dealer.zohoCustomerId?.trim();
-  if (id) {
-    const assigned = dealerStaffById[id]?.trim();
-    if (assigned) return assigned;
-  }
-  return invoiceSalespersonName?.trim() || '';
 }
 
 function partnerFilterShortLabel(label: string): string {
@@ -372,12 +346,12 @@ export const LogisticsPage: React.FC = () => {
   const [freightByBookingId, setFreightByBookingId] = useState<
     Record<string, LogisticsFreightCompare>
   >({});
-  const [dealerStaffById, setDealerStaffById] = useState<Record<string, string>>({});
   const pageRef = useRef<HTMLDivElement>(null);
   const listFiltersRef = useRef<HTMLDivElement>(null);
 
   const isMobile = useIsMobile();
   const isOps = user ? isInternalOpsUser(user) : false;
+  const dealerStaffById = useDealerStaffById(isOps);
   const canCreate = user ? canCreateLogisticsBooking(user) : false;
   const canSuperDelete = user ? canDeleteLogisticsBooking(user) : false;
   const showTileDelete = canSuperDelete && showDeleteButtons;
@@ -385,26 +359,6 @@ export const LogisticsPage: React.FC = () => {
   useEffect(() => {
     if (!canSuperDelete && showDeleteButtons) setShowDeleteButtons(false);
   }, [canSuperDelete, showDeleteButtons]);
-
-  useEffect(() => {
-    if (!isOps) return;
-    let cancelled = false;
-
-    const unsubscribe = subscribeDealerCache(list => {
-      if (!cancelled) setDealerStaffById(dealerStaffNameMap(list));
-    });
-
-    void ensureDealersCached()
-      .then(list => {
-        if (!cancelled) setDealerStaffById(dealerStaffNameMap(list));
-      })
-      .catch(() => undefined);
-
-    return () => {
-      cancelled = true;
-      unsubscribe();
-    };
-  }, [isOps]);
 
   const activeBooking = useMemo(
     () => bookings.find(item => item.id === activeBookingId) ?? null,
@@ -1328,9 +1282,7 @@ export const LogisticsPage: React.FC = () => {
                               <div className="logistics-shipment__top-left">
                                 <strong className="logistics-shipment__tracking">{waybill}</strong>
                                 <span className="logistics-shipment__dealer">{booking.dealer.name}</span>
-                                {staffName ? (
-                                  <span className="logistics-shipment__staff">{staffName}</span>
-                                ) : null}
+                                {isOps ? <ListTileKam name={staffName} /> : null}
                               </div>
                               {(freight?.paidFreightInr != null
                                 || freight?.actualFreightInr != null) && (

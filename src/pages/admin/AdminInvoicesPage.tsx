@@ -15,6 +15,7 @@ import {
 import { useAuth } from '../../context/AuthContext';
 import { salespersonScopeForUser } from '../../lib/salespersonScope';
 import { FetchingLoader } from '../../components/FetchingLoader';
+import { ListTileKam } from '../../components/list/ListTileKam';
 import {
   DealerMultiFilterPicker,
   type DealerFilterSelection,
@@ -57,6 +58,10 @@ import {
 } from '../../lib/invoices';
 import { invoiceListLogisticsStatus } from '../../lib/logisticsBooking';
 import { findLogisticsBookingsForInvoices } from '../../lib/logisticsBookings';
+import { isInvoiceCustomerPickup } from '../../lib/invoiceCustomerPickup';
+import { resolveDealerKamName } from '../../lib/dealerKamDisplay';
+import { isInternalOpsUser } from '../../lib/staffAccess';
+import { useDealerStaffById } from '../../lib/useDealerStaffById';
 import { useRevealScrollbarOnScroll } from '../../lib/useRevealScrollbarOnScroll';
 import type { LogisticsBooking } from '../../types/logistics-dispatch';
 import type { InvoiceCategory, SalesRangePreset } from '../../types/invoices';
@@ -95,11 +100,17 @@ function invoiceStatusClass(status: string): string {
   return `invoices-status invoices-status--${key}`;
 }
 
-/** Prefer logistics status past Booked; otherwise Zoho invoice payment status. */
+/** Prefer logistics status past Booked; customer pickup; otherwise Zoho payment status. */
 function invoiceRowStatusDisplay(
-  invoiceStatus: string,
+  invoice: Pick<AdminFirestoreInvoice, 'status' | 'customerPickup'>,
   booking: LogisticsBooking | undefined,
 ): { label: string; className: string } {
+  if (isInvoiceCustomerPickup(invoice)) {
+    return {
+      label: 'Customer pickup',
+      className: invoiceStatusClass('delivered'),
+    };
+  }
   const logistics = invoiceListLogisticsStatus(booking);
   if (logistics) {
     const tone = logistics.status === 'in_transit'
@@ -115,8 +126,8 @@ function invoiceRowStatusDisplay(
     };
   }
   return {
-    label: invoiceStatusLabel(invoiceStatus),
-    className: invoiceStatusClass(invoiceStatus),
+    label: invoiceStatusLabel(invoice.status),
+    className: invoiceStatusClass(invoice.status),
   };
 }
 
@@ -322,6 +333,8 @@ export const AdminInvoicesPage: React.FC = () => {
   const { pathname } = useLocation();
   const { user } = useAuth();
   const basePath = pathname.startsWith('/staff') ? '/staff' : '/super-admin';
+  const showKam = isInternalOpsUser(user);
+  const dealerStaffById = useDealerStaffById(showKam);
   const salespersonIds = useMemo(() => salespersonScopeForUser(user), [user]);
   const salespersonScopeKey = salespersonIds?.slice().sort().join(',') ?? '';
   const [searchParams, setSearchParams] = useSearchParams();
@@ -1171,7 +1184,7 @@ export const AdminInvoicesPage: React.FC = () => {
                   const rowStatus = isAggregateRow
                     ? null
                     : invoiceRowStatusDisplay(
-                      invoice.status,
+                      invoice,
                       logisticsByInvoiceId.get(invoice.id),
                     );
                   return (
@@ -1207,6 +1220,15 @@ export const AdminInvoicesPage: React.FC = () => {
                       </td>
                       <td>
                         <div>{invoice.customerName ?? '—'}</div>
+                        {showKam ? (
+                          <ListTileKam
+                            name={resolveDealerKamName({
+                              zohoCustomerId: invoice.customerId,
+                              documentSalespersonName: invoice.salespersonName,
+                              dealerStaffById,
+                            })}
+                          />
+                        ) : null}
                         {locationLabel && (
                           <div className="invoices-table__ref text-muted text-sm">{locationLabel}</div>
                         )}
@@ -1261,7 +1283,7 @@ export const AdminInvoicesPage: React.FC = () => {
               const rowStatus = isAggregateRow
                 ? null
                 : invoiceRowStatusDisplay(
-                  invoice.status,
+                  invoice,
                   logisticsByInvoiceId.get(invoice.id),
                 );
               return (
@@ -1291,6 +1313,15 @@ export const AdminInvoicesPage: React.FC = () => {
                           ? `${invoice.aggregateInvoiceCount} invoices`
                           : (invoice.customerName ?? locationLabel ?? '—')}
                       </span>
+                      {showKam ? (
+                        <ListTileKam
+                          name={resolveDealerKamName({
+                            zohoCustomerId: invoice.customerId,
+                            documentSalespersonName: invoice.salespersonName,
+                            dealerStaffById,
+                          })}
+                        />
+                      ) : null}
                       <span className="invoices-mobile-row__meta">
                         {formatInvoiceDate(invoice.date)}
                         {' • '}

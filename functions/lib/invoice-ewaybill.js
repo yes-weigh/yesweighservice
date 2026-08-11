@@ -8,13 +8,18 @@ import { invoicesCollection } from './invoice-sync.js';
 import {
   cancelZohoEwayBill,
   createZohoEwayBillForInvoice,
+  addZohoEwayBillVehicle,
   fetchZohoEwayBillPdf,
   findZohoEwayBillForInvoice,
   mapZohoEwayBillRecord,
   normalizeGstin,
   resolveTransporterForPartner,
 } from './zoho-ewaybills.js';
-import { loadBookingShippingContext } from './eway-shipping-context.js';
+import {
+  ewayVehicleOriginFromAddress,
+  loadBookingShippingContext,
+  loadInvoiceShippingContext,
+} from './eway-shipping-context.js';
 
 export const EWAY_BILL_THRESHOLD_INR = 50_000;
 
@@ -423,6 +428,143 @@ export async function cancelInvoiceEwayBill(secrets, orgId, input) {
     status: saved.status || 'cancelled',
     ewaybillNumber: saved.ewaybillNumber ?? null,
     message: 'E-way bill cancelled on the GST portal.',
+  };
+}
+
+const PICKUP_PARTNER_ID = 'personal_collection';
+
+function normalizeVehicleNumber(raw) {
+  return String(raw ?? '').trim().toUpperCase().replace(/\s+/g, '').slice(0, 20);
+}
+
+/**
+ * Generate (or fetch) e-way bill for customer pickup, then update Part B with vehicle number.
+ * @param {object} secrets
+ * @param {string} orgId
+ * @param {{
+ *   customerId: string;
+ *   invoiceId: string;
+ *   shipFromSite?: string | null;
+ *   vehicleNumber: string;
+ * }} input
+ */
+export async function ensureInvoiceEwayBillForCustomerPickup(secrets, orgId, input) {
+  const customerId = String(input.customerId ?? '').trim();
+  const invoiceId = String(input.invoiceId ?? '').trim();
+  const shipFromSite = String(input.shipFromSite ?? 'cochin').trim() || 'cochin';
+  const vehicleNumber = normalizeVehicleNumber(input.vehicleNumber);
+  if (!vehicleNumber) {
+    throw new Error('Vehicle number is required to generate e-way bill Part B for customer pickup.');
+  }
+
+  const db = getFirestore();
+  const invoice = await loadInvoiceMirror(customerId, invoiceId);
+  if (!invoice) {
+    throw new Error('Invoice not found in portal. Sync invoices from Zoho first.');
+  }
+
+  const invoiceTotal = Number(invoice.total ?? 0);
+  if (!isEwayBillRequired(invoiceTotal)) {
+    return {
+      required: false,
+      status: 'not_required',
+      ewaybillNumber: null,
+      message: `E-way bill is not required for invoice totals incl. GST of ₹${EWAY_BILL_THRESHOLD_INR.toLocaleString('en-IN')} or below.`,
+    };
+  }
+
+  const shippingContext = await loadInvoiceShippingContext(db, customerId, invoiceId, shipFromSite);
+  if (!shippingContext?.shipFromAddress) {
+    throw new Error(
+      'Ship-from address is missing. Apply the site address from Logistics settings, then retry.',
+    );
+  }
+
+  const accessToken = await getAccessToken(secrets);
+  const organizationId = await resolveOrganizationId(accessToken, orgId);
+  const partnerId = PICKUP_PARTNER_ID;
+
+  let remote = await findZohoEwayBillForInvoice(accessToken, organizationId, invoiceId);
+  if (!remote) {
+    const { transporterId } = await resolveTransporterForPartner(
+      accessToken,
+      organizationId,
+      db,
+      partnerId,
+    );
+    remote = await createZohoEwayBillForInvoice(accessToken, organizationId, {
+      invoiceId,
+      transporterId,
+      lrNumber: null,
+      shipFromAddress: shippingContext.shipFromAddress,
+      deliveryAddress: shippingContext.deliveryAddress || invoice.shippingAddress || null,
+      shipFromSite: shippingContext.shipFromSite,
+      db,
+    });
+  }
+
+  const mapped = mapZohoEwayBillRecord(remote);
+  if (!mapped?.zohoEwaybillId) {
+    throw new Error('Zoho returned an invalid e-way bill record.');
+  }
+
+  const { fromPlace, fromState } = ewayVehicleOriginFromAddress(shippingContext.shipFromAddress);
+  await addZohoEwayBillVehicle(accessToken, organizationId, mapped.zohoEwaybillId, {
+    vehicleNumber,
+    fromPlace,
+    fromState,
+    reason: 'first_time',
+    remarks: 'Customer pickup',
+  });
+
+  const refreshed = await findZohoEwayBillForInvoice(accessToken, organizationId, invoiceId);
+  const finalMapped = mapZohoEwayBillRecord(refreshed) ?? mapped;
+
+  let pdfStoragePath = null;
+  let mimeType = 'application/pdf';
+  let extension = 'pdf';
+  let buffer = null;
+
+  if (finalMapped.pdfPrintAllowed !== false) {
+    const printed = await fetchZohoEwayBillPdf(accessToken, organizationId, finalMapped.zohoEwaybillId);
+    buffer = printed.buffer;
+    mimeType = printed.mimeType;
+    extension = printed.extension;
+    pdfStoragePath = await uploadPdfToStorage(
+      ewayBillPdfPath(customerId, invoiceId, extension),
+      buffer,
+      mimeType,
+    );
+  }
+
+  const saved = await persistEwayBill(customerId, invoiceId, {
+    ...finalMapped,
+    required: true,
+    pdfStoragePath,
+    partnerId,
+    lrNumber: null,
+    vehicleNumber,
+    partBUpdatedAt: new Date().toISOString(),
+    error: null,
+  }, null);
+
+  if (!buffer) {
+    return {
+      required: true,
+      status: saved.status,
+      ewaybillNumber: saved.ewaybillNumber,
+      message: 'E-way bill Part B updated; printable copy is not available yet.',
+    };
+  }
+
+  return {
+    required: true,
+    status: saved.status || 'generated',
+    ewaybillNumber: saved.ewaybillNumber,
+    contentBase64: buffer.toString('base64'),
+    filename: `${invoice.invoiceNumber || invoiceId}-ewaybill.${extension}`,
+    mimeType,
+    cached: false,
   };
 }
 

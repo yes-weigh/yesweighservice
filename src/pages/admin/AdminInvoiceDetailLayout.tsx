@@ -1,11 +1,12 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import { Outlet, useLocation, useNavigate, useParams } from 'react-router-dom';
-import { AlertCircle, ClipboardList, FileText } from 'lucide-react';
+import { AlertCircle, ClipboardList, FileText, MapPin } from 'lucide-react';
 import { FetchingLoader } from '../../components/FetchingLoader';
 import { SpareOrderListViewDialog } from '../../components/invoices/SpareOrderListViewDialog';
 import { BookCourierEntryButton } from '../../components/logistics/BookCourierEntryButton';
 import { DelhiveryQuoteStrip } from '../../components/logistics/DelhiveryQuoteStrip';
 import { InvoiceAddLrDialog } from '../../components/logistics/InvoiceAddLrDialog';
+import { InvoiceCustomerPickupDialog } from '../../components/logistics/InvoiceCustomerPickupDialog';
 import { LogisticsAwbEntryButton } from '../../components/logistics/LogisticsAwbEntryButton';
 import { useAuth } from '../../context/AuthContext';
 import { useCatalogPageHeader } from '../../context/PageHeaderContext';
@@ -32,6 +33,10 @@ import {
 } from '../../lib/logisticsPrefill';
 import { loadLogisticsSettings } from '../../lib/logisticsSettings';
 import { resolveShipFromSiteForInvoice } from '../../lib/logisticsShipFrom';
+import {
+  canMarkInvoiceCustomerPickup,
+  isInvoiceCustomerPickup,
+} from '../../lib/invoiceCustomerPickup';
 import { isInternalOpsUser } from '../../lib/staffAccess';
 import type { CatalogProduct } from '../../types/catalog';
 import type { LogisticsPartnerId } from '../../constants/logisticsPartners';
@@ -63,6 +68,8 @@ export const AdminInvoiceDetailLayout: React.FC = () => {
   const [addLrPartnerFromFreight, setAddLrPartnerFromFreight] = useState(false);
   const [addLrShipFrom, setAddLrShipFrom] = useState<StaffLogisticsSite | null>(null);
   const [addLrOpen, setAddLrOpen] = useState(false);
+  const [pickupOpen, setPickupOpen] = useState(false);
+  const [pickupShipFrom, setPickupShipFrom] = useState<StaffLogisticsSite>('cochin');
   const [orderListOpen, setOrderListOpen] = useState(false);
   const [delhiveryOriginPin, setDelhiveryOriginPin] = useState('');
 
@@ -154,10 +161,17 @@ export const AdminInvoiceDetailLayout: React.FC = () => {
       }
       setExistingBooking(null);
 
+      if (isInvoiceCustomerPickup(invoice)) {
+        setCourierEntry(null);
+        setAddLrAvailable(false);
+        return;
+      }
+
       const branch = await resolveShipFromSiteForInvoice(invoice).catch(() => null);
       const shipFromSite = branch?.site ?? user.staffLogisticsSite ?? 'cochin';
       if (cancelled) return;
       setAddLrShipFrom(shipFromSite);
+      setPickupShipFrom(shipFromSite);
       const courierPartner = resolveInvoiceCourierPartner(invoice);
       setAddLrPartnerId(courierPartner.partnerId);
       setAddLrPartnerFromFreight(courierPartner.fromFreight);
@@ -202,7 +216,15 @@ export const AdminInvoiceDetailLayout: React.FC = () => {
 
   if (!customerId || !invoiceId) return null;
 
-  const showManualLogistics = Boolean(addLrAvailable && !existingBooking);
+  const showManualLogistics = Boolean(addLrAvailable && !existingBooking && !isInvoiceCustomerPickup(invoice));
+  const showCustomerPickup = Boolean(
+    user
+    && isInternalOpsUser(user)
+    && canCreateLogisticsBooking(user)
+    && invoice
+    && canMarkInvoiceCustomerPickup(invoice, Boolean(existingBooking)),
+  );
+  const customerPickupActive = isInvoiceCustomerPickup(invoice);
   const outletContext: AdminInvoiceDetailOutletContext = {
     invoice,
     loading,
@@ -225,10 +247,10 @@ export const AdminInvoiceDetailLayout: React.FC = () => {
     && invoice
     && invoiceHasCategory(invoice, 'spare'),
   );
-  const showCourierCard = Boolean(courierEntry || existingBooking);
-  const actionsLayout = showOrderList && showCourierCard
+  const showCourierCard = Boolean(courierEntry || existingBooking || customerPickupActive);
+  const actionsLayout = showOrderList && (showCourierCard || showCustomerPickup)
     ? 'triple'
-    : showOrderList || showCourierCard
+    : showOrderList || showCourierCard || showCustomerPickup
       ? 'pair'
       : 'single';
 
@@ -302,8 +324,41 @@ export const AdminInvoiceDetailLayout: React.FC = () => {
                     }
                     variant="card"
                   />
+                ) : customerPickupActive ? (
+                  <div
+                    className="invoice-detail-top__card invoice-detail-top__card--amber is-active"
+                    title="Customer pickup"
+                  >
+                    <span className="invoice-detail-top__card-icon">
+                      <MapPin size={28} strokeWidth={1.75} aria-hidden />
+                    </span>
+                    <span className="invoice-detail-top__card-label">Customer pickup</span>
+                    {invoice.customerPickup?.vehicleNumber ? (
+                      <span className="invoice-detail-top__card-meta text-sm">
+                        {invoice.customerPickup.vehicleNumber}
+                      </span>
+                    ) : null}
+                    {invoice.ewayBill?.ewaybillNumber ? (
+                      <span className="invoice-detail-top__card-meta text-sm">
+                        EWB {invoice.ewayBill.ewaybillNumber}
+                      </span>
+                    ) : null}
+                  </div>
                 ) : courierEntry ? (
                   <BookCourierEntryButton entry={courierEntry} variant="card" />
+                ) : null}
+                {showCustomerPickup ? (
+                  <button
+                    type="button"
+                    className="invoice-detail-top__card invoice-detail-top__card--amber"
+                    title="Mark as customer pickup — no courier booking"
+                    onClick={() => setPickupOpen(true)}
+                  >
+                    <span className="invoice-detail-top__card-icon">
+                      <MapPin size={28} strokeWidth={1.75} aria-hidden />
+                    </span>
+                    <span className="invoice-detail-top__card-label">Customer pickup</span>
+                  </button>
                 ) : null}
               </div>
               {!existingBooking
@@ -344,6 +399,32 @@ export const AdminInvoiceDetailLayout: React.FC = () => {
               onClose={() => setAddLrOpen(false)}
               onCreated={booking => {
                 setExistingBooking(booking);
+                setCourierEntry(null);
+                setAddLrAvailable(false);
+              }}
+            />
+          ) : null}
+          {invoice && pickupOpen ? (
+            <InvoiceCustomerPickupDialog
+              open={pickupOpen}
+              invoice={invoice}
+              customerId={customerId}
+              invoiceId={invoiceId}
+              shipFromSite={pickupShipFrom}
+              onClose={() => setPickupOpen(false)}
+              onComplete={result => {
+                setInvoice(prev => prev ? {
+                  ...prev,
+                  customerPickup: result.customerPickup,
+                  ewayBill: result.eway?.status
+                    ? {
+                      ...(prev.ewayBill ?? {}),
+                      status: result.eway.status,
+                      ewaybillNumber: result.eway.ewaybillNumber ?? prev.ewayBill?.ewaybillNumber ?? null,
+                      required: result.ewayRequired,
+                    }
+                    : prev.ewayBill,
+                } : prev);
                 setCourierEntry(null);
                 setAddLrAvailable(false);
               }}

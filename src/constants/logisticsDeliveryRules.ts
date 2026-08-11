@@ -24,12 +24,12 @@ export const DEFAULT_LOGISTICS_DELIVERY_RULES: LogisticsDeliveryRulesMatrix = {
     head_office: ['st_courier', 'trackon_surface', 'personal_collection'],
   },
   tamil_nadu_pondy: {
-    cochin: ['delhivery', 'st_courier'],
-    head_office: ['st_courier', 'trackon_surface'],
+    cochin: ['delhivery', 'st_courier', 'personal_collection'],
+    head_office: ['st_courier', 'trackon_surface', 'personal_collection'],
   },
   other_states: {
-    cochin: ['delhivery', 'st_courier'],
-    head_office: ['trackon_air', 'trackon_surface'],
+    cochin: ['delhivery', 'st_courier', 'personal_collection'],
+    head_office: ['trackon_air', 'trackon_surface', 'personal_collection'],
   },
 };
 

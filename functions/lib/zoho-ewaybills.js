@@ -421,6 +421,70 @@ export function mapZohoEwayBillRecord(raw) {
 export { normalizeGstin };
 
 /**
+ * Add or update Part B vehicle details on a generated e-way bill.
+ * @param {string} accessToken
+ * @param {string} orgId
+ * @param {string} ewaybillId
+ * @param {{
+ *   vehicleNumber: string;
+ *   fromPlace: string;
+ *   fromState: string;
+ *   reason?: string;
+ *   remarks?: string;
+ *   vehicleId?: string | null;
+ * }} input
+ */
+export async function addZohoEwayBillVehicle(accessToken, orgId, ewaybillId, input) {
+  const id = String(ewaybillId ?? '').trim();
+  if (!id) throw new Error('E-way bill id is required.');
+
+  const vehicleNumber = String(input.vehicleNumber ?? '').trim().toUpperCase().replace(/\s+/g, '');
+  if (!vehicleNumber) throw new Error('Vehicle number is required for e-way bill Part B.');
+
+  const fromPlace = String(input.fromPlace ?? '').trim().slice(0, 50);
+  const fromState = String(input.fromState ?? '').trim();
+  if (!fromPlace || !fromState) {
+    throw new Error('Dispatch place and state are required to update e-way bill Part B.');
+  }
+
+  const reason = String(input.reason ?? 'first_time').trim() || 'first_time';
+  const allowedReasons = new Set(['due_to_break_down', 'due_to_transhipment', 'first_time', 'others']);
+  if (!allowedReasons.has(reason)) {
+    throw new Error('Invalid reason for vehicle update.');
+  }
+
+  const body = {
+    vehicle_number: vehicleNumber.slice(0, 20),
+    vehicle_type: 'regular',
+    transportation_mode: 'road',
+    from_place: fromPlace,
+    from_state: fromState,
+    reason,
+    remarks: String(input.remarks ?? 'Customer pickup').trim().slice(0, 50) || 'Customer pickup',
+  };
+
+  const vehicleId = String(input.vehicleId ?? '').trim();
+  if (vehicleId) {
+    body.vehicle_id = vehicleId;
+    const payload = await zohoJson(
+      accessToken,
+      orgId,
+      `/ewaybills/${encodeURIComponent(id)}/vehicles/${encodeURIComponent(vehicleId)}`,
+      { method: 'PUT', body },
+    );
+    return payload?.vehicle_details ?? payload?.ewaybill ?? payload;
+  }
+
+  const payload = await zohoJson(
+    accessToken,
+    orgId,
+    `/ewaybills/${encodeURIComponent(id)}/vehicles`,
+    { method: 'POST', body },
+  );
+  return payload?.vehicle_details ?? payload?.ewaybill ?? payload;
+}
+
+/**
  * Cancel a generated e-way bill on the GST portal via Zoho.
  * @param {{ reason: string; remarks?: string | null }} input
  */

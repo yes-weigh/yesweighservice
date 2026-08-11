@@ -21066,6 +21066,7 @@ body:has(.confirm-inline-bar) .confirm-inline-bar {
   white-space: nowrap;
 }
 
+.list-tile-kam,
 .logistics-shipment__staff {
   display: block;
   font-size: 0.75rem;
@@ -21483,7 +21484,8 @@ body:has(.confirm-inline-bar) .confirm-inline-bar {
     font-size: 0.7rem;
   }
 
-  .logistics-shipment__staff {
+  .logistics-shipment__staff,
+  .list-tile-kam {
     font-size: 0.7rem;
   }
 
@@ -31988,6 +31990,31 @@ button.invoice-detail-top__card {
 
 .invoice-detail-top__card--purple.is-active {
   box-shadow: 0 8px 22px rgba(168, 85, 247, 0.18);
+}
+
+.invoice-detail-top__card--amber {
+  border-color: rgba(251, 191, 36, 0.35);
+  color: #fbbf24;
+}
+
+.invoice-detail-top__card--amber.is-active {
+  border-color: rgba(251, 191, 36, 0.65);
+  background: rgba(251, 191, 36, 0.08);
+}
+
+.invoice-customer-pickup-dialog__body {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 0 0 8px;
+}
+
+.invoice-detail-top__card-meta {
+  display: block;
+  font-size: 0.6875rem;
+  font-weight: 600;
+  opacity: 0.85;
+  margin-top: 2px;
 }
 
 .invoice-detail-top__card--orange {

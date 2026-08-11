@@ -48,6 +48,7 @@ import type {
   DealerInvoiceLineItem,
   InvoiceCategory,
   InvoiceChartPoint,
+  InvoiceCustomerPickup,
   InvoiceSalesEntry,
   KpiPeriod,
 } from '../types/invoices';
@@ -80,6 +81,21 @@ export interface AdminFirestoreInvoice {
   categoryAmounts: Partial<Record<InvoiceCategory, number>>;
   /** Set when Aggregate mode clubs invoices into one row per dealer. */
   aggregateInvoiceCount?: number;
+  customerPickup?: InvoiceCustomerPickup | null;
+}
+
+function mapInvoiceCustomerPickup(raw: unknown): InvoiceCustomerPickup | null {
+  if (!raw || typeof raw !== 'object') return null;
+  const data = raw as Record<string, unknown>;
+  const markedAt = String(data.markedAt ?? '').trim();
+  if (!markedAt) return null;
+  return {
+    markedAt,
+    markedByUid: data.markedByUid ? String(data.markedByUid) : null,
+    markedByName: data.markedByName ? String(data.markedByName) : null,
+    shipFromSite: data.shipFromSite ? String(data.shipFromSite) : null,
+    vehicleNumber: data.vehicleNumber ? String(data.vehicleNumber) : null,
+  };
 }
 
 function timestampToIso(value: unknown): string | null {
@@ -123,6 +139,7 @@ export function mapAdminInvoiceDoc(
     invoiceCategory: parseInvoiceCategory(data.invoiceCategory),
     categories: normalizeInvoiceCategories(data.categories),
     categoryAmounts: normalizeInvoiceCategoryAmounts(data.categoryAmounts),
+    customerPickup: mapInvoiceCustomerPickup(data.customerPickup),
   };
 }
 
@@ -1655,6 +1672,10 @@ export function mapAdminInvoiceDetail(
     lineItems: Array.isArray(data.lineItems)
       ? data.lineItems.map(item => mapAdminInvoiceLineItem(item as Record<string, unknown>))
       : [],
+    customerPickup: mapInvoiceCustomerPickup(data.customerPickup),
+    ewayBill: data.ewayBill && typeof data.ewayBill === 'object'
+      ? (data.ewayBill as DealerInvoiceDetail['ewayBill'])
+      : null,
   };
 }
 
@@ -1746,5 +1767,9 @@ export async function fetchAdminInvoiceDetail(
     customerPhone: contact.phone,
     customerTelHref: contact.telHref,
     customerWhatsappHref: contact.whatsappHref,
+    customerPickup: mapInvoiceCustomerPickup(data.customerPickup),
+    ewayBill: data.ewayBill && typeof data.ewayBill === 'object'
+      ? (data.ewayBill as DealerInvoiceDetail['ewayBill'])
+      : null,
   };
 }
