@@ -6,6 +6,11 @@ import type {
   SiteFreightBucket,
   StCourierCartFreightEstimate,
 } from './stCourierCartFreight';
+import {
+  isPickupPartner,
+  PICKUP_PARTNER_ID,
+} from './orderFreight';
+import { logisticsPartnerLabel } from '../constants/logisticsPartners';
 
 function round2(n: number): number {
   return Math.round(n * 100) / 100;
@@ -117,6 +122,8 @@ export function estimateOffersDelhivery(
     site.courierOptions.some(opt => opt.partnerId === 'delhivery')
   ));
 }
+
+export { estimateAllSitesPickup } from './stCourierCartFreight';
 
 export function selectedPartnerIsDelhivery(
   estimate: StCourierCartFreightEstimate | null | undefined,
@@ -280,7 +287,10 @@ export function mergeDelhiveryLiveQuoteIntoEstimate(
     let partnerId = site.partnerId;
     let partnerLabel = site.partnerLabel;
 
-    if (wasDelhivery) {
+    if (isPickupPartner(site.partnerId) || site.isPickup) {
+      partnerId = PICKUP_PARTNER_ID;
+      partnerLabel = logisticsPartnerLabel(PICKUP_PARTNER_ID);
+    } else if (wasDelhivery) {
       const selected = courierOptions.find(o => (
         o.partnerId === 'delhivery'
         && o.freightBillingMode === selectedMode
@@ -299,11 +309,22 @@ export function mergeDelhiveryLiveQuoteIntoEstimate(
       partnerLabel = selected?.label ?? site.partnerLabel;
     }
 
+    const isPickup = isPickupPartner(partnerId);
+
     return {
       ...site,
       courierOptions,
       partnerId,
       partnerLabel,
+      isPickup,
+      ...(isPickup
+        ? {
+          totalInr: 0,
+          productFreightInr: 0,
+          spareFreightInr: 0,
+          rateMissing: false,
+        }
+        : {}),
     };
   });
 

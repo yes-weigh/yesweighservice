@@ -42,6 +42,7 @@ import type { InventorySite } from '../../lib/salesOrderSegments';
 import {
   cartLinesForFreightEstimate,
   estimateStCourierCartFreight,
+  resolveSubmitCourierBySite,
   type StCourierCartFreightEstimate,
 } from '../../lib/stCourierCartFreight';
 import {
@@ -296,10 +297,7 @@ const DealerCartPage: React.FC = () => {
     }
     setSubmitting(true);
     try {
-      const courierSelection = freightEstimate?.sites.reduce((acc, site) => {
-        acc[site.site] = site.partnerId;
-        return acc;
-      }, {} as Partial<Record<InventorySite, LogisticsPartnerId>>);
+      const courierSelection = resolveSubmitCourierBySite(freightEstimate, courierBySite);
       const delhiveryFreight = selectedPartnerIsDelhivery(freightEstimate)
         ? (
           freightBillingMode === 'fod'

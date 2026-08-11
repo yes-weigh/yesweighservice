@@ -38,9 +38,11 @@ import { selectedPartnerIsDelhivery } from '../../lib/delhiveryCartFreight';
 import { loadLogisticsCourierRates } from '../../lib/logisticsCourierRates';
 import { loadLogisticsSettings } from '../../lib/logisticsSettings';
 import {
+  applyCourierSelectionForSite,
   cartLinesForFreightEstimate,
   estimateStCourierCartFreight,
   listProductsMissingFreightPackageInfo,
+  resolveSubmitCourierBySite,
   type StCourierCartFreightEstimate,
 } from '../../lib/stCourierCartFreight';
 import type { StaffLogisticsSite } from '../../types/staff-logistics';
@@ -1156,9 +1158,7 @@ export const StaffCreateSalesOrderPage: React.FC = () => {
         shipping,
         stage,
         remarks: cartRemarks.trim(),
-        courierBySite: Object.fromEntries(
-          (freightEstimate?.sites ?? []).map(site => [site.site, site.partnerId]),
-        ),
+        courierBySite: resolveSubmitCourierBySite(freightEstimate, courierBySite),
         ...(inferredFreightZone ? { freightZone: inferredFreightZone } : {}),
         ...(selectedFreightUsesManualRate
           && manualFreightAmount != null
@@ -1789,7 +1789,12 @@ export const StaffCreateSalesOrderPage: React.FC = () => {
                     onCourierChange={(site, partnerId) => {
                       setManualFreightAmountLocked(false);
                       if (partnerId !== 'delhivery') setFreightBillingMode('btc');
-                      setCourierBySite(prev => ({ ...prev, [site]: partnerId }));
+                      setCourierBySite(prev => applyCourierSelectionForSite(
+                        prev,
+                        site,
+                        partnerId,
+                        freightEstimate?.sites.map(s => s.site),
+                      ));
                     }}
                     onPackageInfoChange={(productId, info) => {
                       setManualFreightAmountLocked(false);

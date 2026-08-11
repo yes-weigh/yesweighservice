@@ -992,4 +992,44 @@ export function listProductsMissingFreightPackageInfo(
   return out;
 }
 
+/** True when every ship-from bucket on the estimate is customer pickup. */
+export function estimateAllSitesPickup(
+  estimate: StCourierCartFreightEstimate | null | undefined,
+): boolean {
+  if (!estimate?.usable || estimate.sites.length === 0) return false;
+  return estimate.sites.every(site => site.isPickup || isPickupPartner(site.partnerId));
+}
+
+/**
+ * Customer pickup applies to the whole order — mirror dealer clubSites behaviour
+ * when staff pick pickup on any ship-from bucket.
+ */
+export function applyCourierSelectionForSite(
+  prev: Partial<Record<InventorySite, LogisticsPartnerId>>,
+  site: InventorySite,
+  partnerId: LogisticsPartnerId,
+  allSites?: InventorySite[],
+): Partial<Record<InventorySite, LogisticsPartnerId>> {
+  const next: Partial<Record<InventorySite, LogisticsPartnerId>> = { ...prev, [site]: partnerId };
+  if (isPickupPartner(partnerId) && allSites?.length) {
+    for (const bucket of allSites) {
+      next[bucket] = 'personal_collection';
+    }
+  }
+  return next;
+}
+
+/** Prefer explicit UI courierBySite over estimate defaults when creating/submitting. */
+export function resolveSubmitCourierBySite(
+  estimate: StCourierCartFreightEstimate | null | undefined,
+  courierBySite: Partial<Record<InventorySite, LogisticsPartnerId>>,
+): Partial<Record<InventorySite, LogisticsPartnerId>> {
+  if (!estimate?.usable) return { ...courierBySite };
+  const out: Partial<Record<InventorySite, LogisticsPartnerId>> = {};
+  for (const site of estimate.sites) {
+    out[site.site] = courierBySite[site.site] ?? site.partnerId;
+  }
+  return out;
+}
+
 export type { OrderCourierOption };

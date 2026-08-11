@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   estimateOffersDelhivery,
+  estimateAllSitesPickup,
   mergeDelhiveryLiveQuoteIntoEstimate,
   delhiveryDimensionsFromEstimate,
   selectedPartnerIsDelhivery,
@@ -49,7 +50,9 @@ function preTaxFromQuote(quote: DelhiveryLaneQuote | null): number | null {
  * Fetches BTC (invoiced) and FOD (display-only) estimates in parallel.
  */
 export function useDelhiveryLiveFreightQuote(input: Input): DelhiveryLiveFreightQuoteState {
-  const enabled = input.enabled !== false && estimateOffersDelhivery(input.estimate);
+  const enabled = input.enabled !== false
+    && estimateOffersDelhivery(input.estimate)
+    && !estimateAllSitesPickup(input.estimate);
   const destinationPin = String(input.destinationPin || '').replace(/\D/g, '');
   const originPin = (
     String(input.originPin || '').replace(/\D/g, '')

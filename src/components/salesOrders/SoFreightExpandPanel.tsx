@@ -21,6 +21,7 @@ import {
 } from '../../lib/orderFreight';
 import type { InventorySite } from '../../lib/salesOrderSegments';
 import {
+  applyCourierSelectionForSite,
   cartLinesForFreightEstimate,
   estimateStCourierCartFreight,
   type StCourierCartFreightEstimate,
@@ -378,7 +379,12 @@ export const SoFreightExpandPanel: React.FC<Props> = ({
             setFreightAmountManual(false);
             lastAutoKeyRef.current = '';
             if (partnerId !== 'delhivery') setFreightBillingMode('btc');
-            setCourierBySite(prev => ({ ...prev, [site]: partnerId }));
+            setCourierBySite(prev => applyCourierSelectionForSite(
+              prev,
+              site,
+              partnerId,
+              freightEstimate?.sites.map(s => s.site),
+            ));
           }}
           onPackageInfoChange={(productId, info) => {
             setFreightAmountManual(false);
