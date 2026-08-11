@@ -278,6 +278,7 @@ export type BookCourierStep =
   | 'review'
   | 'label'
   | 'final_photo'
+  | 'eway_bill'
   | 'complete';
 
 /** Visible wizard stages (excludes terminal `complete`). */
@@ -303,11 +304,24 @@ export function bookCourierStepsForPartner(
   return partnerId === 'delhivery' ? DELHIVERY_BOOK_COURIER_STEPS : BOOK_COURIER_STEPS;
 }
 
+/** Progress steps for an in-flight booking (optional e-way when invoice requires it). */
+export function bookCourierStepsForBooking(
+  partnerId: LogisticsPartnerId,
+  options?: { includeEwayBill?: boolean },
+): ReadonlyArray<{ id: BookCourierStep; label: string }> {
+  const base = bookCourierStepsForPartner(partnerId);
+  if (!options?.includeEwayBill) return base;
+  return [...base, { id: 'eway_bill', label: 'E-way bill' }];
+}
+
 export function bookStepProgressIndex(
   step: BookCourierStep,
   partnerId?: LogisticsPartnerId,
+  options?: { includeEwayBill?: boolean },
 ): number {
-  const steps = partnerId ? bookCourierStepsForPartner(partnerId) : BOOK_COURIER_STEPS;
+  const steps = partnerId
+    ? bookCourierStepsForBooking(partnerId, options)
+    : BOOK_COURIER_STEPS;
   if (step === 'complete') return steps.length;
   const idx = steps.findIndex(item => item.id === step);
   if (idx >= 0) return idx;
@@ -315,7 +329,9 @@ export function bookStepProgressIndex(
     if (step === 'scan' || step === 'address') return 0;
     if (step === 'box') return 1;
     if (step === 'review' || step === 'label' || step === 'final_photo') return 2;
+    if (step === 'eway_bill') return Math.max(0, steps.length - 1);
   }
+  if (step === 'eway_bill') return Math.max(0, steps.length - 1);
   return 0;
 }
 

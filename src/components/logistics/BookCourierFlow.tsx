@@ -34,7 +34,7 @@ import {
 } from '../../lib/dealer-cache';
 import {
   SHIPMENT_MODES,
-  bookCourierStepsForPartner,
+  bookCourierStepsForBooking,
   bookStepProgressIndex,
   combineShipmentBoxDrafts,
   computeVolumetricWeight,
@@ -123,6 +123,16 @@ import {
   STAFF_LOGISTICS_SITE_LABELS,
   isStaffLogisticsSite,
 } from '../../types/staff-logistics';
+import { deliveryPartnerTabForLogisticsPartner } from '../../constants/deliveryPartnerTabs';
+import { bookingNeedsEwayBill } from '../../constants/ewayBill';
+import { ensureInvoiceEwayBill } from '../../lib/invoiceEwayBill';
+import { isInternalOpsUser } from '../../lib/staffAccess';
+import { base64ToUint8Array } from '../../lib/pdfViewer';
+import {
+  EwayBillGeneratePreviewBody,
+  ewayBillDocumentDateLabel,
+  isEwayTransporterMissing,
+} from './EwayBillGeneratePreview';
 import { BarcodeScanner } from './BarcodeScanner';
 import { ShippingLabelBitmapPreview } from './ShippingLabelBitmapPreview';
 
@@ -155,12 +165,15 @@ interface BookCourierFlowProps {
 function StepProgress({
   step,
   partnerId,
+  includeEwayBill,
 }: {
   step: BookCourierStep;
   partnerId: LogisticsPartnerId;
+  includeEwayBill: boolean;
 }) {
-  const steps = bookCourierStepsForPartner(partnerId);
-  const activeIndex = bookStepProgressIndex(step, partnerId);
+  const progressOptions = { includeEwayBill };
+  const steps = bookCourierStepsForBooking(partnerId, progressOptions);
+  const activeIndex = bookStepProgressIndex(step, partnerId, progressOptions);
   const total = steps.length;
   const allDone = step === 'complete' || activeIndex >= total;
 
@@ -241,6 +254,7 @@ export const BookCourierFlow: React.FC<BookCourierFlowProps> = ({
   onBookingUpdated,
 }) => {
   const isDelhivery = partnerId === 'delhivery';
+  const isOps = isInternalOpsUser(user);
   const initialStep = initialStepProp
     ?? (isDelhivery ? 'address' : 'scan');
   const [step, setStep] = useState<BookCourierStep>(() => {
@@ -263,8 +277,24 @@ export const BookCourierFlow: React.FC<BookCourierFlowProps> = ({
   }));
   const draftRef = useRef(draft);
   draftRef.current = draft;
+  const showEwayWizardStep = useMemo(
+    () => isOps && bookingNeedsEwayBill({
+      invoiceId: draft.invoiceId,
+      invoiceValueInr: draft.invoiceValueInr,
+    }),
+    [draft.invoiceId, draft.invoiceValueInr, isOps],
+  );
+  const progressOptions = useMemo(
+    () => ({ includeEwayBill: showEwayWizardStep }),
+    [showEwayWizardStep],
+  );
   const photoSessionKeyRef = useRef(logisticsPhotoSessionKey(null, partnerId));
   const [booking, setBooking] = useState<LogisticsBooking | null>(null);
+  const [ewayBillStatus, setEwayBillStatus] = useState<string | null>(null);
+  const [ewayBillNumber, setEwayBillNumber] = useState<string | null>(null);
+  const [ewayEnsuring, setEwayEnsuring] = useState(false);
+  const [ewayGenerateError, setEwayGenerateError] = useState('');
+  const [ewayTransporterName, setEwayTransporterName] = useState<string | null>(null);
   const [cameraOpen, setCameraOpen] = useState(false);
   const [dealerQuery, setDealerQuery] = useState(initialDealerQuery ?? '');
   const [dealers, setDealers] = useState<ZohoDealer[]>([]);
@@ -305,6 +335,77 @@ export const BookCourierFlow: React.FC<BookCourierFlowProps> = ({
     const dealer = dealers.find(item => item.id === draft.zohoCustomerId);
     return dealer ? zohoDealerToSnapshot(dealer) : null;
   }, [dealers, draft.zohoCustomerId]);
+
+  const ewayLrNumber = (booking?.consignmentNo || draft.consignmentNo || '').trim();
+  const ewayGeneratePreview = useMemo(() => ({
+    invoiceNumber: draft.invoiceNumber?.trim() || draft.invoiceId?.trim() || '—',
+    invoiceTotalInr: Number(booking?.invoiceValueInr ?? draft.invoiceValueInr ?? 0),
+    consigneeName: selectedDealer?.name?.trim() || booking?.dealer.name?.trim() || '—',
+    partnerLabel: logisticsPartnerLabel(partnerId),
+    transporterName: ewayTransporterName,
+    lrNumber: ewayLrNumber || null,
+    transportMode: 'Road',
+    supplyType: 'Supply',
+    transactionType: 'Regular',
+    documentDate: ewayBillDocumentDateLabel(),
+  }), [
+    booking?.dealer.name,
+    booking?.invoiceValueInr,
+    draft.consignmentNo,
+    draft.invoiceId,
+    draft.invoiceNumber,
+    draft.invoiceValueInr,
+    ewayLrNumber,
+    ewayTransporterName,
+    partnerId,
+    selectedDealer?.name,
+  ]);
+
+  useEffect(() => {
+    if (step !== 'eway_bill' || !booking) return;
+    let cancelled = false;
+    void loadLogisticsSettings()
+      .then(settings => {
+        if (cancelled) return;
+        const tab = deliveryPartnerTabForLogisticsPartner(partnerId);
+        setEwayTransporterName(settings.partnerTransporters[tab]?.name ?? null);
+      })
+      .catch(() => {
+        if (!cancelled) setEwayTransporterName(null);
+      });
+
+    const customerId = booking.dealer.zohoCustomerId?.trim() || draft.zohoCustomerId.trim();
+    const invoiceId = booking.invoiceId?.trim() || draft.invoiceId?.trim();
+    if (!customerId || !invoiceId) {
+      return () => { cancelled = true; };
+    }
+
+    void ensureInvoiceEwayBill({
+      customerId,
+      invoiceId,
+      partnerId: booking.partnerId,
+      lrNumber: ewayLrNumber || null,
+      bookingId: booking.id,
+      invoiceTotalInr: booking.invoiceValueInr ?? draft.invoiceValueInr ?? null,
+      autoGenerate: false,
+    })
+      .then(result => {
+        if (cancelled) return;
+        setEwayBillStatus(result.status ?? null);
+        setEwayBillNumber(result.ewaybillNumber ?? null);
+      })
+      .catch(() => undefined);
+
+    return () => { cancelled = true; };
+  }, [
+    booking,
+    draft.invoiceId,
+    draft.invoiceValueInr,
+    draft.zohoCustomerId,
+    ewayLrNumber,
+    partnerId,
+    step,
+  ]);
 
   const filteredDealers = useMemo(() => {
     const q = dealerQuery.trim();
@@ -1038,6 +1139,83 @@ export const BookCourierFlow: React.FC<BookCourierFlowProps> = ({
     }
   }, [selectedDealer]);
 
+  const finishWizardAfterBooking = useCallback((created: LogisticsBooking) => {
+    setBooking(created);
+    if (showEwayWizardStep && created.ewayBillStatus !== 'generated') {
+      setEwayBillStatus(created.ewayBillStatus ?? null);
+      setEwayBillNumber(created.ewayBillNumber ?? null);
+      setEwayGenerateError('');
+      setStep('eway_bill');
+      return;
+    }
+    if (isDelhivery) {
+      onComplete(created);
+      return;
+    }
+    setStep('complete');
+  }, [isDelhivery, onComplete, showEwayWizardStep]);
+
+  const finishWizardFromEwayStep = useCallback(() => {
+    if (!booking) return;
+    if (isDelhivery) {
+      onComplete(booking);
+      return;
+    }
+    setStep('complete');
+  }, [booking, isDelhivery, onComplete]);
+
+  const openEwayPdfFromResult = useCallback((contentBase64: string, mimeType: string) => {
+    const bytes = base64ToUint8Array(contentBase64);
+    const blob = new Blob([Uint8Array.from(bytes)], { type: mimeType || 'application/pdf' });
+    if ((mimeType || '').includes('html')) {
+      const url = URL.createObjectURL(blob);
+      window.open(url, '_blank', 'noopener,noreferrer');
+      window.setTimeout(() => URL.revokeObjectURL(url), 60_000);
+      return;
+    }
+    const url = URL.createObjectURL(blob);
+    window.open(url, '_blank', 'noopener,noreferrer');
+    window.setTimeout(() => URL.revokeObjectURL(url), 60_000);
+  }, []);
+
+  const handleWizardGenerateEway = useCallback(async () => {
+    if (!booking) return;
+    const customerId = booking.dealer.zohoCustomerId?.trim() || draft.zohoCustomerId.trim();
+    const invoiceId = booking.invoiceId?.trim() || draft.invoiceId?.trim();
+    if (!customerId || !invoiceId) return;
+    setEwayEnsuring(true);
+    setEwayGenerateError('');
+    try {
+      const result = await ensureInvoiceEwayBill({
+        customerId,
+        invoiceId,
+        partnerId: booking.partnerId,
+        lrNumber: ewayLrNumber || null,
+        bookingId: booking.id,
+        invoiceTotalInr: booking.invoiceValueInr ?? draft.invoiceValueInr ?? null,
+        autoGenerate: true,
+      });
+      setEwayBillStatus(result.status ?? null);
+      setEwayBillNumber(result.ewaybillNumber ?? null);
+      if (result.contentBase64) {
+        openEwayPdfFromResult(result.contentBase64, result.mimeType || 'application/pdf');
+      }
+    } catch (err) {
+      setEwayGenerateError(
+        err instanceof Error ? err.message : 'Could not generate e-way bill.',
+      );
+    } finally {
+      setEwayEnsuring(false);
+    }
+  }, [
+    booking,
+    draft.invoiceId,
+    draft.invoiceValueInr,
+    draft.zohoCustomerId,
+    ewayLrNumber,
+    openEwayPdfFromResult,
+  ]);
+
   const handleConfirmShipment = useCallback(async () => {
     const dealer = await ensureDealerAddressHydrated();
     if (!dealer) return;
@@ -1055,18 +1233,13 @@ export const BookCourierFlow: React.FC<BookCourierFlowProps> = ({
         bookingId: created.id,
         sessionKey: created.id,
       });
-      setBooking(created);
-      if (isDelhivery) {
-        onComplete(created);
-        return;
-      }
-      setStep('complete');
+      finishWizardAfterBooking(created);
     } catch (err) {
       window.alert(err instanceof Error ? err.message : 'Could not save shipment.');
     } finally {
       setSaving(false);
     }
-  }, [ensureDealerAddressHydrated, isDelhivery, onComplete, user]);
+  }, [ensureDealerAddressHydrated, finishWizardAfterBooking, user]);
 
   const wizardHasProgress = useCallback((): boolean => {
     const current = draftRef.current;
@@ -1074,7 +1247,7 @@ export const BookCourierFlow: React.FC<BookCourierFlowProps> = ({
     if (current.consignmentNo.trim() || current.barcodeRaw.trim()) return true;
     if (current.boxes.some(box => box.photos.length > 0)) return true;
     if (current.finalPackagePhoto?.trim()) return true;
-    return step !== 'scan' && step !== 'address' && step !== 'complete';
+    return step !== 'scan' && step !== 'address' && step !== 'complete' && step !== 'eway_bill';
   }, [step]);
 
   const addBoxPhoto = useCallback(async (boxId: string, file: File | undefined) => {
@@ -1136,8 +1309,12 @@ export const BookCourierFlow: React.FC<BookCourierFlowProps> = ({
   }, [applyDraft]);
 
   const requestClose = useCallback(() => {
-    if (step === 'complete' || saving) {
-      onClose();
+    if (step === 'eway_bill') {
+      finishWizardFromEwayStep();
+      return;
+    }
+    if (step === 'complete' || saving || ewayEnsuring) {
+      if (step === 'complete') onClose();
       return;
     }
     if (wizardHasProgress()) {
@@ -1147,7 +1324,7 @@ export const BookCourierFlow: React.FC<BookCourierFlowProps> = ({
       if (!leave) return;
     }
     onClose();
-  }, [step, saving, wizardHasProgress, onClose]);
+  }, [ewayEnsuring, finishWizardFromEwayStep, step, saving, wizardHasProgress, onClose]);
 
   const handleFinish = useCallback(() => {
     if (booking) onComplete(booking);
@@ -1455,15 +1632,17 @@ export const BookCourierFlow: React.FC<BookCourierFlowProps> = ({
       case 'final_photo':
         setStep(isDelhivery ? 'review' : 'label');
         break;
-      case 'complete': break;
+      case 'eway_bill':
+      case 'complete':
+        break;
       default: onClose();
     }
   };
 
   const stepNumberLabel = (() => {
     if (step === 'complete') return 'Completed';
-    const steps = bookCourierStepsForPartner(partnerId);
-    const idx = bookStepProgressIndex(step, partnerId);
+    const steps = bookCourierStepsForBooking(partnerId, progressOptions);
+    const idx = bookStepProgressIndex(step, partnerId, progressOptions);
     const current = steps[idx];
     const stage = current?.label ?? 'Step';
     return `${stage} · Step ${idx + 1} of ${steps.length}`;
@@ -1482,7 +1661,7 @@ export const BookCourierFlow: React.FC<BookCourierFlowProps> = ({
         <span className="delivery-method-dialog__glow delivery-method-dialog__glow--br" aria-hidden />
 
         <header className="delivery-method-dialog__header">
-          {step !== 'complete' ? (
+          {step !== 'complete' && step !== 'eway_bill' ? (
             <button type="button" className="delivery-method-dialog__back" onClick={goBack} aria-label="Go back">
               <ChevronLeft size={22} aria-hidden />
             </button>
@@ -1513,7 +1692,7 @@ export const BookCourierFlow: React.FC<BookCourierFlowProps> = ({
           )}
         </header>
 
-        <StepProgress step={step} partnerId={partnerId} />
+        <StepProgress step={step} partnerId={partnerId} includeEwayBill={showEwayWizardStep} />
 
         <div className="book-courier__body">
           {/* SCREEN 1 — SCAN */}
@@ -2527,6 +2706,64 @@ export const BookCourierFlow: React.FC<BookCourierFlowProps> = ({
                   ? 'Saving…'
                   : (draft.finalPackagePhoto ? 'Confirm booking' : 'Skip photo & Confirm')}
               </button>
+            </section>
+          )}
+
+          {/* SCREEN — E-WAY BILL (invoice-linked, ops, > ₹50k) */}
+          {step === 'eway_bill' && booking && (
+            <section className="book-courier__section">
+              <h3 className="book-courier__section-title">
+                Generate <span className="accent">E-way bill</span>
+              </h3>
+              {ewayBillStatus === 'generated' ? (
+                <>
+                  <div className="book-courier__success-badge book-courier__success-badge--compact">
+                    <CheckCircle2 size={32} aria-hidden />
+                  </div>
+                  <p className="book-courier__hint text-sm">
+                    E-way bill ready
+                    {ewayBillNumber ? `: ${ewayBillNumber}` : '.'}
+                  </p>
+                </>
+              ) : (
+                <div className="logistics-eway-generate__body book-courier__eway-panel">
+                  <EwayBillGeneratePreviewBody
+                    preview={ewayGeneratePreview}
+                    error={ewayGenerateError}
+                    intro="Shipment is booked. Generate the e-way bill in Zoho before dispatch, or skip and do it later from shipment details."
+                  />
+                </div>
+              )}
+              <div className="book-courier__final-photo-actions book-courier__label-next-row">
+                {ewayBillStatus !== 'generated' ? (
+                  <>
+                    <button
+                      type="button"
+                      className="btn btn-secondary book-courier__next"
+                      disabled={ewayEnsuring}
+                      onClick={finishWizardFromEwayStep}
+                    >
+                      Skip for now
+                    </button>
+                    <button
+                      type="button"
+                      className="btn btn-primary book-courier__next"
+                      disabled={ewayEnsuring || isEwayTransporterMissing(ewayGeneratePreview)}
+                      onClick={() => void handleWizardGenerateEway()}
+                    >
+                      {ewayEnsuring ? 'Generating…' : 'Generate e-way bill'}
+                    </button>
+                  </>
+                ) : (
+                  <button
+                    type="button"
+                    className="btn btn-primary book-courier__next"
+                    onClick={finishWizardFromEwayStep}
+                  >
+                    {isDelhivery ? 'View shipment' : 'Continue'}
+                  </button>
+                )}
+              </div>
             </section>
           )}
 

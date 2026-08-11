@@ -21732,6 +21732,59 @@ body:has(.confirm-inline-bar) .confirm-inline-bar {
   padding: 0 1.25rem 1rem;
 }
 
+.logistics-eway-generate {
+  width: min(100%, 480px);
+}
+
+.logistics-eway-generate__body {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  padding: 0 1.25rem 1rem;
+}
+
+.logistics-eway-generate__preview {
+  margin: 0;
+  display: grid;
+  gap: 0.45rem;
+}
+
+.logistics-eway-generate__row {
+  display: grid;
+  grid-template-columns: minmax(8.5rem, 42%) 1fr;
+  gap: 0.65rem;
+  align-items: baseline;
+  font-size: 0.88rem;
+}
+
+.logistics-eway-generate__row dt {
+  margin: 0;
+  color: var(--text-muted, #94a3b8);
+}
+
+.logistics-eway-generate__row dd {
+  margin: 0;
+  font-weight: 500;
+  word-break: break-word;
+}
+
+.logistics-eway-generate__warn {
+  color: var(--danger, #f87171);
+  font-weight: 500;
+}
+
+.logistics-eway-generate__note {
+  margin: 0;
+}
+
+.book-courier__eway-panel {
+  padding: 0;
+}
+
+.book-courier__eway-panel .logistics-eway-generate__preview {
+  margin-top: 0.35rem;
+}
+
 .logistics-booking__issue {
   margin: 1rem 0;
   display: flex;

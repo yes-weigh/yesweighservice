@@ -102,9 +102,12 @@ import {
   downloadDealerInvoiceDocument,
   invoiceDocumentToBlob,
 } from '../../lib/invoices';
-import { ensureInvoiceEwayBill, cancelInvoiceEwayBill } from '../../lib/invoiceEwayBill';
+import { ensureInvoiceEwayBill, cancelInvoiceEwayBill, type InvoiceEwayBillResult } from '../../lib/invoiceEwayBill';
 import { isEwayBillRequired, type EwayBillCancelReason } from '../../constants/ewayBill';
 import { EwayBillCancelDialog } from './EwayBillCancelDialog';
+import { EwayBillGenerateDialog } from './EwayBillGenerateDialog';
+import { ewayBillDocumentDateLabel } from './EwayBillGeneratePreview';
+import { deliveryPartnerTabForLogisticsPartner } from '../../constants/deliveryPartnerTabs';
 import { base64ToUint8Array } from '../../lib/pdfViewer';
 import { EwayBillIcon } from './EwayBillIcon';
 import { StCourierTrackPanel } from './StCourierTrackPanel';
@@ -324,6 +327,9 @@ export const LogisticsBookingDetail: React.FC<LogisticsBookingDetailProps> = ({
   const [ewayBillStatus, setEwayBillStatus] = useState<string | null>(booking.ewayBillStatus ?? null);
   const [ewayBillNumber, setEwayBillNumber] = useState<string | null>(booking.ewayBillNumber ?? null);
   const [ewayEnsuring, setEwayEnsuring] = useState(false);
+  const [ewayGenerateOpen, setEwayGenerateOpen] = useState(false);
+  const [ewayGenerateError, setEwayGenerateError] = useState('');
+  const [ewayTransporterName, setEwayTransporterName] = useState<string | null>(null);
   const [ewayCancelOpen, setEwayCancelOpen] = useState(false);
   const [ewayCancelling, setEwayCancelling] = useState(false);
   const [ewayCancelError, setEwayCancelError] = useState('');
@@ -449,14 +455,57 @@ export const LogisticsBookingDetail: React.FC<LogisticsBookingDetailProps> = ({
     setEwayBillNumber(booking.ewayBillNumber ?? null);
   }, [booking.ewayBillNumber, booking.ewayBillStatus]);
 
-  const ewayAutoEnsuredRef = useRef('');
+  const ewayGeneratePreview = useMemo(() => ({
+    invoiceNumber: booking.invoiceNumber?.trim() || booking.invoiceId?.trim() || '—',
+    invoiceTotalInr: invoiceTotalForEway,
+    consigneeName: booking.dealer.name?.trim() || booking.dealer.code?.trim() || '—',
+    partnerLabel: logisticsPartnerLabel(booking.partnerId),
+    transporterName: ewayTransporterName,
+    lrNumber: ewayLrNumber || null,
+    transportMode: 'Road',
+    supplyType: 'Supply',
+    transactionType: 'Regular',
+    documentDate: ewayBillDocumentDateLabel(),
+  }), [
+    booking.dealer.code,
+    booking.dealer.name,
+    booking.invoiceId,
+    booking.invoiceNumber,
+    booking.partnerId,
+    ewayLrNumber,
+    ewayTransporterName,
+    invoiceTotalForEway,
+  ]);
+
+  const ewayPromptCheckedRef = useRef('');
+  const ewayGenerateDismissedRef = useRef('');
+
   useEffect(() => {
-    if (!ewayRequired || !hasLinkedInvoice || !ewayCustomerId) return;
-    const autoKey = `${booking.id}:${booking.invoiceId}:${isOps}`;
-    if (ewayAutoEnsuredRef.current === autoKey) return;
-    ewayAutoEnsuredRef.current = autoKey;
+    if (!ewayGenerateOpen) return;
     let cancelled = false;
-    setEwayEnsuring(true);
+    void loadLogisticsSettings()
+      .then(settings => {
+        if (cancelled) return;
+        const tab = deliveryPartnerTabForLogisticsPartner(booking.partnerId);
+        setEwayTransporterName(settings.partnerTransporters[tab]?.name ?? null);
+      })
+      .catch(() => {
+        if (!cancelled) setEwayTransporterName(null);
+      });
+    return () => { cancelled = true; };
+  }, [ewayGenerateOpen, booking.partnerId]);
+
+  useEffect(() => {
+    if (!isOps || !ewayRequired || !hasLinkedInvoice || !ewayCustomerId) return;
+    const key = `${booking.id}:${booking.invoiceId}`;
+    if (ewayPromptCheckedRef.current === key) return;
+    if (ewayBillStatus === 'generated') {
+      ewayPromptCheckedRef.current = key;
+      return;
+    }
+
+    ewayPromptCheckedRef.current = key;
+    let cancelled = false;
     void ensureInvoiceEwayBill({
       customerId: ewayCustomerId,
       invoiceId: booking.invoiceId!.trim(),
@@ -464,20 +513,24 @@ export const LogisticsBookingDetail: React.FC<LogisticsBookingDetailProps> = ({
       lrNumber: ewayLrNumber || null,
       bookingId: booking.id,
       invoiceTotalInr: booking.invoiceValueInr ?? null,
-      autoGenerate: isOps,
+      autoGenerate: false,
     })
       .then(result => {
         if (cancelled) return;
         setEwayBillStatus(result.status ?? null);
         setEwayBillNumber(result.ewaybillNumber ?? null);
+        if (
+          result.required !== false
+          && result.status !== 'generated'
+          && ewayGenerateDismissedRef.current !== key
+        ) {
+          setEwayGenerateOpen(true);
+        }
       })
       .catch(err => {
         if (cancelled) return;
         const message = err instanceof Error ? err.message : '';
         if (message) setDelhiveryDocsError(message);
-      })
-      .finally(() => {
-        if (!cancelled) setEwayEnsuring(false);
       });
     return () => {
       cancelled = true;
@@ -487,11 +540,83 @@ export const LogisticsBookingDetail: React.FC<LogisticsBookingDetailProps> = ({
     booking.invoiceId,
     booking.invoiceValueInr,
     booking.partnerId,
+    ewayBillStatus,
     ewayRequired,
     ewayCustomerId,
     ewayLrNumber,
     hasLinkedInvoice,
     isOps,
+  ]);
+
+  const showEwayBillFromResult = useCallback((result: InvoiceEwayBillResult) => {
+    if (!result.required) {
+      setDelhiveryDocsError(result.message || 'E-way bill is not required for this invoice.');
+      return;
+    }
+    if (!result.contentBase64) {
+      setDelhiveryDocsError(result.message || 'E-way bill is not ready yet.');
+      return;
+    }
+    const bytes = base64ToUint8Array(result.contentBase64);
+    const mimeType = result.mimeType || 'application/pdf';
+    const blob = new Blob([Uint8Array.from(bytes)], { type: mimeType });
+    if (mimeType.includes('html')) {
+      const url = URL.createObjectURL(blob);
+      window.open(url, '_blank', 'noopener,noreferrer');
+      window.setTimeout(() => URL.revokeObjectURL(url), 60_000);
+      return;
+    }
+    setDelhiveryDocDialog({
+      title: result.ewaybillNumber ? `E way bill ${result.ewaybillNumber}` : 'E way bill',
+      contentType: mimeType,
+      pdfBytes: bytes,
+      fileName: result.filename || 'eway-bill.pdf',
+      downloadBlob: blob,
+      hideDownload: true,
+      onCancel: isOps && result.status === 'generated'
+        ? () => {
+          setEwayCancelError('');
+          setEwayCancelOpen(true);
+        }
+        : undefined,
+      cancelLabel: 'Cancel e-way bill',
+    });
+  }, [isOps]);
+
+  const handleConfirmGenerateEwayBill = useCallback(async () => {
+    const invoiceId = booking.invoiceId?.trim();
+    if (!invoiceId || !ewayCustomerId) return;
+    setEwayEnsuring(true);
+    setEwayGenerateError('');
+    try {
+      const result = await ensureInvoiceEwayBill({
+        customerId: ewayCustomerId,
+        invoiceId,
+        partnerId: booking.partnerId,
+        lrNumber: ewayLrNumber || null,
+        bookingId: booking.id,
+        invoiceTotalInr: booking.invoiceValueInr ?? null,
+        autoGenerate: true,
+      });
+      setEwayBillStatus(result.status ?? null);
+      setEwayBillNumber(result.ewaybillNumber ?? null);
+      setEwayGenerateOpen(false);
+      showEwayBillFromResult(result);
+    } catch (err) {
+      setEwayGenerateError(
+        err instanceof Error ? err.message : 'Could not generate e-way bill.',
+      );
+    } finally {
+      setEwayEnsuring(false);
+    }
+  }, [
+    booking.id,
+    booking.invoiceId,
+    booking.invoiceValueInr,
+    booking.partnerId,
+    ewayCustomerId,
+    ewayLrNumber,
+    showEwayBillFromResult,
   ]);
 
   const openEwayBillDocument = useCallback(async () => {
@@ -504,6 +629,11 @@ export const LogisticsBookingDetail: React.FC<LogisticsBookingDetailProps> = ({
       setDelhiveryDocsError('Dealer is not linked to a Zoho customer.');
       return;
     }
+    if (isOps && ewayBillStatus !== 'generated') {
+      setEwayGenerateError('');
+      setEwayGenerateOpen(true);
+      return;
+    }
     setDelhiveryDocOpening('eway_bill');
     setDelhiveryDocsError('');
     try {
@@ -514,42 +644,11 @@ export const LogisticsBookingDetail: React.FC<LogisticsBookingDetailProps> = ({
         lrNumber: ewayLrNumber || null,
         bookingId: booking.id,
         invoiceTotalInr: booking.invoiceValueInr ?? null,
-        autoGenerate: isOps,
+        autoGenerate: false,
       });
       setEwayBillStatus(result.status ?? null);
       setEwayBillNumber(result.ewaybillNumber ?? null);
-      if (!result.required) {
-        setDelhiveryDocsError(result.message || 'E-way bill is not required for this invoice.');
-        return;
-      }
-      if (!result.contentBase64) {
-        setDelhiveryDocsError(result.message || 'E-way bill is not ready yet.');
-        return;
-      }
-      const bytes = base64ToUint8Array(result.contentBase64);
-      const mimeType = result.mimeType || 'application/pdf';
-      const blob = new Blob([Uint8Array.from(bytes)], { type: mimeType });
-      if (mimeType.includes('html')) {
-        const url = URL.createObjectURL(blob);
-        window.open(url, '_blank', 'noopener,noreferrer');
-        window.setTimeout(() => URL.revokeObjectURL(url), 60_000);
-        return;
-      }
-      setDelhiveryDocDialog({
-        title: result.ewaybillNumber ? `E way bill ${result.ewaybillNumber}` : 'E way bill',
-        contentType: mimeType,
-        pdfBytes: bytes,
-        fileName: result.filename || 'eway-bill.pdf',
-        downloadBlob: blob,
-        hideDownload: true,
-        onCancel: isOps && result.status === 'generated'
-          ? () => {
-            setEwayCancelError('');
-            setEwayCancelOpen(true);
-          }
-          : undefined,
-        cancelLabel: 'Cancel e-way bill',
-      });
+      showEwayBillFromResult(result);
     } catch (err) {
       setDelhiveryDocsError(
         err instanceof Error ? err.message : 'Could not open e-way bill.',
@@ -562,9 +661,11 @@ export const LogisticsBookingDetail: React.FC<LogisticsBookingDetailProps> = ({
     booking.invoiceId,
     booking.invoiceValueInr,
     booking.partnerId,
+    ewayBillStatus,
     ewayCustomerId,
     ewayLrNumber,
     isOps,
+    showEwayBillFromResult,
   ]);
 
   const sharedDocCards = useMemo((): LogisticsDocCard[] => {
@@ -739,7 +840,8 @@ export const LogisticsBookingDetail: React.FC<LogisticsBookingDetailProps> = ({
       });
       setEwayBillStatus(result.status ?? 'cancelled');
       setEwayBillNumber(null);
-      ewayAutoEnsuredRef.current = '';
+      ewayPromptCheckedRef.current = '';
+      ewayGenerateDismissedRef.current = '';
       setEwayCancelOpen(false);
       closeDelhiveryDocDialog();
       setDelhiveryDocsError(result.message ?? '');
@@ -2400,6 +2502,21 @@ export const LogisticsBookingDetail: React.FC<LogisticsBookingDetailProps> = ({
           }
         />
       )}
+
+      {ewayGenerateOpen ? (
+        <EwayBillGenerateDialog
+          preview={ewayGeneratePreview}
+          busy={ewayEnsuring}
+          error={ewayGenerateError}
+          onClose={() => {
+            if (ewayEnsuring) return;
+            ewayGenerateDismissedRef.current = `${booking.id}:${booking.invoiceId}`;
+            setEwayGenerateOpen(false);
+            setEwayGenerateError('');
+          }}
+          onConfirm={handleConfirmGenerateEwayBill}
+        />
+      ) : null}
 
       {ewayCancelOpen ? (
         <EwayBillCancelDialog
