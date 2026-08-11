@@ -8,7 +8,7 @@ import {
   recordZohoApiFailure,
   classifyZohoHttpError,
 } from './zoho-api-usage.js';
-import { formatZohoAddress } from './zoho-contact-fields.js';
+import { formatZohoAddress, extractZohoDetailFields } from './zoho-contact-fields.js';
 import { HttpsError } from 'firebase-functions/v2/https';
 import { getFirestore } from 'firebase-admin/firestore';
 import { resolveZohoCustomerIdForUser } from './zoho-invoices.js';
@@ -126,6 +126,21 @@ async function fetchContactAddresses(accessToken, orgId, contactId) {
   return Array.isArray(payload?.addresses) ? payload.addresses : [];
 }
 
+async function fetchWithRetry(fn, { attempts = 3, delayMs = 600 } = {}) {
+  let lastError = null;
+  for (let attempt = 1; attempt <= attempts; attempt += 1) {
+    try {
+      return await fn();
+    } catch (err) {
+      lastError = err;
+      const retryable = isZohoAuthDeniedError(err) || /rate limit|too many requests|429/i.test(String(err?.message ?? ''));
+      if (!retryable || attempt >= attempts) break;
+      await new Promise(resolve => setTimeout(resolve, delayMs * attempt));
+    }
+  }
+  throw lastError;
+}
+
 function isZohoAuthDeniedError(err) {
   const msg = String(err?.message ?? err ?? '').toLowerCase();
   return (
@@ -178,6 +193,40 @@ function mapFormattedDealerAddress(formatted, { kind, label, data = {} } = {}) {
   };
 }
 
+function buildMinimalDealerAddressRows(data) {
+  if (!data || typeof data !== 'object') return [];
+  const zip = clean(data.zipCode) || extractPinFromText(data.zohoShippingAddress || data.shippingAddress);
+  const state = clean(data.billingState);
+  if (!zip || !/^\d{6}$/.test(zip) || !state) return [];
+
+  const attention = clean(data.contactName) || clean(data.companyName) || 'Shipping contact';
+  const company = clean(data.companyName) || clean(data.contactName);
+  const city = clean(data.district);
+  const formatted = [
+    attention !== company ? attention : null,
+    company,
+    city,
+    state,
+    zip,
+    'India',
+  ].filter(Boolean).join(', ');
+
+  return [{
+    addressId: null,
+    kind: 'shipping',
+    label: 'Default shipping',
+    formatted,
+    attention,
+    address: company || formatted,
+    street2: null,
+    city,
+    state,
+    zip,
+    country: 'India',
+    phone: clean(data.mobile) || clean(data.phone),
+  }];
+}
+
 function buildAddressRowsFromDealerDoc(data) {
   if (!data || typeof data !== 'object') return [];
   const rows = [];
@@ -194,6 +243,12 @@ function buildAddressRowsFromDealerDoc(data) {
     { kind: 'billing', label: 'Billing address', data },
   );
   if (billing?.formatted && billing.zip && !hasKind('billing')) rows.push(billing);
+
+  if (!hasKind('shipping')) {
+    for (const row of buildMinimalDealerAddressRows(data)) {
+      if (!hasKind(row.kind)) rows.push(row);
+    }
+  }
 
   return rows;
 }
@@ -292,8 +347,16 @@ export async function listContactAddressesForCustomer(secrets, configuredOrgId, 
     const orgId = await resolveOrganizationId(accessToken, configuredOrgId);
 
     const [contactResult, addressResult] = await Promise.allSettled([
-      fetchContactDetail(accessToken, orgId, contactId),
-      fetchContactAddresses(accessToken, orgId, contactId),
+      fetchWithRetry(() => fetchContactDetail(accessToken, orgId, contactId)),
+      fetchWithRetry(() => fetchContactAddresses(accessToken, orgId, contactId)).catch(err => {
+        // Additional-address list is optional when contact detail includes shipping/billing.
+        if (isZohoAuthDeniedError(err)) throw err;
+        console.warn('listContactAddressesForCustomer optional address list failed:', {
+          contactId,
+          message: err?.message ?? String(err),
+        });
+        return [];
+      }),
     ]);
 
     if (contactResult.status === 'fulfilled') {
@@ -345,6 +408,19 @@ export async function listContactAddressesForCustomer(secrets, configuredOrgId, 
 
   // Cache on customer doc for offline/fast UI (best-effort).
   if (contact || additional.length) {
+    try {
+      const cachePatch = {
+        zohoAddresses: rows,
+        zohoAddressesSyncedAt: new Date().toISOString(),
+      };
+      if (contact) {
+        Object.assign(cachePatch, extractZohoDetailFields(contact));
+      }
+      await getFirestore().collection('zohoCustomers').doc(contactId).set(cachePatch, { merge: true });
+    } catch {
+      // ignore cache write failures
+    }
+  } else if (rows.length) {
     try {
       await getFirestore().collection('zohoCustomers').doc(contactId).set({
         zohoAddresses: rows,

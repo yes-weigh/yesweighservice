@@ -370,6 +370,38 @@ export function addressesFromDealerCache(
     ),
   ].filter((row): row is ShippingAddress => Boolean(row));
 
+  if (!rows.some(row => row.kind === 'shipping')) {
+    const zip = dealer.zipCode?.trim() || extractPinFromText(dealer.zohoShippingAddress || dealer.shippingAddress);
+    const state = dealer.billingState?.trim();
+    if (zip && /^\d{6}$/.test(zip) && state) {
+      const attention = dealer.contactName?.trim() || dealer.companyName?.trim() || 'Shipping contact';
+      const company = dealer.companyName?.trim() || dealer.contactName?.trim() || null;
+      const city = dealer.district?.trim() || null;
+      const formatted = [
+        attention !== company ? attention : null,
+        company,
+        city,
+        state,
+        zip,
+        'India',
+      ].filter(Boolean).join(', ');
+      rows.push({
+        addressId: null,
+        kind: 'shipping',
+        label: 'Default shipping',
+        formatted,
+        attention,
+        address: company || formatted,
+        street2: null,
+        city,
+        state,
+        zip,
+        country: 'India',
+        phone: dealer.mobile?.trim() || dealer.phone?.trim() || null,
+      });
+    }
+  }
+
   const seen = new Set<string>();
   return rows.filter(row => {
     const key = row.addressId ? `id:${row.addressId}` : `kind:${row.kind}`;
