@@ -111,8 +111,7 @@ export const StCourierTrackPanel: React.FC<StCourierTrackPanelProps> = ({
 
   return (
     <section className="logistics-booking__track-panel" aria-label="Shipment tracking">
-      <div className="logistics-booking__card logistics-booking__card--wide">
-        <div className="logistics-booking__track-panel-head">
+        <div className="logistics-booking__track-panel-head logistics-booking__section-head" data-section-label="Tracking">
           <h4>
             <Truck size={16} aria-hidden />
             Tracking
@@ -232,7 +231,6 @@ export const StCourierTrackPanel: React.FC<StCourierTrackPanelProps> = ({
             </div>
           )}
         </div>
-      </div>
     </section>
   );
 };

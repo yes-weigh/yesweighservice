@@ -311,7 +311,92 @@ export function bookCourierStepsForBooking(
 ): ReadonlyArray<{ id: BookCourierStep; label: string }> {
   const base = bookCourierStepsForPartner(partnerId);
   if (!options?.includeEwayBill) return base;
+  /** Delhivery: e-way shown early in the progress bar; still runs after Review + LR. */
+  if (partnerId === 'delhivery') {
+    return [
+      base[0],
+      { id: 'eway_bill', label: 'E-way bill' },
+      ...base.slice(1),
+    ];
+  }
   return [...base, { id: 'eway_bill', label: 'E-way bill' }];
+}
+
+const DELHIVERY_EWAY_FLOW_ORDER: readonly BookCourierStep[] = [
+  'address',
+  'box',
+  'review',
+  'eway_bill',
+];
+
+function usesDelhiveryEarlyEwayUi(
+  partnerId: LogisticsPartnerId | undefined,
+  options?: { includeEwayBill?: boolean },
+): boolean {
+  return partnerId === 'delhivery' && options?.includeEwayBill === true;
+}
+
+/** Flow order for step counter copy (actual navigation), not progress bar layout. */
+export function bookStepFlowIndex(
+  step: BookCourierStep,
+  partnerId?: LogisticsPartnerId,
+  options?: { includeEwayBill?: boolean },
+): number {
+  if (step === 'complete') {
+    const steps = partnerId
+      ? bookCourierStepsForBooking(partnerId, options)
+      : BOOK_COURIER_STEPS;
+    return steps.length;
+  }
+  if (usesDelhiveryEarlyEwayUi(partnerId, options)) {
+    const idx = DELHIVERY_EWAY_FLOW_ORDER.indexOf(step);
+    if (idx >= 0) return idx;
+    if (step === 'scan') return 0;
+    if (step === 'label' || step === 'final_photo') return 2;
+    return 0;
+  }
+  return bookStepProgressIndex(step, partnerId, options);
+}
+
+export type BookStepProgressVisualState = 'done' | 'current' | 'pending';
+
+/** Maps each progress pill to done/current/pending (supports Delhivery e-way UI early). */
+export function bookStepProgressVisualState(
+  stepId: BookCourierStep,
+  currentStep: BookCourierStep,
+  partnerId: LogisticsPartnerId,
+  options?: { includeEwayBill?: boolean },
+): BookStepProgressVisualState {
+  if (currentStep === 'complete') return 'done';
+
+  if (usesDelhiveryEarlyEwayUi(partnerId, options)) {
+    if (stepId === 'eway_bill') {
+      if (currentStep === 'eway_bill') return 'current';
+      return 'pending';
+    }
+    if (stepId === 'address') {
+      return currentStep === 'address' ? 'current' : 'done';
+    }
+    if (stepId === 'box') {
+      if (currentStep === 'address') return 'pending';
+      if (currentStep === 'box') return 'current';
+      return 'done';
+    }
+    if (stepId === 'review') {
+      if (currentStep === 'review') return 'current';
+      if (currentStep === 'eway_bill') return 'done';
+      return 'pending';
+    }
+    return 'pending';
+  }
+
+  const steps = bookCourierStepsForBooking(partnerId, options);
+  const activeIndex = bookStepProgressIndex(currentStep, partnerId, options);
+  const index = steps.findIndex(item => item.id === stepId);
+  if (index < 0) return 'pending';
+  if (index < activeIndex) return 'done';
+  if (index === activeIndex) return 'current';
+  return 'pending';
 }
 
 export function bookStepProgressIndex(
@@ -325,6 +410,12 @@ export function bookStepProgressIndex(
   if (step === 'complete') return steps.length;
   const idx = steps.findIndex(item => item.id === step);
   if (idx >= 0) return idx;
+  if (usesDelhiveryEarlyEwayUi(partnerId, options)) {
+    if (step === 'scan' || step === 'address') return 0;
+    if (step === 'box') return 2;
+    if (step === 'review' || step === 'label' || step === 'final_photo') return 3;
+    if (step === 'eway_bill') return 1;
+  }
   if (partnerId === 'delhivery') {
     if (step === 'scan' || step === 'address') return 0;
     if (step === 'box') return 1;

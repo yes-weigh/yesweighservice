@@ -59,7 +59,7 @@ export const LogisticsOrderTimeline: React.FC<Props> = ({
   return (
     <section className="logistics-booking__order-history" aria-label="Order history">
       <div className="logistics-booking__card logistics-booking__card--wide">
-        <h4>
+        <h4 className="logistics-booking__section-head" data-section-label="Order history">
           <History size={16} aria-hidden />
           Order history
         </h4>

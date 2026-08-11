@@ -35,7 +35,8 @@ import {
 import {
   SHIPMENT_MODES,
   bookCourierStepsForBooking,
-  bookStepProgressIndex,
+  bookStepFlowIndex,
+  bookStepProgressVisualState,
   combineShipmentBoxDrafts,
   computeVolumetricWeight,
   draftBoxesHaveRequiredPhotos,
@@ -173,15 +174,18 @@ function StepProgress({
 }) {
   const progressOptions = { includeEwayBill };
   const steps = bookCourierStepsForBooking(partnerId, progressOptions);
-  const activeIndex = bookStepProgressIndex(step, partnerId, progressOptions);
-  const total = steps.length;
-  const allDone = step === 'complete' || activeIndex >= total;
 
   return (
     <ol className="book-courier__progress" aria-label="Booking progress">
       {steps.map((item, index) => {
-        const done = allDone || index < activeIndex;
-        const current = !allDone && index === activeIndex;
+        const visual = bookStepProgressVisualState(
+          item.id,
+          step,
+          partnerId,
+          progressOptions,
+        );
+        const done = visual === 'done';
+        const current = visual === 'current';
         return (
           <li
             key={item.id}
@@ -1642,9 +1646,17 @@ export const BookCourierFlow: React.FC<BookCourierFlowProps> = ({
   const stepNumberLabel = (() => {
     if (step === 'complete') return 'Completed';
     const steps = bookCourierStepsForBooking(partnerId, progressOptions);
-    const idx = bookStepProgressIndex(step, partnerId, progressOptions);
-    const current = steps[idx];
-    const stage = current?.label ?? 'Step';
+    const idx = bookStepFlowIndex(step, partnerId, progressOptions);
+    const flowLabels: Record<string, string> = {
+      scan: 'Scan',
+      address: 'Address',
+      box: 'Box',
+      review: 'Review',
+      label: 'Label',
+      final_photo: 'Photo',
+      eway_bill: 'E-way bill',
+    };
+    const stage = flowLabels[step] ?? steps.find(item => item.id === step)?.label ?? 'Step';
     return `${stage} · Step ${idx + 1} of ${steps.length}`;
   })();
 

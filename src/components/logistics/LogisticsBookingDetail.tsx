@@ -62,6 +62,7 @@ import { formatLogisticsDateTimeLabel } from '../../lib/logisticsDateTime';
 import { isPlaceholderLogisticsAddress } from '../../lib/logisticsDealers';
 import { loadLogisticsSettings } from '../../lib/logisticsSettings';
 import { logisticsTrackingUrl } from '../../lib/logisticsTracking';
+import { partnerSupportsTrackRefresh } from '../../lib/logisticsTrackRefresh';
 import { shippingLabelAddressGate } from '../../lib/shippingLabel';
 import { homePathForRole } from '../../types';
 import type {
@@ -1371,11 +1372,98 @@ export const LogisticsBookingDetail: React.FC<LogisticsBookingDetailProps> = ({
     && booking.status !== 'delivered'
     && booking.status !== 'cancelled'
     && booking.status !== 'returned'
-    && Boolean(onReturn);
+    && Boolean(onReturn)
+    && !partnerSupportsTrackRefresh(booking.partnerId);
   const showOpsDelete = Boolean(user && canDeleteLogisticsBooking(user) && onDelete);
+  const showBottomOps = Boolean(user || showOpsCancel || showOpsReturn || showOpsDelete);
+  const articleRef = useRef<HTMLElement>(null);
+  const stickyTopRef = useRef<HTMLDivElement>(null);
+  const stickyBottomRef = useRef<HTMLElement>(null);
+  const sectionBarRef = useRef<HTMLDivElement>(null);
+  const [activeSectionLabel, setActiveSectionLabel] = useState('');
+
+  const invoiceSectionLabel = useMemo(() => {
+    const number = freightCompare?.invoiceNumber || booking.invoiceNumber;
+    return number ? `Invoice & items · ${number}` : 'Invoice & items';
+  }, [booking.invoiceNumber, freightCompare?.invoiceNumber]);
+
+  const syncActiveSection = useCallback(() => {
+    const article = articleRef.current;
+    if (!article) return;
+    const headerHeight = parseFloat(
+      getComputedStyle(document.documentElement).getPropertyValue('--header-height'),
+    ) || 72;
+    const topChromeHeight = parseFloat(
+      getComputedStyle(article).getPropertyValue('--logistics-booking-sticky-top-h'),
+    ) || 0;
+    const stickLine = headerHeight + topChromeHeight + 4;
+    const heads = article.querySelectorAll<HTMLElement>('[data-section-label]');
+    let active = '';
+    heads.forEach(head => {
+      if (head.getBoundingClientRect().top <= stickLine) {
+        active = head.dataset.sectionLabel?.trim() || '';
+      }
+    });
+    setActiveSectionLabel(prev => (prev === active ? prev : active));
+  }, []);
+
+  useEffect(() => {
+    const article = articleRef.current;
+    const topEl = stickyTopRef.current;
+    const bottomEl = stickyBottomRef.current;
+    const sectionBarEl = sectionBarRef.current;
+    if (!article) return undefined;
+
+    const syncStickyChrome = () => {
+      if (topEl) {
+        article.style.setProperty('--logistics-booking-sticky-top-h', `${topEl.offsetHeight}px`);
+      }
+      if (sectionBarEl) {
+        article.style.setProperty(
+          '--logistics-booking-sticky-section-h',
+          `${sectionBarEl.offsetHeight}px`,
+        );
+      }
+      if (bottomEl) {
+        article.style.setProperty('--logistics-booking-sticky-bottom-h', `${bottomEl.offsetHeight}px`);
+      }
+      syncActiveSection();
+    };
+
+    syncStickyChrome();
+    const observer = new ResizeObserver(syncStickyChrome);
+    if (topEl) observer.observe(topEl);
+    if (sectionBarEl) observer.observe(sectionBarEl);
+    if (bottomEl) observer.observe(bottomEl);
+
+    const onScroll = () => { syncActiveSection(); };
+    window.addEventListener('scroll', onScroll, { passive: true });
+    window.addEventListener('resize', onScroll);
+
+    return () => {
+      observer.disconnect();
+      window.removeEventListener('scroll', onScroll);
+      window.removeEventListener('resize', onScroll);
+    };
+  }, [
+    booking.id,
+    showBottomOps,
+    sortedLogisticsDocCards.length,
+    booking.supportRequestId,
+    isDelhivery,
+    delhiveryDocsLoading,
+    delhiveryDocsError,
+    isOps,
+    shippingLabelBlocked,
+    syncActiveSection,
+    invoiceSectionLabel,
+    showInAppTrack,
+    freightLoading,
+  ]);
 
   return (
-    <article className="logistics-booking panel glass">
+    <article ref={articleRef} className="logistics-booking logistics-booking--flat">
+      <div ref={stickyTopRef} className="logistics-booking__sticky-top logistics-booking__sticky-top--fixed">
       <header className="logistics-booking__header">
         <span className="logistics-booking__partner-logo-wrap" aria-hidden>
           {partner && (
@@ -1415,11 +1503,11 @@ export const LogisticsBookingDetail: React.FC<LogisticsBookingDetailProps> = ({
         </div>
       </header>
 
-      <div className="invoice-detail-top logistics-booking__top-actions">
+      <div className="logistics-booking__docs">
         <div
-          className="logistics-booking__top-actions-row"
+          className="logistics-booking__doc-row invoice-detail-top__actions"
           role="group"
-          aria-label="Shipment actions"
+          aria-label="Documents"
         >
           {sortedLogisticsDocCards.map(doc => {
             const meta = logisticsDocCardMeta(doc.kind);
@@ -1448,8 +1536,8 @@ export const LogisticsBookingDetail: React.FC<LogisticsBookingDetailProps> = ({
                 disabled={disabled}
                 title={doc.disabledReason ?? meta.subtitle}
               >
-                <span className="invoice-detail-top__card-icon">
-                  <meta.Icon size={28} strokeWidth={1.75} aria-hidden />
+                <span className="invoice-detail-top__card-icon" aria-hidden>
+                  <meta.Icon size={28} strokeWidth={1.75} />
                 </span>
                 <span className="invoice-detail-top__card-label">{meta.title}</span>
                 {statusLabel ? (
@@ -1465,74 +1553,11 @@ export const LogisticsBookingDetail: React.FC<LogisticsBookingDetailProps> = ({
               className="invoice-detail-top__card invoice-detail-top__card--purple"
               title={`Open ${booking.supportRequestNumber}`}
             >
-              <span className="invoice-detail-top__card-icon">
-                <ExternalLink size={28} strokeWidth={1.75} aria-hidden />
+              <span className="invoice-detail-top__card-icon" aria-hidden>
+                <ExternalLink size={28} strokeWidth={1.75} />
               </span>
               <span className="invoice-detail-top__card-label">Ticket</span>
             </Link>
-          ) : null}
-
-          <button
-            type="button"
-            className="invoice-detail-top__card invoice-detail-top__card--purple"
-            onClick={() => setRaiseIssueOpen(true)}
-            disabled={!user}
-            title="Raise a Warranty & Support issue ticket"
-          >
-            <span className="invoice-detail-top__card-icon">
-              <MessageSquareWarning size={28} strokeWidth={1.75} aria-hidden />
-            </span>
-            <span className="invoice-detail-top__card-label">Support</span>
-          </button>
-
-          {showOpsReturn ? (
-            <button
-              type="button"
-              className="invoice-detail-top__card invoice-detail-top__card--blue"
-              onClick={onReturn}
-              title="Mark shipment returned"
-            >
-              <span className="invoice-detail-top__card-icon">
-                <Package size={28} strokeWidth={1.75} aria-hidden />
-              </span>
-              <span className="invoice-detail-top__card-label">Returned</span>
-            </button>
-          ) : null}
-
-          {showOpsCancel ? (
-            <button
-              type="button"
-              className="invoice-detail-top__card invoice-detail-top__card--red"
-              disabled={isDelhivery && (cancellingDelhivery || !isDelhiveryB2bLrn(delhiveryIds?.lrn || booking.consignmentNo))}
-              onClick={() => {
-                if (isDelhivery) void handleCancelDelhiveryLr();
-                else onCancel?.();
-              }}
-              title={isDelhivery ? 'Cancel LR on Delhivery' : 'Cancel shipment'}
-            >
-              <span className="invoice-detail-top__card-icon">
-                <Trash2 size={28} strokeWidth={1.75} aria-hidden />
-              </span>
-              <span className="invoice-detail-top__card-label">
-                {isDelhivery
-                  ? (cancellingDelhivery ? 'Cancelling…' : 'Cancel LR')
-                  : 'Cancel'}
-              </span>
-            </button>
-          ) : null}
-
-          {showOpsDelete ? (
-            <button
-              type="button"
-              className="invoice-detail-top__card invoice-detail-top__card--red"
-              onClick={onDelete}
-              title="Delete booking permanently"
-            >
-              <span className="invoice-detail-top__card-icon">
-                <Trash2 size={28} strokeWidth={1.75} aria-hidden />
-              </span>
-              <span className="invoice-detail-top__card-label">Delete</span>
-            </button>
           ) : null}
         </div>
 
@@ -1541,11 +1566,6 @@ export const LogisticsBookingDetail: React.FC<LogisticsBookingDetailProps> = ({
         )}
         {delhiveryDocsError ? (
           <p className="logistics-booking__docs-error" role="alert">{delhiveryDocsError}</p>
-        ) : null}
-        {cancelDelhiveryError ? (
-          <p className="dealers-modal__error logistics-booking__cancel-delhivery-error">
-            {cancelDelhiveryError}
-          </p>
         ) : null}
         {isOps && shippingLabelBlocked && (
           <div className="logistics-booking__slip-blocked" role="status">
@@ -1583,31 +1603,18 @@ export const LogisticsBookingDetail: React.FC<LogisticsBookingDetailProps> = ({
           </p>
         )}
       </div>
-
-      {(booking.invoiceId || booking.supportRequestId) && (
-        <section className="logistics-booking__links">
-          {booking.invoiceId && booking.invoiceNumber && (
-            <Link
-              to={user?.role === 'super_admin'
-                ? `/super-admin/invoices/${booking.dealer.zohoCustomerId}/${booking.invoiceId}/invoice`
-                : `${basePath}/invoices/${booking.invoiceId}/invoice`}
-              className="logistics-booking__source-link"
-            >
-              <ExternalLink size={14} aria-hidden />
-              Invoice {booking.invoiceNumber}
-            </Link>
-          )}
-          {booking.supportRequestId && booking.supportRequestNumber && (
-            <Link
-              to={`${basePath}/warranty-support/${booking.supportRequestId}`}
-              className="logistics-booking__source-link"
-            >
-              <ExternalLink size={14} aria-hidden />
-              Support {booking.supportRequestNumber}
-            </Link>
-          )}
-        </section>
-      )}
+      </div>
+      <div className="logistics-booking__sticky-top-spacer" aria-hidden />
+      <div
+        ref={sectionBarRef}
+        className={[
+          'logistics-booking__sticky-section-bar',
+          activeSectionLabel ? 'is-visible' : '',
+        ].filter(Boolean).join(' ')}
+        aria-live="polite"
+      >
+        {activeSectionLabel}
+      </div>
 
       {shipFromMismatch && invoiceBranch && (
         <div className="logistics-booking__ship-from-mismatch" role="alert">
@@ -1645,7 +1652,7 @@ export const LogisticsBookingDetail: React.FC<LogisticsBookingDetailProps> = ({
           aria-label="Missing Delhivery identifiers"
         >
           <div className="logistics-booking__card logistics-booking__card--wide">
-            <h4>
+            <h4 className="logistics-booking__section-head" data-section-label="Add missing Delhivery ID">
               <Truck size={16} aria-hidden />
               Add missing Delhivery ID
             </h4>
@@ -1775,7 +1782,10 @@ export const LogisticsBookingDetail: React.FC<LogisticsBookingDetailProps> = ({
       {booking.invoiceId && (
         <section className="logistics-booking__invoice-freight" aria-label="Invoice and freight">
           <div className="logistics-booking__card logistics-booking__card--wide">
-            <h4>
+            <h4
+              className="logistics-booking__section-head"
+              data-section-label={invoiceSectionLabel}
+            >
               <FileText size={16} aria-hidden />
               Invoice &amp; items
               {freightCompare?.invoiceNumber
@@ -1863,7 +1873,7 @@ export const LogisticsBookingDetail: React.FC<LogisticsBookingDetailProps> = ({
           </div>
 
           <div className="logistics-booking__card logistics-booking__card--wide">
-            <h4>
+            <h4 className="logistics-booking__section-head" data-section-label="Freight compare">
               <IndianRupee size={16} aria-hidden />
               Freight compare
             </h4>
@@ -2152,7 +2162,7 @@ export const LogisticsBookingDetail: React.FC<LogisticsBookingDetailProps> = ({
       {booking.partnerId === 'delhivery' && booking.courierFreight && (
         <section className="logistics-booking__delhivery-freight" aria-label="Delhivery freight charges">
           <div className="logistics-booking__card logistics-booking__card--wide">
-            <h4>
+            <h4 className="logistics-booking__section-head" data-section-label="Delhivery freight charges">
               <IndianRupee size={16} aria-hidden />
               Delhivery freight charges
             </h4>
@@ -2217,7 +2227,7 @@ export const LogisticsBookingDetail: React.FC<LogisticsBookingDetailProps> = ({
 
       <section className="logistics-booking__cards">
         <div className="logistics-booking__card">
-          <h4>
+          <h4 className="logistics-booking__section-head" data-section-label="Courier details">
             <Truck size={16} aria-hidden />
             Courier details
           </h4>
@@ -2303,7 +2313,7 @@ export const LogisticsBookingDetail: React.FC<LogisticsBookingDetailProps> = ({
           </dl>
         </div>
         <div className="logistics-booking__card">
-          <h4>
+          <h4 className="logistics-booking__section-head" data-section-label="Delivery address">
             <MapPin size={16} aria-hidden />
             Delivery address
           </h4>
@@ -2315,7 +2325,7 @@ export const LogisticsBookingDetail: React.FC<LogisticsBookingDetailProps> = ({
           </p>
         </div>
         <div className="logistics-booking__card">
-          <h4>
+          <h4 className="logistics-booking__section-head" data-section-label="Package">
             <Package size={16} aria-hidden />
             Package
           </h4>
@@ -2358,7 +2368,7 @@ export const LogisticsBookingDetail: React.FC<LogisticsBookingDetailProps> = ({
 
       {(bookingHasPhotos(booking) || (isOps && booking.status !== 'returned' && booking.status !== 'cancelled')) && (
         <section className="logistics-booking__photos">
-          <h4>Package photos</h4>
+          <h4 className="logistics-booking__section-head" data-section-label="Package photos">Package photos</h4>
           {photosLoading
             && !booking.boxes.some(box => box.photos.some(p => p.url?.trim()))
             && !booking.finalPackagePhoto && (
@@ -2436,7 +2446,7 @@ export const LogisticsBookingDetail: React.FC<LogisticsBookingDetailProps> = ({
       )}
 
       <details className="logistics-booking__summary">
-        <summary>Full booking summary</summary>
+        <summary className="logistics-booking__section-head" data-section-label="Full booking summary">Full booking summary</summary>
         <dl className="book-courier__review">
           {bookingSummaryLines(booking).map(row => (
             <div key={row.label}>
@@ -2453,6 +2463,69 @@ export const LogisticsBookingDetail: React.FC<LogisticsBookingDetailProps> = ({
           isOps={isOps}
           role={user.role}
         />
+      ) : null}
+
+      {showBottomOps ? (
+        <section
+          ref={stickyBottomRef}
+          className="logistics-booking__ops-actions logistics-booking__ops-actions--bottom logistics-booking__ops-actions--sticky"
+          aria-label="Shipment actions"
+        >
+          {user ? (
+            <button
+              type="button"
+              className="btn btn-secondary btn-sm"
+              onClick={() => setRaiseIssueOpen(true)}
+            >
+              <MessageSquareWarning size={14} aria-hidden />
+              Support
+            </button>
+          ) : null}
+          {showOpsReturn ? (
+            <button
+              type="button"
+              className="btn btn-secondary btn-sm"
+              onClick={onReturn}
+            >
+              <Package size={14} aria-hidden />
+              Returned
+            </button>
+          ) : null}
+          {showOpsCancel ? (
+            <button
+              type="button"
+              className="btn btn-secondary btn-sm logistics-booking__delete-btn"
+              disabled={isDelhivery && (
+                cancellingDelhivery
+                || !isDelhiveryB2bLrn(delhiveryIds?.lrn || booking.consignmentNo)
+              )}
+              onClick={() => {
+                if (isDelhivery) void handleCancelDelhiveryLr();
+                else onCancel?.();
+              }}
+            >
+              <Trash2 size={14} aria-hidden />
+              {isDelhivery
+                ? (cancellingDelhivery ? 'Cancelling…' : 'Cancel LR')
+                : 'Cancel'}
+            </button>
+          ) : null}
+          {showOpsDelete ? (
+            <button
+              type="button"
+              className="btn btn-secondary btn-sm logistics-booking__delete-btn"
+              onClick={onDelete}
+            >
+              <Trash2 size={14} aria-hidden />
+              Delete
+            </button>
+          ) : null}
+          {cancelDelhiveryError ? (
+            <p className="dealers-modal__error logistics-booking__cancel-delhivery-error">
+              {cancelDelhiveryError}
+            </p>
+          ) : null}
+        </section>
       ) : null}
 
       {raiseIssueOpen && user && (

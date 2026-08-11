@@ -24550,12 +24550,183 @@ body:has(.confirm-inline-bar) .confirm-inline-bar {
   margin: 0;
 }
 
+.content-area:has(.logistics-booking--flat) {
+  padding: 0.65rem 0.85rem 1.25rem;
+  --logistics-booking-edge-pad: 0.85rem;
+}
+
 /* Logistics booking detail */
 .logistics-booking {
   display: flex;
   flex-direction: column;
-  gap: 1rem;
-  padding: 1rem;
+  gap: 0.55rem;
+  padding: 0;
+}
+
+.logistics-booking--flat {
+  --logistics-booking-sticky-top-h: 0px;
+  --logistics-booking-sticky-section-h: 0px;
+  --logistics-booking-sticky-bottom-h: 0px;
+  --logistics-booking-sticky-top-bg: #0f172a;
+  --logistics-booking-sticky-section-bg: #111827;
+  padding-bottom: calc(var(--logistics-booking-sticky-bottom-h) + env(safe-area-inset-bottom, 0px));
+}
+
+.logistics-booking__sticky-top-spacer {
+  height: var(--logistics-booking-sticky-top-h, 0px);
+  flex-shrink: 0;
+}
+
+.logistics-booking__sticky-top--fixed {
+  position: fixed;
+  top: var(--header-height);
+  left: var(--sidebar-width);
+  right: 0;
+  z-index: 35;
+  background: var(--logistics-booking-sticky-top-bg, #0f172a);
+  margin: 0;
+  padding: 0 var(--logistics-booking-edge-pad, 0.85rem) 0.45rem;
+  border-bottom: 1px solid rgba(148, 163, 184, 0.14);
+}
+
+.logistics-booking__sticky-section-bar {
+  position: fixed;
+  top: calc(var(--header-height) + var(--logistics-booking-sticky-top-h, 0px));
+  left: var(--sidebar-width);
+  right: 0;
+  z-index: 34;
+  background: var(--logistics-booking-sticky-section-bg, #111827);
+  margin: 0;
+  padding: 0.6rem var(--logistics-booking-edge-pad, 0.85rem);
+  border-bottom: 1px solid rgba(148, 163, 184, 0.16);
+  font-size: 1.0625rem;
+  font-weight: 700;
+  color: #f8fafc;
+  line-height: 1.2;
+  letter-spacing: -0.015em;
+  visibility: hidden;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.logistics-booking__sticky-section-bar.is-visible {
+  visibility: visible;
+  opacity: 1;
+}
+
+.main-content.expanded .logistics-booking__sticky-top--fixed,
+.main-content.expanded .logistics-booking__sticky-section-bar {
+  left: var(--sidebar-collapsed);
+}
+
+.logistics-booking__section-head {
+  margin: 0 0 0.35rem;
+}
+
+.logistics-booking__track-panel-head.logistics-booking__section-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.55rem;
+  margin-bottom: 0;
+}
+
+.logistics-booking__summary > .logistics-booking__section-head {
+  list-style: none;
+  cursor: pointer;
+  color: #94a3b8;
+  font-weight: 600;
+  font-size: 0.8125rem;
+}
+
+.logistics-booking__ops-actions--sticky {
+  position: fixed;
+  left: var(--sidebar-width);
+  right: 0;
+  bottom: 0;
+  z-index: 34;
+  margin: 0;
+  padding: 0.55rem var(--logistics-booking-edge-pad, 0.85rem);
+  padding-bottom: max(0.55rem, env(safe-area-inset-bottom, 0px));
+  background: var(--logistics-booking-sticky-top-bg, #0f172a);
+  border-top: 1px solid rgba(148, 163, 184, 0.18);
+}
+
+.main-content.expanded .logistics-booking__ops-actions--sticky {
+  left: var(--sidebar-collapsed);
+}
+
+@media (max-width: 768px) {
+  .logistics-booking__sticky-top--fixed,
+  .logistics-booking__sticky-section-bar,
+  .logistics-booking__ops-actions--sticky {
+    left: 0;
+  }
+}
+
+.logistics-booking--flat .logistics-booking__card {
+  padding: 0;
+  border: none;
+  border-radius: 0;
+  background: none;
+}
+
+.logistics-booking--flat .logistics-booking__track-panel,
+.logistics-booking--flat .logistics-booking__invoice-freight,
+.logistics-booking--flat .logistics-booking__delhivery-freight,
+.logistics-booking--flat .logistics-booking__timeline,
+.logistics-booking--flat .logistics-booking__cards,
+.logistics-booking--flat .logistics-booking__photos,
+.logistics-booking--flat .logistics-booking__summary,
+.logistics-booking--flat .logistics-booking__order-history,
+.logistics-booking--flat .logistics-booking__delhivery-ids,
+.logistics-booking--flat .logistics-booking__ship-from-mismatch {
+  padding-top: 0.55rem;
+  margin-top: 0;
+  border-top: 1px solid rgba(148, 163, 184, 0.12);
+}
+
+.logistics-booking--flat .logistics-booking__ship-from-mismatch {
+  padding: 0.55rem 0 0;
+  border: none;
+  border-top: 1px solid rgba(245, 158, 11, 0.28);
+  border-radius: 0;
+  background: none;
+}
+
+.logistics-booking--flat .logistics-booking__cards {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+}
+
+.logistics-booking--flat .logistics-booking__cards > .logistics-booking__card {
+  padding-top: 0.55rem;
+  border-top: 1px solid rgba(148, 163, 184, 0.12);
+}
+
+.logistics-booking--flat .logistics-booking__cards > .logistics-booking__card:first-child {
+  padding-top: 0;
+  border-top: none;
+}
+
+.logistics-booking--flat .logistics-booking__card h4 {
+  margin-bottom: 0.35rem;
+}
+
+.logistics-booking--flat .logistics-booking__invoice-freight > .logistics-booking__card + .logistics-booking__card {
+  padding-top: 0.55rem;
+  border-top: 1px solid rgba(148, 163, 184, 0.12);
+}
+
+.logistics-booking--flat .logistics-booking__ops-actions--bottom {
+  margin-top: 0.55rem;
+  padding-top: 0.55rem;
+}
+
+.logistics-booking--flat .logistics-booking__ops-actions--bottom:not(.logistics-booking__ops-actions--sticky) {
+  border-top: 1px solid rgba(148, 163, 184, 0.12);
 }
 
 .logistics-booking__header {
@@ -24564,14 +24735,11 @@ body:has(.confirm-inline-bar) .confirm-inline-bar {
   gap: 0.75rem;
 }
 
-.logistics-booking__top-actions {
-  position: static;
-  margin: 0;
-  padding: 0;
-  background: none;
+.logistics-booking__docs {
+  margin-top: 0;
 }
 
-.logistics-booking__top-actions-row {
+.logistics-booking__doc-row {
   display: flex;
   flex-wrap: nowrap;
   align-items: stretch;
@@ -24582,38 +24750,43 @@ body:has(.confirm-inline-bar) .confirm-inline-bar {
   scrollbar-width: thin;
   -webkit-overflow-scrolling: touch;
   padding-bottom: 0.15rem;
+  margin-top: 0.35rem;
 }
 
-.logistics-booking__top-actions-row .invoice-detail-top__card {
+.logistics-booking__doc-row.invoice-detail-top__actions {
+  display: flex;
+  grid-template-columns: unset;
+}
+
+.logistics-booking__doc-row .invoice-detail-top__card {
   flex: 0 0 auto;
   width: 5.25rem;
   min-width: 5.25rem;
 }
 
-.logistics-booking__top-actions-row .invoice-detail-top__card.is-disabled,
-.logistics-booking__top-actions-row .invoice-detail-top__card:disabled {
+.logistics-booking__doc-row .invoice-detail-top__card.is-disabled,
+.logistics-booking__doc-row .invoice-detail-top__card:disabled {
   opacity: 0.45;
   cursor: not-allowed;
   transform: none;
 }
 
-.logistics-booking__top-actions .logistics-booking__docs-error,
-.logistics-booking__top-actions .logistics-booking__cancel-delhivery-error,
-.logistics-booking__top-actions .logistics-booking__slip-hint {
+.logistics-booking__docs .logistics-booking__docs-error,
+.logistics-booking__docs .logistics-booking__slip-hint {
   margin-top: 0.5rem;
 }
 
-.logistics-booking__top-actions .logistics-booking__slip-blocked {
+.logistics-booking__docs .logistics-booking__slip-blocked {
   margin-top: 0.65rem;
 }
 
-.invoice-detail-top__card--red {
-  border-color: rgba(248, 113, 113, 0.85);
-  color: #f87171;
+.logistics-booking__ops-actions--bottom {
+  margin-top: 1.25rem;
+  padding-top: 0.85rem;
 }
 
-.invoice-detail-top__card--red.is-active {
-  box-shadow: 0 8px 22px rgba(248, 113, 113, 0.18);
+.logistics-booking__ops-actions--sticky.logistics-booking__ops-actions--bottom {
+  margin-top: 0.75rem;
 }
 
 .logistics-booking__header-actions {
@@ -24671,7 +24844,7 @@ body:has(.confirm-inline-bar) .confirm-inline-bar {
 }
 
 .logistics-booking__track-panel {
-  margin: 0 0 0.65rem;
+  margin: 0;
 }
 
 .logistics-booking__track-panel-head {
