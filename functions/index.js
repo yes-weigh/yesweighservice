@@ -327,6 +327,46 @@ async function requireActiveUser(uid, allowedRoles = ALLOWED_ROLES, options = {}
   return role;
 }
 
+const LOGISTICS_DEFAULT_STAFF_PERMS = new Set([
+  'orders.view',
+  'orders.manage',
+  'support.view',
+  'support.return',
+  'invoices.view',
+  'logistics.view',
+  'loyalty.view',
+  'catalog.view',
+]);
+
+const ADMIN_DEFAULT_STAFF_PERMS = new Set(['orders.view', 'orders.manage']);
+
+function staffHasPermissionFromUserData(role, data, permission) {
+  if (role === 'super_admin') return true;
+  if (role !== 'staff') return false;
+  const mode = String(data?.staffAccessMode ?? 'role');
+  const perms = Array.isArray(data?.staffPermissions)
+    ? data.staffPermissions.map(String)
+    : [];
+  if ((mode === 'custom' || mode === 'role') && perms.length > 0) {
+    return perms.includes(permission);
+  }
+  const dept = String(data?.staffDepartment ?? 'admin');
+  if (dept === 'admin') return true;
+  if (dept === 'logistics') return LOGISTICS_DEFAULT_STAFF_PERMS.has(permission);
+  return ADMIN_DEFAULT_STAFF_PERMS.has(permission);
+}
+
+async function requireAdminInvoiceDocumentAccess(uid) {
+  const role = await requireActiveUser(uid, new Set(['staff', 'super_admin']), { allowViewOnly: true });
+  if (role !== 'staff') return role;
+
+  const userSnap = await getFirestore().doc(`users/${uid}`).get();
+  if (!staffHasPermissionFromUserData(role, userSnap.data() || {}, 'invoices.view')) {
+    throw new HttpsError('permission-denied', 'You do not have permission to view invoices.');
+  }
+  return role;
+}
+
 function filterCatalogItems(items, { search, category, stockStatus } = {}) {
   let filtered = items;
 
@@ -1883,7 +1923,7 @@ export const downloadDealerInvoiceDocument = onCall(
   },
 );
 
-/** Download invoice PDF for super admin (any dealer customer). */
+/** Download invoice PDF for ops (any dealer customer). Super admin or staff with invoices.view. */
 export const downloadAdminInvoiceDocument = onCall(
   {
     region: 'asia-south1',
@@ -1892,7 +1932,7 @@ export const downloadAdminInvoiceDocument = onCall(
     memory: '512MiB',
   },
   async request => {
-    await requireActiveUser(request.auth?.uid, SUPER_ADMIN_ROLES);
+    await requireAdminInvoiceDocumentAccess(request.auth?.uid);
     const customerId = String(request.data?.customerId ?? '').trim();
     const invoiceId = String(request.data?.invoiceId ?? '').trim();
     const documentType = String(request.data?.documentType ?? '').trim().toLowerCase();
