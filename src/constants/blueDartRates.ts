@@ -94,6 +94,23 @@ export const BLUE_DART_SURFACE_VOLUMETRIC_DIVISOR = 4500;
 export const BLUE_DART_AIR_VOLUMETRIC_DIVISOR = 5000;
 export const BLUE_DART_DP_VOLUMETRIC_DIVISOR = 5000;
 
+/** Apex / BDAIR — chargeable kg above this cannot use Blue Dart Air. */
+export const BLUE_DART_AIR_MAX_CHARGEABLE_KG = 15;
+
+export function blueDartAirMaxChargeableExceeded(chargeableKg: number): boolean {
+  const kg = typeof chargeableKg === 'number' && Number.isFinite(chargeableKg) ? chargeableKg : 0;
+  return kg > BLUE_DART_AIR_MAX_CHARGEABLE_KG;
+}
+
+export function blueDartAirMaxChargeableReason(chargeableKg?: number): string {
+  const kg = typeof chargeableKg === 'number' && Number.isFinite(chargeableKg) && chargeableKg > 0
+    ? chargeableKg
+    : null;
+  return kg != null
+    ? `Max ${BLUE_DART_AIR_MAX_CHARGEABLE_KG} kg for Blue Dart Air (chargeable ${kg} kg)`
+    : `Max ${BLUE_DART_AIR_MAX_CHARGEABLE_KG} kg for Blue Dart Air`;
+}
+
 /** State aliases → region (keys must match normalizeBlueDartPlace). */
 export function defaultBlueDartRegionsByState(): Record<string, BlueDartRegion> {
   const map: Record<string, BlueDartRegion> = {};
@@ -176,7 +193,9 @@ export function defaultBlueDartEdlMatrix(): BlueDartEdlDistanceRow[] {
 export function defaultBlueDartSharedRules(): BlueDartSharedRules {
   return {
     fuelSurchargePercent: 92,
+    fuelB2bDiscountPercent: 10,
     cafPercent: 22,
+    cafB2bDiscountPercent: 5,
     gstPercent: 0,
     originRegion: 'SOUTH',
     edlMode: 'flat_fallback',
@@ -254,6 +273,17 @@ export function defaultBlueDartSurfaceRates(): BlueDartSurfaceRates {
   };
 }
 
+function applyB2bDiscountPercent(published: number, discountRaw: unknown): number {
+  const base = typeof published === 'number' && Number.isFinite(published) && published > 0
+    ? published
+    : 0;
+  const discount = typeof discountRaw === 'number' && Number.isFinite(discountRaw)
+    ? Math.max(0, discountRaw)
+    : 0;
+  const effective = base - discount;
+  return effective > 0 ? Math.round(effective * 100) / 100 : 0;
+}
+
 /** Published diesel FS minus B2B percentage points (never negative). */
 export function blueDartSurfaceEffectiveDieselFsPercent(
   surface: Pick<BlueDartSurfaceRates, 'fuelSurchargePercent' | 'dieselB2bDiscountPercent'>,
@@ -263,12 +293,29 @@ export function blueDartSurfaceEffectiveDieselFsPercent(
     && surface.fuelSurchargePercent > 0
     ? surface.fuelSurchargePercent
     : 0;
-  const discountRaw = surface.dieselB2bDiscountPercent;
-  const discount = typeof discountRaw === 'number' && Number.isFinite(discountRaw)
-    ? Math.max(0, discountRaw)
-    : 0;
-  const effective = published - discount;
-  return effective > 0 ? Math.round(effective * 100) / 100 : 0;
+  return applyB2bDiscountPercent(published, surface.dieselB2bDiscountPercent);
+}
+
+/** Published Domestic FS minus B2B points (Air / DP shared). */
+export function blueDartEffectiveFuelSurchargePercent(
+  shared: Pick<BlueDartSharedRules, 'fuelSurchargePercent' | 'fuelB2bDiscountPercent'>,
+  serviceFs?: number | null,
+): number {
+  const published = serviceFs != null && Number.isFinite(serviceFs)
+    ? serviceFs
+    : shared.fuelSurchargePercent;
+  return applyB2bDiscountPercent(published, shared.fuelB2bDiscountPercent);
+}
+
+/** Published CAF minus B2B points (Air / DP shared). */
+export function blueDartEffectiveCafPercent(
+  shared: Pick<BlueDartSharedRules, 'cafPercent' | 'cafB2bDiscountPercent'>,
+  serviceCaf?: number | null,
+): number {
+  const published = serviceCaf != null && Number.isFinite(serviceCaf)
+    ? serviceCaf
+    : shared.cafPercent;
+  return applyB2bDiscountPercent(published, shared.cafB2bDiscountPercent);
 }
 
 /** Domestic Priority slabs. */

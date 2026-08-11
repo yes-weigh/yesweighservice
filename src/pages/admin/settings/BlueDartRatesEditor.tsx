@@ -12,6 +12,10 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { ExternalLink, Loader2, Plus, RefreshCw, Trash2 } from 'lucide-react';
 import { DecimalAmountInput } from '../../../components/DecimalAmountInput';
 import {
+  BLUE_DART_AIR_MAX_CHARGEABLE_KG,
+  blueDartAirMaxChargeableExceeded,
+  blueDartEffectiveCafPercent,
+  blueDartEffectiveFuelSurchargePercent,
   blueDartSurfaceEffectiveDieselFsPercent,
   normalizeBlueDartOversizeSlabs,
 } from '../../../constants/blueDartRates';
@@ -24,7 +28,10 @@ import {
   BLUE_DART_DIESEL_FUEL_SURCHARGE_URL,
   fetchBlueDartDieselFuelSurcharge,
 } from '../../../lib/blueDartDieselFuel';
-import { previewBlueDartSurfaceStack } from '../../../lib/blueDartQuote';
+import {
+  previewBlueDartAirStack,
+  previewBlueDartSurfaceStack,
+} from '../../../lib/blueDartQuote';
 import { blueDartStatesByAirZone } from '../../../lib/blueDartZone';
 import {
   BLUE_DART_AIR_ZONES,
@@ -86,7 +93,7 @@ const TABS: Array<{ id: BlueDartServiceId; label: string; sku: string; image: st
 ];
 
 const SERVICE_BLURB: Record<BlueDartServiceId, string> = {
-  air: 'Express air (Apex). Billed by Zone 1–5 ₹/kg, usually min 10 kg.',
+  air: 'Express air (Apex). Billed by Zone 1–5 ₹/kg, usually min 10 kg, max 15 kg chargeable.',
   surface: 'Ground / Surface Band 13. Billed by Zone 1–5 ₹/kg, usually min 10 kg.',
   domestic_priority: 'Priority parcels. Billed in 500 g slabs (Within Kerala A1, then A/B/C).',
 };
@@ -218,19 +225,37 @@ function SharedChargesEditor(props: {
           <div className="settings-bluedart__diesel-col">
             <PctInput
               label="Fuel (FS)"
-              tip="Domestic Fuel Surcharge from Blue Dart — absolute % you bill (e.g. 99)."
+              tip="Published Domestic Fuel Surcharge from Blue Dart. B2B discount reduces the rate actually billed."
               value={shared.fuelSurchargePercent}
               hint="published domestic"
               onChange={fuelSurchargePercent => onPatch({ fuelSurchargePercent })}
+            />
+            <PctInput
+              label="FS B2B discount"
+              tip="Percentage points subtracted from published FS. Effective FS = published − B2B (e.g. 99 − 10 = 89)."
+              value={shared.fuelB2bDiscountPercent}
+              hint="points off published"
+              onChange={fuelB2bDiscountPercent => onPatch({
+                fuelB2bDiscountPercent: Math.max(0, fuelB2bDiscountPercent),
+              })}
             />
           </div>
           <div className="settings-bluedart__diesel-col">
             <PctInput
               label="CAF"
-              tip="Currency Adjustment Factor from Blue Dart — absolute % (e.g. 22.5)."
+              tip="Published Currency Adjustment Factor from Blue Dart. B2B discount reduces the rate actually billed."
               value={shared.cafPercent}
               hint="published CAF"
               onChange={cafPercent => onPatch({ cafPercent })}
+            />
+            <PctInput
+              label="CAF B2B discount"
+              tip="Percentage points subtracted from published CAF. Effective CAF = published − B2B (e.g. 22 − 5 = 17)."
+              value={shared.cafB2bDiscountPercent}
+              hint="points off published"
+              onChange={cafB2bDiscountPercent => onPatch({
+                cafB2bDiscountPercent: Math.max(0, cafB2bDiscountPercent),
+              })}
             />
           </div>
         </div>
@@ -265,6 +290,17 @@ function SharedChargesEditor(props: {
             <ExternalLink size={12} aria-hidden />
           </a>
         </div>
+        <p className="settings-bluedart__diesel-effective">
+          Effective FS: {blueDartEffectiveFuelSurchargePercent(shared)}%
+          {shared.fuelB2bDiscountPercent > 0
+            ? ` = ${shared.fuelSurchargePercent}% − ${shared.fuelB2bDiscountPercent}%`
+            : ''}
+          {' · '}
+          Effective CAF: {blueDartEffectiveCafPercent(shared)}%
+          {shared.cafB2bDiscountPercent > 0
+            ? ` = ${shared.cafPercent}% − ${shared.cafB2bDiscountPercent}%`
+            : ''}
+        </p>
         {airFetchNote ? (
           <p className="settings-bluedart__diesel-note text-sm">{airFetchNote}</p>
         ) : null}
@@ -295,23 +331,6 @@ function SharedChargesEditor(props: {
             fov: { ...shared.fov, percentOfInvoice },
           })}
         />
-        <label className="settings-courier-rates__toggle">
-          <input
-            type="checkbox"
-            checked={shared.hideTemPer}
-            onChange={e => onPatch({ hideTemPer: e.target.checked })}
-          />
-          <span>
-            <span
-              className="settings-bluedart__label-tip"
-              data-tip="TEM = temporary exclusion, PER = permanent. When on, those pins are not offered."
-              tabIndex={0}
-            >
-              Hide TEM / PER pins
-            </span>
-            <em>Skip pins Blue Dart marked unavailable</em>
-          </span>
-        </label>
       </div>
 
       <div className="settings-bluedart__subhead">Extra delivery locations (EDL)</div>
@@ -1295,28 +1314,347 @@ function SurfaceRatesEditor(props: {
           />
         </div>
       </SurfaceStep>
+    </div>
+  );
+}
 
-      <SurfaceStep n={8} title="Pin rules">
-        <div className="settings-courier-rates__inline-fields settings-bluedart__grid">
-          <label className="settings-courier-rates__toggle">
+/** Live map of how Air % compound — basic → PSS/IDC → FS → CAF → EFSS → flats. */
+function AirChargeStack(props: {
+  rates: BlueDartKgServiceRates;
+  shared: BlueDartSharedRules;
+}) {
+  const { rates, shared } = props;
+  const statesByZone = useMemo(() => blueDartStatesByAirZone(shared), [shared]);
+
+  const [zone, setZone] = useState<BlueDartAirZone>(1);
+  const [actualKg, setActualKg] = useState(10);
+  const [lengthCm, setLengthCm] = useState(0);
+  const [widthCm, setWidthCm] = useState(0);
+  const [heightCm, setHeightCm] = useState(0);
+  const [invoiceValueInr, setInvoiceValueInr] = useState(50000);
+  const [destState, setDestState] = useState('Karnataka');
+  const [isEdl, setIsEdl] = useState(false);
+  const [edlKm, setEdlKm] = useState(0);
+
+  const zoneStates = statesByZone[zone] ?? [];
+
+  useEffect(() => {
+    if (zoneStates.length === 0) return;
+    if (!zoneStates.includes(destState)) {
+      setDestState(zoneStates[0]);
+    }
+  }, [zone, zoneStates, destState]);
+
+  const preview = useMemo(() => previewBlueDartAirStack({
+    shared,
+    air: rates,
+    zone,
+    actualKg,
+    dims: { lengthCm, widthCm, heightCm },
+    invoiceValueInr,
+    destState,
+    isEdl,
+    edlKm: edlKm > 0 ? edlKm : null,
+  }), [
+    shared,
+    rates,
+    zone,
+    actualKg,
+    lengthCm,
+    widthCm,
+    heightCm,
+    invoiceValueInr,
+    destState,
+    isEdl,
+    edlKm,
+  ]);
+
+  return (
+    <div className="settings-bluedart__stack" aria-label="Air rate calculation order">
+      <div className="settings-bluedart__stack-head">
+        <strong>How Air adds up</strong>
+        <em>
+          Apex sample order: Basic → Docket → FOV → PSS% + IDC% on basic → Fuel (FS)% → CAF% → EFSS%
+          → RAS / EDL. Docket and FOV sit inside the FS base. Hover any short name for what it means.
+        </em>
+      </div>
+
+      <div className="settings-bluedart__stack-test">
+        <div className="settings-bluedart__stack-test-head">
+          <strong>Try a quote</strong>
+          <em>
+            Chargeable
+            {' '}
+            {preview.chargeableKg.toLocaleString('en-IN', { maximumFractionDigits: 1 })}
+            {' '}
+            kg
+            {preview.volumetricKg > 0
+              ? ` · vol ${preview.volumetricKg.toLocaleString('en-IN', { maximumFractionDigits: 1 })} kg`
+              : ''}
+            {' · '}
+            ₹
+            {preview.perKgInr}
+            /kg zone
+            {' '}
+            {preview.zone}
+            {preview.rateMissing ? ' · rate missing' : ''}
+            {blueDartAirMaxChargeableExceeded(preview.chargeableKg)
+              ? ` · over ${BLUE_DART_AIR_MAX_CHARGEABLE_KG} kg max (BDAIR disabled on SO)`
+              : ''}
+          </em>
+        </div>
+        <div className="settings-bluedart__stack-test-fields">
+          <Field label="Zone" tip="Ship-from SOUTH × destination region.">
+            <select
+              className="settings-bluedart__select"
+              value={zone}
+              onChange={e => setZone(Number(e.target.value) as BlueDartAirZone)}
+            >
+              {BLUE_DART_AIR_ZONES.map(z => (
+                <option key={z} value={z}>Zone {z}</option>
+              ))}
+            </select>
+          </Field>
+          <Field label="Dest state" tip="Used for RAS and EDL specials. Options follow the selected zone.">
+            <select
+              className="settings-bluedart__select"
+              value={destState}
+              onChange={e => setDestState(e.target.value)}
+            >
+              {zoneStates.map(state => (
+                <option key={state} value={state}>{state}</option>
+              ))}
+            </select>
+          </Field>
+          <Field
+            label="Actual kg"
+            tip={`Actual weight before volumetric / min floors. Blue Dart Air max chargeable is ${BLUE_DART_AIR_MAX_CHARGEABLE_KG} kg.`}
+          >
+            <DecimalAmountInput
+              min={0}
+              decimals={1}
+              value={actualKg}
+              onChange={next => {
+                if (next == null) return;
+                setActualKg(next);
+              }}
+            />
+          </Field>
+          <Field label="L × B × H (cm)" tip="Optional. Volumetric kg = L×B×H ÷ divisor.">
+            <div className="settings-bluedart__stack-dims">
+              <DecimalAmountInput
+                min={0}
+                decimals={0}
+                value={lengthCm || null}
+                aria-label="Length cm"
+                onChange={next => setLengthCm(next ?? 0)}
+              />
+              <span aria-hidden>×</span>
+              <DecimalAmountInput
+                min={0}
+                decimals={0}
+                value={widthCm || null}
+                aria-label="Width cm"
+                onChange={next => setWidthCm(next ?? 0)}
+              />
+              <span aria-hidden>×</span>
+              <DecimalAmountInput
+                min={0}
+                decimals={0}
+                value={heightCm || null}
+                aria-label="Height cm"
+                onChange={next => setHeightCm(next ?? 0)}
+              />
+            </div>
+          </Field>
+          <InrInput
+            label="Invoice value"
+            tip="For FOV insurance: max(min ₹, % of invoice)."
+            value={invoiceValueInr}
+            decimals={0}
+            onChange={setInvoiceValueInr}
+          />
+          <label className="settings-courier-rates__toggle settings-bluedart__stack-edl-toggle">
             <input
               type="checkbox"
-              checked={shared.hideTemPer}
-              onChange={e => onPatchShared({ hideTemPer: e.target.checked })}
+              checked={isEdl}
+              onChange={e => setIsEdl(e.target.checked)}
             />
             <span>
               <span
                 className="settings-bluedart__label-tip"
-                data-tip="TEM = temporary exclusion, PER = permanent."
+                data-tip="Treat destination pin as Extra Delivery Location."
                 tabIndex={0}
               >
-                Hide TEM / PER pins
+                EDL pin
               </span>
-              <em>Skip pins Blue Dart marked unavailable</em>
+              <em>Apply EDL after %</em>
             </span>
           </label>
+          {isEdl ? (
+            <Field label="EDL hub km" tip="Optional. Enables distance matrix when mode uses km.">
+              <DecimalAmountInput
+                min={0}
+                decimals={0}
+                value={edlKm || null}
+                onChange={next => setEdlKm(next ?? 0)}
+              />
+            </Field>
+          ) : null}
         </div>
-      </SurfaceStep>
+      </div>
+
+      <div className="settings-bluedart__stack-body">
+        <SurfaceStackRow
+          kind="line"
+          names={[{
+            text: 'Basic freight',
+            tip: 'Starting freight: zone ₹/kg × chargeable kg, after min weight and min freight floors.',
+          }]}
+          detail={`${formatStackInr(preview.perKgInr)}/kg × ${preview.chargeableKg} kg`}
+          value={formatStackInr(preview.baseFreightInr)}
+        />
+        <SurfaceStackRow
+          kind="line"
+          prefix="+"
+          names={[{
+            text: 'Docket',
+            tip: 'Fixed AWB / docket fee once per shipment. Included in the FS base (Apex rate calc sample).',
+          }]}
+          detail="flat · once per shipment · inside FS base"
+          value={formatStackInr(preview.docketFeeInr)}
+        />
+        <SurfaceStackRow
+          kind="line"
+          prefix="+"
+          names={[{
+            text: 'FOV',
+            tip: 'Freight on Value once per shipment. Higher of min ₹ and % of invoice. Included in the FS base (Apex rate calc sample).',
+          }]}
+          detail="flat · once per shipment · inside FS base"
+          value={formatStackInr(preview.fovInr)}
+        />
+        <SurfaceStackRow
+          kind="line"
+          prefix="+"
+          names={[{
+            text: 'PSS',
+            tip: 'Peak Season Surcharge. % of basic freight only.',
+          }]}
+          suffix={`${rates.pssPercent}%`}
+          detail="of basic"
+          value={formatStackInr(preview.pssInr)}
+        />
+        <SurfaceStackRow
+          kind="line"
+          prefix="+"
+          names={[{
+            text: 'IDC',
+            tip: 'Infrastructure Development Charge. % of basic freight only.',
+          }]}
+          suffix={`${rates.idcPercent}%`}
+          detail="of basic"
+          value={formatStackInr(preview.idcInr)}
+        />
+        <SurfaceStackRow
+          kind="subtotal"
+          prefix="="
+          names={[{
+            text: 'Subtotal A',
+            tip: 'Basic + Docket + FOV + PSS + IDC. Fuel surcharge is calculated on this subtotal (Apex sample).',
+          }]}
+          detail="Basic + Docket + FOV + PSS + IDC"
+          value={formatStackInr(preview.subtotalAInr)}
+        />
+        <SurfaceStackRow
+          kind="line"
+          prefix="+"
+          names={[{
+            text: 'Fuel (FS)',
+            tip: 'Domestic Fuel Surcharge after B2B discount. Effective % of Subtotal A.',
+          }]}
+          suffix={`${preview.fsPercent}%`}
+          detail={
+            preview.fsDiscountPercent > 0
+              ? `effective of Subtotal A · ${preview.fsPublishedPercent}% − ${preview.fsDiscountPercent}% = ${preview.fsPercent}%`
+              : 'of Subtotal A'
+          }
+          value={formatStackInr(preview.fuelSurchargeInr)}
+        />
+        <SurfaceStackRow
+          kind="subtotal"
+          prefix="="
+          names={[{
+            text: 'After FS',
+            tip: 'Subtotal A + effective Fuel. CAF is calculated on this amount.',
+          }]}
+          detail="Subtotal A + Fuel"
+          value={formatStackInr(preview.afterFuelInr)}
+        />
+        <SurfaceStackRow
+          kind="line"
+          prefix="+"
+          names={[{
+            text: 'CAF',
+            tip: 'Currency Adjustment Factor after B2B discount. Effective % of the amount after Fuel.',
+          }]}
+          suffix={`${preview.cafPercent}%`}
+          detail={
+            preview.cafDiscountPercent > 0
+              ? `effective of After FS · ${preview.cafPublishedPercent}% − ${preview.cafDiscountPercent}% = ${preview.cafPercent}%`
+              : 'of After FS'
+          }
+          value={formatStackInr(preview.cafInr)}
+        />
+        <SurfaceStackRow
+          kind="subtotal"
+          prefix="="
+          names={[{
+            text: 'After CAF',
+            tip: 'After FS + CAF. EFSS is calculated on this amount.',
+          }]}
+          detail="After FS + CAF"
+          value={formatStackInr(preview.afterCafInr)}
+        />
+        <SurfaceStackRow
+          kind="line"
+          prefix="+"
+          names={[{
+            text: 'EFSS',
+            tip: 'Elevated Freight Stability Surcharge. % of the amount after CAF.',
+          }]}
+          suffix={`${rates.efssPercent}%`}
+          detail="of After CAF"
+          value={formatStackInr(preview.efssInr)}
+        />
+        <SurfaceStackRow
+          kind="line"
+          prefix="+"
+          names={[
+            {
+              text: 'RAS',
+              tip: 'Remote Area Surcharge. ₹ per chargeable kg when the destination state is in the RAS list. After % stack — not in the Apex sample table.',
+            },
+            {
+              text: 'EDL',
+              tip: 'Extra Delivery Location charge when the pincode is outside Blue Dart’s standard coverage. After % stack.',
+            },
+          ]}
+          join=" · "
+          detail="flat VAS · after % stack"
+          value={formatStackInr(preview.rasInr + preview.edlInr)}
+        />
+        <SurfaceStackRow
+          kind="total"
+          prefix="="
+          names={[{
+            text: 'Total',
+            tip: 'Sum of the stack above, rounded up to a whole rupee. Quoted ex-GST — tax is applied on the sales order, not here.',
+          }]}
+          detail="ceil to whole ₹ · ex-GST"
+          value={formatStackInr(preview.totalInr)}
+        />
+      </div>
     </div>
   );
 }
@@ -1559,6 +1897,7 @@ export const BlueDartRatesEditor: React.FC<Props> = ({
       {tab === 'air' ? (
         <div className="settings-bluedart__tab-panel" role="tabpanel">
           {statusControl}
+          <AirChargeStack rates={config.air} shared={shared} />
           <SharedChargesEditor shared={shared} onPatch={patchShared} />
           <AirRatesEditor
             rates={config.air}

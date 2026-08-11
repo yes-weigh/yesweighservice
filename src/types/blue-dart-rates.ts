@@ -116,8 +116,20 @@ export const BLUE_DART_EDL_WEIGHT_BAND_LABELS = [
 
 /** Shared geo / surcharge / gap-fill fields (one panel in Settings). */
 export interface BlueDartSharedRules {
+  /** Published Domestic Fuel Surcharge % (Blue Dart site). */
   fuelSurchargePercent: number;
+  /**
+   * B2B discount in percentage points off published FS (Air / DP).
+   * Effective FS = max(0, published − discount), e.g. 99 − 10 = 89.
+   */
+  fuelB2bDiscountPercent: number;
+  /** Published Currency Adjustment Factor % (Blue Dart site). */
   cafPercent: number;
+  /**
+   * B2B discount in percentage points off published CAF (Air / DP).
+   * Effective CAF = max(0, published − discount), e.g. 22 − 5 = 17.
+   */
+  cafB2bDiscountPercent: number;
   /** Always 0 — freight quoted ex-GST; tax is applied on the sales order. */
   gstPercent: number;
   /** Always SOUTH (Kerala). Kept on the config for quotes/zone matrix; not editable in UI. */

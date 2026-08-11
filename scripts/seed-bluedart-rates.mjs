@@ -94,7 +94,9 @@ function defaultBlueDartConfig() {
   return {
     shared: {
       fuelSurchargePercent: 92,
+      fuelB2bDiscountPercent: 10,
       cafPercent: 22,
+      cafB2bDiscountPercent: 5,
       gstPercent: 0,
       originRegion: 'SOUTH',
       edlMode: 'flat_fallback',

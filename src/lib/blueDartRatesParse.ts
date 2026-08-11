@@ -146,7 +146,15 @@ function parseShared(raw: unknown): BlueDartSharedRules {
 
   return {
     fuelSurchargePercent: finiteNonNeg(data.fuelSurchargePercent, defaults.fuelSurchargePercent),
+    fuelB2bDiscountPercent: Math.min(
+      100,
+      finiteNonNeg(data.fuelB2bDiscountPercent, defaults.fuelB2bDiscountPercent),
+    ),
     cafPercent: finiteNonNeg(data.cafPercent, defaults.cafPercent),
+    cafB2bDiscountPercent: Math.min(
+      100,
+      finiteNonNeg(data.cafB2bDiscountPercent, defaults.cafB2bDiscountPercent),
+    ),
     /** Always 0 — Blue Dart freight is quoted ex-GST; tax is on the SO. */
     gstPercent: 0,
     originRegion,

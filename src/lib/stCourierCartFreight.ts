@@ -591,10 +591,40 @@ export function estimateStCourierCartFreight(input: {
       return ceilCourierChargeInr(productFreight + spareFreight);
     };
 
-    const optionsWithTotals: OrderCourierOption[] = options.map(opt => ({
-      ...opt,
-      estimatedTotalInr: quotePartnerTotal(opt.partnerId),
-    }));
+    const optionsWithTotals: OrderCourierOption[] = options.map(opt => {
+      const estimatedTotalInr = quotePartnerTotal(opt.partnerId);
+      if (opt.partnerId !== 'bluedart_air' || allParcels.length === 0) {
+        return { ...opt, estimatedTotalInr };
+      }
+      const airQuoted = quoteBlueDartParcels({
+        config: input.rates.bluedart,
+        service: 'air',
+        destState: input.destination?.state,
+        pin: input.blueDartPin,
+        parcels: allParcels.map(p => ({
+          actualKg: p.actualKg,
+          dims: {
+            lengthCm: Number(p.dims.lengthCm) || 0,
+            widthCm: Number(p.dims.widthCm) || 0,
+            heightCm: Number(p.dims.heightCm) || 0,
+          },
+        })),
+        invoiceValueInr,
+      });
+      if (
+        airQuoted.notServiceable
+        && airQuoted.notServiceableReason
+        && /max\s+\d+\s+kg\s+for\s+blue\s+dart\s+air/i.test(airQuoted.notServiceableReason)
+      ) {
+        return {
+          ...opt,
+          enabled: false,
+          disabledReason: airQuoted.notServiceableReason,
+          estimatedTotalInr: 0,
+        };
+      }
+      return { ...opt, estimatedTotalInr };
+    });
 
     const requested = normalizeLogisticsPartnerId(input.courierBySite?.[site] ?? null)
       ?? undefined;

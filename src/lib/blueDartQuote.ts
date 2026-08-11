@@ -9,7 +9,10 @@
  * - DP: Kerala dest (+ Kerala origin) → A1; else pin.dpZone A/B/C
  *
  * v1 charge stack (HARDCODED order — change here + functions/lib/blue-dart-quote.js):
- *   Air: base → PSS% + IDC% → FS% → CAF% → EFSS% → docket → RAS → FOV → EDL → ceil
+ *   Air (matches Apex “Rate Calculation for 10KG” sample):
+ *     base → docket → FOV → PSS% + IDC% on base
+ *     → FS% on that subtotal → CAF% → EFSS%
+ *     → RAS ₹/kg → EDL → ceil
  *   Surface (matches Surface rates.xlsx sample):
  *     base → festival% on base → docket → FOV
  *     → diesel FS% on that subtotal (no CAF, no IDC)
@@ -20,6 +23,10 @@
  * Keep server mirror in functions/lib/blue-dart-quote.js in sync.
  */
 import {
+  blueDartAirMaxChargeableExceeded,
+  blueDartAirMaxChargeableReason,
+  blueDartEffectiveCafPercent,
+  blueDartEffectiveFuelSurchargePercent,
   blueDartSurfaceEffectiveDieselFsPercent,
   resolveBlueDartOversizeAmountInr,
 } from '../constants/blueDartRates';
@@ -156,22 +163,38 @@ export function blueDartFreightCalcSteps(
 
   if (q.service === 'domestic_priority') {
     pushScaled('Basic (500 g slabs)', q.baseFreightInr);
-  } else if (q.perKgInr != null && q.perKgInr > 0 && kg > 0) {
+    pushScaled('+ PSS', q.pssInr, 'of basic');
+    pushScaled('+ IDC', q.idcInr, 'of basic');
+    pushScaled('+ Fuel surcharge', q.fuelSurchargeInr);
+    pushScaled('+ CAF', q.cafInr);
+    pushScaled('+ EFSS', q.efssInr);
+    pushScaled('+ GST', q.gstInr);
+    return steps;
+  }
+
+  /** Air — Apex sample: Docket + FOV inside FS base. */
+  if (q.perKgInr != null && q.perKgInr > 0 && kg > 0) {
     pushFlat('Basic freight', q.perKgInr * kg, `₹${q.perKgInr}/kg × ${kg} kg`);
   } else {
     pushScaled('Basic freight', q.baseFreightInr);
   }
+  if (includeShipmentFees) {
+    pushFlat('+ Docket', q.docketFeeInr, 'flat · once per shipment · inside FS base');
+    pushFlat('+ FOV', q.fovInr, 'flat · once per shipment · inside FS base');
+  }
   pushScaled('+ PSS', q.pssInr, 'of basic');
   pushScaled('+ IDC', q.idcInr, 'of basic');
-  pushScaled('+ Fuel surcharge', q.fuelSurchargeInr);
-  pushScaled('+ CAF', q.cafInr);
-  pushScaled('+ EFSS', q.efssInr);
+  pushScaled(
+    '+ Fuel surcharge',
+    q.fuelSurchargeInr,
+    'of Subtotal A (basic + docket + FOV + PSS + IDC)',
+  );
+  pushScaled('+ CAF', q.cafInr, 'of After FS');
+  pushScaled('+ EFSS', q.efssInr, 'of After CAF');
+  pushScaled('+ RAS', q.rasInr, '₹/kg · after % stack');
   if (includeShipmentFees) {
-    pushFlat('+ Docket', q.docketFeeInr, 'flat · once per shipment');
-    pushFlat('+ FOV', q.fovInr, 'flat · once per shipment');
     pushFlat('+ EDL', q.edlInr, 'flat · once per shipment');
   }
-  pushScaled('+ RAS', q.rasInr);
   pushScaled('+ GST', q.gstInr);
   return steps;
 }
@@ -370,8 +393,8 @@ function resolveFsCaf(
   serviceCaf: number | null,
 ): { fs: number; caf: number } {
   return {
-    fs: serviceFs != null && Number.isFinite(serviceFs) ? nonNeg(serviceFs) : nonNeg(shared.fuelSurchargePercent),
-    caf: serviceCaf != null && Number.isFinite(serviceCaf) ? nonNeg(serviceCaf) : nonNeg(shared.cafPercent),
+    fs: blueDartEffectiveFuelSurchargePercent(shared, serviceFs),
+    caf: blueDartEffectiveCafPercent(shared, serviceCaf),
   };
 }
 
@@ -469,18 +492,23 @@ function quoteKgService(input: {
     /** OS/OW + RAS + ECC + EDL are VAS — after % stack. */
     subtotal = afterFuel + efss + oversize + ras + ecc + edl;
   } else {
-    const afterPssIdc = base + pss + idc;
+    /**
+     * Apex “Rate Calculation for 10KG” sample:
+     * Basic + Docket + FOV + PSS + IDC → FS% → CAF% → EFSS% → RAS/EDL.
+     */
+    const fsBase = base + docket + fov + pss + idc;
     const { fs, caf } = resolveFsCaf(
       input.config.shared,
       rates.fuelSurchargePercent,
       rates.cafPercent,
     );
-    fuel = afterPssIdc * (fs / 100);
-    const afterFuel = afterPssIdc + fuel;
+    fuel = fsBase * (fs / 100);
+    const afterFuel = fsBase + fuel;
     cafInr = afterFuel * (caf / 100);
     const afterCaf = afterFuel + cafInr;
     efss = afterCaf * (nonNeg(rates.efssPercent) / 100);
-    subtotal = afterCaf + efss + docket + ras + fov + edl;
+    /** RAS + EDL are VAS — after % stack (not in Apex sample table). */
+    subtotal = afterCaf + efss + ras + edl;
   }
 
   const total = ceilCourierChargeInr(subtotal);
@@ -661,6 +689,16 @@ export function quoteBlueDartShipment(input: {
     volumetricDivisor: rates.volumetricDivisor,
     minimumChargeableWeightKg: rates.minimumChargeableWeightKg,
   });
+  if (input.service === 'air' && blueDartAirMaxChargeableExceeded(chargeableKg)) {
+    return empty({
+      zoneLabel: `Zone ${zone}`,
+      volumetricKg,
+      chargeableKg,
+      rateMissing: false,
+      notServiceable: true,
+      notServiceableReason: blueDartAirMaxChargeableReason(chargeableKg),
+    });
+  }
   /** OS/OW is per box — use piece kg (no consignment minimum). */
   const oversizeInr = input.service === 'surface'
     ? resolveBlueDartOversizeAmountInr(
@@ -829,6 +867,17 @@ export function quoteBlueDartParcels(input: {
   if (!zone) {
     return empty({ notServiceable: true, notServiceableReason: 'Cannot resolve zone' });
   }
+  if (input.service === 'air' && blueDartAirMaxChargeableExceeded(chargeableKg)) {
+    return empty({
+      zoneLabel: `Zone ${zone}`,
+      actualKg,
+      volumetricKg,
+      chargeableKg,
+      rateMissing: false,
+      notServiceable: true,
+      notServiceableReason: blueDartAirMaxChargeableReason(chargeableKg),
+    });
+  }
   const q = quoteKgService({
     service: input.service,
     config: input.config,
@@ -969,6 +1018,149 @@ export function previewBlueDartSurfaceStack(input: {
     rasInr: q.rasInr,
     fovInr: q.fovInr,
     eccInr: q.eccInr,
+    edlInr: q.edlInr,
+    totalInr: q.totalInr,
+    rateMissing: q.rateMissing,
+  };
+}
+
+/** Settings “try a quote” preview — same Air stack as live quotes. */
+export type BlueDartAirStackPreview = {
+  zone: BlueDartAirZone;
+  perKgInr: number;
+  actualKg: number;
+  volumetricKg: number;
+  chargeableKg: number;
+  /** Published Domestic FS (before B2B). */
+  fsPublishedPercent: number;
+  fsDiscountPercent: number;
+  /** Effective FS after B2B (applied in quote). */
+  fsPercent: number;
+  /** Published CAF (before B2B). */
+  cafPublishedPercent: number;
+  cafDiscountPercent: number;
+  /** Effective CAF after B2B (applied in quote). */
+  cafPercent: number;
+  baseFreightInr: number;
+  pssInr: number;
+  idcInr: number;
+  /** Basic + Docket + FOV + PSS + IDC — FS base (Apex sample). */
+  subtotalAInr: number;
+  fuelSurchargeInr: number;
+  afterFuelInr: number;
+  cafInr: number;
+  afterCafInr: number;
+  efssInr: number;
+  docketFeeInr: number;
+  rasInr: number;
+  fovInr: number;
+  edlInr: number;
+  totalInr: number;
+  rateMissing: boolean;
+};
+
+export function previewBlueDartAirStack(input: {
+  shared: BlueDartSharedRules;
+  air: BlueDartKgServiceRates;
+  zone: BlueDartAirZone;
+  actualKg: number;
+  dims?: BlueDartQuoteDims;
+  invoiceValueInr: number;
+  destState: string | null | undefined;
+  isEdl: boolean;
+  edlKm?: number | null;
+}): BlueDartAirStackPreview {
+  const dims = input.dims ?? { lengthCm: 0, widthCm: 0, heightCm: 0 };
+  const volumetricKg = blueDartVolumetricKg(dims, input.air.volumetricDivisor);
+  const chargeableKg = blueDartChargeableKg({
+    actualKg: input.actualKg,
+    dims,
+    volumetricDivisor: input.air.volumetricDivisor,
+    minimumChargeableWeightKg: input.air.minimumChargeableWeightKg,
+  });
+  const fsPublishedPercent = input.air.fuelSurchargePercent != null
+    && Number.isFinite(input.air.fuelSurchargePercent)
+    ? nonNeg(input.air.fuelSurchargePercent)
+    : nonNeg(input.shared.fuelSurchargePercent);
+  const cafPublishedPercent = input.air.cafPercent != null
+    && Number.isFinite(input.air.cafPercent)
+    ? nonNeg(input.air.cafPercent)
+    : nonNeg(input.shared.cafPercent);
+  const fsDiscountPercent = nonNeg(input.shared.fuelB2bDiscountPercent);
+  const cafDiscountPercent = nonNeg(input.shared.cafB2bDiscountPercent);
+  const { fs: fsPercent, caf: cafPercent } = resolveFsCaf(
+    input.shared,
+    input.air.fuelSurchargePercent,
+    input.air.cafPercent,
+  );
+  const config = {
+    shared: input.shared,
+    air: input.air,
+    surface: {
+      ...input.air,
+      festivalSurchargePercent: 0,
+      festivalSeasonStartMonth: 9,
+      festivalSeasonEndMonth: 12,
+      oversizeSlabs: [],
+      dieselB2bDiscountPercent: 0,
+      eccPerShipmentInr: 0,
+    },
+    domestic_priority: {
+      first500gInr: { A1: 0, A: 0, B: 0, C: 0 },
+      addl500gInr: { A1: 0, A: 0, B: 0, C: 0 },
+      volumetricDivisor: 5000,
+      fuelSurchargePercent: null,
+      cafPercent: null,
+      idcPercent: 0,
+      efssPercent: 0,
+      pssPercent: 0,
+    },
+    source: null,
+  } satisfies BlueDartConfig;
+
+  const q = quoteKgService({
+    service: 'air',
+    config,
+    zone: input.zone,
+    chargeableKg,
+    invoiceValueInr: nonNeg(input.invoiceValueInr),
+    destState: input.destState,
+    isEdl: input.isEdl,
+    edlKm: input.edlKm ?? null,
+  });
+  /** Apex sample FS base: Basic + Docket + FOV + PSS + IDC. */
+  const subtotalAInr = q.baseFreightInr
+    + q.docketFeeInr
+    + q.fovInr
+    + q.pssInr
+    + q.idcInr;
+  const afterFuelInr = subtotalAInr + q.fuelSurchargeInr;
+  const afterCafInr = afterFuelInr + q.cafInr;
+
+  return {
+    zone: input.zone,
+    perKgInr: nonNeg(input.air.perKgInr[input.zone]),
+    actualKg: nonNeg(input.actualKg),
+    volumetricKg,
+    chargeableKg,
+    fsPublishedPercent,
+    fsDiscountPercent,
+    fsPercent,
+    cafPublishedPercent,
+    cafDiscountPercent,
+    cafPercent,
+    baseFreightInr: q.baseFreightInr,
+    pssInr: q.pssInr,
+    idcInr: q.idcInr,
+    subtotalAInr,
+    fuelSurchargeInr: q.fuelSurchargeInr,
+    afterFuelInr,
+    cafInr: q.cafInr,
+    afterCafInr,
+    efssInr: q.efssInr,
+    docketFeeInr: q.docketFeeInr,
+    rasInr: q.rasInr,
+    fovInr: q.fovInr,
     edlInr: q.edlInr,
     totalInr: q.totalInr,
     rateMissing: q.rateMissing,

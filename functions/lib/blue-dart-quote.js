@@ -13,6 +13,19 @@ const BLUE_DART_SERVICES = ['air', 'surface', 'domestic_priority'];
 const REGIONS = ['NORTH', 'EAST', 'WEST', 'SOUTH', 'NE', 'JK'];
 const AIR_ZONES = [1, 2, 3, 4, 5];
 const DP_ZONES = ['A1', 'A', 'B', 'C'];
+/** Apex / BDAIR — chargeable kg above this cannot use Blue Dart Air. */
+const BLUE_DART_AIR_MAX_CHARGEABLE_KG = 15;
+
+function airMaxChargeableExceeded(kg) {
+  return nonNeg(kg) > BLUE_DART_AIR_MAX_CHARGEABLE_KG;
+}
+
+function airMaxChargeableReason(kg) {
+  const n = nonNeg(kg);
+  return n > 0
+    ? `Max ${BLUE_DART_AIR_MAX_CHARGEABLE_KG} kg for Blue Dart Air (chargeable ${n} kg)`
+    : `Max ${BLUE_DART_AIR_MAX_CHARGEABLE_KG} kg for Blue Dart Air`;
+}
 
 function nonNeg(value, fallback = 0) {
   if (typeof value !== 'number' || !Number.isFinite(value) || value < 0) return fallback;
@@ -95,7 +108,9 @@ function defaultEdlMatrix() {
 function defaultShared() {
   return {
     fuelSurchargePercent: 92,
+    fuelB2bDiscountPercent: 10,
     cafPercent: 22,
+    cafB2bDiscountPercent: 5,
     gstPercent: 0,
     originRegion: 'SOUTH',
     edlMode: 'flat_fallback',
@@ -324,7 +339,15 @@ function parseShared(raw) {
     ...defaults,
     ...raw,
     fuelSurchargePercent: nonNeg(Number(raw.fuelSurchargePercent), defaults.fuelSurchargePercent),
+    fuelB2bDiscountPercent: Math.min(
+      100,
+      nonNeg(Number(raw.fuelB2bDiscountPercent), defaults.fuelB2bDiscountPercent),
+    ),
     cafPercent: nonNeg(Number(raw.cafPercent), defaults.cafPercent),
+    cafB2bDiscountPercent: Math.min(
+      100,
+      nonNeg(Number(raw.cafB2bDiscountPercent), defaults.cafB2bDiscountPercent),
+    ),
     gstPercent: 0,
     originRegion: 'SOUTH',
     edlMode: ['off', 'ne_jk_only', 'flat_fallback', 'matrix_when_km'].includes(raw.edlMode)
@@ -503,10 +526,19 @@ function edlInr(shared, destState, isEdl, kg, edlKm) {
   return nonNeg(shared.edlFlatFallbackInr);
 }
 
+function applyB2bDiscount(published, discountRaw) {
+  const base = nonNeg(published);
+  const discount = nonNeg(discountRaw);
+  const effective = base - discount;
+  return effective > 0 ? Math.round(effective * 100) / 100 : 0;
+}
+
 function fsCaf(shared, serviceFs, serviceCaf) {
+  const publishedFs = serviceFs != null ? nonNeg(serviceFs) : nonNeg(shared.fuelSurchargePercent);
+  const publishedCaf = serviceCaf != null ? nonNeg(serviceCaf) : nonNeg(shared.cafPercent);
   return {
-    fs: serviceFs != null ? nonNeg(serviceFs) : nonNeg(shared.fuelSurchargePercent),
-    caf: serviceCaf != null ? nonNeg(serviceCaf) : nonNeg(shared.cafPercent),
+    fs: applyB2bDiscount(publishedFs, shared.fuelB2bDiscountPercent),
+    caf: applyB2bDiscount(publishedCaf, shared.cafB2bDiscountPercent),
   };
 }
 
@@ -621,6 +653,16 @@ export function quoteBlueDartParcels({
   }
   const minKg = nonNeg(rates.minimumChargeableWeightKg);
   const kg = ceilChargeableKg(Math.max(pieceKg, minKg > 0 ? minKg : 0));
+  if (service === 'air' && airMaxChargeableExceeded(kg)) {
+    return {
+      totalInr: 0,
+      chargeableKg: kg,
+      sku,
+      rateMissing: false,
+      notServiceable: true,
+      notServiceableReason: airMaxChargeableReason(kg),
+    };
+  }
   const perKg = nonNeg(rates.perKgInr[zone]);
   if (!(perKg > 0)) {
     return { totalInr: 0, chargeableKg: kg, sku, rateMissing: true, notServiceable: false };
@@ -662,14 +704,18 @@ export function quoteBlueDartParcels({
     const efss = afterFuel * (nonNeg(rates.efssPercent) / 100);
     subtotal = afterFuel + efss + oversize + ras + ecc + edl;
   } else {
-    const after = base + pss + idc;
+    /**
+     * Apex “Rate Calculation for 10KG” sample:
+     * Basic + Docket + FOV + PSS + IDC → FS% → CAF% → EFSS% → RAS/EDL.
+     */
+    const fsBase = base + docket + fov + pss + idc;
     const { fs, caf } = fsCaf(cfg.shared, rates.fuelSurchargePercent, rates.cafPercent);
-    const fuel = after * (fs / 100);
-    const afterFuel = after + fuel;
+    const fuel = fsBase * (fs / 100);
+    const afterFuel = fsBase + fuel;
     const cafInr = afterFuel * (caf / 100);
     const afterCaf = afterFuel + cafInr;
     const efss = afterCaf * (nonNeg(rates.efssPercent) / 100);
-    subtotal = afterCaf + efss + docket + ras + fov + edl;
+    subtotal = afterCaf + efss + ras + edl;
   }
   return {
     totalInr: ceilInr(subtotal),

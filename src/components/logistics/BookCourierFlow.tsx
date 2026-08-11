@@ -24,6 +24,11 @@ import {
 } from 'lucide-react';
 import { DecimalTextInput } from '../DecimalAmountInput';
 import { FIRM_GSTIN, FIRM_NAME, FIRM_PHONE } from '../../constants/brand';
+import {
+  BLUE_DART_AIR_MAX_CHARGEABLE_KG,
+  blueDartAirMaxChargeableExceeded,
+  blueDartAirMaxChargeableReason,
+} from '../../constants/blueDartRates';
 import { logisticsPartnerLabel } from '../../constants/logisticsPartners';
 import type { LogisticsPartnerId } from '../../constants/logisticsPartners';
 import { fetchDealerById } from '../../lib/dealers';
@@ -1350,6 +1355,7 @@ export const BookCourierFlow: React.FC<BookCourierFlowProps> = ({
   }, [booking, onComplete]);
 
   const isEnvelope = draft.shipmentMode === 'envelope';
+  const isBlueDartAir = partnerId === 'bluedart_air';
   const canProceedScan = Boolean(draft.barcodeRaw.trim() || draft.consignmentNo.trim());
   const boxesValid = draftBoxesHaveRequiredPhotos(draft.boxes)
     && draft.boxes.every(box => {
@@ -1358,7 +1364,6 @@ export const BookCourierFlow: React.FC<BookCourierFlowProps> = ({
       if (isDelhivery && !boxHasRequiredLbh(box)) return false;
       return true;
     });
-  const canProceedBox = boxesValid;
   const delhiveryNeedsLbh = isDelhivery
     && !isEnvelope
     && draft.boxes.some(box => !boxHasRequiredLbh(box));
@@ -1370,6 +1375,9 @@ export const BookCourierFlow: React.FC<BookCourierFlowProps> = ({
     const actual = Number.parseFloat(box.weightKg) || 0;
     return sum + Math.max(actual, boxVolumetric(box));
   }, 0);
+  const blueDartAirOverMax = isBlueDartAir
+    && blueDartAirMaxChargeableExceeded(totalChargeableWeight);
+  const canProceedBox = boxesValid && !blueDartAirOverMax;
   const delhiveryDestPin = selectedDealer
     ? pinFromText(resolveDeliveryAddress(selectedDealer, draft.deliveryAddressKind))
     : '';
@@ -2219,15 +2227,29 @@ export const BookCourierFlow: React.FC<BookCourierFlowProps> = ({
                 />
               ) : null}
 
+              {blueDartAirOverMax ? (
+                <p className="text-sm book-courier__hint" role="alert">
+                  {blueDartAirMaxChargeableReason(totalChargeableWeight)}.
+                  {' '}
+                  Use Surface or another partner (Air max
+                  {' '}
+                  {BLUE_DART_AIR_MAX_CHARGEABLE_KG}
+                  {' '}
+                  kg).
+                </p>
+              ) : null}
+
               <button
                 type="button"
                 className="btn btn-primary book-courier__next"
                 disabled={!canProceedBox || combineSelectMode}
                 onClick={() => setStep('review')}
               >
-                {delhiveryNeedsLbh
-                  ? 'Enter L × B × H to continue'
-                  : 'Confirm & Next'}
+                {blueDartAirOverMax
+                  ? `Air max ${BLUE_DART_AIR_MAX_CHARGEABLE_KG} kg`
+                  : delhiveryNeedsLbh
+                    ? 'Enter L × B × H to continue'
+                    : 'Confirm & Next'}
               </button>
             </section>
           )}
