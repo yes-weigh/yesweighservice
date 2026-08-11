@@ -1168,8 +1168,8 @@ export async function markSalesOrderInvoicedManually(uid, role, salesOrderId, se
   if (!invoiceId) {
     const message = linkedLookupError
       ? `Could not confirm a Zoho invoice for this sales order: ${linkedLookupError.message || linkedLookupError}`
-      : 'No invoice is linked to this sales order in Zoho. Create the invoice in Zoho first, or use Verify & invoice here to create it.';
-    throw new HttpsError('failed-precondition', message);
+      : 'No invoice is linked to this sales order in Zoho.';
+    throw new HttpsError('failed-precondition', message, { code: 'mark_invoiced_no_zoho_invoice' });
   }
 
   const at = nowIso();

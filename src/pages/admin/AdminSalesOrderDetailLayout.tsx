@@ -8,6 +8,7 @@ import { FetchingLoader } from '../../components/FetchingLoader';
 import { useAuth } from '../../context/AuthContext';
 import { InvoiceCategoryBadge } from '../../components/invoices/InvoiceCategoryVisual';
 import { SalesOrderStageSeal } from '../../components/salesOrders/SalesOrderStageSeal';
+import { MarkInvoicedNoInvoiceDialog } from '../../components/salesOrders/MarkInvoicedNoInvoiceDialog';
 import { useCatalogPageHeader, usePageHeaderTitleMeta } from '../../context/PageHeaderContext';
 import {
   fetchAdminSalesOrderDetail,
@@ -30,6 +31,7 @@ import {
   repairSalesOrderInvoicingMismatch,
   verifySalesOrderPayment,
   effectiveYesOneStageForDisplay,
+  isMarkInvoicedNoZohoInvoiceError,
   isSalesOrderInvoicingMismatch,
   yesOneStageLabelForInvoicingDisplay,
   yesOneStageStatusClass,
@@ -66,6 +68,7 @@ export const AdminSalesOrderDetailLayout: React.FC = () => {
   const [error, setError] = useState('');
   const [actionBusy, setActionBusy] = useState<SalesOrderActionBusy>(null);
   const [assignableStaff, setAssignableStaff] = useState<Array<{ uid: string; displayName: string }>>([]);
+  const [markInvoicedGuide, setMarkInvoicedGuide] = useState<{ message: string } | null>(null);
 
   const handleBack = useCallback(() => {
     if (isPdfView) {
@@ -261,7 +264,13 @@ export const AdminSalesOrderDetailLayout: React.FC = () => {
       const next = await markSalesOrderInvoicedManually(salesOrderId);
       setSalesOrder(next);
     } catch (err) {
-      window.alert(dealerOrderErrorMessage(err));
+      if (isMarkInvoicedNoZohoInvoiceError(err)) {
+        setMarkInvoicedGuide({
+          message: err instanceof Error ? err.message : dealerOrderErrorMessage(err),
+        });
+      } else {
+        window.alert(dealerOrderErrorMessage(err));
+      }
     } finally {
       setActionBusy(null);
     }
@@ -450,6 +459,14 @@ export const AdminSalesOrderDetailLayout: React.FC = () => {
       ) : (
         <Outlet context={outletContext} />
       )}
+
+      {markInvoicedGuide ? (
+        <MarkInvoicedNoInvoiceDialog
+          errorMessage={markInvoicedGuide.message}
+          yesOneStage={salesOrder?.yesOneStage}
+          onClose={() => setMarkInvoicedGuide(null)}
+        />
+      ) : null}
     </div>
   );
 };

@@ -375,6 +375,57 @@ export async function verifySalesOrderPayment(
   }
 }
 
+/** Callable detail when Mark as invoiced finds no Zoho invoice. */
+export const MARK_INVOICED_NO_ZOHO_INVOICE = 'mark_invoiced_no_zoho_invoice';
+
+export class SalesOrderWorkflowError extends Error {
+  readonly workflowCode?: string;
+
+  constructor(message: string, workflowCode?: string) {
+    super(message);
+    this.name = 'SalesOrderWorkflowError';
+    this.workflowCode = workflowCode;
+  }
+}
+
+function callableWorkflowErrorCode(err: unknown): string | undefined {
+  if (!err || typeof err !== 'object') return undefined;
+  const details = (err as { details?: unknown }).details;
+  if (details && typeof details === 'object' && 'code' in details) {
+    const code = String((details as { code?: string }).code || '').trim();
+    return code || undefined;
+  }
+  return undefined;
+}
+
+export function isMarkInvoicedNoZohoInvoiceError(err: unknown): boolean {
+  if (err instanceof SalesOrderWorkflowError) {
+    return err.workflowCode === MARK_INVOICED_NO_ZOHO_INVOICE;
+  }
+  const directCode = callableWorkflowErrorCode(err);
+  if (directCode === MARK_INVOICED_NO_ZOHO_INVOICE) return true;
+  const message = err instanceof Error ? err.message : dealerOrderErrorMessage(err);
+  const lower = message.toLowerCase();
+  return lower.includes('no invoice is linked to this sales order in zoho')
+    || lower.includes('could not confirm a zoho invoice for this sales order');
+}
+
+/** Portal steps to show when Mark as invoiced fails (no Zoho invoice yet). */
+export function markInvoicedPortalRouteSteps(
+  yesOneStage: string | null | undefined,
+): string[] {
+  const stage = String(yesOneStage || '').trim() || 'review';
+  const steps: string[] = [];
+  if (stage === 'review') {
+    steps.push('Staff: mark the order Ready for payment.');
+  }
+  if (stage !== 'payment_submitted') {
+    steps.push('Submit payment proof on this page (dealer upload or staff payment screenshot / note).');
+  }
+  steps.push('Super admin: use Verify & invoice to confirm payment and create the Zoho invoice.');
+  return steps;
+}
+
 /** Mark SO completed/invoiced here after it was already processed in Zoho. */
 export async function markSalesOrderInvoicedManually(
   salesOrderId: string,
@@ -382,7 +433,10 @@ export async function markSalesOrderInvoicedManually(
   try {
     return await call('markSalesOrderInvoicedManually', { salesOrderId }, 120_000);
   } catch (err) {
-    throw new Error(dealerOrderErrorMessage(err));
+    throw new SalesOrderWorkflowError(
+      dealerOrderErrorMessage(err),
+      callableWorkflowErrorCode(err),
+    );
   }
 }
 
