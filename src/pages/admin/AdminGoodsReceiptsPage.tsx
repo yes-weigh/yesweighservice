@@ -20,6 +20,7 @@ import {
   fetchAdminGoodsReceiptsPageDetailed,
   filterAdminGoodsReceipts,
   goodsReceiptLocationLabel,
+  goodsReceiptStatusLabel,
   toGoodsReceiptDateKey,
   type AdminFirestoreGoodsReceipt,
   type AdminGoodsReceiptLocationCounts,
@@ -31,7 +32,6 @@ import {
   formatInvoiceItemQuantity,
   getInvoicePeriodBounds,
   invoiceErrorMessage,
-  invoiceStatusLabel,
 } from '../../lib/invoices';
 import { useRevealScrollbarOnScroll } from '../../lib/useRevealScrollbarOnScroll';
 import type { SalesRangePreset } from '../../types/invoices';
@@ -497,7 +497,7 @@ export const AdminGoodsReceiptsPage: React.FC = () => {
                           <td className="invoices-table__num">{formatInvoiceItemQuantity(po.itemQuantity)}</td>
                           <td>
                             <span className={poStatusClass(po.status)}>
-                              {invoiceStatusLabel(po.status)}
+                              {goodsReceiptStatusLabel(po.status)}
                             </span>
                           </td>
                         </tr>
@@ -531,7 +531,7 @@ export const AdminGoodsReceiptsPage: React.FC = () => {
                             {goodsReceiptLocationLabel(po.inventorySite)}
                           </span>
                           <span className={poStatusClass(po.status)}>
-                            {invoiceStatusLabel(po.status)}
+                            {goodsReceiptStatusLabel(po.status)}
                           </span>
                         </span>
                         <span className="invoices-mobile-row__pair">

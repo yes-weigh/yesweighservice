@@ -206,6 +206,7 @@ function buildSearchBlob(doc) {
     doc.referenceNumber,
     doc.status,
     doc.locationName,
+    doc.branchName,
     doc.inventorySite,
     ...(doc.lineItems || []).flatMap(line => [line.name, line.sku]),
   ].filter(Boolean).join(' ').toLowerCase();
@@ -248,13 +249,30 @@ function resolveInventorySite(locationName) {
 }
 
 function pickLocationFromBill(raw) {
-  let locationId = raw.location_id ?? raw.warehouse_id ?? null;
-  let locationName = raw.location_name ?? raw.warehouse_name ?? null;
+  // Zoho Books / Inventory multi-branch: UI "Branch" maps to branch_id + branch_name.
+  const branchId = raw.branch_id
+    ?? raw.branch?.branch_id
+    ?? raw.branch?.id
+    ?? null;
+  const branchName = raw.branch_name
+    ?? raw.branch?.branch_name
+    ?? raw.branch?.name
+    ?? null;
+
+  let locationId = branchId ?? raw.location_id ?? raw.warehouse_id ?? null;
+  let locationName = branchName ?? raw.location_name ?? raw.warehouse_name ?? null;
+
   if (!locationName || locationId == null) {
     const lines = Array.isArray(raw.line_items) ? raw.line_items : [];
     for (const line of lines) {
-      const lineName = line?.location_name ?? line?.warehouse_name ?? null;
-      const lineId = line?.location_id ?? line?.warehouse_id ?? null;
+      const lineName = line?.branch_name
+        ?? line?.location_name
+        ?? line?.warehouse_name
+        ?? null;
+      const lineId = line?.branch_id
+        ?? line?.location_id
+        ?? line?.warehouse_id
+        ?? null;
       if (lineName || lineId != null) {
         if (!locationName && lineName) locationName = lineName;
         if (locationId == null && lineId != null) locationId = lineId;
@@ -262,11 +280,36 @@ function pickLocationFromBill(raw) {
       }
     }
   }
-  const name = locationName != null ? String(locationName) : null;
+
+  const name = locationName != null ? String(locationName).trim() : null;
+  const id = locationId != null ? String(locationId) : null;
   return {
-    locationId: locationId != null ? String(locationId) : null,
+    branchId: branchId != null ? String(branchId) : id,
+    branchName: branchName != null ? String(branchName).trim() : name,
+    locationId: id,
     locationName: name,
     inventorySite: resolveInventorySite(name),
+  };
+}
+
+function pickVendorAddressFromBill(raw) {
+  const billing = raw?.billing_address && typeof raw.billing_address === 'object'
+    ? raw.billing_address
+    : null;
+  const shipping = raw?.shipping_address && typeof raw.shipping_address === 'object'
+    ? raw.shipping_address
+    : null;
+  const addr = billing || shipping || null;
+
+  const clean = (value) => {
+    const s = value != null ? String(value).trim() : '';
+    return s || null;
+  };
+
+  return {
+    vendorState: clean(addr?.state ?? addr?.province ?? raw?.source_of_supply),
+    vendorCountry: clean(addr?.country),
+    vendorCity: clean(addr?.city),
   };
 }
 
@@ -275,6 +318,7 @@ function mapGoodsReceipt(raw) {
     ? raw.line_items.map(mapLineItem)
     : [];
   const location = pickLocationFromBill(raw);
+  const vendorAddress = pickVendorAddressFromBill(raw);
   return {
     id: String(raw.bill_id ?? ''),
     billNumber: String(raw.bill_number ?? ''),
@@ -287,11 +331,16 @@ function mapGoodsReceipt(raw) {
     currencyCode: String(raw.currency_code ?? 'INR'),
     vendorId: raw.vendor_id != null ? String(raw.vendor_id) : '',
     vendorName: raw.vendor_name ? String(raw.vendor_name) : null,
+    vendorState: vendorAddress.vendorState,
+    vendorCountry: vendorAddress.vendorCountry,
+    vendorCity: vendorAddress.vendorCity,
     subtotal: Number(raw.sub_total ?? raw.subtotal ?? 0),
     taxTotal: Number(raw.tax_total ?? 0),
     notes: raw.notes ? String(raw.notes) : null,
     locationId: location.locationId,
     locationName: location.locationName,
+    branchId: location.branchId,
+    branchName: location.branchName,
     inventorySite: location.inventorySite,
     lineItems,
     zohoLastModified: raw.last_modified_time ? String(raw.last_modified_time) : null,
@@ -331,8 +380,10 @@ async function upsertGoodsReceiptFromRaw(raw, options = {}) {
 function detailStillValid(existing, summary) {
   if (!existing) return false;
   if (!Array.isArray(existing.lineItems) || existing.lineItems.length === 0) return false;
-  // Force one re-pull after location fields were added to the mirror.
-  if (!Object.prototype.hasOwnProperty.call(existing, 'inventorySite')) return false;
+  // Force re-pull once after branch/location mapping was added.
+  if (!Object.prototype.hasOwnProperty.call(existing, 'branchName')) return false;
+  // Force re-pull once after vendor state/country mapping was added.
+  if (!Object.prototype.hasOwnProperty.call(existing, 'vendorCountry')) return false;
   const existingMod = String(existing.zohoLastModified ?? '');
   const summaryMod = String(summary.last_modified_time ?? '');
   return Boolean(existingMod && summaryMod && existingMod === summaryMod);
@@ -844,8 +895,13 @@ export function mapGoodsReceiptDoc(id, data) {
     currencyCode: String(data.currencyCode ?? 'INR'),
     vendorId: String(data.vendorId ?? ''),
     vendorName: data.vendorName ?? null,
+    vendorState: data.vendorState != null ? String(data.vendorState) : null,
+    vendorCountry: data.vendorCountry != null ? String(data.vendorCountry) : null,
+    vendorCity: data.vendorCity != null ? String(data.vendorCity) : null,
     locationId: data.locationId != null ? String(data.locationId) : null,
     locationName: data.locationName != null ? String(data.locationName) : null,
+    branchId: data.branchId != null ? String(data.branchId) : null,
+    branchName: data.branchName != null ? String(data.branchName) : null,
     inventorySite: data.inventorySite === 'head_office' || data.inventorySite === 'cochin'
       ? data.inventorySite
       : null,

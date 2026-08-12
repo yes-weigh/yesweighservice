@@ -9,13 +9,21 @@ import {
   orderBy,
   query,
   startAfter,
+  updateDoc,
   where,
+  serverTimestamp,
   type DocumentData,
   type QueryConstraint,
   type QueryDocumentSnapshot,
 } from 'firebase/firestore';
 import { getFunctions, httpsCallable } from 'firebase/functions';
 import { db, app } from '../firebase';
+import { getOpenAuditCycle } from './auditCycles/data';
+import { recordCatalogProductAudit } from './catalogProductAudit/data';
+import {
+  getCatalogSiteInventory,
+  saveCatalogSiteInventory,
+} from './catalogSiteInventory/data';
 import { enrichInvoiceDetailImages } from './invoiceLineItemImages';
 import {
   getInvoicePeriodBounds,
@@ -25,6 +33,12 @@ import {
   parseInvoiceCategory,
   sumInvoiceProductQuantity,
 } from './invoices';
+import type {
+  CatalogSiteInventoryLocationRow,
+} from '../types/catalog-site-inventory';
+import {
+  getCatalogSiteInventoryLocations,
+} from '../types/catalog-site-inventory';
 import type {
   DealerInvoiceLineItem,
   InvoiceCategory,
@@ -88,6 +102,11 @@ export interface AdminGoodsReceiptDetail {
   currencyCode: string;
   vendorId: string;
   vendorName: string | null;
+  /** Vendor billing state / province when Zoho provides it. */
+  vendorState: string | null;
+  /** Vendor billing country when Zoho provides it. */
+  vendorCountry: string | null;
+  vendorCity: string | null;
   locationId: string | null;
   locationName: string | null;
   inventorySite: GoodsReceiptLocation | null;
@@ -98,6 +117,61 @@ export interface AdminGoodsReceiptDetail {
   taxTotal: number;
   notes: string | null;
   lineItems: DealerInvoiceLineItem[];
+  /** Ops receive check — keyed by Zoho line item id. */
+  receiveCheck: GoodsReceiptReceiveCheck | null;
+}
+
+export type GoodsReceiptReceiveLocation = {
+  zoneId: string;
+  zoneRowNumber: number;
+  quantity: number;
+};
+
+export type GoodsReceiptReceiveLine = {
+  /** Total received qty (sum of location quantities, or standalone when no locations). */
+  receivedQty: number;
+  /**
+   * Legacy single placement — mirrored from locations[0] when present.
+   * Prefer `locations`.
+   */
+  zoneId: string | null;
+  zoneRowNumber: number | null;
+  /** Warehouse placements for this line (zone + row + qty each). */
+  locations: GoodsReceiptReceiveLocation[];
+};
+
+export type GoodsReceiptReceiveCheck = {
+  /** Per-line receive verification (preferred). */
+  lines: Record<string, GoodsReceiptReceiveLine>;
+  /** Legacy qty-only map — kept in sync when saving. */
+  byLineId: Record<string, number>;
+  updatedAt: string | null;
+  updatedByUid: string | null;
+  updatedByName: string | null;
+};
+
+/** Normalize placements from a saved receive line (supports legacy single zone/row). */
+export function receiveLineLocations(
+  line: GoodsReceiptReceiveLine | null | undefined,
+): GoodsReceiptReceiveLocation[] {
+  if (!line) return [];
+  if (Array.isArray(line.locations) && line.locations.length > 0) {
+    return line.locations
+      .map(loc => ({
+        zoneId: String(loc.zoneId ?? '').trim().toLowerCase(),
+        zoneRowNumber: Math.max(1, Math.floor(Number(loc.zoneRowNumber))),
+        quantity: Math.max(0, Number(loc.quantity)),
+      }))
+      .filter(loc => loc.zoneId && Number.isFinite(loc.zoneRowNumber) && Number.isFinite(loc.quantity));
+  }
+  if (line.zoneId && line.zoneRowNumber != null && Number(line.receivedQty) > 0) {
+    return [{
+      zoneId: String(line.zoneId).trim().toLowerCase(),
+      zoneRowNumber: Math.max(1, Math.floor(Number(line.zoneRowNumber))),
+      quantity: Math.max(0, Number(line.receivedQty)),
+    }];
+  }
+  return [];
 }
 
 export interface AdminGoodsReceiptsPageResult {
@@ -113,9 +187,13 @@ export type AdminGoodsReceiptLocationCounts = {
 };
 
 export function parseGoodsReceiptLocation(value: unknown): GoodsReceiptLocation | null {
-  const s = String(value ?? '').trim().toLowerCase().replace(/\s+/g, '_');
-  if (s === 'head_office' || s === 'headoffice') return 'head_office';
-  if (s === 'cochin') return 'cochin';
+  const raw = String(value ?? '').trim().toLowerCase();
+  if (!raw) return null;
+  const s = raw.replace(/\s+/g, '_');
+  if (s === 'head_office' || s === 'headoffice' || (raw.includes('head') && raw.includes('office'))) {
+    return 'head_office';
+  }
+  if (s === 'cochin' || raw.includes('cochin') || raw.includes('kochi')) return 'cochin';
   return null;
 }
 
@@ -125,6 +203,14 @@ export function goodsReceiptLocationLabel(
   if (site === 'head_office') return 'Head office';
   if (site === 'cochin') return 'Cochin';
   return '—';
+}
+
+/** Zoho draft purchase bills are shown as Scheduled in Goods receipt. */
+export function goodsReceiptStatusLabel(status: string): string {
+  const key = String(status ?? '').trim().toLowerCase();
+  if (key === 'draft') return 'Scheduled';
+  if (!key) return '—';
+  return key.replace(/_/g, ' ').replace(/\b\w/g, ch => ch.toUpperCase());
 }
 
 function timestampToIso(value: unknown): string | null {
@@ -178,6 +264,7 @@ export function mapAdminGoodsReceiptDoc(
     locationId: data.locationId != null ? String(data.locationId) : null,
     locationName: data.locationName ? String(data.locationName) : null,
     inventorySite: parseGoodsReceiptLocation(data.inventorySite)
+      ?? parseGoodsReceiptLocation(data.branchName)
       ?? parseGoodsReceiptLocation(data.locationName),
     goodsReceiptCategory: parseInvoiceCategory(data.goodsReceiptCategory),
     categories: normalizeInvoiceCategories(data.categories),
@@ -413,6 +500,80 @@ export function buildAdminGoodsReceiptSalesEntries(
     .map(row => ({ date: row.date!, total: row.total }));
 }
 
+function mapReceiveCheck(raw: unknown): GoodsReceiptReceiveCheck | null {
+  if (!raw || typeof raw !== 'object') return null;
+  const data = raw as Record<string, unknown>;
+  const lines: Record<string, GoodsReceiptReceiveLine> = {};
+  const byLineId: Record<string, number> = {};
+
+  const linesRaw = data.lines;
+  if (linesRaw && typeof linesRaw === 'object') {
+    for (const [key, value] of Object.entries(linesRaw as Record<string, unknown>)) {
+      if (!value || typeof value !== 'object') continue;
+      const row = value as Record<string, unknown>;
+      const qty = Number(row.receivedQty);
+      if (!Number.isFinite(qty)) continue;
+      const zoneId = row.zoneId != null && String(row.zoneId).trim()
+        ? String(row.zoneId).trim().toLowerCase()
+        : null;
+      const zoneRowNumber = row.zoneRowNumber != null && Number.isFinite(Number(row.zoneRowNumber))
+        ? Math.max(1, Math.floor(Number(row.zoneRowNumber)))
+        : null;
+      const locationsRaw = Array.isArray(row.locations) ? row.locations : [];
+      const locations: GoodsReceiptReceiveLocation[] = locationsRaw
+        .filter((loc): loc is Record<string, unknown> => Boolean(loc) && typeof loc === 'object')
+        .map(loc => ({
+          zoneId: String(loc.zoneId ?? '').trim().toLowerCase(),
+          zoneRowNumber: Math.max(1, Math.floor(Number(loc.zoneRowNumber))),
+          quantity: Math.max(0, Number(loc.quantity)),
+        }))
+        .filter(loc => (
+          loc.zoneId
+          && Number.isFinite(loc.zoneRowNumber)
+          && Number.isFinite(loc.quantity)
+          && loc.quantity > 0
+        ));
+      const normalizedLocations = locations.length > 0
+        ? locations
+        : (zoneId && zoneRowNumber != null && qty > 0
+          ? [{ zoneId, zoneRowNumber, quantity: qty }]
+          : []);
+      const receivedQty = normalizedLocations.length > 0
+        ? normalizedLocations.reduce((sum, loc) => sum + loc.quantity, 0)
+        : qty;
+      const first = normalizedLocations[0] ?? null;
+      lines[key] = {
+        receivedQty,
+        zoneId: first?.zoneId ?? zoneId,
+        zoneRowNumber: first?.zoneRowNumber ?? zoneRowNumber,
+        locations: normalizedLocations,
+      };
+      byLineId[key] = receivedQty;
+    }
+  }
+
+  // Legacy: byLineId only
+  const byLineRaw = data.byLineId;
+  if (byLineRaw && typeof byLineRaw === 'object') {
+    for (const [key, value] of Object.entries(byLineRaw as Record<string, unknown>)) {
+      const n = Number(value);
+      if (!Number.isFinite(n)) continue;
+      byLineId[key] = n;
+      if (!lines[key]) {
+        lines[key] = { receivedQty: n, zoneId: null, zoneRowNumber: null, locations: [] };
+      }
+    }
+  }
+
+  return {
+    lines,
+    byLineId,
+    updatedAt: timestampToIso(data.updatedAt),
+    updatedByUid: data.updatedByUid != null ? String(data.updatedByUid) : null,
+    updatedByName: data.updatedByName != null ? String(data.updatedByName) : null,
+  };
+}
+
 export function mapAdminGoodsReceiptDetail(
   poId: string,
   data: DocumentData,
@@ -429,9 +590,13 @@ export function mapAdminGoodsReceiptDetail(
     currencyCode: data.currencyCode ? String(data.currencyCode).toUpperCase() : 'INR',
     vendorId: String(data.vendorId ?? ''),
     vendorName: data.vendorName ? String(data.vendorName) : null,
+    vendorState: data.vendorState ? String(data.vendorState) : null,
+    vendorCountry: data.vendorCountry ? String(data.vendorCountry) : null,
+    vendorCity: data.vendorCity ? String(data.vendorCity) : null,
     locationId: data.locationId != null ? String(data.locationId) : null,
     locationName: data.locationName ? String(data.locationName) : null,
     inventorySite: parseGoodsReceiptLocation(data.inventorySite)
+      ?? parseGoodsReceiptLocation(data.branchName)
       ?? parseGoodsReceiptLocation(data.locationName),
     goodsReceiptCategory: parseInvoiceCategory(data.goodsReceiptCategory),
     categories: normalizeInvoiceCategories(data.categories),
@@ -442,6 +607,7 @@ export function mapAdminGoodsReceiptDetail(
     lineItems: Array.isArray(data.lineItems)
       ? data.lineItems.map(item => mapLineItem(item as Record<string, unknown>))
       : [],
+    receiveCheck: mapReceiveCheck(data.receiveCheck),
   };
 }
 
@@ -466,6 +632,225 @@ export async function fetchAdminGoodsReceiptDetail(
   return {
     ...detail,
     lineItems: withImages.lineItems,
+  };
+}
+
+type GoodsReceiptReceiveLineInput = {
+  locations: Array<{
+    zoneId: string;
+    zoneRowNumber: number;
+    quantity: number;
+  }>;
+};
+
+function normalizeReceiveLines(
+  inputLines: Record<string, GoodsReceiptReceiveLineInput>,
+): { lines: Record<string, GoodsReceiptReceiveLine>; byLineId: Record<string, number> } {
+  const lines: Record<string, GoodsReceiptReceiveLine> = {};
+  const byLineId: Record<string, number> = {};
+  for (const [lineId, value] of Object.entries(inputLines)) {
+    const key = String(lineId || '').trim();
+    if (!key) continue;
+    const locations: GoodsReceiptReceiveLocation[] = [];
+    for (const loc of value.locations ?? []) {
+      const zoneId = String(loc.zoneId ?? '').trim().toLowerCase();
+      const zoneRowNumber = Number(loc.zoneRowNumber);
+      const quantity = Number(loc.quantity);
+      if (!zoneId && !Number.isFinite(zoneRowNumber) && !(Number.isFinite(quantity) && quantity > 0)) {
+        continue;
+      }
+      if (!zoneId || !Number.isFinite(zoneRowNumber) || zoneRowNumber < 1) {
+        throw new Error('Each warehouse location needs a zone and row.');
+      }
+      if (!Number.isFinite(quantity) || quantity < 0) {
+        throw new Error('Location qty must be a non-negative number.');
+      }
+      if (quantity <= 0) continue;
+      locations.push({
+        zoneId,
+        zoneRowNumber: Math.max(1, Math.floor(zoneRowNumber)),
+        quantity: Math.floor(quantity),
+      });
+    }
+    // Merge duplicate zone/row pairs on the same line.
+    const merged = new Map<string, GoodsReceiptReceiveLocation>();
+    for (const loc of locations) {
+      const mergeKey = `${loc.zoneId}:${loc.zoneRowNumber}`;
+      const existing = merged.get(mergeKey);
+      if (existing) {
+        existing.quantity += loc.quantity;
+      } else {
+        merged.set(mergeKey, { ...loc });
+      }
+    }
+    const normalizedLocations = [...merged.values()];
+    const receivedQty = normalizedLocations.reduce((sum, loc) => sum + loc.quantity, 0);
+    const first = normalizedLocations[0] ?? null;
+    lines[key] = {
+      receivedQty,
+      zoneId: first?.zoneId ?? null,
+      zoneRowNumber: first?.zoneRowNumber ?? null,
+      locations: normalizedLocations,
+    };
+    byLineId[key] = receivedQty;
+  }
+  return { lines, byLineId };
+}
+
+function receiveLineHasPlacement(line: GoodsReceiptReceiveLine | null | undefined): boolean {
+  return receiveLineLocations(line).some(loc => loc.quantity > 0);
+}
+
+function applyLocationDelta(
+  locations: CatalogSiteInventoryLocationRow[],
+  zoneId: string,
+  zoneRowNumber: number,
+  deltaQty: number,
+): CatalogSiteInventoryLocationRow[] {
+  if (!deltaQty) return locations;
+  const zone = zoneId.trim().toLowerCase();
+  const row = Math.max(1, Math.floor(zoneRowNumber));
+  const next = locations.map(loc => ({ ...loc }));
+  const idx = next.findIndex(loc => loc.zoneId === zone && loc.zoneRowNumber === row);
+  if (idx >= 0) {
+    next[idx] = {
+      ...next[idx],
+      quantity: Math.max(0, next[idx].quantity + deltaQty),
+    };
+  } else if (deltaQty > 0) {
+    next.push({ zoneId: zone, zoneRowNumber: row, quantity: Math.floor(deltaQty) });
+  }
+  return next.filter(loc => loc.quantity > 0);
+}
+
+/**
+ * Persist receive check, place zone/row qty onto Cochin site inventory (delta vs previous),
+ * and write a product audit log for each affected catalog item.
+ */
+export async function saveGoodsReceiptReceiveCheck(
+  goodsReceiptId: string,
+  input: {
+    lines: Record<string, GoodsReceiptReceiveLineInput>;
+    lineItems: DealerInvoiceLineItem[];
+    previous: GoodsReceiptReceiveCheck | null;
+  },
+  actor: { uid: string; displayName?: string | null },
+): Promise<GoodsReceiptReceiveCheck> {
+  const id = String(goodsReceiptId || '').trim();
+  if (!id) throw new Error('Goods receipt id is required.');
+
+  const { lines, byLineId } = normalizeReceiveLines(input.lines);
+  const previousLines = input.previous?.lines ?? {};
+  const itemIdByLineId = new Map(
+    input.lineItems
+      .filter(line => line.id)
+      .map(line => [line.id, line.itemId?.trim() || null] as const),
+  );
+
+  const placementLineIds = new Set<string>([
+    ...Object.keys(lines).filter(lineId => receiveLineHasPlacement(lines[lineId])),
+    ...Object.keys(previousLines).filter(lineId => receiveLineHasPlacement(previousLines[lineId])),
+  ]);
+
+  let openCycleId: string | null = null;
+  if (placementLineIds.size > 0) {
+    const openCycle = await getOpenAuditCycle('cochin');
+    if (!openCycle?.id) {
+      throw new Error('No open audit cycle for Cochin. Counting is locked — open a cycle to place stock.');
+    }
+    openCycleId = openCycle.id;
+
+    for (const lineId of placementLineIds) {
+      const itemId = itemIdByLineId.get(lineId);
+      const lineName = input.lineItems.find(l => l.id === lineId)?.name ?? lineId;
+      const needsForward = receiveLineHasPlacement(lines[lineId]);
+      if (!itemId) {
+        if (needsForward) {
+          throw new Error(`No catalog product linked for ${lineName} — cannot place zone/row.`);
+        }
+        continue;
+      }
+      const productSnap = await getDoc(doc(db, 'catalogProducts', itemId));
+      if (!productSnap.exists()) {
+        if (needsForward) {
+          throw new Error(`Catalog product not found for ${lineName}.`);
+        }
+        continue;
+      }
+    }
+  }
+
+  // Aggregate location deltas per catalog product (reverse old placement, apply new).
+  const deltasByProduct = new Map<string, CatalogSiteInventoryLocationRow[]>();
+
+  const ensureProductLocations = async (catalogProductId: string) => {
+    let locs = deltasByProduct.get(catalogProductId);
+    if (locs) return locs;
+    const existing = await getCatalogSiteInventory(catalogProductId, 'cochin');
+    locs = getCatalogSiteInventoryLocations(existing).map(row => ({ ...row }));
+    deltasByProduct.set(catalogProductId, locs);
+    return locs;
+  };
+
+  for (const lineId of placementLineIds) {
+    const catalogProductId = itemIdByLineId.get(lineId);
+    if (!catalogProductId) continue;
+    const prevLocs = receiveLineLocations(previousLines[lineId]);
+    const nextLocs = receiveLineLocations(lines[lineId]);
+    let working = await ensureProductLocations(catalogProductId);
+
+    for (const loc of prevLocs) {
+      working = applyLocationDelta(working, loc.zoneId, loc.zoneRowNumber, -loc.quantity);
+    }
+    for (const loc of nextLocs) {
+      working = applyLocationDelta(working, loc.zoneId, loc.zoneRowNumber, loc.quantity);
+    }
+    deltasByProduct.set(catalogProductId, working);
+  }
+
+  const receiveCheck = {
+    lines,
+    byLineId,
+    updatedAt: serverTimestamp(),
+    updatedByUid: actor.uid,
+    updatedByName: actor.displayName?.trim() || null,
+  };
+
+  try {
+    await updateDoc(doc(db, 'goodsReceipts', id), { receiveCheck });
+  } catch (err) {
+    throw new Error(invoiceErrorMessage(err));
+  }
+
+  const auditedProducts = new Set<string>();
+  try {
+    for (const [catalogProductId, locations] of deltasByProduct) {
+      await saveCatalogSiteInventory({
+        catalogProductId,
+        site: 'cochin',
+        locations,
+        updatedByUid: actor.uid,
+        updatedByName: actor.displayName,
+      });
+      if (openCycleId) {
+        await recordCatalogProductAudit(catalogProductId, 'cochin_inventory', openCycleId);
+        auditedProducts.add(catalogProductId);
+      }
+    }
+  } catch (err) {
+    // Receive check already saved — surface inventory/audit failure clearly.
+    const detail = err instanceof Error ? err.message : 'Unknown error';
+    throw new Error(
+      `Receive check saved, but warehouse / audit update failed (${auditedProducts.size} product(s) audited): ${detail}`,
+    );
+  }
+
+  return {
+    lines,
+    byLineId,
+    updatedAt: new Date().toISOString(),
+    updatedByUid: actor.uid,
+    updatedByName: actor.displayName?.trim() || null,
   };
 }
 

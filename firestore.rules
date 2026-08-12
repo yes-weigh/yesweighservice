@@ -359,9 +359,13 @@ service cloud.firestore {
     }
 
     // Draft Zoho purchase bills mirrored as goods receipts.
+    // Super admins may update receive-check fields only (ops verification).
     match /goodsReceipts/{billId} {
       allow read: if isSuperAdmin();
-      allow write: if false;
+      allow create, delete: if false;
+      allow update: if isFullSuperAdmin()
+        && request.resource.data.diff(resource.data).affectedKeys()
+            .hasOnly(['receiveCheck']);
     }
 
     // Manual spare purchase-cost overrides (Spare pricing tab). Defaults come from PO lines.
