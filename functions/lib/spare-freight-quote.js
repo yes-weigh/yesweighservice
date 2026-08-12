@@ -1,7 +1,7 @@
 /**
  * Server spare freight quote — mirrors src/lib/spareFreightQuote.ts.
  */
-import { parseBlueDartConfig } from './blue-dart-quote.js';
+import { parseBlueDartConfig, quoteBlueDartParcels } from './blue-dart-quote.js';
 import { quoteTrackonParcels } from './trackon-quote.js';
 
 const SPARE_FREIGHT_BILLABLE_KG = 1;
@@ -86,10 +86,43 @@ function quoteStStyleSpare(originRates, zone) {
   };
 }
 
-function quoteBlueDartSimpleSpare(rates, partnerId, destination) {
+function quoteBlueDartDomesticPrioritySpare(rates, destination, pin) {
+  const cfg = parseBlueDartConfig(rates?.bluedart);
+  const quoted = quoteBlueDartParcels({
+    config: cfg,
+    service: 'domestic_priority',
+    destState: destination?.state,
+    pin: pin || null,
+    parcels: [{
+      actualKg: SPARE_FREIGHT_BILLABLE_KG,
+      dims: { lengthCm: 0, widthCm: 0, heightCm: 0 },
+    }],
+  });
+  if (quoted.notServiceable || quoted.rateMissing) {
+    return {
+      ...emptySpareQuote({ rateMissing: true }),
+      chargeableKg: quoted.chargeableKg || SPARE_FREIGHT_BILLABLE_KG,
+    };
+  }
+  const fuelSurchargePercent = nonNeg(cfg.domestic_priority?.fuelSurchargePercent);
+  return {
+    totalInr: quoted.totalInr,
+    chargeableKg: quoted.chargeableKg,
+    perKgInr: 0,
+    fuelSurchargePercent,
+    fuelSurchargeInr: 0,
+    skipped: false,
+    rateMissing: false,
+  };
+}
+
+function quoteBlueDartSimpleSpare(rates, partnerId, destination, pin) {
   const service = BLUEDART_PARTNER_SERVICE[partnerId];
-  if (!service || service === 'domestic_priority') {
+  if (!service) {
     return emptySpareQuote({ skipped: true });
+  }
+  if (service === 'domestic_priority') {
+    return quoteBlueDartDomesticPrioritySpare(rates, destination, pin);
   }
   const cfg = parseBlueDartConfig(rates?.bluedart);
   const destRegion = resolveRegion(destination?.state, cfg.shared.regionsByState);
@@ -151,6 +184,7 @@ function quoteTrackonSurfaceSpare(rates, destination) {
  *   zone: string,
  *   destination?: { state?: string|null, city?: string|null, zip?: string|null }|null,
  *   rates: object,
+ *   pin?: object|null,
  * }} input
  */
 export function quoteSpareFreight(input) {
@@ -168,7 +202,7 @@ export function quoteSpareFreight(input) {
     return quoteTrackonSurfaceSpare(input.rates, input.destination);
   }
   if (BLUEDART_PARTNER_SERVICE[partnerId]) {
-    return quoteBlueDartSimpleSpare(input.rates, partnerId, input.destination);
+    return quoteBlueDartSimpleSpare(input.rates, partnerId, input.destination, input.pin);
   }
   const originRates = originRatesForPartner(input.rates, partnerId, input.site);
   if (!originRates) return emptySpareQuote({ skipped: true });

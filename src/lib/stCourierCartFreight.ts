@@ -564,6 +564,7 @@ export function estimateStCourierCartFreight(input: {
         zone,
         destination: input.destination,
         rates: input.rates,
+        pin: input.blueDartPin,
       }).totalInr;
     };
 
@@ -896,6 +897,7 @@ export function estimateStCourierCartFreight(input: {
         zone,
         destination: input.destination,
         rates: input.rates,
+        pin: input.blueDartPin,
       })
       : null;
     const spareFreightInr = spareQuote?.totalInr ?? 0;

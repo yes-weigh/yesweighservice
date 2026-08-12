@@ -3,7 +3,8 @@
  * ST/Delhivery: zone box ₹/kg × 1 + fuel%.
  * Trackon: Surface only — perKg × max(1, minKg) + fuel% (default min 4 kg, 15%).
  * Blue Dart Air/Surface: zone ₹/kg × 1 (no surcharges).
- * BD Domestic / DTDC / Eco Safe / APS / pickup / own vehicle: ₹0 (manual or N/A).
+ * Blue Dart Domestic Priority: full DP stack on 1 kg (500 g slabs + surcharges).
+ * DTDC / Eco Safe / APS / pickup / own vehicle: ₹0 (manual or N/A).
  */
 import type { LogisticsPartnerId } from '../constants/logisticsPartners';
 import {
@@ -11,7 +12,9 @@ import {
   isBlueDartLogisticsPartnerId,
   isTrackonLogisticsPartnerId,
 } from '../constants/logisticsPartners';
+import type { BlueDartPincodeDoc } from '../types/blue-dart-rates';
 import type { LogisticsCourierRates, StCourierOriginRates, StCourierZone } from '../types/logistics-courier-rates';
+import { quoteBlueDartParcels } from './blueDartQuote';
 import type { InventorySite } from './salesOrderSegments';
 import { resolveBlueDartAirZone } from './blueDartZone';
 import { isPickupPartner } from './orderFreight';
@@ -85,14 +88,59 @@ function quoteStStyleSpare(input: {
   };
 }
 
+function quoteBlueDartDomesticPrioritySpare(input: {
+  rates: LogisticsCourierRates;
+  destination: StCourierDestination | null | undefined;
+  pin?: BlueDartPincodeDoc | null;
+}): SpareFreightQuoteResult {
+  const quoted = quoteBlueDartParcels({
+    config: input.rates.bluedart,
+    service: 'domestic_priority',
+    destState: input.destination?.state,
+    pin: input.pin ?? null,
+    parcels: [{
+      actualKg: SPARE_FREIGHT_BILLABLE_KG,
+      dims: { lengthCm: 0, widthCm: 0, heightCm: 0 },
+    }],
+  });
+  if (quoted.notServiceable) {
+    return {
+      ...emptySpareQuote({ rateMissing: true }),
+      chargeableKg: quoted.chargeableKg || 0,
+    };
+  }
+  if (quoted.rateMissing) {
+    return {
+      ...emptySpareQuote({ rateMissing: true }),
+      chargeableKg: quoted.chargeableKg || SPARE_FREIGHT_BILLABLE_KG,
+    };
+  }
+  const fuelSurchargePercent = Number(input.rates.bluedart.domestic_priority.fuelSurchargePercent) || 0;
+  return {
+    totalInr: quoted.totalInr,
+    chargeableKg: quoted.chargeableKg,
+    perKgInr: quoted.chargeableKg > 0
+      ? Math.round((quoted.baseFreightInr / quoted.chargeableKg) * 100) / 100
+      : 0,
+    fuelSurchargePercent,
+    fuelSurchargeInr: quoted.fuelSurchargeInr,
+    skipped: false,
+    rateMissing: false,
+  };
+}
+
 function quoteBlueDartSimpleSpare(input: {
   rates: LogisticsCourierRates;
   partnerId: LogisticsPartnerId;
   destination: StCourierDestination | null | undefined;
+  pin?: BlueDartPincodeDoc | null;
 }): SpareFreightQuoteResult {
   const service = blueDartServiceForPartner(input.partnerId);
-  if (!service || service === 'domestic_priority') {
+  if (!service) {
     return emptySpareQuote({ skipped: true });
+  }
+  if (service === 'domestic_priority') {
+    return quoteBlueDartDomesticPrioritySpare(input);
   }
   const zone = resolveBlueDartAirZone({
     shared: input.rates.bluedart.shared,
@@ -160,6 +208,8 @@ export function quoteSpareFreight(input: {
   zone: StCourierZone;
   destination: StCourierDestination | null | undefined;
   rates: LogisticsCourierRates;
+  /** Helps BD Domestic Priority resolve A/B/C outside Kerala. */
+  pin?: BlueDartPincodeDoc | null;
 }): SpareFreightQuoteResult {
   const { partnerId } = input;
   if (isPickupPartner(partnerId)) {
@@ -183,6 +233,7 @@ export function quoteSpareFreight(input: {
       rates: input.rates,
       partnerId,
       destination: input.destination,
+      pin: input.pin,
     });
   }
   const originRates = originRatesForPartner(input.rates, partnerId, input.site);

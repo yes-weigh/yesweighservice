@@ -507,6 +507,7 @@ export function buildDealerAutoFreightLines({
         zone,
         destination,
         rates,
+        pin: blueDartPin,
       });
       let spareRate = spareQuoted.totalInr;
       const manualAmt = Number(manualFreightAmountInr);
