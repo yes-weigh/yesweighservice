@@ -173,7 +173,7 @@ export const StCourierRatesSettings: React.FC<Props> = ({
   onError,
 }) => {
   const { user } = useAuth();
-  const [partnerId, setPartnerId] = useState<DeliveryPartnerTabId>('st_courier');
+  const [partnerId, setPartnerId] = useState<DeliveryPartnerTabId>('bluedart');
   const [blueDartService, setBlueDartService] = useState<BlueDartServiceId>('surface');
   const [trackonService, setTrackonService] = useState<TrackonServiceId>('surface');
   const [origin, setOrigin] = useState<StaffLogisticsSite>('head_office');

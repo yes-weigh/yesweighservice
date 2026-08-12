@@ -107,7 +107,8 @@ export function blueDartStatesByAirZone(
 
 /**
  * DP zone: Within Kerala (origin SOUTH + dest Kerala) → A1;
- * else pin DP_ZONE A/B/C.
+ * else pin.dpZone / DP_ZONE from blueDartPincodes (A/B/C).
+ * Falls back to pin.state when destState is omitted (pincode-only lookup).
  */
 export function resolveBlueDartDpZone(input: {
   destState: string | null | undefined;
@@ -115,7 +116,8 @@ export function resolveBlueDartDpZone(input: {
   originIsKerala?: boolean;
 }): BlueDartDpZone | null {
   const originKerala = input.originIsKerala !== false;
-  if (originKerala && isKeralaState(input.destState)) return 'A1';
+  const destState = input.destState || input.pin?.state || null;
+  if (originKerala && isKeralaState(destState)) return 'A1';
   const raw = String(input.pin?.dpZone ?? '').trim().toUpperCase();
   if (raw === 'A' || raw === 'B' || raw === 'C') return raw;
   if (isBlueDartDpZone(raw)) return raw;

@@ -842,23 +842,22 @@ export const OrderFreightPanel: React.FC<Props> = ({
   const clubCourierOptions = useMemo(() => {
     if (!clubSites || !estimate.usable || estimate.sites.length === 0) return [];
     const primary = estimate.sites[0].courierOptions;
-    return primary.map(opt => {
+    return primary.flatMap(opt => {
       const key = orderCourierOptionKey(opt);
       const enabledEverywhere = estimate.sites.every(site =>
         site.courierOptions.some(o => orderCourierOptionKey(o) === key && o.enabled),
       );
+      if (!enabledEverywhere) return [];
       const estimatedTotalInr = estimate.sites.reduce((sum, site) => {
         const siteOpt = site.courierOptions.find(o => orderCourierOptionKey(o) === key);
         return sum + (siteOpt?.estimatedTotalInr ?? 0);
       }, 0);
-      return {
+      return [{
         ...opt,
-        enabled: enabledEverywhere,
-        disabledReason: enabledEverywhere
-          ? opt.disabledReason
-          : (opt.disabledReason || 'Not available for all ship-from locations'),
+        enabled: true,
+        disabledReason: null,
         estimatedTotalInr,
-      };
+      }];
     });
   }, [clubSites, estimate]);
 
@@ -1093,7 +1092,7 @@ export const OrderFreightPanel: React.FC<Props> = ({
               ) : null}
 
               <div className="order-freight-panel__couriers" role="radiogroup" aria-label={`${site.siteLabel} courier`}>
-                {site.courierOptions.map(opt => (
+                {site.courierOptions.filter(opt => opt.enabled).map(opt => (
                   <CourierOptionCard
                     key={orderCourierOptionKey(opt)}
                     opt={opt}

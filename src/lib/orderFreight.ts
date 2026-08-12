@@ -33,7 +33,6 @@ import {
   resolveDeliveryPartnersForRoute,
 } from './logisticsDeliveryRules';
 import type { InventorySite } from './salesOrderSegments';
-import { inventorySiteLabel } from './salesOrderSegments';
 import { inferStCourierZone, type StCourierDestination } from './stCourierZone';
 
 export const PICKUP_PARTNER_ID: LogisticsPartnerId = 'personal_collection';
@@ -198,17 +197,20 @@ export function listOrderCourierOptions(input: {
     ordered.push(PICKUP_PARTNER_ID);
   }
 
-  const options: OrderCourierOption[] = ordered.map(partnerId => {
+  /** Only offer partners that are selectable — hide rule/rate ineligible ones. */
+  const options: OrderCourierOption[] = [];
+  for (const partnerId of ordered) {
     const freightSku = freightSkuForPartner(partnerId);
     if (isPickupPartner(partnerId)) {
-      return {
+      options.push({
         partnerId,
         label: logisticsPartnerLabel(partnerId),
         freightSku: null,
         preferred: false,
         enabled: true,
         disabledReason: null,
-      };
+      });
+      continue;
     }
     const status = statuses[partnerId];
     const allowManual = partnerStatusAllowsManualFreight(status);
@@ -216,21 +218,14 @@ export function listOrderCourierOptions(input: {
       || isBlueDartLogisticsPartnerId(partnerId)
       || isTrackonLogisticsPartnerId(partnerId);
     if (!isRatePartner && !allowManual) {
-      return {
-        partnerId,
-        label: logisticsPartnerLabel(partnerId),
-        freightSku: freightSku ?? 'FRC',
-        preferred: false,
-        enabled: false,
-        disabledReason: 'Rate card not set up',
-      };
+      continue;
     }
     const hasRate = zone
       ? partnerHasZoneRate(input.rates, partnerId, input.site, zone)
       : false;
     const liveApi = partnerUsesLiveApiFreight(partnerId);
     if (hasRate || input.spareOnly || (allowManual && Boolean(zone)) || (liveApi && Boolean(zone))) {
-      return {
+      options.push({
         partnerId,
         label: logisticsPartnerLabel(partnerId),
         freightSku: freightSku ?? 'FRC',
@@ -240,19 +235,9 @@ export function listOrderCourierOptions(input: {
         // Live API partners are quoted automatically — not staff-editable ₹.
         manualRate: (!hasRate && !input.spareOnly) && allowManual && !liveApi,
         liveApiRate: liveApi && !hasRate,
-      };
+      });
     }
-    return {
-      partnerId,
-      label: logisticsPartnerLabel(partnerId),
-      freightSku: freightSku ?? 'FRC',
-      preferred: false,
-      enabled: false,
-      disabledReason: zone
-        ? `No ₹/kg rate for this destination from ${inventorySiteLabel(input.site)}`
-        : 'Select a shipping address',
-    };
-  });
+  }
 
   // Preferred = first rule partner that is still offered (active/manual).
   const preferredId = fromRules.find(id => (

@@ -330,10 +330,14 @@ function buildBookingBoxCalcs(
           box.lengthCm,
           box.widthCm,
           box.heightCm,
+          booking.partnerId,
         )));
     const chargeableKg = isEnvelope
       ? 0
-      : boxChargeableWeight({ weightKg: actualKg, volumetricWeightKg: volumetricKg });
+      : boxChargeableWeight(
+        { weightKg: actualKg, volumetricWeightKg: volumetricKg },
+        booking.partnerId,
+      );
     return {
       index: index + 1,
       label: isEnvelope ? 'Envelope' : `Box ${index + 1}`,

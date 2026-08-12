@@ -18,16 +18,25 @@
  *     → diesel FS% on that subtotal (no CAF, no IDC)
  *     → EFSS% on after-FS
  *     → OS/OW flat ₹ → RAS ₹/kg → ECC (Delhi) → EDL → ceil
+ *   Domestic Priority (DOMESTIC PRIORITY sheet):
+ *     billable kg = max(actual, vol) stepped up every 500 g (not whole-kg ceil)
+ *     → basic (first 500 g + addl 500 g slabs)
+ *     → PSS% + IDC% on basic → FS% → CAF% → EFSS% → ceil
  *
  * Skipped VAS (not wired): FOD, DOD, DG, demurrage, appointment/SEZ, laptop box.
  * Keep server mirror in functions/lib/blue-dart-quote.js in sync.
  */
 import {
+  BLUE_DART_DP_SLAB_KG,
   blueDartAirMaxChargeableExceeded,
   blueDartAirMaxChargeableReason,
+  blueDartDpMaxChargeableExceeded,
+  blueDartDpMaxChargeableReason,
   blueDartEffectiveCafPercent,
   blueDartEffectiveFuelSurchargePercent,
   blueDartSurfaceEffectiveDieselFsPercent,
+  defaultBlueDartAirRates,
+  defaultBlueDartSurfaceRates,
   resolveBlueDartOversizeAmountInr,
 } from '../constants/blueDartRates';
 import { isBlueDartEccDestination, isRasDestination, resolveBlueDartRegion } from './blueDartPlace';
@@ -36,6 +45,7 @@ import { ceilCourierChargeInr } from './stCourierQuote';
 import type {
   BlueDartAirZone,
   BlueDartConfig,
+  BlueDartDomesticPriorityRates,
   BlueDartDpZone,
   BlueDartEdlDistanceRow,
   BlueDartKgServiceRates,
@@ -292,6 +302,43 @@ export function blueDartChargeableKg(input: {
   const raw = Math.max(actual, vol);
   const min = nonNeg(input.minimumChargeableWeightKg);
   return ceilChargeableKg(min > 0 ? Math.max(raw, min) : raw);
+}
+
+/** Raw volumetric kg for Domestic Priority (no whole-kg ceil). */
+export function blueDartDpVolumetricKg(
+  dims: BlueDartQuoteDims,
+  divisor: number,
+): number {
+  const l = nonNeg(dims.lengthCm);
+  const w = nonNeg(dims.widthCm);
+  const h = nonNeg(dims.heightCm);
+  const d = divisor > 0 ? divisor : 5000;
+  if (!l || !w || !h) return 0;
+  return (l * w * h) / d;
+}
+
+/** Round billable weight up to the next 500 g slab (0.3 → 0.5, 0.6 → 1). */
+export function ceilBlueDartDpChargeableKg(value: number): number {
+  if (!Number.isFinite(value) || value <= 0) return 0;
+  return Math.ceil(value / BLUE_DART_DP_SLAB_KG - 1e-9) * BLUE_DART_DP_SLAB_KG;
+}
+
+/**
+ * Domestic Priority chargeable weight: higher of actual / volumetric,
+ * then stepped every 500 g (sheet: first 500 g + each addl 500 g).
+ */
+export function blueDartDpChargeableKg(input: {
+  actualKg: number;
+  dims: BlueDartQuoteDims;
+  volumetricDivisor: number;
+}): { chargeableKg: number; volumetricKg: number; slabs: number } {
+  const actual = nonNeg(input.actualKg);
+  const volumetricKg = blueDartDpVolumetricKg(input.dims, input.volumetricDivisor);
+  const chargeableKg = ceilBlueDartDpChargeableKg(Math.max(actual, volumetricKg));
+  const slabs = chargeableKg > 0
+    ? Math.round(chargeableKg / BLUE_DART_DP_SLAB_KG)
+    : 0;
+  return { chargeableKg, volumetricKg, slabs };
 }
 
 function parseServiceability(raw: unknown): BlueDartServiceability | string {
@@ -551,9 +598,13 @@ function quoteDomesticPriority(input: {
   const first = nonNeg(rates.first500gInr[input.zone]);
   const addl = nonNeg(rates.addl500gInr[input.zone]);
   const rateMissing = !(first > 0);
-  const grams = input.chargeableKg * 1000;
-  const slabs = Math.max(1, Math.ceil(grams / 500));
-  const base = first + Math.max(0, slabs - 1) * addl;
+  /** Chargeable kg is already stepped to 500 g; convert to slab count. */
+  const slabs = input.chargeableKg > 0
+    ? Math.max(1, Math.round(input.chargeableKg / BLUE_DART_DP_SLAB_KG))
+    : 0;
+  const base = slabs > 0
+    ? first + Math.max(0, slabs - 1) * addl
+    : 0;
   const pss = base * (nonNeg(rates.pssPercent) / 100);
   const idc = base * (nonNeg(rates.idcPercent) / 100);
   const afterPssIdc = base + pss + idc;
@@ -650,13 +701,25 @@ export function quoteBlueDartShipment(input: {
       return empty({ notServiceable: true, notServiceableReason: 'Cannot resolve DP zone' });
     }
     const divisor = input.config.domestic_priority.volumetricDivisor;
-    const volumetricKg = blueDartVolumetricKg(input.dims, divisor);
-    const chargeableKg = blueDartChargeableKg({
+    const {
+      chargeableKg,
+      volumetricKg,
+    } = blueDartDpChargeableKg({
       actualKg: input.actualKg,
       dims: input.dims,
       volumetricDivisor: divisor,
-      minimumChargeableWeightKg: 0.5,
     });
+    if (blueDartDpMaxChargeableExceeded(chargeableKg)) {
+      return empty({
+        zoneLabel: `DP ${zone}`,
+        actualKg: nonNeg(input.actualKg),
+        volumetricKg,
+        chargeableKg,
+        rateMissing: false,
+        notServiceable: true,
+        notServiceableReason: blueDartDpMaxChargeableReason(chargeableKg),
+      });
+    }
     const q = quoteDomesticPriority({
       config: input.config,
       zone,
@@ -804,12 +867,52 @@ export function quoteBlueDartParcels(input: {
 
   if (!access.allowed) return empty({});
 
-  const divisor = input.service === 'domestic_priority'
-    ? input.config.domestic_priority.volumetricDivisor
-    : input.config[input.service].volumetricDivisor;
-  const minKg = input.service === 'domestic_priority'
-    ? 0.5
-    : nonNeg(input.config[input.service].minimumChargeableWeightKg);
+  if (input.service === 'domestic_priority') {
+    const zone = resolveBlueDartDpZone({
+      destState: input.destState,
+      pin: input.pin,
+    });
+    if (!zone) {
+      return empty({ notServiceable: true, notServiceableReason: 'Cannot resolve DP zone' });
+    }
+    const divisor = input.config.domestic_priority.volumetricDivisor;
+    let actualKg = 0;
+    let volumetricKg = 0;
+    for (const parcel of input.parcels) {
+      actualKg += nonNeg(parcel.actualKg);
+      volumetricKg += blueDartDpVolumetricKg(parcel.dims, divisor);
+    }
+    const chargeableKg = ceilBlueDartDpChargeableKg(Math.max(actualKg, volumetricKg));
+    if (blueDartDpMaxChargeableExceeded(chargeableKg)) {
+      return empty({
+        zoneLabel: `DP ${zone}`,
+        actualKg,
+        volumetricKg,
+        chargeableKg,
+        rateMissing: false,
+        notServiceable: true,
+        notServiceableReason: blueDartDpMaxChargeableReason(chargeableKg),
+      });
+    }
+    const q = quoteDomesticPriority({
+      config: input.config,
+      zone,
+      chargeableKg,
+    });
+    return {
+      service: input.service,
+      sku: meta.sku,
+      zoneLabel: `DP ${zone}`,
+      actualKg,
+      volumetricKg,
+      notServiceable: false,
+      notServiceableReason: null,
+      ...q,
+    };
+  }
+
+  const divisor = input.config[input.service].volumetricDivisor;
+  const minKg = nonNeg(input.config[input.service].minimumChargeableWeightKg);
 
   let actualKg = 0;
   let volumetricKg = 0;
@@ -834,31 +937,6 @@ export function quoteBlueDartParcels(input: {
       divisor,
     )
     : 0;
-
-  if (input.service === 'domestic_priority') {
-    const zone = resolveBlueDartDpZone({
-      destState: input.destState,
-      pin: input.pin,
-    });
-    if (!zone) {
-      return empty({ notServiceable: true, notServiceableReason: 'Cannot resolve DP zone' });
-    }
-    const q = quoteDomesticPriority({
-      config: input.config,
-      zone,
-      chargeableKg,
-    });
-    return {
-      service: input.service,
-      sku: meta.sku,
-      zoneLabel: `DP ${zone}`,
-      actualKg,
-      volumetricKg,
-      notServiceable: false,
-      notServiceableReason: null,
-      ...q,
-    };
-  }
 
   const zone = resolveBlueDartAirZone({
     shared: input.config.shared,
@@ -1162,6 +1240,117 @@ export function previewBlueDartAirStack(input: {
     rasInr: q.rasInr,
     fovInr: q.fovInr,
     edlInr: q.edlInr,
+    totalInr: q.totalInr,
+    rateMissing: q.rateMissing,
+  };
+}
+
+/** Settings “try a quote” preview — same Domestic Priority stack as live quotes. */
+export type BlueDartDomesticPriorityStackPreview = {
+  zone: BlueDartDpZone;
+  first500gInr: number;
+  addl500gInr: number;
+  slabs: number;
+  actualKg: number;
+  volumetricKg: number;
+  chargeableKg: number;
+  /** Published Domestic FS (before B2B). */
+  fsPublishedPercent: number;
+  fsDiscountPercent: number;
+  /** Effective FS after B2B (applied in quote). */
+  fsPercent: number;
+  /** Published CAF (before B2B). */
+  cafPublishedPercent: number;
+  cafDiscountPercent: number;
+  /** Effective CAF after B2B (applied in quote). */
+  cafPercent: number;
+  baseFreightInr: number;
+  pssInr: number;
+  idcInr: number;
+  /** Basic + PSS + IDC — FS base. */
+  subtotalAInr: number;
+  fuelSurchargeInr: number;
+  afterFuelInr: number;
+  cafInr: number;
+  afterCafInr: number;
+  efssInr: number;
+  totalInr: number;
+  rateMissing: boolean;
+};
+
+export function previewBlueDartDomesticPriorityStack(input: {
+  shared: BlueDartSharedRules;
+  domestic_priority: BlueDartDomesticPriorityRates;
+  zone: BlueDartDpZone;
+  actualKg: number;
+  dims?: BlueDartQuoteDims;
+}): BlueDartDomesticPriorityStackPreview {
+  const dims = input.dims ?? { lengthCm: 0, widthCm: 0, heightCm: 0 };
+  const divisor = input.domestic_priority.volumetricDivisor;
+  const {
+    chargeableKg,
+    volumetricKg,
+    slabs,
+  } = blueDartDpChargeableKg({
+    actualKg: input.actualKg,
+    dims,
+    volumetricDivisor: divisor,
+  });
+  const fsPublishedPercent = input.domestic_priority.fuelSurchargePercent != null
+    && Number.isFinite(input.domestic_priority.fuelSurchargePercent)
+    ? nonNeg(input.domestic_priority.fuelSurchargePercent)
+    : nonNeg(input.shared.fuelSurchargePercent);
+  const cafPublishedPercent = input.domestic_priority.cafPercent != null
+    && Number.isFinite(input.domestic_priority.cafPercent)
+    ? nonNeg(input.domestic_priority.cafPercent)
+    : nonNeg(input.shared.cafPercent);
+  const fsDiscountPercent = nonNeg(input.shared.fuelB2bDiscountPercent);
+  const cafDiscountPercent = nonNeg(input.shared.cafB2bDiscountPercent);
+  const { fs: fsPercent, caf: cafPercent } = resolveFsCaf(
+    input.shared,
+    input.domestic_priority.fuelSurchargePercent,
+    input.domestic_priority.cafPercent,
+  );
+  const config = {
+    shared: input.shared,
+    domestic_priority: input.domestic_priority,
+    air: defaultBlueDartAirRates(),
+    surface: defaultBlueDartSurfaceRates(),
+    source: null,
+  } satisfies BlueDartConfig;
+
+  const q = quoteDomesticPriority({
+    config,
+    zone: input.zone,
+    chargeableKg,
+  });
+  const subtotalAInr = q.baseFreightInr + q.pssInr + q.idcInr;
+  const afterFuelInr = subtotalAInr + q.fuelSurchargeInr;
+  const afterCafInr = afterFuelInr + q.cafInr;
+
+  return {
+    zone: input.zone,
+    first500gInr: q.first500gInr ?? 0,
+    addl500gInr: q.addl500gInr ?? 0,
+    slabs,
+    actualKg: nonNeg(input.actualKg),
+    volumetricKg,
+    chargeableKg,
+    fsPublishedPercent,
+    fsDiscountPercent,
+    fsPercent,
+    cafPublishedPercent,
+    cafDiscountPercent,
+    cafPercent,
+    baseFreightInr: q.baseFreightInr,
+    pssInr: q.pssInr,
+    idcInr: q.idcInr,
+    subtotalAInr,
+    fuelSurchargeInr: q.fuelSurchargeInr,
+    afterFuelInr,
+    cafInr: q.cafInr,
+    afterCafInr,
+    efssInr: q.efssInr,
     totalInr: q.totalInr,
     rateMissing: q.rateMissing,
   };

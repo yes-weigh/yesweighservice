@@ -22,9 +22,11 @@ import {
   type TrackonServiceId,
 } from '../types/logistics-courier-rates';
 import {
+  blueDartDpVolumetricKg,
   blueDartFreightCalcSteps,
   blueDartParcelsOversizeInr,
   blueDartPieceChargeableKg,
+  ceilBlueDartDpChargeableKg,
   quoteBlueDartParcels,
   type BlueDartFreightCalcStep,
 } from './blueDartQuote';
@@ -51,7 +53,12 @@ import {
   type StCourierQuoteResult,
 } from './stCourierQuote';
 import { quoteSpareFreight } from './spareFreightQuote';
-import { inferStCourierZone, type StCourierDestination } from './stCourierZone';
+import {
+  isTamilNaduDestination,
+  inferStCourierZone,
+  stCourierTamilNaduMaxChargeableExceeded,
+  type StCourierDestination,
+} from './stCourierZone';
 
 export type StCourierCartLine = {
   productId: string;
@@ -591,40 +598,53 @@ export function estimateStCourierCartFreight(input: {
       return ceilCourierChargeInr(productFreight + spareFreight);
     };
 
-    const optionsWithTotals: OrderCourierOption[] = options.map(opt => {
-      const estimatedTotalInr = quotePartnerTotal(opt.partnerId);
-      if (opt.partnerId !== 'bluedart_air' || allParcels.length === 0) {
-        return { ...opt, estimatedTotalInr };
+    const stOriginRates = partnerRates(input.rates, 'st_courier', site);
+    const stChargeableKg = stOriginRates && allParcels.length && zone
+      ? (quoteStCourierParcels({
+        zone,
+        rates: stOriginRates,
+        parcels: allParcels,
+      })?.chargeableKg ?? 0)
+      : 0;
+    const stBlockedForTamilNadu = isTamilNaduDestination(input.destination)
+      && stCourierTamilNaduMaxChargeableExceeded(stChargeableKg);
+
+    const optionsWithTotals: OrderCourierOption[] = [];
+    for (const opt of options) {
+      if (opt.partnerId === 'st_courier' && stBlockedForTamilNadu) {
+        continue;
       }
-      const airQuoted = quoteBlueDartParcels({
-        config: input.rates.bluedart,
-        service: 'air',
-        destState: input.destination?.state,
-        pin: input.blueDartPin,
-        parcels: allParcels.map(p => ({
-          actualKg: p.actualKg,
-          dims: {
-            lengthCm: Number(p.dims.lengthCm) || 0,
-            widthCm: Number(p.dims.widthCm) || 0,
-            heightCm: Number(p.dims.heightCm) || 0,
-          },
-        })),
-        invoiceValueInr,
-      });
+
       if (
-        airQuoted.notServiceable
-        && airQuoted.notServiceableReason
-        && /max\s+\d+\s+kg\s+for\s+blue\s+dart\s+air/i.test(airQuoted.notServiceableReason)
+        (opt.partnerId === 'bluedart_air' || opt.partnerId === 'bluedart_domestic')
+        && allParcels.length > 0
       ) {
-        return {
-          ...opt,
-          enabled: false,
-          disabledReason: airQuoted.notServiceableReason,
-          estimatedTotalInr: 0,
-        };
+        const bdCapQuoted = quoteBlueDartParcels({
+          config: input.rates.bluedart,
+          service: resolveBlueDartService(opt.partnerId),
+          destState: input.destination?.state,
+          pin: input.blueDartPin,
+          parcels: allParcels.map(p => ({
+            actualKg: p.actualKg,
+            dims: {
+              lengthCm: Number(p.dims.lengthCm) || 0,
+              widthCm: Number(p.dims.widthCm) || 0,
+              heightCm: Number(p.dims.heightCm) || 0,
+            },
+          })),
+          invoiceValueInr,
+        });
+        /** Hide when pin/weight rules make Blue Dart not serviceable. */
+        if (bdCapQuoted.notServiceable) {
+          continue;
+        }
       }
-      return { ...opt, estimatedTotalInr };
-    });
+
+      optionsWithTotals.push({
+        ...opt,
+        estimatedTotalInr: quotePartnerTotal(opt.partnerId),
+      });
+    }
 
     const requested = normalizeLogisticsPartnerId(input.courierBySite?.[site] ?? null)
       ?? undefined;
@@ -716,6 +736,27 @@ export function estimateStCourierCartFreight(input: {
         ? (Number(input.rates.trackon.shared.fuelSurchargePercent) || 0)
         : (originRates ? (Number(originRates.fuelSurchargePercent) || 0) : 0);
 
+    const isBlueDartDp = isBlueDart && bdService === 'domestic_priority';
+    /**
+     * DP share basis = sum of raw max(actual, vol) so ₹ allocation matches the
+     * consignment total (billable kg is stepped to 0.5 separately).
+     */
+    let dpShareWeightTotal = 0;
+    if (isBlueDartDp) {
+      for (const row of acc.productLines) {
+        for (const parcel of row.parcels) {
+          const dims = {
+            lengthCm: Number(parcel.dims.lengthCm) || 0,
+            widthCm: Number(parcel.dims.widthCm) || 0,
+            heightCm: Number(parcel.dims.heightCm) || 0,
+          };
+          const vol = blueDartDpVolumetricKg(dims, volumetricDivisor);
+          dpShareWeightTotal += Math.max(parcel.actualKg, vol);
+        }
+      }
+    }
+    const shareWeightTotal = isBlueDartDp ? dpShareWeightTotal : totalProductChargeable;
+
     for (const row of acc.productLines) {
       let lineKg = 0;
       let lineActualKg = 0;
@@ -724,20 +765,22 @@ export function estimateStCourierCartFreight(input: {
 
       for (let i = 0; i < row.parcels.length; i += 1) {
         const parcel = row.parcels[i];
-        const vol = stCourierVolumetricKg(parcel.dims, volumetricDivisor);
-        const chg = isBlueDart
-          ? blueDartPieceChargeableKg(
-            parcel.actualKg,
-            {
-              lengthCm: Number(parcel.dims.lengthCm) || 0,
-              widthCm: Number(parcel.dims.widthCm) || 0,
-              heightCm: Number(parcel.dims.heightCm) || 0,
-            },
-            volumetricDivisor,
-          )
-          : isTrackon
-            ? ceilChargeableKg(Math.max(parcel.actualKg, vol))
-            : (quoted?.perParcelChargeableKg[parcelOffset + i] ?? 0);
+        const dims = {
+          lengthCm: Number(parcel.dims.lengthCm) || 0,
+          widthCm: Number(parcel.dims.widthCm) || 0,
+          heightCm: Number(parcel.dims.heightCm) || 0,
+        };
+        /** DP: raw vol (no 1 kg ceil). Share weights are unrounded; shipment billable is 0.5 kg stepped. */
+        const vol = isBlueDartDp
+          ? blueDartDpVolumetricKg(dims, volumetricDivisor)
+          : stCourierVolumetricKg(parcel.dims, volumetricDivisor);
+        const chg = isBlueDartDp
+          ? Math.max(parcel.actualKg, vol)
+          : isBlueDart
+            ? blueDartPieceChargeableKg(parcel.actualKg, dims, volumetricDivisor)
+            : isTrackon
+              ? ceilChargeableKg(Math.max(parcel.actualKg, vol))
+              : (quoted?.perParcelChargeableKg[parcelOffset + i] ?? 0);
         lineKg += chg;
         lineActualKg += parcel.actualKg;
         lineVolumetricKg += vol;
@@ -777,12 +820,14 @@ export function estimateStCourierCartFreight(input: {
       }
       parcelOffset += row.parcels.length;
 
-      const share = totalProductChargeable > 0 ? lineKg / totalProductChargeable : 0;
+      const share = shareWeightTotal > 0 ? lineKg / shareWeightTotal : 0;
       const amountInr = ceilCourierChargeInr(totalProductFreight * share);
       const indication = row.missingUnits > 0 || row.skip
         ? (row.skip?.reason === 'no_package' ? 'missing_package' : 'incomplete_package')
         : 'ok';
-      const lineKgRounded = Math.round(lineKg * 1000) / 1000;
+      const lineKgRounded = isBlueDartDp
+        ? ceilBlueDartDpChargeableKg(lineKg)
+        : Math.round(lineKg * 1000) / 1000;
       const includeShipmentFees = Boolean(
         isBlueDart
         && !bdShipmentFeesAssigned
@@ -809,7 +854,9 @@ export function estimateStCourierCartFreight(input: {
         && !bdQuoted.notServiceable
         && !bdQuoted.rateMissing
         ? blueDartFreightCalcSteps(bdQuoted, {
-          chargeableKgOverride: lineKgRounded,
+          chargeableKgOverride: isBlueDartDp
+            ? totalProductChargeable * share
+            : lineKgRounded,
           amountScale: share,
           includeShipmentFees,
           oversizeInrOverride: lineOversizeInr,
@@ -824,7 +871,9 @@ export function estimateStCourierCartFreight(input: {
         masterCartonCount: row.masterCartonCount,
         singleBoxCount: row.singleBoxCount,
         missingUnits: row.missingUnits,
-        chargeableKg: lineKgRounded,
+        chargeableKg: isBlueDartDp
+          ? Math.round(totalProductChargeable * share * 1000) / 1000
+          : lineKgRounded,
         amountInr,
         indication,
         actualKg: Math.round(lineActualKg * 1000) / 1000,

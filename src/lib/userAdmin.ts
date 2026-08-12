@@ -61,7 +61,6 @@ export type UpdateUserProfilePatch = Partial<
     | 'zohoSalespersonLinks'
     | 'zohoSalespersonId'
     | 'zohoSalespersonName'
-    | 'staffLogisticsSite'
     | 'dealerTier'
     | 'dealerAccessMode'
     | 'dealerPermissions'
@@ -118,7 +117,6 @@ export type CreateUserInput = {
   zohoSalespersonLinks?: Array<{ id: string; name: string | null }> | null;
   zohoSalespersonId?: string | null;
   zohoSalespersonName?: string | null;
-  staffLogisticsSite?: import('../types/staff-logistics').StaffLogisticsSite | null;
   /** Optional reporting manager (usually a super_admin). */
   managerUid?: string | null;
   dealerTier?: DealerTier;
@@ -173,7 +171,6 @@ export async function createUserProfile(
     zohoSalespersonName: roleSupportsZohoSalespersonLinks(input.role)
       ? input.zohoSalespersonName ?? null
       : undefined,
-    staffLogisticsSite: input.role === 'staff' ? input.staffLogisticsSite ?? null : undefined,
     managerUid: input.role === 'staff' && input.managerUid?.trim()
       ? input.managerUid.trim()
       : undefined,

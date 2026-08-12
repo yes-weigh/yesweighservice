@@ -23,7 +23,6 @@ import {
   uploadHrPhoto,
 } from '../../lib/hrStaff';
 import { registerUser, updateUserProfile } from '../../lib/userAdmin';
-import { loadDefaultStaffLogisticsSite } from '../../lib/logisticsSettings';
 import { parseLoginId } from '../../lib/loginAuth';
 import { resolveProfileLogin } from '../../lib/profileLogin';
 import {
@@ -43,12 +42,6 @@ import {
   type HrDocumentType,
   type StaffHrProfile,
 } from '../../types/staff-hr';
-import {
-  STAFF_LOGISTICS_SITES,
-  STAFF_LOGISTICS_SITE_LABELS,
-  type StaffLogisticsSite,
-} from '../../types/staff-logistics';
-
 type HrStaffFormPageProps = {
   basePath: string;
 };
@@ -73,7 +66,6 @@ export const HrStaffFormPage: React.FC<HrStaffFormPageProps> = ({ basePath }) =>
   const [hr, setHr] = useState<StaffHrProfile>(emptyHrProfile());
   const [roleDraft, setRoleDraft] = useState<StaffRoleDraft>(EMPTY_STAFF_ROLE_DRAFT);
   const [zohoLinks, setZohoLinks] = useState<ZohoSalespersonLink[]>([]);
-  const [logisticsSite, setLogisticsSite] = useState<StaffLogisticsSite>('head_office');
   const [editingRole, setEditingRole] = useState<'staff' | 'super_admin'>('staff');
   const [managerUid, setManagerUid] = useState<string | null>(null);
   const [managerName, setManagerName] = useState<string | null>(null);
@@ -111,7 +103,6 @@ export const HrStaffFormPage: React.FC<HrStaffFormPageProps> = ({ basePath }) =>
       setHr(readHrProfileFromDoc(record));
       setRoleDraft(staffRoleDraftFromRecord(record, roles));
       setZohoLinks(normalizeZohoSalespersonLinks(record));
-      setLogisticsSite(record.staffLogisticsSite ?? 'head_office');
       setManagerUid(record.managerUid?.trim() || null);
       void resolveHrPhotoUrl(record.uid, record).then(url => {
         if (url) setPhotoPreview(url);
@@ -138,9 +129,6 @@ export const HrStaffFormPage: React.FC<HrStaffFormPageProps> = ({ basePath }) =>
           }, roles));
         }
         if (managerUidParam) setManagerUid(managerUidParam);
-        void loadDefaultStaffLogisticsSite()
-          .then(site => setLogisticsSite(site))
-          .catch(() => undefined);
       }
     });
   }, [isEdit, loadRecord, managerUidParam, user?.role]);
@@ -219,7 +207,6 @@ export const HrStaffFormPage: React.FC<HrStaffFormPageProps> = ({ basePath }) =>
           phone: account.phone || undefined,
           email: account.email || undefined,
           ...accessPayload,
-          staffLogisticsSite: logisticsSite,
           managerUid: managerUid || null,
           ...hrPatch,
         });
@@ -239,7 +226,6 @@ export const HrStaffFormPage: React.FC<HrStaffFormPageProps> = ({ basePath }) =>
           phone: account.phone || undefined,
           email: account.email || undefined,
           ...accessPayload,
-          staffLogisticsSite: logisticsSite,
           managerUid: managerUid || null,
           createdByUid: user.uid,
           hr: hrPatch as Parameters<typeof registerUser>[1]['hr'],
@@ -422,23 +408,6 @@ export const HrStaffFormPage: React.FC<HrStaffFormPageProps> = ({ basePath }) =>
                   onChange={e => setHrField('hrJoinDate', e.target.value || null)}
                 />
               </label>
-              {!isSuperAdminRecord ? (
-                <label className="hr-staff-form__field">
-                  <span>Logistics location</span>
-                  <select
-                    className="input-field"
-                    value={logisticsSite}
-                    onChange={e => setLogisticsSite(e.target.value as StaffLogisticsSite)}
-                    required
-                  >
-                    {STAFF_LOGISTICS_SITES.map(site => (
-                      <option key={site} value={site}>
-                        {STAFF_LOGISTICS_SITE_LABELS[site]}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-              ) : null}
             </div>
           </section>
 

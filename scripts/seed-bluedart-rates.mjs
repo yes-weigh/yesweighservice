@@ -140,7 +140,7 @@ function defaultBlueDartConfig() {
     },
     air: {
       perKgInr: { 1: 32, 2: 45, 3: 50, 4: 65, 5: 70 },
-      minimumChargeableWeightKg: 10,
+      minimumChargeableWeightKg: 5,
       minimumFreightInr: 260,
       docketFeeInr: 100,
       volumetricDivisor: 5000,

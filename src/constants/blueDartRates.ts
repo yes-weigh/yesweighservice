@@ -93,9 +93,15 @@ export function resolveBlueDartOversizePercent(
 export const BLUE_DART_SURFACE_VOLUMETRIC_DIVISOR = 4500;
 export const BLUE_DART_AIR_VOLUMETRIC_DIVISOR = 5000;
 export const BLUE_DART_DP_VOLUMETRIC_DIVISOR = 5000;
+/** Domestic Priority bills in 500 g steps (first 500 g, then each addl 500 g). */
+export const BLUE_DART_DP_SLAB_KG = 0.5;
 
+/** Apex / BDAIR — min chargeable kg (floor before ₹/kg). */
+export const BLUE_DART_AIR_MIN_CHARGEABLE_KG = 5;
 /** Apex / BDAIR — chargeable kg above this cannot use Blue Dart Air. */
 export const BLUE_DART_AIR_MAX_CHARGEABLE_KG = 15;
+/** Domestic Priority / BDDP — chargeable kg above this cannot use BDDP. */
+export const BLUE_DART_DP_MAX_CHARGEABLE_KG = 5;
 
 export function blueDartAirMaxChargeableExceeded(chargeableKg: number): boolean {
   const kg = typeof chargeableKg === 'number' && Number.isFinite(chargeableKg) ? chargeableKg : 0;
@@ -109,6 +115,20 @@ export function blueDartAirMaxChargeableReason(chargeableKg?: number): string {
   return kg != null
     ? `Max ${BLUE_DART_AIR_MAX_CHARGEABLE_KG} kg for Blue Dart Air (chargeable ${kg} kg)`
     : `Max ${BLUE_DART_AIR_MAX_CHARGEABLE_KG} kg for Blue Dart Air`;
+}
+
+export function blueDartDpMaxChargeableExceeded(chargeableKg: number): boolean {
+  const kg = typeof chargeableKg === 'number' && Number.isFinite(chargeableKg) ? chargeableKg : 0;
+  return kg > BLUE_DART_DP_MAX_CHARGEABLE_KG;
+}
+
+export function blueDartDpMaxChargeableReason(chargeableKg?: number): string {
+  const kg = typeof chargeableKg === 'number' && Number.isFinite(chargeableKg) && chargeableKg > 0
+    ? chargeableKg
+    : null;
+  return kg != null
+    ? `Max ${BLUE_DART_DP_MAX_CHARGEABLE_KG} kg for Blue Dart Domestic Priority (chargeable ${kg} kg)`
+    : `Max ${BLUE_DART_DP_MAX_CHARGEABLE_KG} kg for Blue Dart Domestic Priority`;
 }
 
 /** State aliases → region (keys must match normalizeBlueDartPlace). */
@@ -231,7 +251,7 @@ export function defaultBlueDartSharedRules(): BlueDartSharedRules {
 export function defaultBlueDartAirRates(): BlueDartKgServiceRates {
   return {
     perKgInr: { 1: 32, 2: 45, 3: 50, 4: 65, 5: 70 },
-    minimumChargeableWeightKg: 10,
+    minimumChargeableWeightKg: BLUE_DART_AIR_MIN_CHARGEABLE_KG,
     minimumFreightInr: 260,
     docketFeeInr: 100,
     volumetricDivisor: BLUE_DART_AIR_VOLUMETRIC_DIVISOR,

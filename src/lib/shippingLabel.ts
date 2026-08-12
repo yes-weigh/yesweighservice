@@ -659,7 +659,9 @@ export function buildShippingLabelsFromBooking(booking: LogisticsBooking): Shipp
   return Array.from({ length: count }, (_, index) => {
     const box = booking.boxes[index];
     const boxActual = box?.weightKg ?? booking.actualWeightKg;
-    const boxChargeable = box ? boxChargeableWeight(box) : chargeable;
+    const boxChargeable = box
+      ? boxChargeableWeight(box, booking.partnerId)
+      : chargeable;
     return buildShippingLabelViewModel({
       fromName: STAFF_LOGISTICS_SITE_LABELS[booking.shipFromSite] || 'YESWEIGH',
       fromAddress: booking.shipFromAddress || '—',

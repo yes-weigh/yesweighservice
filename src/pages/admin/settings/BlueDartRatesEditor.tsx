@@ -13,7 +13,10 @@ import { ExternalLink, Loader2, Plus, RefreshCw, Trash2 } from 'lucide-react';
 import { DecimalAmountInput } from '../../../components/DecimalAmountInput';
 import {
   BLUE_DART_AIR_MAX_CHARGEABLE_KG,
+  BLUE_DART_AIR_MIN_CHARGEABLE_KG,
+  BLUE_DART_DP_MAX_CHARGEABLE_KG,
   blueDartAirMaxChargeableExceeded,
+  blueDartDpMaxChargeableExceeded,
   blueDartEffectiveCafPercent,
   blueDartEffectiveFuelSurchargePercent,
   blueDartSurfaceEffectiveDieselFsPercent,
@@ -30,19 +33,24 @@ import {
 } from '../../../lib/blueDartDieselFuel';
 import {
   previewBlueDartAirStack,
+  previewBlueDartDomesticPriorityStack,
   previewBlueDartSurfaceStack,
 } from '../../../lib/blueDartQuote';
-import { blueDartStatesByAirZone } from '../../../lib/blueDartZone';
+import { loadBlueDartPincode, normalizePincode } from '../../../lib/blueDartPincodes';
+import { blueDartStatesByAirZone, resolveBlueDartDpZone } from '../../../lib/blueDartZone';
 import {
   BLUE_DART_AIR_ZONES,
   BLUE_DART_DP_ZONES,
   BLUE_DART_EDL_MODES,
+  blueDartDpZoneLabel,
   type BlueDartAirZone,
   type BlueDartConfig,
+  type BlueDartDomesticPriorityRates,
   type BlueDartDpZone,
   type BlueDartEdlMode,
   type BlueDartKgServiceRates,
   type BlueDartOversizeSlab,
+  type BlueDartPincodeDoc,
   type BlueDartSharedRules,
   type BlueDartSurfaceRates,
 } from '../../../types/blue-dart-rates';
@@ -93,9 +101,9 @@ const TABS: Array<{ id: BlueDartServiceId; label: string; sku: string; image: st
 ];
 
 const SERVICE_BLURB: Record<BlueDartServiceId, string> = {
-  air: 'Express air (Apex). Billed by Zone 1–5 ₹/kg, usually min 10 kg, max 15 kg chargeable.',
+  air: `Express air (Apex). Billed by Zone 1–5 ₹/kg · min ${BLUE_DART_AIR_MIN_CHARGEABLE_KG} kg · max ${BLUE_DART_AIR_MAX_CHARGEABLE_KG} kg chargeable.`,
   surface: 'Ground / Surface Band 13. Billed by Zone 1–5 ₹/kg, usually min 10 kg.',
-  domestic_priority: 'Priority parcels. Billed in 500 g slabs (Within Kerala A1, then A/B/C).',
+  domestic_priority: `Priority parcels. Billed in 500 g slabs (A1/A/B/C) · max ${BLUE_DART_DP_MAX_CHARGEABLE_KG} kg chargeable.`,
 };
 
 function Field(props: {
@@ -1398,8 +1406,9 @@ function AirChargeStack(props: {
             {' '}
             {preview.zone}
             {preview.rateMissing ? ' · rate missing' : ''}
+            {` · min ${BLUE_DART_AIR_MIN_CHARGEABLE_KG} kg · max ${BLUE_DART_AIR_MAX_CHARGEABLE_KG} kg`}
             {blueDartAirMaxChargeableExceeded(preview.chargeableKg)
-              ? ` · over ${BLUE_DART_AIR_MAX_CHARGEABLE_KG} kg max (BDAIR disabled on SO)`
+              ? ` · over max (BDAIR disabled on SO)`
               : ''}
           </em>
         </div>
@@ -1428,7 +1437,7 @@ function AirChargeStack(props: {
           </Field>
           <Field
             label="Actual kg"
-            tip={`Actual weight before volumetric / min floors. Blue Dart Air max chargeable is ${BLUE_DART_AIR_MAX_CHARGEABLE_KG} kg.`}
+            tip={`Actual weight before volumetric / min floors. Air min ${BLUE_DART_AIR_MIN_CHARGEABLE_KG} kg, max ${BLUE_DART_AIR_MAX_CHARGEABLE_KG} kg chargeable.`}
           >
             <DecimalAmountInput
               min={0}
@@ -1659,6 +1668,317 @@ function AirChargeStack(props: {
   );
 }
 
+/** Live map of how Domestic Priority % compound — 500 g slabs → PSS/IDC → FS → CAF → EFSS. */
+function DomesticPriorityChargeStack(props: {
+  rates: BlueDartDomesticPriorityRates;
+  shared: BlueDartSharedRules;
+}) {
+  const { rates, shared } = props;
+
+  const [pincodeInput, setPincodeInput] = useState('682001');
+  const [zoneOverride, setZoneOverride] = useState<BlueDartDpZone | null>(null);
+  const [pinDoc, setPinDoc] = useState<BlueDartPincodeDoc | null>(null);
+  const [pinLoading, setPinLoading] = useState(false);
+  const [actualKg, setActualKg] = useState(0.5);
+  const [lengthCm, setLengthCm] = useState(0);
+  const [widthCm, setWidthCm] = useState(0);
+  const [heightCm, setHeightCm] = useState(0);
+
+  const normalizedPin = normalizePincode(pincodeInput);
+
+  useEffect(() => {
+    if (!normalizedPin) {
+      setPinDoc(null);
+      setPinLoading(false);
+      return;
+    }
+    let cancelled = false;
+    setPinLoading(true);
+    void loadBlueDartPincode(normalizedPin).then(doc => {
+      if (cancelled) return;
+      setPinDoc(doc);
+      setPinLoading(false);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [normalizedPin]);
+
+  const resolvedZone = useMemo(() => {
+    if (!normalizedPin || pinLoading) return null;
+    return resolveBlueDartDpZone({
+      destState: pinDoc?.state,
+      pin: pinDoc,
+    });
+  }, [normalizedPin, pinDoc, pinLoading]);
+
+  const zone: BlueDartDpZone = zoneOverride ?? resolvedZone ?? 'A1';
+
+  const pinStatus = useMemo(() => {
+    if (!pincodeInput.trim()) return 'Enter a 6-digit destination pincode.';
+    if (!normalizedPin) return 'Pincode must be 6 digits.';
+    if (pinLoading) return 'Looking up blueDartPincodes…';
+    if (!pinDoc) return `No blueDartPincodes/${normalizedPin} doc.`;
+    const place = [pinDoc.areaDesc, pinDoc.state].filter(Boolean).join(', ') || normalizedPin;
+    const dp = pinDoc.dpZone ? `DP_ZONE ${pinDoc.dpZone}` : 'no DP_ZONE';
+    const auto = resolvedZone ? blueDartDpZoneLabel(resolvedZone) : 'zone unresolved';
+    return `${place} · ${dp} · auto ${auto}${pinDoc.dpService ? ` · DP ${pinDoc.dpService}` : ''}`;
+  }, [
+    pincodeInput,
+    normalizedPin,
+    pinLoading,
+    pinDoc,
+    resolvedZone,
+  ]);
+
+  const preview = useMemo(() => previewBlueDartDomesticPriorityStack({
+    shared,
+    domestic_priority: rates,
+    zone,
+    actualKg,
+    dims: { lengthCm, widthCm, heightCm },
+  }), [shared, rates, zone, actualKg, lengthCm, widthCm, heightCm]);
+
+  const basicDetail = preview.slabs <= 1
+    ? `first 500 g · ${formatStackInr(preview.first500gInr)}`
+    : `first 500 g ${formatStackInr(preview.first500gInr)} + ${preview.slabs - 1} × addl ${formatStackInr(preview.addl500gInr)}`;
+
+  return (
+    <div className="settings-bluedart__stack" aria-label="Domestic Priority rate calculation order">
+      <div className="settings-bluedart__stack-head">
+        <strong>How Domestic Priority adds up</strong>
+        <em>
+          Sheet order: billable weight steps every 500 g (not whole kg) → Basic → PSS% + IDC% on basic
+          → Fuel (FS)% → CAF% → EFSS%. Zone from destination pincode (Kerala → A1, else blueDartPincodes.dpZone).
+        </em>
+      </div>
+
+      <div className="settings-bluedart__stack-test">
+        <div className="settings-bluedart__stack-test-head">
+          <strong>Try a quote</strong>
+          <em>
+            Chargeable
+            {' '}
+            {preview.chargeableKg.toLocaleString('en-IN', { maximumFractionDigits: 1 })}
+            {' '}
+            kg
+            {preview.volumetricKg > 0
+              ? ` · vol ${preview.volumetricKg.toLocaleString('en-IN', { maximumFractionDigits: 1 })} kg`
+              : ''}
+            {' · '}
+            {preview.slabs}
+            {' '}
+            × 500 g
+            {' · zone '}
+            {blueDartDpZoneLabel(preview.zone)}
+            {zoneOverride ? ' (manual override)' : ''}
+            {` · max ${BLUE_DART_DP_MAX_CHARGEABLE_KG} kg`}
+            {preview.rateMissing ? ' · rate missing' : ''}
+            {blueDartDpMaxChargeableExceeded(preview.chargeableKg)
+              ? ' · over max (BDDP disabled on SO)'
+              : ''}
+          </em>
+        </div>
+        <div className="settings-bluedart__stack-test-fields">
+          <Field
+            label="Dest pincode"
+            tip="Looks up blueDartPincodes/{pin}. Kerala → A1; otherwise uses DP_ZONE A / B / C from that doc."
+          >
+            <input
+              className="settings-bluedart__select"
+              inputMode="numeric"
+              autoComplete="postal-code"
+              maxLength={6}
+              value={pincodeInput}
+              onChange={e => {
+                const next = e.target.value.replace(/\D/g, '').slice(0, 6);
+                setPincodeInput(next);
+                setZoneOverride(null);
+              }}
+              aria-label="Destination pincode"
+            />
+          </Field>
+          <Field
+            label="Zone"
+            tip="Auto from pincode. Change only to force a slab for testing."
+          >
+            <select
+              className="settings-bluedart__select"
+              value={zone}
+              onChange={e => setZoneOverride(e.target.value as BlueDartDpZone)}
+            >
+              {BLUE_DART_DP_ZONES.map(z => (
+                <option key={z} value={z}>
+                  {blueDartDpZoneLabel(z)}
+                </option>
+              ))}
+            </select>
+          </Field>
+          <Field
+            label="Actual kg"
+            tip={`Higher of actual or volumetric, then rounded up every 500 g. Max ${BLUE_DART_DP_MAX_CHARGEABLE_KG} kg chargeable.`}
+          >
+            <DecimalAmountInput
+              min={0}
+              decimals={1}
+              value={actualKg}
+              onChange={next => {
+                if (next == null) return;
+                setActualKg(next);
+              }}
+            />
+          </Field>
+          <Field label="L × B × H (cm)" tip="Optional. Volumetric kg = L×B×H ÷ 5000 (no whole-kg ceil).">
+            <div className="settings-bluedart__stack-dims">
+              <DecimalAmountInput
+                min={0}
+                decimals={0}
+                value={lengthCm || null}
+                aria-label="Length cm"
+                onChange={next => setLengthCm(next ?? 0)}
+              />
+              <span aria-hidden>×</span>
+              <DecimalAmountInput
+                min={0}
+                decimals={0}
+                value={widthCm || null}
+                aria-label="Width cm"
+                onChange={next => setWidthCm(next ?? 0)}
+              />
+              <span aria-hidden>×</span>
+              <DecimalAmountInput
+                min={0}
+                decimals={0}
+                value={heightCm || null}
+                aria-label="Height cm"
+                onChange={next => setHeightCm(next ?? 0)}
+              />
+            </div>
+          </Field>
+        </div>
+        <p className="settings-bluedart__diesel-note text-sm" role="status">
+          {pinStatus}
+        </p>
+      </div>
+
+      <div className="settings-bluedart__stack-body">
+        <SurfaceStackRow
+          kind="line"
+          names={[{
+            text: 'Basic (500 g slabs)',
+            tip: 'First 500 g rate plus each additional 500 g for the DP zone (sheet stepped rates).',
+          }]}
+          detail={basicDetail}
+          value={formatStackInr(preview.baseFreightInr)}
+        />
+        <SurfaceStackRow
+          kind="line"
+          prefix="+"
+          names={[{
+            text: 'PSS',
+            tip: 'Peak Season Surcharge. % of basic freight only.',
+          }]}
+          suffix={`${rates.pssPercent}%`}
+          detail="of basic"
+          value={formatStackInr(preview.pssInr)}
+        />
+        <SurfaceStackRow
+          kind="line"
+          prefix="+"
+          names={[{
+            text: 'IDC',
+            tip: 'Infrastructure Development Charge. % of basic freight only.',
+          }]}
+          suffix={`${rates.idcPercent}%`}
+          detail="of basic"
+          value={formatStackInr(preview.idcInr)}
+        />
+        <SurfaceStackRow
+          kind="subtotal"
+          prefix="="
+          names={[{
+            text: 'Subtotal 1',
+            tip: 'Basic + Peak + Infra. Fuel surcharge is calculated on this subtotal (sheet).',
+          }]}
+          detail="Basic + PSS + IDC"
+          value={formatStackInr(preview.subtotalAInr)}
+        />
+        <SurfaceStackRow
+          kind="line"
+          prefix="+"
+          names={[{
+            text: 'Fuel (FS)',
+            tip: 'Domestic Fuel Surcharge after B2B discount. Effective % of Subtotal 1.',
+          }]}
+          suffix={`${preview.fsPercent}%`}
+          detail={
+            preview.fsDiscountPercent > 0
+              ? `effective of Subtotal 1 · ${preview.fsPublishedPercent}% − ${preview.fsDiscountPercent}% = ${preview.fsPercent}%`
+              : 'of Subtotal 1'
+          }
+          value={formatStackInr(preview.fuelSurchargeInr)}
+        />
+        <SurfaceStackRow
+          kind="subtotal"
+          prefix="="
+          names={[{
+            text: 'Subtotal 2',
+            tip: 'Subtotal 1 + Fuel. CAF is calculated on this amount (sheet).',
+          }]}
+          detail="Subtotal 1 + Fuel"
+          value={formatStackInr(preview.afterFuelInr)}
+        />
+        <SurfaceStackRow
+          kind="line"
+          prefix="+"
+          names={[{
+            text: 'CAF',
+            tip: 'Currency Adjustment Factor after B2B discount. Effective % of Subtotal 2.',
+          }]}
+          suffix={`${preview.cafPercent}%`}
+          detail={
+            preview.cafDiscountPercent > 0
+              ? `effective of Subtotal 2 · ${preview.cafPublishedPercent}% − ${preview.cafDiscountPercent}% = ${preview.cafPercent}%`
+              : 'of Subtotal 2'
+          }
+          value={formatStackInr(preview.cafInr)}
+        />
+        <SurfaceStackRow
+          kind="subtotal"
+          prefix="="
+          names={[{
+            text: 'Subtotal 3',
+            tip: 'Subtotal 2 + CAF. Elevated Freight Stability Surcharge is calculated on this amount.',
+          }]}
+          detail="Subtotal 2 + CAF"
+          value={formatStackInr(preview.afterCafInr)}
+        />
+        <SurfaceStackRow
+          kind="line"
+          prefix="+"
+          names={[{
+            text: 'EFSS',
+            tip: 'Elevated Freight Stability Surcharge. % of Subtotal 3.',
+          }]}
+          suffix={`${rates.efssPercent}%`}
+          detail="of Subtotal 3"
+          value={formatStackInr(preview.efssInr)}
+        />
+        <SurfaceStackRow
+          kind="total"
+          prefix="="
+          names={[{
+            text: 'Total',
+            tip: 'Sum of the stack above, rounded up to a whole rupee. Quoted ex-GST — tax is applied on the sales order, not here.',
+          }]}
+          detail="ceil to whole ₹ · ex-GST"
+          value={formatStackInr(preview.totalInr)}
+        />
+      </div>
+    </div>
+  );
+}
+
 function AirRatesEditor(props: {
   rates: BlueDartKgServiceRates;
   shared: BlueDartSharedRules;
@@ -1674,7 +1994,10 @@ function AirRatesEditor(props: {
 
       <div className="settings-bluedart__subhead">Weight &amp; fees</div>
       <div className="settings-courier-rates__inline-fields settings-bluedart__grid">
-        <Field label="Min weight (kg)" tip="Chargeable weight floor.">
+        <Field
+          label="Min weight (kg)"
+          tip={`Chargeable weight floor. Policy min ${BLUE_DART_AIR_MIN_CHARGEABLE_KG} kg; max ${BLUE_DART_AIR_MAX_CHARGEABLE_KG} kg (hard cap).`}
+        >
           <DecimalAmountInput
             min={0}
             decimals={1}
@@ -1910,6 +2233,7 @@ export const BlueDartRatesEditor: React.FC<Props> = ({
       {tab === 'domestic_priority' ? (
         <div className="settings-bluedart__tab-panel" role="tabpanel">
           {statusControl}
+          <DomesticPriorityChargeStack rates={config.domestic_priority} shared={shared} />
           <SharedChargesEditor shared={shared} onPatch={patchShared} />
           <p className="settings-bluedart__panel-blurb">
             {SERVICE_BLURB.domestic_priority}
@@ -1919,6 +2243,13 @@ export const BlueDartRatesEditor: React.FC<Props> = ({
             )
           </p>
           <div className="settings-bluedart__subhead">Domestic Priority rules</div>
+          <p className="settings-bluedart__panel-blurb">
+            Max chargeable
+            {' '}
+            {BLUE_DART_DP_MAX_CHARGEABLE_KG}
+            {' '}
+            kg (hard cap). Over that, BDDP is not offered on sales orders.
+          </p>
           <div className="settings-courier-rates__inline-fields settings-bluedart__grid">
             <Field
               label="Volumetric divisor"
@@ -1954,6 +2285,17 @@ export const BlueDartRatesEditor: React.FC<Props> = ({
             />
           </div>
           <div className="settings-bluedart__subhead">500 g price slabs</div>
+          <p className="settings-bluedart__panel-blurb">
+            From the rate card. Quotes resolve zone from
+            {' '}
+            <code>blueDartPincodes</code>
+            {' '}
+            (Kerala → A1, else
+            {' '}
+            <code>dpZone</code>
+            {' '}
+            / DP_ZONE A·B·C on that pin).
+          </p>
           <div className="settings-courier-rates__zone-table-wrap">
             <table className="settings-courier-rates__zone-table">
               <thead>
@@ -1967,7 +2309,7 @@ export const BlueDartRatesEditor: React.FC<Props> = ({
                 {BLUE_DART_DP_ZONES.map((z: BlueDartDpZone) => (
                   <tr key={z}>
                     <th scope="row">
-                      {z === 'A1' ? 'A1 · Within Kerala' : z}
+                      {blueDartDpZoneLabel(z)}
                     </th>
                     <td>
                       <DecimalAmountInput

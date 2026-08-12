@@ -1,6 +1,6 @@
 import React from 'react';
 import { createPortal } from 'react-dom';
-import { ChevronLeft, ChevronRight, Clock, ShieldCheck, Truck } from 'lucide-react';
+import { ChevronLeft, ChevronRight, ShieldCheck, Truck } from 'lucide-react';
 import { DELIVERY_METHODS, type DeliveryMethod } from '../../constants/deliveryMethods';
 
 interface CourierPartnerPickerProps {
@@ -59,21 +59,17 @@ export const CourierPartnerPicker: React.FC<CourierPartnerPickerProps> = ({
       </header>
 
       <div className="delivery-method-dialog__grid" role="listbox" aria-label={ariaLabel}>
-        {partners.map(method => {
-          const comingSoon = availableIds ? !availableIds.includes(method.id) : false;
-          return (
+        {partners
+          .filter(method => !availableIds || availableIds.includes(method.id))
+          .map(method => (
             <button
               key={method.id}
               type="button"
               role="option"
-              aria-disabled={comingSoon}
               aria-selected={false}
-              className={[
-                'delivery-method-card',
-                comingSoon ? 'delivery-method-card--coming-soon' : '',
-              ].filter(Boolean).join(' ')}
-              aria-label={comingSoon ? `${method.label} (coming soon)` : method.label}
-              onClick={() => { if (!comingSoon) onSelect(method.id); }}
+              className="delivery-method-card"
+              aria-label={method.label}
+              onClick={() => onSelect(method.id)}
             >
               <span className="delivery-method-card__logo-wrap">
                 <img
@@ -86,19 +82,10 @@ export const CourierPartnerPicker: React.FC<CourierPartnerPickerProps> = ({
               </span>
               <span className="delivery-method-card__text">
                 <span className="delivery-method-card__label">{method.label}</span>
-                {comingSoon && (
-                  <span className="delivery-method-card__badge delivery-method-card__badge--soon">
-                    <Clock size={11} aria-hidden />
-                    Coming soon
-                  </span>
-                )}
               </span>
-              {!comingSoon && (
-                <ChevronRight size={18} className="delivery-method-card__chevron" aria-hidden />
-              )}
+              <ChevronRight size={18} className="delivery-method-card__chevron" aria-hidden />
             </button>
-          );
-        })}
+          ))}
       </div>
 
       <footer className="delivery-method-dialog__footer">

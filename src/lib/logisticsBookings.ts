@@ -28,6 +28,7 @@ import {
 } from './logisticsDealers';
 import {
   computeVolumetricWeight,
+  consignmentChargeableWeightKg,
   draftBoxesHaveRequiredPhotos,
   emptyShipmentBoxDraft,
   isPipelineEnabledPartner,
@@ -654,7 +655,9 @@ async function uploadDraftBoxPhotos(
       widthCm: width,
       heightCm: height,
       weightKg: isEnvelope ? 0 : (Number.parseFloat(box.weightKg) || 0),
-      volumetricWeightKg: isEnvelope ? 0 : computeVolumetricWeight(length, width, height),
+      volumetricWeightKg: isEnvelope
+        ? 0
+        : computeVolumetricWeight(length, width, height, draft.partnerId),
       photos,
     } satisfies ShipmentBox;
   }));
@@ -723,10 +726,7 @@ async function buildBookingPayload(input: PersistLogisticsBookingInput & {
   );
   const actualWeightKg = boxes.reduce((total, box) => total + box.weightKg, 0);
   const volumetricWeightKg = boxes.reduce((total, box) => total + box.volumetricWeightKg, 0);
-  const chargeableWeightKg = boxes.reduce(
-    (total, box) => total + Math.max(box.weightKg || 0, box.volumetricWeightKg || 0),
-    0,
-  );
+  const chargeableWeightKg = consignmentChargeableWeightKg(boxes, draft.partnerId);
   const createdByName = existingCreatedByName
     || createdBy.displayName?.trim()
     || createdBy.loginId?.trim()
@@ -875,7 +875,9 @@ function boxesWithoutNewUploads(draft: LogisticsBookingDraft): ShipmentBox[] {
       widthCm: width,
       heightCm: height,
       weightKg: isEnvelope ? 0 : (Number.parseFloat(box.weightKg) || 0),
-      volumetricWeightKg: isEnvelope ? 0 : computeVolumetricWeight(length, width, height),
+      volumetricWeightKg: isEnvelope
+        ? 0
+        : computeVolumetricWeight(length, width, height, draft.partnerId),
       photos: box.photos
         .filter(photo => Boolean(photo.storagePath))
         .map(photo => ({ storagePath: photo.storagePath as string, url: photo.url ?? null })),
@@ -1173,10 +1175,7 @@ export async function persistLogisticsBookingDraft(
     const { boxes, finalPackagePhotoStoragePath } = photoResult;
     const actualWeightKg = boxes.reduce((total, box) => total + box.weightKg, 0);
     const volumetricWeightKg = boxes.reduce((total, box) => total + box.volumetricWeightKg, 0);
-    const chargeableWeightKg = boxes.reduce(
-      (total, box) => total + Math.max(box.weightKg || 0, box.volumetricWeightKg || 0),
-      0,
-    );
+    const chargeableWeightKg = consignmentChargeableWeightKg(boxes, draft.partnerId);
     const createdByName = existingCreatedByName
       || createdBy.displayName?.trim()
       || createdBy.loginId?.trim()

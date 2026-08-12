@@ -1,9 +1,6 @@
-import { collection, doc, getDoc, getDocs, setDoc } from 'firebase/firestore';
+import { doc, getDoc, setDoc } from 'firebase/firestore';
 import { db } from '../firebase';
-import {
-  DEFAULT_STAFF_LOGISTICS_SITE,
-  LOGISTICS_SETTINGS_DOC_ID,
-} from '../constants/logisticsSettings';
+import { LOGISTICS_SETTINGS_DOC_ID } from '../constants/logisticsSettings';
 import { DEFAULT_LOGISTICS_DELIVERY_RULES } from '../constants/logisticsDeliveryRules';
 import {
   defaultLogisticsPartnerStatuses,
@@ -19,10 +16,7 @@ import type { LogisticsDeliveryRulesMatrix } from '../types/logistics-delivery-r
 import type { LogisticsPartnerStatuses } from '../types/logistics-partner-status';
 import type { DelhiveryB2bPublicConfig } from '../types/delhivery-b2b';
 import { emptyDelhiveryB2bPublicConfig } from '../types/delhivery-b2b';
-import type { FirestoreUserDoc, UserRecord } from '../types';
-import { normalizeRole } from '../types';
 import {
-  isStaffLogisticsSite,
   STAFF_LOGISTICS_SITES,
   type StaffLogisticsSite,
 } from '../types/staff-logistics';
@@ -94,7 +88,6 @@ function parseDelhiveryB2b(data: Record<string, unknown> | undefined): Delhivery
 }
 
 export interface LogisticsSettings {
-  defaultStaffLogisticsSite: StaffLogisticsSite;
   /** Free-text ship-from address per logistics site. */
   fromAddresses: Record<StaffLogisticsSite, string>;
   /** Named ship-from phone / GSTIN per site (used on Delhivery return + billing). */
@@ -118,7 +111,6 @@ export async function loadLogisticsSettings(): Promise<LogisticsSettings> {
     const snap = await getDoc(doc(db, 'appSettings', LOGISTICS_SETTINGS_DOC_ID));
     if (!snap.exists()) {
       return {
-        defaultStaffLogisticsSite: DEFAULT_STAFF_LOGISTICS_SITE,
         fromAddresses: EMPTY_FROM_ADDRESSES(),
         fromSiteContacts: EMPTY_FROM_SITE_CONTACTS(),
         deliveryRules: structuredClone(DEFAULT_LOGISTICS_DELIVERY_RULES),
@@ -129,11 +121,7 @@ export async function loadLogisticsSettings(): Promise<LogisticsSettings> {
       };
     }
     const data = snap.data();
-    const site = data.defaultStaffLogisticsSite;
     return {
-      defaultStaffLogisticsSite: isStaffLogisticsSite(site)
-        ? site
-        : DEFAULT_STAFF_LOGISTICS_SITE,
       fromAddresses: parseFromAddresses(data as Record<string, unknown>),
       fromSiteContacts: parseFromSiteContacts(data as Record<string, unknown>),
       deliveryRules: normalizeLogisticsDeliveryRules(data.deliveryRules),
@@ -147,7 +135,6 @@ export async function loadLogisticsSettings(): Promise<LogisticsSettings> {
     };
   } catch {
     return {
-      defaultStaffLogisticsSite: DEFAULT_STAFF_LOGISTICS_SITE,
       fromAddresses: EMPTY_FROM_ADDRESSES(),
       fromSiteContacts: EMPTY_FROM_SITE_CONTACTS(),
       deliveryRules: structuredClone(DEFAULT_LOGISTICS_DELIVERY_RULES),
@@ -157,33 +144,6 @@ export async function loadLogisticsSettings(): Promise<LogisticsSettings> {
       updatedAt: '',
     };
   }
-}
-
-export async function loadDefaultStaffLogisticsSite(): Promise<StaffLogisticsSite> {
-  const settings = await loadLogisticsSettings();
-  return settings.defaultStaffLogisticsSite;
-}
-
-export async function saveDefaultStaffLogisticsSite(
-  site: StaffLogisticsSite,
-  updatedBy?: string | null,
-): Promise<StaffLogisticsSite> {
-  if (!isStaffLogisticsSite(site)) {
-    throw new Error('Select a valid logistics location.');
-  }
-
-  const updatedAt = new Date().toISOString();
-  await setDoc(
-    doc(db, 'appSettings', LOGISTICS_SETTINGS_DOC_ID),
-    {
-      defaultStaffLogisticsSite: site,
-      updatedAt,
-      ...(updatedBy ? { updatedBy } : {}),
-    },
-    { merge: true },
-  );
-
-  return site;
 }
 
 export async function saveLogisticsFromAddresses(
@@ -305,17 +265,4 @@ export async function saveLogisticsDeliveryRulesAndPartnerStatuses(
     { merge: true },
   );
   return { deliveryRules: nextRules, partnerStatuses: nextStatuses };
-}
-
-export async function listHrStaffUsers(): Promise<UserRecord[]> {
-  const snap = await getDocs(collection(db, 'users'));
-  return snap.docs
-    .map(docSnap => {
-      const data = docSnap.data() as FirestoreUserDoc;
-      const role = normalizeRole(String(data.role ?? ''));
-      if (role !== 'staff') return null;
-      return { uid: docSnap.id, ...data, role } as UserRecord;
-    })
-    .filter((record): record is UserRecord => record !== null)
-    .sort((a, b) => a.displayName.localeCompare(b.displayName));
 }

@@ -26,35 +26,50 @@ function parseServiceability(raw: unknown): BlueDartServiceability | string {
   return value || 'No';
 }
 
+/** Read a field by camelCase or Excel column alias (CPINCODE / DP_ZONE / …). */
+function field(
+  data: Record<string, unknown>,
+  ...keys: string[]
+): unknown {
+  for (const key of keys) {
+    if (data[key] !== undefined && data[key] !== null) return data[key];
+  }
+  return undefined;
+}
+
 export function parseBlueDartPincodeDoc(
   pincode: string,
   data: Record<string, unknown> | undefined,
 ): BlueDartPincodeDoc | null {
   if (!data) return null;
-  const dpZoneRaw = String(data.dpZone ?? '').trim().toUpperCase();
+  const dpZoneRaw = String(field(data, 'dpZone', 'DP_ZONE', 'dp_zone') ?? '')
+    .trim()
+    .toUpperCase();
   const dpZone = dpZoneRaw === 'A' || dpZoneRaw === 'B' || dpZoneRaw === 'C'
     ? dpZoneRaw
     : '';
-  const edlKmRaw = data.edlKm;
+  const edlKmRaw = field(data, 'edlKm', 'EDL_KM', 'edl_km');
   const edlKm = typeof edlKmRaw === 'number' && Number.isFinite(edlKmRaw) && edlKmRaw > 0
     ? edlKmRaw
     : null;
+  const edlApxRaw = field(data, 'edlApx', 'EDL_APX', 'edl_apx');
+  const edlSfcRaw = field(data, 'edlSfc', 'EDL_SFC', 'edl_sfc');
   return {
     pincode,
-    region: String(data.region ?? ''),
-    state: String(data.state ?? ''),
-    area: String(data.area ?? ''),
-    areaDesc: String(data.areaDesc ?? ''),
-    hubCode: String(data.hubCode ?? ''),
-    dpService: parseServiceability(data.dpService),
+    region: String(field(data, 'region', 'CREGION', 'cregion') ?? ''),
+    state: String(field(data, 'state', 'CSTATE', 'cstate') ?? ''),
+    area: String(field(data, 'area', 'CAREA', 'carea') ?? ''),
+    areaDesc: String(field(data, 'areaDesc', 'CAREADESC', 'careadesc') ?? ''),
+    hubCode: String(field(data, 'hubCode', 'CSCRCD', 'cscrcd') ?? ''),
+    dpService: parseServiceability(field(data, 'dpService', 'DPSERVICE', 'dpservice')),
     dpZone,
-    apxService: parseServiceability(data.apxService),
-    sfcService: parseServiceability(data.sfcService),
-    edlApx: data.edlApx === true || String(data.edlApx).toLowerCase() === 'yes',
-    edlSfc: data.edlSfc === true || String(data.edlSfc).toLowerCase() === 'yes',
+    apxService: parseServiceability(field(data, 'apxService', 'APXSERVICE', 'apxservice')),
+    sfcService: parseServiceability(field(data, 'sfcService', 'SFCSERVICE', 'sfcservice')),
+    edlApx: edlApxRaw === true || String(edlApxRaw ?? '').toLowerCase() === 'yes',
+    edlSfc: edlSfcRaw === true || String(edlSfcRaw ?? '').toLowerCase() === 'yes',
     edlKm,
-    apxLocIb: String(data.apxLocIb ?? ''),
-    sfcLocIb: String(data.sfcLocIb ?? ''),
+    apxLocIb: String(field(data, 'apxLocIb', 'APX_LOCIB', 'apx_locib') ?? ''),
+    sfcLocIb: String(field(data, 'sfcLocIb', 'SFC_LOCIB', 'sfc_locib') ?? ''),
   };
 }
 

@@ -1283,6 +1283,17 @@ export const LogisticsPage: React.FC = () => {
                                 <strong className="logistics-shipment__tracking">{waybill}</strong>
                                 <span className="logistics-shipment__dealer">{booking.dealer.name}</span>
                                 {isOps ? <ListTileKam name={staffName} /> : null}
+                                {(() => {
+                                  const invoiceValueInr = Number(booking.invoiceValueInr);
+                                  if (!(Number.isFinite(invoiceValueInr) && invoiceValueInr > 0)) {
+                                    return null;
+                                  }
+                                  return (
+                                    <span className="logistics-shipment__invoice-value">
+                                      Invoice {formatCurrency(invoiceValueInr)}
+                                    </span>
+                                  );
+                                })()}
                               </div>
                               {(freight?.paidFreightInr != null
                                 || freight?.actualFreightInr != null) && (

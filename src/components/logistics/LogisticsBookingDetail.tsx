@@ -1834,6 +1834,11 @@ export const LogisticsBookingDetail: React.FC<LogisticsBookingDetailProps> = ({
                     </div>
                     <div className="logistics-booking__invoice-item-meta">
                       <span>Qty {item.quantity}</span>
+                      {Number.isFinite(item.rate) && item.rate > 0 ? (
+                        <span className="logistics-booking__invoice-item-rate">
+                          @ {formatCurrency(item.rate)}
+                        </span>
+                      ) : null}
                       <span>{formatCurrency(item.total)}</span>
                     </div>
                   </li>
@@ -2064,7 +2069,9 @@ export const LogisticsBookingDetail: React.FC<LogisticsBookingDetailProps> = ({
                             {' · '}
                             Vol {box.volumetricKg.toFixed(2)} kg
                             {' · '}
-                            Chg {box.chargeableKg.toFixed(0)} kg
+                            Chg {box.chargeableKg.toFixed(
+                              booking.partnerId === 'bluedart_domestic' ? 1 : 0,
+                            )} kg
                           </span>
                         </li>
                       ))}
@@ -2350,7 +2357,7 @@ export const LogisticsBookingDetail: React.FC<LogisticsBookingDetailProps> = ({
                   <div className="logistics-booking__box-dims-meta">
                     <span>Actual {(box.weightKg || 0).toFixed(2)} kg</span>
                     <span>Vol {(box.volumetricWeightKg || 0).toFixed(2)} kg</span>
-                    <span>Chg {boxChargeableWeight(box).toFixed(2)} kg</span>
+                    <span>Chg {boxChargeableWeight(box, booking.partnerId).toFixed(2)} kg</span>
                   </div>
                 </li>
               ))}

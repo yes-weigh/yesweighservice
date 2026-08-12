@@ -57,6 +57,21 @@ export function isBlueDartAirZone(value: unknown): value is BlueDartAirZone {
 export const BLUE_DART_DP_ZONES = ['A1', 'A', 'B', 'C'] as const;
 export type BlueDartDpZone = (typeof BLUE_DART_DP_ZONES)[number];
 
+/**
+ * Zone descriptions from the Domestic Priority rate card.
+ * A1 is dest Kerala; A/B/C are assigned per destination pincode (blueDartPincodes.dpZone).
+ */
+export const BLUE_DART_DP_ZONE_LABELS: Record<BlueDartDpZone, string> = {
+  A1: 'Within Kerala',
+  A: 'All Metro Cities and Major Cities',
+  B: 'Tier 2 Cities',
+  C: 'Rural Areas',
+};
+
+export function blueDartDpZoneLabel(zone: BlueDartDpZone): string {
+  return `${zone} · ${BLUE_DART_DP_ZONE_LABELS[zone]}`;
+}
+
 export function isBlueDartDpZone(value: unknown): value is BlueDartDpZone {
   return typeof value === 'string'
     && (BLUE_DART_DP_ZONES as readonly string[]).includes(value);

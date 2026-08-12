@@ -13,8 +13,14 @@ const BLUE_DART_SERVICES = ['air', 'surface', 'domestic_priority'];
 const REGIONS = ['NORTH', 'EAST', 'WEST', 'SOUTH', 'NE', 'JK'];
 const AIR_ZONES = [1, 2, 3, 4, 5];
 const DP_ZONES = ['A1', 'A', 'B', 'C'];
+/** Domestic Priority bills in 500 g steps (not whole-kg ceil). */
+const BLUE_DART_DP_SLAB_KG = 0.5;
+/** Apex / BDAIR — min chargeable kg. */
+const BLUE_DART_AIR_MIN_CHARGEABLE_KG = 5;
 /** Apex / BDAIR — chargeable kg above this cannot use Blue Dart Air. */
 const BLUE_DART_AIR_MAX_CHARGEABLE_KG = 15;
+/** Domestic Priority — chargeable kg above this cannot use BDDP. */
+const BLUE_DART_DP_MAX_CHARGEABLE_KG = 5;
 
 function airMaxChargeableExceeded(kg) {
   return nonNeg(kg) > BLUE_DART_AIR_MAX_CHARGEABLE_KG;
@@ -25,6 +31,17 @@ function airMaxChargeableReason(kg) {
   return n > 0
     ? `Max ${BLUE_DART_AIR_MAX_CHARGEABLE_KG} kg for Blue Dart Air (chargeable ${n} kg)`
     : `Max ${BLUE_DART_AIR_MAX_CHARGEABLE_KG} kg for Blue Dart Air`;
+}
+
+function dpMaxChargeableExceeded(kg) {
+  return nonNeg(kg) > BLUE_DART_DP_MAX_CHARGEABLE_KG;
+}
+
+function dpMaxChargeableReason(kg) {
+  const n = nonNeg(kg);
+  return n > 0
+    ? `Max ${BLUE_DART_DP_MAX_CHARGEABLE_KG} kg for Blue Dart Domestic Priority (chargeable ${n} kg)`
+    : `Max ${BLUE_DART_DP_MAX_CHARGEABLE_KG} kg for Blue Dart Domestic Priority`;
 }
 
 function nonNeg(value, fallback = 0) {
@@ -135,7 +152,7 @@ function defaultShared() {
 function defaultAir() {
   return {
     perKgInr: { 1: 32, 2: 45, 3: 50, 4: 65, 5: 70 },
-    minimumChargeableWeightKg: 10,
+    minimumChargeableWeightKg: BLUE_DART_AIR_MIN_CHARGEABLE_KG,
     minimumFreightInr: 260,
     docketFeeInr: 100,
     volumetricDivisor: 5000,
@@ -497,6 +514,23 @@ function volumetricKg(dims, divisor) {
   return ceilChargeableKg((l * w * h) / d);
 }
 
+/** Raw volumetric kg for Domestic Priority (no whole-kg ceil). */
+function dpVolumetricKg(dims, divisor) {
+  const l = nonNeg(dims?.lengthCm);
+  const w = nonNeg(dims?.widthCm);
+  const h = nonNeg(dims?.heightCm);
+  const d = divisor > 0 ? divisor : 5000;
+  if (!l || !w || !h) return 0;
+  return (l * w * h) / d;
+}
+
+/** Round billable weight up to the next 500 g slab. */
+function ceilDpChargeableKg(value) {
+  const n = Number(value);
+  if (!Number.isFinite(n) || n <= 0) return 0;
+  return Math.ceil(n / BLUE_DART_DP_SLAB_KG - 1e-9) * BLUE_DART_DP_SLAB_KG;
+}
+
 function chargeableKg(actualKg, dims, divisor, minKg) {
   const raw = Math.max(nonNeg(actualKg), volumetricKg(dims, divisor));
   const min = nonNeg(minKg);
@@ -600,26 +634,42 @@ export function quoteBlueDartParcels({
 
   if (service === 'domestic_priority') {
     const rates = cfg.domestic_priority;
-    const zone = isKerala(destState)
+    const pinState = destState || pin?.state || pin?.CSTATE || null;
+    const pinDpZone = String(pin?.dpZone ?? pin?.DP_ZONE ?? '').trim().toUpperCase();
+    const zone = isKerala(pinState)
       ? 'A1'
-      : (['A', 'B', 'C'].includes(String(pin?.dpZone || '').toUpperCase())
-        ? String(pin.dpZone).toUpperCase()
-        : null);
+      : (['A', 'B', 'C'].includes(pinDpZone) ? pinDpZone : null);
     if (!zone) {
       return { totalInr: 0, chargeableKg: 0, sku, rateMissing: true, notServiceable: true };
     }
-    let pieceKg = 0;
+    let actualSum = 0;
+    let volSum = 0;
     for (const p of parcels) {
-      pieceKg += pieceChargeableKg(p?.actualKg, p?.dims, rates.volumetricDivisor);
+      actualSum += nonNeg(p?.actualKg);
+      volSum += dpVolumetricKg(p?.dims, rates.volumetricDivisor);
     }
-    const kg = ceilChargeableKg(Math.max(pieceKg, 0.5));
+    const kg = ceilDpChargeableKg(Math.max(actualSum, volSum));
+    if (dpMaxChargeableExceeded(kg)) {
+      return {
+        totalInr: 0,
+        chargeableKg: kg,
+        sku,
+        rateMissing: false,
+        notServiceable: true,
+        notServiceableReason: dpMaxChargeableReason(kg),
+      };
+    }
     const first = nonNeg(rates.first500gInr[zone]);
     const addl = nonNeg(rates.addl500gInr[zone]);
     if (!(first > 0)) {
       return { totalInr: 0, chargeableKg: kg, sku, rateMissing: true, notServiceable: false };
     }
-    const slabs = Math.max(1, Math.ceil((kg * 1000) / 500));
-    const base = first + Math.max(0, slabs - 1) * addl;
+    const slabs = kg > 0
+      ? Math.max(1, Math.round(kg / BLUE_DART_DP_SLAB_KG))
+      : 0;
+    const base = slabs > 0
+      ? first + Math.max(0, slabs - 1) * addl
+      : 0;
     const pss = base * (nonNeg(rates.pssPercent) / 100);
     const idc = base * (nonNeg(rates.idcPercent) / 100);
     const after = base + pss + idc;

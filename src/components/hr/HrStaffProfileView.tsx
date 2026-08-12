@@ -11,7 +11,6 @@ import {
 import { resolveProfileLogin } from '../../lib/profileLogin';
 import { formatLoginIdDisplay, loginIdTypeLabel } from '../../lib/loginAuth';
 import { staffDepartmentLabel } from '../../lib/staffAccess';
-import { staffLogisticsSiteLabel } from '../../types/staff-logistics';
 import { HrStaffPhoto } from './HrStaffPhoto';
 
 type HrStaffProfileViewProps = {
@@ -68,10 +67,6 @@ export const HrStaffProfileView: React.FC<HrStaffProfileViewProps> = ({
 
       <div className="hr-profile__grid">
         <DetailRow label="Role" value={roleName ?? staffDepartmentLabel(record.staffDepartment)} />
-        <DetailRow
-          label="Logistics location"
-          value={staffLogisticsSiteLabel(record.staffLogisticsSite)}
-        />
         <DetailRow label="Employee ID" value={hr.hrEmployeeId} />
         <DetailRow label="Join date" value={formatJoinDate(hr.hrJoinDate)} />
         <DetailRow

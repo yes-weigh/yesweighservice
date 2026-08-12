@@ -26,11 +26,21 @@ import { DecimalTextInput } from '../DecimalAmountInput';
 import { FIRM_GSTIN, FIRM_NAME, FIRM_PHONE } from '../../constants/brand';
 import {
   BLUE_DART_AIR_MAX_CHARGEABLE_KG,
+  BLUE_DART_AIR_MIN_CHARGEABLE_KG,
+  BLUE_DART_DP_MAX_CHARGEABLE_KG,
   blueDartAirMaxChargeableExceeded,
   blueDartAirMaxChargeableReason,
+  blueDartDpMaxChargeableExceeded,
+  blueDartDpMaxChargeableReason,
 } from '../../constants/blueDartRates';
 import { logisticsPartnerLabel } from '../../constants/logisticsPartners';
 import type { LogisticsPartnerId } from '../../constants/logisticsPartners';
+import {
+  ST_COURIER_TAMIL_NADU_MAX_CHARGEABLE_KG,
+  isTamilNaduDestination,
+  stCourierTamilNaduMaxChargeableExceeded,
+  stCourierTamilNaduMaxChargeableReason,
+} from '../../lib/stCourierZone';
 import { fetchDealerById } from '../../lib/dealers';
 import {
   ensureDealersCached,
@@ -42,6 +52,7 @@ import {
   bookCourierStepsForBooking,
   bookStepFlowIndex,
   bookStepProgressVisualState,
+  ceilChargeableWeightKg,
   combineShipmentBoxDrafts,
   computeVolumetricWeight,
   draftBoxesHaveRequiredPhotos,
@@ -88,6 +99,7 @@ import { bookDelhiveryShipment } from '../../lib/delhiveryB2b';
 import { pinFromText } from '../../lib/delhiveryQuote';
 import { fetchAdminInvoiceDetail } from '../../lib/admin-invoices';
 import { resolveInvoiceFreightBillingMode } from '../../lib/logisticsPrefill';
+import { DEFAULT_STAFF_LOGISTICS_SITE } from '../../constants/logisticsSettings';
 import {
   loadLogisticsSettings,
   type LogisticsSiteContact,
@@ -148,11 +160,15 @@ function newPhotoId(): string {
   return `photo-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
 }
 
-function boxVolumetric(box: ShipmentBoxDraft): number {
+function boxVolumetric(
+  box: ShipmentBoxDraft,
+  partnerId?: LogisticsPartnerId,
+): number {
   return computeVolumetricWeight(
     box.lengthCm ? Number.parseFloat(box.lengthCm) : null,
     box.widthCm ? Number.parseFloat(box.widthCm) : null,
     box.heightCm ? Number.parseFloat(box.heightCm) : null,
+    partnerId,
   );
 }
 
@@ -662,24 +678,17 @@ export const BookCourierFlow: React.FC<BookCourierFlowProps> = ({
       setFromAddresses(settings.fromAddresses);
       setFromSiteContacts(settings.fromSiteContacts);
       setDraft(prev => {
-        // Invoice-linked: keep SO/invoice branch prefill — never override with staff site.
+        // Invoice-linked: keep SO/invoice branch prefill.
         if (prev.source === 'invoice') {
           if (isStaffLogisticsSite(prev.shipFromSite)) return prev;
-          return { ...prev, shipFromSite: settings.defaultStaffLogisticsSite };
+          return { ...prev, shipFromSite: DEFAULT_STAFF_LOGISTICS_SITE };
         }
-        // 1) HR staff assignment on the signed-in user
-        if (user.staffLogisticsSite && isStaffLogisticsSite(user.staffLogisticsSite)) {
-          return prev.shipFromSite === user.staffLogisticsSite
-            ? prev
-            : { ...prev, shipFromSite: user.staffLogisticsSite };
-        }
-        // 2) Keep draft choice
+        // Keep draft choice; otherwise app default (Cochin).
         if (isStaffLogisticsSite(prev.shipFromSite)) return prev;
-        // 3) Logistics settings default (app default: Cochin)
-        return { ...prev, shipFromSite: settings.defaultStaffLogisticsSite };
+        return { ...prev, shipFromSite: DEFAULT_STAFF_LOGISTICS_SITE };
       });
     });
-  }, [user.staffLogisticsSite]);
+  }, []);
 
   // Lock ship-from to the invoice’s sales-order branch when booking from an invoice.
   useEffect(() => {
@@ -1356,6 +1365,8 @@ export const BookCourierFlow: React.FC<BookCourierFlowProps> = ({
 
   const isEnvelope = draft.shipmentMode === 'envelope';
   const isBlueDartAir = partnerId === 'bluedart_air';
+  const isBlueDartDomestic = partnerId === 'bluedart_domestic';
+  const isStCourier = partnerId === 'st_courier';
   const canProceedScan = Boolean(draft.barcodeRaw.trim() || draft.consignmentNo.trim());
   const boxesValid = draftBoxesHaveRequiredPhotos(draft.boxes)
     && draft.boxes.every(box => {
@@ -1371,13 +1382,34 @@ export const BookCourierFlow: React.FC<BookCourierFlowProps> = ({
     (total, box) => total + (Number.parseFloat(box.weightKg) || 0),
     0,
   );
-  const totalChargeableWeight = draft.boxes.reduce((sum, box) => {
-    const actual = Number.parseFloat(box.weightKg) || 0;
-    return sum + Math.max(actual, boxVolumetric(box));
-  }, 0);
+  const totalVolumetricWeight = draft.boxes.reduce(
+    (sum, box) => sum + boxVolumetric(box, partnerId),
+    0,
+  );
+  /** BDDP: consignment steps every 0.5 kg. Other partners: sum of per-box max(act, vol). */
+  const totalChargeableWeight = partnerId === 'bluedart_domestic'
+    ? ceilChargeableWeightKg(
+      Math.max(totalActualWeight, totalVolumetricWeight),
+      partnerId,
+    )
+    : draft.boxes.reduce((sum, box) => {
+      const actual = Number.parseFloat(box.weightKg) || 0;
+      return sum + Math.max(actual, boxVolumetric(box, partnerId));
+    }, 0);
+  const deliveryAddressText = selectedDealer
+    ? resolveDeliveryAddress(selectedDealer, draft.deliveryAddressKind)
+    : '';
+  const stCourierTamilNaduOverMax = isStCourier
+    && isTamilNaduDestination(deliveryAddressText)
+    && stCourierTamilNaduMaxChargeableExceeded(totalChargeableWeight);
   const blueDartAirOverMax = isBlueDartAir
     && blueDartAirMaxChargeableExceeded(totalChargeableWeight);
-  const canProceedBox = boxesValid && !blueDartAirOverMax;
+  const blueDartDpOverMax = isBlueDartDomestic
+    && blueDartDpMaxChargeableExceeded(totalChargeableWeight);
+  const canProceedBox = boxesValid
+    && !blueDartAirOverMax
+    && !blueDartDpOverMax
+    && !stCourierTamilNaduOverMax;
   const delhiveryDestPin = selectedDealer
     ? pinFromText(resolveDeliveryAddress(selectedDealer, draft.deliveryAddressKind))
     : '';
@@ -1465,7 +1497,10 @@ export const BookCourierFlow: React.FC<BookCourierFlowProps> = ({
       const box = draft.boxes[index];
       const boxActual = box ? (Number.parseFloat(box.weightKg) || 0) : totalActualWeight;
       const boxChargeable = box
-        ? Math.max(boxActual, boxVolumetric(box))
+        ? ceilChargeableWeightKg(
+          Math.max(boxActual, boxVolumetric(box, partnerId)),
+          partnerId,
+        )
         : totalChargeableWeight;
       const inside = box?.photos?.[0];
       return buildShippingLabelViewModel({
@@ -2045,6 +2080,7 @@ export const BookCourierFlow: React.FC<BookCourierFlowProps> = ({
                     key={box.id}
                     box={box}
                     index={index}
+                    partnerId={partnerId}
                     isEnvelope={isEnvelope}
                     dimsRequired={isDelhivery}
                     canRemove={!isEnvelope && draft.boxes.length > 1 && !combineSelectMode}
@@ -2183,13 +2219,17 @@ export const BookCourierFlow: React.FC<BookCourierFlowProps> = ({
                       </span>
                       <span className="book-courier__weight-card-value">
                         <strong>
-                          {Math.max(
-                            Number.parseFloat(combineDims.weightKg) || 0,
-                            computeVolumetricWeight(
-                              combineDims.lengthCm ? Number.parseFloat(combineDims.lengthCm) : null,
-                              combineDims.widthCm ? Number.parseFloat(combineDims.widthCm) : null,
-                              combineDims.heightCm ? Number.parseFloat(combineDims.heightCm) : null,
+                          {ceilChargeableWeightKg(
+                            Math.max(
+                              Number.parseFloat(combineDims.weightKg) || 0,
+                              computeVolumetricWeight(
+                                combineDims.lengthCm ? Number.parseFloat(combineDims.lengthCm) : null,
+                                combineDims.widthCm ? Number.parseFloat(combineDims.widthCm) : null,
+                                combineDims.heightCm ? Number.parseFloat(combineDims.heightCm) : null,
+                                partnerId,
+                              ),
                             ),
+                            partnerId,
                           ).toFixed(2)}
                         </strong>
                         <em>kg</em>
@@ -2227,6 +2267,30 @@ export const BookCourierFlow: React.FC<BookCourierFlowProps> = ({
                 />
               ) : null}
 
+              {isBlueDartAir ? (
+                <p className="text-sm book-courier__hint text-muted">
+                  Blue Dart Air: min
+                  {' '}
+                  {BLUE_DART_AIR_MIN_CHARGEABLE_KG}
+                  {' '}
+                  kg chargeable · max
+                  {' '}
+                  {BLUE_DART_AIR_MAX_CHARGEABLE_KG}
+                  {' '}
+                  kg.
+                </p>
+              ) : null}
+
+              {isBlueDartDomestic ? (
+                <p className="text-sm book-courier__hint text-muted">
+                  Blue Dart Domestic Priority: billed every 0.5 kg · max
+                  {' '}
+                  {BLUE_DART_DP_MAX_CHARGEABLE_KG}
+                  {' '}
+                  kg chargeable.
+                </p>
+              ) : null}
+
               {blueDartAirOverMax ? (
                 <p className="text-sm book-courier__hint" role="alert">
                   {blueDartAirMaxChargeableReason(totalChargeableWeight)}.
@@ -2239,17 +2303,45 @@ export const BookCourierFlow: React.FC<BookCourierFlowProps> = ({
                 </p>
               ) : null}
 
+              {blueDartDpOverMax ? (
+                <p className="text-sm book-courier__hint" role="alert">
+                  {blueDartDpMaxChargeableReason(totalChargeableWeight)}.
+                  {' '}
+                  Use Air, Surface, or another partner (Domestic Priority max
+                  {' '}
+                  {BLUE_DART_DP_MAX_CHARGEABLE_KG}
+                  {' '}
+                  kg).
+                </p>
+              ) : null}
+
+              {stCourierTamilNaduOverMax ? (
+                <p className="text-sm book-courier__hint" role="alert">
+                  {stCourierTamilNaduMaxChargeableReason(totalChargeableWeight)}.
+                  {' '}
+                  Kerala has no ST weight cap — pick another partner for Tamil Nadu over
+                  {' '}
+                  {ST_COURIER_TAMIL_NADU_MAX_CHARGEABLE_KG}
+                  {' '}
+                  kg.
+                </p>
+              ) : null}
+
               <button
                 type="button"
                 className="btn btn-primary book-courier__next"
                 disabled={!canProceedBox || combineSelectMode}
                 onClick={() => setStep('review')}
               >
-                {blueDartAirOverMax
-                  ? `Air max ${BLUE_DART_AIR_MAX_CHARGEABLE_KG} kg`
-                  : delhiveryNeedsLbh
-                    ? 'Enter L × B × H to continue'
-                    : 'Confirm & Next'}
+                {stCourierTamilNaduOverMax
+                  ? `ST max ${ST_COURIER_TAMIL_NADU_MAX_CHARGEABLE_KG} kg to TN`
+                  : blueDartAirOverMax
+                    ? `Air max ${BLUE_DART_AIR_MAX_CHARGEABLE_KG} kg`
+                    : blueDartDpOverMax
+                      ? `DP max ${BLUE_DART_DP_MAX_CHARGEABLE_KG} kg`
+                      : delhiveryNeedsLbh
+                        ? 'Enter L × B × H to continue'
+                        : 'Confirm & Next'}
               </button>
             </section>
           )}
@@ -2912,6 +3004,7 @@ export const BookCourierFlow: React.FC<BookCourierFlowProps> = ({
 interface BoxCardProps {
   box: ShipmentBoxDraft;
   index: number;
+  partnerId: LogisticsPartnerId;
   isEnvelope: boolean;
   /** When true (Delhivery), L×B×H is required before booking. */
   dimsRequired?: boolean;
@@ -2929,6 +3022,7 @@ interface BoxCardProps {
 const BoxCard: React.FC<BoxCardProps> = ({
   box,
   index,
+  partnerId,
   isEnvelope,
   dimsRequired = false,
   canRemove,
@@ -2942,9 +3036,12 @@ const BoxCard: React.FC<BoxCardProps> = ({
   onRemoveBox,
 }) => {
   const photoCaptureInputRef = useRef<HTMLInputElement>(null);
-  const volumetric = boxVolumetric(box);
+  const volumetric = boxVolumetric(box, partnerId);
   const actualWeight = Number.parseFloat(box.weightKg) || 0;
-  const chargeableWeight = Math.max(actualWeight, volumetric);
+  const chargeableWeight = ceilChargeableWeightKg(
+    Math.max(actualWeight, volumetric),
+    partnerId,
+  );
 
   return (
     <section className={`book-courier__box${selected ? ' is-selected-combine' : ''}`}>

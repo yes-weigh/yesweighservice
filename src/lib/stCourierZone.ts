@@ -31,6 +31,55 @@ function normalizePlace(value: string | null | undefined): string {
     .trim();
 }
 
+/** ST Courier — Tamil Nadu only (Kerala has no max; Pondy not under this cap). */
+export const ST_COURIER_TAMIL_NADU_MAX_CHARGEABLE_KG = 25;
+
+function isPondicherryPlace(text: string): boolean {
+  return text === 'puducherry'
+    || text === 'pondicherry'
+    || text === 'pondy'
+    || text === 'py'
+    || text.includes('puducherry')
+    || text.includes('pondicherry');
+}
+
+function isKeralaPlace(text: string): boolean {
+  return text === 'kerala'
+    || text === 'kl'
+    || text.includes('kerala');
+}
+
+/** True when destination is Tamil Nadu (not Kerala, not Pondicherry). */
+export function isTamilNaduDestination(
+  destination: StCourierDestination | string | null | undefined,
+): boolean {
+  const text = typeof destination === 'string'
+    ? normalizePlace(destination)
+    : normalizePlace(
+      [destination?.state, destination?.city].filter(Boolean).join(' '),
+    );
+  if (!text || isKeralaPlace(text) || isPondicherryPlace(text)) return false;
+  return text === 'tamil nadu'
+    || text === 'tamilnadu'
+    || text === 'tn'
+    || text.includes('tamil nadu')
+    || text.includes('tamilnadu');
+}
+
+export function stCourierTamilNaduMaxChargeableExceeded(chargeableKg: number): boolean {
+  const kg = typeof chargeableKg === 'number' && Number.isFinite(chargeableKg) ? chargeableKg : 0;
+  return kg > ST_COURIER_TAMIL_NADU_MAX_CHARGEABLE_KG;
+}
+
+export function stCourierTamilNaduMaxChargeableReason(chargeableKg?: number): string {
+  const kg = typeof chargeableKg === 'number' && Number.isFinite(chargeableKg) && chargeableKg > 0
+    ? chargeableKg
+    : null;
+  return kg != null
+    ? `Max ${ST_COURIER_TAMIL_NADU_MAX_CHARGEABLE_KG} kg for ST Courier to Tamil Nadu (chargeable ${kg} kg)`
+    : `Max ${ST_COURIER_TAMIL_NADU_MAX_CHARGEABLE_KG} kg for ST Courier to Tamil Nadu`;
+}
+
 /**
  * Map shipping address fields to one of the 3 rate / delivery buckets.
  */

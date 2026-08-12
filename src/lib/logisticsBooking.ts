@@ -1,3 +1,4 @@
+import { BLUE_DART_DP_SLAB_KG } from '../constants/blueDartRates';
 import type { LogisticsPartnerId } from '../constants/logisticsPartners';
 import { LOGISTICS_PARTNER_IDS, logisticsPartnerLabel } from '../constants/logisticsPartners';
 import type {
@@ -227,11 +228,32 @@ export function draftBoxesHaveRequiredPhotos(
   );
 }
 
-/** Per-box chargeable weight = max(actual, volumetric), always rounded up. */
-export function boxChargeableWeight(box: Pick<ShipmentBox, 'weightKg' | 'volumetricWeightKg'>): number {
+/** Blue Dart Domestic Priority bills in 500 g steps (not whole-kg ceil). */
+export function isBlueDartDomesticPriorityPartner(
+  partnerId: LogisticsPartnerId | null | undefined,
+): boolean {
+  return partnerId === 'bluedart_domestic';
+}
+
+/** Round chargeable kg up for the partner’s billing step (1 kg, or 0.5 kg for BDDP). */
+export function ceilChargeableWeightKg(
+  value: number,
+  partnerId?: LogisticsPartnerId | null,
+): number {
+  if (!Number.isFinite(value) || value <= 0) return 0;
+  if (isBlueDartDomesticPriorityPartner(partnerId)) {
+    return Math.ceil(value / BLUE_DART_DP_SLAB_KG - 1e-9) * BLUE_DART_DP_SLAB_KG;
+  }
+  return Math.ceil(value);
+}
+
+/** Per-box chargeable weight = max(actual, volumetric), rounded to partner step. */
+export function boxChargeableWeight(
+  box: Pick<ShipmentBox, 'weightKg' | 'volumetricWeightKg'>,
+  partnerId?: LogisticsPartnerId | null,
+): number {
   const raw = Math.max(box.weightKg || 0, box.volumetricWeightKg || 0);
-  if (!Number.isFinite(raw) || raw <= 0) return 0;
-  return Math.ceil(raw);
+  return ceilChargeableWeightKg(raw, partnerId);
 }
 
 /**
@@ -259,14 +281,25 @@ export function statusForDocument(
 
 export const VOLUMETRIC_WEIGHT_DIVISOR = 5000;
 
+/**
+ * Volumetric kg = L×B×H ÷ divisor.
+ * Most partners round up to whole kg; Blue Dart Domestic Priority keeps raw kg
+ * (billing steps every 0.5 kg on chargeable weight instead).
+ */
 export function computeVolumetricWeight(
   lengthCm: number | null,
   widthCm: number | null,
   heightCm: number | null,
+  partnerId?: LogisticsPartnerId | null,
+  divisor: number = VOLUMETRIC_WEIGHT_DIVISOR,
 ): number {
   if (!lengthCm || !widthCm || !heightCm) return 0;
-  const raw = (lengthCm * widthCm * heightCm) / VOLUMETRIC_WEIGHT_DIVISOR;
+  const d = divisor > 0 ? divisor : VOLUMETRIC_WEIGHT_DIVISOR;
+  const raw = (lengthCm * widthCm * heightCm) / d;
   if (!Number.isFinite(raw) || raw <= 0) return 0;
+  if (isBlueDartDomesticPriorityPartner(partnerId)) {
+    return Math.round(raw * 1000) / 1000;
+  }
   return Math.ceil(raw);
 }
 
@@ -521,14 +554,34 @@ export function courierSlipFileName(booking: LogisticsBooking): string {
   return `courier-slip-${booking.orderRef}.png`;
 }
 
+/** Consignment chargeable kg for a partner (BDDP: step 0.5 kg on combined weight). */
+export function consignmentChargeableWeightKg(
+  boxes: ReadonlyArray<Pick<ShipmentBox, 'weightKg' | 'volumetricWeightKg'>>,
+  partnerId?: LogisticsPartnerId | null,
+): number {
+  if (!boxes.length) return 0;
+  if (isBlueDartDomesticPriorityPartner(partnerId)) {
+    const actual = boxes.reduce((total, box) => total + (box.weightKg || 0), 0);
+    const volumetric = boxes.reduce((total, box) => total + (box.volumetricWeightKg || 0), 0);
+    return ceilChargeableWeightKg(Math.max(actual, volumetric), partnerId);
+  }
+  return boxes.reduce(
+    (total, box) => total + boxChargeableWeight(box, partnerId),
+    0,
+  );
+}
+
 export function chargeableWeight(booking: LogisticsBooking): number {
   if (typeof booking.chargeableWeightKg === 'number' && Number.isFinite(booking.chargeableWeightKg)) {
     return booking.chargeableWeightKg;
   }
   if (booking.boxes.length) {
-    return booking.boxes.reduce((total, box) => total + boxChargeableWeight(box), 0);
+    return consignmentChargeableWeightKg(booking.boxes, booking.partnerId);
   }
-  return Math.max(booking.actualWeightKg, booking.volumetricWeightKg);
+  return ceilChargeableWeightKg(
+    Math.max(booking.actualWeightKg, booking.volumetricWeightKg),
+    booking.partnerId,
+  );
 }
 
 export function boxDimensionsLabel(box: ShipmentBox): string {
