@@ -5974,11 +5974,16 @@ body:has(.confirm-inline-bar) .confirm-inline-bar {
 }
 
 .dealer-price__club-note {
-  margin: 0.2rem 0 0;
-  font-size: 0.68rem;
-  line-height: 1.3;
-  font-weight: 600;
-  color: #fdba74;
+  margin: 0.35rem 0 0;
+  padding: 0.3rem 0.45rem;
+  border-radius: 6px;
+  font-size: 0.75rem;
+  line-height: 1.4;
+  font-weight: 750;
+  letter-spacing: 0.01em;
+  color: #7c2d12;
+  background: #ffedd5;
+  border: 1px solid #fb923c;
 }
 
 .catalog-product-card__price .dealer-price__slabs {
@@ -6013,11 +6018,16 @@ body:has(.confirm-inline-bar) .confirm-inline-bar {
 }
 
 .orders-page__item-club-note {
-  margin: 0.25rem 0 0;
-  font-size: 0.72rem;
-  line-height: 1.3;
-  font-weight: 600;
-  color: #fdba74;
+  margin: 0.35rem 0 0;
+  padding: 0.3rem 0.45rem;
+  border-radius: 6px;
+  font-size: 0.75rem;
+  line-height: 1.4;
+  font-weight: 750;
+  letter-spacing: 0.01em;
+  color: #ffedd5;
+  background: rgba(154, 52, 18, 0.55);
+  border: 1px solid rgba(251, 146, 60, 0.55);
 }
 
 .catalog-product-card__audit {

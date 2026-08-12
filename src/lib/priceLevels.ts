@@ -37,7 +37,7 @@ const DIRECTORS_QTY_CLUB_SKU_SET = new Set(
   DIRECTORS_QTY_CLUB_SKUS.map(sku => sku.toUpperCase()),
 );
 
-export const DIRECTORS_QTY_CLUB_LABEL = `Qty shared with ${DIRECTORS_QTY_CLUB_SKUS.join(', ')}`;
+export const DIRECTORS_QTY_CLUB_LABEL = `Clubbed qty rates: ${DIRECTORS_QTY_CLUB_SKUS.join(' · ')}`;
 
 export function normalizePriceLevelSku(sku: string | null | undefined): string {
   return String(sku ?? '').trim().toUpperCase();
