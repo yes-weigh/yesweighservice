@@ -1284,10 +1284,19 @@ export const LogisticsPage: React.FC = () => {
                                 <span className="logistics-shipment__dealer">{booking.dealer.name}</span>
                                 {isOps ? <ListTileKam name={staffName} /> : null}
                                 {(() => {
-                                  const invoiceValueInr = Number(booking.invoiceValueInr);
-                                  if (!(Number.isFinite(invoiceValueInr) && invoiceValueInr > 0)) {
-                                    return null;
-                                  }
+                                  if (!booking.invoiceId?.trim()) return null;
+                                  const fromBooking = Number(booking.invoiceValueInr);
+                                  const fromFreight = Number(freight?.invoiceTotalInclGst);
+                                  const invoiceValueInr = (
+                                    Number.isFinite(fromBooking) && fromBooking > 0
+                                      ? fromBooking
+                                      : (
+                                        Number.isFinite(fromFreight) && fromFreight > 0
+                                          ? fromFreight
+                                          : 0
+                                      )
+                                  );
+                                  if (!(invoiceValueInr > 0)) return null;
                                   return (
                                     <span className="logistics-shipment__invoice-value">
                                       Invoice {formatCurrency(invoiceValueInr)}
