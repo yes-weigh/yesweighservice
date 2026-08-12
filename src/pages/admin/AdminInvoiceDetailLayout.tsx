@@ -257,12 +257,15 @@ export const AdminInvoiceDetailLayout: React.FC = () => {
     existingBooking,
   };
 
-  // Same picking list as sales orders — spare invoices, ops (staff / super admin) only.
+  // Shared picking list for product/spare invoices — ops (staff / super admin) only.
   const showOrderList = Boolean(
     user
     && isInternalOpsUser(user)
     && invoice
-    && invoiceHasCategory(invoice, 'spare'),
+    && (
+      invoiceHasCategory(invoice, 'product')
+      || invoiceHasCategory(invoice, 'spare')
+    ),
   );
   const showCourierCard = Boolean(courierEntry || existingBooking || customerPickupActive);
   const showPickupEwayCard = Boolean(
