@@ -441,6 +441,20 @@ export const AdminSalesOrderDocumentPage: React.FC = () => {
       );
   }, [salesOrder]);
 
+  const freightEntryAlert = useMemo(() => {
+    if (!isOps || !allowFreightEdit) return null;
+    const freight = editLines.find(isFreightDraftEditLine);
+    const amount = freight ? Math.round(Number(freight.rate || freight.catalogRate || 0) * 100) / 100 : 0;
+    if (amount > 0) return null;
+    if (freight && amount <= 0) {
+      return 'Non–Customer Pickup: enter freight ₹ (use LBH/weight auto-calc or type the amount).';
+    }
+    if (!freight && salesOrder?.salesOrderCategory === 'spare') {
+      return 'Spare order: set logistics partner + freight from LBH/weight (or Customer Pickup). Dealer freight is updated by staff.';
+    }
+    return null;
+  }, [isOps, allowFreightEdit, editLines, salesOrder?.salesOrderCategory]);
+
   const onFreightPackageInfoSaved = useCallback((
     productId: string,
     info: NonNullable<CatalogProduct['packageInfo']>,
@@ -1171,7 +1185,7 @@ export const AdminSalesOrderDocumentPage: React.FC = () => {
           invoice={documentInvoice ?? salesOrder}
           itemClassName="admin-invoice-detail-item"
           totalsAfterItems
-          freightAlert={freightPackageAlert}
+          freightAlert={freightPackageAlert || freightEntryAlert}
           selectFreight={canEditLines}
           selectedLineItemId={canEditLines ? expandedLineId : null}
           onSelectLineItem={canEditLines ? handleSelectLineItem : undefined}

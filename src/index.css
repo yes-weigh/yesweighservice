@@ -16095,6 +16095,54 @@ body:has(.confirm-inline-bar) .confirm-inline-bar {
   margin-top: 0.1rem;
 }
 
+.order-freight-panel__defer-banner {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.45rem;
+  margin: 0.55rem 0 0.75rem;
+  padding: 0.55rem 0.7rem;
+  border-radius: 10px;
+  border: 1px solid rgba(255, 122, 0, 0.35);
+  background: rgba(255, 122, 0, 0.08);
+  font-size: 0.8125rem;
+  font-weight: 600;
+  color: #fdba74;
+}
+
+.order-freight-panel__defer-banner svg {
+  flex-shrink: 0;
+  margin-top: 0.1rem;
+  color: #ff7a00;
+}
+
+.order-freight-panel__head-deferred,
+.order-freight-panel__courier-amt--deferred {
+  font-style: normal;
+  font-weight: 700;
+  color: #94a3b8;
+  letter-spacing: 0.02em;
+}
+
+.so-freight-expand__alert {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.45rem;
+  margin: 0 0 0.75rem;
+  padding: 0.6rem 0.75rem;
+  border-radius: 10px;
+  border: 1px solid rgba(248, 113, 113, 0.45);
+  background: rgba(248, 113, 113, 0.1);
+  font-size: 0.8125rem;
+  font-weight: 600;
+  color: #fecaca;
+}
+
+.so-freight-expand__alert svg {
+  flex-shrink: 0;
+  margin-top: 0.1rem;
+  color: #f87171;
+}
+
 @media (max-width: 420px) {
   .order-freight-panel__calc-cell {
     flex-direction: column;

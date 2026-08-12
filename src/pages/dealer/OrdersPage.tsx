@@ -240,6 +240,12 @@ const DealerCartPage: React.FC = () => {
     return summarizeSegmentSiteBuckets(lines);
   }, [items, catalogById]);
 
+  /** Spare-only cart: partner choice only; freight ₹ set later by staff. */
+  const cartIsSpareOnly = useMemo(
+    () => segmentPreview.length > 0 && segmentPreview.every(b => b.segment === 'spare'),
+    [segmentPreview],
+  );
+
   /** Checkout total: items + estimated freight (+ pending Diff) + GST (catalog tax %, freight default 18%). */
   const checkoutTotals = useMemo(() => {
     const round2 = (n: number) => Math.round(n * 100) / 100;
@@ -251,11 +257,18 @@ const DealerCartPage: React.FC = () => {
       const taxPct = Number.isFinite(pct) && (pct as number) > 0 ? (pct as number) : defaultGstPct;
       itemsGst += round2(line * (taxPct / 100));
     }
-    const baseFreight = freightEstimate?.usable
-      ? round2(Number(freightEstimate.totalInr) || 0)
-      : 0;
+    const baseFreight = (
+      cartIsSpareOnly
+        ? 0
+        : (
+          freightEstimate?.usable
+            ? round2(Number(freightEstimate.totalInr) || 0)
+            : 0
+        )
+    );
     const adjust = (
-      pendingFreightDiff?.willApplyOnNextFreightSo
+      !cartIsSpareOnly
+      && pendingFreightDiff?.willApplyOnNextFreightSo
       && baseFreight > 0
         ? round2(Number(pendingFreightDiff.availableInr) || 0)
         : 0
@@ -263,7 +276,8 @@ const DealerCartPage: React.FC = () => {
     const freight = round2(Math.max(0, baseFreight + adjust));
     const freightGst = freight > 0 ? round2(freight * (defaultGstPct / 100)) : 0;
     const gst = round2(itemsGst + freightGst);
-    const fodZero = freightBillingMode === 'fod'
+    const fodZero = !cartIsSpareOnly
+      && freightBillingMode === 'fod'
       && selectedPartnerIsDelhivery(freightEstimate);
     return {
       freight,
@@ -271,11 +285,21 @@ const DealerCartPage: React.FC = () => {
       gst,
       total: round2(subtotal + freight + gst),
       hasFreight: Boolean(
-        freightEstimate?.usable
+        !cartIsSpareOnly
+        && freightEstimate?.usable
         && (baseFreight > 0 || Math.abs(adjust) > 0 || fodZero),
       ),
+      freightDeferred: cartIsSpareOnly,
     };
-  }, [items, catalogById, freightEstimate, subtotal, pendingFreightDiff, freightBillingMode]);
+  }, [
+    items,
+    catalogById,
+    freightEstimate,
+    subtotal,
+    pendingFreightDiff,
+    freightBillingMode,
+    cartIsSpareOnly,
+  ]);
 
   const handlePlaceOrder = async () => {
     if (items.length === 0 || submitting) return;
@@ -284,7 +308,8 @@ const DealerCartPage: React.FC = () => {
       return;
     }
     if (
-      selectedPartnerIsDelhivery(freightEstimate)
+      !cartIsSpareOnly
+      && selectedPartnerIsDelhivery(freightEstimate)
       && freightBillingMode !== 'fod'
       && !(delhiveryLive.preTaxInr != null && delhiveryLive.preTaxInr > 0)
     ) {
@@ -298,7 +323,10 @@ const DealerCartPage: React.FC = () => {
     setSubmitting(true);
     try {
       const courierSelection = resolveSubmitCourierBySite(freightEstimate, courierBySite);
-      const delhiveryFreight = selectedPartnerIsDelhivery(freightEstimate)
+      const delhiveryFreight = (
+        !cartIsSpareOnly
+        && selectedPartnerIsDelhivery(freightEstimate)
+      )
         ? (
           freightBillingMode === 'fod'
             ? 0
@@ -321,7 +349,9 @@ const DealerCartPage: React.FC = () => {
         inferredFreightZone ?? undefined,
         undefined,
         delhiveryFreight,
-        selectedPartnerIsDelhivery(freightEstimate) ? freightBillingMode : undefined,
+        selectedPartnerIsDelhivery(freightEstimate) && !cartIsSpareOnly
+          ? freightBillingMode
+          : undefined,
       );
       clearCart();
       setFreightBillingMode('btc');
@@ -641,12 +671,22 @@ const DealerCartPage: React.FC = () => {
                 canEditPackage={false}
                 showFreightChargePlan={false}
                 clubSites
+                hideFreightAmounts={cartIsSpareOnly}
+                deferFreightMessage={
+                  cartIsSpareOnly
+                    ? 'Freight will be updated later by our team after packing (LBH / weight).'
+                    : null
+                }
                 catalogById={catalogById}
                 destinationLabel={[
                   shippingDestination?.city,
                   shippingDestination?.state,
                 ].filter(Boolean).join(', ') || null}
-                footerNote="Estimated freight for this order. Delhivery BTC uses a live API quote; FOD keeps the Delhivery line at ₹0 (consignee pays)."
+                footerNote={
+                  cartIsSpareOnly
+                    ? 'Choose a logistics partner (or Customer Pickup). No freight amount is charged on this order yet.'
+                    : 'Estimated freight for this order. Delhivery BTC uses a live API quote; FOD keeps the Delhivery line at ₹0 (consignee pays).'
+                }
                 freightBillingMode={freightBillingMode}
                 onFreightBillingModeChange={setFreightBillingMode}
                 onCourierChange={(site, partnerId) => {
@@ -654,7 +694,9 @@ const DealerCartPage: React.FC = () => {
                   setCourierBySite(prev => ({ ...prev, [site]: partnerId }));
                 }}
               />
-              {delhiveryLive.showStrip && selectedPartnerIsDelhivery(freightEstimate) ? (
+              {!cartIsSpareOnly
+                && delhiveryLive.showStrip
+                && selectedPartnerIsDelhivery(freightEstimate) ? (
                 <DelhiveryQuoteStrip
                   originPin={delhiveryLive.originPin || null}
                   destinationPin={delhiveryLive.destinationPin}
@@ -679,12 +721,14 @@ const DealerCartPage: React.FC = () => {
             <div className="orders-page__summary-row">
               <span>Freight</span>
               <span>
-                {checkoutTotals.hasFreight
-                  ? formatCurrency(checkoutTotals.freight)
-                  : '—'}
+                {checkoutTotals.freightDeferred
+                  ? 'Updated later'
+                  : checkoutTotals.hasFreight
+                    ? formatCurrency(checkoutTotals.freight)
+                    : '—'}
               </span>
             </div>
-            {checkoutTotals.freightAdjust !== 0 ? (
+            {!checkoutTotals.freightDeferred && checkoutTotals.freightAdjust !== 0 ? (
               <p className="orders-page__freight-note text-muted text-sm" style={{ margin: 0 }}>
                 {formatPendingFreightAdjustLabel(checkoutTotals.freightAdjust)}
                 {pendingFreightDiff?.sourceInvoiceNumber

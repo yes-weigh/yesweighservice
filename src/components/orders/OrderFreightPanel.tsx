@@ -44,6 +44,13 @@ type Props = {
   destinationLabel?: string | null;
   /** Footer note under the calc card. */
   footerNote?: string | null;
+  /**
+   * Dealer spare carts: hide ₹ amounts / calc tiles; partner radios stay.
+   * Shows deferFreightMessage (or a default) instead of totals.
+   */
+  hideFreightAmounts?: boolean;
+  /** Shown when hideFreightAmounts is true. */
+  deferFreightMessage?: string | null;
   catalogById?: Record<string, CatalogProduct | undefined>;
   /**
    * Staff/admin: show ₹ input on partners without a rate card (e.g. Delhivery TBD).
@@ -291,6 +298,7 @@ function CourierOptionCard({
   allowManualFreightEntry,
   manualFreightAmount,
   onManualFreightAmountChange,
+  hideAmount = false,
   onSelect,
 }: {
   opt: OrderCourierOption;
@@ -300,6 +308,8 @@ function CourierOptionCard({
   allowManualFreightEntry?: boolean;
   manualFreightAmount?: number | null;
   onManualFreightAmountChange?: (amount: number | null) => void;
+  /** Hide ₹ / TBD; still allow selecting the partner. */
+  hideAmount?: boolean;
   onSelect: () => void;
 }) {
   const logo = logisticsPartnerImage(opt.partnerId);
@@ -308,7 +318,8 @@ function CourierOptionCard({
     && opt.manualRate
     && !opt.liveApiRate
     && allowManualFreightEntry
-    && onManualFreightAmountChange,
+    && onManualFreightAmountChange
+    && !hideAmount,
   );
   const fod = opt.partnerId === 'delhivery' && opt.freightBillingMode === 'fod';
   // FOD shows live estimate for info; amount is never invoiced (charged ₹0 on order).
@@ -378,6 +389,10 @@ function CourierOptionCard({
             }}
           />
         </span>
+      ) : hideAmount ? (
+        <strong className="order-freight-panel__courier-amt order-freight-panel__courier-amt--deferred">
+          Later
+        </strong>
       ) : (
         <strong className="order-freight-panel__courier-amt">
           {!opt.enabled
@@ -809,6 +824,8 @@ export const OrderFreightPanel: React.FC<Props> = ({
   showLineDetails: _showLineDetails,
   destinationLabel = null,
   footerNote = null,
+  hideFreightAmounts = false,
+  deferFreightMessage = null,
   catalogById = {},
   allowManualFreightEntry = false,
   manualFreightAmount = null,
@@ -1002,7 +1019,7 @@ export const OrderFreightPanel: React.FC<Props> = ({
           ) : null}
         </div>
         <div className="order-freight-panel__head-total">
-          {clubSites && clubbedLines.length > 0 ? (
+          {clubSites && clubbedLines.length > 0 && !hideFreightAmounts ? (
             <button
               type="button"
               className="order-freight-panel__splitup-btn"
@@ -1013,9 +1030,23 @@ export const OrderFreightPanel: React.FC<Props> = ({
               <Eye size={15} aria-hidden />
             </button>
           ) : null}
-          <em>{formatCurrency(displayTotalInr)}</em>
+          {hideFreightAmounts ? (
+            <em className="order-freight-panel__head-deferred">Later</em>
+          ) : (
+            <em>{formatCurrency(displayTotalInr)}</em>
+          )}
         </div>
       </header>
+
+      {hideFreightAmounts ? (
+        <p className="order-freight-panel__defer-banner" role="status">
+          <Info size={14} aria-hidden />
+          <span>
+            {deferFreightMessage?.trim()
+              || 'Freight will be updated later by our team after packing.'}
+          </span>
+        </p>
+      ) : null}
 
       {clubSites ? (
         <section className="order-freight-panel__site">
@@ -1028,6 +1059,7 @@ export const OrderFreightPanel: React.FC<Props> = ({
                   selected={isOptionSelected(opt, clubSelectedPartner)}
                   name="courier-clubbed"
                   amountInr={opt.estimatedTotalInr ?? 0}
+                  hideAmount={hideFreightAmounts}
                   allowManualFreightEntry={allowManualFreightEntry}
                   manualFreightAmount={manualFreightAmount}
                   onManualFreightAmountChange={onManualFreightAmountChange}
@@ -1044,7 +1076,7 @@ export const OrderFreightPanel: React.FC<Props> = ({
             <p className="order-freight-panel__calc-pickup text-muted text-sm">
               Customer pickup — no courier freight.
             </p>
-          ) : (
+          ) : hideFreightAmounts ? null : (
             <div className="order-freight-panel__calc-list">
               {clubItemCalcs.map(calc => (
                 <ItemFreightCalcTile
@@ -1055,7 +1087,9 @@ export const OrderFreightPanel: React.FC<Props> = ({
               ))}
             </div>
           )}
-          {estimate.sites.length > 0 && !estimate.sites.every(site => site.isPickup) ? (
+          {estimate.sites.length > 0
+            && !estimate.sites.every(site => site.isPickup)
+            && !hideFreightAmounts ? (
             <div className="order-freight-panel__calc-rounded">
               <div>
                 <strong>Total freight (rounded)</strong>
@@ -1087,7 +1121,9 @@ export const OrderFreightPanel: React.FC<Props> = ({
               {estimate.sites.length > 1 ? (
                 <header className="order-freight-panel__site-head">
                   <strong>{site.siteLabel}</strong>
-                  <span className="text-muted text-sm">{formatCurrency(site.totalInr)}</span>
+                  {!hideFreightAmounts ? (
+                    <span className="text-muted text-sm">{formatCurrency(site.totalInr)}</span>
+                  ) : null}
                 </header>
               ) : null}
 
@@ -1099,6 +1135,7 @@ export const OrderFreightPanel: React.FC<Props> = ({
                     selected={isOptionSelected(opt, site.partnerId)}
                     name={`courier-${site.site}`}
                     amountInr={opt.estimatedTotalInr ?? 0}
+                    hideAmount={hideFreightAmounts}
                     allowManualFreightEntry={allowManualFreightEntry}
                     manualFreightAmount={manualFreightAmount}
                     onManualFreightAmountChange={onManualFreightAmountChange}
@@ -1111,7 +1148,7 @@ export const OrderFreightPanel: React.FC<Props> = ({
                 <p className="order-freight-panel__calc-pickup text-muted text-sm">
                   Customer pickup — no courier freight.
                 </p>
-              ) : (
+              ) : hideFreightAmounts ? null : (
                 <div className="order-freight-panel__calc-list">
                   {itemCalcs.map(calc => (
                     <ItemFreightCalcTile

@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
+import { AlertTriangle } from 'lucide-react';
 import { DecimalAmountInput } from '../DecimalAmountInput';
 import { OrderFreightPanel } from '../orders/OrderFreightPanel';
 import type { LogisticsPartnerId } from '../../constants/logisticsPartners';
@@ -328,10 +329,27 @@ export const SoFreightExpandPanel: React.FC<Props> = ({
   const showDelhiveryQuote = selectedPartnerIsDelhivery(freightEstimate)
     && Boolean(shippingDestination?.zip);
 
+  const needsFreightEntryAlert = Boolean(
+    freightEstimate?.usable
+    && !freightEstimate.sites.every(site => site.isPickup || isPickupPartner(site.partnerId))
+    && !(freightBillingMode === 'fod' && selectedPartnerIsDelhivery(freightEstimate))
+    && !(Number(freightAmount) > 0)
+    && !disabled,
+  );
+
   if (!showUi) return null;
 
   return (
     <div className="so-freight-expand" id="so-draft-freight">
+      {needsFreightEntryAlert ? (
+        <p className="so-freight-expand__alert" role="alert">
+          <AlertTriangle size={15} aria-hidden />
+          <span>
+            Non–Customer Pickup: enter freight data (LBH / weight for auto calc, or freight ₹)
+            before confirming this sales order.
+          </span>
+        </p>
+      ) : null}
       {freightEstimate?.usable ? (
         <OrderFreightPanel
           estimate={freightEstimate}

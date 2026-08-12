@@ -40,6 +40,7 @@ import { loadLogisticsSettings } from '../../lib/logisticsSettings';
 import {
   applyCourierSelectionForSite,
   cartLinesForFreightEstimate,
+  estimateAllSitesPickup,
   estimateStCourierCartFreight,
   listProductsMissingFreightPackageInfo,
   resolveSubmitCourierBySite,
@@ -1127,6 +1128,21 @@ export const StaffCreateSalesOrderPage: React.FC = () => {
       setError('Wait for the Delhivery freight estimate, or enter freight ₹ before creating the order.');
       return;
     }
+    if (
+      freightAllowed
+      && freightEstimate?.usable
+      && !estimateAllSitesPickup(freightEstimate)
+      && !(
+        freightBillingMode === 'fod'
+        && selectedPartnerIsDelhivery(freightEstimate)
+      )
+      && !(freightSubtotal > 0)
+    ) {
+      setError(
+        'Enter freight ₹ for the selected logistics partner (or choose Customer Pickup). Use LBH/weight for auto calculation when available.',
+      );
+      return;
+    }
     if (stage === 'ready_for_payment' && !packageDataReady) {
       const sample = missingPackageLines
         .slice(0, 3)
@@ -1768,6 +1784,14 @@ export const StaffCreateSalesOrderPage: React.FC = () => {
 
           {freightAllowed ? (
             <section className="panel glass staff-create-so-page__section">
+              {freightEstimate?.usable
+                && !estimateAllSitesPickup(freightEstimate)
+                && !(freightBillingMode === 'fod' && selectedPartnerIsDelhivery(freightEstimate))
+                && !(freightSubtotal > 0) ? (
+                <p className="so-freight-expand__alert" role="alert">
+                  Non–Customer Pickup: enter freight ₹ (LBH/weight auto-calc or manual) before creating the order.
+                </p>
+              ) : null}
               {freightEstimate?.usable ? (
                 <>
                   <OrderFreightPanel

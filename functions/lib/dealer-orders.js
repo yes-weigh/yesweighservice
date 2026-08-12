@@ -762,6 +762,7 @@ export async function submitDealerOrder(uid, role, payload = {}, secrets, orgId)
     freightZone: freightZoneMeta.zone,
     blueDartPin,
     manualFreightAmountInr,
+    deferSpareFreight: true,
   });
   const baseLines = [...goodsLines, ...freightLines];
   const baseRemarks = String(payload.remarks ?? payload.notes ?? '').trim().slice(0, 2000);

@@ -408,6 +408,11 @@ export function buildDealerAutoFreightLines({
   invoiceValueInr = 0,
   /** Manual ₹ for partners without a rate card (currently Delhivery). */
   manualFreightAmountInr = null,
+  /**
+   * Dealer spare carts: skip auto spare freight ₹ (staff set later from LBH).
+   * Still records courier preference via courierBySite on the SO.
+   */
+  deferSpareFreight = false,
 }) {
   const rates = parseLogisticsCourierRates(courierRates);
   const { zone } = resolveFreightZone(destination, freightZone);
@@ -501,6 +506,10 @@ export function buildDealerAutoFreightLines({
     }
 
     if (spareSites.has(site)) {
+      if (deferSpareFreight && !productSites.has(site)) {
+        // Prefer partner only; spare freight line added later by staff.
+        continue;
+      }
       const spareQuoted = quoteSpareFreight({
         partnerId,
         site,
