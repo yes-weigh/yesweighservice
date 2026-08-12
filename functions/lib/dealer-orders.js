@@ -356,7 +356,6 @@ async function buildLinesFromInput(rawLines, {
     if (!product || product.status === 'inactive' || (product.hiddenFromCatalog && !isFreight)) {
       throw new HttpsError('failed-precondition', `Product unavailable: ${entry.productId}`);
     }
-    // Out-of-stock lines are allowed (backorder); same as staff SO draft edits.
 
     const gatc = resolveGatcFeeForProduct(product, entry.gatcStampingPriceId, gatcMap);
     const catalogBase = Math.round((Number(product.rate) || 0) * 100) / 100;

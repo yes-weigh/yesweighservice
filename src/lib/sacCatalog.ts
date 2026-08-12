@@ -2,7 +2,7 @@ import type { StockStatus } from '../types/catalog';
 
 /**
  * SAC (service accounting) codes start with 99.
- * These are services/fees — always sellable in the portal cart.
+ * These are services/fees — treated as in stock in the catalog.
  */
 export function isSacHsn(hsn: string | null | undefined): boolean {
   const normalized = String(hsn ?? '').replace(/\s+/g, '').trim();

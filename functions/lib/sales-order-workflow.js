@@ -29,7 +29,7 @@ import {
 } from './sales-order-sync.js';
 import { resolveShippingAddressId } from './zoho-contact-addresses.js';
 import { isQuantityExcludedLineItem } from './invoice-category.js';
-import { catalogProductIgnoresStockForCart, effectiveCatalogStockStatus, isSacHsn } from './sac-catalog.js';
+import { effectiveCatalogStockStatus } from './sac-catalog.js';
 import { isFreightOrderLine, isFreightProductId, isFreightSku } from './freight-lines.js';
 import {
   defaultInventorySiteForSegment,
@@ -486,7 +486,7 @@ async function loadCatalogProduct(productId) {
   };
 }
 
-async function buildLinesFromInput(rawLines, { allowOutOfStock = true, allowRateOverride = true } = {}) {
+async function buildLinesFromInput(rawLines, { allowRateOverride = true } = {}) {
   if (!Array.isArray(rawLines) || rawLines.length === 0) {
     throw new HttpsError('invalid-argument', 'Add at least one product.');
   }
@@ -535,18 +535,6 @@ async function buildLinesFromInput(rawLines, { allowOutOfStock = true, allowRate
       || isFreightOrderLine({ productId: entry.productId });
     if (!product || product.status === 'inactive' || (product.hiddenFromCatalog && !isFreight)) {
       throw new HttpsError('failed-precondition', `Product unavailable: ${entry.productId}`);
-    }
-    if (
-      !allowOutOfStock
-      && product.stockStatus === 'out_of_stock'
-      && !isSacHsn(product.hsn)
-      && !catalogProductIgnoresStockForCart(product)
-      && !isFreight
-    ) {
-      throw new HttpsError(
-        'failed-precondition',
-        `${product.name} is out of stock and cannot be ordered.`,
-      );
     }
 
     const gatc = resolveGatcFeeForProduct(product, entry.gatcStampingPriceId, gatcMap);
@@ -715,7 +703,6 @@ export async function updateDraftSalesOrderLines(uid, role, payload = {}, secret
   // Dealers may add/edit lines until payment (UI hides rate edit; rates come from
   // hydrated SO lines + catalog for new products).
   const { lines, priceChanges } = await buildLinesFromInput(payload.lines, {
-    allowOutOfStock: true,
     allowRateOverride: true,
   });
 

@@ -17,8 +17,10 @@ import {
 } from '../../../types/staff-logistics';
 import { StCourierRatesSettings } from './StCourierRatesSettings';
 import { DeliveryPartnerRulesSettings } from './DeliveryPartnerRulesSettings';
+import { SpareBoxDefinitionsSettings } from './SpareBoxDefinitionsSettings';
 import type { LogisticsDeliveryRulesMatrix } from '../../../types/logistics-delivery-rules';
 import type { LogisticsPartnerStatuses } from '../../../types/logistics-partner-status';
+import type { SpareBoxDefinition } from '../../../types/spare-box-definitions';
 
 function autosizeTextarea(el: HTMLTextAreaElement | null) {
   if (!el) return;
@@ -29,12 +31,14 @@ function autosizeTextarea(el: HTMLTextAreaElement | null) {
 type LogisticsSettingsSubTab =
   | 'sites'
   | 'delivery-rules'
-  | 'courier-rates';
+  | 'courier-rates'
+  | 'spare-box-dia';
 
 const LOGISTICS_SETTINGS_SUBTABS: { id: LogisticsSettingsSubTab; label: string }[] = [
   { id: 'courier-rates', label: 'Delivery Partners' },
   { id: 'sites', label: 'Sites' },
   { id: 'delivery-rules', label: 'Delivery rules' },
+  { id: 'spare-box-dia', label: 'Spare box dia' },
 ];
 
 export const LogisticsSettingsTab: React.FC = () => {
@@ -59,6 +63,7 @@ export const LogisticsSettingsTab: React.FC = () => {
   const [deliveryRules, setDeliveryRules] = useState<LogisticsDeliveryRulesMatrix | null>(null);
   const [partnerStatuses, setPartnerStatuses] = useState<LogisticsPartnerStatuses | null>(null);
   const [partnerTransporters, setPartnerTransporters] = useState<DeliveryPartnerTransporters | null>(null);
+  const [spareBoxDefinitions, setSpareBoxDefinitions] = useState<SpareBoxDefinition[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [busyKey, setBusyKey] = useState<string | null>(null);
@@ -78,6 +83,7 @@ export const LogisticsSettingsTab: React.FC = () => {
       setDeliveryRules(settings.deliveryRules);
       setPartnerStatuses(settings.partnerStatuses);
       setPartnerTransporters(settings.partnerTransporters);
+      setSpareBoxDefinitions(settings.spareBoxDefinitions);
 
       const hasAddress = STAFF_LOGISTICS_SITES.some(
         site => Boolean(settings.fromAddresses[site]?.trim()),
@@ -309,6 +315,16 @@ export const LogisticsSettingsTab: React.FC = () => {
             partnerTransporters={partnerTransporters}
             onPartnerStatusesSaved={setPartnerStatuses}
             onPartnerTransportersSaved={setPartnerTransporters}
+            onError={setError}
+          />
+        )}
+
+        {subTab === 'spare-box-dia' && !loading && (
+          <SpareBoxDefinitionsSettings
+            key={spareBoxDefinitions.map(d => d.id).join('|') || 'empty'}
+            definitions={spareBoxDefinitions}
+            updatedBy={user?.uid ?? null}
+            onSaved={setSpareBoxDefinitions}
             onError={setError}
           />
         )}

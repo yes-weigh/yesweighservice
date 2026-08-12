@@ -23217,6 +23217,40 @@ body:has(.confirm-inline-bar) .confirm-inline-bar {
   margin-top: 0.25rem;
 }
 
+.book-courier__spare-box-preset {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+  margin: 0 0 0.65rem;
+}
+
+.book-courier__spare-box-preset > span {
+  font-size: 0.6875rem;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-muted, #64748b);
+}
+
+.book-courier__spare-box-preset select {
+  width: 100%;
+  margin: 0;
+  padding: 0.55rem 0.7rem;
+  border: 1px solid rgba(148, 163, 184, 0.25);
+  border-radius: 10px;
+  background: #0f172a;
+  color: inherit;
+  font: inherit;
+  font-size: 0.8125rem;
+  font-weight: 600;
+}
+
+.book-courier__spare-box-preset select:focus {
+  outline: none;
+  border-color: rgba(255, 122, 0, 0.55);
+  box-shadow: 0 0 0 2px rgba(255, 122, 0, 0.15);
+}
+
 .book-courier__box-label--tight {
   margin-top: 0.55rem;
 }

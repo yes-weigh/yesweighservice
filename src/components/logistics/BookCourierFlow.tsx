@@ -137,6 +137,11 @@ import type {
 } from '../../types/logistics-dispatch';
 import type { StaffLogisticsSite } from '../../types/staff-logistics';
 import {
+  spareBoxDefinitionMatchesDraftDims,
+  spareBoxDefinitionToDraftDims,
+  type SpareBoxDefinition,
+} from '../../types/spare-box-definitions';
+import {
   STAFF_LOGISTICS_SITES,
   STAFF_LOGISTICS_SITE_LABELS,
   isStaffLogisticsSite,
@@ -346,6 +351,7 @@ export const BookCourierFlow: React.FC<BookCourierFlowProps> = ({
     cochin: { phone: '', gstin: '' },
     head_office: { phone: '', gstin: '' },
   });
+  const [spareBoxDefinitions, setSpareBoxDefinitions] = useState<SpareBoxDefinition[]>([]);
   const [invoiceBranchShipFrom, setInvoiceBranchShipFrom] = useState<InvoiceBranchShipFrom | null>(null);
   const [freightBillingModeLocked, setFreightBillingModeLocked] = useState(false);
   const shipFromLockedByInvoice = Boolean(invoiceBranchShipFrom);
@@ -677,6 +683,7 @@ export const BookCourierFlow: React.FC<BookCourierFlowProps> = ({
     void loadLogisticsSettings().then(settings => {
       setFromAddresses(settings.fromAddresses);
       setFromSiteContacts(settings.fromSiteContacts);
+      setSpareBoxDefinitions(settings.spareBoxDefinitions);
       setDraft(prev => {
         // Invoice-linked: keep SO/invoice branch prefill.
         if (prev.source === 'invoice') {
@@ -900,6 +907,26 @@ export const BookCourierFlow: React.FC<BookCourierFlowProps> = ({
       boxes: prev.boxes.map(box => (box.id === boxId ? { ...box, [key]: value } : box)),
     }));
   }, []);
+
+  const applySpareBoxDefinition = useCallback((boxId: string, definitionId: string) => {
+    if (!definitionId) return;
+    const def = spareBoxDefinitions.find(row => row.id === definitionId);
+    if (!def) return;
+    const dims = spareBoxDefinitionToDraftDims(def);
+    setDraft(prev => ({
+      ...prev,
+      boxes: prev.boxes.map(box => (
+        box.id === boxId
+          ? {
+              ...box,
+              lengthCm: dims.lengthCm,
+              widthCm: dims.widthCm,
+              heightCm: dims.heightCm,
+            }
+          : box
+      )),
+    }));
+  }, [spareBoxDefinitions]);
 
   const addBox = useCallback(() => {
     setDraft(prev => ({ ...prev, boxes: [...prev.boxes, emptyShipmentBoxDraft()] }));
@@ -2083,11 +2110,13 @@ export const BookCourierFlow: React.FC<BookCourierFlowProps> = ({
                     partnerId={partnerId}
                     isEnvelope={isEnvelope}
                     dimsRequired={isDelhivery}
+                    spareBoxDefinitions={spareBoxDefinitions}
                     canRemove={!isEnvelope && draft.boxes.length > 1 && !combineSelectMode}
                     selectMode={combineSelectMode}
                     selected={combineSelectedIds.includes(box.id)}
                     onToggleSelect={() => toggleCombineBox(box.id)}
                     onField={(key, value) => updateBoxField(box.id, key, value)}
+                    onApplySpareBoxDefinition={definitionId => applySpareBoxDefinition(box.id, definitionId)}
                     onAddPhoto={file => void addBoxPhoto(box.id, file)}
                     onRemovePhoto={photoId => removeBoxPhoto(box.id, photoId)}
                     onPreview={openPreview}
@@ -3008,11 +3037,13 @@ interface BoxCardProps {
   isEnvelope: boolean;
   /** When true (Delhivery), L×B×H is required before booking. */
   dimsRequired?: boolean;
+  spareBoxDefinitions?: SpareBoxDefinition[];
   canRemove: boolean;
   selectMode?: boolean;
   selected?: boolean;
   onToggleSelect?: () => void;
   onField: (key: BoxNumberField, value: string) => void;
+  onApplySpareBoxDefinition?: (definitionId: string) => void;
   onAddPhoto: (file: File | undefined) => void;
   onRemovePhoto: (photoId: string) => void;
   onPreview: (url: string) => void;
@@ -3025,11 +3056,13 @@ const BoxCard: React.FC<BoxCardProps> = ({
   partnerId,
   isEnvelope,
   dimsRequired = false,
+  spareBoxDefinitions = [],
   canRemove,
   selectMode = false,
   selected = false,
   onToggleSelect,
   onField,
+  onApplySpareBoxDefinition,
   onAddPhoto,
   onRemovePhoto,
   onPreview,
@@ -3042,6 +3075,9 @@ const BoxCard: React.FC<BoxCardProps> = ({
     Math.max(actualWeight, volumetric),
     partnerId,
   );
+  const matchedSpareBoxId = spareBoxDefinitions.find(def => (
+    spareBoxDefinitionMatchesDraftDims(def, box)
+  ))?.id ?? '';
 
   return (
     <section className={`book-courier__box${selected ? ' is-selected-combine' : ''}`}>
@@ -3077,6 +3113,26 @@ const BoxCard: React.FC<BoxCardProps> = ({
               <span className="book-courier__box-opt"> · optional</span>
             )}
           </p>
+          {spareBoxDefinitions.length > 0 && onApplySpareBoxDefinition && (
+            <label className="book-courier__spare-box-preset">
+              <span>Spare box</span>
+              <select
+                value={matchedSpareBoxId}
+                aria-label={`Spare box preset for box ${index + 1}`}
+                onChange={e => {
+                  const nextId = e.target.value;
+                  if (nextId) onApplySpareBoxDefinition(nextId);
+                }}
+              >
+                <option value="">Custom L×B×H</option>
+                {spareBoxDefinitions.map(def => (
+                  <option key={def.id} value={def.id}>
+                    {def.name} ({def.lengthCm}×{def.breadthCm}×{def.heightCm} cm)
+                  </option>
+                ))}
+              </select>
+            </label>
+          )}
           <div className="book-courier__dim-cards">
             {([
               ['Length (L)', 'lengthCm'],

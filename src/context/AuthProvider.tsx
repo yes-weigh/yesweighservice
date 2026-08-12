@@ -114,7 +114,6 @@ async function resolveUser(fbUser: FirebaseUser): Promise<User | null> {
       zohoSalespersonId: roleHasZohoLinks ? (zohoSalespersonIds[0] ?? null) : undefined,
       zohoSalespersonName: roleHasZohoLinks ? (zohoSalespersonLinks[0]?.name ?? null) : undefined,
       spareIncharge: data.spareIncharge === true,
-      staffLogisticsSite: data.staffLogisticsSite ?? null,
       dealerTier,
       dealerAccessMode,
       dealerPermissions,

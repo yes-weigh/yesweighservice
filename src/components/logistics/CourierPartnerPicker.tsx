@@ -7,7 +7,7 @@ interface CourierPartnerPickerProps {
   onClose: () => void;
   onSelect: (methodId: string) => void;
   partners?: DeliveryMethod[];
-  /** When provided, partners not in this list are shown as "Coming soon" and are not selectable. */
+  /** When provided, only these partner ids are listed. */
   availableIds?: readonly string[];
   titleLead?: string;
   titleAccent?: string;

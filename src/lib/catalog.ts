@@ -164,47 +164,15 @@ export function isSoftwareKeysCategory(category: Pick<CatalogCategory, 'name'>):
   return category.name.trim().toLowerCase() === 'software keys';
 }
 
-/** Software Keys — orderable without on-hand stock (subscriptions / licence keys). */
-export function catalogProductIgnoresStockForCart(
-  product: {
-    categoryName?: string | null;
-    categoryId?: string | null;
-  },
-  categories: CatalogCategory[] = [],
-): boolean {
-  if (product.categoryName && isSoftwareKeysCategory({ name: product.categoryName })) {
-    return true;
-  }
-  if (product.categoryId && categories.length) {
-    const cat = categories.find(c => c.id === product.categoryId);
-    if (cat && isSoftwareKeysCategory(cat)) return true;
-  }
-  return false;
-}
-
-/**
- * Whether a cart line is out of stock (for UI hints).
- * Does not block checkout — dealers may order OOS / backorder lines.
- */
+/** Cart UI hint — SAC / Software Keys are never shown as out of stock. */
 export function cartLineIsOutOfStock(line: {
   stockStatus?: string | null;
   hsn?: string | null;
   categoryName?: string | null;
-  categoryId?: string | null;
 }): boolean {
-  if (catalogProductIgnoresStockForCart({
-    categoryName: line.categoryName ?? null,
-    categoryId: line.categoryId ?? null,
-  })) {
-    return false;
-  }
   if (isSacHsn(line.hsn)) return false;
+  if (line.categoryName && isSoftwareKeysCategory({ name: line.categoryName })) return false;
   return line.stockStatus === 'out_of_stock';
-}
-
-/** @deprecated Use cartLineIsOutOfStock. Checkout is no longer blocked by stock. */
-export function cartLineBlockedByStock(line: Parameters<typeof cartLineIsOutOfStock>[0]): boolean {
-  return cartLineIsOutOfStock(line);
 }
 
 export {

@@ -20,6 +20,10 @@ import {
   STAFF_LOGISTICS_SITES,
   type StaffLogisticsSite,
 } from '../types/staff-logistics';
+import {
+  normalizeSpareBoxDefinitions,
+  type SpareBoxDefinition,
+} from '../types/spare-box-definitions';
 
 const EMPTY_FROM_ADDRESSES = (): Record<StaffLogisticsSite, string> => ({
   cochin: '',
@@ -102,6 +106,8 @@ export interface LogisticsSettings {
   partnerTransporters: DeliveryPartnerTransporters;
   /** Public Delhivery B2B API connection metadata (password never returned). */
   delhiveryB2b: DelhiveryB2bPublicConfig;
+  /** Named spare carton presets (name + L×B×H cm) for Book Courier. */
+  spareBoxDefinitions: SpareBoxDefinition[];
   updatedAt: string;
   updatedBy?: string | null;
 }
@@ -117,6 +123,7 @@ export async function loadLogisticsSettings(): Promise<LogisticsSettings> {
         partnerStatuses: defaultLogisticsPartnerStatuses(),
         partnerTransporters: defaultDeliveryPartnerTransporters(),
         delhiveryB2b: emptyDelhiveryB2bPublicConfig(),
+        spareBoxDefinitions: [],
         updatedAt: '',
       };
     }
@@ -130,6 +137,9 @@ export async function loadLogisticsSettings(): Promise<LogisticsSettings> {
         (data as Record<string, unknown>).partnerTransporters,
       ),
       delhiveryB2b: parseDelhiveryB2b(data as Record<string, unknown>),
+      spareBoxDefinitions: normalizeSpareBoxDefinitions(
+        (data as Record<string, unknown>).spareBoxDefinitions,
+      ),
       updatedAt: typeof data.updatedAt === 'string' ? data.updatedAt : '',
       updatedBy: typeof data.updatedBy === 'string' ? data.updatedBy : null,
     };
@@ -141,6 +151,7 @@ export async function loadLogisticsSettings(): Promise<LogisticsSettings> {
       partnerStatuses: defaultLogisticsPartnerStatuses(),
       partnerTransporters: defaultDeliveryPartnerTransporters(),
       delhiveryB2b: emptyDelhiveryB2bPublicConfig(),
+      spareBoxDefinitions: [],
       updatedAt: '',
     };
   }
@@ -234,6 +245,24 @@ export async function saveLogisticsPartnerTransporters(
     doc(db, 'appSettings', LOGISTICS_SETTINGS_DOC_ID),
     {
       partnerTransporters: normalized,
+      updatedAt,
+      ...(updatedBy ? { updatedBy } : {}),
+    },
+    { merge: true },
+  );
+  return normalized;
+}
+
+export async function saveLogisticsSpareBoxDefinitions(
+  spareBoxDefinitions: SpareBoxDefinition[],
+  updatedBy?: string | null,
+): Promise<SpareBoxDefinition[]> {
+  const normalized = normalizeSpareBoxDefinitions(spareBoxDefinitions);
+  const updatedAt = new Date().toISOString();
+  await setDoc(
+    doc(db, 'appSettings', LOGISTICS_SETTINGS_DOC_ID),
+    {
+      spareBoxDefinitions: normalized,
       updatedAt,
       ...(updatedBy ? { updatedBy } : {}),
     },
