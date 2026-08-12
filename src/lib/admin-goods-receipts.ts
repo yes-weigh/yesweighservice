@@ -19,7 +19,6 @@ import { db, app } from '../firebase';
 import { enrichInvoiceDetailImages } from './invoiceLineItemImages';
 import {
   getInvoicePeriodBounds,
-  invoiceHasCategory,
   invoiceErrorMessage,
   normalizeInvoiceCategories,
   normalizeInvoiceCategoryAmounts,
@@ -39,12 +38,16 @@ const ADMIN_GR_PAGE_SIZE = 100;
 const ADMIN_GR_AGGREGATE_MAX_ROWS = 2500;
 
 export type AdminGoodsReceiptSort = 'syncedAt' | 'date';
+export type GoodsReceiptLocation = 'head_office' | 'cochin';
+export type GoodsReceiptLocationFilter = GoodsReceiptLocation | 'all';
 
 export type AdminGoodsReceiptListQuery = {
   sort?: AdminGoodsReceiptSort;
   pageSize?: number;
   cursor?: QueryDocumentSnapshot<DocumentData> | null;
+  /** @deprecated Prefer location */
   category?: InvoiceCategory | 'all';
+  location?: GoodsReceiptLocationFilter;
   /** Inclusive YYYY-MM-DD */
   dateStart?: string | null;
   /** Inclusive YYYY-MM-DD */
@@ -65,6 +68,9 @@ export interface AdminFirestoreGoodsReceipt {
   referenceNumber: string | null;
   syncedAt: string | null;
   itemQuantity: number | null;
+  locationId: string | null;
+  locationName: string | null;
+  inventorySite: GoodsReceiptLocation | null;
   goodsReceiptCategory: InvoiceCategory | null;
   categories: InvoiceCategory[];
   categoryAmounts: Partial<Record<InvoiceCategory, number>>;
@@ -82,6 +88,9 @@ export interface AdminGoodsReceiptDetail {
   currencyCode: string;
   vendorId: string;
   vendorName: string | null;
+  locationId: string | null;
+  locationName: string | null;
+  inventorySite: GoodsReceiptLocation | null;
   goodsReceiptCategory: InvoiceCategory | null;
   categories: InvoiceCategory[];
   categoryAmounts: Partial<Record<InvoiceCategory, number>>;
@@ -97,14 +106,26 @@ export interface AdminGoodsReceiptsPageResult {
   lastDoc: QueryDocumentSnapshot<DocumentData> | null;
 }
 
-export type AdminGoodsReceiptCategoryCounts = {
+export type AdminGoodsReceiptLocationCounts = {
   all: number;
-  product: number;
-  spare: number;
-  software_key: number;
-  service: number;
-  gatc: number;
+  head_office: number;
+  cochin: number;
 };
+
+export function parseGoodsReceiptLocation(value: unknown): GoodsReceiptLocation | null {
+  const s = String(value ?? '').trim().toLowerCase().replace(/\s+/g, '_');
+  if (s === 'head_office' || s === 'headoffice') return 'head_office';
+  if (s === 'cochin') return 'cochin';
+  return null;
+}
+
+export function goodsReceiptLocationLabel(
+  site: GoodsReceiptLocation | null | undefined,
+): string {
+  if (site === 'head_office') return 'Head office';
+  if (site === 'cochin') return 'Cochin';
+  return '—';
+}
 
 function timestampToIso(value: unknown): string | null {
   if (!value) return null;
@@ -154,6 +175,10 @@ export function mapAdminGoodsReceiptDoc(
     itemQuantity: lineItems.length
       ? sumInvoiceProductQuantity(lineItems)
       : (data.itemQuantity != null ? Number(data.itemQuantity) : null),
+    locationId: data.locationId != null ? String(data.locationId) : null,
+    locationName: data.locationName ? String(data.locationName) : null,
+    inventorySite: parseGoodsReceiptLocation(data.inventorySite)
+      ?? parseGoodsReceiptLocation(data.locationName),
     goodsReceiptCategory: parseInvoiceCategory(data.goodsReceiptCategory),
     categories: normalizeInvoiceCategories(data.categories),
     categoryAmounts: normalizeInvoiceCategoryAmounts(data.categoryAmounts),
@@ -171,13 +196,13 @@ export function toGoodsReceiptDateKey(value: Date): string {
 export function buildAdminGoodsReceiptsQuery(options: AdminGoodsReceiptListQuery) {
   const sort = options.sort ?? 'date';
   const pageSize = Math.max(1, Math.min(Number(options.pageSize ?? 25) || 25, 100));
-  const category = options.category ?? 'all';
+  const location = options.location ?? 'all';
   const dateStart = options.dateStart?.trim() || null;
   const dateEnd = options.dateEnd?.trim() || null;
   const constraints: QueryConstraint[] = [];
 
-  if (category && category !== 'all') {
-    constraints.push(where('categories', 'array-contains', category));
+  if (location && location !== 'all') {
+    constraints.push(where('inventorySite', '==', location));
   }
 
   if (dateStart || dateEnd) {
@@ -200,9 +225,9 @@ export function buildAdminGoodsReceiptsQueryLegacy(
   sort: AdminGoodsReceiptSort,
   pageSize: number,
   cursor?: QueryDocumentSnapshot<DocumentData> | null,
-  category: InvoiceCategory | 'all' = 'all',
+  location: GoodsReceiptLocationFilter = 'all',
 ) {
-  return buildAdminGoodsReceiptsQuery({ sort, pageSize, cursor, category });
+  return buildAdminGoodsReceiptsQuery({ sort, pageSize, cursor, location });
 }
 
 export function subscribeAdminGoodsReceipts(
@@ -210,9 +235,9 @@ export function subscribeAdminGoodsReceipts(
   pageSize: number,
   onData: (rows: AdminFirestoreGoodsReceipt[]) => void,
   onError: (message: string) => void,
-  category: InvoiceCategory | 'all' = 'all',
+  location: GoodsReceiptLocationFilter = 'all',
 ) {
-  const q = buildAdminGoodsReceiptsQuery({ sort, pageSize, cursor: null, category });
+  const q = buildAdminGoodsReceiptsQuery({ sort, pageSize, cursor: null, location });
   return onSnapshot(
     q,
     snap => {
@@ -239,10 +264,10 @@ export async function fetchAdminGoodsReceiptsPage(
   sortOrOptions: AdminGoodsReceiptSort | AdminGoodsReceiptListQuery,
   pageSize?: number,
   cursor?: QueryDocumentSnapshot<DocumentData> | null,
-  category: InvoiceCategory | 'all' = 'all',
+  location: GoodsReceiptLocationFilter = 'all',
 ): Promise<AdminFirestoreGoodsReceipt[]> {
   const options: AdminGoodsReceiptListQuery = typeof sortOrOptions === 'string'
-    ? { sort: sortOrOptions, pageSize, cursor, category }
+    ? { sort: sortOrOptions, pageSize, cursor, location }
     : sortOrOptions;
   const result = await fetchAdminGoodsReceiptsPageDetailed(options);
   return result.rows;
@@ -252,13 +277,13 @@ export async function countAdminGoodsReceipts(
   options: Omit<AdminGoodsReceiptListQuery, 'pageSize' | 'cursor'>,
 ): Promise<number> {
   const sort = options.sort ?? 'date';
-  const category = options.category ?? 'all';
+  const location = options.location ?? 'all';
   const dateStart = options.dateStart?.trim() || null;
   const dateEnd = options.dateEnd?.trim() || null;
   const constraints: QueryConstraint[] = [];
 
-  if (category && category !== 'all') {
-    constraints.push(where('categories', 'array-contains', category));
+  if (location && location !== 'all') {
+    constraints.push(where('inventorySite', '==', location));
   }
   if (dateStart || dateEnd) {
     if (dateStart) constraints.push(where('date', '>=', dateStart));
@@ -274,52 +299,27 @@ export async function countAdminGoodsReceipts(
   return snap.data().count;
 }
 
-export async function countAdminGoodsReceiptsByCategory(options: {
+export async function countAdminGoodsReceiptsByLocation(options: {
   dateStart?: string | null;
   dateEnd?: string | null;
-}): Promise<AdminGoodsReceiptCategoryCounts> {
+}): Promise<AdminGoodsReceiptLocationCounts> {
   const base = {
     dateStart: options.dateStart ?? null,
     dateEnd: options.dateEnd ?? null,
   } as const;
 
-  const [all, product, spare, software_key, service, gatc] = await Promise.all([
-    countAdminGoodsReceipts({ ...base, category: 'all' }),
-    countAdminGoodsReceipts({ ...base, category: 'product' }),
-    countAdminGoodsReceipts({ ...base, category: 'spare' }),
-    countAdminGoodsReceipts({ ...base, category: 'software_key' }),
-    countAdminGoodsReceipts({ ...base, category: 'service' }),
-    countAdminGoodsReceipts({ ...base, category: 'gatc' }),
+  const [all, head_office, cochin] = await Promise.all([
+    countAdminGoodsReceipts({ ...base, location: 'all' }),
+    countAdminGoodsReceipts({ ...base, location: 'head_office' }),
+    countAdminGoodsReceipts({ ...base, location: 'cochin' }),
   ]);
 
-  return { all, product, spare, software_key, service, gatc };
-}
-
-export function countGoodsReceiptRowsByCategory(
-  rows: AdminFirestoreGoodsReceipt[],
-): AdminGoodsReceiptCategoryCounts {
-  const counts: AdminGoodsReceiptCategoryCounts = {
-    all: rows.length,
-    product: 0,
-    spare: 0,
-    software_key: 0,
-    service: 0,
-    gatc: 0,
-  };
-  for (const row of rows) {
-    const categories = row.categories.length
-      ? row.categories
-      : (row.goodsReceiptCategory ? [row.goodsReceiptCategory] : []);
-    for (const key of categories) {
-      counts[key] += 1;
-    }
-  }
-  return counts;
+  return { all, head_office, cochin };
 }
 
 export async function fetchAllAdminGoodsReceiptsInRange(options: {
   sort?: AdminGoodsReceiptSort;
-  category?: InvoiceCategory | 'all';
+  location?: GoodsReceiptLocationFilter;
   dateStart?: string | null;
   dateEnd?: string | null;
   maxRows?: number;
@@ -335,7 +335,7 @@ export async function fetchAllAdminGoodsReceiptsInRange(options: {
       sort: options.sort ?? 'date',
       pageSize: ADMIN_GR_PAGE_SIZE,
       cursor,
-      category: options.category ?? 'all',
+      location: options.location ?? 'all',
       dateStart: options.dateStart,
       dateEnd: options.dateEnd,
     });
@@ -355,14 +355,11 @@ export async function fetchAllAdminGoodsReceiptsInRange(options: {
 export function filterAdminGoodsReceipts(
   rows: AdminFirestoreGoodsReceipt[],
   searchText: string,
-  category: InvoiceCategory | 'all' = 'all',
+  location: GoodsReceiptLocationFilter = 'all',
 ): AdminFirestoreGoodsReceipt[] {
   let next = rows;
-  if (category && category !== 'all') {
-    next = next.filter(row => invoiceHasCategory({
-      categories: row.categories,
-      invoiceCategory: row.goodsReceiptCategory,
-    }, category));
+  if (location && location !== 'all') {
+    next = next.filter(row => row.inventorySite === location);
   }
   const needle = searchText.trim().toLowerCase();
   if (!needle) return next;
@@ -374,7 +371,9 @@ export function filterAdminGoodsReceipts(
       row.referenceNumber,
       row.id,
       row.status,
-      row.goodsReceiptCategory,
+      row.locationName,
+      row.inventorySite,
+      goodsReceiptLocationLabel(row.inventorySite),
     ]
       .filter(Boolean)
       .join(' ')
@@ -430,6 +429,10 @@ export function mapAdminGoodsReceiptDetail(
     currencyCode: data.currencyCode ? String(data.currencyCode).toUpperCase() : 'INR',
     vendorId: String(data.vendorId ?? ''),
     vendorName: data.vendorName ? String(data.vendorName) : null,
+    locationId: data.locationId != null ? String(data.locationId) : null,
+    locationName: data.locationName ? String(data.locationName) : null,
+    inventorySite: parseGoodsReceiptLocation(data.inventorySite)
+      ?? parseGoodsReceiptLocation(data.locationName),
     goodsReceiptCategory: parseInvoiceCategory(data.goodsReceiptCategory),
     categories: normalizeInvoiceCategories(data.categories),
     categoryAmounts: normalizeInvoiceCategoryAmounts(data.categoryAmounts),

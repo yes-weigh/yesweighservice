@@ -1,16 +1,14 @@
 import React from 'react';
 import { useOutletContext } from 'react-router-dom';
-import { InvoiceCategoryBadge } from '../../components/invoices/InvoiceCategoryVisual';
 import { InvoiceDocumentBody } from '../../components/invoices/InvoiceDocumentBody';
-import { formatInvoiceDate, invoiceCategoryLabel, invoiceStatusLabel } from '../../lib/invoices';
+import { goodsReceiptLocationLabel } from '../../lib/admin-goods-receipts';
+import { formatInvoiceDate, invoiceStatusLabel } from '../../lib/invoices';
 import type { AdminGoodsReceiptDetailOutletContext } from './adminGoodsReceiptDetailContext';
 
 export const AdminGoodsReceiptDocumentPage: React.FC = () => {
   const { goodsReceipt } = useOutletContext<AdminGoodsReceiptDetailOutletContext>();
 
   if (!goodsReceipt) return null;
-
-  const categoryLabel = invoiceCategoryLabel(goodsReceipt.goodsReceiptCategory);
 
   return (
     <>
@@ -31,16 +29,12 @@ export const AdminGoodsReceiptDocumentPage: React.FC = () => {
             </div>
           )}
           <div>
-            <div className="text-muted text-sm">Status</div>
-            <strong>{invoiceStatusLabel(goodsReceipt.status)}</strong>
+            <div className="text-muted text-sm">Location</div>
+            <strong>{goodsReceiptLocationLabel(goodsReceipt.inventorySite)}</strong>
           </div>
           <div>
-            <div className="text-muted text-sm">Category</div>
-            {categoryLabel ? (
-              <InvoiceCategoryBadge category={goodsReceipt.goodsReceiptCategory} />
-            ) : (
-              <span className="text-muted">—</span>
-            )}
+            <div className="text-muted text-sm">Status</div>
+            <strong>{invoiceStatusLabel(goodsReceipt.status)}</strong>
           </div>
         </div>
         {goodsReceipt.referenceNumber && (
@@ -52,7 +46,7 @@ export const AdminGoodsReceiptDocumentPage: React.FC = () => {
       </section>
       <InvoiceDocumentBody
         invoice={goodsReceipt}
-        currencyCode={goodsReceipt.currencyCode}
+        hideAmounts
         itemClassName="admin-invoice-detail-item"
       />
     </>

@@ -238,6 +238,22 @@
       ]
     },
     {
+      "collectionGroup": "goodsReceipts",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "inventorySite", "order": "ASCENDING" },
+        { "fieldPath": "date", "order": "DESCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "goodsReceipts",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "inventorySite", "order": "ASCENDING" },
+        { "fieldPath": "syncedAt", "order": "DESCENDING" }
+      ]
+    },
+    {
       "collectionGroup": "salesOrders",
       "queryScope": "COLLECTION",
       "fields": [

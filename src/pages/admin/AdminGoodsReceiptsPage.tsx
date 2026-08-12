@@ -4,67 +4,55 @@ import { useLocation, useNavigate } from 'react-router-dom';
 import type { DocumentData, QueryDocumentSnapshot } from 'firebase/firestore';
 import {
   AlertCircle,
+  Building2,
   ChevronRight,
   FileText,
-  IndianRupee,
   LayoutGrid,
   Search,
-  PackageCheck,
   SlidersHorizontal,
+  Warehouse,
   X,
 } from 'lucide-react';
 import { FetchingLoader } from '../../components/FetchingLoader';
-import {
-  InvoiceCategoryBadgeList,
-  InvoiceCategoryIcon,
-} from '../../components/invoices/InvoiceCategoryVisual';
 import { useCatalogPageHeader, usePageHeaderSlot } from '../../context/PageHeaderContext';
 import {
-  countAdminGoodsReceiptsByCategory,
+  countAdminGoodsReceiptsByLocation,
   fetchAdminGoodsReceiptsPageDetailed,
-  fetchAllAdminGoodsReceiptsInRange,
   filterAdminGoodsReceipts,
+  goodsReceiptLocationLabel,
   toGoodsReceiptDateKey,
   type AdminFirestoreGoodsReceipt,
-  type AdminGoodsReceiptCategoryCounts,
+  type AdminGoodsReceiptLocationCounts,
   type AdminGoodsReceiptSort,
+  type GoodsReceiptLocationFilter,
 } from '../../lib/admin-goods-receipts';
-import { formatCurrency } from '../../lib/catalog';
 import {
   formatInvoiceDate,
   formatInvoiceItemQuantity,
-  formatKpiPeriodRange,
   getInvoicePeriodBounds,
-  invoiceCategoryLabel,
   invoiceErrorMessage,
   invoiceStatusLabel,
 } from '../../lib/invoices';
 import { useRevealScrollbarOnScroll } from '../../lib/useRevealScrollbarOnScroll';
-import type { InvoiceCategory, SalesRangePreset } from '../../types/invoices';
+import type { SalesRangePreset } from '../../types/invoices';
 import { SALES_RANGE_OPTIONS } from '../../types/invoices';
 
 const LIST_PAGE_SIZE = 25;
 const SEARCH_FETCH_SIZE = 100;
 const DEFAULT_RANGE: SalesRangePreset = 'financial_year';
 const DEFAULT_SORT: AdminGoodsReceiptSort = 'date';
-const DEFAULT_CATEGORY: InvoiceCategory | 'all' = 'all';
+const DEFAULT_LOCATION: GoodsReceiptLocationFilter = 'all';
 
-const CATEGORY_BLOCKS: Array<{ value: InvoiceCategory | 'all'; label: string }> = [
+const LOCATION_BLOCKS: Array<{ value: GoodsReceiptLocationFilter; label: string }> = [
   { value: 'all', label: 'All' },
-  { value: 'product', label: 'Product' },
-  { value: 'spare', label: 'Spares' },
-  { value: 'software_key', label: 'Software' },
-  { value: 'service', label: 'Service' },
-  { value: 'gatc', label: 'Stamping' },
+  { value: 'head_office', label: 'Head office' },
+  { value: 'cochin', label: 'Cochin' },
 ];
 
-const EMPTY_CATEGORY_COUNTS: AdminGoodsReceiptCategoryCounts = {
+const EMPTY_LOCATION_COUNTS: AdminGoodsReceiptLocationCounts = {
   all: 0,
-  product: 0,
-  spare: 0,
-  software_key: 0,
-  service: 0,
-  gatc: 0,
+  head_office: 0,
+  cochin: 0,
 };
 
 const SORT_OPTIONS: Array<{ value: AdminGoodsReceiptSort; label: string }> = [
@@ -77,25 +65,10 @@ function poStatusClass(status: string): string {
   return `invoices-status invoices-status--${key}`;
 }
 
-function totalsByCurrency(
-  rows: AdminFirestoreGoodsReceipt[],
-  category: InvoiceCategory | 'all',
-): Array<{ currencyCode: string; total: number }> {
-  const map = new Map<string, number>();
-  for (const row of rows) {
-    const code = (row.currencyCode || 'INR').toUpperCase();
-    const amount = category === 'all'
-      ? Number(row.total ?? 0)
-      : Number(row.categoryAmounts[category] ?? row.total ?? 0);
-    map.set(code, (map.get(code) ?? 0) + amount);
-  }
-  return [...map.entries()]
-    .map(([currencyCode, total]) => ({ currencyCode, total }))
-    .sort((a, b) => {
-      if (a.currencyCode === 'INR') return -1;
-      if (b.currencyCode === 'INR') return 1;
-      return a.currencyCode.localeCompare(b.currencyCode);
-    });
+function LocationBlockIcon({ value }: { value: GoodsReceiptLocationFilter }) {
+  if (value === 'head_office') return <Building2 size={18} strokeWidth={2.2} />;
+  if (value === 'cochin') return <Warehouse size={18} strokeWidth={2.2} />;
+  return <LayoutGrid size={18} strokeWidth={2.2} />;
 }
 
 function GoodsReceiptFilterSheet({
@@ -250,17 +223,15 @@ export const AdminGoodsReceiptsPage: React.FC = () => {
   const [pageCursorVersion, setPageCursorVersion] = useState(0);
 
   const [rows, setRows] = useState<AdminFirestoreGoodsReceipt[]>([]);
-  const [amountRows, setAmountRows] = useState<AdminFirestoreGoodsReceipt[]>([]);
-  const [categoryCounts, setCategoryCounts] = useState(EMPTY_CATEGORY_COUNTS);
+  const [locationCounts, setLocationCounts] = useState(EMPTY_LOCATION_COUNTS);
   const [totalCount, setTotalCount] = useState(0);
   const [loading, setLoading] = useState(true);
   const [countsLoading, setCountsLoading] = useState(true);
   const [error, setError] = useState('');
-  const [truncated, setTruncated] = useState(false);
   const [search, setSearch] = useState('');
   const [sort, setSort] = useState<AdminGoodsReceiptSort>(DEFAULT_SORT);
   const [rangePreset, setRangePreset] = useState<SalesRangePreset>(DEFAULT_RANGE);
-  const [category, setCategory] = useState<InvoiceCategory | 'all'>(DEFAULT_CATEGORY);
+  const [location, setLocationFilter] = useState<GoodsReceiptLocationFilter>(DEFAULT_LOCATION);
   const [filterOpen, setFilterOpen] = useState(false);
   const [page, setPage] = useState(1);
 
@@ -273,16 +244,16 @@ export const AdminGoodsReceiptsPage: React.FC = () => {
     setPage(1);
     pageStartCursors.current = [null];
     setPageCursorVersion(v => v + 1);
-  }, [search, rangePreset, category, sort]);
+  }, [search, rangePreset, location, sort]);
 
   useEffect(() => {
     let cancelled = false;
     setCountsLoading(true);
-    void countAdminGoodsReceiptsByCategory({ dateStart, dateEnd })
+    void countAdminGoodsReceiptsByLocation({ dateStart, dateEnd })
       .then(counts => {
         if (cancelled) return;
-        setCategoryCounts(counts);
-        setTotalCount(category === 'all' ? counts.all : counts[category]);
+        setLocationCounts(counts);
+        setTotalCount(location === 'all' ? counts.all : counts[location]);
       })
       .catch(err => {
         if (!cancelled) setError(invoiceErrorMessage(err));
@@ -293,29 +264,7 @@ export const AdminGoodsReceiptsPage: React.FC = () => {
     return () => {
       cancelled = true;
     };
-  }, [dateStart, dateEnd, category]);
-
-  // Full-period scan for amount KPIs (bounded).
-  useEffect(() => {
-    let cancelled = false;
-    void fetchAllAdminGoodsReceiptsInRange({
-      sort,
-      category: 'all',
-      dateStart,
-      dateEnd,
-    })
-      .then(({ rows: next, truncated: wasTruncated }) => {
-        if (cancelled) return;
-        setAmountRows(next);
-        setTruncated(wasTruncated);
-      })
-      .catch(() => {
-        if (!cancelled) setAmountRows([]);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [sort, dateStart, dateEnd]);
+  }, [dateStart, dateEnd, location]);
 
   useEffect(() => {
     let cancelled = false;
@@ -327,7 +276,7 @@ export const AdminGoodsReceiptsPage: React.FC = () => {
       sort,
       pageSize: searchActive ? SEARCH_FETCH_SIZE : LIST_PAGE_SIZE,
       cursor: searchActive ? null : cursor,
-      category: searchActive ? 'all' : category,
+      location: searchActive ? 'all' : location,
       dateStart,
       dateEnd,
     })
@@ -351,16 +300,11 @@ export const AdminGoodsReceiptsPage: React.FC = () => {
     return () => {
       cancelled = true;
     };
-  }, [page, pageCursorVersion, sort, category, dateStart, dateEnd, searchActive]);
+  }, [page, pageCursorVersion, sort, location, dateStart, dateEnd, searchActive]);
 
   const filtered = useMemo(
-    () => filterAdminGoodsReceipts(rows, search, searchActive ? category : 'all'),
-    [rows, search, category, searchActive],
-  );
-
-  const amountFiltered = useMemo(
-    () => filterAdminGoodsReceipts(amountRows, search, category),
-    [amountRows, search, category],
+    () => filterAdminGoodsReceipts(rows, search, searchActive ? location : 'all'),
+    [rows, search, location, searchActive],
   );
 
   const clientPaged = searchActive;
@@ -387,17 +331,6 @@ export const AdminGoodsReceiptsPage: React.FC = () => {
     navigate(`${basePath}/goods-receipts/${po.id}`);
   };
 
-  const summary = useMemo(() => {
-    const categoryTotalsByCurrency = totalsByCurrency(amountFiltered, category);
-    return {
-      count: filteredTotal,
-      categoryTotalsByCurrency,
-      periodStart: bounds?.start?.toISOString() ?? null,
-      periodEnd: bounds?.end?.toISOString() ?? new Date().toISOString(),
-    };
-  }, [amountFiltered, category, filteredTotal, bounds]);
-
-  const dateRange = formatKpiPeriodRange(summary.periodStart, summary.periodEnd);
   const hasActiveFilters = rangePreset !== DEFAULT_RANGE || sort !== DEFAULT_SORT;
   const busy = loading || countsLoading;
 
@@ -408,7 +341,7 @@ export const AdminGoodsReceiptsPage: React.FC = () => {
           <Search size={15} aria-hidden />
           <input
             type="search"
-            placeholder="Search PO #, vendor…"
+            placeholder="Search bill #, vendor…"
             value={search}
             onChange={e => setSearch(e.target.value)}
             aria-label="Search goods receipts"
@@ -449,89 +382,22 @@ export const AdminGoodsReceiptsPage: React.FC = () => {
 
   return (
     <div className="page-content fade-in admin-invoices-page invoices-page">
-      <section className="invoices-summary" aria-label="Goods receipt summary">
-        <div className="invoices-summary__kpis">
-          <div className="invoices-summary__kpi">
-            <span className="invoices-summary__kpi-icon" aria-hidden>
-              <PackageCheck size={16} strokeWidth={2.4} />
-            </span>
-            <div className="invoices-summary__kpi-body">
-              <span className="invoices-summary__kpi-label">Draft bills</span>
-              <strong className="invoices-summary__kpi-value">
-                {busy ? '…' : summary.count.toLocaleString('en-IN')}
-              </strong>
-              <span className="invoices-summary__kpi-sub">
-                {busy ? '—' : dateRange}
-              </span>
-            </div>
-          </div>
-          <div className="invoices-summary__divider" aria-hidden />
-          <div className="invoices-summary__kpi">
-            <span className="invoices-summary__kpi-icon" aria-hidden>
-              <IndianRupee size={16} strokeWidth={2.4} />
-            </span>
-            <div className="invoices-summary__kpi-body">
-              <span className="invoices-summary__kpi-label">
-                {category === 'all' ? 'Total Amount' : 'Category Amount'}
-              </span>
-              {busy ? (
-                <strong className="invoices-summary__kpi-value invoices-summary__kpi-value--amount">…</strong>
-              ) : summary.categoryTotalsByCurrency.length === 0 ? (
-                <strong className="invoices-summary__kpi-value invoices-summary__kpi-value--amount">
-                  {formatCurrency(0)}
-                </strong>
-              ) : summary.categoryTotalsByCurrency.length === 1 ? (
-                <strong className="invoices-summary__kpi-value invoices-summary__kpi-value--amount">
-                  {formatCurrency(
-                    summary.categoryTotalsByCurrency[0].total,
-                    summary.categoryTotalsByCurrency[0].currencyCode,
-                  )}
-                </strong>
-              ) : (
-                <ul className="invoices-summary__currency-totals" aria-label="Totals by currency">
-                  {summary.categoryTotalsByCurrency.map(row => (
-                    <li key={row.currencyCode}>
-                      <strong>{formatCurrency(row.total, row.currencyCode)}</strong>
-                    </li>
-                  ))}
-                </ul>
-              )}
-              <span className="invoices-summary__kpi-sub">
-                {truncated
-                  ? 'Partial (scan cap)'
-                  : summary.categoryTotalsByCurrency.length > 1
-                    ? `${summary.categoryTotalsByCurrency.length} currencies`
-                    : (category === 'all' ? 'Amount' : `${invoiceCategoryLabel(category)} lines`)}
-              </span>
-            </div>
-          </div>
-        </div>
-
-        <div className="unified-so-category-blocks" role="tablist" aria-label="Bill category">
-          {CATEGORY_BLOCKS.map(item => {
-            const active = category === item.value;
-            const count = item.value === 'all'
-              ? categoryCounts.all
-              : categoryCounts[item.value];
+      <section className="invoices-summary" aria-label="Goods receipt locations">
+        <div className="unified-so-category-blocks" role="tablist" aria-label="Bill location">
+          {LOCATION_BLOCKS.map(item => {
+            const active = location === item.value;
+            const count = locationCounts[item.value];
             return (
               <button
                 key={item.value}
                 type="button"
                 role="tab"
                 aria-selected={active}
-                className={`unified-so-category-block${active ? ' is-active' : ''}${
-                  item.value !== 'all' ? ` unified-so-category-block--${item.value}` : ''
-                }`}
-                onClick={() => setCategory(item.value)}
+                className={`unified-so-category-block${active ? ' is-active' : ''}`}
+                onClick={() => setLocationFilter(item.value)}
               >
                 <span className="unified-so-category-block__icon" aria-hidden>
-                  {item.value === 'all' ? (
-                    <span className="unified-so-category-block__icon--all">
-                      <LayoutGrid size={18} strokeWidth={2.2} />
-                    </span>
-                  ) : (
-                    <InvoiceCategoryIcon category={item.value} />
-                  )}
+                  <LocationBlockIcon value={item.value} />
                 </span>
                 <span className="unified-so-category-block__label">{item.label}</span>
                 <span className="unified-so-category-block__count">
@@ -593,19 +459,16 @@ export const AdminGoodsReceiptsPage: React.FC = () => {
                 <table className="invoices-table">
                   <thead>
                     <tr>
-                      <th>Goods receipt</th>
+                      <th>Bill number</th>
                       <th>Vendor</th>
+                      <th>Location</th>
                       <th>Date</th>
                       <th className="invoices-table__num">Qty</th>
-                      <th className="invoices-table__num">Total</th>
-                      <th>Category</th>
                       <th>Status</th>
                     </tr>
                   </thead>
                   <tbody>
-                    {pageRows.map(po => {
-                      const categoryLabel = invoiceCategoryLabel(po.goodsReceiptCategory);
-                      return (
+                    {pageRows.map(po => (
                         <tr
                           key={po.id}
                           className="invoices-table__row--clickable"
@@ -629,44 +492,24 @@ export const AdminGoodsReceiptsPage: React.FC = () => {
                             )}
                           </td>
                           <td>{po.vendorName ?? '—'}</td>
+                          <td>{goodsReceiptLocationLabel(po.inventorySite)}</td>
                           <td>{formatInvoiceDate(po.date)}</td>
                           <td className="invoices-table__num">{formatInvoiceItemQuantity(po.itemQuantity)}</td>
-                          <td className="invoices-table__num">
-                            {formatCurrency(
-                              category === 'all'
-                                ? po.total
-                                : Number(po.categoryAmounts[category] ?? po.total ?? 0),
-                              po.currencyCode,
-                            )}
-                          </td>
-                          <td>
-                            {categoryLabel || po.categories.length ? (
-                              <span className="unified-so-order-cell__badges">
-                                <InvoiceCategoryBadgeList
-                                  categories={po.categories}
-                                  invoiceCategory={po.goodsReceiptCategory}
-                                />
-                              </span>
-                            ) : (
-                              <span className="text-muted">—</span>
-                            )}
-                          </td>
                           <td>
                             <span className={poStatusClass(po.status)}>
                               {invoiceStatusLabel(po.status)}
                             </span>
                           </td>
                         </tr>
-                      );
-                    })}
+                    ))}
                   </tbody>
                 </table>
               </div>
 
               <div className="invoices-mobile-list admin-invoices-mobile-list">
                 <div className="invoices-mobile-list__head" aria-hidden>
-                  <span>Goods receipt</span>
-                  <span>Amount</span>
+                  <span>Bill number</span>
+                  <span>Qty</span>
                 </div>
                 {pageRows.map(po => (
                   <button
@@ -676,7 +519,6 @@ export const AdminGoodsReceiptsPage: React.FC = () => {
                     onClick={() => openGr(po)}
                     aria-label={`View goods receipt ${po.billNumber || po.id}`}
                   >
-                    <InvoiceCategoryIcon category={po.goodsReceiptCategory} />
                     <span className="invoices-mobile-row__body">
                       <span className="invoices-mobile-row__invoice">
                         <strong className="invoices-mobile-row__company">
@@ -685,6 +527,8 @@ export const AdminGoodsReceiptsPage: React.FC = () => {
                         <span className="invoices-mobile-row__pair invoices-mobile-row__pair--mid">
                           <span className="invoices-mobile-row__date">
                             {formatInvoiceDate(po.date)}
+                            {' · '}
+                            {goodsReceiptLocationLabel(po.inventorySite)}
                           </span>
                           <span className={poStatusClass(po.status)}>
                             {invoiceStatusLabel(po.status)}
@@ -693,16 +537,9 @@ export const AdminGoodsReceiptsPage: React.FC = () => {
                         <span className="invoices-mobile-row__pair">
                           <span className="invoices-mobile-row__po-num">
                             {po.billNumber || po.id}
-                            {' • '}
-                            Qty {formatInvoiceItemQuantity(po.itemQuantity)}
                           </span>
                           <strong className="invoices-mobile-row__amount-value">
-                            {formatCurrency(
-                              category === 'all'
-                                ? po.total
-                                : Number(po.categoryAmounts[category] ?? po.total ?? 0),
-                              po.currencyCode,
-                            )}
+                            Qty {formatInvoiceItemQuantity(po.itemQuantity)}
                           </strong>
                         </span>
                       </span>

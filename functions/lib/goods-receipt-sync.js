@@ -205,6 +205,8 @@ function buildSearchBlob(doc) {
     doc.vendorId,
     doc.referenceNumber,
     doc.status,
+    doc.locationName,
+    doc.inventorySite,
     ...(doc.lineItems || []).flatMap(line => [line.name, line.sku]),
   ].filter(Boolean).join(' ').toLowerCase();
 }
@@ -230,10 +232,49 @@ async function loadCatalogMeta(itemIds) {
   return map;
 }
 
+function resolveInventorySite(locationName) {
+  const n = String(locationName ?? '').trim().toLowerCase();
+  if (!n) return null;
+  if (n === 'cochin' || n.includes('cochin') || n.includes('kochi')) return 'cochin';
+  if (
+    n === 'head office'
+    || n === 'headoffice'
+    || n === 'head_office'
+    || (n.includes('head') && n.includes('office'))
+  ) {
+    return 'head_office';
+  }
+  return null;
+}
+
+function pickLocationFromBill(raw) {
+  let locationId = raw.location_id ?? raw.warehouse_id ?? null;
+  let locationName = raw.location_name ?? raw.warehouse_name ?? null;
+  if (!locationName || locationId == null) {
+    const lines = Array.isArray(raw.line_items) ? raw.line_items : [];
+    for (const line of lines) {
+      const lineName = line?.location_name ?? line?.warehouse_name ?? null;
+      const lineId = line?.location_id ?? line?.warehouse_id ?? null;
+      if (lineName || lineId != null) {
+        if (!locationName && lineName) locationName = lineName;
+        if (locationId == null && lineId != null) locationId = lineId;
+        if (locationName && locationId != null) break;
+      }
+    }
+  }
+  const name = locationName != null ? String(locationName) : null;
+  return {
+    locationId: locationId != null ? String(locationId) : null,
+    locationName: name,
+    inventorySite: resolveInventorySite(name),
+  };
+}
+
 function mapGoodsReceipt(raw) {
   const lineItems = Array.isArray(raw.line_items)
     ? raw.line_items.map(mapLineItem)
     : [];
+  const location = pickLocationFromBill(raw);
   return {
     id: String(raw.bill_id ?? ''),
     billNumber: String(raw.bill_number ?? ''),
@@ -249,6 +290,9 @@ function mapGoodsReceipt(raw) {
     subtotal: Number(raw.sub_total ?? raw.subtotal ?? 0),
     taxTotal: Number(raw.tax_total ?? 0),
     notes: raw.notes ? String(raw.notes) : null,
+    locationId: location.locationId,
+    locationName: location.locationName,
+    inventorySite: location.inventorySite,
     lineItems,
     zohoLastModified: raw.last_modified_time ? String(raw.last_modified_time) : null,
   };
@@ -287,6 +331,8 @@ async function upsertGoodsReceiptFromRaw(raw, options = {}) {
 function detailStillValid(existing, summary) {
   if (!existing) return false;
   if (!Array.isArray(existing.lineItems) || existing.lineItems.length === 0) return false;
+  // Force one re-pull after location fields were added to the mirror.
+  if (!Object.prototype.hasOwnProperty.call(existing, 'inventorySite')) return false;
   const existingMod = String(existing.zohoLastModified ?? '');
   const summaryMod = String(summary.last_modified_time ?? '');
   return Boolean(existingMod && summaryMod && existingMod === summaryMod);
@@ -798,6 +844,11 @@ export function mapGoodsReceiptDoc(id, data) {
     currencyCode: String(data.currencyCode ?? 'INR'),
     vendorId: String(data.vendorId ?? ''),
     vendorName: data.vendorName ?? null,
+    locationId: data.locationId != null ? String(data.locationId) : null,
+    locationName: data.locationName != null ? String(data.locationName) : null,
+    inventorySite: data.inventorySite === 'head_office' || data.inventorySite === 'cochin'
+      ? data.inventorySite
+      : null,
     subtotal: Number(data.subtotal ?? 0),
     taxTotal: Number(data.taxTotal ?? 0),
     notes: data.notes ?? null,

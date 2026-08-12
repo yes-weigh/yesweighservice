@@ -18,6 +18,8 @@ interface InvoiceDocumentBodyProps {
   totalsAfterItems?: boolean;
   /** ISO currency (e.g. USD) — defaults to INR. */
   currencyCode?: string;
+  /** Hide rate, line totals, and document totals (qty only). */
+  hideAmounts?: boolean;
   /** Shown on freight lines when product package dims are missing. */
   freightAlert?: string | null;
   /** Allow selecting freight lines (SO inline freight expand). */
@@ -40,6 +42,7 @@ export const InvoiceDocumentBody: React.FC<InvoiceDocumentBodyProps> = ({
   hideTotals = false,
   totalsAfterItems = false,
   currencyCode = 'INR',
+  hideAmounts = false,
   freightAlert = null,
   selectFreight = false,
   renderExpanded,
@@ -53,8 +56,9 @@ export const InvoiceDocumentBody: React.FC<InvoiceDocumentBodyProps> = ({
       : invoice.lineItems,
   );
   const money = (value: number) => formatCurrency(value, currencyCode);
+  const showAmounts = !hideAmounts;
 
-  const totals = !hideTotals ? (
+  const totals = showAmounts && !hideTotals ? (
     <section className="invoice-detail-footer panel glass">
       <div className="invoice-detail-footer__row">
         <span>Sub Total</span>
@@ -115,6 +119,7 @@ export const InvoiceDocumentBody: React.FC<InvoiceDocumentBodyProps> = ({
                     <ItemContent
                       item={item}
                       currencyCode={currencyCode}
+                      hideAmounts={hideAmounts}
                       showNext={isSelected && Boolean(onConfirmLineItem) && !renderExpanded}
                       onNext={onConfirmLineItem}
                       alert={showFreightAlert ? freightAlert : null}
@@ -130,6 +135,7 @@ export const InvoiceDocumentBody: React.FC<InvoiceDocumentBodyProps> = ({
                   <ItemContent
                     item={item}
                     currencyCode={currencyCode}
+                    hideAmounts={hideAmounts}
                     alert={showFreightAlert ? freightAlert : null}
                     meta={itemMeta?.(item)}
                   />
@@ -171,6 +177,7 @@ export const InvoiceDocumentBody: React.FC<InvoiceDocumentBodyProps> = ({
 function ItemContent({
   item,
   currencyCode = 'INR',
+  hideAmounts = false,
   showNext = false,
   onNext,
   alert = null,
@@ -178,6 +185,7 @@ function ItemContent({
 }: {
   item: DealerInvoiceLineItem;
   currencyCode?: string;
+  hideAmounts?: boolean;
   showNext?: boolean;
   onNext?: () => void;
   alert?: string | null;
@@ -200,8 +208,14 @@ function ItemContent({
         description={item.description}
       >
         <div className="invoice-detail-item__pricing">
-          <span>{formatCurrency(item.rate, currencyCode)} × {item.quantity}</span>
-          <strong>{formatCurrency(item.total, currencyCode)}</strong>
+          {hideAmounts ? (
+            <span>Qty {item.quantity}</span>
+          ) : (
+            <>
+              <span>{formatCurrency(item.rate, currencyCode)} × {item.quantity}</span>
+              <strong>{formatCurrency(item.total, currencyCode)}</strong>
+            </>
+          )}
         </div>
         {meta}
         {alert ? (
