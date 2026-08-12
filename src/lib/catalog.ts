@@ -323,6 +323,17 @@ export function catalogProductHasSingleBoxPackageInfo(
   return (product.packageInfo?.singleBox?.length ?? 0) > 0;
 }
 
+/** True when at least one single box has weight + L × B × H all > 0. */
+export function catalogProductHasCompleteSingleBoxPackageInfo(
+  product: Pick<CatalogProduct, 'packageInfo'>,
+): boolean {
+  const boxes = product.packageInfo?.singleBox ?? [];
+  return boxes.some(carton => (
+    [carton.weightKg, carton.lengthCm, carton.breadthCm, carton.heightCm]
+      .every(v => typeof v === 'number' && Number.isFinite(v) && v > 0)
+  ));
+}
+
 export const PACKAGE_INFO_FILTERS = [
   { key: 'hasPackaging', label: 'Has packaging' },
   { key: 'missingPackaging', label: 'Missing packaging' },
@@ -1981,6 +1992,23 @@ export async function assignCatalogSpareGroups(
   } catch (err) {
     throw new Error(catalogErrorMessage(err));
   }
+}
+
+export async function getCatalogProductsByIds(
+  ids: string[],
+): Promise<Record<string, CatalogProduct>> {
+  const unique = [...new Set(ids.map(id => String(id || '').trim()).filter(Boolean))];
+  const result: Record<string, CatalogProduct> = {};
+  if (!unique.length) return result;
+
+  await Promise.all(
+    unique.map(async id => {
+      const snap = await getDoc(doc(db, 'catalogProducts', id));
+      if (!snap.exists()) return;
+      result[id] = mapProduct({ id, ...snap.data() } as Record<string, unknown>);
+    }),
+  );
+  return result;
 }
 
 /** Firestore only — package dimensions are never sent to Zoho. */

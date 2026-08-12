@@ -161,6 +161,18 @@ const staffInvoiceRoutes = (
   </>
 );
 
+/** Staff goods receipts — same as super admin; gated by invoices.view in nav. */
+const staffGoodsReceiptRoutes = (
+  <>
+    <Route path="goods-receipts" element={<AdminGoodsReceiptsPage />} />
+    <Route path="goods-receipts/sync" element={<Navigate to="/staff/goods-receipts" replace />} />
+    <Route path="goods-receipts/:goodsReceiptId" element={<AdminGoodsReceiptDetailLayout />}>
+      <Route index element={<AdminGoodsReceiptDocumentPage />} />
+      <Route path="view" element={<Navigate to=".." replace />} />
+    </Route>
+  </>
+);
+
 const portalMenuRoutes = (
   <>
     <Route path="warranty-support" element={<DealerMenuPages.WarrantySupport />} />
@@ -317,6 +329,7 @@ const App: React.FC = () => (
               <Route path="tasks" element={<DealerMenuPages.Tasks />} />
               {portalMenuRoutes}
               {staffInvoiceRoutes}
+              {staffGoodsReceiptRoutes}
               <Route path="leads" element={<DealerMenuPages.Leads />} />
               <Route path="dealers/*" element={<AdminDealersList />} />
               <Route path="sales-orders" element={<AdminUnifiedSalesOrdersPage />} />
@@ -330,7 +343,6 @@ const App: React.FC = () => (
               <Route path="orders/history" element={<OpsOrdersListRedirect />} />
               <Route path="orders/:orderId" element={<OpsOrderDetailRedirect />} />
               <Route path="purchase-orders/*" element={<Navigate to="/staff" replace />} />
-              <Route path="goods-receipts/*" element={<Navigate to="/staff" replace />} />
               <Route path="reports" element={<ReportsLayout basePath="/staff" />}>
                 <Route path="audit-report" element={<AuditReportTab />} />
                 <Route path="gatc-report" element={<GatcReportTab />} />

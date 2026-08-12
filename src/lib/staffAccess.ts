@@ -266,8 +266,8 @@ const NAV_FEATURE_PERMISSIONS: Record<StaffNavFeature, StaffPermission[] | 'alwa
   'sales-orders': ['orders.view', 'orders.manage'],
   // Purchase orders are super-admin only — staff must not see this nav/feature.
   'purchase-orders': [],
-  // Goods receipts (draft purchase bills) are super-admin only.
-  'goods-receipts': [],
+  // Same gate as Invoice — Invoice access role and anyone with invoices.view.
+  'goods-receipts': ['invoices.view'],
   logistics: ['logistics.view'],
   loyalty: ['loyalty.view'],
   'ai-assistant': 'always',

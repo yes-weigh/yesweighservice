@@ -3,18 +3,22 @@ import { useOutletContext } from 'react-router-dom';
 import { AlertCircle, Check, Package, Plus, X } from 'lucide-react';
 import { DocumentLineItemSpec } from '../../components/invoices/DocumentLineItemSpec';
 import { ProductNcSelect } from '../../components/catalog/ProductNcSelect';
+import { ProductPackageInfo } from '../../components/catalog/ProductPackageInfo';
 import { useAuth } from '../../context/AuthContext';
+import { isFreightProductId, isFreightSku } from '../../constants/freightLines';
 import {
   goodsReceiptLocationLabel,
   goodsReceiptStatusLabel,
   receiveLineLocations,
   saveGoodsReceiptReceiveCheck,
 } from '../../lib/admin-goods-receipts';
+import { getCatalogProductsByIds, catalogProductHasCompleteSingleBoxPackageInfo } from '../../lib/catalog';
 import { formatInvoiceDate, invoiceErrorMessage, moveFreightLinesToEnd } from '../../lib/invoices';
 import {
   listWarehouseZoneRows,
   listWarehouseZones,
 } from '../../lib/warehouseLocations/data';
+import type { CatalogPackageInfo, CatalogProduct } from '../../types/catalog';
 import type { WarehouseZoneDoc, WarehouseZoneRowDoc } from '../../types/warehouse-locations';
 import type { AdminGoodsReceiptDetailOutletContext } from './adminGoodsReceiptDetailContext';
 
@@ -110,6 +114,7 @@ export const AdminGoodsReceiptDocumentPage: React.FC = () => {
   const [zones, setZones] = useState<WarehouseZoneDoc[]>([]);
   const [rowsByZone, setRowsByZone] = useState<Record<string, WarehouseZoneRowDoc[]>>({});
   const [loadingZones, setLoadingZones] = useState(true);
+  const [catalogById, setCatalogById] = useState<Record<string, CatalogProduct>>({});
 
   const lineItems = useMemo(
     () => (goodsReceipt ? moveFreightLinesToEnd(goodsReceipt.lineItems) : []),
@@ -117,6 +122,27 @@ export const AdminGoodsReceiptDocumentPage: React.FC = () => {
   );
 
   const defaultZoneId = zones[0]?.id ?? '';
+
+  useEffect(() => {
+    if (!goodsReceipt?.lineItems?.length) {
+      setCatalogById({});
+      return;
+    }
+    let active = true;
+    const ids = goodsReceipt.lineItems
+      .map(line => line.itemId?.trim() || '')
+      .filter(id => id && !isFreightProductId(id));
+    void getCatalogProductsByIds(ids)
+      .then(next => {
+        if (active) setCatalogById(next);
+      })
+      .catch(() => {
+        if (active) setCatalogById({});
+      });
+    return () => {
+      active = false;
+    };
+  }, [goodsReceipt?.lineItems]);
 
   useEffect(() => {
     let active = true;
@@ -183,7 +209,44 @@ export const AdminGoodsReceiptDocumentPage: React.FC = () => {
     return false;
   }, [goodsReceipt, lineDrafts]);
 
+  const missingPackageLines = useMemo(() => {
+    if (!goodsReceipt) return [] as Array<{ lineId: string; name: string; productId: string }>;
+    const missing: Array<{ lineId: string; name: string; productId: string }> = [];
+    const seen = new Set<string>();
+    for (const line of goodsReceipt.lineItems) {
+      if (!line.id || !line.itemId) continue;
+      if (isFreightProductId(line.itemId) || isFreightSku(line.sku)) continue;
+      const product = catalogById[line.itemId];
+      if (!product) continue;
+      const expectsPackage = Boolean(
+        product.packageInfo?.masterCarton
+        || (product.packageInfo?.singleBox?.length ?? 0) > 0
+        || Boolean(product.categoryId?.trim()),
+      );
+      if (!expectsPackage) continue;
+      if (catalogProductHasCompleteSingleBoxPackageInfo(product)) continue;
+      if (seen.has(product.id)) continue;
+      seen.add(product.id);
+      missing.push({
+        lineId: line.id,
+        name: line.name || product.name || product.sku || product.id,
+        productId: product.id,
+      });
+    }
+    return missing;
+  }, [goodsReceipt, catalogById]);
+
+  const packageDataReady = missingPackageLines.length === 0;
+
   if (!goodsReceipt) return null;
+
+  const onPackageInfoSaved = (productId: string, info: CatalogPackageInfo) => {
+    setCatalogById(prev => {
+      const existing = prev[productId];
+      if (!existing) return prev;
+      return { ...prev, [productId]: { ...existing, packageInfo: info } };
+    });
+  };
 
   const setLocationDraft = (
     lineId: string,
@@ -237,6 +300,19 @@ export const AdminGoodsReceiptDocumentPage: React.FC = () => {
   const handleSave = async () => {
     if (!user?.uid) {
       setSaveError('You must be signed in to save.');
+      return;
+    }
+
+    if (!packageDataReady) {
+      const sample = missingPackageLines
+        .slice(0, 3)
+        .map(row => row.name)
+        .join(', ');
+      setSaveError(
+        `Fill single box package information (weight + L × B × H) before saving${
+          sample ? ` — ${sample}${missingPackageLines.length > 3 ? '…' : ''}` : ''
+        }.`,
+      );
       return;
     }
 
@@ -339,12 +415,25 @@ export const AdminGoodsReceiptDocumentPage: React.FC = () => {
           <button
             type="button"
             className="btn btn-primary btn-sm"
-            disabled={saving || !dirty}
+            disabled={saving || !dirty || !packageDataReady}
             onClick={() => void handleSave()}
           >
             {saving ? 'Saving…' : 'Save'}
           </button>
         </div>
+
+        {!packageDataReady && (
+          <div className="products-inline-error panel glass mt-3" role="alert">
+            <AlertCircle size={16} />
+            <span>
+              Fill single box package information (weight + L × B × H) for{' '}
+              {missingPackageLines.length === 1
+                ? missingPackageLines[0].name
+                : `${missingPackageLines.length} products`}
+              {' '}before saving receive locations.
+            </span>
+          </div>
+        )}
 
         {saveError && (
           <div className="products-inline-error panel glass mt-3" role="alert">
@@ -382,9 +471,32 @@ export const AdminGoodsReceiptDocumentPage: React.FC = () => {
                   : diff > 0
                     ? 'is-over'
                     : 'is-under';
+              const catalogProduct = item.itemId ? catalogById[item.itemId] : undefined;
+              const isFreight = isFreightProductId(item.itemId)
+                || isFreightSku(item.sku);
+              const showPackageInfo = Boolean(
+                catalogProduct
+                && !isFreight
+                && (
+                  catalogProduct.packageInfo?.masterCarton
+                  || (catalogProduct.packageInfo?.singleBox?.length ?? 0) > 0
+                  || Boolean(catalogProduct.categoryId?.trim())
+                ),
+              );
+              const packageComplete = catalogProduct
+                ? catalogProductHasCompleteSingleBoxPackageInfo(catalogProduct)
+                : true;
+              const packageMissing = showPackageInfo && !packageComplete;
 
               return (
-                <li key={item.id} className="invoice-detail-item admin-invoice-detail-item">
+                <li
+                  key={item.id}
+                  className={[
+                    'invoice-detail-item',
+                    'admin-invoice-detail-item',
+                    packageMissing ? 'goods-receipt-receive__item--package-missing' : '',
+                  ].filter(Boolean).join(' ')}
+                >
                   <div className="invoice-detail-item__image-wrap">
                     {item.imageUrl ? (
                       <img
@@ -440,6 +552,23 @@ export const AdminGoodsReceiptDocumentPage: React.FC = () => {
                         </strong>
                       </div>
                     </div>
+
+                    {showPackageInfo && catalogProduct && (
+                      <div className="goods-receipt-receive__package">
+                        {packageMissing && (
+                          <p className="goods-receipt-receive__package-hint text-sm mb-2">
+                            Single box weight + L × B × H required before Save.
+                          </p>
+                        )}
+                        <ProductPackageInfo
+                          product={catalogProduct}
+                          packageInfo={catalogProduct.packageInfo}
+                          canEdit
+                          defaultEditing={packageMissing}
+                          onPackageInfoChange={info => onPackageInfoSaved(catalogProduct.id, info)}
+                        />
+                      </div>
+                    )}
 
                     <div className="goods-receipt-receive__locations">
                       <span className="goods-receipt-receive__label">Warehouse locations</span>

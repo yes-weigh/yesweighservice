@@ -358,12 +358,22 @@ service cloud.firestore {
       allow write: if false;
     }
 
+    function staffHasInvoiceView() {
+      return isStaff() && (
+        userDoc().get('staffRoleId', '') == 'role-invoice-access'
+        || staffHasPermission('invoices.view')
+        || (!staffUsesExplicitPermissions()
+            && (userDoc().staffDepartment == 'sales'
+                || userDoc().staffDepartment == 'admin'))
+      );
+    }
+
     // Draft Zoho purchase bills mirrored as goods receipts.
-    // Super admins may update receive-check fields only (ops verification).
+    // Invoice-access staff (and sales/admin dept) may read + update receive-check only.
     match /goodsReceipts/{billId} {
-      allow read: if isSuperAdmin();
+      allow read: if isSuperAdmin() || staffHasInvoiceView();
       allow create, delete: if false;
-      allow update: if isFullSuperAdmin()
+      allow update: if (isFullSuperAdmin() || staffHasInvoiceView())
         && request.resource.data.diff(resource.data).affectedKeys()
             .hasOnly(['receiveCheck']);
     }
