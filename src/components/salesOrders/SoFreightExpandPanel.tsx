@@ -20,7 +20,10 @@ import {
   isPickupPartner,
   partnerIdForFreightSku,
 } from '../../lib/orderFreight';
-import type { InventorySite } from '../../lib/salesOrderSegments';
+import {
+  classifyOrderLineSegment,
+  type InventorySite,
+} from '../../lib/salesOrderSegments';
 import {
   applyCourierSelectionForSite,
   cartLinesForFreightEstimate,
@@ -32,9 +35,16 @@ import type { CatalogProduct } from '../../types/catalog';
 import type { LogisticsCourierRates } from '../../types/logistics-courier-rates';
 import type { LogisticsDeliveryRulesMatrix } from '../../types/logistics-delivery-rules';
 import type { LogisticsPartnerStatuses } from '../../types/logistics-partner-status';
+import type { SpareBoxDefinition } from '../../types/spare-box-definitions';
 import type { StaffLogisticsSite } from '../../types/staff-logistics';
 import { isFreightDraftEditLine, withFreightDraftLinesLast } from './SalesOrderDraftLineEditor';
 import type { DraftEditLine } from './SalesOrderDraftLineEditor';
+import {
+  EMPTY_SPARE_FREIGHT_PACKAGING_DRAFT,
+  SpareFreightPackagingFields,
+  spareFreightPackagingFromDraft,
+  type SpareFreightPackagingDraft,
+} from './SpareFreightPackagingFields';
 
 function freightDraftLine(sku: FreightLineSku, rate: number): DraftEditLine {
   const option = FREIGHT_LINE_OPTIONS.find(row => row.sku === sku)!;
@@ -102,6 +112,10 @@ export const SoFreightExpandPanel: React.FC<Props> = ({
   const [courierRates, setCourierRates] = useState<LogisticsCourierRates | null>(null);
   const [deliveryRules, setDeliveryRules] = useState<LogisticsDeliveryRulesMatrix | null>(null);
   const [partnerStatuses, setPartnerStatuses] = useState<LogisticsPartnerStatuses | null>(null);
+  const [spareBoxDefinitions, setSpareBoxDefinitions] = useState<SpareBoxDefinition[]>([]);
+  const [sparePackagingDraft, setSparePackagingDraft] = useState<SpareFreightPackagingDraft>(
+    EMPTY_SPARE_FREIGHT_PACKAGING_DRAFT,
+  );
   const [courierBySite, setCourierBySite] = useState<Partial<Record<InventorySite, LogisticsPartnerId>>>({});
   const [fromAddresses, setFromAddresses] = useState<Partial<Record<StaffLogisticsSite, string>>>({});
   const [freightSku, setFreightSku] = useState<string | null>(null);
@@ -120,6 +134,7 @@ export const SoFreightExpandPanel: React.FC<Props> = ({
         setCourierRates(rates);
         setDeliveryRules(settings.deliveryRules);
         setPartnerStatuses(settings.partnerStatuses);
+        setSpareBoxDefinitions(settings.spareBoxDefinitions || []);
         setFromAddresses(settings.fromAddresses || {});
       })
       .catch(() => { /* optional */ });
@@ -183,6 +198,24 @@ export const SoFreightExpandPanel: React.FC<Props> = ({
     [productLines],
   );
 
+  const cartHasSpare = useMemo(
+    () => productLines.some((line) => {
+      const catalog = catalogById[line.productId];
+      return classifyOrderLineSegment({
+        productId: line.productId,
+        sku: line.sku,
+        categoryId: catalog?.categoryId ?? line.categoryId,
+        categoryName: catalog?.categoryName ?? line.categoryName,
+      }) === 'spare';
+    }),
+    [productLines, catalogById],
+  );
+
+  const sparePackaging = useMemo(
+    () => (cartHasSpare ? spareFreightPackagingFromDraft(sparePackagingDraft) : null),
+    [cartHasSpare, sparePackagingDraft],
+  );
+
   const freightEstimateBase = useMemo((): StCourierCartFreightEstimate | null => {
     if (!courierRates || !deliveryRules || !partnerStatuses || productLines.length === 0) return null;
     if (!shippingDestination || !inferredZone) return null;
@@ -195,6 +228,8 @@ export const SoFreightExpandPanel: React.FC<Props> = ({
       courierBySite,
       blueDartPin,
       invoiceValueInr: goodsSubtotal,
+      sparePackaging,
+      requireSparePackaging: cartHasSpare,
     });
   }, [
     courierRates,
@@ -207,6 +242,8 @@ export const SoFreightExpandPanel: React.FC<Props> = ({
     inferredZone,
     blueDartPin,
     goodsSubtotal,
+    sparePackaging,
+    cartHasSpare,
   ]);
 
   const delhiveryLive = useDelhiveryLiveFreightQuote({
@@ -349,6 +386,18 @@ export const SoFreightExpandPanel: React.FC<Props> = ({
             before confirming this sales order.
           </span>
         </p>
+      ) : null}
+      {cartHasSpare && !disabled ? (
+        <SpareFreightPackagingFields
+          draft={sparePackagingDraft}
+          definitions={spareBoxDefinitions}
+          disabled={disabled}
+          onChange={next => {
+            setSparePackagingDraft(next);
+            setFreightAmountManual(false);
+            lastAutoKeyRef.current = '';
+          }}
+        />
       ) : null}
       {freightEstimate?.usable ? (
         <OrderFreightPanel

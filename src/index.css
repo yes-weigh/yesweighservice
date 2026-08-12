@@ -44215,6 +44215,111 @@ button.invoice-detail-top__card {
   gap: 0.65rem;
 }
 
+.spare-freight-packaging {
+  display: flex;
+  flex-direction: column;
+  gap: 0.55rem;
+  padding: 0.7rem 0.75rem;
+  border: 1px solid color-mix(in srgb, var(--brand-orange, #e85d04) 35%, #d1d5db);
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--brand-orange, #e85d04) 6%, #fff);
+}
+
+.spare-freight-packaging.is-incomplete {
+  border-color: color-mix(in srgb, #b45309 40%, #d1d5db);
+}
+
+.spare-freight-packaging__head {
+  display: flex;
+  gap: 0.55rem;
+  align-items: flex-start;
+}
+
+.spare-freight-packaging__head svg {
+  flex-shrink: 0;
+  margin-top: 0.15rem;
+  color: var(--brand-orange, #e85d04);
+}
+
+.spare-freight-packaging__head strong {
+  display: block;
+  font-size: 0.86rem;
+  font-weight: 750;
+}
+
+.spare-freight-packaging__head p {
+  margin: 0.15rem 0 0;
+  font-size: 0.75rem;
+  line-height: 1.35;
+  color: #64748b;
+}
+
+.spare-freight-packaging__preset {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: #475569;
+}
+
+.spare-freight-packaging__preset select {
+  min-height: 2.25rem;
+  border: 1px solid #cbd5e1;
+  border-radius: 8px;
+  padding: 0.35rem 0.55rem;
+  background: #fff;
+  font-size: 0.86rem;
+}
+
+.spare-freight-packaging__dims {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.45rem;
+}
+
+.spare-freight-packaging__cell {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+  font-size: 0.72rem;
+  font-weight: 650;
+  color: #64748b;
+}
+
+.spare-freight-packaging__value {
+  display: flex;
+  align-items: center;
+  gap: 0.3rem;
+  min-height: 2.15rem;
+  padding: 0.25rem 0.45rem;
+  border: 1px solid #cbd5e1;
+  border-radius: 8px;
+  background: #fff;
+}
+
+.spare-freight-packaging__value input {
+  flex: 1;
+  min-width: 0;
+  border: 0;
+  background: transparent;
+  font-size: 0.9rem;
+  font-weight: 650;
+}
+
+.spare-freight-packaging__value em {
+  font-style: normal;
+  font-size: 0.72rem;
+  color: #94a3b8;
+}
+
+.spare-freight-packaging__hint {
+  margin: 0;
+  font-size: 0.74rem;
+  line-height: 1.35;
+  color: #92400e;
+}
+
 .so-freight-expand__title {
   margin: 0;
   font-size: 0.9rem;

@@ -47,6 +47,13 @@ import {
   type StCourierCartFreightEstimate,
 } from '../../lib/stCourierCartFreight';
 import type { StaffLogisticsSite } from '../../types/staff-logistics';
+import type { SpareBoxDefinition } from '../../types/spare-box-definitions';
+import {
+  EMPTY_SPARE_FREIGHT_PACKAGING_DRAFT,
+  SpareFreightPackagingFields,
+  spareFreightPackagingFromDraft,
+  type SpareFreightPackagingDraft,
+} from '../../components/salesOrders/SpareFreightPackagingFields';
 import {
   fetchPendingFreightDiff,
   formatPendingFreightAdjustLabel,
@@ -307,6 +314,10 @@ export const StaffCreateSalesOrderPage: React.FC = () => {
   const [courierRates, setCourierRates] = useState<LogisticsCourierRates | null>(null);
   const [deliveryRules, setDeliveryRules] = useState<LogisticsDeliveryRulesMatrix | null>(null);
   const [partnerStatuses, setPartnerStatuses] = useState<LogisticsPartnerStatuses | null>(null);
+  const [spareBoxDefinitions, setSpareBoxDefinitions] = useState<SpareBoxDefinition[]>([]);
+  const [sparePackagingDraft, setSparePackagingDraft] = useState<SpareFreightPackagingDraft>(
+    EMPTY_SPARE_FREIGHT_PACKAGING_DRAFT,
+  );
   const [courierBySite, setCourierBySite] = useState<Partial<Record<InventorySite, LogisticsPartnerId>>>({});
   const [manualFreightAmount, setManualFreightAmount] = useState<number | null>(null);
   const [manualFreightAmountLocked, setManualFreightAmountLocked] = useState(false);
@@ -362,6 +373,7 @@ export const StaffCreateSalesOrderPage: React.FC = () => {
         setCourierRates(rates);
         setDeliveryRules(settings.deliveryRules);
         setPartnerStatuses(settings.partnerStatuses);
+        setSpareBoxDefinitions(settings.spareBoxDefinitions || []);
         setFromAddresses(settings.fromAddresses || {});
       })
       .catch(() => { /* freight preview optional */ });
@@ -510,6 +522,18 @@ export const StaffCreateSalesOrderPage: React.FC = () => {
       return null;
     }
     if (!shippingDestination || !inferredFreightZone) return null;
+    const cartHasSpare = lines.some(line => {
+      const catalog = catalogById[line.productId];
+      return classifyOrderLineSegment({
+        productId: line.productId,
+        sku: line.sku,
+        categoryId: catalog?.categoryId ?? null,
+        categoryName: catalog?.categoryName ?? null,
+      }) === 'spare';
+    });
+    const sparePackaging = cartHasSpare
+      ? spareFreightPackagingFromDraft(sparePackagingDraft)
+      : null;
     return estimateStCourierCartFreight({
       lines: cartLinesForFreightEstimate(lines, catalogById),
       destination: shippingDestination,
@@ -519,6 +543,8 @@ export const StaffCreateSalesOrderPage: React.FC = () => {
       courierBySite,
       blueDartPin,
       invoiceValueInr: lines.reduce((sum, line) => sum + line.rate * line.quantity, 0),
+      sparePackaging,
+      requireSparePackaging: cartHasSpare,
     });
   }, [
     freightAllowed,
@@ -531,6 +557,7 @@ export const StaffCreateSalesOrderPage: React.FC = () => {
     courierBySite,
     inferredFreightZone,
     blueDartPin,
+    sparePackagingDraft,
   ]);
 
   const goodsSubtotalForDelhivery = useMemo(
@@ -619,6 +646,19 @@ export const StaffCreateSalesOrderPage: React.FC = () => {
   );
 
   const spareOnlyCatalog = activeSegments.length === 1 && activeSegments[0] === 'spare';
+
+  const cartHasSpare = useMemo(
+    () => lines.some((line) => {
+      const catalog = catalogById[line.productId];
+      return classifyOrderLineSegment({
+        productId: line.productId,
+        sku: line.sku,
+        categoryId: catalog?.categoryId ?? null,
+        categoryName: catalog?.categoryName ?? null,
+      }) === 'spare';
+    }),
+    [lines, catalogById],
+  );
 
   const shopProducts = useMemo(() => {
     const visible = excludeHiddenCatalogProducts(catalogProducts, catalogCategories);
@@ -1180,11 +1220,24 @@ export const StaffCreateSalesOrderPage: React.FC = () => {
         remarks: cartRemarks.trim(),
         courierBySite: resolveSubmitCourierBySite(freightEstimate, courierBySite),
         ...(inferredFreightZone ? { freightZone: inferredFreightZone } : {}),
-        ...(selectedFreightUsesManualRate
-          && manualFreightAmount != null
-          && Number.isFinite(manualFreightAmount)
-          && manualFreightAmount >= 0
-          ? { manualFreightAmountInr: Math.round(manualFreightAmount * 100) / 100 }
+        ...((
+          (selectedFreightUsesManualRate
+            && manualFreightAmount != null
+            && Number.isFinite(manualFreightAmount)
+            && manualFreightAmount >= 0)
+          || (cartHasSpare && freightSubtotal > 0)
+        )
+          ? {
+              manualFreightAmountInr: Math.round(
+                (
+                  selectedFreightUsesManualRate
+                  && manualFreightAmount != null
+                  && Number.isFinite(manualFreightAmount)
+                    ? manualFreightAmount
+                    : freightSubtotal
+                ) * 100,
+              ) / 100,
+            }
           : {}),
         ...(selectedPartnerIsDelhivery(freightEstimate)
           ? { freightBillingMode }
@@ -1791,6 +1844,16 @@ export const StaffCreateSalesOrderPage: React.FC = () => {
                 <p className="so-freight-expand__alert" role="alert">
                   Non–Customer Pickup: enter freight ₹ (LBH/weight auto-calc or manual) before creating the order.
                 </p>
+              ) : null}
+              {cartHasSpare ? (
+                <SpareFreightPackagingFields
+                  draft={sparePackagingDraft}
+                  definitions={spareBoxDefinitions}
+                  onChange={next => {
+                    setSparePackagingDraft(next);
+                    setManualFreightAmountLocked(false);
+                  }}
+                />
               ) : null}
               {freightEstimate?.usable ? (
                 <>

@@ -52,13 +52,18 @@ import {
   type StCourierQuoteDims,
   type StCourierQuoteResult,
 } from './stCourierQuote';
-import { quoteSpareFreight } from './spareFreightQuote';
+import {
+  quoteSpareFreight,
+  type SpareFreightPackaging,
+} from './spareFreightQuote';
 import {
   isTamilNaduDestination,
   inferStCourierZone,
   stCourierTamilNaduMaxChargeableExceeded,
   type StCourierDestination,
 } from './stCourierZone';
+
+export type { SpareFreightPackaging };
 
 export type StCourierCartLine = {
   productId: string;
@@ -463,6 +468,13 @@ export function estimateStCourierCartFreight(input: {
   blueDartService?: BlueDartServiceId;
   /** Invoice / cargo value for FOV. */
   invoiceValueInr?: number;
+  /**
+   * Staff box / custom LBH + weight for spare freight.
+   * When `requireSparePackaging` is true, spare quotes stay ₹0 until complete.
+   */
+  sparePackaging?: SpareFreightPackaging | null;
+  /** Staff SO freight: do not fall back to 1 kg flat for spares. */
+  requireSparePackaging?: boolean;
 }): StCourierCartFreightEstimate | null {
   const inferredZone = inferStCourierZone(input.destination);
   if (!inferredZone) return null;
@@ -565,6 +577,8 @@ export function estimateStCourierCartFreight(input: {
         destination: input.destination,
         rates: input.rates,
         pin: input.blueDartPin,
+        packaging: input.sparePackaging,
+        requirePackaging: input.requireSparePackaging,
       }).totalInr;
     };
 
@@ -898,9 +912,18 @@ export function estimateStCourierCartFreight(input: {
         destination: input.destination,
         rates: input.rates,
         pin: input.blueDartPin,
+        packaging: input.sparePackaging,
+        requirePackaging: input.requireSparePackaging,
       })
       : null;
     const spareFreightInr = spareQuote?.totalInr ?? 0;
+    const spareChargeableKg = spareQuote?.chargeableKg ?? 0;
+    const spareHasDims = Boolean(
+      spareQuote
+      && (spareQuote.lengthCm ?? 0) > 0
+      && (spareQuote.widthCm ?? 0) > 0
+      && (spareQuote.heightCm ?? 0) > 0,
+    );
 
     // One row per site: all spare names against the auto spare freight charge.
     if (acc.spareLines.length > 0) {
@@ -909,6 +932,8 @@ export function estimateStCourierCartFreight(input: {
         return label || 'Spare';
       });
       const quantity = acc.spareLines.reduce((sum, spare) => sum + Math.max(0, Number(spare.quantity) || 0), 0);
+      const spareActualKg = spareQuote?.actualKg ?? 0;
+      const spareVolumetricKg = spareQuote?.volumetricKg ?? 0;
       lineBreakdowns.push({
         productId: acc.spareLines[0].productId,
         sku: null,
@@ -916,13 +941,30 @@ export function estimateStCourierCartFreight(input: {
         itemNames,
         quantity,
         masterCartonCount: 0,
-        singleBoxCount: 0,
+        singleBoxCount: spareHasDims ? 1 : 0,
         missingUnits: 0,
-        chargeableKg: spareQuote?.chargeableKg ?? 0,
+        chargeableKg: spareChargeableKg,
         amountInr: spareFreightInr,
         indication: 'spare_default',
+        actualKg: spareActualKg,
+        volumetricKg: spareVolumetricKg,
         boxPerKgInr: spareQuote?.perKgInr,
         fuelSurchargePercent: spareQuote?.fuelSurchargePercent,
+        parcelGroups: spareHasDims
+          ? [{
+              kind: 'single_box' as const,
+              count: 1,
+              lengthCm: spareQuote!.lengthCm!,
+              breadthCm: spareQuote!.widthCm!,
+              heightCm: spareQuote!.heightCm!,
+              actualKgEach: spareActualKg,
+              volumetricKgEach: spareVolumetricKg,
+              chargeableKgEach: spareChargeableKg,
+              actualKgTotal: spareActualKg,
+              volumetricKgTotal: spareVolumetricKg,
+              chargeableKgTotal: spareChargeableKg,
+            }]
+          : undefined,
       });
     }
 
@@ -930,6 +972,8 @@ export function estimateStCourierCartFreight(input: {
     if (isPickup) indications.push('Customer pickup — no freight');
     if (spareFreightInr > 0) {
       indications.push(`Spare freight ₹${spareFreightInr.toLocaleString('en-IN')}`);
+    } else if (hasSpare && !isPickup && spareQuote?.needsPackaging) {
+      indications.push('Spare freight — select a box or enter L×B×H and weight');
     } else if (hasSpare && !isPickup && spareQuote?.skipped) {
       indications.push('Spare freight — enter ₹ manually for this partner');
     } else if (hasSpare && !isPickup && spareQuote?.rateMissing) {
@@ -979,8 +1023,8 @@ export function estimateStCourierCartFreight(input: {
       productFreightInr: totalProductFreight,
       spareFreightInr,
       totalInr: ceilCourierChargeInr(totalProductFreight + spareFreightInr),
-      chargeableKg: totalProductChargeable,
-      parcelCount: allParcels.length,
+      chargeableKg: totalProductChargeable + spareChargeableKg,
+      parcelCount: allParcels.length + (spareHasDims ? 1 : 0),
       rateMissing,
       indications: [...new Set(indications)],
     });
