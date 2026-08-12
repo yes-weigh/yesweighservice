@@ -16,7 +16,7 @@ import { MultiSalesOrderSuccess } from '../../components/salesOrders/MultiSalesO
 import { useAuth } from '../../context/AuthContext';
 import { CART_REMARKS_MAX_LENGTH } from '../../context/CartProvider';
 import { useCart } from '../../context/useCart';
-import { cartLineBlockedByStock, fetchCatalog, formatCurrency } from '../../lib/catalog';
+import { cartLineIsOutOfStock, fetchCatalog, formatCurrency } from '../../lib/catalog';
 import { productHasLinkedGatc } from '../../lib/gatcCart';
 import {
   dealerOrderErrorMessage,
@@ -449,7 +449,7 @@ const DealerCartPage: React.FC = () => {
           <ul className="orders-page__items">
             {items.map(item => {
               const lineTotal = item.rate * item.quantity;
-              const unavailable = cartLineBlockedByStock(item);
+              const outOfStock = cartLineIsOutOfStock(item);
               const catalogProduct = catalogById[item.productId];
               const canEditStamp = catalogProduct
                 ? productHasLinkedGatc(catalogProduct)
@@ -465,7 +465,7 @@ const DealerCartPage: React.FC = () => {
               return (
                 <li
                   key={item.cartLineId}
-                  className={`orders-page__item panel glass ${unavailable ? 'orders-page__item--unavailable' : ''}`}
+                  className={`orders-page__item panel glass ${outOfStock ? 'orders-page__item--unavailable' : ''}`}
                 >
                   <div className="orders-page__item-media">
                     {item.imageUrl ? (
@@ -556,8 +556,8 @@ const DealerCartPage: React.FC = () => {
                         }}
                       />
                     )}
-                    {unavailable && (
-                      <p className="orders-page__item-warning">Currently out of stock — remove before placing order</p>
+                    {outOfStock && (
+                      <p className="orders-page__item-warning">Currently out of stock — will be fulfilled when available</p>
                     )}
                   </DocumentLineItemSpec>
 
@@ -720,7 +720,6 @@ const DealerCartPage: React.FC = () => {
               || !shipping
               || addressesLoading
               || !freightAdjustAgreed
-              || items.some(cartLineBlockedByStock)
             }
             onClick={() => void handlePlaceOrder()}
           >

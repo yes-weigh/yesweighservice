@@ -182,8 +182,11 @@ export function catalogProductIgnoresStockForCart(
   return false;
 }
 
-/** Whether a cart line should block checkout / show as unavailable. */
-export function cartLineBlockedByStock(line: {
+/**
+ * Whether a cart line is out of stock (for UI hints).
+ * Does not block checkout — dealers may order OOS / backorder lines.
+ */
+export function cartLineIsOutOfStock(line: {
   stockStatus?: string | null;
   hsn?: string | null;
   categoryName?: string | null;
@@ -197,6 +200,11 @@ export function cartLineBlockedByStock(line: {
   }
   if (isSacHsn(line.hsn)) return false;
   return line.stockStatus === 'out_of_stock';
+}
+
+/** @deprecated Use cartLineIsOutOfStock. Checkout is no longer blocked by stock. */
+export function cartLineBlockedByStock(line: Parameters<typeof cartLineIsOutOfStock>[0]): boolean {
+  return cartLineIsOutOfStock(line);
 }
 
 export {

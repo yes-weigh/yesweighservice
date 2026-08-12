@@ -48,7 +48,7 @@ import { initYesOneSalesOrderWorkflow } from './sales-order-workflow.js';
 import { yesOneGatcPersistFields } from './gatc-report.js';
 import { resolveShippingAddressId } from './zoho-contact-addresses.js';
 import { isQuantityExcludedLineItem } from './invoice-category.js';
-import { catalogProductIgnoresStockForCart, effectiveCatalogStockStatus, isSacHsn } from './sac-catalog.js';
+import { effectiveCatalogStockStatus } from './sac-catalog.js';
 import {
   appendWeighingScaleDescription,
   loadWeighingScaleCategoryIdSet,
@@ -356,15 +356,7 @@ async function buildLinesFromInput(rawLines, {
     if (!product || product.status === 'inactive' || (product.hiddenFromCatalog && !isFreight)) {
       throw new HttpsError('failed-precondition', `Product unavailable: ${entry.productId}`);
     }
-    if (product.stockStatus === 'out_of_stock'
-      && !isSacHsn(product.hsn)
-      && !catalogProductIgnoresStockForCart(product)
-      && !isFreight) {
-      throw new HttpsError(
-        'failed-precondition',
-        `${product.name} is out of stock and cannot be ordered.`,
-      );
-    }
+    // Out-of-stock lines are allowed (backorder); same as staff SO draft edits.
 
     const gatc = resolveGatcFeeForProduct(product, entry.gatcStampingPriceId, gatcMap);
     const catalogBase = Math.round((Number(product.rate) || 0) * 100) / 100;

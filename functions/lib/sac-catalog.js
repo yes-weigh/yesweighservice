@@ -16,10 +16,16 @@ export function catalogProductIgnoresStockForCart(product) {
   return isSoftwareKeysCategoryName(product?.categoryName);
 }
 
-export function cartLineBlockedByStock(line) {
+/** UI hint only — dealers may order OOS / backorder lines. */
+export function cartLineIsOutOfStock(line) {
   if (catalogProductIgnoresStockForCart(line)) return false;
   if (isSacHsn(line.hsn)) return false;
   return line.stockStatus === 'out_of_stock';
+}
+
+/** @deprecated Use cartLineIsOutOfStock. Checkout is no longer blocked by stock. */
+export function cartLineBlockedByStock(line) {
+  return cartLineIsOutOfStock(line);
 }
 
 export function effectiveCatalogStockStatus(stockStatus, hsn) {
