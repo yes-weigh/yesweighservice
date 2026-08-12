@@ -142,6 +142,10 @@ export type OrderCourierOption = {
   liveApiRate?: boolean;
   /** Quoted freight ₹ for this partner at this ship-from (set by cart estimate). */
   estimatedTotalInr?: number;
+  /** Spare / parcel volumetric kg for this partner quote (when packaging known). */
+  estimatedVolumetricKg?: number;
+  /** Spare / parcel chargeable kg for this partner quote. */
+  estimatedChargeableKg?: number;
   /**
    * Delhivery split options: prepaid (BTC) vs to-pay (FOD).
    * Same partnerId; selection also sets freight billing mode.

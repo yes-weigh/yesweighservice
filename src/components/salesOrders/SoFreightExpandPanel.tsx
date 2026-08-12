@@ -4,6 +4,11 @@ import { DecimalAmountInput } from '../DecimalAmountInput';
 import { OrderFreightPanel } from '../orders/OrderFreightPanel';
 import type { LogisticsPartnerId } from '../../constants/logisticsPartners';
 import {
+  blueDartServiceForPartner,
+  isBlueDartLogisticsPartnerId,
+  isTrackonLogisticsPartnerId,
+} from '../../constants/logisticsPartners';
+import {
   FREIGHT_LINE_OPTIONS,
   freightOptionByProductId,
   freightOptionBySku,
@@ -40,10 +45,11 @@ import type { StaffLogisticsSite } from '../../types/staff-logistics';
 import { isFreightDraftEditLine, withFreightDraftLinesLast } from './SalesOrderDraftLineEditor';
 import type { DraftEditLine } from './SalesOrderDraftLineEditor';
 import {
-  EMPTY_SPARE_FREIGHT_PACKAGING_DRAFT,
+  createEmptySpareFreightPackagingDraft,
   SpareFreightPackagingFields,
-  spareFreightPackagingFromDraft,
+  spareFreightPackagingsFromDrafts,
   type SpareFreightPackagingDraft,
+  type SpareFreightPartnerQuoteNote,
 } from './SpareFreightPackagingFields';
 
 function freightDraftLine(sku: FreightLineSku, rate: number): DraftEditLine {
@@ -113,8 +119,8 @@ export const SoFreightExpandPanel: React.FC<Props> = ({
   const [deliveryRules, setDeliveryRules] = useState<LogisticsDeliveryRulesMatrix | null>(null);
   const [partnerStatuses, setPartnerStatuses] = useState<LogisticsPartnerStatuses | null>(null);
   const [spareBoxDefinitions, setSpareBoxDefinitions] = useState<SpareBoxDefinition[]>([]);
-  const [sparePackagingDraft, setSparePackagingDraft] = useState<SpareFreightPackagingDraft>(
-    EMPTY_SPARE_FREIGHT_PACKAGING_DRAFT,
+  const [sparePackagingDrafts, setSparePackagingDrafts] = useState<SpareFreightPackagingDraft[]>(
+    () => [createEmptySpareFreightPackagingDraft()],
   );
   const [courierBySite, setCourierBySite] = useState<Partial<Record<InventorySite, LogisticsPartnerId>>>({});
   const [fromAddresses, setFromAddresses] = useState<Partial<Record<StaffLogisticsSite, string>>>({});
@@ -212,8 +218,8 @@ export const SoFreightExpandPanel: React.FC<Props> = ({
   );
 
   const sparePackaging = useMemo(
-    () => (cartHasSpare ? spareFreightPackagingFromDraft(sparePackagingDraft) : null),
-    [cartHasSpare, sparePackagingDraft],
+    () => (cartHasSpare ? spareFreightPackagingsFromDrafts(sparePackagingDrafts) : null),
+    [cartHasSpare, sparePackagingDrafts],
   );
 
   const freightEstimateBase = useMemo((): StCourierCartFreightEstimate | null => {
@@ -255,6 +261,42 @@ export const SoFreightExpandPanel: React.FC<Props> = ({
   });
 
   const freightEstimate = delhiveryLive.estimateWithLive ?? freightEstimateBase;
+
+  const spareVolumetricDivisor = useMemo(() => {
+    if (!courierRates) return 5000;
+    const site = freightEstimateBase?.sites[0];
+    const partnerId = site?.partnerId;
+    if (!partnerId || isPickupPartner(partnerId)) return 5000;
+    if (isBlueDartLogisticsPartnerId(partnerId)) {
+      const service = blueDartServiceForPartner(partnerId) ?? 'domestic_priority';
+      if (service === 'domestic_priority') {
+        return Number(courierRates.bluedart.domestic_priority.volumetricDivisor) || 5000;
+      }
+      return Number(courierRates.bluedart[service].volumetricDivisor) || 5000;
+    }
+    if (isTrackonLogisticsPartnerId(partnerId)) {
+      return Number(courierRates.trackon.shared.volumetricDivisor) || 5000;
+    }
+    const origin = partnerId === 'delhivery'
+      ? courierRates.delhivery
+      : courierRates.st_courier[site?.site ?? 'head_office'];
+    return Number(origin?.volumetricDivisor) || 4500;
+  }, [courierRates, freightEstimateBase]);
+
+  const sparePartnerQuotes = useMemo((): SpareFreightPartnerQuoteNote[] => {
+    const site = freightEstimateBase?.sites[0];
+    if (!site?.hasSpare) return [];
+    return site.courierOptions
+      .filter(opt => !isPickupPartner(opt.partnerId))
+      .map(opt => ({
+        partnerId: opt.partnerId,
+        label: opt.label,
+        amountInr: Number(opt.estimatedTotalInr) || 0,
+        volumetricKg: opt.estimatedVolumetricKg ?? null,
+        chargeableKg: opt.estimatedChargeableKg ?? null,
+        enabled: opt.enabled,
+      }));
+  }, [freightEstimateBase]);
 
   const applyFreight = (sku: string | null, amountRaw: string) => {
     const withoutFreight = lines.filter(line => !isFreightDraftEditLine(line));
@@ -382,18 +424,20 @@ export const SoFreightExpandPanel: React.FC<Props> = ({
         <p className="so-freight-expand__alert" role="alert">
           <AlertTriangle size={15} aria-hidden />
           <span>
-            Non–Customer Pickup: enter freight data (LBH / weight for auto calc, or freight ₹)
+            Non–Customer Pickup: enter freight data (box / L×B×H for auto calc, or freight ₹)
             before confirming this sales order.
           </span>
         </p>
       ) : null}
       {cartHasSpare && !disabled ? (
         <SpareFreightPackagingFields
-          draft={sparePackagingDraft}
+          drafts={sparePackagingDrafts}
           definitions={spareBoxDefinitions}
           disabled={disabled}
+          volumetricDivisor={spareVolumetricDivisor}
+          partnerQuotes={sparePartnerQuotes}
           onChange={next => {
-            setSparePackagingDraft(next);
+            setSparePackagingDrafts(next);
             setFreightAmountManual(false);
             lastAutoKeyRef.current = '';
           }}

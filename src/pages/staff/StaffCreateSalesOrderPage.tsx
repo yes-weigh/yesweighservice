@@ -49,11 +49,18 @@ import {
 import type { StaffLogisticsSite } from '../../types/staff-logistics';
 import type { SpareBoxDefinition } from '../../types/spare-box-definitions';
 import {
-  EMPTY_SPARE_FREIGHT_PACKAGING_DRAFT,
+  createEmptySpareFreightPackagingDraft,
   SpareFreightPackagingFields,
-  spareFreightPackagingFromDraft,
+  spareFreightPackagingsFromDrafts,
   type SpareFreightPackagingDraft,
+  type SpareFreightPartnerQuoteNote,
 } from '../../components/salesOrders/SpareFreightPackagingFields';
+import {
+  blueDartServiceForPartner,
+  isBlueDartLogisticsPartnerId,
+  isTrackonLogisticsPartnerId,
+} from '../../constants/logisticsPartners';
+import { isPickupPartner } from '../../lib/orderFreight';
 import {
   fetchPendingFreightDiff,
   formatPendingFreightAdjustLabel,
@@ -315,8 +322,8 @@ export const StaffCreateSalesOrderPage: React.FC = () => {
   const [deliveryRules, setDeliveryRules] = useState<LogisticsDeliveryRulesMatrix | null>(null);
   const [partnerStatuses, setPartnerStatuses] = useState<LogisticsPartnerStatuses | null>(null);
   const [spareBoxDefinitions, setSpareBoxDefinitions] = useState<SpareBoxDefinition[]>([]);
-  const [sparePackagingDraft, setSparePackagingDraft] = useState<SpareFreightPackagingDraft>(
-    EMPTY_SPARE_FREIGHT_PACKAGING_DRAFT,
+  const [sparePackagingDrafts, setSparePackagingDrafts] = useState<SpareFreightPackagingDraft[]>(
+    () => [createEmptySpareFreightPackagingDraft()],
   );
   const [courierBySite, setCourierBySite] = useState<Partial<Record<InventorySite, LogisticsPartnerId>>>({});
   const [manualFreightAmount, setManualFreightAmount] = useState<number | null>(null);
@@ -532,7 +539,7 @@ export const StaffCreateSalesOrderPage: React.FC = () => {
       }) === 'spare';
     });
     const sparePackaging = cartHasSpare
-      ? spareFreightPackagingFromDraft(sparePackagingDraft)
+      ? spareFreightPackagingsFromDrafts(sparePackagingDrafts)
       : null;
     return estimateStCourierCartFreight({
       lines: cartLinesForFreightEstimate(lines, catalogById),
@@ -557,7 +564,7 @@ export const StaffCreateSalesOrderPage: React.FC = () => {
     courierBySite,
     inferredFreightZone,
     blueDartPin,
-    sparePackagingDraft,
+    sparePackagingDrafts,
   ]);
 
   const goodsSubtotalForDelhivery = useMemo(
@@ -575,6 +582,42 @@ export const StaffCreateSalesOrderPage: React.FC = () => {
   });
 
   const freightEstimate = delhiveryLive.estimateWithLive ?? freightEstimateBase;
+
+  const spareVolumetricDivisor = useMemo(() => {
+    if (!courierRates) return 5000;
+    const site = freightEstimateBase?.sites[0];
+    const partnerId = site?.partnerId;
+    if (!partnerId || isPickupPartner(partnerId)) return 5000;
+    if (isBlueDartLogisticsPartnerId(partnerId)) {
+      const service = blueDartServiceForPartner(partnerId) ?? 'domestic_priority';
+      if (service === 'domestic_priority') {
+        return Number(courierRates.bluedart.domestic_priority.volumetricDivisor) || 5000;
+      }
+      return Number(courierRates.bluedart[service].volumetricDivisor) || 5000;
+    }
+    if (isTrackonLogisticsPartnerId(partnerId)) {
+      return Number(courierRates.trackon.shared.volumetricDivisor) || 5000;
+    }
+    const origin = partnerId === 'delhivery'
+      ? courierRates.delhivery
+      : courierRates.st_courier[site?.site ?? 'head_office'];
+    return Number(origin?.volumetricDivisor) || 4500;
+  }, [courierRates, freightEstimateBase]);
+
+  const sparePartnerQuotes = useMemo((): SpareFreightPartnerQuoteNote[] => {
+    const site = freightEstimateBase?.sites[0];
+    if (!site?.hasSpare) return [];
+    return site.courierOptions
+      .filter(opt => !isPickupPartner(opt.partnerId))
+      .map(opt => ({
+        partnerId: opt.partnerId,
+        label: opt.label,
+        amountInr: Number(opt.estimatedTotalInr) || 0,
+        volumetricKg: opt.estimatedVolumetricKg ?? null,
+        chargeableKg: opt.estimatedChargeableKg ?? null,
+        enabled: opt.enabled,
+      }));
+  }, [freightEstimateBase]);
 
   useEffect(() => {
     if (!selectedPartnerIsDelhivery(freightEstimate)) return;
@@ -1847,10 +1890,12 @@ export const StaffCreateSalesOrderPage: React.FC = () => {
               ) : null}
               {cartHasSpare ? (
                 <SpareFreightPackagingFields
-                  draft={sparePackagingDraft}
+                  drafts={sparePackagingDrafts}
                   definitions={spareBoxDefinitions}
+                  volumetricDivisor={spareVolumetricDivisor}
+                  partnerQuotes={sparePartnerQuotes}
                   onChange={next => {
-                    setSparePackagingDraft(next);
+                    setSparePackagingDrafts(next);
                     setManualFreightAmountLocked(false);
                   }}
                 />

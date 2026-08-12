@@ -107,4 +107,9 @@ export interface DealerUnitPrice {
   itemOverride: boolean;
   /** Qty slabs for dealer display (empty when none). chargeRate is for the requested qty. */
   slabs: PriceLevelQtySlab[];
+  /**
+   * Directors club SKUs: catalog note that slab qty is shared across these SKUs.
+   * Null when not applicable.
+   */
+  directorsQtyClubLabel?: string | null;
 }

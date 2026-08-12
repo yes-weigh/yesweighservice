@@ -10,7 +10,9 @@ export type DealerPriceLevelContextValue = {
   /** Category ids hidden for this dealer’s price level (empty when none / not a dealer). */
   restrictedCategoryIds: ReadonlySet<string>;
   resolveProductPrice: (
-    product: Pick<CatalogProduct, 'id' | 'rate' | 'categoryId' | 'categoryName'> | null | undefined,
+    product: Pick<CatalogProduct, 'id' | 'rate' | 'categoryId' | 'categoryName'> & {
+      sku?: string | null;
+    } | null | undefined,
   ) => DealerUnitPrice | null;
   isProductVisible: (
     product: Pick<CatalogProduct, 'categoryId' | 'categoryName'> | null | undefined,

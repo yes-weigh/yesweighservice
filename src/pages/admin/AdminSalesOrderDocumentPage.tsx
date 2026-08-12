@@ -451,7 +451,7 @@ export const AdminSalesOrderDocumentPage: React.FC = () => {
       return 'Non–Customer Pickup: enter freight ₹ (use LBH/weight auto-calc or type the amount).';
     }
     if (!freight && salesOrder?.salesOrderCategory === 'spare') {
-      return 'Spare order: set logistics partner + freight from LBH/weight (or Customer Pickup). Dealer freight is updated by staff.';
+      return 'Spare order: set logistics partner + freight from box / L×B×H (or Customer Pickup). Dealer freight is updated by staff.';
     }
     return null;
   }, [isOps, allowFreightEdit, editLines, salesOrder?.salesOrderCategory]);

@@ -1,7 +1,7 @@
 /**
  * Spare freight quoting.
  * Default (dealer / no packaging): 1 kg billable flat.
- * Staff packaging: actual kg + L×B×H → partner chargeable stack.
+ * Staff packaging: one or more boxes (actual kg + L×B×H) → partner chargeable stack.
  */
 import type { LogisticsPartnerId } from '../constants/logisticsPartners';
 import {
@@ -31,6 +31,15 @@ export type SpareFreightPackaging = {
   boxDefinitionId?: string | null;
 };
 
+export type SpareFreightParcelDetail = {
+  lengthCm: number;
+  widthCm: number;
+  heightCm: number;
+  actualKg: number;
+  volumetricKg: number;
+  chargeableKg: number;
+};
+
 export type SpareFreightQuoteResult = {
   totalInr: number;
   chargeableKg: number;
@@ -47,18 +56,47 @@ export type SpareFreightQuoteResult = {
   lengthCm?: number;
   widthCm?: number;
   heightCm?: number;
+  boxCount?: number;
+  parcels?: SpareFreightParcelDetail[];
 };
 
 export function sparePackagingIsComplete(
   packaging: SpareFreightPackaging | null | undefined,
 ): boolean {
   if (!packaging) return false;
+  // Weight optional — volumetric from L×B×H is used when actual kg is blank.
   return (
     packaging.lengthCm > 0
     && packaging.widthCm > 0
     && packaging.heightCm > 0
-    && packaging.weightKg > 0
   );
+}
+
+/** Accept one box or many; drop incomplete rows. */
+export function normalizeSparePackagingList(
+  packaging: SpareFreightPackaging | SpareFreightPackaging[] | null | undefined,
+): SpareFreightPackaging[] {
+  if (!packaging) return [];
+  const rows = Array.isArray(packaging) ? packaging : [packaging];
+  return rows.filter(sparePackagingIsComplete);
+}
+
+export function sparePackagingListReady(
+  packaging: SpareFreightPackaging | SpareFreightPackaging[] | null | undefined,
+  requirePackaging?: boolean,
+): { boxes: SpareFreightPackaging[]; incomplete: boolean } {
+  if (!requirePackaging) {
+    const boxes = normalizeSparePackagingList(packaging);
+    return { boxes, incomplete: false };
+  }
+  if (!packaging) {
+    return { boxes: [], incomplete: true };
+  }
+  const rows = Array.isArray(packaging) ? packaging : [packaging];
+  if (!rows.length || !rows.every(sparePackagingIsComplete)) {
+    return { boxes: [], incomplete: true };
+  }
+  return { boxes: rows, incomplete: false };
 }
 
 function emptySpareQuote(flags?: {
@@ -75,55 +113,78 @@ function emptySpareQuote(flags?: {
     skipped: Boolean(flags?.skipped),
     rateMissing: Boolean(flags?.rateMissing),
     needsPackaging: Boolean(flags?.needsPackaging),
+    boxCount: 0,
+    parcels: [],
   };
 }
 
-function resolveBillable(input: {
-  packaging?: SpareFreightPackaging | null;
-  requirePackaging?: boolean;
-  volumetricDivisor?: number;
-}): {
+function billableForBox(
+  box: SpareFreightPackaging,
+  volumetricDivisor: number,
+): SpareFreightParcelDetail {
+  const divisor = volumetricDivisor > 0 ? volumetricDivisor : 5000;
+  const volumetricKg = (box.lengthCm * box.widthCm * box.heightCm) / divisor;
+  const actualKg = box.weightKg > 0 ? box.weightKg : 0;
+  // Missing actual weight → chargeable defaults to volumetric.
+  const chargeableKg = ceilChargeableKg(Math.max(actualKg, volumetricKg));
+  return {
+    lengthCm: box.lengthCm,
+    widthCm: box.widthCm,
+    heightCm: box.heightCm,
+    actualKg,
+    volumetricKg,
+    chargeableKg,
+  };
+}
+
+function aggregateParcels(parcels: SpareFreightParcelDetail[]): {
   actualKg: number;
   volumetricKg: number;
   chargeableKg: number;
   dims: { lengthCm: number; widthCm: number; heightCm: number };
-  incomplete: boolean;
 } {
-  const packaging = input.packaging;
-  if (input.requirePackaging && !sparePackagingIsComplete(packaging)) {
-    return {
-      actualKg: 0,
-      volumetricKg: 0,
-      chargeableKg: 0,
-      dims: { lengthCm: 0, widthCm: 0, heightCm: 0 },
-      incomplete: true,
-    };
-  }
-  if (sparePackagingIsComplete(packaging)) {
-    const lengthCm = packaging!.lengthCm;
-    const widthCm = packaging!.widthCm;
-    const heightCm = packaging!.heightCm;
-    const actualKg = packaging!.weightKg;
-    const divisor = input.volumetricDivisor && input.volumetricDivisor > 0
-      ? input.volumetricDivisor
-      : 5000;
-    const volumetricKg = (lengthCm * widthCm * heightCm) / divisor;
-    const chargeableKg = ceilChargeableKg(Math.max(actualKg, volumetricKg));
-    return {
-      actualKg,
-      volumetricKg,
-      chargeableKg,
-      dims: { lengthCm, widthCm, heightCm },
-      incomplete: false,
-    };
-  }
+  const actualKg = parcels.reduce((sum, row) => sum + row.actualKg, 0);
+  const volumetricKg = parcels.reduce((sum, row) => sum + row.volumetricKg, 0);
+  const chargeableKg = parcels.reduce((sum, row) => sum + row.chargeableKg, 0);
+  const first = parcels[0];
   return {
+    actualKg,
+    volumetricKg,
+    chargeableKg,
+    dims: first
+      ? { lengthCm: first.lengthCm, widthCm: first.widthCm, heightCm: first.heightCm }
+      : { lengthCm: 0, widthCm: 0, heightCm: 0 },
+  };
+}
+
+function defaultOneKgParcel(): SpareFreightParcelDetail {
+  return {
+    lengthCm: 0,
+    widthCm: 0,
+    heightCm: 0,
     actualKg: SPARE_FREIGHT_BILLABLE_KG,
     volumetricKg: 0,
     chargeableKg: SPARE_FREIGHT_BILLABLE_KG,
-    dims: { lengthCm: 0, widthCm: 0, heightCm: 0 },
-    incomplete: false,
   };
+}
+
+function resolveParcels(input: {
+  packaging?: SpareFreightPackaging | SpareFreightPackaging[] | null;
+  requirePackaging?: boolean;
+  volumetricDivisor?: number;
+}): { parcels: SpareFreightParcelDetail[]; incomplete: boolean } {
+  const ready = sparePackagingListReady(input.packaging, input.requirePackaging);
+  if (ready.incomplete) {
+    return { parcels: [], incomplete: true };
+  }
+  if (ready.boxes.length > 0) {
+    const divisor = Number(input.volumetricDivisor) || 5000;
+    return {
+      parcels: ready.boxes.map(box => billableForBox(box, divisor)),
+      incomplete: false,
+    };
+  }
+  return { parcels: [defaultOneKgParcel()], incomplete: false };
 }
 
 function originRatesForPartner(
@@ -139,43 +200,48 @@ function originRatesForPartner(
 function quoteStStyleSpare(input: {
   originRates: StCourierOriginRates;
   zone: StCourierZone;
-  packaging?: SpareFreightPackaging | null;
+  packaging?: SpareFreightPackaging | SpareFreightPackaging[] | null;
   requirePackaging?: boolean;
 }): SpareFreightQuoteResult {
-  const billable = resolveBillable({
+  const resolved = resolveParcels({
     packaging: input.packaging,
     requirePackaging: input.requirePackaging,
     volumetricDivisor: Number(input.originRates.volumetricDivisor) || 4500,
   });
-  if (billable.incomplete) {
+  if (resolved.incomplete) {
     return emptySpareQuote({ needsPackaging: true, rateMissing: true });
   }
+  const agg = aggregateParcels(resolved.parcels);
   const boxPerKgInr = Number(input.originRates.zones[input.zone]?.boxPerKgInr) || 0;
   if (!(boxPerKgInr > 0)) {
     return {
       ...emptySpareQuote({ rateMissing: true }),
-      chargeableKg: billable.chargeableKg,
+      chargeableKg: agg.chargeableKg,
       perKgInr: 0,
       fuelSurchargePercent: Number(input.originRates.fuelSurchargePercent) || 0,
-      actualKg: billable.actualKg,
-      volumetricKg: billable.volumetricKg,
-      ...billable.dims,
+      actualKg: agg.actualKg,
+      volumetricKg: agg.volumetricKg,
+      ...agg.dims,
+      boxCount: resolved.parcels.length,
+      parcels: resolved.parcels,
     };
   }
   const fuelSurchargePercent = Number(input.originRates.fuelSurchargePercent) || 0;
-  const freightInr = boxPerKgInr * billable.chargeableKg;
+  const freightInr = boxPerKgInr * agg.chargeableKg;
   const fuelSurchargeInr = freightInr * (fuelSurchargePercent / 100);
   return {
     totalInr: ceilCourierChargeInr(freightInr + fuelSurchargeInr),
-    chargeableKg: billable.chargeableKg,
+    chargeableKg: agg.chargeableKg,
     perKgInr: boxPerKgInr,
     fuelSurchargePercent,
     fuelSurchargeInr,
     skipped: false,
     rateMissing: false,
-    actualKg: billable.actualKg,
-    volumetricKg: billable.volumetricKg,
-    ...billable.dims,
+    actualKg: agg.actualKg,
+    volumetricKg: agg.volumetricKg,
+    ...agg.dims,
+    boxCount: resolved.parcels.length,
+    parcels: resolved.parcels,
   };
 }
 
@@ -183,45 +249,63 @@ function quoteBlueDartDomesticPrioritySpare(input: {
   rates: LogisticsCourierRates;
   destination: StCourierDestination | null | undefined;
   pin?: BlueDartPincodeDoc | null;
-  packaging?: SpareFreightPackaging | null;
+  packaging?: SpareFreightPackaging | SpareFreightPackaging[] | null;
   requirePackaging?: boolean;
 }): SpareFreightQuoteResult {
-  if (input.requirePackaging && !sparePackagingIsComplete(input.packaging)) {
+  const ready = sparePackagingListReady(input.packaging, input.requirePackaging);
+  if (ready.incomplete) {
     return emptySpareQuote({ needsPackaging: true, rateMissing: true });
   }
-  const actualKg = sparePackagingIsComplete(input.packaging)
-    ? input.packaging!.weightKg
-    : SPARE_FREIGHT_BILLABLE_KG;
-  const dims = sparePackagingIsComplete(input.packaging)
-    ? {
-        lengthCm: input.packaging!.lengthCm,
-        widthCm: input.packaging!.widthCm,
-        heightCm: input.packaging!.heightCm,
-      }
-    : { lengthCm: 0, widthCm: 0, heightCm: 0 };
+  const parcels = ready.boxes.length > 0
+    ? ready.boxes.map(box => ({
+        actualKg: box.weightKg,
+        dims: {
+          lengthCm: box.lengthCm,
+          widthCm: box.widthCm,
+          heightCm: box.heightCm,
+        },
+      }))
+    : [{
+        actualKg: SPARE_FREIGHT_BILLABLE_KG,
+        dims: { lengthCm: 0, widthCm: 0, heightCm: 0 },
+      }];
   const quoted = quoteBlueDartParcels({
     config: input.rates.bluedart,
     service: 'domestic_priority',
     destState: input.destination?.state,
     pin: input.pin ?? null,
-    parcels: [{ actualKg, dims }],
+    parcels,
   });
+  const detailParcels = ready.boxes.length > 0
+    ? ready.boxes.map(box => billableForBox(
+      box,
+      Number(input.rates.bluedart.domestic_priority.volumetricDivisor) || 5000,
+    ))
+    : [defaultOneKgParcel()];
+  const first = detailParcels[0];
+  const dims = first && first.lengthCm > 0
+    ? { lengthCm: first.lengthCm, widthCm: first.widthCm, heightCm: first.heightCm }
+    : { lengthCm: 0, widthCm: 0, heightCm: 0 };
   if (quoted.notServiceable) {
     return {
       ...emptySpareQuote({ rateMissing: true }),
       chargeableKg: quoted.chargeableKg || 0,
       ...dims,
-      actualKg,
+      actualKg: quoted.actualKg,
       volumetricKg: quoted.volumetricKg,
+      boxCount: detailParcels.length,
+      parcels: detailParcels,
     };
   }
   if (quoted.rateMissing) {
     return {
       ...emptySpareQuote({ rateMissing: true }),
-      chargeableKg: quoted.chargeableKg || actualKg,
+      chargeableKg: quoted.chargeableKg || 0,
       ...dims,
-      actualKg,
+      actualKg: quoted.actualKg,
       volumetricKg: quoted.volumetricKg,
+      boxCount: detailParcels.length,
+      parcels: detailParcels,
     };
   }
   const fuelSurchargePercent = Number(input.rates.bluedart.domestic_priority.fuelSurchargePercent) || 0;
@@ -238,6 +322,8 @@ function quoteBlueDartDomesticPrioritySpare(input: {
     actualKg: quoted.actualKg,
     volumetricKg: quoted.volumetricKg,
     ...dims,
+    boxCount: detailParcels.length,
+    parcels: detailParcels,
   };
 }
 
@@ -246,7 +332,7 @@ function quoteBlueDartSimpleSpare(input: {
   partnerId: LogisticsPartnerId;
   destination: StCourierDestination | null | undefined;
   pin?: BlueDartPincodeDoc | null;
-  packaging?: SpareFreightPackaging | null;
+  packaging?: SpareFreightPackaging | SpareFreightPackaging[] | null;
   requirePackaging?: boolean;
 }): SpareFreightQuoteResult {
   const service = blueDartServiceForPartner(input.partnerId);
@@ -256,14 +342,15 @@ function quoteBlueDartSimpleSpare(input: {
   if (service === 'domestic_priority') {
     return quoteBlueDartDomesticPrioritySpare(input);
   }
-  if (input.requirePackaging && !sparePackagingIsComplete(input.packaging)) {
-    return emptySpareQuote({ needsPackaging: true, rateMissing: true });
-  }
-  const billable = resolveBillable({
+  const resolved = resolveParcels({
     packaging: input.packaging,
-    requirePackaging: false,
+    requirePackaging: input.requirePackaging,
     volumetricDivisor: Number(input.rates.bluedart[service].volumetricDivisor) || 5000,
   });
+  if (resolved.incomplete) {
+    return emptySpareQuote({ needsPackaging: true, rateMissing: true });
+  }
+  const agg = aggregateParcels(resolved.parcels);
   const zone = resolveBlueDartAirZone({
     shared: input.rates.bluedart.shared,
     destState: input.destination?.state,
@@ -275,52 +362,63 @@ function quoteBlueDartSimpleSpare(input: {
   if (!(perKgInr > 0)) {
     return {
       ...emptySpareQuote({ rateMissing: true }),
-      chargeableKg: billable.chargeableKg,
+      chargeableKg: agg.chargeableKg,
       perKgInr: 0,
-      ...billable.dims,
-      actualKg: billable.actualKg,
-      volumetricKg: billable.volumetricKg,
+      ...agg.dims,
+      actualKg: agg.actualKg,
+      volumetricKg: agg.volumetricKg,
+      boxCount: resolved.parcels.length,
+      parcels: resolved.parcels,
     };
   }
   return {
-    totalInr: ceilCourierChargeInr(perKgInr * billable.chargeableKg),
-    chargeableKg: billable.chargeableKg,
+    totalInr: ceilCourierChargeInr(perKgInr * agg.chargeableKg),
+    chargeableKg: agg.chargeableKg,
     perKgInr,
     fuelSurchargePercent: 0,
     fuelSurchargeInr: 0,
     skipped: false,
     rateMissing: false,
-    ...billable.dims,
-    actualKg: billable.actualKg,
-    volumetricKg: billable.volumetricKg,
+    ...agg.dims,
+    actualKg: agg.actualKg,
+    volumetricKg: agg.volumetricKg,
+    boxCount: resolved.parcels.length,
+    parcels: resolved.parcels,
   };
 }
 
 function quoteTrackonSurfaceSpare(input: {
   rates: LogisticsCourierRates;
   destination: StCourierDestination | null | undefined;
-  packaging?: SpareFreightPackaging | null;
+  packaging?: SpareFreightPackaging | SpareFreightPackaging[] | null;
   requirePackaging?: boolean;
 }): SpareFreightQuoteResult {
-  if (input.requirePackaging && !sparePackagingIsComplete(input.packaging)) {
+  const ready = sparePackagingListReady(input.packaging, input.requirePackaging);
+  if (ready.incomplete) {
     return emptySpareQuote({ needsPackaging: true, rateMissing: true });
   }
-  const parcel = sparePackagingIsComplete(input.packaging)
-    ? {
-        actualKg: input.packaging!.weightKg,
+  const parcels = ready.boxes.length > 0
+    ? ready.boxes.map(box => ({
+        actualKg: box.weightKg,
         dims: {
-          lengthCm: input.packaging!.lengthCm,
-          widthCm: input.packaging!.widthCm,
-          heightCm: input.packaging!.heightCm,
+          lengthCm: box.lengthCm,
+          widthCm: box.widthCm,
+          heightCm: box.heightCm,
         },
-      }
-    : { actualKg: SPARE_FREIGHT_BILLABLE_KG };
+      }))
+    : [{ actualKg: SPARE_FREIGHT_BILLABLE_KG }];
   const quoted = quoteTrackonParcels({
     config: input.rates.trackon,
     service: 'surface',
     destination: input.destination,
-    parcels: [parcel],
+    parcels,
   });
+  const detailParcels = ready.boxes.length > 0
+    ? ready.boxes.map(box => billableForBox(
+      box,
+      Number(input.rates.trackon.shared.volumetricDivisor) || 5000,
+    ))
+    : [defaultOneKgParcel()];
   if (quoted.notServiceable) {
     return emptySpareQuote({ rateMissing: true });
   }
@@ -328,9 +426,12 @@ function quoteTrackonSurfaceSpare(input: {
     return {
       ...emptySpareQuote({ rateMissing: true }),
       chargeableKg: quoted.chargeableKg || 0,
+      boxCount: detailParcels.length,
+      parcels: detailParcels,
     };
   }
   const fuelSurchargePercent = Number(input.rates.trackon.shared.fuelSurchargePercent) || 0;
+  const first = detailParcels[0];
   return {
     totalInr: quoted.totalInr,
     chargeableKg: quoted.chargeableKg,
@@ -341,17 +442,17 @@ function quoteTrackonSurfaceSpare(input: {
     fuelSurchargeInr: quoted.fuelSurchargeInr,
     skipped: false,
     rateMissing: false,
-    actualKg: sparePackagingIsComplete(input.packaging)
-      ? input.packaging!.weightKg
-      : SPARE_FREIGHT_BILLABLE_KG,
+    actualKg: detailParcels.reduce((sum, row) => sum + row.actualKg, 0),
     volumetricKg: quoted.volumetricKg,
-    ...(sparePackagingIsComplete(input.packaging)
+    ...(first && first.lengthCm > 0
       ? {
-          lengthCm: input.packaging!.lengthCm,
-          widthCm: input.packaging!.widthCm,
-          heightCm: input.packaging!.heightCm,
+          lengthCm: first.lengthCm,
+          widthCm: first.widthCm,
+          heightCm: first.heightCm,
         }
       : {}),
+    boxCount: detailParcels.length,
+    parcels: detailParcels,
   };
 }
 
@@ -364,9 +465,9 @@ export function quoteSpareFreight(input: {
   rates: LogisticsCourierRates;
   /** Helps BD Domestic Priority resolve A/B/C outside Kerala. */
   pin?: BlueDartPincodeDoc | null;
-  /** Staff box / custom LBH + weight. */
-  packaging?: SpareFreightPackaging | null;
-  /** When true, refuse to quote until packaging is complete. */
+  /** Staff box(es) / custom LBH + weight. */
+  packaging?: SpareFreightPackaging | SpareFreightPackaging[] | null;
+  /** When true, refuse to quote until every box is complete. */
   requirePackaging?: boolean;
 }): SpareFreightQuoteResult {
   const { partnerId } = input;

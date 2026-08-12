@@ -17,6 +17,10 @@ import { useAuth } from '../../context/AuthContext';
 import { CART_REMARKS_MAX_LENGTH } from '../../context/CartProvider';
 import { useCart } from '../../context/useCart';
 import { cartLineIsOutOfStock, fetchCatalog, formatCurrency } from '../../lib/catalog';
+import {
+  DIRECTORS_QTY_CLUB_LABEL,
+  isDirectorsQtyClubSku,
+} from '../../lib/priceLevels';
 import { productHasLinkedGatc } from '../../lib/gatcCart';
 import {
   dealerOrderErrorMessage,
@@ -545,6 +549,13 @@ const DealerCartPage: React.FC = () => {
                             );
                           })}
                         </ul>
+                      ) : null}
+                      {isDirectorsQtyClubSku(item.sku)
+                        && item.priceLevelSlabs
+                        && item.priceLevelSlabs.length > 1 ? (
+                        <p className="orders-page__item-club-note">
+                          {DIRECTORS_QTY_CLUB_LABEL}
+                        </p>
                       ) : null}
                     </div>
                     {item.gatcFeePerUnit > 0 ? (

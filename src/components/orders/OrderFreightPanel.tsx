@@ -368,6 +368,24 @@ function CourierOptionCard({
           <em>{showManualInput ? 'Enter freight ₹' : 'Enter ₹ on sales order'}</em>
         ) : null}
         {!opt.enabled && opt.disabledReason ? <em>{opt.disabledReason}</em> : null}
+        {opt.enabled
+          && !opt.manualRate
+          && !hideAmount
+          && ((opt.estimatedVolumetricKg != null && opt.estimatedVolumetricKg > 0)
+            || (opt.estimatedChargeableKg != null && opt.estimatedChargeableKg > 0)
+            || (displayAmount > 0)) ? (
+          <em className="order-freight-panel__courier-note">
+            {[
+              opt.estimatedVolumetricKg != null && opt.estimatedVolumetricKg > 0
+                ? `Vol ${formatKg(opt.estimatedVolumetricKg)} kg`
+                : null,
+              opt.estimatedChargeableKg != null && opt.estimatedChargeableKg > 0
+                ? `Chg ${formatKg(opt.estimatedChargeableKg)} kg`
+                : null,
+              displayAmount > 0 ? formatCurrency(displayAmount) : null,
+            ].filter(Boolean).join(' · ')}
+          </em>
+        ) : null}
       </span>
       {showManualInput ? (
         <span
@@ -516,7 +534,7 @@ function ItemFreightCalcTile({
                   <span>Spare freight</span>
                   <strong>
                     {calc.needsPackage || !(calc.amountInr > 0)
-                      ? 'Enter box or L×B×H + weight'
+                      ? 'Enter box or L×B×H'
                       : 'Quoted'}
                   </strong>
                 </div>

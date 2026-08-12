@@ -27,6 +27,64 @@ export {
   SPARE_PRICE_LEVEL_CATEGORY_NAME,
 };
 
+/**
+ * Directors level: these SKUs share quantity for slab-tier selection.
+ * Each SKU still uses its own slab ₹ rates; clubbed qty picks the tier.
+ */
+export const DIRECTORS_QTY_CLUB_SKUS = ['Q9LBL', 'Q10LBL', 'ECS5W', 'ECS4W'] as const;
+
+const DIRECTORS_QTY_CLUB_SKU_SET = new Set(
+  DIRECTORS_QTY_CLUB_SKUS.map(sku => sku.toUpperCase()),
+);
+
+export const DIRECTORS_QTY_CLUB_LABEL = `Qty shared with ${DIRECTORS_QTY_CLUB_SKUS.join(', ')}`;
+
+export function normalizePriceLevelSku(sku: string | null | undefined): string {
+  return String(sku ?? '').trim().toUpperCase();
+}
+
+export function isDirectorsPriceLevelName(name: string | null | undefined): boolean {
+  return String(name ?? '').trim().toLowerCase() === 'directors';
+}
+
+export function isDirectorsQtyClubSku(sku: string | null | undefined): boolean {
+  const key = normalizePriceLevelSku(sku);
+  return Boolean(key) && DIRECTORS_QTY_CLUB_SKU_SET.has(key);
+}
+
+export function sumDirectorsClubCartQty(
+  lines: Array<{ sku?: string | null; quantity?: number | null }>,
+): number {
+  let sum = 0;
+  for (const line of lines) {
+    if (!isDirectorsQtyClubSku(line.sku)) continue;
+    const qty = Math.floor(Number(line.quantity) || 0);
+    if (qty > 0) sum += qty;
+  }
+  return sum;
+}
+
+/**
+ * Qty used to pick slab tier: clubbed total for Directors club SKUs, else line qty.
+ */
+export function resolveSlabQuantityForDealerPrice(input: {
+  level: Pick<PriceLevel, 'name'> | null | undefined;
+  sku: string | null | undefined;
+  lineQuantity: number;
+  directorsClubQty?: number | null;
+}): number {
+  const lineQty = clampQty(input.lineQuantity);
+  if (
+    input.level
+    && isDirectorsPriceLevelName(input.level.name)
+    && isDirectorsQtyClubSku(input.sku)
+  ) {
+    const club = Math.floor(Number(input.directorsClubQty) || 0);
+    return club > 0 ? club : lineQty;
+  }
+  return lineQty;
+}
+
 export function isSparePriceLevelCategoryId(id: string | null | undefined): boolean {
   return String(id ?? '').trim() === SPARE_PRICE_LEVEL_CATEGORY_ID;
 }
@@ -457,6 +515,7 @@ function nonePrice(
     categoryId,
     itemOverride,
     slabs: [],
+    directorsQtyClubLabel: null,
   };
 }
 
@@ -467,14 +526,23 @@ function applyItemOrCategoryRule(
   productId: string,
   reportCategoryId: string | null,
   quantity: number,
+  sku: string | null = null,
 ): DealerUnitPrice {
   const itemRule = productId
     ? rule.itemRules.find(r => r.productId === productId)
     : undefined;
+  const clubLabel = (
+    isDirectorsPriceLevelName(level.name) && isDirectorsQtyClubSku(sku)
+      ? DIRECTORS_QTY_CLUB_LABEL
+      : null
+  );
 
   if (itemRule) {
     if (itemRule.kind === 'except') {
-      return nonePrice(listRate, level, reportCategoryId, true);
+      return {
+        ...nonePrice(listRate, level, reportCategoryId, true),
+        directorsQtyClubLabel: clubLabel,
+      };
     }
     if (itemRule.kind === 'fixed') {
       const slabs = normalizePriceLevelSlabs(itemRule.slabs);
@@ -492,10 +560,14 @@ function applyItemOrCategoryRule(
         categoryId: reportCategoryId,
         itemOverride: true,
         slabs,
+        directorsQtyClubLabel: clubLabel,
       };
     }
     if (itemRule.percent <= 0) {
-      return nonePrice(listRate, level, reportCategoryId, true);
+      return {
+        ...nonePrice(listRate, level, reportCategoryId, true),
+        directorsQtyClubLabel: clubLabel,
+      };
     }
     return {
       listRate,
@@ -507,11 +579,15 @@ function applyItemOrCategoryRule(
       categoryId: reportCategoryId,
       itemOverride: true,
       slabs: [],
+      directorsQtyClubLabel: clubLabel,
     };
   }
 
   if (rule.percent <= 0) {
-    return nonePrice(listRate, level, reportCategoryId);
+    return {
+      ...nonePrice(listRate, level, reportCategoryId),
+      directorsQtyClubLabel: clubLabel,
+    };
   }
   return {
     listRate,
@@ -523,20 +599,31 @@ function applyItemOrCategoryRule(
     categoryId: reportCategoryId,
     itemOverride: false,
     slabs: [],
+    directorsQtyClubLabel: clubLabel,
   };
 }
 
 export function resolveDealerUnitPrice(
   levels: PriceLevel[],
   dealerId: string | null | undefined,
-  product: Pick<CatalogProduct, 'id' | 'rate' | 'categoryId' | 'categoryName'>,
+  product: Pick<CatalogProduct, 'id' | 'rate' | 'categoryId' | 'categoryName'> & {
+    sku?: string | null;
+  },
   quantity = 1,
+  options?: { directorsClubQty?: number | null },
 ): DealerUnitPrice {
   const listRate = roundMoney(Number(product.rate) || 0);
   const level = findPriceLevelForDealer(levels, dealerId);
   const categoryId = String(product.categoryId ?? '').trim() || null;
   const productId = String(product.id ?? '').trim();
-  const qty = clampQty(quantity);
+  const sku = product.sku ?? null;
+  const lineQty = clampQty(quantity);
+  const qty = resolveSlabQuantityForDealerPrice({
+    level,
+    sku,
+    lineQuantity: lineQty,
+    directorsClubQty: options?.directorsClubQty,
+  });
   if (!level) {
     return nonePrice(listRate, null, categoryId);
   }
@@ -555,6 +642,7 @@ export function resolveDealerUnitPrice(
       productId,
       SPARE_PRICE_LEVEL_CATEGORY_ID,
       qty,
+      sku,
     );
     // Spare bucket decided a non-list charge, or an explicit item override.
     if (priced.itemOverride || priced.mode !== 'none') {
@@ -564,14 +652,88 @@ export function resolveDealerUnitPrice(
 
   // Legacy: rules stored on the Zoho Generic Spare Parts category id.
   if (useSpareBucket && categoryRule && categoryId) {
-    return applyItemOrCategoryRule(listRate, level, categoryRule, productId, categoryId, qty);
+    return applyItemOrCategoryRule(listRate, level, categoryRule, productId, categoryId, qty, sku);
   }
 
   if (!useSpareBucket && categoryRule && categoryId) {
-    return applyItemOrCategoryRule(listRate, level, categoryRule, productId, categoryId, qty);
+    return applyItemOrCategoryRule(listRate, level, categoryRule, productId, categoryId, qty, sku);
   }
 
-  return nonePrice(listRate, level, categoryId);
+  const base = nonePrice(listRate, level, categoryId);
+  if (isDirectorsPriceLevelName(level.name) && isDirectorsQtyClubSku(sku)) {
+    return { ...base, directorsQtyClubLabel: DIRECTORS_QTY_CLUB_LABEL };
+  }
+  return base;
+}
+
+/** Re-apply dealer price levels across cart lines (Directors club qty aware). */
+export function applyDealerCartPricing<T extends {
+  productId: string;
+  sku?: string | null;
+  quantity: number;
+  baseRate: number;
+  listRate?: number | null;
+  categoryId?: string | null;
+  categoryName?: string | null;
+  gatcFeePerUnit?: number;
+  priceLevelMode?: DealerUnitPrice['mode'] | null;
+  priceLevelSlabs?: PriceLevelQtySlab[] | null;
+  rate: number;
+}>(
+  items: T[],
+  levels: PriceLevel[],
+  dealerId: string | null | undefined,
+): T[] {
+  if (!dealerId || !items.length) return items;
+  const clubQty = sumDirectorsClubCartQty(items);
+  let changed = false;
+  const next = items.map(item => {
+    const catalogList = item.listRate != null && Number.isFinite(item.listRate)
+      ? item.listRate
+      : item.baseRate;
+    const priced = resolveDealerUnitPrice(
+      levels,
+      dealerId,
+      {
+        id: item.productId,
+        rate: catalogList,
+        categoryId: item.categoryId ?? null,
+        categoryName: item.categoryName ?? null,
+        sku: item.sku ?? null,
+      },
+      item.quantity,
+      { directorsClubQty: clubQty },
+    );
+    const baseRate = priced.chargeRate;
+    const listRate = priced.listRate;
+    const priceLevelMode = priced.mode;
+    const priceLevelSlabs: PriceLevelQtySlab[] | null = priced.slabs.length
+      ? priced.slabs
+      : null;
+    const gatcFee = Number(item.gatcFeePerUnit) || 0;
+    const rate = Math.round((baseRate + gatcFee) * 100) / 100;
+    const slabsKey = JSON.stringify(priceLevelSlabs ?? []);
+    const prevSlabsKey = JSON.stringify(item.priceLevelSlabs ?? []);
+    if (
+      item.baseRate === baseRate
+      && item.listRate === listRate
+      && (item.priceLevelMode ?? null) === priceLevelMode
+      && slabsKey === prevSlabsKey
+      && item.rate === rate
+    ) {
+      return item;
+    }
+    changed = true;
+    return {
+      ...item,
+      baseRate,
+      listRate,
+      priceLevelMode,
+      priceLevelSlabs,
+      rate,
+    };
+  });
+  return changed ? next : items;
 }
 
 export async function loadPriceLevels(): Promise<PriceLevelsDoc> {

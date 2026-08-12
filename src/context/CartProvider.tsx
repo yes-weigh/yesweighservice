@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { combinedCartRate, newCartLineId } from '../lib/gatcCart';
 import {
+  applyDealerCartPricing,
   normalizePriceLevelSlabs,
   resolveDealerUnitPrice,
   subscribePriceLevels,
@@ -187,46 +188,7 @@ export const CartProvider: React.FC<{
   // Re-apply level rules when settings change (cart may have been filled earlier).
   useEffect(() => {
     if (!dealerId) return;
-    setItems(prev => {
-      let changed = false;
-      const next = prev.map(item => {
-        const catalogList = item.listRate != null && Number.isFinite(item.listRate)
-          ? item.listRate
-          : item.baseRate;
-        const priced = resolveDealerUnitPrice(priceLevels, dealerId, {
-          id: item.productId,
-          rate: catalogList,
-          categoryId: item.categoryId ?? null,
-          categoryName: item.categoryName ?? null,
-        }, item.quantity);
-        const baseRate = priced.chargeRate;
-        const listRate = priced.listRate;
-        const priceLevelMode = priced.mode;
-        const priceLevelSlabs: PriceLevelQtySlab[] | null = priced.slabs.length
-          ? priced.slabs
-          : null;
-        const slabsKey = JSON.stringify(priceLevelSlabs ?? []);
-        const prevSlabsKey = JSON.stringify(item.priceLevelSlabs ?? []);
-        if (
-          item.baseRate === baseRate
-          && item.listRate === listRate
-          && (item.priceLevelMode ?? null) === priceLevelMode
-          && slabsKey === prevSlabsKey
-        ) {
-          return item;
-        }
-        changed = true;
-        return {
-          ...item,
-          baseRate,
-          listRate,
-          priceLevelMode,
-          priceLevelSlabs,
-          rate: combinedCartRate(baseRate, item.gatcFeePerUnit),
-        };
-      });
-      return changed ? next : prev;
-    });
+    setItems(prev => applyDealerCartPricing(prev, priceLevels, dealerId));
   }, [dealerId, priceLevels]);
 
   useEffect(() => {
@@ -257,6 +219,7 @@ export const CartProvider: React.FC<{
     let priceLevelMode = opts.priceLevelMode ?? null;
 
     let priceLevelSlabs: PriceLevelQtySlab[] | null = null;
+    // Initial resolve uses line qty only; applyDealerCartPricing below applies club qty.
     if (opts.baseRateOverride == null && dealerId) {
       const priced = resolveDealerUnitPrice(
         priceLevelsRef.current,
@@ -266,7 +229,6 @@ export const CartProvider: React.FC<{
       );
       baseRate = priced.chargeRate;
       priceLevelMode = priced.mode;
-      // Keep catalog list on the line so hike/discount can be re-resolved later.
       listRate = priced.listRate;
       priceLevelSlabs = priced.slabs.length ? priced.slabs : null;
     }
@@ -276,105 +238,83 @@ export const CartProvider: React.FC<{
         item => item.productId === product.id
           && sameGatcKey(item.gatcStampingPriceId, gatcStampingPriceId),
       );
+      let next: CartItem[];
       if (existing) {
         const nextQty = existing.quantity + quantity;
-        let nextBase = baseRate;
-        let nextList = listRate;
-        let nextMode = priceLevelMode;
-        let nextSlabs = priceLevelSlabs;
-        if (opts.baseRateOverride == null && dealerId) {
-          const priced = resolveDealerUnitPrice(
-            priceLevelsRef.current,
-            dealerId,
-            product,
-            nextQty,
-          );
-          nextBase = priced.chargeRate;
-          nextList = priced.listRate;
-          nextMode = priced.mode;
-          nextSlabs = priced.slabs.length ? priced.slabs : null;
-        }
-        return prev.map(item =>
-          item.cartLineId === existing.cartLineId
-            ? {
-                ...item,
-                baseRate: nextBase,
-                listRate: nextList,
-                priceLevelMode: nextMode,
-                priceLevelSlabs: nextSlabs,
-                gatcFeePerUnit,
-                gatcStampingPriceId,
-                gatcStampingRange: gatcStampingPriceId
-                  ? (opts.gatcStampingRange?.trim() || item.gatcStampingRange || null)
-                  : null,
-                rate: combinedCartRate(nextBase, gatcFeePerUnit),
-                stockStatus,
-                hsn: product.hsn ?? item.hsn ?? null,
-                name: product.name,
-                description: product.description?.trim() || item.description || null,
-                sku: product.sku ?? item.sku,
-                quantity: nextQty,
-              }
-            : item,
-        );
-      }
-      const nextItem = cartItemFromProduct(product, quantity, {
-        gatcStampingPriceId,
-        gatcFeePerUnit,
-        gatcStampingRange: opts.gatcStampingRange,
-        baseRateOverride: baseRate,
-        listRate,
-        priceLevelMode,
-        priceLevelSlabs,
-      });
-      const afterId = String(opts.insertAfterCartLineId ?? '').trim();
-      if (afterId) {
-        const afterIndex = prev.findIndex(item => item.cartLineId === afterId);
-        if (afterIndex >= 0) {
-          const next = [...prev];
-          next.splice(afterIndex + 1, 0, nextItem);
-          return next;
+        const nextItem: CartItem = {
+          ...existing,
+          baseRate,
+          listRate,
+          priceLevelMode,
+          priceLevelSlabs,
+          gatcFeePerUnit,
+          gatcStampingPriceId,
+          gatcStampingRange: gatcStampingPriceId
+            ? (opts.gatcStampingRange?.trim() || existing.gatcStampingRange || null)
+            : null,
+          rate: combinedCartRate(baseRate, gatcFeePerUnit),
+          stockStatus,
+          hsn: product.hsn ?? existing.hsn ?? null,
+          name: product.name,
+          description: product.description?.trim() || existing.description || null,
+          sku: product.sku ?? existing.sku,
+          quantity: nextQty,
+        };
+        next = prev.map(item => (item.cartLineId === existing.cartLineId ? nextItem : item));
+      } else {
+        const nextItem = cartItemFromProduct(product, quantity, {
+          gatcStampingPriceId,
+          gatcFeePerUnit,
+          gatcStampingRange: opts.gatcStampingRange,
+          baseRateOverride: baseRate,
+          listRate,
+          priceLevelMode,
+          priceLevelSlabs,
+        });
+        const afterId = String(opts.insertAfterCartLineId ?? '').trim();
+        if (afterId) {
+          const afterIndex = prev.findIndex(item => item.cartLineId === afterId);
+          if (afterIndex >= 0) {
+            next = [...prev];
+            next.splice(afterIndex + 1, 0, nextItem);
+          } else {
+            next = [...prev, nextItem];
+          }
+        } else {
+          next = [...prev, nextItem];
         }
       }
-      return [...prev, nextItem];
+      if (!dealerId || opts.baseRateOverride != null) return next;
+      return applyDealerCartPricing(next, priceLevelsRef.current, dealerId);
     });
     return true;
   }, [dealerId]);
 
   const removeItem = useCallback((cartLineId: string) => {
-    setItems(prev => prev.filter(item => item.cartLineId !== cartLineId));
-  }, []);
+    setItems(prev => {
+      const next = prev.filter(item => item.cartLineId !== cartLineId);
+      if (!dealerId) return next;
+      return applyDealerCartPricing(next, priceLevelsRef.current, dealerId);
+    });
+  }, [dealerId]);
 
   const setQuantity = useCallback((cartLineId: string, quantity: number) => {
     if (quantity < 1) {
-      setItems(prev => prev.filter(item => item.cartLineId !== cartLineId));
+      setItems(prev => {
+        const next = prev.filter(item => item.cartLineId !== cartLineId);
+        if (!dealerId) return next;
+        return applyDealerCartPricing(next, priceLevelsRef.current, dealerId);
+      });
       return;
     }
     const qty = Math.max(1, Math.floor(quantity));
-    setItems(prev =>
-      prev.map(item => {
-        if (item.cartLineId !== cartLineId) return item;
-        if (!dealerId) return { ...item, quantity: qty };
-        const catalogList = item.listRate != null && Number.isFinite(item.listRate)
-          ? item.listRate
-          : item.baseRate;
-        const priced = resolveDealerUnitPrice(priceLevelsRef.current, dealerId, {
-          id: item.productId,
-          rate: catalogList,
-          categoryId: item.categoryId ?? null,
-          categoryName: item.categoryName ?? null,
-        }, qty);
-        return {
-          ...item,
-          quantity: qty,
-          baseRate: priced.chargeRate,
-          listRate: priced.listRate,
-          priceLevelMode: priced.mode,
-          priceLevelSlabs: priced.slabs.length ? priced.slabs : null,
-          rate: combinedCartRate(priced.chargeRate, item.gatcFeePerUnit),
-        };
-      }),
-    );
+    setItems(prev => {
+      const next = prev.map(item => (
+        item.cartLineId === cartLineId ? { ...item, quantity: qty } : item
+      ));
+      if (!dealerId) return next;
+      return applyDealerCartPricing(next, priceLevelsRef.current, dealerId);
+    });
   }, [dealerId]);
 
   const updateStamping = useCallback((cartLineId: string, input: UpdateCartStampingInput) => {
@@ -402,7 +342,7 @@ export const CartProvider: React.FC<{
       );
 
       if (mergeInto) {
-        return prev
+        const merged = prev
           .filter(item => item.cartLineId !== cartLineId)
           .map(item => (
             item.cartLineId === mergeInto.cartLineId
@@ -417,9 +357,11 @@ export const CartProvider: React.FC<{
                 }
               : item
           ));
+        if (!dealerId) return merged;
+        return applyDealerCartPricing(merged, priceLevelsRef.current, dealerId);
       }
 
-      return prev.map(item => (
+      const stamped = prev.map(item => (
         item.cartLineId === cartLineId
           ? {
               ...item,
@@ -430,8 +372,10 @@ export const CartProvider: React.FC<{
             }
           : item
       ));
+      if (!dealerId) return stamped;
+      return applyDealerCartPricing(stamped, priceLevelsRef.current, dealerId);
     });
-  }, []);
+  }, [dealerId]);
 
   const setRemarks = useCallback((next: string) => {
     setRemarksState(normalizeRemarks(next));

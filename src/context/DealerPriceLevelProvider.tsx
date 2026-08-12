@@ -60,7 +60,9 @@ export const DealerPriceLevelProvider: React.FC<{ children: React.ReactNode }> =
       ready,
       restrictedCategoryIds,
       resolveProductPrice: (
-        product: Pick<CatalogProduct, 'id' | 'rate' | 'categoryId' | 'categoryName'> | null | undefined,
+        product: Pick<CatalogProduct, 'id' | 'rate' | 'categoryId' | 'categoryName'> & {
+          sku?: string | null;
+        } | null | undefined,
       ): DealerUnitPrice | null => {
         if (!product || !dealerId) return null;
         return resolveDealerUnitPrice(levels, dealerId, product);

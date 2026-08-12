@@ -36,7 +36,9 @@ export function useDealerPriceLevels(): {
 }
 
 export function useDealerUnitPrice(
-  product: Pick<CatalogProduct, 'id' | 'rate' | 'categoryId' | 'categoryName'> | null | undefined,
+  product: Pick<CatalogProduct, 'id' | 'rate' | 'categoryId' | 'categoryName'> & {
+    sku?: string | null;
+  } | null | undefined,
 ): DealerUnitPrice | null {
   const ctx = useContext(DealerPriceLevelContext);
   return useMemo(() => {

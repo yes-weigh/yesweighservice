@@ -469,10 +469,10 @@ export function estimateStCourierCartFreight(input: {
   /** Invoice / cargo value for FOV. */
   invoiceValueInr?: number;
   /**
-   * Staff box / custom LBH + weight for spare freight.
+   * Staff box / custom LBH + weight for spare freight (one or more boxes).
    * When `requireSparePackaging` is true, spare quotes stay ₹0 until complete.
    */
-  sparePackaging?: SpareFreightPackaging | null;
+  sparePackaging?: SpareFreightPackaging | SpareFreightPackaging[] | null;
   /** Staff SO freight: do not fall back to 1 kg flat for spares. */
   requireSparePackaging?: boolean;
 }): StCourierCartFreightEstimate | null {
@@ -624,6 +624,20 @@ export function estimateStCourierCartFreight(input: {
     const stBlockedForTamilNadu = isTamilNaduDestination(input.destination)
       && stCourierTamilNaduMaxChargeableExceeded(stChargeableKg);
 
+    const quoteSpareDetailForPartner = (partnerId: LogisticsPartnerId) => {
+      if (!hasSpare || isPickupPartner(partnerId)) return null;
+      return quoteSpareFreight({
+        partnerId,
+        site,
+        zone,
+        destination: input.destination,
+        rates: input.rates,
+        pin: input.blueDartPin,
+        packaging: input.sparePackaging,
+        requirePackaging: input.requireSparePackaging,
+      });
+    };
+
     const optionsWithTotals: OrderCourierOption[] = [];
     for (const opt of options) {
       if (opt.partnerId === 'st_courier' && stBlockedForTamilNadu) {
@@ -655,9 +669,16 @@ export function estimateStCourierCartFreight(input: {
         }
       }
 
+      const spareDetail = quoteSpareDetailForPartner(opt.partnerId);
       optionsWithTotals.push({
         ...opt,
         estimatedTotalInr: quotePartnerTotal(opt.partnerId),
+        ...(spareDetail && !spareDetail.needsPackaging
+          ? {
+              estimatedVolumetricKg: spareDetail.volumetricKg,
+              estimatedChargeableKg: spareDetail.chargeableKg,
+            }
+          : {}),
       });
     }
 
@@ -918,12 +939,10 @@ export function estimateStCourierCartFreight(input: {
       : null;
     const spareFreightInr = spareQuote?.totalInr ?? 0;
     const spareChargeableKg = spareQuote?.chargeableKg ?? 0;
-    const spareHasDims = Boolean(
-      spareQuote
-      && (spareQuote.lengthCm ?? 0) > 0
-      && (spareQuote.widthCm ?? 0) > 0
-      && (spareQuote.heightCm ?? 0) > 0,
+    const spareParcels = (spareQuote?.parcels ?? []).filter(
+      row => row.lengthCm > 0 && row.widthCm > 0 && row.heightCm > 0,
     );
+    const spareHasDims = spareParcels.length > 0;
 
     // One row per site: all spare names against the auto spare freight charge.
     if (acc.spareLines.length > 0) {
@@ -941,7 +960,7 @@ export function estimateStCourierCartFreight(input: {
         itemNames,
         quantity,
         masterCartonCount: 0,
-        singleBoxCount: spareHasDims ? 1 : 0,
+        singleBoxCount: spareParcels.length,
         missingUnits: 0,
         chargeableKg: spareChargeableKg,
         amountInr: spareFreightInr,
@@ -951,19 +970,19 @@ export function estimateStCourierCartFreight(input: {
         boxPerKgInr: spareQuote?.perKgInr,
         fuelSurchargePercent: spareQuote?.fuelSurchargePercent,
         parcelGroups: spareHasDims
-          ? [{
+          ? spareParcels.map(parcel => ({
               kind: 'single_box' as const,
               count: 1,
-              lengthCm: spareQuote!.lengthCm!,
-              breadthCm: spareQuote!.widthCm!,
-              heightCm: spareQuote!.heightCm!,
-              actualKgEach: spareActualKg,
-              volumetricKgEach: spareVolumetricKg,
-              chargeableKgEach: spareChargeableKg,
-              actualKgTotal: spareActualKg,
-              volumetricKgTotal: spareVolumetricKg,
-              chargeableKgTotal: spareChargeableKg,
-            }]
+              lengthCm: parcel.lengthCm,
+              breadthCm: parcel.widthCm,
+              heightCm: parcel.heightCm,
+              actualKgEach: parcel.actualKg,
+              volumetricKgEach: parcel.volumetricKg,
+              chargeableKgEach: parcel.chargeableKg,
+              actualKgTotal: parcel.actualKg,
+              volumetricKgTotal: parcel.volumetricKg,
+              chargeableKgTotal: parcel.chargeableKg,
+            }))
           : undefined,
       });
     }
@@ -973,7 +992,7 @@ export function estimateStCourierCartFreight(input: {
     if (spareFreightInr > 0) {
       indications.push(`Spare freight ₹${spareFreightInr.toLocaleString('en-IN')}`);
     } else if (hasSpare && !isPickup && spareQuote?.needsPackaging) {
-      indications.push('Spare freight — select a box or enter L×B×H and weight');
+      indications.push('Spare freight — select a box or enter L×B×H');
     } else if (hasSpare && !isPickup && spareQuote?.skipped) {
       indications.push('Spare freight — enter ₹ manually for this partner');
     } else if (hasSpare && !isPickup && spareQuote?.rateMissing) {
@@ -1024,7 +1043,7 @@ export function estimateStCourierCartFreight(input: {
       spareFreightInr,
       totalInr: ceilCourierChargeInr(totalProductFreight + spareFreightInr),
       chargeableKg: totalProductChargeable + spareChargeableKg,
-      parcelCount: allParcels.length + (spareHasDims ? 1 : 0),
+      parcelCount: allParcels.length + spareParcels.length,
       rateMissing,
       indications: [...new Set(indications)],
     });
