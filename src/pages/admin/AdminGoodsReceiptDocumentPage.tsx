@@ -12,7 +12,7 @@ import {
   receiveLineLocations,
   saveGoodsReceiptReceiveCheck,
 } from '../../lib/admin-goods-receipts';
-import { getCatalogProductsByIds, catalogProductHasCompleteSingleBoxPackageInfo } from '../../lib/catalog';
+import { resolveCatalogProductsForLineItems, catalogProductHasCompleteSingleBoxPackageInfo } from '../../lib/catalog';
 import { formatInvoiceDate, invoiceErrorMessage, moveFreightLinesToEnd } from '../../lib/invoices';
 import {
   listWarehouseZoneRows,
@@ -25,6 +25,17 @@ import type { AdminGoodsReceiptDetailOutletContext } from './adminGoodsReceiptDe
 function formatDiff(value: number): string {
   if (value === 0) return '0';
   return value > 0 ? `+${value}` : String(value);
+}
+
+function resolveCatalogForLine(
+  line: { itemId?: string | null; sku?: string | null },
+  catalogById: Record<string, CatalogProduct>,
+): CatalogProduct | undefined {
+  const itemId = line.itemId?.trim();
+  if (itemId && catalogById[itemId]) return catalogById[itemId];
+  const sku = line.sku?.trim();
+  if (sku && catalogById[`sku:${sku}`]) return catalogById[`sku:${sku}`];
+  return undefined;
 }
 
 type LocationDraft = {
@@ -129,10 +140,12 @@ export const AdminGoodsReceiptDocumentPage: React.FC = () => {
       return;
     }
     let active = true;
-    const ids = goodsReceipt.lineItems
-      .map(line => line.itemId?.trim() || '')
-      .filter(id => id && !isFreightProductId(id));
-    void getCatalogProductsByIds(ids)
+    void resolveCatalogProductsForLineItems(
+      goodsReceipt.lineItems.map(line => ({
+        itemId: line.itemId,
+        sku: line.sku,
+      })),
+    )
       .then(next => {
         if (active) setCatalogById(next);
       })
@@ -214,16 +227,12 @@ export const AdminGoodsReceiptDocumentPage: React.FC = () => {
     const missing: Array<{ lineId: string; name: string; productId: string }> = [];
     const seen = new Set<string>();
     for (const line of goodsReceipt.lineItems) {
-      if (!line.id || !line.itemId) continue;
+      if (!line.id) continue;
       if (isFreightProductId(line.itemId) || isFreightSku(line.sku)) continue;
-      const product = catalogById[line.itemId];
+      const product = resolveCatalogForLine(line, catalogById);
       if (!product) continue;
-      const expectsPackage = Boolean(
-        product.packageInfo?.masterCarton
-        || (product.packageInfo?.singleBox?.length ?? 0) > 0
-        || Boolean(product.categoryId?.trim()),
-      );
-      if (!expectsPackage) continue;
+      // Uncategorized products may skip package info.
+      if (!product.categoryId?.trim()) continue;
       if (catalogProductHasCompleteSingleBoxPackageInfo(product)) continue;
       if (seen.has(product.id)) continue;
       seen.add(product.id);
@@ -471,22 +480,15 @@ export const AdminGoodsReceiptDocumentPage: React.FC = () => {
                   : diff > 0
                     ? 'is-over'
                     : 'is-under';
-              const catalogProduct = item.itemId ? catalogById[item.itemId] : undefined;
+              const catalogProduct = resolveCatalogForLine(item, catalogById);
               const isFreight = isFreightProductId(item.itemId)
                 || isFreightSku(item.sku);
-              const showPackageInfo = Boolean(
-                catalogProduct
-                && !isFreight
-                && (
-                  catalogProduct.packageInfo?.masterCarton
-                  || (catalogProduct.packageInfo?.singleBox?.length ?? 0) > 0
-                  || Boolean(catalogProduct.categoryId?.trim())
-                ),
-              );
+              const showPackageInfo = Boolean(catalogProduct && !isFreight);
+              const packageRequired = Boolean(catalogProduct?.categoryId?.trim());
               const packageComplete = catalogProduct
                 ? catalogProductHasCompleteSingleBoxPackageInfo(catalogProduct)
                 : true;
-              const packageMissing = showPackageInfo && !packageComplete;
+              const packageMissing = showPackageInfo && packageRequired && !packageComplete;
 
               return (
                 <li

@@ -1,5 +1,5 @@
 import { getFunctions, httpsCallable } from 'firebase/functions';
-import { collection, doc, getDoc, getDocs, query, where } from 'firebase/firestore';
+import { collection, doc, getDoc, getDocs, limit, query, where } from 'firebase/firestore';
 import { app, db } from '../firebase';
 import { isFreightProductId, isFreightSku } from '../constants/freightLines';
 import { compressImageForUpload } from './compressImage';
@@ -2008,6 +2008,61 @@ export async function getCatalogProductsByIds(
       result[id] = mapProduct({ id, ...snap.data() } as Record<string, unknown>);
     }),
   );
+  return result;
+}
+
+async function getCatalogProductBySku(sku: string): Promise<CatalogProduct | null> {
+  const trimmed = String(sku || '').trim();
+  if (!trimmed) return null;
+  const snap = await getDocs(
+    query(collection(db, 'catalogProducts'), where('sku', '==', trimmed), limit(1)),
+  );
+  if (snap.empty) return null;
+  const docSnap = snap.docs[0];
+  return mapProduct({ id: docSnap.id, ...docSnap.data() } as Record<string, unknown>);
+}
+
+/**
+ * Resolve catalog products for bill/invoice lines by Zoho item id, then SKU fallback.
+ * Map is keyed by product id, raw itemId, and `sku:${sku}` when present.
+ */
+export async function resolveCatalogProductsForLineItems(
+  lines: Array<{ itemId?: string | null; sku?: string | null }>,
+): Promise<Record<string, CatalogProduct>> {
+  const result: Record<string, CatalogProduct> = {};
+  const indexProduct = (product: CatalogProduct, itemId?: string | null) => {
+    result[product.id] = product;
+    if (itemId?.trim()) result[itemId.trim()] = product;
+    if (product.sku?.trim()) result[`sku:${product.sku.trim()}`] = product;
+  };
+
+  const itemIds = [...new Set(
+    lines.map(line => String(line.itemId || '').trim()).filter(Boolean),
+  )];
+  const byId = await getCatalogProductsByIds(itemIds);
+  for (const [itemId, product] of Object.entries(byId)) {
+    indexProduct(product, itemId);
+  }
+
+  const skusNeeded = [...new Set(
+    lines
+      .filter(line => {
+        const itemId = String(line.itemId || '').trim();
+        if (itemId && result[itemId]) return false;
+        const sku = String(line.sku || '').trim();
+        return Boolean(sku) && !result[`sku:${sku}`];
+      })
+      .map(line => String(line.sku || '').trim())
+      .filter(Boolean),
+  )];
+
+  await Promise.all(
+    skusNeeded.map(async sku => {
+      const product = await getCatalogProductBySku(sku);
+      if (product) indexProduct(product);
+    }),
+  );
+
   return result;
 }
 
