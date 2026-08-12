@@ -358,6 +358,12 @@ service cloud.firestore {
       allow write: if false;
     }
 
+    // Draft Zoho purchase bills mirrored as goods receipts.
+    match /goodsReceipts/{billId} {
+      allow read: if isSuperAdmin();
+      allow write: if false;
+    }
+
     // Manual spare purchase-cost overrides (Spare pricing tab). Defaults come from PO lines.
     match /sparePurchaseCosts/{productId} {
       allow read: if isSuperAdmin();
@@ -365,6 +371,10 @@ service cloud.firestore {
     }
 
     match /purchaseOrderMeta/{docId} {
+      allow read, write: if false;
+    }
+
+    match /goodsReceiptMeta/{docId} {
       allow read, write: if false;
     }
 

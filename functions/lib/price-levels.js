@@ -11,6 +11,59 @@ export const SPARE_PRICE_LEVEL_CATEGORY_ID = '__spare_parts__';
 export const DEFAULT_DEALER_PRICE_LEVEL_ID = '__default_dealers__';
 export const DEFAULT_DEALER_PRICE_LEVEL_NAME = 'Dealers';
 
+/**
+ * Directors level: these SKUs share quantity for slab-tier selection.
+ * Each SKU still uses its own slab ₹ rates; clubbed qty picks the tier.
+ * Mirror of src/lib/priceLevels.ts — keep in sync.
+ */
+export const DIRECTORS_QTY_CLUB_SKUS = ['Q9LBL', 'Q10LBL', 'ECS5W', 'ECS4W'];
+
+const DIRECTORS_QTY_CLUB_SKU_SET = new Set(
+  DIRECTORS_QTY_CLUB_SKUS.map(sku => String(sku).toUpperCase()),
+);
+
+export function normalizePriceLevelSku(sku) {
+  return String(sku ?? '').trim().toUpperCase();
+}
+
+export function isDirectorsPriceLevelName(name) {
+  return String(name ?? '').trim().toLowerCase() === 'directors';
+}
+
+export function isDirectorsQtyClubSku(sku) {
+  const key = normalizePriceLevelSku(sku);
+  return Boolean(key) && DIRECTORS_QTY_CLUB_SKU_SET.has(key);
+}
+
+export function sumDirectorsClubCartQty(lines) {
+  let sum = 0;
+  for (const line of lines || []) {
+    if (!isDirectorsQtyClubSku(line?.sku)) continue;
+    const qty = Math.floor(Number(line?.quantity) || 0);
+    if (qty > 0) sum += qty;
+  }
+  return sum;
+}
+
+/** Qty used to pick slab tier: clubbed total for Directors club SKUs, else line qty. */
+export function resolveSlabQuantityForDealerPrice({
+  level,
+  sku,
+  lineQuantity,
+  directorsClubQty,
+} = {}) {
+  const lineQty = clampQty(lineQuantity);
+  if (
+    level
+    && isDirectorsPriceLevelName(level.name)
+    && isDirectorsQtyClubSku(sku)
+  ) {
+    const club = Math.floor(Number(directorsClubQty) || 0);
+    return club > 0 ? club : lineQty;
+  }
+  return lineQty;
+}
+
 export function isDefaultDealerPriceLevel(level) {
   const id = typeof level === 'string' || level == null
     ? String(level ?? '').trim()
@@ -311,13 +364,21 @@ function applyItemOrCategoryRule(listRate, level, rule, productId, reportCategor
 
 /**
  * @param {number} [quantity=1]
+ * @param {{ directorsClubQty?: number|null }} [options]
  */
-export function resolveDealerUnitPrice(levels, dealerId, product, quantity = 1) {
+export function resolveDealerUnitPrice(levels, dealerId, product, quantity = 1, options) {
   const listRate = roundMoney(Number(product?.rate) || 0);
   const level = findPriceLevelForDealer(levels, dealerId);
   const categoryId = String(product?.categoryId ?? '').trim() || null;
   const productId = String(product?.id ?? product?.productId ?? '').trim();
-  const qty = clampQty(quantity);
+  const sku = product?.sku ?? null;
+  const lineQty = clampQty(quantity);
+  const qty = resolveSlabQuantityForDealerPrice({
+    level,
+    sku,
+    lineQuantity: lineQty,
+    directorsClubQty: options?.directorsClubQty,
+  });
   if (!level) {
     return nonePrice(listRate, null, categoryId);
   }

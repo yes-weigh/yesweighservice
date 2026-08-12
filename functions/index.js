@@ -122,6 +122,12 @@ import {
   handleZohoPurchaseOrderWebhook,
 } from './lib/purchase-order-sync.js';
 import {
+  syncOrgGoodsReceiptsToFirestore,
+  reclassifyGoodsReceiptCategoriesFromCatalog,
+  ensureGoodsReceiptPdf,
+  handleZohoGoodsReceiptWebhook,
+} from './lib/goods-receipt-sync.js';
+import {
   syncOrgSalesOrdersToFirestore,
   reclassifySalesOrderCategoriesFromCatalog,
   ensureSalesOrderPdf,
@@ -2273,6 +2279,44 @@ export const zohoPurchaseOrderWebhook = onRequest(
   },
 );
 
+/** Zoho Purchase Bill webhook — draft bills mirrored as goods receipts. */
+export const zohoGoodsReceiptWebhook = onRequest(
+  {
+    region: 'asia-south1',
+    secrets: [zohoClientId, zohoClientSecret, zohoRefreshToken],
+    timeoutSeconds: 120,
+    memory: '512MiB',
+  },
+  async (req, res) => {
+    if (req.method !== 'POST') {
+      res.status(405).send('Method not allowed');
+      return;
+    }
+
+    const secret = zohoWebhookSecret.value()?.trim();
+    if (secret && !verifyZohoWebhookSignature(req, secret)) {
+      console.warn('Zoho goods receipt webhook rejected: invalid signature.');
+      res.status(401).send('Invalid signature');
+      return;
+    }
+    if (!secret) {
+      console.warn('ZOHO_WEBHOOK_SECRET not set — accepting webhook without signature verification.');
+    }
+
+    try {
+      const result = await handleZohoGoodsReceiptWebhook(
+        zohoSecrets(),
+        zohoOrganizationId.value(),
+        req,
+      );
+      res.status(result.status).json(result);
+    } catch (err) {
+      console.error('Zoho goods receipt webhook failed:', err);
+      res.status(500).json({ ok: false, message: err?.message ?? 'Webhook processing failed.' });
+    }
+  },
+);
+
 /** Zoho Item webhook — create/edit/delete catalogProducts mirror. */
 export const zohoItemWebhook = onRequest(
   {
@@ -2409,6 +2453,37 @@ export const syncZohoPurchaseOrdersScheduled = onSchedule(
       );
     } catch (err) {
       console.error('Scheduled org PO sync failed:', err?.message ?? err);
+    }
+  },
+);
+
+/** Nightly draft purchase bills → goodsReceipts (4:30 AM IST, after POs). */
+export const syncZohoGoodsReceiptsScheduled = onSchedule(
+  {
+    schedule: '30 3 * * *',
+    timeZone: 'Asia/Kolkata',
+    region: 'asia-south1',
+    secrets: [zohoClientId, zohoClientSecret, zohoRefreshToken],
+    timeoutSeconds: 1800,
+    memory: '2GiB',
+  },
+  async () => {
+    try {
+      const result = await syncOrgGoodsReceiptsToFirestore(
+        zohoSecrets(),
+        zohoOrganizationId.value(),
+        {
+          source: 'scheduled',
+          quotaReserveRatio: 0.30,
+        },
+      );
+      console.log(
+        `Scheduled org goods receipt sync: status=${result.status}, newlyPulled=${result.newlyPulled}, `
+        + `failed=${result.failedCount}, remaining=${result.remaining}, rateLimited=${result.rateLimited}, `
+        + `quotaReserved=${result.quotaReserved}.`,
+      );
+    } catch (err) {
+      console.error('Scheduled org goods receipt sync failed:', err?.message ?? err);
     }
   },
 );
@@ -2939,6 +3014,58 @@ export const downloadPurchaseOrderDocument = onCall(
     } catch (err) {
       console.error('downloadPurchaseOrderDocument failed:', err);
       throw new HttpsError('internal', err?.message ?? 'Could not download purchase order PDF.');
+    }
+  },
+);
+
+/** Reclassify existing goods receipts from lineItems.itemId → catalogProducts. */
+export const reclassifyGoodsReceiptCategoriesFromCatalogFn = onCall(
+  {
+    region: 'asia-south1',
+    timeoutSeconds: 540,
+    memory: '1GiB',
+  },
+  async request => {
+    await requireActiveUser(request.auth?.uid, SUPER_ADMIN_ROLES);
+    try {
+      const result = await reclassifyGoodsReceiptCategoriesFromCatalog();
+      return {
+        scanned: result.scanned,
+        updated: result.updated,
+        unchanged: result.unchanged,
+        skipped: 0,
+        byCategory: result.counts,
+      };
+    } catch (err) {
+      console.error('reclassifyGoodsReceiptCategoriesFromCatalog failed:', err);
+      throw new HttpsError('internal', err?.message ?? 'Goods receipt category reclassify failed.');
+    }
+  },
+);
+
+/** Download goods receipt (draft bill) PDF — staff / super admin. */
+export const downloadGoodsReceiptDocument = onCall(
+  {
+    region: 'asia-south1',
+    secrets: [zohoClientId, zohoClientSecret, zohoRefreshToken],
+    timeoutSeconds: 120,
+    memory: '512MiB',
+  },
+  async request => {
+    await requireActiveUser(request.auth?.uid, SYNC_ROLES);
+    const goodsReceiptId = String(request.data?.goodsReceiptId ?? '').trim();
+    if (!goodsReceiptId) {
+      throw new HttpsError('invalid-argument', 'goodsReceiptId is required.');
+    }
+    try {
+      return await ensureGoodsReceiptPdf(
+        zohoSecrets(),
+        zohoOrganizationId.value(),
+        goodsReceiptId,
+      );
+    } catch (err) {
+      console.error('downloadGoodsReceiptDocument failed:', err);
+      throw new HttpsError('internal', err?.message ?? 'Could not download goods receipt PDF.');
     }
   },
 );

@@ -222,6 +222,22 @@
       ]
     },
     {
+      "collectionGroup": "goodsReceipts",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "goodsReceiptCategory", "order": "ASCENDING" },
+        { "fieldPath": "date", "order": "DESCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "goodsReceipts",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "goodsReceiptCategory", "order": "ASCENDING" },
+        { "fieldPath": "syncedAt", "order": "DESCENDING" }
+      ]
+    },
+    {
       "collectionGroup": "salesOrders",
       "queryScope": "COLLECTION",
       "fields": [
@@ -579,6 +595,22 @@
     },
     {
       "collectionGroup": "purchaseOrders",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "categories", "arrayConfig": "CONTAINS" },
+        { "fieldPath": "syncedAt", "order": "DESCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "goodsReceipts",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "categories", "arrayConfig": "CONTAINS" },
+        { "fieldPath": "date", "order": "DESCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "goodsReceipts",
       "queryScope": "COLLECTION",
       "fields": [
         { "fieldPath": "categories", "arrayConfig": "CONTAINS" },
@@ -799,6 +831,22 @@
     },
     {
       "collectionGroup": "purchaseOrders",
+      "fieldPath": "date",
+      "ttl": false,
+      "indexes": [
+        { "order": "DESCENDING", "queryScope": "COLLECTION" }
+      ]
+    },
+    {
+      "collectionGroup": "goodsReceipts",
+      "fieldPath": "syncedAt",
+      "ttl": false,
+      "indexes": [
+        { "order": "DESCENDING", "queryScope": "COLLECTION" }
+      ]
+    },
+    {
+      "collectionGroup": "goodsReceipts",
       "fieldPath": "date",
       "ttl": false,
       "indexes": [

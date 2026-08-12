@@ -242,6 +242,7 @@ export type StaffNavFeature =
   | 'invoices'
   | 'sales-orders'
   | 'purchase-orders'
+  | 'goods-receipts'
   | 'logistics'
   | 'loyalty'
   | 'ai-assistant'
@@ -265,6 +266,8 @@ const NAV_FEATURE_PERMISSIONS: Record<StaffNavFeature, StaffPermission[] | 'alwa
   'sales-orders': ['orders.view', 'orders.manage'],
   // Purchase orders are super-admin only — staff must not see this nav/feature.
   'purchase-orders': [],
+  // Goods receipts (draft purchase bills) are super-admin only.
+  'goods-receipts': [],
   logistics: ['logistics.view'],
   loyalty: ['loyalty.view'],
   'ai-assistant': 'always',

@@ -42,6 +42,7 @@ import {
   BarChart3,
   ClipboardList,
   ShoppingBag,
+  PackageCheck,
 } from 'lucide-react';
 import { Logo } from './Logo';
 import { getAppVersionLabel } from '../lib/appVersion';
@@ -180,6 +181,7 @@ function staffPathToFeature(path: string): StaffNavFeature {
     invoices: 'invoices',
     'sales-orders': 'sales-orders',
     'purchase-orders': 'purchase-orders',
+    'goods-receipts': 'goods-receipts',
     logistics: 'logistics',
     loyalty: 'loyalty',
     'ai-assistant': 'ai-assistant',
@@ -274,6 +276,7 @@ const LayoutShell: React.FC = () => {
           { path: '/super-admin/dealers', icon: <Building2 size={20} />, label: 'Dealers' },
           { path: '/super-admin/invoices', icon: <FileText size={20} />, label: 'Invoices' },
           { path: '/super-admin/purchase-orders', icon: <ShoppingBag size={20} />, label: 'Purchase order' },
+          { path: '/super-admin/goods-receipts', icon: <PackageCheck size={20} />, label: 'Goods receipt' },
           ...operationsNavItems('/super-admin', OPS_BEFORE_REPORTS_SUFFIXES),
           { path: '/super-admin/reports', icon: <BarChart3 size={20} />, label: 'Reports' },
           ...operationsNavItems('/super-admin', OPS_AFTER_REPORTS_SUFFIXES),
@@ -364,6 +367,9 @@ const LayoutShell: React.FC = () => {
   const isPurchaseOrderDetail = /\/purchase-orders\/(?!sync(?:\/|$))[^/]+(\/view)?$/.test(
     location.pathname,
   );
+  const isGoodsReceiptDetail = /\/goods-receipts\/(?!sync(?:\/|$))[^/]+(\/view)?$/.test(
+    location.pathname,
+  );
   const isSalesOrderDetail = /\/sales-orders\/(?!sync(?:\/|$)|portal(?:\/|$))[^/]+(\/view)?$/.test(
     location.pathname,
   );
@@ -379,6 +385,8 @@ const LayoutShell: React.FC = () => {
       ? 'Sales order'
     : isPurchaseOrderDetail
       ? 'Purchase order'
+    : isGoodsReceiptDetail
+      ? 'Goods receipt'
     : isSupportDetail
       ? 'Support'
     : isSpareMapDetail

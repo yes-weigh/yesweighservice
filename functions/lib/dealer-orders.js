@@ -56,6 +56,7 @@ import {
 import {
   loadPriceLevelsFromFirestore,
   resolveDealerUnitPrice,
+  sumDirectorsClubCartQty,
 } from './price-levels.js';
 import {
   filterPriceAuditForLines,
@@ -347,10 +348,25 @@ async function buildLinesFromInput(rawLines, {
     });
   }
 
+  const entries = [...merged.values()];
+  const productsById = new Map();
+  await Promise.all(entries.map(async (entry) => {
+    const product = await loadCatalogProduct(entry.productId);
+    productsById.set(entry.productId, product);
+  }));
+
+  // Directors club: sum qty across club SKUs so slab tier matches cart.
+  const directorsClubQty = priceLevelDealerId
+    ? sumDirectorsClubCartQty(entries.map((entry) => {
+      const product = productsById.get(entry.productId);
+      return { sku: product?.sku, quantity: entry.quantity };
+    }))
+    : 0;
+
   const lines = [];
   const priceChanges = [];
-  for (const entry of merged.values()) {
-    const product = await loadCatalogProduct(entry.productId);
+  for (const entry of entries) {
+    const product = productsById.get(entry.productId);
     const isFreight = isFreightProductId(product?.id) || isFreightSku(product?.sku)
       || isFreightOrderLine({ productId: entry.productId });
     if (!product || product.status === 'inactive' || (product.hiddenFromCatalog && !isFreight)) {
@@ -368,6 +384,7 @@ async function buildLinesFromInput(rawLines, {
         priceLevelDealerId,
         product,
         entry.quantity,
+        { directorsClubQty },
       );
       if (priced.mode !== 'none') {
         levelBase = priced.chargeRate;

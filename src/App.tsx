@@ -37,6 +37,10 @@ import { AdminPurchaseOrdersPage } from './pages/admin/AdminPurchaseOrdersPage';
 import { AdminPurchaseOrderDetailLayout } from './pages/admin/AdminPurchaseOrderDetailLayout';
 import { AdminPurchaseOrderDocumentPage } from './pages/admin/AdminPurchaseOrderDocumentPage';
 import { AdminPurchaseOrderPdfViewerPage } from './pages/admin/AdminPurchaseOrderPdfViewerPage';
+import { AdminGoodsReceiptsPage } from './pages/admin/AdminGoodsReceiptsPage';
+import { AdminGoodsReceiptDetailLayout } from './pages/admin/AdminGoodsReceiptDetailLayout';
+import { AdminGoodsReceiptDocumentPage } from './pages/admin/AdminGoodsReceiptDocumentPage';
+import { AdminGoodsReceiptPdfViewerPage } from './pages/admin/AdminGoodsReceiptPdfViewerPage';
 import { AdminUnifiedSalesOrdersPage } from './pages/admin/AdminUnifiedSalesOrdersPage';
 import { AdminSalesOrderDetailLayout } from './pages/admin/AdminSalesOrderDetailLayout';
 import { AdminSalesOrderDocumentPage } from './pages/admin/AdminSalesOrderDocumentPage';
@@ -275,6 +279,12 @@ const App: React.FC = () => (
                 <Route index element={<AdminPurchaseOrderDocumentPage />} />
                 <Route path="view" element={<AdminPurchaseOrderPdfViewerPage />} />
               </Route>
+              <Route path="goods-receipts" element={<AdminGoodsReceiptsPage />} />
+              <Route path="goods-receipts/sync" element={<Navigate to="/super-admin/goods-receipts" replace />} />
+              <Route path="goods-receipts/:goodsReceiptId" element={<AdminGoodsReceiptDetailLayout />}>
+                <Route index element={<AdminGoodsReceiptDocumentPage />} />
+                <Route path="view" element={<AdminGoodsReceiptPdfViewerPage />} />
+              </Route>
               {superAdminOpsRoutes}
               <Route path="reports" element={<ReportsLayout basePath="/super-admin" />}>
                 <Route path="audit-report" element={<AuditReportTab />} />
@@ -321,6 +331,7 @@ const App: React.FC = () => (
               <Route path="orders/history" element={<OpsOrdersListRedirect />} />
               <Route path="orders/:orderId" element={<OpsOrderDetailRedirect />} />
               <Route path="purchase-orders/*" element={<Navigate to="/staff" replace />} />
+              <Route path="goods-receipts/*" element={<Navigate to="/staff" replace />} />
               <Route path="reports" element={<ReportsLayout basePath="/staff" />}>
                 <Route path="audit-report" element={<AuditReportTab />} />
                 <Route path="gatc-report" element={<GatcReportTab />} />
