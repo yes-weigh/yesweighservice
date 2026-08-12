@@ -126,6 +126,8 @@ export const AdminSalesOrderDocumentPage: React.FC = () => {
   const [shipLoading, setShipLoading] = useState(false);
   const [shipError, setShipError] = useState('');
   const [shipSelection, setShipSelection] = useState<ShippingSelection | null>(null);
+  /** Avoid hammering staff-only address API after a failure (e.g. dealer 403). */
+  const shipLoadFailedForRef = useRef<string | null>(null);
   const [savingShip, setSavingShip] = useState(false);
   const [catalogDescByItemId, setCatalogDescByItemId] = useState<Record<string, string>>({});
   const [catalogById, setCatalogById] = useState<Record<string, CatalogProduct>>({});
@@ -385,8 +387,10 @@ export const AdminSalesOrderDocumentPage: React.FC = () => {
   );
 
   const loadShipAddresses = useCallback((customerId: string, currentAddressId?: string | null) => {
+    if (!isOps) return;
     setShipLoading(true);
     setShipError('');
+    shipLoadFailedForRef.current = null;
     void listCustomerShippingAddresses(customerId)
       .then(({ addresses: rows, warning }) => {
         setShipAddresses(rows);
@@ -397,11 +401,12 @@ export const AdminSalesOrderDocumentPage: React.FC = () => {
         }
       })
       .catch(err => {
+        shipLoadFailedForRef.current = customerId;
         setShipAddresses([]);
         setShipError(dealerOrderErrorMessage(err));
       })
       .finally(() => setShipLoading(false));
-  }, []);
+  }, [isOps]);
 
   const startEditShipping = () => {
     if (!salesOrder?.customerId) return;
@@ -469,7 +474,13 @@ export const AdminSalesOrderDocumentPage: React.FC = () => {
 
   const hydrateEditLines = useCallback(async (): Promise<DraftEditLine[] | null> => {
     if (!salesOrder) return null;
-    if (salesOrder.customerId && shipAddresses.length === 0 && !shipLoading) {
+    if (
+      isOps
+      && salesOrder.customerId
+      && shipAddresses.length === 0
+      && !shipLoading
+      && shipLoadFailedForRef.current !== salesOrder.customerId
+    ) {
       loadShipAddresses(salesOrder.customerId, salesOrder.shippingAddressId);
     }
     setLinesHydrating(true);
@@ -511,6 +522,7 @@ export const AdminSalesOrderDocumentPage: React.FC = () => {
     }
   }, [
     salesOrder,
+    isOps,
     shipAddresses.length,
     shipLoading,
     loadShipAddresses,
@@ -536,11 +548,13 @@ export const AdminSalesOrderDocumentPage: React.FC = () => {
   ]);
 
   useEffect(() => {
-    if (!canEditLines || !salesOrder?.customerId) return;
+    // Staff/admin only — dealers must not call listCustomerShippingAddresses (403).
+    if (!canEditShipping || !salesOrder?.customerId) return;
     if (shipAddresses.length > 0 || shipLoading) return;
+    if (shipLoadFailedForRef.current === salesOrder.customerId) return;
     loadShipAddresses(salesOrder.customerId, salesOrder.shippingAddressId);
   }, [
-    canEditLines,
+    canEditShipping,
     salesOrder?.customerId,
     salesOrder?.shippingAddressId,
     shipAddresses.length,

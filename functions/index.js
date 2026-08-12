@@ -4031,7 +4031,7 @@ export const listCustomerShippingAddresses = onCall(
   },
   async request => {
     const uid = request.auth?.uid;
-    await requireActiveUser(uid, new Set(['staff', 'super_admin']));
+    await requireActiveUser(uid, new Set(['staff', 'super_admin']), { allowViewOnly: true });
     try {
       const customerId = String(request.data?.customerId ?? '').trim();
       if (!customerId) throw new HttpsError('invalid-argument', 'customerId is required.');
@@ -4205,6 +4205,22 @@ export const deleteDraftSalesOrder = onCall(
       );
     } catch (err) {
       if (err instanceof HttpsError) throw err;
+      // Preserve structured errors if instanceof fails across bundles.
+      const code = typeof err?.code === 'string' ? err.code : '';
+      if (
+        code
+        && [
+          'invalid-argument',
+          'failed-precondition',
+          'permission-denied',
+          'not-found',
+          'unauthenticated',
+          'resource-exhausted',
+        ].includes(code)
+      ) {
+        throw new HttpsError(code, err?.message ?? 'Could not delete sales order.');
+      }
+      console.error('deleteDraftSalesOrder failed:', err?.message || err);
       throw new HttpsError('internal', err?.message ?? 'Could not delete sales order.');
     }
   },

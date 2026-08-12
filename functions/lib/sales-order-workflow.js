@@ -1353,13 +1353,29 @@ export async function deleteDraftSalesOrder(uid, role, salesOrderId, secrets, or
     await deleteSalesOrder(secrets, orgId, id);
   } catch (err) {
     const message = String(err?.message || err || '');
+    console.error(`deleteDraftSalesOrder Zoho delete failed for ${id}:`, message);
     // Already gone in Zoho — still clear the portal mirror.
-    if (!/not found|does not exist|invalid|404/i.test(message)) {
+    if (/not found|does not exist|invalid|404/i.test(message)) {
+      // continue
+    } else if (/cannot be deleted|not (?:allowed|permitted)|only draft|status/i.test(message)) {
+      throw new HttpsError(
+        'failed-precondition',
+        message || 'This sales order cannot be deleted in Zoho. Use Void for confirmed orders.',
+      );
+    } else {
       throw new HttpsError('internal', message || 'Could not delete sales order in Zoho.');
     }
   }
 
-  await ref.delete();
+  try {
+    await ref.delete();
+  } catch (err) {
+    console.error(`deleteDraftSalesOrder Firestore delete failed for ${id}:`, err?.message || err);
+    throw new HttpsError(
+      'internal',
+      err?.message || 'Deleted in Zoho but could not remove the portal copy.',
+    );
+  }
   return { salesOrderId: id, deleted: true };
 }
 
