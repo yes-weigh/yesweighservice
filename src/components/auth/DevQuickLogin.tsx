@@ -42,6 +42,12 @@ const DEV_QUICK_LOGIN_PROFILES: readonly DevQuickLoginProfile[] = import.meta.en
         password: 'Yes@2026',
       },
       {
+        id: 'shibin',
+        label: 'Shibin (Spare incharge)',
+        loginId: '8272283477829',
+        password: 'Crm@2026',
+      },
+      {
         id: 'developer',
         label: 'Developer (super admin)',
         loginId: 'admin@yesweigh.in',

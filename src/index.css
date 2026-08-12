@@ -43760,6 +43760,18 @@ button.invoice-detail-top__card {
   letter-spacing: 0.01em;
 }
 
+.so-detail__freight {
+  display: flex;
+  flex-direction: column;
+  gap: 0.65rem;
+  padding: 0.85rem 0.9rem;
+  margin: 0.65rem 0 0;
+}
+
+.so-detail__freight .so-detail__section-title {
+  margin: 0;
+}
+
 .so-detail__payment-due {
   display: grid;
   justify-items: end;

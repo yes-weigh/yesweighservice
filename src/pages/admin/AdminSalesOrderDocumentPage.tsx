@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Link, useOutletContext } from 'react-router-dom';
 import {
   AlertCircle,
+  AlertTriangle,
   BadgeCheck,
   Ban,
   Check,
@@ -608,12 +609,23 @@ export const AdminSalesOrderDocumentPage: React.FC = () => {
     return items.find(item => item.id === expandedLineId) ?? null;
   }, [expandedLineId, salesOrder, documentInvoice]);
 
-  const freightLineExpanded = Boolean(
-    expandedLineItem && isFreightInvoiceLineItem(expandedLineItem),
-  );
-
   const handleSelectLineItem = (item: DealerInvoiceLineItem) => {
     if (!canEditLines) return;
+    // Freight is edited in the always-visible panel (dealer spare SOs may have no freight line yet).
+    if (isFreightInvoiceLineItem(item)) {
+      const ensure = editLines.length > 0 ? Promise.resolve(editLines) : hydrateEditLines();
+      void ensure.then(rows => {
+        if (!rows) return;
+        setExpandedLineId(null);
+        window.setTimeout(() => {
+          document.getElementById('so-draft-freight')?.scrollIntoView({
+            behavior: 'smooth',
+            block: 'nearest',
+          });
+        }, 50);
+      });
+      return;
+    }
     if (expandedLineId === item.id) {
       setExpandedLineId(null);
       return;
@@ -622,14 +634,6 @@ export const AdminSalesOrderDocumentPage: React.FC = () => {
     void ensure.then(rows => {
       if (!rows) return;
       setExpandedLineId(item.id);
-      if (!isMobile && isFreightInvoiceLineItem(item)) {
-        window.setTimeout(() => {
-          document.getElementById('so-draft-freight')?.scrollIntoView({
-            behavior: 'smooth',
-            block: 'nearest',
-          });
-        }, 50);
-      }
     });
   };
 
@@ -691,20 +695,8 @@ export const AdminSalesOrderDocumentPage: React.FC = () => {
   const renderLineEditor = (item: DealerInvoiceLineItem): React.ReactNode => {
     if (!salesOrder) return null;
     if (isFreightInvoiceLineItem(item)) {
-      if (!allowFreightEdit) {
-        return <p className="text-muted text-sm">Freight is not used on this order type.</p>;
-      }
-      return (
-        <SoFreightExpandPanel
-          lines={editLines}
-          onChangeLines={setEditLines}
-          catalogById={catalogById}
-          shippingDestination={freightDestination}
-          canEditPackage={isOps}
-          disabled={savingLines}
-          onPackageInfoSaved={onFreightPackageInfoSaved}
-        />
-      );
+      // Freight UI lives in the dedicated panel below items (supports deferred spare freight).
+      return null;
     }
     const draft = editLines.find(line => line.lineId === item.id);
     if (!draft || isFreightDraftEditLine(draft)) return null;
@@ -1167,8 +1159,8 @@ export const AdminSalesOrderDocumentPage: React.FC = () => {
               {linesHydrating
                 ? 'Loading items…'
                 : isMobile
-                  ? 'Tap a product or freight to edit in a popup.'
-                  : 'Tap a product to edit it. Tap freight to see the full splitup and fix packaging.'}
+                  ? 'Tap a product to edit. Set freight in the Freight section below.'
+                  : 'Tap a product to edit it. Set partner / box / LBH in the Freight section below.'}
             </p>
             <button
               type="button"
@@ -1191,21 +1183,34 @@ export const AdminSalesOrderDocumentPage: React.FC = () => {
           onSelectLineItem={canEditLines ? handleSelectLineItem : undefined}
           renderExpanded={canEditLines && !isMobile ? renderLineEditor : undefined}
           itemMeta={showAvailableStock ? renderItemStockMeta : undefined}
+          afterItems={
+            canEditLines && allowFreightEdit && editLines.length > 0 ? (
+              <section
+                className="so-detail__freight panel glass"
+                id="so-draft-freight"
+                aria-label="Freight"
+              >
+                <h3 className="so-detail__section-title">Freight</h3>
+                {freightEntryAlert && !editLines.some(isFreightDraftEditLine) ? (
+                  <p className="so-freight-expand__alert" role="alert">
+                    <AlertTriangle size={15} aria-hidden />
+                    <span>{freightEntryAlert}</span>
+                  </p>
+                ) : null}
+                <SoFreightExpandPanel
+                  lines={editLines}
+                  onChangeLines={setEditLines}
+                  catalogById={catalogById}
+                  shippingDestination={freightDestination}
+                  canEditPackage={isOps}
+                  disabled={savingLines}
+                  onPackageInfoSaved={onFreightPackageInfoSaved}
+                />
+              </section>
+            ) : null
+          }
         />
       </section>
-
-      {canEditLines && allowFreightEdit && editLines.length > 0 && !freightLineExpanded ? (
-        <SoFreightExpandPanel
-          showUi={false}
-          lines={editLines}
-          onChangeLines={setEditLines}
-          catalogById={catalogById}
-          shippingDestination={freightDestination}
-          canEditPackage={isOps}
-          disabled={savingLines}
-          onPackageInfoSaved={onFreightPackageInfoSaved}
-        />
-      ) : null}
 
       {canEditLines ? (
         <SoDetailCatalogAddSheet
