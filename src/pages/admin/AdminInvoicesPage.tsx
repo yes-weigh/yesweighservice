@@ -24,6 +24,7 @@ import {
   InvoiceCategoryBadgeList,
   InvoiceCategoryIcon,
 } from '../../components/invoices/InvoiceCategoryVisual';
+import { InvoiceStatusFilterBlocks } from '../../components/invoices/InvoiceStatusFilterBlocks';
 import { useCatalogPageHeader, usePageHeaderSlot } from '../../context/PageHeaderContext';
 import {
   aggregateAdminInvoicesByDealer,
@@ -54,11 +55,12 @@ import {
   invoiceAmountExclGst,
   invoiceCategoryAmount,
   invoiceCategoryLabel,
-  invoiceStatusLabel,
 } from '../../lib/invoices';
-import { invoiceListLogisticsStatus } from '../../lib/logisticsBooking';
+import {
+  invoiceListStatusKey,
+  invoiceListStatusLabel,
+} from '../../lib/invoiceListStatus';
 import { findLogisticsBookingsForInvoices } from '../../lib/logisticsBookings';
-import { isInvoiceCustomerPickup } from '../../lib/invoiceCustomerPickup';
 import { resolveDealerKamName } from '../../lib/dealerKamDisplay';
 import { isInternalOpsUser } from '../../lib/staffAccess';
 import { useDealerStaffById } from '../../lib/useDealerStaffById';
@@ -71,6 +73,7 @@ const LIST_PAGE_SIZE = 25;
 const DEFAULT_RANGE: SalesRangePreset = 'current_month';
 const DEFAULT_SORT: AdminInvoiceSort = 'date';
 const DEFAULT_CATEGORY: InvoiceCategory | 'all' = 'all';
+const DEFAULT_STATUS = 'all';
 
 const CATEGORY_BLOCKS: Array<{ value: InvoiceCategory | 'all'; label: string }> = [
   { value: 'all', label: 'All' },
@@ -100,34 +103,24 @@ function invoiceStatusClass(status: string): string {
   return `invoices-status invoices-status--${key}`;
 }
 
-/** Prefer logistics status past Booked; customer pickup; otherwise Zoho payment status. */
+/** Prefer logistics status past Booked; customer pickup; otherwise payment / to-dispatch. */
 function invoiceRowStatusDisplay(
   invoice: Pick<AdminFirestoreInvoice, 'status' | 'customerPickup'>,
   booking: LogisticsBooking | undefined,
 ): { label: string; className: string } {
-  if (isInvoiceCustomerPickup(invoice)) {
-    return {
-      label: 'Customer pickup',
-      className: invoiceStatusClass('delivered'),
-    };
-  }
-  const logistics = invoiceListLogisticsStatus(booking);
-  if (logistics) {
-    const tone = logistics.status === 'in_transit'
+  const key = invoiceListStatusKey(invoice, booking);
+  const tone = key === 'customer_pickup' || key === 'delivered'
+    ? 'delivered'
+    : key === 'in_transit' || key === 'to_dispatch'
       ? 'sent'
-      : logistics.status === 'delivered'
-        ? 'delivered'
-        : logistics.status === 'cancelled'
-          ? 'void'
-          : 'overdue';
-    return {
-      label: logistics.label,
-      className: invoiceStatusClass(tone),
-    };
-  }
+      : key === 'cancelled' || key === 'void'
+        ? 'void'
+        : key === 'returned'
+          ? 'overdue'
+          : key;
   return {
-    label: invoiceStatusLabel(invoice.status),
-    className: invoiceStatusClass(invoice.status),
+    label: invoiceListStatusLabel(key),
+    className: invoiceStatusClass(tone),
   };
 }
 
@@ -352,6 +345,7 @@ export const AdminInvoicesPage: React.FC = () => {
   const [sort, setSort] = useState<AdminInvoiceSort>(DEFAULT_SORT);
   const [rangePreset, setRangePreset] = useState<SalesRangePreset>(DEFAULT_RANGE);
   const [category, setCategory] = useState<InvoiceCategory | 'all'>(DEFAULT_CATEGORY);
+  const [statusFilter, setStatusFilter] = useState(DEFAULT_STATUS);
   const [aggregate, setAggregate] = useState(false);
   const [filterOpen, setFilterOpen] = useState(false);
   const [page, setPage] = useState(1);
@@ -395,6 +389,12 @@ export const AdminInvoicesPage: React.FC = () => {
   useEffect(() => {
     if (aggregate && !aggregateAllowed) setAggregate(false);
   }, [aggregate, aggregateAllowed]);
+
+  useEffect(() => {
+    if (useLifetimeDealerRollups && statusFilter !== DEFAULT_STATUS) {
+      setStatusFilter(DEFAULT_STATUS);
+    }
+  }, [useLifetimeDealerRollups, statusFilter]);
 
   useEffect(() => {
     const ids = dealerFilterFromUrl
@@ -536,13 +536,24 @@ export const AdminInvoicesPage: React.FC = () => {
     }
 
     // Stamping = portal GATC Billwise set; load full window and page client-side.
-    if (category === 'gatc') {
-      void fetchAdminPortalStampingInvoices({
-        sort,
-        dateStart,
-        dateEnd,
-        salespersonIds,
-      })
+    // Status filter also needs the full window so chips/counts match the list.
+    if (category === 'gatc' || statusFilter !== DEFAULT_STATUS) {
+      const load = category === 'gatc'
+        ? fetchAdminPortalStampingInvoices({
+          sort,
+          dateStart,
+          dateEnd,
+          salespersonIds,
+        }).then(next => ({ rows: next.rows }))
+        : fetchAllAdminInvoicesInRange({
+          sort,
+          category,
+          dateStart,
+          dateEnd,
+          salespersonIds,
+        });
+
+      void load
         .then(({ rows: next }) => {
           if (cancelled) return;
           setRows(next);
@@ -610,6 +621,7 @@ export const AdminInvoicesPage: React.FC = () => {
     useAggregate,
     useLifetimeDealerRollups,
     category,
+    statusFilter,
     page,
   ]);
 
@@ -617,7 +629,7 @@ export const AdminInvoicesPage: React.FC = () => {
   useEffect(() => {
     setPage(1);
     setPageCursors([null]);
-  }, [rangePreset, category, sort, selectedCustomerKey, useAggregate, salespersonScopeKey]);
+  }, [rangePreset, category, statusFilter, sort, selectedCustomerKey, useAggregate, salespersonScopeKey]);
 
   useEffect(() => {
     const timer = window.setTimeout(() => setDebouncedSearch(search.trim()), 250);
@@ -750,17 +762,32 @@ export const AdminInvoicesPage: React.FC = () => {
     category,
   ]);
 
-  const filtered = useMemo(
-    () => filterAdminInvoices(
-      rows,
-      '',
-      // Portal stamping rows are pre-filtered; avoid HSN re-filter dropping them.
-      category === 'gatc'
-        ? 'all'
-        : (useAggregate || dealerScoped ? category : 'all'),
-    ),
-    [rows, category, useAggregate, dealerScoped],
+  const categoryFilter = category === 'gatc'
+    ? 'all'
+    : (useAggregate || dealerScoped || statusFilter !== DEFAULT_STATUS ? category : 'all');
+
+  const categoryFiltered = useMemo(
+    () => filterAdminInvoices(rows, '', categoryFilter),
+    [rows, categoryFilter],
   );
+
+  const statusCounts = useMemo(() => {
+    const counts: Record<string, number> = {};
+    for (const row of categoryFiltered) {
+      if ((row.aggregateInvoiceCount ?? 0) > 1) continue;
+      const key = invoiceListStatusKey(row, logisticsByInvoiceId.get(row.id));
+      if (!key || key === 'aggregated') continue;
+      counts[key] = (counts[key] ?? 0) + 1;
+    }
+    return counts;
+  }, [categoryFiltered, logisticsByInvoiceId]);
+
+  const filtered = useMemo(() => {
+    if (statusFilter === DEFAULT_STATUS) return categoryFiltered;
+    return categoryFiltered.filter(row => (
+      invoiceListStatusKey(row, logisticsByInvoiceId.get(row.id)) === statusFilter
+    ));
+  }, [categoryFiltered, statusFilter, logisticsByInvoiceId]);
 
   const displayRows = useMemo(
     () => (useAggregate
@@ -771,8 +798,9 @@ export const AdminInvoicesPage: React.FC = () => {
     [useAggregate, useLifetimeDealerRollups, filtered, sort],
   );
 
-  // Client-side pagination for aggregate / dealer-scoped / portal stamping dumps.
-  const clientPaged = useAggregate || dealerScoped || category === 'gatc';
+  // Client-side pagination for aggregate / dealer-scoped / portal stamping / status dumps.
+  const clientPaged = useAggregate || dealerScoped || category === 'gatc' || statusFilter !== DEFAULT_STATUS;
+  const statusCountsComplete = clientPaged && !useLifetimeDealerRollups;
   const totalCount = clientPaged
     ? displayRows.length
     : (category === 'all' ? categoryCounts.all : categoryCounts[category]);
@@ -785,6 +813,14 @@ export const AdminInvoicesPage: React.FC = () => {
     const start = (page - 1) * LIST_PAGE_SIZE;
     return displayRows.slice(start, start + LIST_PAGE_SIZE);
   }, [displayRows, page, clientPaged]);
+
+  const logisticsInvoiceIdsKey = useMemo(() => {
+    const source = clientPaged ? categoryFiltered : pageRows;
+    return source
+      .filter(invoice => (invoice.aggregateInvoiceCount ?? 0) <= 1)
+      .map(invoice => invoice.id)
+      .join(',');
+  }, [clientPaged, categoryFiltered, pageRows]);
 
   useEffect(() => {
     if (page > totalPages) setPage(totalPages);
@@ -808,9 +844,7 @@ export const AdminInvoicesPage: React.FC = () => {
   }, [pageRows]);
 
   useEffect(() => {
-    const invoiceIds = pageRows
-      .filter(invoice => (invoice.aggregateInvoiceCount ?? 0) <= 1)
-      .map(invoice => invoice.id);
+    const invoiceIds = logisticsInvoiceIdsKey.split(',').filter(Boolean);
     if (!invoiceIds.length) {
       setLogisticsByInvoiceId(new Map());
       return;
@@ -828,7 +862,7 @@ export const AdminInvoicesPage: React.FC = () => {
     return () => {
       cancelled = true;
     };
-  }, [pageRows]);
+  }, [logisticsInvoiceIdsKey]);
 
   const openInvoice = useCallback((invoice: AdminFirestoreInvoice) => {
     navigate(`${basePath}/invoices/${invoice.customerId}/${invoice.id}/invoice`);
@@ -863,16 +897,17 @@ export const AdminInvoicesPage: React.FC = () => {
   const summary = useMemo(() => {
     const boundsForRange = getInvoicePeriodBounds(rangePreset);
     const countFromTabs = category === 'all' ? categoryCounts.all : categoryCounts[category];
+    const useClientSummary = dealerScoped || statusFilter !== DEFAULT_STATUS;
     return {
-      invoiceCount: dealerScoped
+      invoiceCount: useClientSummary
         ? filtered.length
         : (countFromTabs || kpiCount),
-      categorySales: dealerScoped
+      categorySales: useClientSummary
         ? (category === 'all'
           ? filtered.reduce((sum, row) => sum + invoiceAmountExclGst(row), 0)
           : filtered.reduce((sum, row) => sum + invoiceCategoryAmount(row, category), 0))
         : kpiCategoryAmount,
-      documentSales: dealerScoped
+      documentSales: useClientSummary
         ? filtered.reduce((sum, row) => sum + invoiceAmountExclGst(row), 0)
         : kpiDocumentAmount,
       periodStart: boundsForRange?.start?.toISOString() ?? null,
@@ -883,6 +918,7 @@ export const AdminInvoicesPage: React.FC = () => {
     category,
     categoryCounts,
     dealerScoped,
+    statusFilter,
     filtered,
     kpiCount,
     kpiCategoryAmount,
@@ -1077,6 +1113,19 @@ export const AdminInvoicesPage: React.FC = () => {
             ].filter(Boolean).join(' · ')}
             .
           </p>
+        )}
+
+        {!useLifetimeDealerRollups && (
+          <InvoiceStatusFilterBlocks
+            value={statusFilter}
+            counts={statusCounts}
+            allCount={statusCountsComplete
+              ? categoryFiltered.length
+              : (category === 'all' ? categoryCounts.all : categoryCounts[category]) || kpiCount}
+            countsComplete={statusCountsComplete}
+            loading={loading}
+            onChange={setStatusFilter}
+          />
         )}
 
         <div className="unified-so-category-blocks" role="tablist" aria-label="Invoice category">

@@ -218,6 +218,32 @@ export const INVOICE_STATUS_OPTIONS: Array<{ value: InvoiceStatus | 'all'; label
   { value: 'void', label: 'Void' },
 ];
 
+/** Chip keys for the invoice list status row (portal fulfillment + remaining payment states). */
+export type InvoiceListStatusFilter =
+  | 'unpaid'
+  | 'partially_paid'
+  | 'overdue'
+  | 'paid'
+  | 'to_dispatch'
+  | 'in_transit'
+  | 'delivered'
+  | 'customer_pickup'
+  | 'returned'
+  | 'void';
+
+export const INVOICE_STATUS_FILTERS: readonly InvoiceListStatusFilter[] = [
+  'unpaid',
+  'partially_paid',
+  'overdue',
+  'paid',
+  'to_dispatch',
+  'in_transit',
+  'delivered',
+  'customer_pickup',
+  'returned',
+  'void',
+] as const;
+
 export interface InvoiceChartPoint {
   label: string;
   total: number;

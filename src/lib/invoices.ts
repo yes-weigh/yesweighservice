@@ -328,8 +328,12 @@ export function formatInvoiceDate(value: string | null | undefined): string {
   }).format(parsed);
 }
 
+export function normalizeInvoiceStatusKey(status: unknown): string {
+  return String(status ?? 'draft').trim().toLowerCase().replace(/\s+/g, '_');
+}
+
 export function invoiceStatusLabel(status: string): string {
-  return status
+  return normalizeInvoiceStatusKey(status)
     .replace(/_/g, ' ')
     .replace(/\b\w/g, char => char.toUpperCase());
 }

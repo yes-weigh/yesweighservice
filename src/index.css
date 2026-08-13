@@ -17708,6 +17708,55 @@ body:has(.confirm-inline-bar) .confirm-inline-bar {
   color: #86efac;
 }
 
+.unified-so-stage-blocks--invoice-status {
+  display: flex;
+  flex-wrap: nowrap;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  grid-template-columns: none;
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+
+.unified-so-stage-blocks--invoice-status::-webkit-scrollbar {
+  display: none;
+}
+
+.unified-so-stage-blocks--invoice-status .unified-so-stage-block {
+  flex: 1 0 4.35rem;
+  min-width: 4.35rem;
+  width: auto;
+}
+
+.unified-so-stage-block__icon--draft,
+.unified-so-stage-block__icon--unpaid,
+.unified-so-stage-block__icon--partially_paid,
+.unified-so-stage-block__icon--to_dispatch {
+  background: rgba(251, 191, 36, 0.18);
+  color: #fcd34d;
+}
+
+.unified-so-stage-block__icon--sent,
+.unified-so-stage-block__icon--viewed,
+.unified-so-stage-block__icon--in_transit {
+  background: rgba(96, 165, 250, 0.18);
+  color: #93c5fd;
+}
+
+.unified-so-stage-block__icon--paid,
+.unified-so-stage-block__icon--delivered,
+.unified-so-stage-block__icon--customer_pickup {
+  background: rgba(52, 211, 153, 0.18);
+  color: #6ee7b7;
+}
+
+.unified-so-stage-block__icon--overdue,
+.unified-so-stage-block__icon--void,
+.unified-so-stage-block__icon--returned {
+  background: rgba(248, 113, 113, 0.18);
+  color: #fca5a5;
+}
+
 @media (max-width: 640px) {
   .unified-so-stage-blocks {
     gap: 0.2rem;
