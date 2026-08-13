@@ -1,6 +1,7 @@
 import { getFunctions, httpsCallable } from 'firebase/functions';
 import { app } from '../firebase';
 import { isEwayBillRequired, invoiceTotalInclGst } from '../constants/ewayBill';
+import { isFreightInvoiceLineItem } from './invoices';
 import type {
   DealerInvoiceDetail,
   InvoiceCustomerPickup,
@@ -64,12 +65,23 @@ export function invoiceNeedsCustomerPickupEwayVehicle(
   return isEwayBillRequired(total);
 }
 
+function invoiceHasCourierFreightLine(
+  invoice: Pick<DealerInvoiceDetail, 'lineItems'> | null | undefined,
+): boolean {
+  return (invoice?.lineItems ?? []).some(line => isFreightInvoiceLineItem(line));
+}
+
 export function canMarkInvoiceCustomerPickup(
-  invoice: Pick<DealerInvoiceDetail, 'customerPickup'> | null | undefined,
+  invoice: Pick<
+    DealerInvoiceDetail,
+    'customerPickup' | 'sourceSalesOrderIsPickup' | 'lineItems'
+  > | null | undefined,
   hasActiveLogisticsBooking: boolean,
 ): boolean {
-  if (hasActiveLogisticsBooking) return false;
-  return !isInvoiceCustomerPickup(invoice);
+  if (!invoice || hasActiveLogisticsBooking) return false;
+  if (isInvoiceCustomerPickup(invoice)) return false;
+  if (invoiceHasCourierFreightLine(invoice)) return false;
+  return Boolean(invoice.sourceSalesOrderIsPickup);
 }
 
 export async function markInvoiceCustomerPickup(input: {
