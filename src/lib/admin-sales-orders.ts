@@ -56,6 +56,8 @@ export type AdminSalesOrderListQuery = {
   statusIn?: readonly string[] | null;
   /** YesOne workflow stage (`review`, `payment_submitted`, …). */
   yesOneStage?: string | null;
+  /** When set (and yesOneStage is unset), match any of these YesOne stages. */
+  yesOneStages?: readonly string[] | null;
   /**
    * When set, restrict to these Zoho salesperson ids.
    * Empty array → no results. Omit / null → org-wide (super admin).
@@ -258,6 +260,9 @@ export function buildAdminSalesOrdersQuery(options: AdminSalesOrderListQuery) {
   const dateEnd = options.dateEnd?.trim() || null;
   const statusIn = options.statusIn?.length ? [...options.statusIn] : null;
   const yesOneStage = options.yesOneStage?.trim() || null;
+  const yesOneStages = !yesOneStage && options.yesOneStages?.length
+    ? [...options.yesOneStages].map(s => String(s).trim()).filter(Boolean).slice(0, 10)
+    : null;
   const constraints: QueryConstraint[] = [];
 
   if (appendSalespersonIdConstraint(constraints, options.salespersonIds) === 'empty') {
@@ -273,6 +278,8 @@ export function buildAdminSalesOrdersQuery(options: AdminSalesOrderListQuery) {
   }
   if (yesOneStage) {
     constraints.push(where('yesOneStage', '==', yesOneStage));
+  } else if (yesOneStages?.length) {
+    constraints.push(where('yesOneStage', 'in', yesOneStages));
   }
 
   // Date range forces orderBy('date') so inequality + orderBy stay on the same field.
@@ -383,6 +390,9 @@ export async function countAdminSalesOrders(
   const dateEnd = options.dateEnd?.trim() || null;
   const statusIn = options.statusIn?.length ? [...options.statusIn] : null;
   const yesOneStage = options.yesOneStage?.trim() || null;
+  const yesOneStages = !yesOneStage && options.yesOneStages?.length
+    ? [...options.yesOneStages].map(s => String(s).trim()).filter(Boolean).slice(0, 10)
+    : null;
   const constraints: QueryConstraint[] = [];
 
   if (appendSalespersonIdConstraint(constraints, options.salespersonIds) === 'empty') {
@@ -396,6 +406,8 @@ export async function countAdminSalesOrders(
   }
   if (yesOneStage) {
     constraints.push(where('yesOneStage', '==', yesOneStage));
+  } else if (yesOneStages?.length) {
+    constraints.push(where('yesOneStage', 'in', yesOneStages));
   }
   if (dateStart || dateEnd) {
     if (dateStart) constraints.push(where('date', '>=', dateStart));
@@ -478,11 +490,15 @@ export async function countAdminSalesOrdersByCategory(options: {
   dateStart?: string | null;
   dateEnd?: string | null;
   salespersonIds?: string[] | null;
+  yesOneStage?: string | null;
+  yesOneStages?: readonly string[] | null;
 }): Promise<AdminSalesOrderCategoryCounts> {
   const base = {
     dateStart: options.dateStart ?? null,
     dateEnd: options.dateEnd ?? null,
     salespersonIds: options.salespersonIds ?? null,
+    yesOneStage: options.yesOneStage ?? null,
+    yesOneStages: options.yesOneStages ?? null,
   } as const;
 
   const [all, product, spare, software_key, service, gatc] = await Promise.all([

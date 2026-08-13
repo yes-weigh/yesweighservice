@@ -34,6 +34,7 @@ import { resolveDealerKamName } from '../../lib/dealerKamDisplay';
 import { useDealerStaffById } from '../../lib/useDealerStaffById';
 import {
   aggregateAdminSalesOrdersByDealer,
+  countAdminSalesOrdersByCategory,
   countAdminSalesOrdersByYesOneStages,
   countZohoRowsByCategory,
   fetchAdminSalesOrderDealerLifetimeAggregates,
@@ -42,12 +43,12 @@ import {
   fetchAllAdminSalesOrdersInRange,
   filterAdminSalesOrders,
   loadAdminSalesOrderCursorDocs,
-  loadAdminSalesOrderKpis,
   toSalesOrderDateKey,
   type AdminFirestoreSalesOrder,
   type AdminSalesOrderCategoryCounts,
   type AdminSalesOrderSort,
 } from '../../lib/admin-sales-orders';
+import { YESONE_STAGE_FILTERS } from '../../lib/salesOrderWorkflow';
 import {
   fetchAdminCustomerLocations,
   formatAdminCustomerLocation,
@@ -322,7 +323,12 @@ export const AdminUnifiedSalesOrdersPage: React.FC = () => {
   );
   const basePath = pathname.startsWith('/staff') ? '/staff' : '/super-admin';
   const listKey = basePath;
-  const pendingReturnRef = useRef(peekSalesOrderListReturn(listKey));
+  const pendingReturnRef = useRef((() => {
+    const focus = peekSalesOrderListReturn(listKey);
+    // Only restore list UI when returning from an opened order. Otherwise stage
+    // (and related paging) would stick on stale sessionStorage values like "all".
+    return focus?.openedOrderId ? focus : null;
+  })());
   const returnFocusAppliedRef = useRef(false);
   const canCreateStaffOrder = hasStaffPermission(user, 'orders.manage');
   const salespersonIds = useMemo(() => salespersonScopeForUser(user), [user]);
@@ -482,6 +488,7 @@ export const AdminUnifiedSalesOrdersPage: React.FC = () => {
     }
     let cancelled = false;
     const yesOneStage = stageFilter !== 'all' ? stageFilter : null;
+    const yesOneStages = stageFilter === 'all' ? YESONE_STAGE_FILTERS : null;
 
     const hydrate = async () => {
       const ids = focus.pageCursorIds;
@@ -509,6 +516,7 @@ export const AdminUnifiedSalesOrdersPage: React.FC = () => {
           dateEnd,
           statusIn: null,
           yesOneStage,
+          yesOneStages,
           salespersonIds,
         });
         if (cancelled) return;
@@ -542,7 +550,7 @@ export const AdminUnifiedSalesOrdersPage: React.FC = () => {
     salespersonIds,
   ]);
 
-  // Server category + YesOne stage counts (org-wide rollups when available).
+  // Server category + YesOne stage counts — same date window (and YesOne universe).
   useEffect(() => {
     let cancelled = false;
     if (dealerScoped) {
@@ -550,12 +558,15 @@ export const AdminUnifiedSalesOrdersPage: React.FC = () => {
       return;
     }
     setCountsLoading(true);
+    const yesOneStage = stageFilter !== 'all' ? stageFilter : null;
+    const yesOneStages = stageFilter === 'all' ? YESONE_STAGE_FILTERS : null;
     void Promise.all([
-      loadAdminSalesOrderKpis({
+      countAdminSalesOrdersByCategory({
         dateStart,
         dateEnd,
-        category,
         salespersonIds,
+        yesOneStage,
+        yesOneStages,
       }),
       countAdminSalesOrdersByYesOneStages({
         dateStart,
@@ -564,10 +575,10 @@ export const AdminUnifiedSalesOrdersPage: React.FC = () => {
         salespersonIds,
       }),
     ])
-      .then(([kpi, stages]) => {
+      .then(([categoryCounts, stages]) => {
         if (cancelled) return;
-        setZohoCategoryCounts(kpi.categoryCounts);
-        setZohoTotal(kpi.orderCount);
+        setZohoCategoryCounts(categoryCounts);
+        setZohoTotal(category === 'all' ? categoryCounts.all : categoryCounts[category]);
         setServerStageCounts(stages);
       })
       .catch(err => {
@@ -579,7 +590,15 @@ export const AdminUnifiedSalesOrdersPage: React.FC = () => {
     return () => {
       cancelled = true;
     };
-  }, [dealerScoped, dateStart, dateEnd, category, salespersonIds, salespersonScopeKey]);
+  }, [
+    dealerScoped,
+    dateStart,
+    dateEnd,
+    category,
+    stageFilter,
+    salespersonIds,
+    salespersonScopeKey,
+  ]);
 
   // Dealer-scoped: load full date window for selected customers (newest-first).
   useEffect(() => {
@@ -600,9 +619,6 @@ export const AdminUnifiedSalesOrdersPage: React.FC = () => {
       .then(rows => {
         if (cancelled) return;
         setZohoOrders(rows);
-        const counts = countZohoRowsByCategory(rows);
-        setZohoCategoryCounts(counts);
-        setZohoTotal(category === 'all' ? counts.all : counts[category]);
       })
       .catch(err => {
         if (!cancelled) {
@@ -626,10 +642,20 @@ export const AdminUnifiedSalesOrdersPage: React.FC = () => {
     dateEnd,
   ]);
 
+  // Dealer-scoped sector counts: same date window + YesOne stage universe as status row.
   useEffect(() => {
     if (!dealerScoped) return;
-    setZohoTotal(category === 'all' ? zohoCategoryCounts.all : zohoCategoryCounts[category]);
-  }, [dealerScoped, category, zohoCategoryCounts]);
+    const stageSet = new Set<string>(
+      stageFilter === 'all' ? YESONE_STAGE_FILTERS : [stageFilter],
+    );
+    const scoped = zohoOrders.filter(row => {
+      const stage = String(row.yesOneStage || '').trim();
+      return Boolean(stage && stageSet.has(stage));
+    });
+    const counts = countZohoRowsByCategory(scoped);
+    setZohoCategoryCounts(counts);
+    setZohoTotal(category === 'all' ? counts.all : counts[category]);
+  }, [dealerScoped, zohoOrders, stageFilter, category]);
 
   // Org-wide: server-paged Zoho feed (or bounded aggregate scan).
   useEffect(() => {
@@ -661,10 +687,6 @@ export const AdminUnifiedSalesOrdersPage: React.FC = () => {
           if (cancelled) return;
           setZohoOrders(rows);
           setTruncated(wasTruncated);
-          if (!useLifetimeDealerRollups) {
-            setZohoCategoryCounts(countZohoRowsByCategory(rows));
-            setZohoTotal(rows.length);
-          }
         })
         .catch(err => {
           if (!cancelled) {
@@ -682,6 +704,7 @@ export const AdminUnifiedSalesOrdersPage: React.FC = () => {
 
     const cursor = pageStartCursors.current[page - 1] ?? null;
     const yesOneStage = stageFilter !== 'all' ? stageFilter : null;
+    const yesOneStages = stageFilter === 'all' ? YESONE_STAGE_FILTERS : null;
 
     void fetchAdminSalesOrdersPageDetailed({
       sort,
@@ -692,6 +715,7 @@ export const AdminUnifiedSalesOrdersPage: React.FC = () => {
       dateEnd,
       statusIn: null,
       yesOneStage,
+      yesOneStages,
       salespersonIds,
     })
       .then(result => {
