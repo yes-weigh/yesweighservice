@@ -63,7 +63,7 @@ export function invoiceAllowsLogisticsFulfillment(
  */
 export function invoiceListStatusKey(
   invoice: InvoiceListStatusInvoice,
-  booking?: Pick<LogisticsBooking, 'status' | 'wizardStep'> | null,
+  booking?: Pick<LogisticsBooking, 'status' | 'wizardStep' | 'consignmentNo' | 'trackingNo'> | null,
 ): string {
   if (invoiceHasConfirmedCustomerPickup(invoice)) return 'customer_pickup';
 
@@ -88,7 +88,7 @@ export function invoiceListStatusKey(
  */
 export function invoiceListFilterStatusKey(
   invoice: InvoiceListStatusInvoice,
-  booking?: Pick<LogisticsBooking, 'status' | 'wizardStep'> | null,
+  booking?: Pick<LogisticsBooking, 'status' | 'wizardStep' | 'consignmentNo' | 'trackingNo'> | null,
 ): string | null {
   const key = invoiceListStatusKey(invoice, booking);
   if (key === 'customer_pickup') return 'delivered';

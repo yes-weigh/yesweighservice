@@ -72,15 +72,33 @@ export function isIncompleteLogisticsBooking(
   return true;
 }
 
+/** Same fields the invoice-detail AWB card shows (consignment or tracking no). */
+export function logisticsBookingShowsAwb(
+  booking: Pick<LogisticsBooking, 'consignmentNo' | 'trackingNo'> | null | undefined,
+): boolean {
+  return Boolean(booking?.consignmentNo?.trim() || booking?.trackingNo?.trim());
+}
+
 /**
- * Invoice list Status overlay: show logistics only past Booked
- * (In Transit / Delivered / Cancelled / Returned). Booked or incomplete → null.
+ * Invoice list Status overlay.
+ * Assigned logistics with an AWB on invoice detail counts as In transit,
+ * including Booked (`label_generated`). Delivered / returned / cancelled
+ * keep their own status. Incomplete with no AWB → null (To dispatch).
  */
 export function invoiceListLogisticsStatus(
-  booking: Pick<LogisticsBooking, 'status' | 'wizardStep'> | null | undefined,
+  booking: Pick<LogisticsBooking, 'status' | 'wizardStep' | 'consignmentNo' | 'trackingNo'> | null | undefined,
 ): { status: LogisticsBookingStatus; label: string } | null {
-  if (!booking || isIncompleteLogisticsBooking(booking)) return null;
-  if (booking.status === 'label_generated') return null;
+  if (!booking) return null;
+  const hasAwb = logisticsBookingShowsAwb(booking);
+  if (!hasAwb && isIncompleteLogisticsBooking(booking)) return null;
+
+  if (booking.status === 'label_generated') {
+    if (!hasAwb) return null;
+    const inTransitLabel = LOGISTICS_BOOKING_STATUSES.find(item => item.id === 'in_transit')?.label
+      ?? 'In Transit';
+    return { status: 'in_transit', label: inTransitLabel };
+  }
+
   const label = LOGISTICS_BOOKING_STATUSES.find(item => item.id === booking.status)?.label;
   if (!label) return null;
   return { status: booking.status, label };
