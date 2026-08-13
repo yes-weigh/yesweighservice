@@ -42,6 +42,7 @@ import {
   readCachedDealerInvoices,
 } from '../../lib/invoices';
 import { useRevealScrollbarOnScroll } from '../../lib/useRevealScrollbarOnScroll';
+import { preventMouseFocusScroll } from '../../lib/preventMouseFocusScroll';
 import type {
   DealerInvoice,
   InvoiceCategory,
@@ -335,6 +336,7 @@ function InvoiceMobileRow({
     <button
       type="button"
       className="invoices-mobile-row"
+      onMouseDown={preventMouseFocusScroll}
       onClick={() => onOpen(invoice.id)}
       aria-label={`View invoice ${invoice.invoiceNumber || invoice.id}`}
     >
@@ -856,6 +858,7 @@ export const InvoicesPage: React.FC = () => {
                           key={invoice.id}
                           className="invoices-table__row--clickable"
                           onClick={() => openInvoice(invoice.id)}
+                          onMouseDown={preventMouseFocusScroll}
                           onKeyDown={e => {
                             if (e.key === 'Enter' || e.key === ' ') {
                               e.preventDefault();

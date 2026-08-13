@@ -31140,6 +31140,10 @@ body:has(.confirm-inline-bar) .confirm-inline-bar {
   flex: 1 1 auto;
   min-height: 0;
   width: 100%;
+  overflow-x: hidden;
+  overflow-y: auto;
+  overflow-anchor: none;
+  overscroll-behavior: contain;
   /* Overlay scrollbar: invisible at rest, thin thumb only while scrolling / hover */
   scrollbar-width: thin;
   scrollbar-color: transparent transparent;
@@ -31169,6 +31173,31 @@ body:has(.confirm-inline-bar) .confirm-inline-bar {
 .invoices-page__scroll.is-scrolling::-webkit-scrollbar-thumb,
 .invoices-page__scroll:hover::-webkit-scrollbar-thumb {
   background: rgba(255, 255, 255, 0.28);
+}
+
+/* Keep list scroll inside the pane so Safari focus-scroll cannot jump the window. */
+.main-content:has(.invoices-page) {
+  display: flex;
+  flex-direction: column;
+  height: 100dvh;
+  max-height: 100dvh;
+  overflow: hidden;
+}
+
+.content-area:has(.invoices-page) {
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.content-area:has(.invoices-page) > .page-content.invoices-page {
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: hidden;
 }
 
 .invoices-summary__kpis {

@@ -67,6 +67,7 @@ import { findLogisticsBookingsForInvoices } from '../../lib/logisticsBookings';
 import { resolveDealerKamName } from '../../lib/dealerKamDisplay';
 import { isInternalOpsUser } from '../../lib/staffAccess';
 import { useDealerStaffById } from '../../lib/useDealerStaffById';
+import { preventMouseFocusScroll } from '../../lib/preventMouseFocusScroll';
 import { useRevealScrollbarOnScroll } from '../../lib/useRevealScrollbarOnScroll';
 import type { LogisticsBooking } from '../../types/logistics-dispatch';
 import {
@@ -1297,6 +1298,7 @@ export const AdminInvoicesPage: React.FC = () => {
                       key={`${invoice.customerId}-${invoice.id}`}
                       className="invoices-table__row--clickable"
                       onClick={() => openRow(invoice)}
+                      onMouseDown={preventMouseFocusScroll}
                       onKeyDown={e => {
                         if (e.key === 'Enter' || e.key === ' ') {
                           e.preventDefault();
@@ -1396,6 +1398,7 @@ export const AdminInvoicesPage: React.FC = () => {
                   key={`${invoice.customerId}-${invoice.id}`}
                   type="button"
                   className="invoices-mobile-row"
+                  onMouseDown={preventMouseFocusScroll}
                   onClick={() => openRow(invoice)}
                   aria-label={
                     isAggregateRow

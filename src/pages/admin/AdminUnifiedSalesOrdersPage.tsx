@@ -63,6 +63,7 @@ import {
   invoiceErrorMessage,
 } from '../../lib/invoices';
 import { useRevealScrollbarOnScroll } from '../../lib/useRevealScrollbarOnScroll';
+import { preventMouseFocusScroll } from '../../lib/preventMouseFocusScroll';
 import {
   compareSalesOrderNumberDesc,
   filterUnifiedSalesOrders,
@@ -1132,6 +1133,7 @@ export const AdminUnifiedSalesOrdersPage: React.FC = () => {
                           highlightedOrderId === row.id ? 'invoices-table__row--return-focus' : '',
                         ].filter(Boolean).join(' ')}
                         onClick={() => openRow(row)}
+                        onMouseDown={preventMouseFocusScroll}
                         onKeyDown={e => {
                           if (e.key === 'Enter' || e.key === ' ') {
                             e.preventDefault();
@@ -1222,6 +1224,7 @@ export const AdminUnifiedSalesOrdersPage: React.FC = () => {
                       highlightedOrderId === row.id ? 'invoices-mobile-row--return-focus' : '',
                     ].filter(Boolean).join(' ')}
                     onClick={() => openRow(row)}
+                    onMouseDown={preventMouseFocusScroll}
                     aria-label={`View ${row.primaryNumber}${row.sealKind ? `, ${row.sealKind.replace(/_/g, ' ')}` : ''}`}
                   >
                     <InvoiceCategoryIcon category={row.category} />

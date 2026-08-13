@@ -35,6 +35,7 @@ import {
   invoiceStatusLabel,
 } from '../../lib/invoices';
 import { useRevealScrollbarOnScroll } from '../../lib/useRevealScrollbarOnScroll';
+import { preventMouseFocusScroll } from '../../lib/preventMouseFocusScroll';
 import type { InvoiceCategory, SalesRangePreset } from '../../types/invoices';
 import { INVOICE_CATEGORY_FILTER_OPTIONS, SALES_RANGE_OPTIONS } from '../../types/invoices';
 
@@ -468,6 +469,7 @@ export const AdminSalesOrdersPage: React.FC = () => {
                           key={po.id}
                           className="invoices-table__row--clickable"
                           onClick={() => openPo(po)}
+                          onMouseDown={preventMouseFocusScroll}
                           onKeyDown={e => {
                             if (e.key === 'Enter' || e.key === ' ') {
                               e.preventDefault();
@@ -531,6 +533,7 @@ export const AdminSalesOrdersPage: React.FC = () => {
                     type="button"
                     className="invoices-mobile-row"
                     onClick={() => openPo(po)}
+                    onMouseDown={preventMouseFocusScroll}
                     aria-label={`View Sales order ${po.salesOrderNumber || po.id}`}
                   >
                     <InvoiceCategoryIcon category={po.salesOrderCategory} />

@@ -40,6 +40,7 @@ import {
   invoiceErrorMessage,
 } from '../../lib/invoices';
 import { useRevealScrollbarOnScroll } from '../../lib/useRevealScrollbarOnScroll';
+import { preventMouseFocusScroll } from '../../lib/preventMouseFocusScroll';
 import {
   countYesOneStages,
   filterUnifiedSalesOrders,
@@ -424,6 +425,7 @@ export const DealerSalesOrdersPage: React.FC = () => {
                           highlightedOrderId === row.id ? 'invoices-table__row--return-focus' : '',
                         ].filter(Boolean).join(' ')}
                         onClick={() => openRow(row)}
+                        onMouseDown={preventMouseFocusScroll}
                         onKeyDown={e => {
                           if (e.key === 'Enter' || e.key === ' ') {
                             e.preventDefault();
@@ -490,6 +492,7 @@ export const DealerSalesOrdersPage: React.FC = () => {
                       highlightedOrderId === row.id ? 'invoices-mobile-row--return-focus' : '',
                     ].filter(Boolean).join(' ')}
                     onClick={() => openRow(row)}
+                    onMouseDown={preventMouseFocusScroll}
                     aria-label={`View ${row.primaryNumber}${row.sealKind ? `, ${row.statusLabel}` : ''}`}
                   >
                     <InvoiceCategoryIcon category={row.category} />

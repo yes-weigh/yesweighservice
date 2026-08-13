@@ -34,6 +34,7 @@ import {
   invoiceErrorMessage,
 } from '../../lib/invoices';
 import { useRevealScrollbarOnScroll } from '../../lib/useRevealScrollbarOnScroll';
+import { preventMouseFocusScroll } from '../../lib/preventMouseFocusScroll';
 import type { SalesRangePreset } from '../../types/invoices';
 import { SALES_RANGE_OPTIONS } from '../../types/invoices';
 
@@ -473,6 +474,7 @@ export const AdminGoodsReceiptsPage: React.FC = () => {
                           key={po.id}
                           className="invoices-table__row--clickable"
                           onClick={() => openGr(po)}
+                          onMouseDown={preventMouseFocusScroll}
                           onKeyDown={e => {
                             if (e.key === 'Enter' || e.key === ' ') {
                               e.preventDefault();
@@ -517,6 +519,7 @@ export const AdminGoodsReceiptsPage: React.FC = () => {
                     type="button"
                     className="invoices-mobile-row invoices-mobile-row--po-stack"
                     onClick={() => openGr(po)}
+                    onMouseDown={preventMouseFocusScroll}
                     aria-label={`View goods receipt ${po.billNumber || po.id}`}
                   >
                     <span className="invoices-mobile-row__body">
