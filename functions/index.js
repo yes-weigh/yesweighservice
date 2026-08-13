@@ -2000,6 +2000,7 @@ export const ensureInvoiceEwayBillFn = onCall(
         bookingId: bookingId || null,
         autoGenerate,
         invoiceTotalInr: request.data?.invoiceTotalInr ?? null,
+        forceRequired: request.data?.forceRequired === true,
       });
     } catch (err) {
       if (err instanceof HttpsError) throw err;
@@ -4904,6 +4905,42 @@ export const bookDelhiveryShipmentFn = onCall(
           );
         },
       });
+      const clubbedInput = Array.isArray(request.data?.invoices) ? request.data.invoices : [];
+      const clubbedInvoices = [];
+      for (const row of clubbedInput) {
+        if (!row || typeof row !== 'object') continue;
+        const invoiceId = String(row.invoiceId ?? '').trim();
+        const fields = invoiceId && invoiceId === String(request.data?.invoiceId ?? '').trim()
+          ? invoiceFields
+          : await resolveInvoiceFieldsForDelhiveryBook(db, {
+            invoiceNumber: row.invoiceNumber,
+            invoiceValueInr: row.invoiceValueInr,
+            invoiceId,
+            zohoCustomerId: request.data?.zohoCustomerId,
+          }, {
+            syncInvoice: async id => {
+              await syncSingleInvoiceFromZoho(
+                zohoSecrets(),
+                zohoOrganizationId.value(),
+                id,
+                {
+                  skipPdfs: true,
+                  skipImages: true,
+                  source: 'delhivery-book',
+                },
+              );
+            },
+          });
+        clubbedInvoices.push({
+          invoiceId: invoiceId || null,
+          invoiceNumber: fields.invoiceNumber,
+          invoiceValueInr: fields.invoiceValueInr,
+        });
+      }
+      const clubbedSum = clubbedInvoices.reduce(
+        (sum, row) => sum + (Number(row.invoiceValueInr) || 0),
+        0,
+      );
       const result = await bookDelhiveryB2bShipment(db, {
         pickupLocationName,
         orderId: String(request.data?.orderId ?? '').trim() || `YW-${Date.now()}`,
@@ -4914,7 +4951,7 @@ export const bookDelhiveryShipmentFn = onCall(
         invoiceId: request.data?.invoiceId,
         zohoCustomerId: request.data?.zohoCustomerId,
         invoiceNumber: invoiceFields.invoiceNumber,
-        invoiceValueInr: invoiceFields.invoiceValueInr,
+        invoiceValueInr: clubbedSum > 0 ? clubbedSum : invoiceFields.invoiceValueInr,
         invoiceDate: request.data?.invoiceDate,
         productsDesc: request.data?.productsDesc,
         hsnCode: request.data?.hsnCode,
@@ -4922,6 +4959,7 @@ export const bookDelhiveryShipmentFn = onCall(
         paymentMode: request.data?.paymentMode,
         shippingMode: request.data?.shippingMode,
         freightBillingMode: request.data?.freightBillingMode,
+        ...(clubbedInvoices.length ? { invoices: clubbedInvoices } : {}),
       });
 
       // Master AWB from label URLs (soft) — usually available once LR is manifested.

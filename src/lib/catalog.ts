@@ -1,5 +1,7 @@
+import { Capacitor, CapacitorHttp } from '@capacitor/core';
 import { getFunctions, httpsCallable } from 'firebase/functions';
 import { collection, doc, getDoc, getDocs, limit, query, where } from 'firebase/firestore';
+import { WhatsAppShare } from 'whatsapp-share';
 import { app, db } from '../firebase';
 import { isFreightProductId, isFreightSku } from '../constants/freightLines';
 import { compressImageForUpload } from './compressImage';
@@ -1746,19 +1748,139 @@ function extensionFromUrl(url: string): string | null {
   }
 }
 
+function mimeFromExtension(ext: string): string {
+  if (ext === 'png') return 'image/png';
+  if (ext === 'webp') return 'image/webp';
+  if (ext === 'gif') return 'image/gif';
+  return 'image/jpeg';
+}
+
+function headerValue(headers: Record<string, string> | undefined, name: string): string | null {
+  if (!headers) return null;
+  const wanted = name.toLowerCase();
+  for (const [key, value] of Object.entries(headers)) {
+    if (key.toLowerCase() === wanted && value.trim()) return value.trim();
+  }
+  return null;
+}
+
+function stripDataUrlPrefix(value: string): string {
+  const comma = value.indexOf(',');
+  return value.startsWith('data:') && comma >= 0 ? value.slice(comma + 1) : value;
+}
+
+function blobToBase64(blob: Blob): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => {
+      const result = reader.result;
+      if (typeof result !== 'string') {
+        reject(new Error('Could not encode image.'));
+        return;
+      }
+      resolve(stripDataUrlPrefix(result));
+    };
+    reader.onerror = () => reject(new Error('Could not encode image.'));
+    reader.readAsDataURL(blob);
+  });
+}
+
+function pluginUnimplemented(err: unknown): boolean {
+  if (err && typeof err === 'object' && 'code' in err) {
+    if (String((err as { code?: string }).code) === 'UNIMPLEMENTED') return true;
+  }
+  const message = err instanceof Error ? err.message : String(err ?? '');
+  return /unimplemented|not implemented/i.test(message);
+}
+
+async function fetchCatalogImageAsBase64(imageUrl: string): Promise<{
+  dataBase64: string;
+  mimeType: string;
+  ext: string;
+}> {
+  try {
+    const response = await fetch(imageUrl);
+    if (!response.ok) throw new Error('Could not download image.');
+    const blob = await response.blob();
+    const mimeType = blob.type || mimeFromExtension(extensionFromUrl(imageUrl) || 'jpg');
+    const ext = extensionFromMime(mimeType) || extensionFromUrl(imageUrl) || 'jpg';
+    return { dataBase64: await blobToBase64(blob), mimeType, ext };
+  } catch {
+    if (!Capacitor.isNativePlatform()) throw new Error('Could not download image.');
+    const http = await CapacitorHttp.get({
+      url: imageUrl,
+      responseType: 'blob',
+      connectTimeout: 15000,
+      readTimeout: 30000,
+    });
+    if (http.status < 200 || http.status >= 300) {
+      throw new Error('Could not download image.');
+    }
+    const contentType = headerValue(http.headers, 'content-type');
+    const mimeType = (contentType?.split(';')[0]?.trim() || '')
+      || mimeFromExtension(extensionFromUrl(imageUrl) || 'jpg');
+    const ext = extensionFromMime(mimeType) || extensionFromUrl(imageUrl) || 'jpg';
+    const data = http.data;
+    if (typeof data === 'string' && data.trim()) {
+      return { dataBase64: stripDataUrlPrefix(data.trim()), mimeType, ext };
+    }
+    if (data instanceof Blob) {
+      return {
+        dataBase64: await blobToBase64(data),
+        mimeType: data.type || mimeType,
+        ext: extensionFromMime(data.type) || ext,
+      };
+    }
+    throw new Error('Could not download image.');
+  }
+}
+
+export type CatalogImageDownloadDestination = 'file' | 'gallery' | 'share';
+
 export async function downloadCatalogProductImage(
   imageUrl: string,
   opts: { productName?: string; sku?: string | null; productId?: string },
-): Promise<void> {
+): Promise<CatalogImageDownloadDestination> {
   const baseName = sanitizeDownloadFilename(
     opts.sku?.trim() || opts.productName?.trim() || opts.productId || 'product',
   );
+  const guessedExt = extensionFromUrl(imageUrl) || 'jpg';
+  const guessedMime = mimeFromExtension(guessedExt);
+
+  if (Capacitor.isNativePlatform()) {
+    try {
+      await WhatsAppShare.saveImage({
+        url: imageUrl,
+        fileName: `${baseName}.${guessedExt}`,
+        mimeType: guessedMime,
+      });
+      return 'gallery';
+    } catch (saveErr) {
+      const image = await fetchCatalogImageAsBase64(imageUrl);
+      try {
+        await WhatsAppShare.shareImage({
+          dataBase64: image.dataBase64,
+          fileName: `${baseName}.${image.ext}`,
+          mimeType: image.mimeType,
+        });
+        return 'share';
+      } catch (shareErr) {
+        if (!pluginUnimplemented(saveErr)) {
+          const saveMessage = saveErr instanceof Error ? saveErr.message : '';
+          if (saveMessage) throw new Error(saveMessage);
+        }
+        throw new Error(
+          shareErr instanceof Error ? shareErr.message : 'Could not save photo to this phone.',
+        );
+      }
+    }
+  }
 
   try {
     const response = await fetch(imageUrl);
     if (!response.ok) throw new Error('Could not download image.');
     const blob = await response.blob();
-    const ext = extensionFromMime(blob.type) || extensionFromUrl(imageUrl) || 'jpg';
+    const ext = extensionFromMime(blob.type) || guessedExt;
     const url = URL.createObjectURL(blob);
     const link = document.createElement('a');
     link.href = url;
@@ -1766,14 +1888,14 @@ export async function downloadCatalogProductImage(
     link.click();
     window.setTimeout(() => URL.revokeObjectURL(url), 1000);
   } catch {
-    const ext = extensionFromUrl(imageUrl) || 'jpg';
     const link = document.createElement('a');
     link.href = imageUrl;
-    link.download = `${baseName}.${ext}`;
+    link.download = `${baseName}.${guessedExt}`;
     link.target = '_blank';
     link.rel = 'noopener noreferrer';
     link.click();
   }
+  return 'file';
 }
 
 export async function syncCatalog(): Promise<{ syncedCount: number; syncedAt: string }> {

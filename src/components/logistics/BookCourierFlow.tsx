@@ -76,6 +76,7 @@ import {
   zohoDealerToSnapshot,
 } from '../../lib/logisticsDealers';
 import {
+  findLogisticsBookingForInvoice,
   persistLogisticsBooking,
   uploadLogisticsBookingFinalPackagePhoto,
 } from '../../lib/logisticsBookings';
@@ -99,6 +100,14 @@ import { bookDelhiveryShipment } from '../../lib/delhiveryB2b';
 import { pinFromText } from '../../lib/delhiveryQuote';
 import { fetchAdminInvoiceDetail } from '../../lib/admin-invoices';
 import { resolveInvoiceFreightBillingMode } from '../../lib/logisticsPrefill';
+import {
+  clubbedFreightBillingMode,
+  listClubbableDelhiveryInvoices,
+  mapInvoiceToClubbedRow,
+  mergeClubbedBookingBoxes,
+  normalizeDraftClubbedInvoices,
+  type ClubbableDelhiveryInvoice,
+} from '../../lib/logisticsClubInvoices';
 import {
   hydrateInvoiceFieldsForDelhiveryBooking,
   positiveInvoiceTotalInr,
@@ -151,7 +160,8 @@ import {
   isStaffLogisticsSite,
 } from '../../types/staff-logistics';
 import { deliveryPartnerTabForLogisticsPartner } from '../../constants/deliveryPartnerTabs';
-import { bookingNeedsEwayBill } from '../../constants/ewayBill';
+import { fetchCatalog, formatCurrency } from '../../lib/catalog';
+import { bookingNeedsEwayBill, clubbedEwayBillRequiredLabel, clubbedInvoiceTotalInr, clubbedNeedsEwayBill } from '../../constants/ewayBill';
 import { ensureInvoiceEwayBill } from '../../lib/invoiceEwayBill';
 import { isInternalOpsUser } from '../../lib/staffAccess';
 import { base64ToUint8Array } from '../../lib/pdfViewer';
@@ -207,12 +217,14 @@ function StepProgress({
   step,
   partnerId,
   includeEwayBill,
+  includeClubInvoices,
 }: {
   step: BookCourierStep;
   partnerId: LogisticsPartnerId;
   includeEwayBill: boolean;
+  includeClubInvoices: boolean;
 }) {
-  const progressOptions = { includeEwayBill };
+  const progressOptions = { includeEwayBill, includeClubInvoices };
   const steps = bookCourierStepsForBooking(partnerId, progressOptions);
 
   return (
@@ -321,16 +333,19 @@ export const BookCourierFlow: React.FC<BookCourierFlowProps> = ({
   }));
   const draftRef = useRef(draft);
   draftRef.current = draft;
+  const includeClubInvoices = isDelhivery && draft.source === 'invoice' && Boolean(draft.invoiceId?.trim());
   const showEwayWizardStep = useMemo(
     () => isOps && bookingNeedsEwayBill({
       invoiceId: draft.invoiceId,
+      invoiceIds: normalizeDraftClubbedInvoices(draft).map(row => row.invoiceId),
+      invoices: normalizeDraftClubbedInvoices(draft),
       invoiceValueInr: draft.invoiceValueInr,
     }),
-    [draft.invoiceId, draft.invoiceValueInr, isOps],
+    [draft, isOps],
   );
   const progressOptions = useMemo(
-    () => ({ includeEwayBill: showEwayWizardStep }),
-    [showEwayWizardStep],
+    () => ({ includeEwayBill: showEwayWizardStep, includeClubInvoices }),
+    [includeClubInvoices, showEwayWizardStep],
   );
   const photoSessionKeyRef = useRef(logisticsPhotoSessionKey(null, partnerId));
   const [booking, setBooking] = useState<LogisticsBooking | null>(null);
@@ -339,6 +354,11 @@ export const BookCourierFlow: React.FC<BookCourierFlowProps> = ({
   const [ewayEnsuring, setEwayEnsuring] = useState(false);
   const [ewayGenerateError, setEwayGenerateError] = useState('');
   const [ewayTransporterName, setEwayTransporterName] = useState<string | null>(null);
+  const [clubCandidates, setClubCandidates] = useState<ClubbableDelhiveryInvoice[]>([]);
+  const [clubLoading, setClubLoading] = useState(false);
+  const [clubError, setClubError] = useState('');
+  const [clubSelectedIds, setClubSelectedIds] = useState<string[]>([]);
+  const [clubPrimary, setClubPrimary] = useState<ClubbableDelhiveryInvoice | null>(null);
   const [cameraOpen, setCameraOpen] = useState(false);
   const [dealerQuery, setDealerQuery] = useState(initialDealerQuery ?? '');
   const [dealers, setDealers] = useState<ZohoDealer[]>([]);
@@ -433,6 +453,9 @@ export const BookCourierFlow: React.FC<BookCourierFlowProps> = ({
       bookingId: booking.id,
       invoiceTotalInr: booking.invoiceValueInr ?? draft.invoiceValueInr ?? null,
       autoGenerate: false,
+      forceRequired: clubbedNeedsEwayBill(
+        booking.invoices?.length ? booking.invoices : normalizeDraftClubbedInvoices(draft),
+      ),
     })
       .then(result => {
         if (cancelled) return;
@@ -775,6 +798,54 @@ export const BookCourierFlow: React.FC<BookCourierFlowProps> = ({
   }, [draft.source, draft.invoiceId, draft.zohoCustomerId, partnerId]);
 
   useEffect(() => {
+    if (step !== 'club_invoices' || !includeClubInvoices) return;
+    const invoiceId = draft.invoiceId?.trim() || '';
+    const customerId = draft.zohoCustomerId?.trim() || '';
+    if (!invoiceId || !customerId) return;
+    let cancelled = false;
+    setClubLoading(true);
+    setClubError('');
+    void (async () => {
+      try {
+        const primaryDetail = await fetchAdminInvoiceDetail(customerId, invoiceId);
+        if (cancelled) return;
+        const primaryKey = {
+          invoiceId,
+          invoiceNumber: primaryDetail.invoiceNumber?.trim() || invoiceId,
+          date: primaryDetail.date,
+          valueInr: Number(primaryDetail.total) || 0,
+          freightBillingMode: resolveInvoiceFreightBillingMode(primaryDetail) || 'fod',
+          gstin: String(primaryDetail.customerGstin ?? ''),
+          pincode: '',
+          detail: primaryDetail,
+        } satisfies ClubbableDelhiveryInvoice;
+        setClubPrimary(primaryKey);
+        setClubSelectedIds([invoiceId]);
+        const listed = await listClubbableDelhiveryInvoices({
+          customerId,
+          primaryInvoiceId: invoiceId,
+          primary: primaryDetail,
+        });
+        if (cancelled) return;
+        const available: ClubbableDelhiveryInvoice[] = [];
+        for (const row of listed) {
+          const existing = await findLogisticsBookingForInvoice(row.invoiceId);
+          if (existing && existing.status !== 'cancelled' && existing.status !== 'returned') continue;
+          available.push(row);
+        }
+        if (!cancelled) setClubCandidates(available);
+      } catch (err) {
+        if (!cancelled) {
+          setClubError(err instanceof Error ? err.message : 'Could not load invoices to club.');
+        }
+      } finally {
+        if (!cancelled) setClubLoading(false);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [draft.invoiceId, draft.zohoCustomerId, includeClubInvoices, step]);
+
+  useEffect(() => {
     if (!shipFromOpen) return undefined;
     const onPointerDown = (event: MouseEvent) => {
       if (!shipFromRef.current?.contains(event.target as Node)) {
@@ -1044,22 +1115,40 @@ export const BookCourierFlow: React.FC<BookCourierFlowProps> = ({
       const invoiceId = draftRef.current.invoiceId?.trim() || '';
       const customerId = draftRef.current.zohoCustomerId?.trim() || '';
       const fromInvoice = draftRef.current.source === 'invoice' || Boolean(invoiceId);
+      const clubbed = normalizeDraftClubbedInvoices(draftRef.current);
       let invoiceNumber = draftRef.current.invoiceNumber?.trim() || '';
       let invoiceValueInr = positiveInvoiceTotalInr(draftRef.current.invoiceValueInr);
+      const resolvedClubbed: Array<{
+        invoiceId: string;
+        invoiceNumber: string;
+        invoiceValueInr: number;
+      }> = [];
       if (fromInvoice) {
         if (!invoiceId || !customerId) {
           throw new Error(
             'Invoice total (incl. GST) is required before booking Delhivery. Use Book Courier from the invoice.',
           );
         }
-        const hydrated = await hydrateInvoiceFieldsForDelhiveryBooking({
-          customerId,
+        const rows = clubbed.length ? clubbed : [{
           invoiceId,
-          knownNumber: invoiceNumber,
-          knownTotal: invoiceValueInr,
-        });
-        invoiceNumber = hydrated.invoiceNumber?.trim() || invoiceNumber;
-        invoiceValueInr = hydrated.invoiceValueInr;
+          invoiceNumber,
+          valueInr: invoiceValueInr,
+        }];
+        for (const row of rows) {
+          const hydrated = await hydrateInvoiceFieldsForDelhiveryBooking({
+            customerId,
+            invoiceId: row.invoiceId,
+            knownNumber: row.invoiceNumber,
+            knownTotal: row.valueInr,
+          });
+          resolvedClubbed.push({
+            invoiceId: row.invoiceId,
+            invoiceNumber: hydrated.invoiceNumber?.trim() || row.invoiceNumber,
+            invoiceValueInr: hydrated.invoiceValueInr,
+          });
+        }
+        invoiceNumber = resolvedClubbed[0]?.invoiceNumber || invoiceNumber;
+        invoiceValueInr = resolvedClubbed.reduce((sum, row) => sum + row.invoiceValueInr, 0);
       }
       const shipperRef = (
         draftRef.current.salesOrderNumber?.trim()
@@ -1127,6 +1216,7 @@ export const BookCourierFlow: React.FC<BookCourierFlowProps> = ({
         zohoCustomerId: customerId || null,
         invoiceNumber: invoiceNumber || draftRef.current.invoiceNumber,
         invoiceValueInr,
+        ...(resolvedClubbed.length > 1 ? { invoices: resolvedClubbed } : {}),
         productsDesc: 'Weighing equipment',
         sellerGstin: shipperGstin,
         shippingMode: 'Surface',
@@ -1156,6 +1246,15 @@ export const BookCourierFlow: React.FC<BookCourierFlowProps> = ({
         ...prev,
         ...(invoiceNumber ? { invoiceNumber } : {}),
         ...(invoiceValueInr > 0 ? { invoiceValueInr } : {}),
+        ...(resolvedClubbed.length
+          ? {
+            clubbedInvoices: resolvedClubbed.map(row => ({
+              invoiceId: row.invoiceId,
+              invoiceNumber: row.invoiceNumber,
+              valueInr: row.invoiceValueInr,
+            })),
+          }
+          : {}),
         consignmentNo: lrn,
         barcodeRaw: prev.barcodeRaw || lrn,
         serviceType: 'Surface',
@@ -1254,24 +1353,56 @@ export const BookCourierFlow: React.FC<BookCourierFlowProps> = ({
   const handleWizardGenerateEway = useCallback(async () => {
     if (!booking) return;
     const customerId = booking.dealer.zohoCustomerId?.trim() || draft.zohoCustomerId.trim();
-    const invoiceId = booking.invoiceId?.trim() || draft.invoiceId?.trim();
-    if (!customerId || !invoiceId) return;
+    const rows = (booking.invoices?.length
+      ? booking.invoices
+      : normalizeDraftClubbedInvoices(draft)
+    ).filter(row => row.invoiceId);
+    const forceRequired = clubbedNeedsEwayBill(rows);
+    const targets = forceRequired
+      ? rows
+      : rows.filter(row => clubbedNeedsEwayBill([row]));
+    if (!customerId || !targets.length) return;
     setEwayEnsuring(true);
     setEwayGenerateError('');
     try {
-      const result = await ensureInvoiceEwayBill({
-        customerId,
-        invoiceId,
-        partnerId: booking.partnerId,
-        lrNumber: ewayLrNumber || null,
-        bookingId: booking.id,
-        invoiceTotalInr: booking.invoiceValueInr ?? draft.invoiceValueInr ?? null,
-        autoGenerate: true,
-      });
-      setEwayBillStatus(result.status ?? null);
-      setEwayBillNumber(result.ewaybillNumber ?? null);
-      if (result.contentBase64) {
-        openEwayPdfFromResult(result.contentBase64, result.mimeType || 'application/pdf');
+      let lastNumber: string | null = null;
+      let lastStatus: string | null = null;
+      let lastPdf: { contentBase64: string; mimeType: string } | null = null;
+      const failures: string[] = [];
+      for (const row of targets) {
+        try {
+          const result = await ensureInvoiceEwayBill({
+            customerId,
+            invoiceId: row.invoiceId,
+            partnerId: booking.partnerId,
+            lrNumber: ewayLrNumber || null,
+            bookingId: booking.id,
+            invoiceTotalInr: row.valueInr || booking.invoiceValueInr || null,
+            autoGenerate: true,
+            forceRequired,
+          });
+          lastStatus = result.status ?? lastStatus;
+          if (result.ewaybillNumber) lastNumber = result.ewaybillNumber;
+          if (result.contentBase64) {
+            lastPdf = {
+              contentBase64: result.contentBase64,
+              mimeType: result.mimeType || 'application/pdf',
+            };
+          }
+          if (result.status !== 'generated' && result.required !== false) {
+            failures.push(`${row.invoiceNumber}: ${result.message || result.status || 'not generated'}`);
+          }
+        } catch (err) {
+          failures.push(`${row.invoiceNumber}: ${err instanceof Error ? err.message : 'failed'}`);
+        }
+      }
+      setEwayBillStatus(failures.length ? 'missing' : (lastStatus ?? null));
+      setEwayBillNumber(lastNumber);
+      if (lastPdf) {
+        openEwayPdfFromResult(lastPdf.contentBase64, lastPdf.mimeType);
+      }
+      if (failures.length) {
+        setEwayGenerateError(failures.join(' '));
       }
     } catch (err) {
       setEwayGenerateError(
@@ -1282,9 +1413,7 @@ export const BookCourierFlow: React.FC<BookCourierFlowProps> = ({
     }
   }, [
     booking,
-    draft.invoiceId,
-    draft.invoiceValueInr,
-    draft.zohoCustomerId,
+    draft,
     ewayLrNumber,
     openEwayPdfFromResult,
   ]);
@@ -1733,7 +1862,8 @@ export const BookCourierFlow: React.FC<BookCourierFlowProps> = ({
           setStep('scan');
         }
         break;
-      case 'box': setStep('address'); break;
+      case 'club_invoices': setStep('address'); break;
+      case 'box': setStep(includeClubInvoices ? 'club_invoices' : 'address'); break;
       case 'review': setStep('box'); break;
       case 'label': setStep('review'); break;
       case 'final_photo':
@@ -1753,6 +1883,7 @@ export const BookCourierFlow: React.FC<BookCourierFlowProps> = ({
     const flowLabels: Record<string, string> = {
       scan: 'Scan',
       address: 'Address',
+      club_invoices: 'Invoices',
       box: 'Box',
       review: 'Review',
       label: 'Label',
@@ -1807,7 +1938,12 @@ export const BookCourierFlow: React.FC<BookCourierFlowProps> = ({
           )}
         </header>
 
-        <StepProgress step={step} partnerId={partnerId} includeEwayBill={showEwayWizardStep} />
+        <StepProgress
+          step={step}
+          partnerId={partnerId}
+          includeEwayBill={showEwayWizardStep}
+          includeClubInvoices={includeClubInvoices}
+        />
 
         <div className="book-courier__body">
           {/* SCREEN 1 — SCAN */}
@@ -1979,7 +2115,7 @@ export const BookCourierFlow: React.FC<BookCourierFlowProps> = ({
                             <button
                               type="button"
                               className="btn btn-primary book-courier__address-next"
-                              onClick={() => setStep('box')}
+                              onClick={() => setStep(includeClubInvoices ? 'club_invoices' : 'box')}
                             >
                               Next
                             </button>
@@ -2003,6 +2139,116 @@ export const BookCourierFlow: React.FC<BookCourierFlowProps> = ({
                   ) : null}
                 </div>
               )}
+            </section>
+          )}
+
+          {step === 'club_invoices' && (
+            <section className="book-courier__section">
+              <h3 className="book-courier__section-title">
+                <Combine size={18} aria-hidden />
+                Club <span className="accent">invoices</span>
+              </h3>
+              <p className="book-courier__hint text-muted text-sm">
+                Same dealer and ship-to can share one Delhivery LR. Put charged freight on one
+                invoice only (or FOD ₹0 on all). If the clubbed total exceeds ₹50,000, each
+                invoice gets its own e-way bill.
+              </p>
+              {clubError ? (
+                <p className="book-courier__hint text-sm" role="alert">{clubError}</p>
+              ) : null}
+              {clubLoading && !clubPrimary ? (
+                <p className="text-muted text-sm">Loading invoices…</p>
+              ) : (
+                <div className="book-courier__club-list">
+                  {clubPrimary ? (
+                    <label className="book-courier__club-row is-primary">
+                      <input type="checkbox" checked disabled />
+                      <span>
+                        <strong>{clubPrimary.invoiceNumber}</strong>
+                        <span className="text-muted"> Primary · {clubPrimary.freightBillingMode.toUpperCase()}</span>
+                      </span>
+                      <span>{formatCurrency(clubPrimary.valueInr)}</span>
+                    </label>
+                  ) : null}
+                  {clubCandidates.map(row => {
+                    const checked = clubSelectedIds.includes(row.invoiceId);
+                    return (
+                      <label key={row.invoiceId} className="book-courier__club-row">
+                        <input
+                          type="checkbox"
+                          checked={checked}
+                          onChange={() => {
+                            setClubSelectedIds(prev => (
+                              checked
+                                ? prev.filter(id => id !== row.invoiceId)
+                                : [...prev, row.invoiceId]
+                            ));
+                          }}
+                        />
+                        <span>
+                          <strong>{row.invoiceNumber}</strong>
+                          <span className="text-muted"> {row.freightBillingMode.toUpperCase()}</span>
+                        </span>
+                        <span>{formatCurrency(row.valueInr)}</span>
+                      </label>
+                    );
+                  })}
+                  {!clubLoading && clubCandidates.length === 0 ? (
+                    <p className="text-muted text-sm">No other unbooked Delhivery invoices for this ship-to.</p>
+                  ) : null}
+                </div>
+              )}
+              {(() => {
+                const selected = [
+                  clubPrimary,
+                  ...clubCandidates.filter(row => clubSelectedIds.includes(row.invoiceId)),
+                ].filter((row): row is ClubbableDelhiveryInvoice => Boolean(row));
+                const sum = selected.reduce((total, row) => total + row.valueInr, 0);
+                return (
+                  <p className="book-courier__hint text-sm">
+                    {selected.length} invoice{selected.length === 1 ? '' : 's'} · {formatCurrency(sum)}.
+                    {' '}
+                    {clubbedEwayBillRequiredLabel({ invoiceCount: selected.length, clubbedTotalInr: sum })}
+                  </p>
+                );
+              })()}
+              <button
+                type="button"
+                className="btn btn-primary book-courier__next"
+                disabled={clubLoading || !clubPrimary}
+                onClick={() => {
+                  void (async () => {
+                    if (!clubPrimary) return;
+                    setClubLoading(true);
+                    setClubError('');
+                    try {
+                      const selected = [
+                        clubPrimary,
+                        ...clubCandidates.filter(row => clubSelectedIds.includes(row.invoiceId)),
+                      ];
+                      const catalog = await fetchCatalog();
+                      const productsById = new Map(catalog.items.map(item => [item.id, item]));
+                      const details = selected.map(row => row.detail);
+                      const boxes = mergeClubbedBookingBoxes(details, productsById);
+                      const invoices = selected.map(row => mapInvoiceToClubbedRow(row.detail));
+                      applyDraft(prev => ({
+                        ...prev,
+                        clubbedInvoices: invoices,
+                        invoiceValueInr: clubbedInvoiceTotalInr(invoices),
+                        freightBillingMode: clubbedFreightBillingMode(details),
+                        boxes: boxes.length ? boxes : prev.boxes,
+                      }));
+                      setStep('box');
+                    } catch (err) {
+                      setClubError(err instanceof Error ? err.message : 'Could not club invoices.');
+                    } finally {
+                      setClubLoading(false);
+                    }
+                  })();
+                }}
+              >
+                {clubLoading ? 'Loading…' : 'Next'}
+              </button>
             </section>
           )}
 
@@ -2459,6 +2705,35 @@ export const BookCourierFlow: React.FC<BookCourierFlowProps> = ({
                   </p>
                 )}
               </div>
+
+              {draft.invoiceId?.trim() ? (
+                <div className="book-courier__review-card">
+                  <div className="book-courier__review-head">
+                    <h4>Invoices</h4>
+                    {includeClubInvoices ? (
+                      <button type="button" className="book-courier__edit" onClick={() => setStep('club_invoices')}>
+                        <Pencil size={13} aria-hidden /> Edit
+                      </button>
+                    ) : null}
+                  </div>
+                  <ul className="book-courier__club-review">
+                    {normalizeDraftClubbedInvoices(draft).map(row => (
+                      <li key={row.invoiceId}>
+                        <strong>{row.invoiceNumber}</strong>
+                        <span>{formatCurrency(row.valueInr)}</span>
+                      </li>
+                    ))}
+                  </ul>
+                  {normalizeDraftClubbedInvoices(draft).length > 1 ? (
+                    <p className="text-muted text-sm">
+                      {clubbedEwayBillRequiredLabel({
+                        invoiceCount: normalizeDraftClubbedInvoices(draft).length,
+                        clubbedTotalInr: clubbedInvoiceTotalInr(normalizeDraftClubbedInvoices(draft)),
+                      })}
+                    </p>
+                  ) : null}
+                </div>
+              ) : null}
 
               {isDelhivery && !draft.consignmentNo.trim() ? (
                 <div className="book-courier__review-card">
@@ -2928,7 +3203,13 @@ export const BookCourierFlow: React.FC<BookCourierFlowProps> = ({
                   <EwayBillGeneratePreviewBody
                     preview={ewayGeneratePreview}
                     error={ewayGenerateError}
-                    intro="Shipment is booked. Generate the e-way bill in Zoho before dispatch, or skip and do it later from shipment details."
+                    intro={clubbedEwayBillRequiredLabel({
+                      invoiceCount: Math.max(
+                        1,
+                        (booking.invoices?.length || normalizeDraftClubbedInvoices(draft).length),
+                      ),
+                      clubbedTotalInr: booking.invoiceValueInr ?? draft.invoiceValueInr ?? 0,
+                    }) + ' Confirm to create the e-way bill in Zoho for each invoice on this LR, or skip and do it later from shipment details.'}
                   />
                 </div>
               )}
@@ -2949,7 +3230,11 @@ export const BookCourierFlow: React.FC<BookCourierFlowProps> = ({
                       disabled={ewayEnsuring || isEwayTransporterMissing(ewayGeneratePreview)}
                       onClick={() => void handleWizardGenerateEway()}
                     >
-                      {ewayEnsuring ? 'Generating…' : 'Generate e-way bill'}
+                      {ewayEnsuring ? 'Generating…' : (
+                        (booking.invoices?.length || 0) > 1
+                          ? `Generate ${booking.invoices?.length} e-way bills`
+                          : 'Generate e-way bill'
+                      )}
                     </button>
                   </>
                 ) : (

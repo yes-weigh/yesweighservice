@@ -149,6 +149,12 @@ export async function bookDelhiveryShipment(input: {
   shippingMode?: string | null;
   /** fod = consignee pays freight; btc/omit = bill to client. */
   freightBillingMode?: 'fod' | 'btc' | null;
+  /** Extra invoices on the same LR (includes primary). */
+  invoices?: Array<{
+    invoiceId?: string | null;
+    invoiceNumber?: string | null;
+    invoiceValueInr?: number | null;
+  }> | null;
 }): Promise<DelhiveryBookResult> {
   try {
     const fn = httpsCallable<typeof input, DelhiveryBookResult>(

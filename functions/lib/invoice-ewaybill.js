@@ -65,8 +65,27 @@ function normalizeEwayBillDoc(raw) {
     lrNumber: raw.lrNumber ? String(raw.lrNumber) : null,
     error: raw.error ? String(raw.error) : null,
     required: raw.required !== false,
+    requiredBecause: raw.requiredBecause === 'clubbed_lr' ? 'clubbed_lr' : (raw.requiredBecause === 'invoice_total' ? 'invoice_total' : null),
     updatedAt: raw.updatedAt ? String(raw.updatedAt) : null,
   };
+}
+
+function rollupBookingEway(invoices) {
+  const rows = Array.isArray(invoices) ? invoices : [];
+  const required = rows.filter(row => row?.ewayRequired === true);
+  if (!required.length) {
+    return { ewayBillNumber: null, ewayBillStatus: null };
+  }
+  if (required.every(row => String(row.ewayBillStatus || '') === 'generated')) {
+    return {
+      ewayBillNumber: required[0]?.ewayBillNumber ?? null,
+      ewayBillStatus: 'generated',
+    };
+  }
+  if (required.some(row => String(row.ewayBillStatus || '') === 'cancelled')) {
+    return { ewayBillNumber: null, ewayBillStatus: 'cancelled' };
+  }
+  return { ewayBillNumber: null, ewayBillStatus: 'missing' };
 }
 
 async function persistEwayBill(customerId, invoiceId, patch, bookingId = null) {
@@ -80,9 +99,31 @@ async function persistEwayBill(customerId, invoiceId, patch, bookingId = null) {
     { merge: true },
   );
   if (bookingId) {
-    await db.collection('logisticsBookings').doc(String(bookingId)).set({
-      ewayBillNumber: normalized.ewaybillNumber ?? null,
-      ewayBillStatus: normalized.status ?? null,
+    const bookingRef = db.collection('logisticsBookings').doc(String(bookingId));
+    const snap = await bookingRef.get();
+    const data = snap.exists ? (snap.data() || {}) : {};
+    const invoices = Array.isArray(data.invoices)
+      ? data.invoices.map((row) => {
+        if (!row || typeof row !== 'object') return row;
+        if (String(row.invoiceId || '') !== String(invoiceId)) return row;
+        return {
+          ...row,
+          ewayBillNumber: normalized.ewaybillNumber ?? row.ewayBillNumber ?? null,
+          ewayBillStatus: normalized.status ?? row.ewayBillStatus ?? null,
+          ewayRequired: normalized.required !== false,
+        };
+      })
+      : [];
+    const rollup = invoices.length
+      ? rollupBookingEway(invoices)
+      : {
+        ewayBillNumber: normalized.ewaybillNumber ?? null,
+        ewayBillStatus: normalized.status ?? null,
+      };
+    await bookingRef.set({
+      ...(invoices.length ? { invoices } : {}),
+      ewayBillNumber: rollup.ewayBillNumber,
+      ewayBillStatus: rollup.ewayBillStatus,
       updatedAt: new Date().toISOString(),
     }, { merge: true });
   }
@@ -102,7 +143,9 @@ async function loadInvoiceMirror(customerId, invoiceId) {
  */
 export async function syncEwayBillMetadataFromZoho(accessToken, orgId, customerId, invoiceId, invoiceTotal) {
   const total = Number(invoiceTotal ?? 0);
-  if (!isEwayBillRequired(total)) {
+  const invoice = await loadInvoiceMirror(customerId, invoiceId);
+  const existing = normalizeEwayBillDoc(invoice?.ewayBill);
+  if (!isEwayBillRequired(total) && existing?.requiredBecause !== 'clubbed_lr') {
     await persistEwayBill(customerId, invoiceId, {
       required: false,
       status: 'not_required',
@@ -137,9 +180,10 @@ export async function syncEwayBillMetadataFromZoho(accessToken, orgId, customerI
  *   partnerId?: string | null;
  *   lrNumber?: string | null;
  *   bookingId?: string | null;
- *   autoGenerate?: boolean;
- *   invoiceTotalInr?: number | null;
- * }} input
+   *   autoGenerate?: boolean;
+   *   invoiceTotalInr?: number | null;
+   *   forceRequired?: boolean;
+   * }} input
  */
 export async function ensureInvoiceEwayBill(secrets, orgId, input) {
   const customerId = String(input.customerId ?? '').trim();
@@ -159,7 +203,10 @@ export async function ensureInvoiceEwayBill(secrets, orgId, input) {
   }
 
   const invoiceTotal = Number(input.invoiceTotalInr ?? invoice.total ?? 0);
-  if (!isEwayBillRequired(invoiceTotal)) {
+  const existing = normalizeEwayBillDoc(invoice.ewayBill);
+  const forceRequired = input.forceRequired === true
+    || existing?.requiredBecause === 'clubbed_lr';
+  if (!forceRequired && !isEwayBillRequired(invoiceTotal)) {
     const doc = await persistEwayBill(customerId, invoiceId, {
       required: false,
       status: 'not_required',
@@ -171,8 +218,6 @@ export async function ensureInvoiceEwayBill(secrets, orgId, input) {
       message: `E-way bill is not required for invoice totals incl. GST of ₹${EWAY_BILL_THRESHOLD_INR.toLocaleString('en-IN')} or below.`,
     };
   }
-
-  const existing = normalizeEwayBillDoc(invoice.ewayBill);
   if (existing?.pdfStoragePath && existing.status === 'generated') {
     const buffer = await readPdfFromStorage(existing.pdfStoragePath);
     if (buffer) {
@@ -266,6 +311,7 @@ export async function ensureInvoiceEwayBill(secrets, orgId, input) {
   const saved = await persistEwayBill(customerId, invoiceId, {
     ...mapped,
     required: true,
+    requiredBecause: forceRequired ? 'clubbed_lr' : 'invoice_total',
     pdfStoragePath,
     partnerId: partnerId || existing?.partnerId || null,
     lrNumber: lrNumber || existing?.lrNumber || null,

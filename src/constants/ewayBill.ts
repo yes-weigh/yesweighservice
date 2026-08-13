@@ -32,14 +32,50 @@ export function resolveEwayBillInvoiceTotal(
   return Number.isFinite(fromBooking) && fromBooking > 0 ? fromBooking : null;
 }
 
+export function clubbedInvoiceTotalInr(
+  invoices: ReadonlyArray<{ valueInr?: number | null } | null | undefined>,
+): number {
+  return invoices.reduce((sum, row) => {
+    const value = Number(row?.valueInr);
+    return Number.isFinite(value) && value > 0 ? sum + value : sum;
+  }, 0);
+}
+
+export function clubbedNeedsEwayBill(
+  invoicesOrTotal: ReadonlyArray<{ valueInr?: number | null } | null | undefined> | number,
+): boolean {
+  const total = typeof invoicesOrTotal === 'number'
+    ? invoicesOrTotal
+    : clubbedInvoiceTotalInr(invoicesOrTotal);
+  return isEwayBillRequired(total);
+}
+
+export function bookingLinkedInvoiceIds(booking: {
+  invoiceId?: string | null;
+  invoiceIds?: string[] | null;
+  invoices?: ReadonlyArray<{ invoiceId?: string | null }> | null;
+}): string[] {
+  const ids = [
+    ...(booking.invoiceIds ?? []),
+    ...(booking.invoices ?? []).map(row => row.invoiceId),
+    booking.invoiceId,
+  ];
+  return [...new Set(ids.map(id => String(id || '').trim()).filter(Boolean))];
+}
+
 export function bookingNeedsEwayBill(
   booking: {
     invoiceId?: string | null;
+    invoiceIds?: string[] | null;
+    invoices?: ReadonlyArray<{ invoiceId?: string | null; valueInr?: number | null; ewayRequired?: boolean }> | null;
     invoiceValueInr?: number | null;
   },
   invoiceTotalInclGstInr?: number | null,
 ): boolean {
-  if (!booking.invoiceId?.trim()) return false;
+  if (!bookingLinkedInvoiceIds(booking).length) return false;
+  if (booking.invoices?.some(row => row.ewayRequired === true)) return true;
+  const clubbed = clubbedInvoiceTotalInr(booking.invoices ?? []);
+  if (clubbed > 0) return isEwayBillRequired(clubbed);
   const total = invoiceTotalInclGstInr ?? resolveEwayBillInvoiceTotal(booking);
   return isEwayBillRequired(total);
 }
@@ -55,6 +91,8 @@ export function ewayBillListChip(
     ewayBillStatus?: string | null;
     ewayBillNumber?: string | null;
     invoiceId?: string | null;
+    invoiceIds?: string[] | null;
+    invoices?: ReadonlyArray<{ invoiceId?: string | null; valueInr?: number | null; ewayRequired?: boolean }> | null;
     invoiceValueInr?: number | null;
   },
   options?: { invoiceTotalInclGst?: number | null },
@@ -78,6 +116,21 @@ export function ewayBillRequiredLabel(totalInr: unknown): string {
     return `Not required — invoice total incl. GST is ₹${EWAY_BILL_THRESHOLD_INR.toLocaleString('en-IN')} or below.`;
   }
   return 'Required — invoice total incl. GST exceeds ₹50,000.';
+}
+
+export function clubbedEwayBillRequiredLabel(input: {
+  invoiceCount: number;
+  clubbedTotalInr: unknown;
+}): string {
+  const total = Number(input.clubbedTotalInr);
+  const count = Math.max(1, input.invoiceCount);
+  if (!isEwayBillRequired(total)) {
+    return `Not required — clubbed total incl. GST is ₹${EWAY_BILL_THRESHOLD_INR.toLocaleString('en-IN')} or below.`;
+  }
+  if (count <= 1) {
+    return 'Required — invoice total incl. GST exceeds ₹50,000.';
+  }
+  return `Required — clubbed total exceeds ₹50,000. Generate ${count} e-way bills (one per invoice).`;
 }
 
 export const EWAY_BILL_CANCEL_REASONS = [

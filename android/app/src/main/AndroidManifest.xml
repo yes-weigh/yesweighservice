@@ -39,6 +39,10 @@
     <!-- Permissions -->
 
     <uses-permission android:name="android.permission.INTERNET" />
+    <!-- Android 9 and below only; Android 10+ saves via MediaStore without this. -->
+    <uses-permission
+        android:name="android.permission.WRITE_EXTERNAL_STORAGE"
+        android:maxSdkVersion="28" />
     <!-- WebView getUserMedia (QR scan, support evidence camera) — Capacitor BridgeWebChromeClient
          maps VIDEO_CAPTURE → CAMERA and AUDIO_CAPTURE → RECORD_AUDIO. -->
     <uses-permission android:name="android.permission.CAMERA" />

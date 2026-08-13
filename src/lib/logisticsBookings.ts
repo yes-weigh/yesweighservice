@@ -62,6 +62,7 @@ import {
 import type {
   LogisticsBooking,
   LogisticsBookingDraft,
+  LogisticsBookingInvoice,
   LogisticsBookingStatus,
   LogisticsCourierDeliveryOffice,
   LogisticsCourierTrack,
@@ -71,10 +72,54 @@ import type {
   ShipmentBoxDraft,
   ShipmentBoxPhoto,
 } from '../types/logistics-dispatch';
+import { persistClubbedInvoiceFields } from './logisticsClubInvoices';
 import { isStaffLogisticsSite, type StaffLogisticsSite } from '../types/staff-logistics';
 
 const COLLECTION = 'logisticsBookings';
 const FIRESTORE_BATCH_LIMIT = 450;
+
+function mapBookingInvoices(raw: unknown, fallback: {
+  invoiceId: string | null;
+  invoiceNumber: string | null;
+  invoiceValueInr: number | null;
+}): LogisticsBookingInvoice[] {
+  if (Array.isArray(raw)) {
+    const rows: LogisticsBookingInvoice[] = [];
+    const seen = new Set<string>();
+    for (const item of raw) {
+      if (!item || typeof item !== 'object') continue;
+      const row = item as Record<string, unknown>;
+      const invoiceId = String(row.invoiceId ?? '').trim();
+      if (!invoiceId || seen.has(invoiceId)) continue;
+      seen.add(invoiceId);
+      const valueInr = Number(row.valueInr);
+      rows.push({
+        invoiceId,
+        invoiceNumber: String(row.invoiceNumber ?? '').trim() || invoiceId,
+        valueInr: Number.isFinite(valueInr) && valueInr > 0 ? valueInr : 0,
+        ewayBillNumber: typeof row.ewayBillNumber === 'string' ? row.ewayBillNumber : null,
+        ewayBillStatus: typeof row.ewayBillStatus === 'string' ? row.ewayBillStatus : null,
+        ewayRequired: row.ewayRequired === true,
+      });
+    }
+    if (rows.length) return rows;
+  }
+  const primaryId = fallback.invoiceId?.trim() || '';
+  if (!primaryId) return [];
+  return [{
+    invoiceId: primaryId,
+    invoiceNumber: fallback.invoiceNumber?.trim() || primaryId,
+    valueInr: fallback.invoiceValueInr ?? 0,
+  }];
+}
+
+function bookingInvoiceIdsFromDoc(data: DocumentData, invoices: LogisticsBookingInvoice[], invoiceId: string | null): string[] {
+  const fromArray = Array.isArray(data.invoiceIds)
+    ? data.invoiceIds.map((id: unknown) => String(id || '').trim()).filter(Boolean)
+    : [];
+  const merged = [...fromArray, ...invoices.map(row => row.invoiceId), invoiceId ?? ''];
+  return [...new Set(merged.filter(Boolean))];
+}
 
 /** Newest bookingDate first; same day uses createdAt then updatedAt. */
 export function compareLogisticsBookingsByBookingDateDesc(
@@ -481,16 +526,27 @@ export function mapLogisticsBookingDoc(id: string, data: DocumentData): Logistic
   const courierTrack = mapCourierTrack(data.courierTrack);
   const courierFreight = mapCourierFreight(data.courierFreight);
   const courierDeliveryOffice = mapCourierDeliveryOffice(data.courierDeliveryOffice);
+  const invoiceId = typeof data.invoiceId === 'string' ? data.invoiceId : null;
+  const invoiceNumber = typeof data.invoiceNumber === 'string' ? data.invoiceNumber : null;
+  const invoiceValueInr = typeof data.invoiceValueInr === 'number' && Number.isFinite(data.invoiceValueInr)
+    ? data.invoiceValueInr
+    : null;
+  const invoices = mapBookingInvoices(data.invoices, {
+    invoiceId,
+    invoiceNumber,
+    invoiceValueInr,
+  });
+  const invoiceIds = bookingInvoiceIdsFromDoc(data, invoices, invoiceId);
 
   return {
     id,
     orderRef: String(data.orderRef ?? ''),
     source: (data.source === 'invoice' || data.source === 'support') ? data.source : 'manual',
-    invoiceId: typeof data.invoiceId === 'string' ? data.invoiceId : null,
-    invoiceNumber: typeof data.invoiceNumber === 'string' ? data.invoiceNumber : null,
-    invoiceValueInr: typeof data.invoiceValueInr === 'number' && Number.isFinite(data.invoiceValueInr)
-      ? data.invoiceValueInr
-      : null,
+    invoiceId,
+    invoiceNumber,
+    invoiceIds,
+    invoices,
+    invoiceValueInr,
     supportRequestId: typeof data.supportRequestId === 'string' ? data.supportRequestId : null,
     supportRequestNumber: typeof data.supportRequestNumber === 'string' ? data.supportRequestNumber : null,
     partnerId,
@@ -587,6 +643,7 @@ function matchesClientFilters(booking: LogisticsBooking, filters: LogisticsBooki
     booking.dealer.name,
     booking.dealer.code,
     booking.invoiceNumber,
+    ...(booking.invoices ?? []).map(row => row.invoiceNumber),
     booking.supportRequestNumber,
     logisticsPartnerLabel(booking.partnerId),
   ].join(' ').toLowerCase();
@@ -742,11 +799,7 @@ async function buildBookingPayload(input: PersistLogisticsBookingInput & {
   return {
     orderRef,
     source: draft.source,
-    invoiceId: draft.invoiceId ?? null,
-    invoiceNumber: draft.invoiceNumber ?? null,
-    ...(draft.invoiceValueInr != null && Number.isFinite(Number(draft.invoiceValueInr))
-      ? { invoiceValueInr: Number(draft.invoiceValueInr) }
-      : {}),
+    ...persistClubbedInvoiceFields(draft),
     supportRequestId: draft.supportRequestId ?? null,
     supportRequestNumber: draft.supportRequestNumber ?? null,
     partnerId: draft.partnerId,
@@ -923,11 +976,7 @@ async function ensureDraftBookingStub(input: {
   await setDoc(input.bookingRef, {
     orderRef,
     source: input.draft.source,
-    invoiceId: input.draft.invoiceId ?? null,
-    invoiceNumber: input.draft.invoiceNumber ?? null,
-    ...(Number.isFinite(Number(input.draft.invoiceValueInr)) && Number(input.draft.invoiceValueInr) > 0
-      ? { invoiceValueInr: Number(input.draft.invoiceValueInr) }
-      : {}),
+    ...persistClubbedInvoiceFields(input.draft),
     supportRequestId: input.draft.supportRequestId ?? null,
     supportRequestNumber: input.draft.supportRequestNumber ?? null,
     partnerId: input.draft.partnerId,
@@ -1204,11 +1253,7 @@ export async function persistLogisticsBookingDraft(
     const payload: Record<string, unknown> = {
       orderRef,
       source: draft.source,
-      invoiceId: draft.invoiceId ?? null,
-      invoiceNumber: draft.invoiceNumber ?? null,
-      ...(Number.isFinite(Number(draft.invoiceValueInr)) && Number(draft.invoiceValueInr) > 0
-        ? { invoiceValueInr: Number(draft.invoiceValueInr) }
-        : {}),
+      ...persistClubbedInvoiceFields(draft),
       supportRequestId: draft.supportRequestId ?? null,
       supportRequestNumber: draft.supportRequestNumber ?? null,
       partnerId: draft.partnerId,
@@ -1287,6 +1332,17 @@ export async function persistLogisticsBooking(
   if (draft.boxes.some(box => box.photos.length === 0)) {
     throw new Error('Each box needs at least the inside photo.');
   }
+
+  const clubbed = persistClubbedInvoiceFields(draft);
+  await Promise.all(clubbed.invoiceIds.map(async invoiceId => {
+    const already = await findLogisticsBookingForInvoice(invoiceId);
+    if (!already) return;
+    if (already.status === 'cancelled' || already.status === 'returned') return;
+    if (existingBookingId && already.id === existingBookingId) return;
+    throw new Error(
+      `Invoice ${already.invoiceNumber || invoiceId} already has a logistics booking.`,
+    );
+  }));
 
   const now = new Date().toISOString();
   const bookingRef = existingBookingId
@@ -1369,6 +1425,8 @@ export function bookingToWizardState(booking: LogisticsBooking): {
       source: booking.source,
       invoiceId: booking.invoiceId,
       invoiceNumber: booking.invoiceNumber,
+      clubbedInvoices: booking.invoices?.length ? booking.invoices : undefined,
+      invoiceValueInr: booking.invoiceValueInr ?? null,
       supportRequestId: booking.supportRequestId,
       supportRequestNumber: booking.supportRequestNumber,
       barcodeRaw: booking.consignmentNo,
@@ -1445,16 +1503,36 @@ export async function findLogisticsBookingForInvoice(
 ): Promise<LogisticsBooking | null> {
   const id = invoiceId.trim();
   if (!id) return null;
-  const snap = await getDocs(
-    query(collection(db, COLLECTION), where('invoiceId', '==', id), limit(10)),
-  );
-  if (snap.empty) return null;
-  return rankLogisticsBookingsForInvoice(
-    snap.docs.map(docSnap => mapLogisticsBookingDoc(docSnap.id, docSnap.data())),
-  );
+  const [primarySnap, clubbedSnap] = await Promise.all([
+    getDocs(query(collection(db, COLLECTION), where('invoiceId', '==', id), limit(10))),
+    getDocs(query(collection(db, COLLECTION), where('invoiceIds', 'array-contains', id), limit(10))),
+  ]);
+  const byId = new Map<string, LogisticsBooking>();
+  for (const snap of [primarySnap, clubbedSnap]) {
+    for (const docSnap of snap.docs) {
+      byId.set(docSnap.id, mapLogisticsBookingDoc(docSnap.id, docSnap.data()));
+    }
+  }
+  return rankLogisticsBookingsForInvoice([...byId.values()]);
 }
 
 const INVOICE_LOGISTICS_IN_CHUNK = 10;
+
+function addBookingToInvoiceMap(
+  grouped: Map<string, LogisticsBooking[]>,
+  booking: LogisticsBooking,
+) {
+  const ids = [
+    ...(booking.invoiceIds ?? []),
+    ...(booking.invoices ?? []).map(row => row.invoiceId),
+    booking.invoiceId,
+  ];
+  for (const invoiceId of [...new Set(ids.map(id => String(id || '').trim()).filter(Boolean))]) {
+    const list = grouped.get(invoiceId);
+    if (list) list.push(booking);
+    else grouped.set(invoiceId, [booking]);
+  }
+}
 
 /** Batch lookup of linked logistics bookings for invoice list rows. */
 export async function findLogisticsBookingsForInvoices(
@@ -1469,21 +1547,19 @@ export async function findLogisticsBookingsForInvoices(
     chunks.push(ids.slice(i, i + INVOICE_LOGISTICS_IN_CHUNK));
   }
 
-  const snaps = await Promise.all(
-    chunks.map(chunk =>
+  const snaps = await Promise.all([
+    ...chunks.map(chunk =>
       getDocs(query(collection(db, COLLECTION), where('invoiceId', 'in', chunk))),
     ),
-  );
+    ...chunks.map(chunk =>
+      getDocs(query(collection(db, COLLECTION), where('invoiceIds', 'array-contains-any', chunk))),
+    ),
+  ]);
 
   const grouped = new Map<string, LogisticsBooking[]>();
   for (const snap of snaps) {
     for (const docSnap of snap.docs) {
-      const booking = mapLogisticsBookingDoc(docSnap.id, docSnap.data());
-      const invoiceId = String(booking.invoiceId || '').trim();
-      if (!invoiceId) continue;
-      const list = grouped.get(invoiceId);
-      if (list) list.push(booking);
-      else grouped.set(invoiceId, [booking]);
+      addBookingToInvoiceMap(grouped, mapLogisticsBookingDoc(docSnap.id, docSnap.data()));
     }
   }
 
@@ -1977,6 +2053,12 @@ export async function linkLogisticsBookingToInvoice(input: {
   const patch: Record<string, unknown> = {
     invoiceId,
     invoiceNumber: invoiceNumber || null,
+    invoiceIds: [invoiceId],
+    invoices: [{
+      invoiceId,
+      invoiceNumber: invoiceNumber || invoiceId,
+      valueInr: Number.isFinite(Number(input.invoiceValueInr)) ? Number(input.invoiceValueInr) : 0,
+    }],
     invoiceValueInr: Number.isFinite(Number(input.invoiceValueInr))
       ? Number(input.invoiceValueInr)
       : null,

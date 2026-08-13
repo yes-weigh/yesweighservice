@@ -34,6 +34,7 @@ export async function ensureInvoiceEwayBill(input: {
   bookingId?: string | null;
   invoiceTotalInr?: number | null;
   autoGenerate?: boolean;
+  forceRequired?: boolean;
 }): Promise<InvoiceEwayBillResult> {
   try {
     const fn = httpsCallable<typeof input, InvoiceEwayBillResult>(

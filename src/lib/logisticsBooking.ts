@@ -309,6 +309,7 @@ export function computeVolumetricWeight(
 export type BookCourierStep =
   | 'scan'
   | 'address'
+  | 'club_invoices'
   | 'box'
   | 'review'
   | 'label'
@@ -333,49 +334,60 @@ export const DELHIVERY_BOOK_COURIER_STEPS: ReadonlyArray<{ id: BookCourierStep; 
   { id: 'review', label: 'Review' },
 ];
 
+export type BookCourierStepOptions = {
+  includeEwayBill?: boolean;
+  includeClubInvoices?: boolean;
+};
+
+function delhiveryProgressSteps(
+  options?: BookCourierStepOptions,
+): ReadonlyArray<{ id: BookCourierStep; label: string }> {
+  const steps: Array<{ id: BookCourierStep; label: string }> = [
+    { id: 'address', label: 'Address' },
+  ];
+  if (options?.includeClubInvoices) {
+    steps.push({ id: 'club_invoices', label: 'Invoices' });
+  }
+  if (options?.includeEwayBill) {
+    steps.push({ id: 'eway_bill', label: 'E-way bill' });
+  }
+  steps.push(
+    { id: 'box', label: 'Box' },
+    { id: 'review', label: 'Review' },
+  );
+  return steps;
+}
+
+function delhiveryFlowOrder(options?: BookCourierStepOptions): readonly BookCourierStep[] {
+  const order: BookCourierStep[] = ['address'];
+  if (options?.includeClubInvoices) order.push('club_invoices');
+  order.push('box', 'review');
+  if (options?.includeEwayBill) order.push('eway_bill');
+  return order;
+}
+
 export function bookCourierStepsForPartner(
   partnerId: LogisticsPartnerId,
 ): ReadonlyArray<{ id: BookCourierStep; label: string }> {
   return partnerId === 'delhivery' ? DELHIVERY_BOOK_COURIER_STEPS : BOOK_COURIER_STEPS;
 }
 
-/** Progress steps for an in-flight booking (optional e-way when invoice requires it). */
+/** Progress steps for an in-flight booking (optional e-way / club invoices). */
 export function bookCourierStepsForBooking(
   partnerId: LogisticsPartnerId,
-  options?: { includeEwayBill?: boolean },
+  options?: BookCourierStepOptions,
 ): ReadonlyArray<{ id: BookCourierStep; label: string }> {
+  if (partnerId === 'delhivery') return delhiveryProgressSteps(options);
   const base = bookCourierStepsForPartner(partnerId);
   if (!options?.includeEwayBill) return base;
-  /** Delhivery: e-way shown early in the progress bar; still runs after Review + LR. */
-  if (partnerId === 'delhivery') {
-    return [
-      base[0],
-      { id: 'eway_bill', label: 'E-way bill' },
-      ...base.slice(1),
-    ];
-  }
   return [...base, { id: 'eway_bill', label: 'E-way bill' }];
-}
-
-const DELHIVERY_EWAY_FLOW_ORDER: readonly BookCourierStep[] = [
-  'address',
-  'box',
-  'review',
-  'eway_bill',
-];
-
-function usesDelhiveryEarlyEwayUi(
-  partnerId: LogisticsPartnerId | undefined,
-  options?: { includeEwayBill?: boolean },
-): boolean {
-  return partnerId === 'delhivery' && options?.includeEwayBill === true;
 }
 
 /** Flow order for step counter copy (actual navigation), not progress bar layout. */
 export function bookStepFlowIndex(
   step: BookCourierStep,
   partnerId?: LogisticsPartnerId,
-  options?: { includeEwayBill?: boolean },
+  options?: BookCourierStepOptions,
 ): number {
   if (step === 'complete') {
     const steps = partnerId
@@ -383,11 +395,11 @@ export function bookStepFlowIndex(
       : BOOK_COURIER_STEPS;
     return steps.length;
   }
-  if (usesDelhiveryEarlyEwayUi(partnerId, options)) {
-    const idx = DELHIVERY_EWAY_FLOW_ORDER.indexOf(step);
+  if (partnerId === 'delhivery') {
+    const idx = delhiveryFlowOrder(options).indexOf(step);
     if (idx >= 0) return idx;
     if (step === 'scan') return 0;
-    if (step === 'label' || step === 'final_photo') return 2;
+    if (step === 'label' || step === 'final_photo') return Math.max(0, delhiveryFlowOrder(options).length - 2);
     return 0;
   }
   return bookStepProgressIndex(step, partnerId, options);
@@ -400,28 +412,22 @@ export function bookStepProgressVisualState(
   stepId: BookCourierStep,
   currentStep: BookCourierStep,
   partnerId: LogisticsPartnerId,
-  options?: { includeEwayBill?: boolean },
+  options?: BookCourierStepOptions,
 ): BookStepProgressVisualState {
   if (currentStep === 'complete') return 'done';
 
-  if (usesDelhiveryEarlyEwayUi(partnerId, options)) {
-    if (stepId === 'eway_bill') {
+  if (partnerId === 'delhivery') {
+    if (stepId === 'eway_bill' && options?.includeEwayBill) {
       if (currentStep === 'eway_bill') return 'current';
       return 'pending';
     }
-    if (stepId === 'address') {
-      return currentStep === 'address' ? 'current' : 'done';
-    }
-    if (stepId === 'box') {
-      if (currentStep === 'address') return 'pending';
-      if (currentStep === 'box') return 'current';
-      return 'done';
-    }
-    if (stepId === 'review') {
-      if (currentStep === 'review') return 'current';
-      if (currentStep === 'eway_bill') return 'done';
-      return 'pending';
-    }
+    const flow = delhiveryFlowOrder(options).filter(id => id !== 'eway_bill');
+    const currentInFlow = currentStep === 'eway_bill' ? 'review' : currentStep;
+    const activeIndex = flow.findIndex(id => id === currentInFlow);
+    const index = flow.findIndex(id => id === stepId);
+    if (index < 0 || activeIndex < 0) return 'pending';
+    if (index < activeIndex) return 'done';
+    if (index === activeIndex) return 'current';
     return 'pending';
   }
 
@@ -437,7 +443,7 @@ export function bookStepProgressVisualState(
 export function bookStepProgressIndex(
   step: BookCourierStep,
   partnerId?: LogisticsPartnerId,
-  options?: { includeEwayBill?: boolean },
+  options?: BookCourierStepOptions,
 ): number {
   const steps = partnerId
     ? bookCourierStepsForBooking(partnerId, options)
@@ -445,17 +451,11 @@ export function bookStepProgressIndex(
   if (step === 'complete') return steps.length;
   const idx = steps.findIndex(item => item.id === step);
   if (idx >= 0) return idx;
-  if (usesDelhiveryEarlyEwayUi(partnerId, options)) {
-    if (step === 'scan' || step === 'address') return 0;
-    if (step === 'box') return 2;
-    if (step === 'review' || step === 'label' || step === 'final_photo') return 3;
-    if (step === 'eway_bill') return 1;
-  }
   if (partnerId === 'delhivery') {
-    if (step === 'scan' || step === 'address') return 0;
-    if (step === 'box') return 1;
-    if (step === 'review' || step === 'label' || step === 'final_photo') return 2;
-    if (step === 'eway_bill') return Math.max(0, steps.length - 1);
+    const flow = delhiveryFlowOrder(options);
+    const mapped = step === 'scan' ? 'address' : step;
+    const flowIdx = flow.indexOf(mapped);
+    return flowIdx >= 0 ? flowIdx : 0;
   }
   if (step === 'eway_bill') return Math.max(0, steps.length - 1);
   return 0;

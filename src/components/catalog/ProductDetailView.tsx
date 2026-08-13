@@ -256,6 +256,7 @@ export const ProductDetailView: React.FC<{
   const [imageDeleting, setImageDeleting] = useState(false);
   const [imageDownloading, setImageDownloading] = useState(false);
   const [imageError, setImageError] = useState<string | null>(null);
+  const [imageNotice, setImageNotice] = useState<string | null>(null);
   const [statusUpdating, setStatusUpdating] = useState(false);
   const [hiddenUpdating, setHiddenUpdating] = useState(false);
   const [statusError, setStatusError] = useState<string | null>(null);
@@ -1050,6 +1051,7 @@ export const ProductDetailView: React.FC<{
 
     setImageUploading(true);
     setImageError(null);
+    setImageNotice(null);
     try {
       if (mode === 'add') {
         const result = await uploadCatalogProductImage(product.id, file, 'add');
@@ -1102,6 +1104,7 @@ export const ProductDetailView: React.FC<{
 
     setImageUploading(true);
     setImageError(null);
+    setImageNotice(null);
     try {
       const result = await uploadCatalogProductImage(product.id, null, 'promote', {
         documentId: galleryDoc.documentId,
@@ -1139,6 +1142,7 @@ export const ProductDetailView: React.FC<{
 
     setImageDeleting(true);
     setImageError(null);
+    setImageNotice(null);
     try {
       const result = await deleteCatalogProductImage(
         product.id,
@@ -1566,12 +1570,16 @@ export const ProductDetailView: React.FC<{
     if (!product || !currentGalleryUrl) return;
     setImageDownloading(true);
     setImageError(null);
+    setImageNotice(null);
     try {
-      await downloadCatalogProductImage(currentGalleryUrl, {
+      const destination = await downloadCatalogProductImage(currentGalleryUrl, {
         productName: product.name,
         sku: product.sku,
         productId: product.id,
       });
+      if (destination === 'gallery') {
+        setImageNotice('Saved to Photos in the YesWeigh album.');
+      }
     } catch (err) {
       setImageError(err instanceof Error ? err.message : 'Could not download image.');
     } finally {
@@ -1966,6 +1974,9 @@ export const ProductDetailView: React.FC<{
             </div>
             {imageError && (
               <p className="product-detail-page__image-error text-sm">{imageError}</p>
+            )}
+            {imageNotice && (
+              <p className="product-detail-page__image-notice text-sm">{imageNotice}</p>
             )}
           </section>
 

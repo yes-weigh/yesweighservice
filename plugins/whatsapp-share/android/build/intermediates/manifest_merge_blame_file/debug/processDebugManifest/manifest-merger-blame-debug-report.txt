@@ -3,26 +3,33 @@
 3    package="in.yesweigh.whatsappshare" >
 4
 5    <uses-sdk android:minSdkVersion="24" />
-6    <!-- Android 11+ package visibility for WhatsApp -->
-7    <queries>
-7-->D:\yesweighservice\plugins\whatsapp-share\android\src\main\AndroidManifest.xml:4:5-11:15
-8        <package android:name="com.whatsapp" />
-8-->D:\yesweighservice\plugins\whatsapp-share\android\src\main\AndroidManifest.xml:5:9-48
-8-->D:\yesweighservice\plugins\whatsapp-share\android\src\main\AndroidManifest.xml:5:18-45
-9        <package android:name="com.whatsapp.w4b" />
-9-->D:\yesweighservice\plugins\whatsapp-share\android\src\main\AndroidManifest.xml:6:9-52
-9-->D:\yesweighservice\plugins\whatsapp-share\android\src\main\AndroidManifest.xml:6:18-49
-10
-11        <intent>
-11-->D:\yesweighservice\plugins\whatsapp-share\android\src\main\AndroidManifest.xml:7:9-10:18
-12            <action android:name="android.intent.action.SEND" />
-12-->D:\yesweighservice\plugins\whatsapp-share\android\src\main\AndroidManifest.xml:8:13-65
-12-->D:\yesweighservice\plugins\whatsapp-share\android\src\main\AndroidManifest.xml:8:21-62
-13
-14            <data android:mimeType="image/*" />
-14-->D:\yesweighservice\plugins\whatsapp-share\android\src\main\AndroidManifest.xml:9:13-48
-14-->D:\yesweighservice\plugins\whatsapp-share\android\src\main\AndroidManifest.xml:9:19-45
-15        </intent>
-16    </queries>
+6    <!-- Android 9 and below: write into Pictures/YesWeigh. Android 10+ uses MediaStore. -->
+7    <uses-permission
+7-->D:\yesweighservice\plugins\whatsapp-share\android\src\main\AndroidManifest.xml:4:5-6:38
+8        android:name="android.permission.WRITE_EXTERNAL_STORAGE"
+8-->D:\yesweighservice\plugins\whatsapp-share\android\src\main\AndroidManifest.xml:5:9-65
+9        android:maxSdkVersion="28" />
+9-->D:\yesweighservice\plugins\whatsapp-share\android\src\main\AndroidManifest.xml:6:9-35
+10    <!-- Android 11+ package visibility for WhatsApp -->
+11    <queries>
+11-->D:\yesweighservice\plugins\whatsapp-share\android\src\main\AndroidManifest.xml:8:5-15:15
+12        <package android:name="com.whatsapp" />
+12-->D:\yesweighservice\plugins\whatsapp-share\android\src\main\AndroidManifest.xml:9:9-48
+12-->D:\yesweighservice\plugins\whatsapp-share\android\src\main\AndroidManifest.xml:9:18-45
+13        <package android:name="com.whatsapp.w4b" />
+13-->D:\yesweighservice\plugins\whatsapp-share\android\src\main\AndroidManifest.xml:10:9-52
+13-->D:\yesweighservice\plugins\whatsapp-share\android\src\main\AndroidManifest.xml:10:18-49
+14
+15        <intent>
+15-->D:\yesweighservice\plugins\whatsapp-share\android\src\main\AndroidManifest.xml:11:9-14:18
+16            <action android:name="android.intent.action.SEND" />
+16-->D:\yesweighservice\plugins\whatsapp-share\android\src\main\AndroidManifest.xml:12:13-65
+16-->D:\yesweighservice\plugins\whatsapp-share\android\src\main\AndroidManifest.xml:12:21-62
 17
-18</manifest>
+18            <data android:mimeType="image/*" />
+18-->D:\yesweighservice\plugins\whatsapp-share\android\src\main\AndroidManifest.xml:13:13-48
+18-->D:\yesweighservice\plugins\whatsapp-share\android\src\main\AndroidManifest.xml:13:19-45
+19        </intent>
+20    </queries>
+21
+22</manifest>

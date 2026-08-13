@@ -243,16 +243,43 @@ export function buildDelhiveryB2bManifestPayload(input) {
   const rawInvoiceValue = asNumber(input.invoiceValueInr, 0);
   const invoiceNumberRaw = nonEmpty(input.invoiceNumber);
   const hasInvoice = Boolean(invoiceNumberRaw || nonEmpty(input.invoiceId));
-  if (hasInvoice && rawInvoiceValue <= 0) {
+  const clubbedRows = Array.isArray(input.invoices)
+    ? input.invoices.filter(row => row && (nonEmpty(row.invoiceNumber) || nonEmpty(row.invoiceId)))
+    : [];
+  if (!clubbedRows.length && hasInvoice && rawInvoiceValue <= 0) {
     throw new Error(
       'Invoice total (incl. GST) is not ready yet. Wait for the invoice to finish syncing, then create the Delhivery LR.',
     );
   }
-  // Never substitute ₹1 for a real invoice. Standalone (no invoice) still needs a
-  // positive inv_amt for Delhivery's schema.
-  const invoiceValue = hasInvoice ? rawInvoiceValue : Math.max(1, rawInvoiceValue || 1);
+  const invoiceValue = hasInvoice || clubbedRows.length
+    ? rawInvoiceValue
+    : Math.max(1, rawInvoiceValue || 1);
   const invoiceNumber = invoiceNumberRaw || String(input.orderId || 'INV');
   const productsDesc = nonEmpty(input.productsDesc) || 'Goods';
+  const invoices = clubbedRows.length
+    ? clubbedRows.map((row) => {
+      const invNum = nonEmpty(row.invoiceNumber) || invoiceNumber;
+      const invAmt = asNumber(row.invoiceValueInr, 0);
+      if (invAmt <= 0) {
+        throw new Error(
+          `Invoice total (incl. GST) is not ready for ${invNum}. Wait for the invoice to finish syncing, then create the Delhivery LR.`,
+        );
+      }
+      return {
+        ewaybill: '',
+        inv_num: invNum,
+        inv_amt: invAmt,
+        inv_qr_code: '',
+      };
+    })
+    : [
+      {
+        ewaybill: '',
+        inv_num: invoiceNumber,
+        inv_amt: invoiceValue,
+        inv_qr_code: '',
+      },
+    ];
   const freightMode = delhiveryFreightModeFromBilling(input.freightBillingMode);
   const freightBillingMode = String(input.freightBillingMode || '').trim().toLowerCase() === 'fod'
     ? 'fod'
@@ -288,15 +315,6 @@ export function buildDelhiveryB2bManifestPayload(input) {
       box_count: boxCount,
       description: productsDesc,
       weight: weightG,
-    },
-  ];
-
-  const invoices = [
-    {
-      ewaybill: '',
-      inv_num: invoiceNumber,
-      inv_amt: invoiceValue,
-      inv_qr_code: '',
     },
   ];
 

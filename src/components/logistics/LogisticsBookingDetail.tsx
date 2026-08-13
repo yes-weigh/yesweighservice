@@ -104,7 +104,7 @@ import {
   invoiceDocumentToBlob,
 } from '../../lib/invoices';
 import { ensureInvoiceEwayBill, cancelInvoiceEwayBill, type InvoiceEwayBillResult } from '../../lib/invoiceEwayBill';
-import { isEwayBillRequired, type EwayBillCancelReason } from '../../constants/ewayBill';
+import { clubbedNeedsEwayBill, isEwayBillRequired, type EwayBillCancelReason } from '../../constants/ewayBill';
 import { EwayBillCancelDialog } from './EwayBillCancelDialog';
 import { EwayBillGenerateDialog } from './EwayBillGenerateDialog';
 import { ewayBillDocumentDateLabel } from './EwayBillGeneratePreview';
@@ -513,6 +513,7 @@ export const LogisticsBookingDetail: React.FC<LogisticsBookingDetailProps> = ({
       bookingId: booking.id,
       invoiceTotalInr: booking.invoiceValueInr ?? null,
       autoGenerate: false,
+      forceRequired: clubbedNeedsEwayBill(booking.invoices ?? booking.invoiceValueInr ?? 0),
     })
       .then(result => {
         if (cancelled) return;
@@ -583,24 +584,52 @@ export const LogisticsBookingDetail: React.FC<LogisticsBookingDetailProps> = ({
   }, [isOps]);
 
   const handleConfirmGenerateEwayBill = useCallback(async () => {
-    const invoiceId = booking.invoiceId?.trim();
-    if (!invoiceId || !ewayCustomerId) return;
+    const rows = (booking.invoices?.length
+      ? booking.invoices
+      : (booking.invoiceId
+        ? [{
+          invoiceId: booking.invoiceId,
+          invoiceNumber: booking.invoiceNumber || booking.invoiceId,
+          valueInr: booking.invoiceValueInr ?? 0,
+        }]
+        : [])
+    ).filter(row => row.invoiceId);
+    if (!rows.length || !ewayCustomerId) return;
+    const forceRequired = clubbedNeedsEwayBill(rows);
     setEwayEnsuring(true);
     setEwayGenerateError('');
     try {
-      const result = await ensureInvoiceEwayBill({
-        customerId: ewayCustomerId,
-        invoiceId,
-        partnerId: booking.partnerId,
-        lrNumber: ewayLrNumber || null,
-        bookingId: booking.id,
-        invoiceTotalInr: booking.invoiceValueInr ?? null,
-        autoGenerate: true,
-      });
-      setEwayBillStatus(result.status ?? null);
-      setEwayBillNumber(result.ewaybillNumber ?? null);
-      setEwayGenerateOpen(false);
-      showEwayBillFromResult(result);
+      let last: InvoiceEwayBillResult | null = null;
+      const failures: string[] = [];
+      for (const row of rows) {
+        try {
+          const result = await ensureInvoiceEwayBill({
+            customerId: ewayCustomerId,
+            invoiceId: row.invoiceId,
+            partnerId: booking.partnerId,
+            lrNumber: ewayLrNumber || null,
+            bookingId: booking.id,
+            invoiceTotalInr: row.valueInr || booking.invoiceValueInr || null,
+            autoGenerate: true,
+            forceRequired,
+          });
+          last = result;
+          if (result.status !== 'generated' && result.required !== false) {
+            failures.push(`${row.invoiceNumber}: ${result.message || result.status || 'not generated'}`);
+          }
+        } catch (err) {
+          failures.push(`${row.invoiceNumber}: ${err instanceof Error ? err.message : 'failed'}`);
+        }
+      }
+      if (last) {
+        setEwayBillStatus(failures.length ? 'missing' : (last.status ?? null));
+        setEwayBillNumber(last.ewaybillNumber ?? null);
+        setEwayGenerateOpen(false);
+        showEwayBillFromResult(last);
+      }
+      if (failures.length) {
+        setEwayGenerateError(failures.join(' '));
+      }
     } catch (err) {
       setEwayGenerateError(
         err instanceof Error ? err.message : 'Could not generate e-way bill.',
@@ -611,7 +640,9 @@ export const LogisticsBookingDetail: React.FC<LogisticsBookingDetailProps> = ({
   }, [
     booking.id,
     booking.invoiceId,
+    booking.invoiceNumber,
     booking.invoiceValueInr,
+    booking.invoices,
     booking.partnerId,
     ewayCustomerId,
     ewayLrNumber,
@@ -644,6 +675,7 @@ export const LogisticsBookingDetail: React.FC<LogisticsBookingDetailProps> = ({
         bookingId: booking.id,
         invoiceTotalInr: booking.invoiceValueInr ?? null,
         autoGenerate: false,
+        forceRequired: clubbedNeedsEwayBill(booking.invoices ?? booking.invoiceValueInr ?? 0),
       });
       setEwayBillStatus(result.status ?? null);
       setEwayBillNumber(result.ewaybillNumber ?? null);
@@ -1786,6 +1818,9 @@ export const LogisticsBookingDetail: React.FC<LogisticsBookingDetailProps> = ({
                 : booking.invoiceNumber
                   ? ` · ${booking.invoiceNumber}`
                   : ''}
+              {(booking.invoices?.length ?? 0) > 1
+                ? ` · ${booking.invoices!.length} invoices`
+                : ''}
             </h4>
             {freightLoading && !freightCompare && (
               <p className="text-muted text-sm">Loading invoice details…</p>

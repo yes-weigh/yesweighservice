@@ -84,14 +84,28 @@ export interface ShipmentBoxDraft {
   photos: ShipmentBoxPhotoDraft[];
 }
 
+/** One invoice on a (possibly clubbed) Delhivery LR. */
+export interface LogisticsBookingInvoice {
+  invoiceId: string;
+  invoiceNumber: string;
+  /** Grand total incl. GST (INR). */
+  valueInr: number;
+  ewayBillNumber?: string | null;
+  ewayBillStatus?: string | null;
+  /** True when clubbed shipment total exceeds the e-way threshold. */
+  ewayRequired?: boolean;
+}
+
 export interface LogisticsBookingDraft {
   partnerId: LogisticsPartnerId;
   source: LogisticsBookingSource;
   invoiceId: string | null;
   invoiceNumber: string | null;
+  /** Extra invoices clubbed onto the same Delhivery LR (includes primary). */
+  clubbedInvoices?: LogisticsBookingInvoice[];
   /** Linked SO number when booking from an invoice (used as Delhivery shipper reference). */
   salesOrderNumber?: string | null;
-  /** Invoice grand total (INR) for courier invoice value / FOV. */
+  /** Invoice grand total (INR) for courier invoice value / FOV. Clubbed = sum. */
   invoiceValueInr?: number | null;
   /** Consignee GSTIN from invoice / Zoho customer when available. */
   customerGstin?: string | null;
@@ -259,7 +273,11 @@ export interface LogisticsBooking {
   source: LogisticsBookingSource;
   invoiceId: string | null;
   invoiceNumber: string | null;
-  /** Invoice grand total (INR) — used for e-way bill threshold and courier FOV. */
+  /** All invoice ids on this booking (includes invoiceId). Used for array-contains lookup. */
+  invoiceIds?: string[];
+  /** Per-invoice values and e-way status when several invoices share one LR. */
+  invoices?: LogisticsBookingInvoice[];
+  /** Invoice grand total (INR) — e-way threshold and courier FOV. Clubbed = sum. */
   invoiceValueInr?: number | null;
   supportRequestId: string | null;
   supportRequestNumber: string | null;

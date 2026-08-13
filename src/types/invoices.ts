@@ -125,6 +125,8 @@ export type InvoiceEwayBillRecord = {
   partBUpdatedAt?: string | null;
   error?: string | null;
   required?: boolean;
+  /** Clubbed LR: required even when this invoice is under ₹50k. */
+  requiredBecause?: 'invoice_total' | 'clubbed_lr' | null;
   updatedAt?: string | null;
 };
 
