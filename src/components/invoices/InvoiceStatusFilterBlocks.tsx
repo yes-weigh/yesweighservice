@@ -36,7 +36,6 @@ export function InvoiceStatusFilterBlocks({
   value,
   counts,
   allCount,
-  countsComplete = true,
   loading = false,
   onChange,
 }: Props) {
@@ -69,7 +68,7 @@ export function InvoiceStatusFilterBlocks({
             </span>
             <span className="unified-so-category-block__label">{label}</span>
             <span className="unified-so-category-block__count">
-              {loading ? '…' : countsComplete ? count.toLocaleString('en-IN') : '\u00a0'}
+              {loading ? '…' : count.toLocaleString('en-IN')}
             </span>
           </button>
         );
