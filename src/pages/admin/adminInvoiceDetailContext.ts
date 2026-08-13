@@ -18,4 +18,6 @@ export interface AdminInvoiceDetailOutletContext {
   manualLogisticsShipFrom: StaffLogisticsSite | null;
   onOpenManualLogistics: () => void;
   existingBooking: LogisticsBooking | null;
+  /** Ops: salesperson chip on the title toggles the full KAM card. */
+  kamCardOpen?: boolean;
 }

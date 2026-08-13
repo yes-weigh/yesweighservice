@@ -77,6 +77,18 @@ export function isPickupPartner(partnerId: LogisticsPartnerId | null | undefined
   return partnerId === PICKUP_PARTNER_ID;
 }
 
+/** True when the SO courier map includes customer pickup (whole-order pickup). */
+export function courierBySiteIsCustomerPickup(courierBySite: unknown): boolean {
+  if (!courierBySite || typeof courierBySite !== 'object' || Array.isArray(courierBySite)) {
+    return false;
+  }
+  const values = Object.values(courierBySite as Record<string, unknown>)
+    .map(value => String(value ?? '').trim())
+    .filter(Boolean);
+  if (!values.length) return false;
+  return values.some(id => isPickupPartner(id as LogisticsPartnerId));
+}
+
 /** Whether this partner has a usable rate for the destination at this origin. */
 export function partnerHasZoneRate(
   rates: LogisticsCourierRates,

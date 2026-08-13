@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useEffect } from 'react';
 import { useOutletContext } from 'react-router-dom';
 import { PackagePlus } from 'lucide-react';
 import { DocumentKamStrip } from '../../components/admin/DocumentKamStrip';
@@ -6,9 +6,12 @@ import { DocumentPartyBlock } from '../../components/admin/DocumentPartyBlock';
 import { InvoiceDocumentBody } from '../../components/invoices/InvoiceDocumentBody';
 import { RelatedSupportRequests } from '../../components/support/RelatedSupportRequests';
 import { logisticsPartnerLabel } from '../../constants/logisticsPartners';
+import { useAuth } from '../../context/AuthContext';
+import { isInternalOpsUser } from '../../lib/staffAccess';
 import type { AdminInvoiceDetailOutletContext } from './adminInvoiceDetailContext';
 
 export const AdminInvoiceDocumentPage: React.FC = () => {
+  const { user } = useAuth();
   const {
     invoice,
     customerId,
@@ -18,7 +21,21 @@ export const AdminInvoiceDocumentPage: React.FC = () => {
     manualLogisticsPartnerFromFreight,
     onOpenManualLogistics,
     existingBooking,
+    kamCardOpen,
   } = useOutletContext<AdminInvoiceDetailOutletContext>();
+
+  const isOps = isInternalOpsUser(user);
+  const showKamCard = Boolean(invoice) && (!isOps || Boolean(kamCardOpen));
+
+  useEffect(() => {
+    if (!kamCardOpen) return;
+    window.requestAnimationFrame(() => {
+      document.getElementById('invoice-detail-kam')?.scrollIntoView({
+        behavior: 'smooth',
+        block: 'nearest',
+      });
+    });
+  }, [kamCardOpen]);
 
   if (!invoice) return null;
 
@@ -37,11 +54,15 @@ export const AdminInvoiceDocumentPage: React.FC = () => {
         emptyAddressLabel="No address on file"
       />
 
-      <DocumentKamStrip
-        className="mb-4"
-        salespersonId={invoice.salespersonId}
-        salespersonName={invoice.salespersonName}
-      />
+      {showKamCard ? (
+        <div id="invoice-detail-kam">
+          <DocumentKamStrip
+            className="mb-4"
+            salespersonId={invoice.salespersonId}
+            salespersonName={invoice.salespersonName}
+          />
+        </div>
+      ) : null}
       <RelatedSupportRequests
         dealerId={customerId}
         invoiceId={invoiceId}

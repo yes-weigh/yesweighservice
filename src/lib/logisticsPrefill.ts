@@ -76,8 +76,9 @@ function invoiceCategoryAllowsCourier(
  * Hidden when the invoice is older than 4 days, or category is software / GATC.
  */
 export function canBookCourierForInvoice(
-  invoice: Pick<DealerInvoiceDetail, 'date' | 'invoiceCategory'>,
+  invoice: Pick<DealerInvoiceDetail, 'date' | 'invoiceCategory' | 'sourceSalesOrderIsPickup'>,
 ): boolean {
+  if (invoice.sourceSalesOrderIsPickup) return false;
   if (!invoiceCategoryAllowsCourier(invoice)) return false;
 
   const dateRaw = invoice.date?.trim();
@@ -97,8 +98,9 @@ export function canBookCourierForInvoice(
  * Still blocked for software / GATC categories.
  */
 export function canRecordInvoiceLogisticsLr(
-  invoice: Pick<DealerInvoiceDetail, 'invoiceCategory'>,
+  invoice: Pick<DealerInvoiceDetail, 'invoiceCategory' | 'sourceSalesOrderIsPickup'>,
 ): boolean {
+  if (invoice.sourceSalesOrderIsPickup) return false;
   return invoiceCategoryAllowsCourier(invoice);
 }
 

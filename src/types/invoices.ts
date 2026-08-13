@@ -91,6 +91,8 @@ export interface DealerInvoiceDetail extends DealerInvoice {
   ewayBill?: InvoiceEwayBillRecord | null;
   /** Customer collected goods — no courier logistics booking. */
   customerPickup?: InvoiceCustomerPickup | null;
+  /** Linked YesOne SO was created as customer pickup (no courier freight). */
+  sourceSalesOrderIsPickup?: boolean;
 }
 
 export type InvoiceCustomerPickup = {
@@ -218,30 +220,22 @@ export const INVOICE_STATUS_OPTIONS: Array<{ value: InvoiceStatus | 'all'; label
   { value: 'void', label: 'Void' },
 ];
 
-/** Chip keys for the invoice list status row (portal fulfillment + remaining payment states). */
+/** Chip keys for the invoice list status row (portal fulfillment). */
 export type InvoiceListStatusFilter =
-  | 'unpaid'
-  | 'partially_paid'
-  | 'overdue'
-  | 'paid'
   | 'to_dispatch'
   | 'in_transit'
   | 'delivered'
-  | 'customer_pickup'
   | 'returned'
-  | 'void';
+  | 'void'
+  | 'support';
 
 export const INVOICE_STATUS_FILTERS: readonly InvoiceListStatusFilter[] = [
-  'unpaid',
-  'partially_paid',
-  'overdue',
-  'paid',
   'to_dispatch',
   'in_transit',
   'delivered',
-  'customer_pickup',
   'returned',
   'void',
+  'support',
 ] as const;
 
 export interface InvoiceChartPoint {

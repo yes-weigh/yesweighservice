@@ -1,15 +1,12 @@
-import React, { useMemo } from 'react';
+import React from 'react';
 import {
-  BadgeCheck,
   Ban,
-  Clock,
   LayoutGrid,
+  LifeBuoy,
   Package,
   PackageCheck,
   RotateCcw,
   Truck,
-  UserCheck,
-  Wallet,
 } from 'lucide-react';
 import { invoiceListStatusLabel } from '../../lib/invoiceListStatus';
 import {
@@ -18,23 +15,18 @@ import {
 } from '../../types/invoices';
 
 const STATUS_ICONS: Record<string, React.ReactNode> = {
-  unpaid: <Wallet size={16} strokeWidth={2.2} />,
-  partially_paid: <Wallet size={16} strokeWidth={2.2} />,
-  overdue: <Clock size={16} strokeWidth={2.2} />,
-  paid: <BadgeCheck size={16} strokeWidth={2.2} />,
   to_dispatch: <Package size={16} strokeWidth={2.2} />,
   in_transit: <Truck size={16} strokeWidth={2.2} />,
   delivered: <PackageCheck size={16} strokeWidth={2.2} />,
-  customer_pickup: <UserCheck size={16} strokeWidth={2.2} />,
   returned: <RotateCcw size={16} strokeWidth={2.2} />,
   void: <Ban size={16} strokeWidth={2.2} />,
+  support: <LifeBuoy size={16} strokeWidth={2.2} />,
 };
 
 type Props = {
   value: string;
   counts: Record<string, number>;
   allCount: number;
-  /** When false, show every canonical status (org-paginated counts are incomplete). */
   countsComplete?: boolean;
   loading?: boolean;
   onChange: (next: string) => void;
@@ -48,40 +40,13 @@ export function InvoiceStatusFilterBlocks({
   loading = false,
   onChange,
 }: Props) {
-  const statuses = useMemo(() => {
-    if (!countsComplete) return [...INVOICE_STATUS_FILTERS];
-    return INVOICE_STATUS_FILTERS.filter(
-      status => status === value || (counts[status] ?? 0) > 0,
-    );
-  }, [counts, countsComplete, value]);
-
   return (
     <div
       className="unified-so-stage-blocks unified-so-stage-blocks--invoice-status"
       role="tablist"
       aria-label="Invoice status"
     >
-      <button
-        type="button"
-        role="tab"
-        aria-selected={value === 'all'}
-        className={`unified-so-category-block unified-so-stage-block unified-so-stage-block--all${
-          value === 'all' ? ' is-active' : ''
-        }`}
-        onClick={() => onChange('all')}
-        title="All statuses"
-      >
-        <span className="unified-so-category-block__icon" aria-hidden>
-          <span className="unified-so-stage-block__icon unified-so-stage-block__icon--all">
-            <LayoutGrid size={16} strokeWidth={2.2} />
-          </span>
-        </span>
-        <span className="unified-so-category-block__label">All</span>
-        <span className="unified-so-category-block__count">
-          {loading ? '…' : allCount.toLocaleString('en-IN')}
-        </span>
-      </button>
-      {statuses.map(status => {
+      {INVOICE_STATUS_FILTERS.map(status => {
         const active = value === status;
         const label = invoiceListStatusLabel(status);
         const count = counts[status] ?? 0;
@@ -109,6 +74,26 @@ export function InvoiceStatusFilterBlocks({
           </button>
         );
       })}
+      <button
+        type="button"
+        role="tab"
+        aria-selected={value === 'all'}
+        className={`unified-so-category-block unified-so-stage-block unified-so-stage-block--all${
+          value === 'all' ? ' is-active' : ''
+        }`}
+        onClick={() => onChange('all')}
+        title="All statuses"
+      >
+        <span className="unified-so-category-block__icon" aria-hidden>
+          <span className="unified-so-stage-block__icon unified-so-stage-block__icon--all">
+            <LayoutGrid size={16} strokeWidth={2.2} />
+          </span>
+        </span>
+        <span className="unified-so-category-block__label">All</span>
+        <span className="unified-so-category-block__count">
+          {loading ? '…' : allCount.toLocaleString('en-IN')}
+        </span>
+      </button>
     </div>
   );
 }

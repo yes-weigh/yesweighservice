@@ -1,33 +1,23 @@
-import { isInvoiceCustomerPickup } from './invoiceCustomerPickup';
 import { invoiceListLogisticsStatus } from './logisticsBooking';
 import type { LogisticsBooking } from '../types/logistics-dispatch';
 
-const ZOHO_TO_DISPATCH = new Set(['draft', 'sent', 'viewed']);
-
-function statusKey(status: unknown): string {
-  return String(status ?? 'draft').trim().toLowerCase().replace(/\s+/g, '_');
-}
-
 export const INVOICE_LIST_STATUS_LABELS: Record<string, string> = {
-  unpaid: 'Unpaid',
-  partially_paid: 'Partially paid',
-  overdue: 'Overdue',
-  paid: 'Paid',
   to_dispatch: 'To dispatch',
   in_transit: 'In transit',
   delivered: 'Delivered',
   customer_pickup: 'Customer pickup',
   returned: 'Returned',
   void: 'Void',
+  support: 'Support',
   cancelled: 'Cancelled',
 };
 
-/** List badge / filter key: pickup → logistics past Booked → Zoho payment status. */
+/** List badge key: pickup stays distinct; unpaid/paid/draft/sent all wait as to-dispatch. */
 export function invoiceListStatusKey(
-  invoice: { status?: unknown; customerPickup?: unknown },
+  invoice: { status?: unknown; customerPickup?: { markedAt?: string | null } | null },
   booking?: Pick<LogisticsBooking, 'status' | 'wizardStep'> | null,
 ): string {
-  if (isInvoiceCustomerPickup(invoice)) return 'customer_pickup';
+  if (String(invoice.customerPickup?.markedAt ?? '').trim()) return 'customer_pickup';
   const logistics = invoiceListLogisticsStatus(booking);
   if (logistics) {
     if (logistics.status === 'in_transit') return 'in_transit';
@@ -36,9 +26,18 @@ export function invoiceListStatusKey(
     if (logistics.status === 'cancelled') return 'cancelled';
     return logistics.status;
   }
-  const zoho = statusKey(invoice.status);
-  if (ZOHO_TO_DISPATCH.has(zoho)) return 'to_dispatch';
-  return zoho;
+  const zoho = String(invoice.status ?? '').trim().toLowerCase().replace(/\s+/g, '_');
+  if (zoho === 'void') return 'void';
+  return 'to_dispatch';
+}
+
+/** Filter / chip key: customer pickup rolls into Delivered. */
+export function invoiceListFilterStatusKey(
+  invoice: { status?: unknown; customerPickup?: { markedAt?: string | null } | null },
+  booking?: Pick<LogisticsBooking, 'status' | 'wizardStep'> | null,
+): string {
+  const key = invoiceListStatusKey(invoice, booking);
+  return key === 'customer_pickup' ? 'delivered' : key;
 }
 
 export function invoiceListStatusLabel(key: string): string {

@@ -1,6 +1,6 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { Outlet, useLocation, useNavigate, useParams } from 'react-router-dom';
-import { AlertCircle, ClipboardList, FileText, MapPin } from 'lucide-react';
+import { AlertCircle, ClipboardList, FileText, MapPin, UserRound } from 'lucide-react';
 import { FetchingLoader } from '../../components/FetchingLoader';
 import { SpareOrderListViewDialog } from '../../components/invoices/SpareOrderListViewDialog';
 import { BookCourierEntryButton } from '../../components/logistics/BookCourierEntryButton';
@@ -15,7 +15,7 @@ import { InvoiceCustomerPickupDialog } from '../../components/logistics/InvoiceC
 import { LogisticsAwbEntryButton } from '../../components/logistics/LogisticsAwbEntryButton';
 import { invoiceTotalInclGst } from '../../constants/ewayBill';
 import { useAuth } from '../../context/AuthContext';
-import { useCatalogPageHeader } from '../../context/PageHeaderContext';
+import { useCatalogPageHeader, usePageHeaderTitleBelow } from '../../context/PageHeaderContext';
 import {
   fetchAdminInvoiceDetail,
 } from '../../lib/admin-invoices';
@@ -88,6 +88,8 @@ export const AdminInvoiceDetailLayout: React.FC = () => {
   const [ewayDocOpening, setEwayDocOpening] = useState(false);
   const [ewayDocError, setEwayDocError] = useState('');
   const [ewayDocDialog, setEwayDocDialog] = useState<DelhiveryDocumentDialogPayload | null>(null);
+  const [kamCardOpen, setKamCardOpen] = useState(false);
+  const showKamOnTitle = Boolean(user && isInternalOpsUser(user) && !isPdfView);
 
   const handleBack = useCallback(() => {
     if (isPdfView) {
@@ -107,6 +109,31 @@ export const AdminInvoiceDetailLayout: React.FC = () => {
     showBack: true,
     onBack: handleBack,
   });
+
+  const titleBelow = useMemo(() => {
+    if (!invoice || !showKamOnTitle) return null;
+    const salespersonLabel = String(invoice.salespersonName || '').trim()
+      || (String(invoice.salespersonId || '').trim() ? 'Sales staff' : 'No staff');
+    const missingSalesperson = !String(invoice.salespersonId || '').trim();
+    return (
+      <button
+        type="button"
+        className={[
+          'page-title__salesperson',
+          missingSalesperson ? 'is-missing' : '',
+          kamCardOpen ? 'is-open' : '',
+        ].filter(Boolean).join(' ')}
+        onClick={() => setKamCardOpen(open => !open)}
+        aria-expanded={kamCardOpen}
+        aria-label={kamCardOpen ? 'Hide sales staff card' : 'Show sales staff card'}
+      >
+        <UserRound size={11} aria-hidden />
+        <span>{salespersonLabel}</span>
+      </button>
+    );
+  }, [invoice, showKamOnTitle, kamCardOpen]);
+
+  usePageHeaderTitleBelow(titleBelow, Boolean(titleBelow));
 
   useEffect(() => {
     let cancelled = false;
@@ -177,18 +204,19 @@ export const AdminInvoiceDetailLayout: React.FC = () => {
       }
       setExistingBooking(null);
 
-      if (isInvoiceCustomerPickup(invoice)) {
-        setCourierEntry(null);
-        setAddLrAvailable(false);
-        return;
-      }
-
       const branch = await resolveInvoiceShipFromSiteOrDefault(invoice);
       const shipFromSite = branch.site;
       if (cancelled) return;
       setAddLrShipFrom(shipFromSite);
       setPickupShipFrom(shipFromSite);
       setPickupShipFromLabel(branch.branchLabel);
+
+      if (isInvoiceCustomerPickup(invoice) || invoice.sourceSalesOrderIsPickup) {
+        setCourierEntry(null);
+        setAddLrAvailable(false);
+        return;
+      }
+
       const courierPartner = resolveInvoiceCourierPartner(invoice);
       setAddLrPartnerId(courierPartner.partnerId);
       setAddLrPartnerFromFreight(courierPartner.fromFreight);
@@ -233,7 +261,12 @@ export const AdminInvoiceDetailLayout: React.FC = () => {
 
   if (!customerId || !invoiceId) return null;
 
-  const showManualLogistics = Boolean(addLrAvailable && !existingBooking && !isInvoiceCustomerPickup(invoice));
+  const showManualLogistics = Boolean(
+    addLrAvailable
+    && !existingBooking
+    && !isInvoiceCustomerPickup(invoice)
+    && !invoice?.sourceSalesOrderIsPickup,
+  );
   const showCustomerPickup = Boolean(
     user
     && isInternalOpsUser(user)
@@ -255,6 +288,7 @@ export const AdminInvoiceDetailLayout: React.FC = () => {
     manualLogisticsShipFrom: addLrShipFrom,
     onOpenManualLogistics: () => setAddLrOpen(true),
     existingBooking,
+    kamCardOpen,
   };
 
   // Shared picking list for product/spare invoices — ops (staff / super admin) only.
@@ -280,7 +314,8 @@ export const AdminInvoiceDetailLayout: React.FC = () => {
   );
   const topCardCount = 1
     + (showOrderList ? 1 : 0)
-    + (showCourierCard || showCustomerPickup ? 1 : 0)
+    + (showCourierCard ? 1 : 0)
+    + (showCustomerPickup ? 1 : 0)
     + (showPickupEwayCard ? 1 : 0);
   const actionsLayout = topCardCount >= 4
     ? 'quad'

@@ -43,6 +43,7 @@ import {
   normalizeSalespersonIdFilter,
 } from './salespersonScope';
 import { resolveZohoCustomerDisplayContact } from './zohoCustomerContact';
+import { courierBySiteIsCustomerPickup } from './orderFreight';
 import type {
   DealerInvoiceDetail,
   DealerInvoiceLineItem,
@@ -1739,19 +1740,42 @@ export async function fetchAdminInvoiceDetail(
   const preferredAddressId = data.shippingAddressId
     ? String(data.shippingAddressId).trim()
     : null;
-  // If invoice mirror lacks ship-to, prefer the linked SO address over customer default.
+  // Linked SO: pickup courier map, and ship-to when the invoice mirror has none.
   let soAddress: string | null = null;
   let soAddressId: string | null = null;
-  if (!preferredAddress && data.salesOrderId) {
+  let sourceSalesOrderIsPickup = false;
+  const salesOrderId = data.salesOrderId ? String(data.salesOrderId).trim() : '';
+  const salesOrderNumber = data.salesOrderNumber ? String(data.salesOrderNumber).trim() : '';
+  let linkedSoFound = false;
+  if (salesOrderId) {
     try {
-      const soSnap = await getDoc(doc(db, 'salesOrders', String(data.salesOrderId)));
+      const soSnap = await getDoc(doc(db, 'salesOrders', salesOrderId));
       if (soSnap.exists()) {
+        linkedSoFound = true;
         const so = soSnap.data();
-        soAddress = so?.shippingAddress ? String(so.shippingAddress).trim() || null : null;
-        soAddressId = so?.shippingAddressId ? String(so.shippingAddressId).trim() || null : null;
+        sourceSalesOrderIsPickup = courierBySiteIsCustomerPickup(so?.courierBySite);
+        if (!preferredAddress) {
+          soAddress = so?.shippingAddress ? String(so.shippingAddress).trim() || null : null;
+          soAddressId = so?.shippingAddressId ? String(so.shippingAddressId).trim() || null : null;
+        }
       }
     } catch {
       // ignore — fall back to customer contact
+    }
+  }
+  if (!linkedSoFound && salesOrderNumber) {
+    try {
+      const byNumber = await getDocs(query(
+        collection(db, 'salesOrders'),
+        where('salesOrderNumber', '==', salesOrderNumber),
+        limit(1),
+      ));
+      const so = byNumber.docs[0]?.data();
+      if (so) {
+        sourceSalesOrderIsPickup = courierBySiteIsCustomerPickup(so.courierBySite);
+      }
+    } catch {
+      // optional — Book Courier stays available if SO lookup fails
     }
   }
   const [withImages, contact] = await Promise.all([
@@ -1771,6 +1795,7 @@ export async function fetchAdminInvoiceDetail(
     customerTelHref: contact.telHref,
     customerWhatsappHref: contact.whatsappHref,
     customerPickup: mapInvoiceCustomerPickup(data.customerPickup),
+    sourceSalesOrderIsPickup,
     zohoWarehouseId: data.zohoWarehouseId ? String(data.zohoWarehouseId) : null,
     zohoWarehouseName: data.zohoWarehouseName ? String(data.zohoWarehouseName) : null,
     ewayBill: data.ewayBill && typeof data.ewayBill === 'object'

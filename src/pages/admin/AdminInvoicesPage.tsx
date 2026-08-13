@@ -57,6 +57,7 @@ import {
   invoiceCategoryLabel,
 } from '../../lib/invoices';
 import {
+  invoiceListFilterStatusKey,
   invoiceListStatusKey,
   invoiceListStatusLabel,
 } from '../../lib/invoiceListStatus';
@@ -66,14 +67,19 @@ import { isInternalOpsUser } from '../../lib/staffAccess';
 import { useDealerStaffById } from '../../lib/useDealerStaffById';
 import { useRevealScrollbarOnScroll } from '../../lib/useRevealScrollbarOnScroll';
 import type { LogisticsBooking } from '../../types/logistics-dispatch';
-import type { InvoiceCategory, SalesRangePreset } from '../../types/invoices';
+import {
+  fetchSupportLinkedInvoiceRefs,
+  invoiceMatchesSupportLinks,
+  type SupportLinkedInvoiceRefs,
+} from '../../lib/invoiceSupportLinks';
 import { SALES_RANGE_OPTIONS } from '../../types/invoices';
+import type { InvoiceCategory, SalesRangePreset } from '../../types/invoices';
 
 const LIST_PAGE_SIZE = 25;
 const DEFAULT_RANGE: SalesRangePreset = 'current_month';
 const DEFAULT_SORT: AdminInvoiceSort = 'date';
 const DEFAULT_CATEGORY: InvoiceCategory | 'all' = 'all';
-const DEFAULT_STATUS = 'all';
+const DEFAULT_STATUS = 'to_dispatch';
 
 const CATEGORY_BLOCKS: Array<{ value: InvoiceCategory | 'all'; label: string }> = [
   { value: 'all', label: 'All' },
@@ -97,6 +103,13 @@ const SORT_OPTIONS: Array<{ value: AdminInvoiceSort; label: string }> = [
   { value: 'date', label: 'Invoice date' },
   { value: 'syncedAt', label: 'Most recently updated' },
 ];
+
+function invoicePageCategoryCount(
+  category: InvoiceCategory | 'all',
+  counts: AdminInvoiceCategoryCounts,
+): number {
+  return category === 'all' ? counts.all : counts[category];
+}
 
 function invoiceStatusClass(status: string): string {
   const key = status.toLowerCase().replace(/\s+/g, '_');
@@ -346,6 +359,7 @@ export const AdminInvoicesPage: React.FC = () => {
   const [rangePreset, setRangePreset] = useState<SalesRangePreset>(DEFAULT_RANGE);
   const [category, setCategory] = useState<InvoiceCategory | 'all'>(DEFAULT_CATEGORY);
   const [statusFilter, setStatusFilter] = useState(DEFAULT_STATUS);
+  const [supportLinks, setSupportLinks] = useState<SupportLinkedInvoiceRefs | null>(null);
   const [aggregate, setAggregate] = useState(false);
   const [filterOpen, setFilterOpen] = useState(false);
   const [page, setPage] = useState(1);
@@ -479,13 +493,33 @@ export const AdminInvoicesPage: React.FC = () => {
         if (cancelled) return;
         setKpiCategoryAmount(kpi.categoryAmount);
         setKpiDocumentAmount(kpi.documentAmount);
-        setKpiCount(category === 'all' ? kpi.categoryCounts.all : kpi.categoryCounts[category]);
+        setKpiCount(
+          category === 'all'
+            ? kpi.categoryCounts.all
+            : kpi.categoryCounts[category],
+        );
       })
       .catch(() => undefined);
     return () => {
       cancelled = true;
     };
   }, [category, dateStart, dateEnd, salespersonIds, salespersonScopeKey, dealerScoped]);
+
+  useEffect(() => {
+    let cancelled = false;
+    void fetchSupportLinkedInvoiceRefs()
+      .then(refs => {
+        if (!cancelled) setSupportLinks(refs);
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setSupportLinks({ invoiceIds: new Set(), invoiceNumbers: new Set() });
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   // Org-wide: cursor-paginated list (or bounded aggregate scan).
   useEffect(() => {
@@ -536,8 +570,8 @@ export const AdminInvoicesPage: React.FC = () => {
     }
 
     // Stamping = portal GATC Billwise set; load full window and page client-side.
-    // Status filter also needs the full window so chips/counts match the list.
-    if (category === 'gatc' || statusFilter !== DEFAULT_STATUS) {
+    // Status filter and Support tab also need the full window so chips/counts match the list.
+    if (category === 'gatc' || statusFilter !== 'all') {
       const load = category === 'gatc'
         ? fetchAdminPortalStampingInvoices({
           sort,
@@ -547,7 +581,7 @@ export const AdminInvoicesPage: React.FC = () => {
         }).then(next => ({ rows: next.rows }))
         : fetchAllAdminInvoicesInRange({
           sort,
-          category,
+          category: 'all',
           dateStart,
           dateEnd,
           salespersonIds,
@@ -764,7 +798,7 @@ export const AdminInvoicesPage: React.FC = () => {
 
   const categoryFilter = category === 'gatc'
     ? 'all'
-    : (useAggregate || dealerScoped || statusFilter !== DEFAULT_STATUS ? category : 'all');
+    : (useAggregate || dealerScoped || statusFilter !== 'all' ? category : 'all');
 
   const categoryFiltered = useMemo(
     () => filterAdminInvoices(rows, '', categoryFilter),
@@ -775,19 +809,26 @@ export const AdminInvoicesPage: React.FC = () => {
     const counts: Record<string, number> = {};
     for (const row of categoryFiltered) {
       if ((row.aggregateInvoiceCount ?? 0) > 1) continue;
-      const key = invoiceListStatusKey(row, logisticsByInvoiceId.get(row.id));
+      const key = invoiceListFilterStatusKey(row, logisticsByInvoiceId.get(row.id));
       if (!key || key === 'aggregated') continue;
       counts[key] = (counts[key] ?? 0) + 1;
     }
+    counts.support = categoryFiltered.filter(row => (
+      (row.aggregateInvoiceCount ?? 0) <= 1
+      && invoiceMatchesSupportLinks(row, supportLinks)
+    )).length;
     return counts;
-  }, [categoryFiltered, logisticsByInvoiceId]);
+  }, [categoryFiltered, logisticsByInvoiceId, supportLinks]);
 
   const filtered = useMemo(() => {
-    if (statusFilter === DEFAULT_STATUS) return categoryFiltered;
+    if (statusFilter === 'all') return categoryFiltered;
+    if (statusFilter === 'support') {
+      return categoryFiltered.filter(row => invoiceMatchesSupportLinks(row, supportLinks));
+    }
     return categoryFiltered.filter(row => (
-      invoiceListStatusKey(row, logisticsByInvoiceId.get(row.id)) === statusFilter
+      invoiceListFilterStatusKey(row, logisticsByInvoiceId.get(row.id)) === statusFilter
     ));
-  }, [categoryFiltered, statusFilter, logisticsByInvoiceId]);
+  }, [categoryFiltered, statusFilter, logisticsByInvoiceId, supportLinks]);
 
   const displayRows = useMemo(
     () => (useAggregate
@@ -799,11 +840,11 @@ export const AdminInvoicesPage: React.FC = () => {
   );
 
   // Client-side pagination for aggregate / dealer-scoped / portal stamping / status dumps.
-  const clientPaged = useAggregate || dealerScoped || category === 'gatc' || statusFilter !== DEFAULT_STATUS;
+  const clientPaged = useAggregate || dealerScoped || category === 'gatc' || statusFilter !== 'all';
   const statusCountsComplete = clientPaged && !useLifetimeDealerRollups;
   const totalCount = clientPaged
     ? displayRows.length
-    : (category === 'all' ? categoryCounts.all : categoryCounts[category]);
+    : (category === 'all' ? categoryCounts.all : categoryCounts[category as InvoiceCategory]);
   const totalPages = clientPaged
     ? Math.max(1, Math.ceil(displayRows.length / LIST_PAGE_SIZE))
     : Math.max(1, Math.ceil(totalCount / LIST_PAGE_SIZE) || 1);
@@ -896,14 +937,15 @@ export const AdminInvoicesPage: React.FC = () => {
 
   const summary = useMemo(() => {
     const boundsForRange = getInvoicePeriodBounds(rangePreset);
-    const countFromTabs = category === 'all' ? categoryCounts.all : categoryCounts[category];
-    const useClientSummary = dealerScoped || statusFilter !== DEFAULT_STATUS;
+    const countFromTabs = invoicePageCategoryCount(category, categoryCounts);
+    const useClientSummary = dealerScoped || statusFilter !== 'all';
+    const useDocumentAmount = category === 'all';
     return {
       invoiceCount: useClientSummary
         ? filtered.length
         : (countFromTabs || kpiCount),
       categorySales: useClientSummary
-        ? (category === 'all'
+        ? (useDocumentAmount
           ? filtered.reduce((sum, row) => sum + invoiceAmountExclGst(row), 0)
           : filtered.reduce((sum, row) => sum + invoiceCategoryAmount(row, category), 0))
         : kpiCategoryAmount,
@@ -1094,7 +1136,11 @@ export const AdminInvoicesPage: React.FC = () => {
                 {loading ? '…' : formatCurrency(summary.categorySales)}
               </strong>
               <span className="invoices-summary__kpi-sub">
-                {category === 'all' ? 'Amount' : `${invoiceCategoryLabel(category)} lines`}
+                {statusFilter === 'support'
+                  ? 'Support-linked'
+                  : category === 'all'
+                    ? 'Amount'
+                    : `${invoiceCategoryLabel(category)} lines`}
               </span>
             </div>
           </div>
@@ -1121,7 +1167,7 @@ export const AdminInvoicesPage: React.FC = () => {
             counts={statusCounts}
             allCount={statusCountsComplete
               ? categoryFiltered.length
-              : (category === 'all' ? categoryCounts.all : categoryCounts[category]) || kpiCount}
+              : invoicePageCategoryCount(category, categoryCounts) || kpiCount}
             countsComplete={statusCountsComplete}
             loading={loading}
             onChange={setStatusFilter}
@@ -1131,9 +1177,7 @@ export const AdminInvoicesPage: React.FC = () => {
         <div className="unified-so-category-blocks" role="tablist" aria-label="Invoice category">
           {CATEGORY_BLOCKS.map(item => {
             const active = category === item.value;
-            const count = item.value === 'all'
-              ? categoryCounts.all
-              : categoryCounts[item.value];
+            const count = invoicePageCategoryCount(item.value, categoryCounts);
             return (
               <button
                 key={item.value}

@@ -17709,13 +17709,16 @@ body:has(.confirm-inline-bar) .confirm-inline-bar {
 }
 
 .unified-so-stage-blocks--invoice-status {
-  display: flex;
-  flex-wrap: nowrap;
-  overflow-x: auto;
-  -webkit-overflow-scrolling: touch;
-  grid-template-columns: none;
-  scrollbar-width: none;
-  -ms-overflow-style: none;
+  display: grid;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+  gap: 0.18rem;
+  overflow-x: hidden;
+  overflow-y: visible;
+  padding: 0;
+  margin: 0;
+  border: none;
+  border-radius: 0;
+  background: transparent;
 }
 
 .unified-so-stage-blocks--invoice-status::-webkit-scrollbar {
@@ -17723,9 +17726,27 @@ body:has(.confirm-inline-bar) .confirm-inline-bar {
 }
 
 .unified-so-stage-blocks--invoice-status .unified-so-stage-block {
-  flex: 1 0 4.35rem;
-  min-width: 4.35rem;
-  width: auto;
+  flex: unset;
+  min-width: 0;
+  width: 100%;
+}
+
+.unified-so-stage-block__icon--support {
+  background: rgba(139, 92, 246, 0.18);
+  color: #c4b5fd;
+}
+
+.unified-so-stage-block--support.is-active {
+  border-color: rgba(196, 181, 253, 0.75);
+  background: rgba(139, 92, 246, 0.16);
+}
+
+.unified-so-stage-blocks .unified-so-stage-block--support.is-active .unified-so-category-block__label {
+  color: #ddd6fe;
+}
+
+.unified-so-stage-blocks .unified-so-stage-block--support.is-active .unified-so-category-block__count {
+  color: #c4b5fd;
 }
 
 .unified-so-stage-block__icon--draft,
@@ -17763,6 +17784,13 @@ body:has(.confirm-inline-bar) .confirm-inline-bar {
     padding: 0.22rem;
   }
 
+  .unified-so-stage-blocks--invoice-status {
+    gap: 0.12rem;
+    padding: 0;
+    margin: 0;
+    overflow-x: hidden;
+  }
+
   .unified-so-stage-block {
     padding-left: 0.06rem;
     padding-right: 0.06rem;
@@ -17784,7 +17812,21 @@ body:has(.confirm-inline-bar) .confirm-inline-bar {
   width: 100%;
   padding: 0;
   margin: 0;
-  overflow: visible;
+  overflow-x: hidden;
+  overflow-y: visible;
+}
+
+.unified-so-category-block--support.is-active {
+  border-color: rgba(196, 181, 253, 0.75);
+  background: rgba(139, 92, 246, 0.16);
+}
+
+.unified-so-category-block--support.is-active .unified-so-category-block__label {
+  color: #ddd6fe;
+}
+
+.unified-so-category-block--support.is-active .unified-so-category-block__count {
+  color: #c4b5fd;
 }
 
 .unified-so-category-blocks--sectors {
@@ -31715,6 +31757,11 @@ body:has(.confirm-inline-bar) .confirm-inline-bar {
 .invoices-mobile-row__icon--gatc {
   background: rgba(13, 148, 136, 0.16);
   color: #2dd4bf;
+}
+
+.invoices-mobile-row__icon--support {
+  background: rgba(139, 92, 246, 0.16);
+  color: #c4b5fd;
 }
 
 .invoices-mobile-row__icon--unknown {
