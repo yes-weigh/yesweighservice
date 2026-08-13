@@ -76,7 +76,7 @@ import type { InvoiceCategory, SalesRangePreset } from '../../types/invoices';
 const LIST_PAGE_SIZE = 25;
 const DEFAULT_RANGE: SalesRangePreset = 'current_month';
 const DEFAULT_SORT: AdminInvoiceSort = 'date';
-const DEFAULT_CATEGORY: InvoiceCategory | 'all' = 'all';
+const DEFAULT_CATEGORY: InvoiceCategory | 'all' = 'product';
 const DEFAULT_STATUS = 'to_dispatch';
 
 const CATEGORY_BLOCKS: Array<{ value: InvoiceCategory | 'all'; label: string }> = [
