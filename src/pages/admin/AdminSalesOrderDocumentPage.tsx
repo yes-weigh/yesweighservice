@@ -111,6 +111,7 @@ export const AdminSalesOrderDocumentPage: React.FC = () => {
     listPath,
     setSalesOrder,
     workflowActions,
+    kamCardOpen,
   } = useOutletContext<AdminSalesOrderDetailOutletContext>();
 
   const [editLines, setEditLines] = useState<DraftEditLine[]>([]);
@@ -803,6 +804,16 @@ export const AdminSalesOrderDocumentPage: React.FC = () => {
     workflowActions?.canChangeSalespersonStaff,
   ]);
 
+  useEffect(() => {
+    if (!kamCardOpen) return;
+    window.requestAnimationFrame(() => {
+      document.getElementById('so-detail-kam')?.scrollIntoView({
+        behavior: 'smooth',
+        block: 'nearest',
+      });
+    });
+  }, [kamCardOpen]);
+
   const shareWarmKey = useMemo(() => {
     if (!salesOrder) return '';
     const lines = Array.isArray(salesOrder.lineItems) ? salesOrder.lineItems.length : 0;
@@ -1075,6 +1086,9 @@ export const AdminSalesOrderDocumentPage: React.FC = () => {
         </DocumentPartyBlock>
 
         {isOps && (
+          (!canSuperAdminWrite(user) || kamCardOpen)
+        ) && (
+          <div id="so-detail-kam">
           <DocumentKamStrip
             salespersonId={salesOrder.salespersonId}
             salespersonName={salesOrder.salespersonName}
@@ -1097,6 +1111,7 @@ export const AdminSalesOrderDocumentPage: React.FC = () => {
                 : null
             }
           />
+          </div>
         )}
       </header>
 
@@ -1110,7 +1125,7 @@ export const AdminSalesOrderDocumentPage: React.FC = () => {
             <span>
               Sales staff is required before Verify &amp; invoice.
               {workflowActions.canAssignSalespersonStaff && canSuperAdminWrite(user) ? (
-                <> Assign staff on the card above.</>
+                <> Tap the salesperson on the title to assign.</>
               ) : workflowActions.canAssignSalespersonStaff ? (
                 <> Pick staff below, or assign a KAM on the dealer.</>
               ) : workflowActions.dealerPath ? (
@@ -1522,7 +1537,7 @@ export const AdminSalesOrderDocumentPage: React.FC = () => {
                     workflowActions.canAssignSalespersonStaff
                     || workflowActions.canChangeSalespersonStaff
                   )
-                    ? 'Assign sales staff above, then verify'
+                    ? 'Tap the salesperson on the title to assign, then verify'
                     : 'Assign sales staff on the dealer, then apply salesperson here'
               }
             >

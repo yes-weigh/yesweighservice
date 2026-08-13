@@ -49,4 +49,7 @@ export interface AdminSalesOrderDetailOutletContext {
   reload: () => void;
   setSalesOrder: Dispatch<SetStateAction<AdminSalesOrderDetail | null>>;
   workflowActions: SalesOrderWorkflowActions | null;
+  /** Super admin: salesperson chip on the title toggles the full KAM card. */
+  kamCardOpen?: boolean;
+  onToggleKamCard?: () => void;
 }

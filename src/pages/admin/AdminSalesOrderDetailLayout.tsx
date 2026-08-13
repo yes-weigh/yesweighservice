@@ -3,13 +3,14 @@ import { Outlet, useLocation, useNavigate, useParams } from 'react-router-dom';
 import {
   AlertCircle,
   ClipboardList,
+  UserRound,
 } from 'lucide-react';
 import { FetchingLoader } from '../../components/FetchingLoader';
 import { useAuth } from '../../context/AuthContext';
 import { InvoiceCategoryBadge } from '../../components/invoices/InvoiceCategoryVisual';
 import { SalesOrderStageSeal } from '../../components/salesOrders/SalesOrderStageSeal';
 import { MarkInvoicedNoInvoiceDialog } from '../../components/salesOrders/MarkInvoicedNoInvoiceDialog';
-import { useCatalogPageHeader, usePageHeaderTitleMeta } from '../../context/PageHeaderContext';
+import { useCatalogPageHeader, usePageHeaderTitleBelow, usePageHeaderTitleMeta } from '../../context/PageHeaderContext';
 import {
   fetchAdminSalesOrderDetail,
   type AdminSalesOrderDetail,
@@ -71,6 +72,8 @@ export const AdminSalesOrderDetailLayout: React.FC = () => {
   const [actionBusy, setActionBusy] = useState<SalesOrderActionBusy>(null);
   const [assignableStaff, setAssignableStaff] = useState<Array<{ uid: string; displayName: string }>>([]);
   const [markInvoicedGuide, setMarkInvoicedGuide] = useState<{ message: string } | null>(null);
+  const [kamCardOpen, setKamCardOpen] = useState(false);
+  const showKamOnTitle = !isDealerView && canSuperAdminWrite(user) && !isPdfView;
 
   const handleBack = useCallback(() => {
     if (isPdfView) {
@@ -134,7 +137,31 @@ export const AdminSalesOrderDetailLayout: React.FC = () => {
     );
   }, [salesOrder, isPdfView, sealKind, titleStatusLabel, titleStatusClass]);
 
+  const titleBelow = useMemo(() => {
+    if (!salesOrder || !showKamOnTitle) return null;
+    const salespersonLabel = String(salesOrder.salespersonName || '').trim()
+      || (String(salesOrder.salespersonId || '').trim() ? 'Sales staff' : 'No staff');
+    const missingSalesperson = !String(salesOrder.salespersonId || '').trim();
+    return (
+      <button
+        type="button"
+        className={[
+          'page-title__salesperson',
+          missingSalesperson ? 'is-missing' : '',
+          kamCardOpen ? 'is-open' : '',
+        ].filter(Boolean).join(' ')}
+        onClick={() => setKamCardOpen(open => !open)}
+        aria-expanded={kamCardOpen}
+        aria-label={kamCardOpen ? 'Hide sales staff card' : 'Show sales staff card'}
+      >
+        <UserRound size={11} aria-hidden />
+        <span>{salespersonLabel}</span>
+      </button>
+    );
+  }, [salesOrder, showKamOnTitle, kamCardOpen]);
+
   usePageHeaderTitleMeta(titleMeta, Boolean(titleMeta));
+  usePageHeaderTitleBelow(titleBelow, Boolean(titleBelow));
 
   const reload = useCallback(() => {
     if (!salesOrderId) return;
@@ -190,6 +217,14 @@ export const AdminSalesOrderDetailLayout: React.FC = () => {
     && (stage === 'review' || !salesOrder?.yesOneStage);
   const needsSalesperson = canVerifyPayment && stage === 'payment_submitted' && !hasSalesperson;
   const canVerify = canVerifyPayment && stage === 'payment_submitted' && hasSalesperson;
+
+  useEffect(() => {
+    setKamCardOpen(false);
+  }, [salesOrderId]);
+
+  useEffect(() => {
+    if (needsSalesperson && showKamOnTitle) setKamCardOpen(true);
+  }, [needsSalesperson, salesOrderId, showKamOnTitle]);
   const canMarkInvoiced = Boolean(
     canManageZoho
     && !invoicingMismatch
@@ -457,6 +492,8 @@ export const AdminSalesOrderDetailLayout: React.FC = () => {
     reload,
     setSalesOrder,
     workflowActions,
+    kamCardOpen,
+    onToggleKamCard: () => setKamCardOpen(open => !open),
   };
 
   return (

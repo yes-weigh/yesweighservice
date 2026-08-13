@@ -1086,6 +1086,55 @@ html::-webkit-scrollbar {
   border-radius: 0.4rem;
 }
 
+.page-title__below {
+  display: flex;
+  align-items: center;
+  margin-top: 0.12rem;
+  min-width: 0;
+  max-width: 100%;
+}
+
+.page-title__salesperson {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.22rem;
+  width: auto;
+  max-width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
+  margin: 0;
+  font-size: 0.62rem;
+  font-weight: 800;
+  letter-spacing: 0.03em;
+  padding: 0.16rem 0.5rem;
+  line-height: 1.15;
+  border-radius: 999px;
+  text-transform: uppercase;
+  color: #93c5fd;
+  background: rgba(59, 130, 246, 0.12);
+  border: 1px solid rgba(59, 130, 246, 0.28);
+  cursor: pointer;
+}
+
+.page-title__salesperson span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.page-title__salesperson.is-missing {
+  color: #fca5a5;
+  background: rgba(127, 29, 29, 0.32);
+  border-color: rgba(248, 113, 113, 0.4);
+}
+
+.page-title__salesperson.is-open {
+  color: #fff;
+  background: rgba(59, 130, 246, 0.32);
+  border-color: rgba(96, 165, 250, 0.55);
+}
+
 @media (max-width: 768px) {
   .page-title__text {
     font-size: 1.1rem;
@@ -32105,10 +32154,11 @@ body:has(.confirm-inline-bar) .confirm-inline-bar {
 
 .document-party__pin {
   display: flex;
-  align-items: baseline;
+  align-items: center;
   gap: 0.45rem;
   margin: 0;
   line-height: 1.3;
+  min-width: 0;
 }
 
 .document-party__pin-label {
@@ -32118,6 +32168,7 @@ body:has(.confirm-inline-bar) .confirm-inline-bar {
   text-transform: uppercase;
   color: #fb923c;
   align-self: center;
+  flex: 0 0 auto;
 }
 
 .document-party__pin-value {
@@ -32126,6 +32177,7 @@ body:has(.confirm-inline-bar) .confirm-inline-bar {
   font-variant-numeric: tabular-nums;
   letter-spacing: -0.01em;
   color: #fff7ed;
+  flex: 0 0 auto;
 }
 
 .document-party__ship {
@@ -32145,11 +32197,19 @@ body:has(.confirm-inline-bar) .confirm-inline-bar {
   color: #fb923c;
 }
 
+.document-party__pin .document-party__actions {
+  margin-left: auto;
+  flex-direction: row;
+  align-items: center;
+  justify-content: flex-end;
+  flex: 0 0 auto;
+}
+
 .document-party__actions {
-  display: flex;
-  flex-direction: column;
+  display: inline-flex;
+  flex-direction: row;
   justify-content: center;
-  align-items: stretch;
+  align-items: center;
   gap: 0.35rem;
   flex: 0 0 auto;
 }
@@ -32158,10 +32218,10 @@ body:has(.confirm-inline-bar) .confirm-inline-bar {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  gap: 0.3rem;
-  padding: 0.28rem 0.65rem;
+  gap: 0.25rem;
+  padding: 0.2rem 0.55rem;
   border-radius: 999px;
-  font-size: 0.75rem;
+  font-size: 0.72rem;
   font-weight: 600;
   color: #93c5fd;
   background: rgba(59, 130, 246, 0.12);

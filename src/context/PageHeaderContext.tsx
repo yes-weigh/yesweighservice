@@ -28,12 +28,15 @@ type PageHeaderContextValue = {
   config: PageHeaderConfig;
   headerSlot: React.ReactNode;
   titleMeta: React.ReactNode;
+  titleBelow: React.ReactNode;
   topBarAction: React.ReactNode;
   setPageHeader: (config: PageHeaderConfig) => void;
   setHeaderSlot: (slot: React.ReactNode, owner: SlotOwner) => void;
   clearHeaderSlot: (owner: SlotOwner) => void;
   setTitleMeta: (slot: React.ReactNode, owner: SlotOwner) => void;
   clearTitleMeta: (owner: SlotOwner) => void;
+  setTitleBelow: (slot: React.ReactNode, owner: SlotOwner) => void;
+  clearTitleBelow: (owner: SlotOwner) => void;
   setTopBarAction: (slot: React.ReactNode, owner: SlotOwner) => void;
   clearTopBarAction: (owner: SlotOwner) => void;
   clearPageHeader: () => void;
@@ -63,9 +66,11 @@ export const PageHeaderProvider: React.FC<{ children: React.ReactNode }> = ({ ch
   const [config, setConfig] = useState<PageHeaderConfig>(emptyConfig);
   const [headerSlot, setHeaderSlotState] = useState<React.ReactNode>(null);
   const [titleMeta, setTitleMetaState] = useState<React.ReactNode>(null);
+  const [titleBelow, setTitleBelowState] = useState<React.ReactNode>(null);
   const [topBarAction, setTopBarActionState] = useState<React.ReactNode>(null);
   const headerSlotOwnerRef = useRef<SlotOwner | null>(null);
   const titleMetaOwnerRef = useRef<SlotOwner | null>(null);
+  const titleBelowOwnerRef = useRef<SlotOwner | null>(null);
   const topBarActionOwnerRef = useRef<SlotOwner | null>(null);
 
   const setHeaderSlot = useCallback((slot: React.ReactNode, owner: SlotOwner) => {
@@ -88,6 +93,17 @@ export const PageHeaderProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     if (titleMetaOwnerRef.current !== owner) return;
     titleMetaOwnerRef.current = null;
     setTitleMetaState(null);
+  }, []);
+
+  const setTitleBelow = useCallback((slot: React.ReactNode, owner: SlotOwner) => {
+    titleBelowOwnerRef.current = owner;
+    setTitleBelowState(prev => (Object.is(prev, slot) ? prev : slot));
+  }, []);
+
+  const clearTitleBelow = useCallback((owner: SlotOwner) => {
+    if (titleBelowOwnerRef.current !== owner) return;
+    titleBelowOwnerRef.current = null;
+    setTitleBelowState(null);
   }, []);
 
   const setTopBarAction = useCallback((slot: React.ReactNode, owner: SlotOwner) => {
@@ -114,12 +130,15 @@ export const PageHeaderProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       config,
       headerSlot,
       titleMeta,
+      titleBelow,
       topBarAction,
       setPageHeader,
       setHeaderSlot,
       clearHeaderSlot,
       setTitleMeta,
       clearTitleMeta,
+      setTitleBelow,
+      clearTitleBelow,
       setTopBarAction,
       clearTopBarAction,
       clearPageHeader,
@@ -128,12 +147,15 @@ export const PageHeaderProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       config,
       headerSlot,
       titleMeta,
+      titleBelow,
       topBarAction,
       setPageHeader,
       setHeaderSlot,
       clearHeaderSlot,
       setTitleMeta,
       clearTitleMeta,
+      setTitleBelow,
+      clearTitleBelow,
       setTopBarAction,
       clearTopBarAction,
       clearPageHeader,
@@ -255,6 +277,12 @@ export function usePageHeaderSlot(slot: React.ReactNode | null, enabled = true) 
 export function usePageHeaderTitleMeta(slot: React.ReactNode | null, enabled = true) {
   const ctx = useContext(PageHeaderContext);
   useOwnedHeaderSlot(ctx?.setTitleMeta, ctx?.clearTitleMeta, slot, enabled);
+}
+
+/** Content under the title + subtitle (e.g. salesperson chip). */
+export function usePageHeaderTitleBelow(slot: React.ReactNode | null, enabled = true) {
+  const ctx = useContext(PageHeaderContext);
+  useOwnedHeaderSlot(ctx?.setTitleBelow, ctx?.clearTitleBelow, slot, enabled);
 }
 
 export function useTopBarAction(slot: React.ReactNode | null, enabled = true) {

@@ -212,7 +212,7 @@ const LayoutShell: React.FC = () => {
   const { user } = useAuth();
   const { itemCount } = useCart();
   const { registerCartTarget, cartBump } = useCartFly();
-  const { config: pageHeader, headerSlot, titleMeta, topBarAction } = usePageHeader();
+  const { config: pageHeader, headerSlot, titleMeta, titleBelow, topBarAction } = usePageHeader();
   const cartBtnRef = useRef<HTMLButtonElement>(null);
   const navigate = useNavigate();
   const location = useLocation();
@@ -559,6 +559,7 @@ const LayoutShell: React.FC = () => {
                 {pageHeader.subtitle && (
                   <span className="page-subtitle">{pageHeader.subtitle}</span>
                 )}
+                {titleBelow ? <span className="page-title__below">{titleBelow}</span> : null}
               </span>
               {titleMeta ? <span className="page-title__meta">{titleMeta}</span> : null}
             </button>
@@ -587,6 +588,7 @@ const LayoutShell: React.FC = () => {
                 {pageHeader.subtitle && (
                   <span className="page-subtitle">{pageHeader.subtitle}</span>
                 )}
+                {titleBelow ? <span className="page-title__below">{titleBelow}</span> : null}
               </span>
               {titleMeta ? <span className="page-title__meta">{titleMeta}</span> : null}
             </button>
@@ -607,6 +609,7 @@ const LayoutShell: React.FC = () => {
                 {pageHeader.subtitle && (
                   <p className="page-subtitle">{pageHeader.subtitle}</p>
                 )}
+                {titleBelow ? <div className="page-title__below">{titleBelow}</div> : null}
               </div>
               {titleMeta ? <div className="page-title__meta">{titleMeta}</div> : null}
             </div>

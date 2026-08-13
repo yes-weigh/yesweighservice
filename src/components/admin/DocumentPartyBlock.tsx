@@ -63,6 +63,29 @@ export const DocumentPartyBlock: React.FC<Props> = ({
     : null;
   const shipText = pin && addr ? stripPincode(addr, pin) : addr;
 
+  const actions = showActions ? (
+    <span className="document-party__actions">
+      {telHref ? (
+        <a className="document-party__action" href={telHref} aria-label={`Call ${name}`}>
+          <Phone size={13} aria-hidden />
+          Call
+        </a>
+      ) : null}
+      {whatsappHref ? (
+        <a
+          className="document-party__action document-party__action--wa"
+          href={whatsappHref}
+          target="_blank"
+          rel="noopener noreferrer"
+          aria-label={`WhatsApp ${name}`}
+        >
+          <WhatsAppIcon size={13} />
+          WhatsApp
+        </a>
+      ) : null}
+    </span>
+  ) : null;
+
   return (
     <div className={`document-party ${className}`.trim()}>
       <div className="document-party__main">
@@ -84,32 +107,12 @@ export const DocumentPartyBlock: React.FC<Props> = ({
           <p className="document-party__pin" aria-label={`PIN code ${pin}`}>
             <span className="document-party__pin-label">PIN</span>
             <span className="document-party__pin-value">{pin}</span>
+            {actions}
           </p>
         ) : null}
         {children}
       </div>
-      {showActions ? (
-        <div className="document-party__actions">
-          {telHref ? (
-            <a className="document-party__action" href={telHref} aria-label={`Call ${name}`}>
-              <Phone size={14} aria-hidden />
-              Call
-            </a>
-          ) : null}
-          {whatsappHref ? (
-            <a
-              className="document-party__action document-party__action--wa"
-              href={whatsappHref}
-              target="_blank"
-              rel="noopener noreferrer"
-              aria-label={`WhatsApp ${name}`}
-            >
-              <WhatsAppIcon />
-              WhatsApp
-            </a>
-          ) : null}
-        </div>
-      ) : null}
+      {!pin ? actions : null}
     </div>
   );
 };
