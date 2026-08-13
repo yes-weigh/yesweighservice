@@ -33656,6 +33656,12 @@ button.invoice-detail-top__card {
   padding: 0.85rem 1rem !important;
 }
 
+.invoice-manual-logistics__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
 .invoice-manual-logistics__btn {
   display: inline-flex;
   align-items: center;

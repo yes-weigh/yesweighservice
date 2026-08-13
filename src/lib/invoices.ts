@@ -276,8 +276,10 @@ export function invoiceCategoryAmount(inv: {
   categories?: unknown;
   invoiceCategory?: unknown;
 }, category: InvoiceCategory): number {
-  const categoryAmounts = normalizeInvoiceCategoryAmounts(inv.categoryAmounts);
-  if (categoryAmounts[category] != null) return Number(categoryAmounts[category] ?? 0);
+  if (inv.categoryAmounts && typeof inv.categoryAmounts === 'object' && !Array.isArray(inv.categoryAmounts)) {
+    const raw = Number((inv.categoryAmounts as Record<string, unknown>)[category]);
+    if (Number.isFinite(raw)) return raw;
+  }
   return invoiceHasCategory(inv, category) ? invoiceAmountExclGst(inv) : 0;
 }
 

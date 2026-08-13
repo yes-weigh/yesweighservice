@@ -33,6 +33,8 @@ export type InvoiceListStatusInvoice = {
   status?: unknown;
   customerPickup?: { markedAt?: string | null } | null;
   customerPickupMarkedAt?: string | null;
+  manualDelivery?: { markedAt?: string | null } | null;
+  manualDeliveredAt?: string | null;
   categories?: unknown;
   invoiceCategory?: unknown;
 };
@@ -41,6 +43,13 @@ function invoiceHasConfirmedCustomerPickup(invoice: InvoiceListStatusInvoice): b
   const nested = String(invoice.customerPickup?.markedAt ?? '').trim();
   if (nested && nested !== '[object Object]') return true;
   const scalar = String(invoice.customerPickupMarkedAt ?? '').trim();
+  return Boolean(scalar && scalar !== '[object Object]');
+}
+
+function invoiceHasManualDelivery(invoice: InvoiceListStatusInvoice): boolean {
+  const nested = String(invoice.manualDelivery?.markedAt ?? '').trim();
+  if (nested && nested !== '[object Object]') return true;
+  const scalar = String(invoice.manualDeliveredAt ?? '').trim();
   return Boolean(scalar && scalar !== '[object Object]');
 }
 
@@ -66,6 +75,7 @@ export function invoiceListStatusKey(
   booking?: Pick<LogisticsBooking, 'status' | 'wizardStep' | 'consignmentNo' | 'trackingNo'> | null,
 ): string {
   if (invoiceHasConfirmedCustomerPickup(invoice)) return 'customer_pickup';
+  if (invoiceHasManualDelivery(invoice)) return 'delivered';
 
   const logistics = invoiceListLogisticsStatus(booking);
   if (logistics) {

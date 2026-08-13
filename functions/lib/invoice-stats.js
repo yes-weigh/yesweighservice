@@ -118,6 +118,10 @@ export function buildInvoiceSummaryFields(invoiceDoc, customerId, invoiceId) {
   const customerPickupMarkedAt = invoiceDoc.customerPickupMarkedAt
     ? String(invoiceDoc.customerPickupMarkedAt).trim() || null
     : (customerPickup?.markedAt ?? null);
+  const manualDelivery = customerPickupForSummary(invoiceDoc.manualDelivery);
+  const manualDeliveredAt = invoiceDoc.manualDeliveredAt
+    ? String(invoiceDoc.manualDeliveredAt).trim() || null
+    : (manualDelivery?.markedAt ?? null);
   return {
     id: String(invoiceId),
     customerId: String(customerId),
@@ -139,6 +143,8 @@ export function buildInvoiceSummaryFields(invoiceDoc, customerId, invoiceId) {
     amountExclGst: amount,
     customerPickup,
     customerPickupMarkedAt,
+    manualDelivery,
+    manualDeliveredAt,
     syncedAt: invoiceDoc.syncedAt ?? FieldValue.serverTimestamp(),
     updatedAt: FieldValue.serverTimestamp(),
   };
@@ -305,7 +311,7 @@ export async function backfillInvoiceSummaryCustomerPickups({ onProgress } = {})
 
   for (const customer of customersSnap.docs) {
     const invoicesSnap = await customer.ref.collection('invoices')
-      .select('customerPickup', 'customerPickupMarkedAt')
+      .select('customerPickup', 'customerPickupMarkedAt', 'manualDelivery', 'manualDeliveredAt')
       .get();
     for (const invoice of invoicesSnap.docs) {
       scanned += 1;
@@ -314,10 +320,18 @@ export async function backfillInvoiceSummaryCustomerPickups({ onProgress } = {})
       const customerPickupMarkedAt = data.customerPickupMarkedAt
         ? String(data.customerPickupMarkedAt).trim() || null
         : (customerPickup?.markedAt ?? null);
-      if (!customerPickup && !customerPickupMarkedAt) continue;
+      const manualDelivery = customerPickupForSummary(data.manualDelivery);
+      const manualDeliveredAt = data.manualDeliveredAt
+        ? String(data.manualDeliveredAt).trim() || null
+        : (manualDelivery?.markedAt ?? null);
+      if (!customerPickup && !customerPickupMarkedAt && !manualDelivery && !manualDeliveredAt) continue;
       batch.set(invoiceSummaryRef(customer.id, invoice.id), {
-        customerPickup,
-        customerPickupMarkedAt,
+        ...(customerPickup || customerPickupMarkedAt
+          ? { customerPickup, customerPickupMarkedAt }
+          : {}),
+        ...(manualDelivery || manualDeliveredAt
+          ? { manualDelivery, manualDeliveredAt }
+          : {}),
         updatedAt: FieldValue.serverTimestamp(),
       }, { merge: true });
       batchOps += 1;

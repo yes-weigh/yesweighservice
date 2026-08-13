@@ -1,6 +1,6 @@
 import React, { useEffect } from 'react';
 import { useOutletContext } from 'react-router-dom';
-import { PackagePlus } from 'lucide-react';
+import { CheckCircle2, PackagePlus } from 'lucide-react';
 import { DocumentKamStrip } from '../../components/admin/DocumentKamStrip';
 import { DocumentPartyBlock } from '../../components/admin/DocumentPartyBlock';
 import { InvoiceDocumentBody } from '../../components/invoices/InvoiceDocumentBody';
@@ -20,6 +20,8 @@ export const AdminInvoiceDocumentPage: React.FC = () => {
     manualLogisticsPartnerId,
     manualLogisticsPartnerFromFreight,
     onOpenManualLogistics,
+    showMarkDelivered,
+    onOpenMarkDelivered,
     existingBooking,
     kamCardOpen,
   } = useOutletContext<AdminInvoiceDetailOutletContext>();
@@ -73,35 +75,56 @@ export const AdminInvoiceDocumentPage: React.FC = () => {
         itemClassName="admin-invoice-detail-item"
         totalsAfterItems
         afterItems={
-          showManualLogistics ? (
+          showManualLogistics || showMarkDelivered ? (
             <div className="invoice-manual-logistics panel glass">
-              <button
-                type="button"
-                className="btn btn-secondary invoice-manual-logistics__btn"
-                onClick={onOpenManualLogistics}
-                title="Enter tracking number and box count only — no courier API booking"
-              >
-                <PackagePlus size={18} aria-hidden />
-                Manual Logistics
-              </button>
-              <p className="text-muted text-sm invoice-manual-logistics__hint">
-                {manualLogisticsPartnerFromFreight
-                  ? (
-                    <>
-                      Record an existing
-                      {' '}
-                      {logisticsPartnerLabel(manualLogisticsPartnerId)}
-                      {' '}
-                      tracking number and box count — no booking automation.
-                    </>
-                  )
-                  : (
-                    <>
-                      No freight line on this invoice — choose the delivery partner,
-                      then enter tracking number and box count.
-                    </>
-                  )}
-              </p>
+              <div className="invoice-manual-logistics__actions">
+                {showManualLogistics ? (
+                  <button
+                    type="button"
+                    className="btn btn-secondary invoice-manual-logistics__btn"
+                    onClick={onOpenManualLogistics}
+                    title="Enter tracking number and box count only — no courier API booking"
+                  >
+                    <PackagePlus size={18} aria-hidden />
+                    Manual Logistics
+                  </button>
+                ) : null}
+                {showMarkDelivered ? (
+                  <button
+                    type="button"
+                    className="btn btn-primary invoice-manual-logistics__btn"
+                    onClick={onOpenMarkDelivered}
+                    title="Mark delivered without a logistics booking"
+                  >
+                    <CheckCircle2 size={18} aria-hidden />
+                    Mark as delivered
+                  </button>
+                ) : null}
+              </div>
+              {showManualLogistics ? (
+                <p className="text-muted text-sm invoice-manual-logistics__hint">
+                  {manualLogisticsPartnerFromFreight
+                    ? (
+                      <>
+                        Record an existing
+                        {' '}
+                        {logisticsPartnerLabel(manualLogisticsPartnerId)}
+                        {' '}
+                        tracking number and box count — no booking automation.
+                      </>
+                    )
+                    : (
+                      <>
+                        No freight line on this invoice — choose the delivery partner,
+                        then enter tracking number and box count.
+                      </>
+                    )}
+                </p>
+              ) : (
+                <p className="text-muted text-sm invoice-manual-logistics__hint">
+                  Mark this invoice delivered even if no AWB or logistics booking exists.
+                </p>
+              )}
             </div>
           ) : existingBooking && trackingLabel ? (
             <div className="invoice-manual-logistics panel glass">

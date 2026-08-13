@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { Outlet, useLocation, useNavigate, useParams } from 'react-router-dom';
-import { AlertCircle, ClipboardList, FileText, MapPin, UserRound } from 'lucide-react';
+import { AlertCircle, CheckCircle2, ClipboardList, FileText, MapPin, UserRound } from 'lucide-react';
 import { FetchingLoader } from '../../components/FetchingLoader';
 import { SpareOrderListViewDialog } from '../../components/invoices/SpareOrderListViewDialog';
 import { BookCourierEntryButton } from '../../components/logistics/BookCourierEntryButton';
@@ -12,6 +12,7 @@ import { DelhiveryQuoteStrip } from '../../components/logistics/DelhiveryQuoteSt
 import { EwayBillIcon } from '../../components/logistics/EwayBillIcon';
 import { InvoiceAddLrDialog } from '../../components/logistics/InvoiceAddLrDialog';
 import { InvoiceCustomerPickupDialog } from '../../components/logistics/InvoiceCustomerPickupDialog';
+import { InvoiceMarkDeliveredDialog } from '../../components/logistics/InvoiceMarkDeliveredDialog';
 import { LogisticsAwbEntryButton } from '../../components/logistics/LogisticsAwbEntryButton';
 import { invoiceTotalInclGst } from '../../constants/ewayBill';
 import { useAuth } from '../../context/AuthContext';
@@ -49,6 +50,11 @@ import {
   isInvoiceCustomerPickup,
   rememberInvoiceCustomerPickup,
 } from '../../lib/invoiceCustomerPickup';
+import {
+  canMarkInvoiceDelivered,
+  isInvoiceManuallyDelivered,
+  rememberInvoiceManualDelivery,
+} from '../../lib/invoiceManualDelivery';
 import { base64ToUint8Array } from '../../lib/pdfViewer';
 import { isInternalOpsUser } from '../../lib/staffAccess';
 import type { CatalogProduct } from '../../types/catalog';
@@ -82,6 +88,7 @@ export const AdminInvoiceDetailLayout: React.FC = () => {
   const [addLrShipFrom, setAddLrShipFrom] = useState<StaffLogisticsSite | null>(null);
   const [addLrOpen, setAddLrOpen] = useState(false);
   const [pickupOpen, setPickupOpen] = useState(false);
+  const [deliveredOpen, setDeliveredOpen] = useState(false);
   const [pickupShipFrom, setPickupShipFrom] = useState<StaffLogisticsSite>('cochin');
   const [pickupShipFromLabel, setPickupShipFromLabel] = useState('Cochin');
   const [orderListOpen, setOrderListOpen] = useState(false);
@@ -162,6 +169,7 @@ export const AdminInvoiceDetailLayout: React.FC = () => {
         if (cancelled) return;
         setInvoice(data);
         if (isInvoiceCustomerPickup(data)) rememberInvoiceCustomerPickup(data.id || invoiceId);
+        if (isInvoiceManuallyDelivered(data)) rememberInvoiceManualDelivery(data.id || invoiceId);
         setError('');
       })
       .catch(err => {
@@ -213,7 +221,11 @@ export const AdminInvoiceDetailLayout: React.FC = () => {
       setPickupShipFrom(shipFromSite);
       setPickupShipFromLabel(branch.branchLabel);
 
-      if (isInvoiceCustomerPickup(invoice) || invoice.sourceSalesOrderIsPickup) {
+      if (
+        isInvoiceCustomerPickup(invoice)
+        || invoice.sourceSalesOrderIsPickup
+        || isInvoiceManuallyDelivered(invoice)
+      ) {
         setCourierEntry(null);
         setAddLrAvailable(false);
         return;
@@ -267,7 +279,22 @@ export const AdminInvoiceDetailLayout: React.FC = () => {
     addLrAvailable
     && !existingBooking
     && !isInvoiceCustomerPickup(invoice)
-    && !invoice?.sourceSalesOrderIsPickup,
+    && !invoice?.sourceSalesOrderIsPickup
+    && !isInvoiceManuallyDelivered(invoice),
+  );
+  const customerPickupActive = isInvoiceCustomerPickup(invoice);
+  const manualDeliveredActive = Boolean(
+    invoice && (
+      isInvoiceManuallyDelivered(invoice)
+      || existingBooking?.status === 'delivered'
+    ),
+  );
+  const showMarkDelivered = Boolean(
+    user
+    && isInternalOpsUser(user)
+    && canCreateLogisticsBooking(user)
+    && invoice
+    && canMarkInvoiceDelivered(invoice, existingBooking),
   );
   const showCustomerPickup = Boolean(
     user
@@ -276,7 +303,6 @@ export const AdminInvoiceDetailLayout: React.FC = () => {
     && invoice
     && canMarkInvoiceCustomerPickup(invoice, Boolean(existingBooking)),
   );
-  const customerPickupActive = isInvoiceCustomerPickup(invoice);
   const outletContext: AdminInvoiceDetailOutletContext = {
     invoice,
     loading,
@@ -289,6 +315,8 @@ export const AdminInvoiceDetailLayout: React.FC = () => {
     manualLogisticsPartnerFromFreight: addLrPartnerFromFreight,
     manualLogisticsShipFrom: addLrShipFrom,
     onOpenManualLogistics: () => setAddLrOpen(true),
+    showMarkDelivered,
+    onOpenMarkDelivered: () => setDeliveredOpen(true),
     existingBooking,
     kamCardOpen,
   };
@@ -303,7 +331,12 @@ export const AdminInvoiceDetailLayout: React.FC = () => {
       || invoiceHasCategory(invoice, 'spare')
     ),
   );
-  const showCourierCard = Boolean(courierEntry || existingBooking || customerPickupActive);
+  const showCourierCard = Boolean(
+    courierEntry
+    || existingBooking
+    || customerPickupActive
+    || manualDeliveredActive,
+  );
   const showPickupEwayCard = Boolean(
     customerPickupActive
     && invoice
@@ -317,6 +350,7 @@ export const AdminInvoiceDetailLayout: React.FC = () => {
   const topCardCount = 1
     + (showOrderList ? 1 : 0)
     + (showCourierCard ? 1 : 0)
+    + (showMarkDelivered ? 1 : 0)
     + (showCustomerPickup ? 1 : 0)
     + (showPickupEwayCard ? 1 : 0);
   const actionsLayout = topCardCount >= 4
@@ -472,8 +506,31 @@ export const AdminInvoiceDetailLayout: React.FC = () => {
                         : ''}
                     </span>
                   </div>
+                ) : manualDeliveredActive ? (
+                  <div
+                    className="invoice-detail-top__card invoice-detail-top__card--green is-active"
+                    title="Delivered"
+                  >
+                    <span className="invoice-detail-top__card-icon">
+                      <CheckCircle2 size={28} strokeWidth={1.75} aria-hidden />
+                    </span>
+                    <span className="invoice-detail-top__card-label">Delivered</span>
+                  </div>
                 ) : courierEntry ? (
                   <BookCourierEntryButton entry={courierEntry} variant="card" />
+                ) : null}
+                {showMarkDelivered ? (
+                  <button
+                    type="button"
+                    className="invoice-detail-top__card invoice-detail-top__card--green"
+                    title="Mark this invoice delivered — no logistics booking required"
+                    onClick={() => setDeliveredOpen(true)}
+                  >
+                    <span className="invoice-detail-top__card-icon">
+                      <CheckCircle2 size={28} strokeWidth={1.75} aria-hidden />
+                    </span>
+                    <span className="invoice-detail-top__card-label">Mark as delivered</span>
+                  </button>
                 ) : null}
                 {showCustomerPickup ? (
                   <button
@@ -588,6 +645,31 @@ export const AdminInvoiceDetailLayout: React.FC = () => {
                 } : prev);
                 setCourierEntry(null);
                 setAddLrAvailable(false);
+              }}
+            />
+          ) : null}
+          {invoice && deliveredOpen ? (
+            <InvoiceMarkDeliveredDialog
+              open={deliveredOpen}
+              invoice={invoice}
+              customerId={customerId}
+              invoiceId={invoiceId}
+              hasLogisticsBooking={Boolean(existingBooking)}
+              onClose={() => setDeliveredOpen(false)}
+              onComplete={result => {
+                rememberInvoiceManualDelivery(invoiceId);
+                setInvoice(prev => prev ? {
+                  ...prev,
+                  manualDelivery: result.manualDelivery,
+                  manualDeliveredAt: result.manualDelivery.markedAt,
+                } : prev);
+                setCourierEntry(null);
+                setAddLrAvailable(false);
+                setExistingBooking(prev => prev ? {
+                  ...prev,
+                  status: 'delivered',
+                  deliveredAt: result.manualDelivery.markedAt,
+                } : prev);
               }}
             />
           ) : null}

@@ -93,6 +93,9 @@ export interface DealerInvoiceDetail extends DealerInvoice {
   customerPickup?: InvoiceCustomerPickup | null;
   /** Linked YesOne SO was created as customer pickup (no courier freight). */
   sourceSalesOrderIsPickup?: boolean;
+  /** Ops marked delivered from the invoice (with or without a logistics booking). */
+  manualDelivery?: InvoiceManualDelivery | null;
+  manualDeliveredAt?: string | null;
 }
 
 export type InvoiceCustomerPickup = {
@@ -102,6 +105,12 @@ export type InvoiceCustomerPickup = {
   shipFromSite?: string | null;
   shipFromLabel?: string | null;
   vehicleNumber?: string | null;
+};
+
+export type InvoiceManualDelivery = {
+  markedAt: string;
+  markedByUid?: string | null;
+  markedByName?: string | null;
 };
 
 export type InvoiceEwayBillStatus =

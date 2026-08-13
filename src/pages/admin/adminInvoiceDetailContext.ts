@@ -17,6 +17,8 @@ export interface AdminInvoiceDetailOutletContext {
   manualLogisticsPartnerFromFreight: boolean;
   manualLogisticsShipFrom: StaffLogisticsSite | null;
   onOpenManualLogistics: () => void;
+  showMarkDelivered: boolean;
+  onOpenMarkDelivered: () => void;
   existingBooking: LogisticsBooking | null;
   /** Ops: salesperson chip on the title toggles the full KAM card. */
   kamCardOpen?: boolean;

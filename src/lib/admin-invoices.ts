@@ -50,6 +50,7 @@ import type {
   InvoiceCategory,
   InvoiceChartPoint,
   InvoiceCustomerPickup,
+  InvoiceManualDelivery,
   InvoiceSalesEntry,
   KpiPeriod,
 } from '../types/invoices';
@@ -84,6 +85,8 @@ export interface AdminFirestoreInvoice {
   aggregateInvoiceCount?: number;
   customerPickup?: InvoiceCustomerPickup | null;
   customerPickupMarkedAt?: string | null;
+  manualDelivery?: InvoiceManualDelivery | null;
+  manualDeliveredAt?: string | null;
 }
 
 function pickupMarkedAt(value: unknown): string | null {
@@ -109,6 +112,26 @@ function mapInvoiceCustomerPickup(raw: unknown): InvoiceCustomerPickup | null {
     }
   }
   return null;
+}
+
+function mapInvoiceManualDelivery(
+  raw: unknown,
+  markedAtScalar: unknown,
+): InvoiceManualDelivery | null {
+  if (raw && typeof raw === 'object') {
+    const data = raw as Record<string, unknown>;
+    const markedAt = pickupMarkedAt(data.markedAt);
+    if (markedAt) {
+      return {
+        markedAt,
+        markedByUid: data.markedByUid ? String(data.markedByUid) : null,
+        markedByName: data.markedByName ? String(data.markedByName) : null,
+      };
+    }
+  }
+  const markedAt = pickupMarkedAt(markedAtScalar);
+  if (!markedAt) return null;
+  return { markedAt, markedByUid: null, markedByName: null };
 }
 
 function mapInvoiceCustomerPickupField(
@@ -172,6 +195,8 @@ export function mapAdminInvoiceDoc(
     categoryAmounts: normalizeInvoiceCategoryAmounts(data.categoryAmounts),
     customerPickup: mapInvoiceCustomerPickupField(data.customerPickup, data.customerPickupMarkedAt),
     customerPickupMarkedAt: pickupMarkedAt(data.customerPickupMarkedAt),
+    manualDelivery: mapInvoiceManualDelivery(data.manualDelivery, data.manualDeliveredAt),
+    manualDeliveredAt: pickupMarkedAt(data.manualDeliveredAt),
   };
 }
 
@@ -425,19 +450,7 @@ export async function fetchAdminPortalStampingInvoices(options: {
           };
         }
         const row = mapAdminInvoiceDoc(snap as QueryDocumentSnapshot<DocumentData>);
-        const categories = row.categories.includes('gatc')
-          ? row.categories
-          : ([...row.categories, 'gatc'] as InvoiceCategory[]);
-        return {
-          ...row,
-          invoiceCategory: row.invoiceCategory ?? 'gatc',
-          categories,
-          categoryAmounts: {
-            ...row.categoryAmounts,
-            gatc: report.totals.gatcFeeTotal,
-          },
-          itemQuantity: row.itemQuantity ?? report.totals.stampedQty,
-        };
+        return applyPortalGatcFee(row, report.totals.gatcFeeTotal, report.totals.stampedQty);
       } catch {
         return null;
       }
@@ -452,6 +465,75 @@ export async function fetchAdminPortalStampingInvoices(options: {
     reports: [...reportByInvoiceId.values()],
     gatcFeeTotal: summary.gatcFeeTotal,
   };
+}
+
+function applyPortalGatcFee(
+  row: AdminFirestoreInvoice,
+  gatcFeeTotal: number,
+  stampedQty?: number,
+): AdminFirestoreInvoice {
+  const categories = row.categories.includes('gatc')
+    ? row.categories
+    : ([...row.categories, 'gatc'] as InvoiceCategory[]);
+  return {
+    ...row,
+    invoiceCategory: row.invoiceCategory ?? 'gatc',
+    categories,
+    categoryAmounts: {
+      ...row.categoryAmounts,
+      gatc: gatcFeeTotal,
+    },
+    itemQuantity: row.itemQuantity ?? stampedQty ?? null,
+  };
+}
+
+/**
+ * Align invoice-list membership and amounts with GATC Billwise:
+ * overlay `gatcFeeTotal` onto matching invoices, drop Zoho-HSN-only stamping,
+ * and append Billwise invoices missing from the dump.
+ */
+export function overlayPortalStampingOnInvoices(
+  rows: AdminFirestoreInvoice[],
+  portalRows: AdminFirestoreInvoice[],
+  sort: AdminInvoiceSort = 'date',
+): AdminFirestoreInvoice[] {
+  const portalById = new Map<string, AdminFirestoreInvoice>();
+  for (const row of portalRows) {
+    if (row.id) portalById.set(row.id, row);
+  }
+
+  const seen = new Set<string>();
+  const next: AdminFirestoreInvoice[] = rows.map(row => {
+    seen.add(row.id);
+    const portal = portalById.get(row.id);
+    if (portal) {
+      const fee = Number(portal.categoryAmounts?.gatc ?? 0);
+      return applyPortalGatcFee(row, fee, portal.itemQuantity ?? undefined);
+    }
+    const hasHsnGatc = row.categories.includes('gatc') || row.invoiceCategory === 'gatc';
+    if (!hasHsnGatc) return row;
+    const categories = row.categories.filter(category => category !== 'gatc');
+    const amounts = { ...row.categoryAmounts };
+    delete amounts.gatc;
+    return {
+      ...row,
+      categories,
+      invoiceCategory: row.invoiceCategory === 'gatc'
+        ? (categories[0] ?? null)
+        : row.invoiceCategory,
+      categoryAmounts: amounts,
+    };
+  });
+
+  let appended = false;
+  for (const portal of portalRows) {
+    if (!portal.id || seen.has(portal.id)) continue;
+    next.push(portal);
+    seen.add(portal.id);
+    appended = true;
+  }
+  if (appended) next.sort((a, b) => compareInvoiceSortKey(a, b, sort));
+  return next;
 }
 
 export async function fetchAdminInvoicesPageResult(options: {
@@ -583,22 +665,30 @@ async function overlayCustomerPickupFromInvoiceDocs(
 ): Promise<AdminFirestoreInvoice[]> {
   if (!rows.length) return rows;
   const pickupById = new Map<string, InvoiceCustomerPickup>();
+  const deliveredById = new Map<string, InvoiceManualDelivery>();
   const customerIds = [...new Set(rows.map(row => row.customerId).filter(Boolean))];
+
+  const takeFulfillment = (data: DocumentData, invoiceId: string) => {
+    const pickup = mapInvoiceCustomerPickupField(data.customerPickup, data.customerPickupMarkedAt);
+    if (pickup) pickupById.set(invoiceId, pickup);
+    const delivered = mapInvoiceManualDelivery(data.manualDelivery, data.manualDeliveredAt);
+    if (delivered) deliveredById.set(invoiceId, delivered);
+  };
 
   const loadForCustomer = async (customerId: string) => {
     try {
-      const snap = await getDocs(
-        query(
+      const [pickupSnap, deliveredSnap] = await Promise.all([
+        getDocs(query(
           collection(db, 'zohoCustomers', customerId, 'invoices'),
           where('customerPickup.markedAt', '>=', '2'),
-        ),
-      );
-      for (const docSnap of snap.docs) {
-        const pickup = mapInvoiceCustomerPickupField(
-          docSnap.data().customerPickup,
-          docSnap.data().customerPickupMarkedAt,
-        );
-        if (pickup) pickupById.set(docSnap.id, pickup);
+        )),
+        getDocs(query(
+          collection(db, 'zohoCustomers', customerId, 'invoices'),
+          where('manualDeliveredAt', '>=', '2'),
+        )),
+      ]);
+      for (const docSnap of [...pickupSnap.docs, ...deliveredSnap.docs]) {
+        takeFulfillment(docSnap.data(), docSnap.id);
       }
     } catch {
       const customerRows = rows.filter(row => row.customerId === customerId);
@@ -607,11 +697,7 @@ async function overlayCustomerPickupFromInvoiceDocs(
       );
       snaps.forEach((snap, index) => {
         if (!snap.exists()) return;
-        const pickup = mapInvoiceCustomerPickupField(
-          snap.data()?.customerPickup,
-          snap.data()?.customerPickupMarkedAt,
-        );
-        if (pickup) pickupById.set(customerRows[index].id, pickup);
+        takeFulfillment(snap.data() ?? {}, customerRows[index].id);
       });
     }
   };
@@ -620,15 +706,21 @@ async function overlayCustomerPickupFromInvoiceDocs(
     await Promise.all(customerIds.slice(i, i + 8).map(loadForCustomer));
   }
 
-  if (!pickupById.size) return rows;
+  if (!pickupById.size && !deliveredById.size) return rows;
 
   requestInvoiceSummaryCustomerPickupBackfill();
 
   return rows.map(row => {
-    if (row.customerPickup?.markedAt) return row;
     const pickup = pickupById.get(row.id);
-    if (!pickup) return row;
-    return { ...row, customerPickup: pickup, customerPickupMarkedAt: pickup.markedAt };
+    const delivered = deliveredById.get(row.id);
+    if (!pickup && !delivered) return row;
+    return {
+      ...row,
+      customerPickup: row.customerPickup?.markedAt ? row.customerPickup : (pickup ?? row.customerPickup),
+      customerPickupMarkedAt: row.customerPickupMarkedAt || pickup?.markedAt || null,
+      manualDelivery: row.manualDelivery?.markedAt ? row.manualDelivery : (delivered ?? row.manualDelivery),
+      manualDeliveredAt: row.manualDeliveredAt || delivered?.markedAt || null,
+    };
   });
 }
 
@@ -1801,6 +1893,7 @@ export function mapAdminInvoiceDetail(
       ? data.lineItems.map(item => mapAdminInvoiceLineItem(item as Record<string, unknown>))
       : [],
     customerPickup: mapInvoiceCustomerPickupField(data.customerPickup, data.customerPickupMarkedAt),
+    manualDelivery: mapInvoiceManualDelivery(data.manualDelivery, data.manualDeliveredAt),
     zohoWarehouseId: data.zohoWarehouseId ? String(data.zohoWarehouseId) : null,
     zohoWarehouseName: data.zohoWarehouseName ? String(data.zohoWarehouseName) : null,
     ewayBill: data.ewayBill && typeof data.ewayBill === 'object'
@@ -1924,6 +2017,7 @@ export async function fetchAdminInvoiceDetail(
     customerWhatsappHref: contact.whatsappHref,
     customerPickup: mapInvoiceCustomerPickupField(data.customerPickup, data.customerPickupMarkedAt),
     sourceSalesOrderIsPickup,
+    manualDelivery: mapInvoiceManualDelivery(data.manualDelivery, data.manualDeliveredAt),
     zohoWarehouseId: data.zohoWarehouseId ? String(data.zohoWarehouseId) : null,
     zohoWarehouseName: data.zohoWarehouseName ? String(data.zohoWarehouseName) : null,
     ewayBill: data.ewayBill && typeof data.ewayBill === 'object'

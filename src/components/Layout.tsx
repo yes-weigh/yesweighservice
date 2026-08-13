@@ -60,7 +60,7 @@ const OPS_PRIORITY_SUFFIXES = [
   '/warranty-support',
 ] as const;
 
-/** Shown after Invoices, before Reports. */
+/** Shown after Goods receipt, before Reports. */
 const OPS_BEFORE_REPORTS_SUFFIXES = [
   '/verification',
   '/advertisements',
@@ -131,7 +131,6 @@ function portalNavItems(
           'warrantySupport',
           'verification',
           'advertisements',
-          'invoices',
           'goodsReceipts',
           'loyalty',
           'aiAssistant',
@@ -141,9 +140,9 @@ function portalNavItems(
         ? [
             'catalog',
             'orders',
+            'invoices',
             'logistics',
             'warrantySupport',
-            'invoices',
             'verification',
             'advertisements',
             'loyalty',
@@ -154,9 +153,9 @@ function portalNavItems(
         : [
           'catalog',
           'orders',
+          'invoices',
           'logistics',
           'warrantySupport',
-          'invoices',
           'verification',
           'advertisements',
           'loyalty',
@@ -276,9 +275,9 @@ const LayoutShell: React.FC = () => {
           { path: '/super-admin', icon: <LayoutDashboard size={20} />, label: 'Dashboard' },
           { path: '/super-admin/products', icon: <Package size={20} />, label: 'Products' },
           { path: '/super-admin/sales-orders', icon: <ClipboardList size={20} />, label: 'Sales orders' },
+          { path: '/super-admin/invoices', icon: <FileText size={20} />, label: 'Invoices' },
           ...operationsNavItems('/super-admin', OPS_PRIORITY_SUFFIXES),
           { path: '/super-admin/dealers', icon: <Building2 size={20} />, label: 'Dealers' },
-          { path: '/super-admin/invoices', icon: <FileText size={20} />, label: 'Invoices' },
           { path: '/super-admin/purchase-orders', icon: <ShoppingBag size={20} />, label: 'Purchase order' },
           { path: '/super-admin/goods-receipts', icon: <PackageCheck size={20} />, label: 'Goods receipt' },
           ...operationsNavItems('/super-admin', OPS_BEFORE_REPORTS_SUFFIXES),
@@ -294,6 +293,7 @@ const LayoutShell: React.FC = () => {
           insertAt,
           0,
           { path: '/staff/sales-orders', icon: <ClipboardList size={20} />, label: 'Sales orders' },
+          { path: '/staff/invoices', icon: <FileText size={20} />, label: 'Invoices' },
         );
         const notificationsIndex = withExtras.findIndex(item => item.path.endsWith('/notifications'));
         const reportsItem = { path: '/staff/reports', icon: <BarChart3 size={20} />, label: 'Reports' };

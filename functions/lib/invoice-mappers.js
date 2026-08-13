@@ -533,6 +533,12 @@ export function firestoreDocToListInvoice(data) {
     customerPickupMarkedAt: data.customerPickupMarkedAt
       ? String(data.customerPickupMarkedAt)
       : null,
+    manualDelivery: data.manualDelivery && typeof data.manualDelivery === 'object'
+      ? data.manualDelivery
+      : null,
+    manualDeliveredAt: data.manualDeliveredAt
+      ? String(data.manualDeliveredAt)
+      : null,
   };
 }
 

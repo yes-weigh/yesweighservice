@@ -35,6 +35,7 @@ import {
   fetchAdminPortalStampingInvoices,
   fetchAllAdminInvoicesInRange,
   filterAdminInvoices,
+  overlayPortalStampingOnInvoices,
   formatAdminCustomerLocation,
   loadAdminInvoiceKpis,
   searchAdminInvoicesAutocomplete,
@@ -60,6 +61,7 @@ import {
   invoiceListStatusLabel,
 } from '../../lib/invoiceListStatus';
 import { readRememberedInvoiceCustomerPickupIds } from '../../lib/invoiceCustomerPickup';
+import { readRememberedInvoiceManualDeliveryIds } from '../../lib/invoiceManualDelivery';
 import { findLogisticsBookingsForInvoices } from '../../lib/logisticsBookings';
 import { resolveDealerKamName } from '../../lib/dealerKamDisplay';
 import { isInternalOpsUser } from '../../lib/staffAccess';
@@ -110,24 +112,38 @@ function invoicePageCategoryCount(
   return category === 'all' ? counts.all : counts[category];
 }
 
-function withRememberedCustomerPickup(
+function withRememberedFulfillment(
   invoice: AdminFirestoreInvoice,
-  rememberedIds: ReadonlySet<string>,
+  rememberedPickupIds: ReadonlySet<string>,
+  rememberedDeliveredIds: ReadonlySet<string>,
 ): AdminFirestoreInvoice {
-  if (invoice.customerPickup?.markedAt || invoice.customerPickupMarkedAt) return invoice;
-  if (!rememberedIds.has(invoice.id)) return invoice;
-  return {
-    ...invoice,
-    customerPickup: {
-      markedAt: 'confirmed',
-      markedByUid: null,
-      markedByName: null,
-      shipFromSite: null,
-      shipFromLabel: null,
-      vehicleNumber: null,
-    },
-    customerPickupMarkedAt: 'confirmed',
-  };
+  let next = invoice;
+  if (!next.customerPickup?.markedAt && !next.customerPickupMarkedAt && rememberedPickupIds.has(next.id)) {
+    next = {
+      ...next,
+      customerPickup: {
+        markedAt: 'confirmed',
+        markedByUid: null,
+        markedByName: null,
+        shipFromSite: null,
+        shipFromLabel: null,
+        vehicleNumber: null,
+      },
+      customerPickupMarkedAt: 'confirmed',
+    };
+  }
+  if (!next.manualDelivery?.markedAt && !next.manualDeliveredAt && rememberedDeliveredIds.has(next.id)) {
+    next = {
+      ...next,
+      manualDelivery: {
+        markedAt: 'confirmed',
+        markedByUid: null,
+        markedByName: null,
+      },
+      manualDeliveredAt: 'confirmed',
+    };
+  }
+  return next;
 }
 
 function applyInvoiceListStatusFilter(
@@ -565,20 +581,24 @@ export const AdminInvoicesPage: React.FC = () => {
     if (useAggregate) {
       const load = useLifetimeDealerRollups
         ? fetchAdminDealerLifetimeAggregates().then(next => ({ rows: next, truncated: false }))
-        : category === 'gatc'
-          ? fetchAdminPortalStampingInvoices({
-            sort,
-            dateStart,
-            dateEnd,
-            salespersonIds,
-          }).then(next => ({ rows: next.rows, truncated: false }))
-          : fetchAllAdminInvoicesInRange({
+        : Promise.all([
+          fetchAllAdminInvoicesInRange({
             sort,
             category: 'all',
             dateStart,
             dateEnd,
             salespersonIds,
-          });
+          }),
+          fetchAdminPortalStampingInvoices({
+            sort,
+            dateStart,
+            dateEnd,
+            salespersonIds,
+          }),
+        ]).then(([{ rows: next, truncated }, portal]) => ({
+          rows: overlayPortalStampingOnInvoices(next, portal.rows, sort),
+          truncated,
+        }));
 
       void load
         .then(({ rows: next, truncated: wasTruncated }) => {
@@ -603,17 +623,25 @@ export const AdminInvoicesPage: React.FC = () => {
 
     // Full date window so status chips always have counts. Status is applied
     // first on the client, then category — switching Product/Spares must not
-    // refetch or drop to a single page.
-    void fetchAllAdminInvoicesInRange({
-      sort,
-      category: 'all',
-      dateStart,
-      dateEnd,
-      salespersonIds,
-    })
-      .then(({ rows: next }) => {
+    // refetch or drop to a single page. Stamping amounts come from GATC Billwise.
+    void Promise.all([
+      fetchAllAdminInvoicesInRange({
+        sort,
+        category: 'all',
+        dateStart,
+        dateEnd,
+        salespersonIds,
+      }),
+      fetchAdminPortalStampingInvoices({
+        sort,
+        dateStart,
+        dateEnd,
+        salespersonIds,
+      }),
+    ])
+      .then(([{ rows: next }, portal]) => {
         if (cancelled) return;
-        setRows(next);
+        setRows(overlayPortalStampingOnInvoices(next, portal.rows, sort));
         setHasMore(false);
       })
       .catch(err => {
@@ -735,18 +763,16 @@ export const AdminInvoicesPage: React.FC = () => {
     ])
       .then(([allRows, portal]) => {
         if (cancelled) return;
-        const counts = countInvoiceRowsByCategory(allRows);
-        counts.gatc = portal.rows.length;
+        const merged = overlayPortalStampingOnInvoices(allRows, portal.rows, sort);
+        const counts = countInvoiceRowsByCategory(merged);
         setCategoryCounts(counts);
-        setKpiCount(allRows.length);
-        setKpiDocumentAmount(allRows.reduce((sum, row) => sum + invoiceAmountExclGst(row), 0));
-        setRows(allRows);
+        setKpiCount(merged.length);
+        setKpiDocumentAmount(merged.reduce((sum, row) => sum + invoiceAmountExclGst(row), 0));
+        setRows(merged);
         setKpiCategoryAmount(
           category === 'all'
-            ? allRows.reduce((sum, row) => sum + invoiceAmountExclGst(row), 0)
-            : category === 'gatc'
-              ? portal.gatcFeeTotal
-              : allRows.reduce((sum, row) => sum + invoiceCategoryAmount(row, category), 0),
+            ? merged.reduce((sum, row) => sum + invoiceAmountExclGst(row), 0)
+            : merged.reduce((sum, row) => sum + invoiceCategoryAmount(row, category), 0),
         );
         setHasMore(false);
       })
@@ -773,10 +799,11 @@ export const AdminInvoicesPage: React.FC = () => {
 
   const listRows = useMemo(
     () => {
-      const rememberedIds = new Set(readRememberedInvoiceCustomerPickupIds());
+      const rememberedPickupIds = new Set(readRememberedInvoiceCustomerPickupIds());
+      const rememberedDeliveredIds = new Set(readRememberedInvoiceManualDeliveryIds());
       return rows
         .filter(row => (row.aggregateInvoiceCount ?? 0) <= 1)
-        .map(row => withRememberedCustomerPickup(row, rememberedIds));
+        .map(row => withRememberedFulfillment(row, rememberedPickupIds, rememberedDeliveredIds));
     },
     [rows, locationKey],
   );
@@ -1121,7 +1148,9 @@ export const AdminInvoicesPage: React.FC = () => {
                   ? 'Support-linked'
                   : category === 'all'
                     ? 'Amount'
-                    : `${invoiceCategoryLabel(category)} lines`}
+                    : category === 'gatc'
+                      ? 'GATC fees'
+                      : `${invoiceCategoryLabel(category)} lines`}
               </span>
             </div>
           </div>
@@ -1241,7 +1270,7 @@ export const AdminInvoicesPage: React.FC = () => {
                   <th>Customer</th>
                   <th>Date</th>
                   <th className="invoices-table__num">Qty</th>
-                  <th className="invoices-table__num">Total</th>
+                  <th className="invoices-table__num">{category === 'gatc' ? 'GATC fees' : 'Total'}</th>
                   <th>Category</th>
                   <th>Status</th>
                 </tr>

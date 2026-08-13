@@ -89,6 +89,7 @@ import {
   markInvoiceCustomerPickup,
   updateCustomerPickupEwayPartB,
 } from './lib/invoice-customer-pickup.js';
+import { markInvoiceDelivered } from './lib/invoice-manual-delivery.js';
 import { listZohoTransporters } from './lib/zoho-ewaybills.js';
 import { syncOrgInvoicesToFirestore } from './lib/org-invoice-sync.js';
 import {
@@ -2106,6 +2107,41 @@ export const markInvoiceCustomerPickupFn = onCall(
       if (err instanceof HttpsError) throw err;
       const message = err?.message ?? 'Could not mark customer pickup.';
       const code = /already|required|not found|missing|vehicle|Ship-from|transporter/i.test(message)
+        ? 'failed-precondition'
+        : 'internal';
+      throw new HttpsError(code, message);
+    }
+  },
+);
+
+/** Mark invoice delivered from the invoice screen (optional linked logistics booking). */
+export const markInvoiceDeliveredFn = onCall(
+  {
+    region: 'asia-south1',
+    timeoutSeconds: 60,
+    memory: '256MiB',
+  },
+  async request => {
+    const uid = request.auth?.uid;
+    await requireActiveUser(uid, SYNC_ROLES);
+    const userSnap = await getFirestore().doc(`users/${uid}`).get();
+    const userData = userSnap.data() ?? {};
+    const customerId = String(request.data?.customerId ?? '').trim();
+    const invoiceId = String(request.data?.invoiceId ?? '').trim();
+    if (!customerId || !invoiceId) {
+      throw new HttpsError('invalid-argument', 'Customer id and invoice id are required.');
+    }
+    try {
+      return await markInvoiceDelivered({
+        customerId,
+        invoiceId,
+        markedByUid: uid,
+        markedByName: String(userData.displayName ?? userData.loginId ?? userData.email ?? 'YESWEIGH').trim(),
+      });
+    } catch (err) {
+      if (err instanceof HttpsError) throw err;
+      const message = err?.message ?? 'Could not mark invoice delivered.';
+      const code = /already|void|returned|not found|required/i.test(message)
         ? 'failed-precondition'
         : 'internal';
       throw new HttpsError(code, message);

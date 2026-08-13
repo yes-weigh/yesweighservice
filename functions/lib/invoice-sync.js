@@ -655,6 +655,11 @@ export async function upsertInvoiceFromRaw(accessToken, orgId, invoiceRaw, optio
         ?? existing?.customerPickupMarkedAt
         ?? existing?.customerPickup?.markedAt
         ?? null,
+      manualDelivery: doc.manualDelivery ?? existing?.manualDelivery ?? null,
+      manualDeliveredAt: doc.manualDeliveredAt
+        ?? existing?.manualDeliveredAt
+        ?? existing?.manualDelivery?.markedAt
+        ?? null,
     };
     const beforeSnap = existing
       ? { ...existing, customerId: existing.customerId ?? customerId }
