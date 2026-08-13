@@ -59,6 +59,7 @@ import {
   invoiceListStatusKey,
   invoiceListStatusLabel,
 } from '../../lib/invoiceListStatus';
+import { readRememberedInvoiceCustomerPickupIds } from '../../lib/invoiceCustomerPickup';
 import { findLogisticsBookingsForInvoices } from '../../lib/logisticsBookings';
 import { resolveDealerKamName } from '../../lib/dealerKamDisplay';
 import { isInternalOpsUser } from '../../lib/staffAccess';
@@ -107,6 +108,26 @@ function invoicePageCategoryCount(
   counts: AdminInvoiceCategoryCounts,
 ): number {
   return category === 'all' ? counts.all : counts[category];
+}
+
+function withRememberedCustomerPickup(
+  invoice: AdminFirestoreInvoice,
+  rememberedIds: ReadonlySet<string>,
+): AdminFirestoreInvoice {
+  if (invoice.customerPickup?.markedAt || invoice.customerPickupMarkedAt) return invoice;
+  if (!rememberedIds.has(invoice.id)) return invoice;
+  return {
+    ...invoice,
+    customerPickup: {
+      markedAt: 'confirmed',
+      markedByUid: null,
+      markedByName: null,
+      shipFromSite: null,
+      shipFromLabel: null,
+      vehicleNumber: null,
+    },
+    customerPickupMarkedAt: 'confirmed',
+  };
 }
 
 function applyInvoiceListStatusFilter(
@@ -349,7 +370,7 @@ function AdminFilterSheet({
 
 export const AdminInvoicesPage: React.FC = () => {
   const navigate = useNavigate();
-  const { pathname } = useLocation();
+  const { pathname, key: locationKey } = useLocation();
   const { user } = useAuth();
   const basePath = pathname.startsWith('/staff') ? '/staff' : '/super-admin';
   const showKam = isInternalOpsUser(user);
@@ -751,8 +772,13 @@ export const AdminInvoicesPage: React.FC = () => {
   ]);
 
   const listRows = useMemo(
-    () => rows.filter(row => (row.aggregateInvoiceCount ?? 0) <= 1),
-    [rows],
+    () => {
+      const rememberedIds = new Set(readRememberedInvoiceCustomerPickupIds());
+      return rows
+        .filter(row => (row.aggregateInvoiceCount ?? 0) <= 1)
+        .map(row => withRememberedCustomerPickup(row, rememberedIds));
+    },
+    [rows, locationKey],
   );
 
   const statusFiltered = useMemo(

@@ -114,6 +114,10 @@ export function buildInvoiceSummaryFields(invoiceDoc, customerId, invoiceId) {
   const amount = amountExclGst(invoiceDoc);
   const categories = categoriesFromInvoiceLike(invoiceDoc);
   const categoryAmounts = categoryAmountsFromInvoiceLike(invoiceDoc, amount);
+  const customerPickup = customerPickupForSummary(invoiceDoc.customerPickup);
+  const customerPickupMarkedAt = invoiceDoc.customerPickupMarkedAt
+    ? String(invoiceDoc.customerPickupMarkedAt).trim() || null
+    : (customerPickup?.markedAt ?? null);
   return {
     id: String(invoiceId),
     customerId: String(customerId),
@@ -133,9 +137,38 @@ export function buildInvoiceSummaryFields(invoiceDoc, customerId, invoiceId) {
     categoryAmounts,
     itemQuantity,
     amountExclGst: amount,
+    customerPickup,
+    customerPickupMarkedAt,
     syncedAt: invoiceDoc.syncedAt ?? FieldValue.serverTimestamp(),
     updatedAt: FieldValue.serverTimestamp(),
   };
+}
+
+function customerPickupForSummary(raw) {
+  if (!raw || typeof raw !== 'object') return null;
+  const markedAt = pickupMarkedAtForSummary(raw.markedAt);
+  if (!markedAt) return null;
+  return {
+    markedAt,
+    markedByUid: raw.markedByUid ? String(raw.markedByUid) : null,
+    markedByName: raw.markedByName ? String(raw.markedByName) : null,
+    shipFromSite: raw.shipFromSite ? String(raw.shipFromSite) : null,
+    shipFromLabel: raw.shipFromLabel ? String(raw.shipFromLabel) : null,
+    vehicleNumber: raw.vehicleNumber ? String(raw.vehicleNumber) : null,
+  };
+}
+
+function pickupMarkedAtForSummary(value) {
+  if (!value) return null;
+  if (typeof value === 'string') {
+    const trimmed = value.trim();
+    return trimmed && trimmed !== '[object Object]' ? trimmed : null;
+  }
+  if (typeof value === 'object' && typeof value.toDate === 'function') {
+    const date = value.toDate();
+    return Number.isNaN(date.getTime()) ? null : date.toISOString();
+  }
+  return null;
 }
 
 function statsDocRef(pathParts) {

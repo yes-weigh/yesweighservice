@@ -527,6 +527,12 @@ export function firestoreDocToListInvoice(data) {
     invoiceCategory,
     categories: normalizeCategories(data.categories),
     categoryAmounts: normalizeCategoryAmounts(data.categoryAmounts),
+    customerPickup: data.customerPickup && typeof data.customerPickup === 'object'
+      ? data.customerPickup
+      : null,
+    customerPickupMarkedAt: data.customerPickupMarkedAt
+      ? String(data.customerPickupMarkedAt)
+      : null,
   };
 }
 

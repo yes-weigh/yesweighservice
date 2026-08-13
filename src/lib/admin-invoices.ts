@@ -83,20 +83,49 @@ export interface AdminFirestoreInvoice {
   /** Set when Aggregate mode clubs invoices into one row per dealer. */
   aggregateInvoiceCount?: number;
   customerPickup?: InvoiceCustomerPickup | null;
+  customerPickupMarkedAt?: string | null;
+}
+
+function pickupMarkedAt(value: unknown): string | null {
+  const iso = timestampToIso(value);
+  if (!iso) return null;
+  const trimmed = iso.trim();
+  return trimmed && trimmed !== '[object Object]' ? trimmed : null;
 }
 
 function mapInvoiceCustomerPickup(raw: unknown): InvoiceCustomerPickup | null {
-  if (!raw || typeof raw !== 'object') return null;
-  const data = raw as Record<string, unknown>;
-  const markedAt = String(data.markedAt ?? '').trim();
+  if (raw && typeof raw === 'object') {
+    const data = raw as Record<string, unknown>;
+    const markedAt = pickupMarkedAt(data.markedAt);
+    if (markedAt) {
+      return {
+        markedAt,
+        markedByUid: data.markedByUid ? String(data.markedByUid) : null,
+        markedByName: data.markedByName ? String(data.markedByName) : null,
+        shipFromSite: data.shipFromSite ? String(data.shipFromSite) : null,
+        shipFromLabel: data.shipFromLabel ? String(data.shipFromLabel) : null,
+        vehicleNumber: data.vehicleNumber ? String(data.vehicleNumber) : null,
+      };
+    }
+  }
+  return null;
+}
+
+function mapInvoiceCustomerPickupField(
+  raw: unknown,
+  markedAtScalar: unknown,
+): InvoiceCustomerPickup | null {
+  const nested = mapInvoiceCustomerPickup(raw);
+  if (nested) return nested;
+  const markedAt = pickupMarkedAt(markedAtScalar);
   if (!markedAt) return null;
   return {
     markedAt,
-    markedByUid: data.markedByUid ? String(data.markedByUid) : null,
-    markedByName: data.markedByName ? String(data.markedByName) : null,
-    shipFromSite: data.shipFromSite ? String(data.shipFromSite) : null,
-    shipFromLabel: data.shipFromLabel ? String(data.shipFromLabel) : null,
-    vehicleNumber: data.vehicleNumber ? String(data.vehicleNumber) : null,
+    markedByUid: null,
+    markedByName: null,
+    shipFromSite: null,
+    shipFromLabel: null,
+    vehicleNumber: null,
   };
 }
 
@@ -141,7 +170,8 @@ export function mapAdminInvoiceDoc(
     invoiceCategory: parseInvoiceCategory(data.invoiceCategory),
     categories: normalizeInvoiceCategories(data.categories),
     categoryAmounts: normalizeInvoiceCategoryAmounts(data.categoryAmounts),
-    customerPickup: mapInvoiceCustomerPickup(data.customerPickup),
+    customerPickup: mapInvoiceCustomerPickupField(data.customerPickup, data.customerPickupMarkedAt),
+    customerPickupMarkedAt: pickupMarkedAt(data.customerPickupMarkedAt),
   };
 }
 
@@ -1674,7 +1704,7 @@ export function mapAdminInvoiceDetail(
     lineItems: Array.isArray(data.lineItems)
       ? data.lineItems.map(item => mapAdminInvoiceLineItem(item as Record<string, unknown>))
       : [],
-    customerPickup: mapInvoiceCustomerPickup(data.customerPickup),
+    customerPickup: mapInvoiceCustomerPickupField(data.customerPickup, data.customerPickupMarkedAt),
     zohoWarehouseId: data.zohoWarehouseId ? String(data.zohoWarehouseId) : null,
     zohoWarehouseName: data.zohoWarehouseName ? String(data.zohoWarehouseName) : null,
     ewayBill: data.ewayBill && typeof data.ewayBill === 'object'
@@ -1796,7 +1826,7 @@ export async function fetchAdminInvoiceDetail(
     customerPhone: contact.phone,
     customerTelHref: contact.telHref,
     customerWhatsappHref: contact.whatsappHref,
-    customerPickup: mapInvoiceCustomerPickup(data.customerPickup),
+    customerPickup: mapInvoiceCustomerPickupField(data.customerPickup, data.customerPickupMarkedAt),
     sourceSalesOrderIsPickup,
     zohoWarehouseId: data.zohoWarehouseId ? String(data.zohoWarehouseId) : null,
     zohoWarehouseName: data.zohoWarehouseName ? String(data.zohoWarehouseName) : null,

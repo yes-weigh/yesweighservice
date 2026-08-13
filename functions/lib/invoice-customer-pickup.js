@@ -3,6 +3,7 @@
  */
 import { getFirestore } from 'firebase-admin/firestore';
 import { invoicesCollection } from './invoice-sync.js';
+import { invoiceSummaryRef } from './invoice-stats.js';
 import {
   ensureInvoiceEwayBillForCustomerPickup,
   isEwayBillRequired,
@@ -28,7 +29,7 @@ async function findActiveLogisticsBookingId(db, invoiceId) {
 function normalizeCustomerPickup(raw) {
   if (!raw || typeof raw !== 'object') return null;
   const markedAt = String(raw.markedAt ?? '').trim();
-  if (!markedAt) return null;
+  if (!markedAt || markedAt === '[object Object]') return null;
   return {
     markedAt,
     markedByUid: String(raw.markedByUid ?? '').trim() || null,
@@ -37,6 +38,16 @@ function normalizeCustomerPickup(raw) {
     shipFromLabel: raw.shipFromLabel ? String(raw.shipFromLabel).trim() : null,
     vehicleNumber: raw.vehicleNumber ? String(raw.vehicleNumber).trim().toUpperCase() : null,
   };
+}
+
+/** Invoice list reads slim invoiceSummaries — pickup must be mirrored there. */
+async function writeCustomerPickupDocs(customerId, invoiceId, customerPickup) {
+  const payload = {
+    customerPickup,
+    customerPickupMarkedAt: customerPickup.markedAt,
+  };
+  await invoicesCollection(customerId).doc(invoiceId).set(payload, { merge: true });
+  await invoiceSummaryRef(customerId, invoiceId).set(payload, { merge: true });
 }
 
 /**
@@ -103,7 +114,7 @@ export async function markInvoiceCustomerPickup(secrets, orgId, input) {
     vehicleNumber,
   };
 
-  await invoicesCollection(customerId).doc(invoiceId).set({ customerPickup }, { merge: true });
+  await writeCustomerPickupDocs(customerId, invoiceId, customerPickup);
 
   let eway = null;
   if (ewayRequired && vehicleNumber) {
@@ -156,22 +167,16 @@ export async function updateCustomerPickupEwayPartB(secrets, orgId, input) {
     vehicleNumber,
   });
 
-  await invoicesCollection(customerId).doc(invoiceId).set({
-    customerPickup: {
-      ...pickup,
-      shipFromSite,
-      shipFromLabel: resolvedShipFrom.branchLabel,
-      vehicleNumber,
-    },
-  }, { merge: true });
+  const customerPickup = {
+    ...pickup,
+    shipFromSite,
+    shipFromLabel: resolvedShipFrom.branchLabel,
+    vehicleNumber,
+  };
+  await writeCustomerPickupDocs(customerId, invoiceId, customerPickup);
 
   return {
-    customerPickup: {
-      ...pickup,
-      shipFromSite,
-      shipFromLabel: resolvedShipFrom.branchLabel,
-      vehicleNumber,
-    },
+    customerPickup,
     eway,
   };
 }

@@ -29,11 +29,20 @@ const LOGISTICS_FILTER_KEYS = new Set([
 ]);
 
 export type InvoiceListStatusInvoice = {
+  id?: string;
   status?: unknown;
   customerPickup?: { markedAt?: string | null } | null;
+  customerPickupMarkedAt?: string | null;
   categories?: unknown;
   invoiceCategory?: unknown;
 };
+
+function invoiceHasConfirmedCustomerPickup(invoice: InvoiceListStatusInvoice): boolean {
+  const nested = String(invoice.customerPickup?.markedAt ?? '').trim();
+  if (nested && nested !== '[object Object]') return true;
+  const scalar = String(invoice.customerPickupMarkedAt ?? '').trim();
+  return Boolean(scalar && scalar !== '[object Object]');
+}
 
 /**
  * True when this invoice can have a freight line / warehouse dispatch
@@ -56,7 +65,7 @@ export function invoiceListStatusKey(
   invoice: InvoiceListStatusInvoice,
   booking?: Pick<LogisticsBooking, 'status' | 'wizardStep'> | null,
 ): string {
-  if (String(invoice.customerPickup?.markedAt ?? '').trim()) return 'customer_pickup';
+  if (invoiceHasConfirmedCustomerPickup(invoice)) return 'customer_pickup';
 
   const logistics = invoiceListLogisticsStatus(booking);
   if (logistics) {

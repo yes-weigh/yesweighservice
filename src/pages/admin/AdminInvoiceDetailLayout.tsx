@@ -47,6 +47,7 @@ import {
   canMarkInvoiceCustomerPickup,
   invoiceNeedsCustomerPickupEwayVehicle,
   isInvoiceCustomerPickup,
+  rememberInvoiceCustomerPickup,
 } from '../../lib/invoiceCustomerPickup';
 import { base64ToUint8Array } from '../../lib/pdfViewer';
 import { isInternalOpsUser } from '../../lib/staffAccess';
@@ -160,6 +161,7 @@ export const AdminInvoiceDetailLayout: React.FC = () => {
       .then(data => {
         if (cancelled) return;
         setInvoice(data);
+        if (isInvoiceCustomerPickup(data)) rememberInvoiceCustomerPickup(data.id || invoiceId);
         setError('');
       })
       .catch(err => {
@@ -571,6 +573,7 @@ export const AdminInvoiceDetailLayout: React.FC = () => {
               shipFromLabel={pickupShipFromLabel}
               onClose={() => setPickupOpen(false)}
               onComplete={result => {
+                rememberInvoiceCustomerPickup(invoiceId);
                 setInvoice(prev => prev ? {
                   ...prev,
                   customerPickup: result.customerPickup,

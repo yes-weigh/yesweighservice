@@ -24,10 +24,36 @@ function callableError(err: unknown, fallback: string): Error {
   return new Error(fallback);
 }
 
+const PICKUP_IDS_STORAGE_KEY = 'yesone.invoiceCustomerPickupIds';
+
+export function rememberInvoiceCustomerPickup(invoiceId: string): void {
+  const id = invoiceId.trim();
+  if (!id) return;
+  try {
+    const next = new Set(readRememberedInvoiceCustomerPickupIds());
+    next.add(id);
+    sessionStorage.setItem(PICKUP_IDS_STORAGE_KEY, JSON.stringify([...next]));
+  } catch {
+    // private mode / quota
+  }
+}
+
+export function readRememberedInvoiceCustomerPickupIds(): string[] {
+  try {
+    const raw = sessionStorage.getItem(PICKUP_IDS_STORAGE_KEY);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw) as unknown;
+    return Array.isArray(parsed) ? parsed.map(value => String(value).trim()).filter(Boolean) : [];
+  } catch {
+    return [];
+  }
+}
+
 export function isInvoiceCustomerPickup(
   invoice: Pick<DealerInvoiceDetail, 'customerPickup'> | null | undefined,
 ): boolean {
-  return Boolean(invoice?.customerPickup?.markedAt?.trim());
+  const markedAt = invoice?.customerPickup?.markedAt;
+  return typeof markedAt === 'string' ? Boolean(markedAt.trim()) : Boolean(markedAt);
 }
 
 export function invoiceNeedsCustomerPickupEwayVehicle(
