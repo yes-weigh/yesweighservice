@@ -321,7 +321,6 @@ export const AdminUnifiedSalesOrdersPage: React.FC = () => {
   const basePath = pathname.startsWith('/staff') ? '/staff' : '/super-admin';
   const listKey = basePath;
   const pendingReturnRef = useRef(peekSalesOrderListReturn(listKey));
-  const skipPageResetRef = useRef(Boolean(pendingReturnRef.current));
   const returnFocusAppliedRef = useRef(false);
   const canCreateStaffOrder = hasStaffPermission(user, 'orders.manage');
   const salespersonIds = useMemo(() => salespersonScopeForUser(user), [user]);
@@ -334,11 +333,8 @@ export const AdminUnifiedSalesOrdersPage: React.FC = () => {
     || (restored?.dealers.length ?? 0) > 0
     || restored?.aggregate,
   );
-  const restoredCursorId = restored && restored.page > 1
-    ? restored.pageCursorIds[restored.page - 1]
-    : null;
   const [cursorsReady, setCursorsReady] = useState(
-    () => restoredClientPaged || !restoredCursorId,
+    () => restoredClientPaged || !restored || restored.page <= 1,
   );
 
   const [zohoOrders, setZohoOrders] = useState<AdminFirestoreSalesOrder[]>([]);
@@ -373,6 +369,7 @@ export const AdminUnifiedSalesOrdersPage: React.FC = () => {
     () => new Map<string, { district: string | null; state: string | null }>(),
   );
   const pageStartCursors = useRef<Array<DocumentSnapshot<DocumentData> | QueryDocumentSnapshot<DocumentData> | null>>([null]);
+  const prevFilterKeyRef = useRef<string | null>(null);
   const [pageCursorVersion, setPageCursorVersion] = useState(0);
   const urlSeedDone = useRef(Boolean(restored?.dealers.length));
 
@@ -444,45 +441,100 @@ export const AdminUnifiedSalesOrdersPage: React.FC = () => {
     setSearchParams(next, { replace: true });
   }, [searchParams, setSearchParams]);
 
-  // Reset pagination whenever filters that affect the Zoho query change.
+  // Reset pagination when the user changes filters — not on restore or Strict Mode re-run.
   useEffect(() => {
-    if (skipPageResetRef.current) {
-      skipPageResetRef.current = false;
-      return;
-    }
+    const currentKey = [
+      search,
+      rangePreset,
+      stageFilter,
+      sort,
+      selectedCustomerKey,
+      useAggregate ? '1' : '0',
+      salespersonScopeKey,
+    ].join('\0');
+    const prev = prevFilterKeyRef.current;
+    prevFilterKeyRef.current = currentKey;
+    if (prev === null || prev === currentKey) return;
     setPage(1);
     pageStartCursors.current = [null];
     setPageCursorVersion(v => v + 1);
-  }, [search, rangePreset, category, stageFilter, sort, selectedCustomerKey, useAggregate, salespersonScopeKey]);
+  }, [
+    search,
+    rangePreset,
+    stageFilter,
+    sort,
+    selectedCustomerKey,
+    useAggregate,
+    salespersonScopeKey,
+  ]);
 
   useEffect(() => {
     const focus = pendingReturnRef.current;
-    if (!focus || restoredClientPaged || !restoredCursorId) {
+    if (!focus || restoredClientPaged || focus.page <= 1) {
       setCursorsReady(true);
       return;
     }
     let cancelled = false;
-    void loadAdminSalesOrderCursorDocs(focus.pageCursorIds)
-      .then(snaps => {
+    const yesOneStage = stageFilter !== 'all' ? stageFilter : null;
+
+    const hydrate = async () => {
+      const ids = focus.pageCursorIds;
+      const savedStartId = ids[focus.page - 1];
+      if (savedStartId) {
+        const snaps = await loadAdminSalesOrderCursorDocs(ids);
         if (cancelled) return;
         pageStartCursors.current = snaps.length ? snaps : [null];
-        const startCursor = pageStartCursors.current[Math.max(0, focus.page - 1)];
-        if (!startCursor && focus.page > 1) {
-          setPage(1);
+        if (pageStartCursors.current[focus.page - 1]) {
+          setCursorsReady(true);
+          setPageCursorVersion(v => v + 1);
+          return;
         }
-        setCursorsReady(true);
-        setPageCursorVersion(v => v + 1);
-      })
-      .catch(() => {
+      }
+
+      let cursor: DocumentSnapshot<DocumentData> | QueryDocumentSnapshot<DocumentData> | null = null;
+      const cursors: Array<DocumentSnapshot<DocumentData> | QueryDocumentSnapshot<DocumentData> | null> = [null];
+      for (let p = 1; p < focus.page; p += 1) {
+        const result = await fetchAdminSalesOrdersPageDetailed({
+          sort,
+          pageSize: LIST_PAGE_SIZE,
+          cursor,
+          category,
+          dateStart,
+          dateEnd,
+          statusIn: null,
+          yesOneStage,
+          salespersonIds,
+        });
         if (cancelled) return;
-        setPage(1);
-        pageStartCursors.current = [null];
-        setCursorsReady(true);
-      });
+        cursor = result.lastDoc;
+        cursors[p] = result.lastDoc;
+        if (!result.lastDoc) break;
+      }
+      if (cancelled) return;
+      pageStartCursors.current = cursors;
+      if (!cursors[focus.page - 1]) setPage(1);
+      setCursorsReady(true);
+      setPageCursorVersion(v => v + 1);
+    };
+
+    void hydrate().catch(() => {
+      if (cancelled) return;
+      setPage(1);
+      pageStartCursors.current = [null];
+      setCursorsReady(true);
+    });
     return () => {
       cancelled = true;
     };
-  }, [restoredClientPaged, restoredCursorId]);
+  }, [
+    restoredClientPaged,
+    sort,
+    category,
+    dateStart,
+    dateEnd,
+    stageFilter,
+    salespersonIds,
+  ]);
 
   // Server category + YesOne stage counts (org-wide rollups when available).
   useEffect(() => {
@@ -757,12 +809,9 @@ export const AdminUnifiedSalesOrdersPage: React.FC = () => {
   }, [clientPaged, zohoRows.length, zohoTotal, serverStageQuery, stageCounts, stageFilter]);
 
   const totalPages = useMemo(() => {
-    if (clientPaged) {
-      return Math.max(1, Math.ceil(filteredTotal / LIST_PAGE_SIZE));
-    }
-    if (zohoTotal <= 0) return 1;
-    return Math.ceil(zohoTotal / LIST_PAGE_SIZE);
-  }, [clientPaged, filteredTotal, zohoTotal]);
+    if (filteredTotal <= 0) return 1;
+    return Math.max(1, Math.ceil(filteredTotal / LIST_PAGE_SIZE));
+  }, [filteredTotal]);
 
   useEffect(() => {
     if (loading) return;
@@ -853,7 +902,9 @@ export const AdminUnifiedSalesOrdersPage: React.FC = () => {
       dealers: selectedDealers,
       aggregate: useAggregate,
       page,
-      pageCursorIds: pageStartCursors.current.map(docSnap => docSnap?.id ?? null),
+      pageCursorIds: Array.from({ length: Math.max(page, pageStartCursors.current.length) }, (_, i) => (
+        pageStartCursors.current[i]?.id ?? null
+      )),
       scrollTop: scrollRef.current?.scrollTop ?? 0,
       openedOrderId: row.id,
     });

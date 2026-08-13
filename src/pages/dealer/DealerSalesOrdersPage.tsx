@@ -170,9 +170,9 @@ export const DealerSalesOrdersPage: React.FC = () => {
   const basePath = user ? homePathForRole(user.role) : '/dealer';
   const listKey = basePath;
   const pendingReturnRef = useRef(peekSalesOrderListReturn(listKey));
-  const skipPageResetRef = useRef(Boolean(pendingReturnRef.current));
   const returnFocusAppliedRef = useRef(false);
   const restored = pendingReturnRef.current;
+  const prevFilterKeyRef = useRef<string | null>(null);
   const scrollRef = useRevealScrollbarOnScroll();
 
   const [zohoOrders, setZohoOrders] = useState<AdminFirestoreSalesOrder[]>([]);
@@ -245,10 +245,10 @@ export const DealerSalesOrdersPage: React.FC = () => {
   }, [baseFiltered, stageFilter]);
 
   useEffect(() => {
-    if (skipPageResetRef.current) {
-      skipPageResetRef.current = false;
-      return;
-    }
+    const currentKey = `${search}\0${rangePreset}\0${stageFilter}`;
+    const prev = prevFilterKeyRef.current;
+    prevFilterKeyRef.current = currentKey;
+    if (prev === null || prev === currentKey) return;
     setPage(1);
   }, [search, rangePreset, stageFilter]);
 
