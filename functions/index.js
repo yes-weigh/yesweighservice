@@ -100,6 +100,7 @@ import { upsertInvoicesFromCsv } from './lib/invoice-csv-upsert.js';
 import {
   archiveOldInvoices,
   backfillInvoiceStatsAndSummaries,
+  backfillInvoiceSummaryCustomerPickups,
 } from './lib/invoice-stats.js';
 import { backfillSalesOrderStats } from './lib/sales-order-stats.js';
 import {
@@ -2618,6 +2619,24 @@ export const backfillInvoiceStatsAndSummariesFn = onCall(
     } catch (err) {
       console.error('backfillInvoiceStatsAndSummaries failed:', err);
       throw new HttpsError('internal', err?.message ?? 'Invoice stats backfill failed.');
+    }
+  },
+);
+
+/** Copy customerPickup from invoices onto invoiceSummaries (admin list source). */
+export const backfillInvoiceSummaryCustomerPickupsFn = onCall(
+  {
+    region: 'asia-south1',
+    timeoutSeconds: 300,
+    memory: '512MiB',
+  },
+  async request => {
+    await requireActiveUser(request.auth?.uid, SUPER_ADMIN_ROLES);
+    try {
+      return await backfillInvoiceSummaryCustomerPickups();
+    } catch (err) {
+      console.error('backfillInvoiceSummaryCustomerPickups failed:', err);
+      throw new HttpsError('internal', err?.message ?? 'Customer pickup summary backfill failed.');
     }
   },
 );

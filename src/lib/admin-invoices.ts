@@ -199,6 +199,7 @@ const ADMIN_AGGREGATE_MAX_ROWS = 2500;
 export type AdminInvoiceListCollection = 'invoices' | 'invoiceSummaries';
 
 let cachedListCollection: AdminInvoiceListCollection | null = null;
+let cachedSummariesIncludeCustomerPickup = false;
 
 /** Prefer slim invoiceSummaries after backfill sets invoiceStats/config.listSource. */
 export async function resolveAdminInvoiceListCollection(): Promise<AdminInvoiceListCollection> {
@@ -207,14 +208,18 @@ export async function resolveAdminInvoiceListCollection(): Promise<AdminInvoiceL
     const snap = await getDoc(doc(db, 'invoiceStats', 'config'));
     const source = snap.exists() ? String(snap.data()?.listSource ?? '') : '';
     cachedListCollection = source === 'summaries' ? 'invoiceSummaries' : 'invoices';
+    cachedSummariesIncludeCustomerPickup = snap.exists()
+      && snap.data()?.summariesIncludeCustomerPickup === true;
   } catch {
     cachedListCollection = 'invoices';
+    cachedSummariesIncludeCustomerPickup = false;
   }
   return cachedListCollection;
 }
 
 export function clearAdminInvoiceListCollectionCache(): void {
   cachedListCollection = null;
+  cachedSummariesIncludeCustomerPickup = false;
 }
 
 export function buildAdminInvoicesQuery(options: AdminInvoiceListQuery & {
@@ -565,7 +570,82 @@ export async function fetchAllAdminInvoicesInRange(options: {
 
   rows.sort((a, b) => compareInvoiceSortKey(a, b, sort));
 
-  return { rows: truncated ? rows.slice(0, maxRows) : rows, truncated };
+  const sliced = truncated ? rows.slice(0, maxRows) : rows;
+  const withPickup = listCollection === 'invoiceSummaries' && !cachedSummariesIncludeCustomerPickup
+    ? await overlayCustomerPickupFromInvoiceDocs(sliced)
+    : sliced;
+
+  return { rows: withPickup, truncated };
+}
+
+async function overlayCustomerPickupFromInvoiceDocs(
+  rows: AdminFirestoreInvoice[],
+): Promise<AdminFirestoreInvoice[]> {
+  if (!rows.length) return rows;
+  const pickupById = new Map<string, InvoiceCustomerPickup>();
+  const customerIds = [...new Set(rows.map(row => row.customerId).filter(Boolean))];
+
+  const loadForCustomer = async (customerId: string) => {
+    try {
+      const snap = await getDocs(
+        query(
+          collection(db, 'zohoCustomers', customerId, 'invoices'),
+          where('customerPickup.markedAt', '>=', '2'),
+        ),
+      );
+      for (const docSnap of snap.docs) {
+        const pickup = mapInvoiceCustomerPickupField(
+          docSnap.data().customerPickup,
+          docSnap.data().customerPickupMarkedAt,
+        );
+        if (pickup) pickupById.set(docSnap.id, pickup);
+      }
+    } catch {
+      const customerRows = rows.filter(row => row.customerId === customerId);
+      const snaps = await Promise.all(
+        customerRows.map(row => getDoc(doc(db, 'zohoCustomers', row.customerId, 'invoices', row.id))),
+      );
+      snaps.forEach((snap, index) => {
+        if (!snap.exists()) return;
+        const pickup = mapInvoiceCustomerPickupField(
+          snap.data()?.customerPickup,
+          snap.data()?.customerPickupMarkedAt,
+        );
+        if (pickup) pickupById.set(customerRows[index].id, pickup);
+      });
+    }
+  };
+
+  for (let i = 0; i < customerIds.length; i += 8) {
+    await Promise.all(customerIds.slice(i, i + 8).map(loadForCustomer));
+  }
+
+  if (!pickupById.size) return rows;
+
+  requestInvoiceSummaryCustomerPickupBackfill();
+
+  return rows.map(row => {
+    if (row.customerPickup?.markedAt) return row;
+    const pickup = pickupById.get(row.id);
+    if (!pickup) return row;
+    return { ...row, customerPickup: pickup, customerPickupMarkedAt: pickup.markedAt };
+  });
+}
+
+let pickupSummaryBackfillRequested = false;
+
+function requestInvoiceSummaryCustomerPickupBackfill() {
+  if (pickupSummaryBackfillRequested) return;
+  pickupSummaryBackfillRequested = true;
+  try {
+    if (sessionStorage.getItem('yesone.invoicePickupSummaryBackfill') === '1') return;
+    sessionStorage.setItem('yesone.invoicePickupSummaryBackfill', '1');
+  } catch {
+    // continue
+  }
+  void runInvoiceCustomerPickupSummaryBackfill().catch(() => {
+    // Callable not deployed yet — list overlay already applied pickup.
+  });
 }
 
 export function filterAdminInvoices(
@@ -1056,6 +1136,22 @@ export async function runInvoiceStatsBackfill(): Promise<{
     Record<string, never>,
     { invoiceCount: number; summaryCount: number; monthDocs: number; dealerDocs?: number }
   >(functions, 'backfillInvoiceStatsAndSummariesFn', { timeout: 540_000 });
+  const result = await callable({});
+  clearAdminInvoiceListCollectionCache();
+  return result.data;
+}
+
+/** Copy customerPickup from invoice docs onto invoiceSummaries (list source). */
+export async function runInvoiceCustomerPickupSummaryBackfill(): Promise<{
+  scanned: number;
+  patched: number;
+}> {
+  const functions = getFunctions(app, 'asia-south1');
+  const callable = httpsCallable<Record<string, never>, { scanned: number; patched: number }>(
+    functions,
+    'backfillInvoiceSummaryCustomerPickupsFn',
+    { timeout: 300_000 },
+  );
   const result = await callable({});
   clearAdminInvoiceListCollectionCache();
   return result.data;

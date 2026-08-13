@@ -284,6 +284,57 @@ export async function upsertInvoiceSummary(customerId, invoiceId, invoiceDoc) {
   return fields;
 }
 
+/**
+ * Copy customerPickup from hot invoices onto invoiceSummaries.
+ * The admin list reads summaries, which omitted pickup until dual-write.
+ */
+export async function backfillInvoiceSummaryCustomerPickups({ onProgress } = {}) {
+  const db = getFirestore();
+  const customersSnap = await db.collection('zohoCustomers').select().get();
+  let scanned = 0;
+  let patched = 0;
+  let batch = db.batch();
+  let batchOps = 0;
+
+  const flush = async () => {
+    if (!batchOps) return;
+    await batch.commit();
+    batch = db.batch();
+    batchOps = 0;
+  };
+
+  for (const customer of customersSnap.docs) {
+    const invoicesSnap = await customer.ref.collection('invoices')
+      .select('customerPickup', 'customerPickupMarkedAt')
+      .get();
+    for (const invoice of invoicesSnap.docs) {
+      scanned += 1;
+      const data = invoice.data() ?? {};
+      const customerPickup = customerPickupForSummary(data.customerPickup);
+      const customerPickupMarkedAt = data.customerPickupMarkedAt
+        ? String(data.customerPickupMarkedAt).trim() || null
+        : (customerPickup?.markedAt ?? null);
+      if (!customerPickup && !customerPickupMarkedAt) continue;
+      batch.set(invoiceSummaryRef(customer.id, invoice.id), {
+        customerPickup,
+        customerPickupMarkedAt,
+        updatedAt: FieldValue.serverTimestamp(),
+      }, { merge: true });
+      batchOps += 1;
+      patched += 1;
+      if (batchOps >= 400) await flush();
+    }
+    onProgress?.({ customerId: customer.id, scanned, patched });
+  }
+
+  await flush();
+  await db.doc(`${INVOICE_STATS_COLLECTION}/config`).set({
+    summariesIncludeCustomerPickup: true,
+    updatedAt: FieldValue.serverTimestamp(),
+  }, { merge: true });
+  return { scanned, patched };
+}
+
 export async function deleteInvoiceSummary(customerId, invoiceId) {
   await invoiceSummaryRef(customerId, invoiceId).delete().catch(() => {});
 }
