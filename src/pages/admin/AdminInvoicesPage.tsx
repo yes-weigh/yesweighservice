@@ -118,7 +118,7 @@ function invoiceStatusClass(status: string): string {
 
 /** Prefer logistics status past Booked; customer pickup; otherwise payment / to-dispatch. */
 function invoiceRowStatusDisplay(
-  invoice: Pick<AdminFirestoreInvoice, 'status' | 'customerPickup'>,
+  invoice: Pick<AdminFirestoreInvoice, 'status' | 'customerPickup' | 'categories' | 'invoiceCategory'>,
   booking: LogisticsBooking | undefined,
 ): { label: string; className: string } {
   const key = invoiceListStatusKey(invoice, booking);
@@ -810,7 +810,7 @@ export const AdminInvoicesPage: React.FC = () => {
     for (const row of categoryFiltered) {
       if ((row.aggregateInvoiceCount ?? 0) > 1) continue;
       const key = invoiceListFilterStatusKey(row, logisticsByInvoiceId.get(row.id));
-      if (!key || key === 'aggregated') continue;
+      if (!key) continue;
       counts[key] = (counts[key] ?? 0) + 1;
     }
     counts.support = categoryFiltered.filter(row => (

@@ -2,7 +2,7 @@ import type { NavigateFunction } from 'react-router-dom';
 import type { LogisticsPartnerId } from '../constants/logisticsPartners';
 import type { CatalogProduct } from '../types/catalog';
 import type { DealerSupportRequest } from '../types/dealer-support';
-import type { DealerInvoiceDetail, InvoiceCategory } from '../types/invoices';
+import type { DealerInvoiceDetail } from '../types/invoices';
 import type { Role } from '../types';
 import { homePathForRole } from '../types';
 import type {
@@ -12,6 +12,7 @@ import type {
 } from '../types/logistics-dispatch';
 import type { StaffLogisticsSite } from '../types/staff-logistics';
 import { isFreightInvoiceLineItem } from './invoices';
+import { invoiceAllowsLogisticsFulfillment } from './invoiceListStatus';
 import {
   emptyShipmentBoxDraft,
   isPipelineEnabledPartner,
@@ -22,12 +23,6 @@ import { cartonizeCartLine } from './stCourierCartFreight';
 export const LOGISTICS_ENTRY_STATE_KEY = 'logisticsEntry';
 /** Open logistics detail for an existing booking id (location.state). */
 export const LOGISTICS_OPEN_BOOKING_STATE_KEY = 'logisticsOpenBookingId';
-
-/** Categories that never get courier booking from the invoice detail. */
-const COURIER_BLOCKED_INVOICE_CATEGORIES: ReadonlySet<InvoiceCategory> = new Set([
-  'software_key',
-  'gatc',
-]);
 
 /** Default when invoice has no recognizable freight partner (only ST is live today). */
 const DEFAULT_INVOICE_COURIER_PARTNER: LogisticsPartnerId = 'st_courier';
@@ -64,22 +59,18 @@ function invoiceCalendarDay(value: string): Date | null {
   return new Date(parsed.getFullYear(), parsed.getMonth(), parsed.getDate());
 }
 
-function invoiceCategoryAllowsCourier(
-  invoice: Pick<DealerInvoiceDetail, 'invoiceCategory'>,
-): boolean {
-  const category = invoice.invoiceCategory ?? null;
-  return !(category && COURIER_BLOCKED_INVOICE_CATEGORIES.has(category));
-}
-
 /**
- * Book Courier is available only for recent product/spare/service invoices.
- * Hidden when the invoice is older than 4 days, or category is software / GATC.
+ * Book Courier is available only for recent product/spare invoices (freight-line eligible).
+ * Hidden for software / stamping / service-only, pickup SOs, or invoices older than 4 days.
  */
 export function canBookCourierForInvoice(
-  invoice: Pick<DealerInvoiceDetail, 'date' | 'invoiceCategory' | 'sourceSalesOrderIsPickup'>,
+  invoice: Pick<
+    DealerInvoiceDetail,
+    'date' | 'invoiceCategory' | 'categories' | 'sourceSalesOrderIsPickup'
+  >,
 ): boolean {
   if (invoice.sourceSalesOrderIsPickup) return false;
-  if (!invoiceCategoryAllowsCourier(invoice)) return false;
+  if (!invoiceAllowsLogisticsFulfillment(invoice)) return false;
 
   const dateRaw = invoice.date?.trim();
   if (!dateRaw) return true;
@@ -95,13 +86,16 @@ export function canBookCourierForInvoice(
 
 /**
  * Record an existing LR on an invoice (any age) — skips the full Book Courier wizard.
- * Still blocked for software / GATC categories.
+ * Same freight-line eligibility as Book Courier.
  */
 export function canRecordInvoiceLogisticsLr(
-  invoice: Pick<DealerInvoiceDetail, 'invoiceCategory' | 'sourceSalesOrderIsPickup'>,
+  invoice: Pick<
+    DealerInvoiceDetail,
+    'invoiceCategory' | 'categories' | 'sourceSalesOrderIsPickup'
+  >,
 ): boolean {
   if (invoice.sourceSalesOrderIsPickup) return false;
-  return invoiceCategoryAllowsCourier(invoice);
+  return invoiceAllowsLogisticsFulfillment(invoice);
 }
 
 export function navigateToLogisticsBooking(
