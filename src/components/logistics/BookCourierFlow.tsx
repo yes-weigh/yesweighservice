@@ -99,6 +99,10 @@ import { bookDelhiveryShipment } from '../../lib/delhiveryB2b';
 import { pinFromText } from '../../lib/delhiveryQuote';
 import { fetchAdminInvoiceDetail } from '../../lib/admin-invoices';
 import { resolveInvoiceFreightBillingMode } from '../../lib/logisticsPrefill';
+import {
+  hydrateInvoiceFieldsForDelhiveryBooking,
+  positiveInvoiceTotalInr,
+} from '../../lib/logisticsInvoiceValue';
 import { DEFAULT_STAFF_LOGISTICS_SITE } from '../../constants/logisticsSettings';
 import {
   loadLogisticsSettings,
@@ -1037,25 +1041,30 @@ export const BookCourierFlow: React.FC<BookCourierFlowProps> = ({
       const deliveryPlace = cityStateFromAddress(address);
       const shipFromPlace = cityStateFromAddress(fromAddress);
       const shipFromPin = pincodeFromAddress(fromAddress) || pin;
-      const invoiceValueRaw = Number(draftRef.current.invoiceValueInr);
-      const fromInvoice = draftRef.current.source === 'invoice';
-      let invoiceValueInr: number;
+      const invoiceId = draftRef.current.invoiceId?.trim() || '';
+      const customerId = draftRef.current.zohoCustomerId?.trim() || '';
+      const fromInvoice = draftRef.current.source === 'invoice' || Boolean(invoiceId);
+      let invoiceNumber = draftRef.current.invoiceNumber?.trim() || '';
+      let invoiceValueInr = positiveInvoiceTotalInr(draftRef.current.invoiceValueInr);
       if (fromInvoice) {
-        if (!Number.isFinite(invoiceValueRaw) || invoiceValueRaw <= 0) {
+        if (!invoiceId || !customerId) {
           throw new Error(
             'Invoice total (incl. GST) is required before booking Delhivery. Use Book Courier from the invoice.',
           );
         }
-        invoiceValueInr = invoiceValueRaw;
-      } else {
-        invoiceValueInr = Number.isFinite(invoiceValueRaw) && invoiceValueRaw > 0
-          ? invoiceValueRaw
-          : 1;
+        const hydrated = await hydrateInvoiceFieldsForDelhiveryBooking({
+          customerId,
+          invoiceId,
+          knownNumber: invoiceNumber,
+          knownTotal: invoiceValueInr,
+        });
+        invoiceNumber = hydrated.invoiceNumber?.trim() || invoiceNumber;
+        invoiceValueInr = hydrated.invoiceValueInr;
       }
       const shipperRef = (
         draftRef.current.salesOrderNumber?.trim()
         || invoiceBranchShipFrom?.salesOrderNumber?.trim()
-        || draftRef.current.invoiceNumber?.trim()
+        || invoiceNumber
         || `YW-${Date.now()}`
       );
       const siteLabel = STAFF_LOGISTICS_SITE_LABELS[draftRef.current.shipFromSite];
@@ -1114,7 +1123,9 @@ export const BookCourierFlow: React.FC<BookCourierFlowProps> = ({
           weightKg: Number.parseFloat(box.weightKg) || undefined,
           quantity: 1,
         })),
-        invoiceNumber: draftRef.current.invoiceNumber,
+        invoiceId: invoiceId || null,
+        zohoCustomerId: customerId || null,
+        invoiceNumber: invoiceNumber || draftRef.current.invoiceNumber,
         invoiceValueInr,
         productsDesc: 'Weighing equipment',
         sellerGstin: shipperGstin,
@@ -1143,6 +1154,8 @@ export const BookCourierFlow: React.FC<BookCourierFlowProps> = ({
         : null;
       applyDraft(prev => ({
         ...prev,
+        ...(invoiceNumber ? { invoiceNumber } : {}),
+        ...(invoiceValueInr > 0 ? { invoiceValueInr } : {}),
         consignmentNo: lrn,
         barcodeRaw: prev.barcodeRaw || lrn,
         serviceType: 'Surface',
@@ -2657,7 +2670,12 @@ export const BookCourierFlow: React.FC<BookCourierFlowProps> = ({
                   }}
                 >
                   {bookingDelhivery || saving
-                    ? (isDelhivery ? 'Booking Delhivery…' : 'Saving…')
+                    ? (isDelhivery
+                      ? ((draft.source === 'invoice' || Boolean(draft.invoiceId?.trim()))
+                        && !(positiveInvoiceTotalInr(draft.invoiceValueInr) > 0)
+                        ? 'Waiting for invoice & booking…'
+                        : 'Booking Delhivery…')
+                      : 'Saving…')
                     : (isDelhivery
                       ? (canCreateDelhiveryLrn
                         ? (draft.consignmentNo.trim() ? 'Confirm shipment' : 'Create LR & Confirm')

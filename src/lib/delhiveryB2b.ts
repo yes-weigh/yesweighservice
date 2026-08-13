@@ -139,6 +139,8 @@ export async function bookDelhiveryShipment(input: {
   boxes: DelhiveryBookBox[];
   invoiceNumber?: string | null;
   invoiceValueInr?: number | null;
+  invoiceId?: string | null;
+  zohoCustomerId?: string | null;
   invoiceDate?: string | null;
   productsDesc?: string | null;
   hsnCode?: string | null;

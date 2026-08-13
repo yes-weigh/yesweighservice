@@ -30,6 +30,72 @@ function asNumber(value, fallback = 0) {
   return Number.isFinite(n) ? n : fallback;
 }
 
+/**
+ * @param {FirebaseFirestore.Firestore} db
+ * @param {{ invoiceId?: string | null, zohoCustomerId?: string | null }} input
+ * @returns {Promise<{ invoiceNumber: string | null, invoiceValueInr: number } | null>}
+ */
+export async function readMirroredInvoiceForDelhivery(db, input) {
+  const invoiceId = nonEmpty(input.invoiceId);
+  const customerId = nonEmpty(input.zohoCustomerId);
+  if (!invoiceId || !customerId) return null;
+  const snap = await db.doc(`zohoCustomers/${customerId}/invoices/${invoiceId}`).get();
+  if (!snap.exists) return null;
+  const data = snap.data() || {};
+  return {
+    invoiceNumber: nonEmpty(data.invoiceNumber),
+    invoiceValueInr: asNumber(data.total, 0),
+  };
+}
+
+/**
+ * Wait for invoice number + total from Firestore, then optional Zoho refresh.
+ * Does not invent ₹1 for invoice shipments.
+ *
+ * @param {FirebaseFirestore.Firestore} db
+ * @param {{
+ *   invoiceNumber?: string | null,
+ *   invoiceValueInr?: number | null,
+ *   invoiceId?: string | null,
+ *   zohoCustomerId?: string | null,
+ * }} input
+ * @param {{ syncInvoice?: (invoiceId: string) => Promise<unknown> }} [options]
+ */
+export async function resolveInvoiceFieldsForDelhiveryBook(db, input, options = {}) {
+  let invoiceNumber = nonEmpty(input.invoiceNumber);
+  let invoiceValueInr = asNumber(input.invoiceValueInr, 0);
+  const invoiceId = nonEmpty(input.invoiceId);
+  const zohoCustomerId = nonEmpty(input.zohoCustomerId);
+  if (!invoiceNumber && !invoiceId) {
+    return { invoiceNumber, invoiceValueInr };
+  }
+
+  const applyMirror = (mirror) => {
+    if (!mirror) return;
+    if (invoiceValueInr <= 0 && asNumber(mirror.invoiceValueInr, 0) > 0) {
+      invoiceValueInr = asNumber(mirror.invoiceValueInr, 0);
+    }
+    if (!invoiceNumber && mirror.invoiceNumber) {
+      invoiceNumber = mirror.invoiceNumber;
+    }
+  };
+
+  if (invoiceValueInr <= 0 || !invoiceNumber) {
+    applyMirror(await readMirroredInvoiceForDelhivery(db, { invoiceId, zohoCustomerId }));
+  }
+
+  if ((invoiceValueInr <= 0 || !invoiceNumber) && invoiceId && typeof options.syncInvoice === 'function') {
+    try {
+      await options.syncInvoice(invoiceId);
+    } catch (err) {
+      console.warn('Invoice refresh before Delhivery book failed:', err?.message ?? err);
+    }
+    applyMirror(await readMirroredInvoiceForDelhivery(db, { invoiceId, zohoCustomerId }));
+  }
+
+  return { invoiceNumber, invoiceValueInr };
+}
+
 /** Digits-only phone; prefer last 10 digits for Indian mobiles. */
 function phoneDigits(value, fallback = '') {
   const primary = String(value ?? '').replace(/\D/g, '');
@@ -109,6 +175,8 @@ export function delhiveryFreightModeFromBilling(raw) {
  *     weightKg?: number,
  *     quantity?: number,
  *   }>,
+ *   invoiceId?: string | null,
+ *   zohoCustomerId?: string | null,
  *   invoiceNumber?: string | null,
  *   invoiceValueInr?: number | null,
  *   invoiceDate?: string | null,
@@ -174,12 +242,15 @@ export function buildDelhiveryB2bManifestPayload(input) {
   const weightG = Math.max(1, Math.round(totalWeightKg * 1000));
   const rawInvoiceValue = asNumber(input.invoiceValueInr, 0);
   const invoiceNumberRaw = nonEmpty(input.invoiceNumber);
-  if (invoiceNumberRaw && rawInvoiceValue <= 0) {
+  const hasInvoice = Boolean(invoiceNumberRaw || nonEmpty(input.invoiceId));
+  if (hasInvoice && rawInvoiceValue <= 0) {
     throw new Error(
-      'Invoice total (invoiceValueInr) is required before booking Delhivery for an invoice shipment.',
+      'Invoice total (incl. GST) is not ready yet. Wait for the invoice to finish syncing, then create the Delhivery LR.',
     );
   }
-  const invoiceValue = Math.max(1, rawInvoiceValue || 1);
+  // Never substitute ₹1 for a real invoice. Standalone (no invoice) still needs a
+  // positive inv_amt for Delhivery's schema.
+  const invoiceValue = hasInvoice ? rawInvoiceValue : Math.max(1, rawInvoiceValue || 1);
   const invoiceNumber = invoiceNumberRaw || String(input.orderId || 'INV');
   const productsDesc = nonEmpty(input.productsDesc) || 'Goods';
   const freightMode = delhiveryFreightModeFromBilling(input.freightBillingMode);

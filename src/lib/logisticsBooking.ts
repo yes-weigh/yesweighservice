@@ -57,12 +57,15 @@ export function isLogisticsDashboardStatus(
 }
 
 /**
- * Early wizard booking (before shipping labels). After labels, wizardStep may be
- * `final_photo` — that counts as Booked, not Incomplete.
+ * Early wizard booking (before LR / shipping labels). After labels, wizardStep
+ * may be `final_photo` — that counts as Booked, not Incomplete.
+ * An LR already created on the courier must show in the list even if the
+ * wizard step was left open (e.g. waiting on invoice total).
  */
 export function isIncompleteLogisticsBooking(
-  booking: Pick<LogisticsBooking, 'wizardStep'>,
+  booking: Pick<LogisticsBooking, 'wizardStep'> & { consignmentNo?: string | null },
 ): boolean {
+  if (booking.consignmentNo?.trim()) return false;
   const step = booking.wizardStep?.trim();
   if (!step) return false;
   if (step === 'final_photo') return false;

@@ -80,6 +80,7 @@ import {
 } from './lib/zoho-invoices.js';
 import {
   syncInvoicesToFirestore,
+  syncSingleInvoiceFromZoho,
   verifyZohoWebhookSignature,
   handleZohoInvoiceWebhook,
 } from './lib/invoice-sync.js';
@@ -194,6 +195,7 @@ import {
   bookDelhiveryB2bShipment,
   cancelDelhiveryB2bShipment,
   resolveDelhiveryPickupLocationName,
+  resolveInvoiceFieldsForDelhiveryBook,
 } from './lib/delhivery-b2b-manifest.js';
 import { createDelhiveryPickupRequest } from './lib/delhivery-pickup.js';
 import { resolveDelhiveryMasterAwbFromLrn } from './lib/delhivery-b2b-documents.js';
@@ -4870,6 +4872,7 @@ export const bookDelhiveryShipmentFn = onCall(
     region: 'asia-south1',
     timeoutSeconds: 120,
     memory: '256MiB',
+    secrets: [zohoClientId, zohoClientSecret, zohoRefreshToken],
   },
   async request => {
     await requireActiveUser(request.auth?.uid, ALLOWED_ROLES);
@@ -4882,6 +4885,25 @@ export const bookDelhiveryShipmentFn = onCall(
       // Shipper phone/GSTIN on LR print come from the registered warehouse profile.
       await syncDelhiveryWarehouseForSite(db, site, pickupLocationName);
       const boxes = Array.isArray(request.data?.boxes) ? request.data.boxes : [];
+      const invoiceFields = await resolveInvoiceFieldsForDelhiveryBook(db, {
+        invoiceNumber: request.data?.invoiceNumber,
+        invoiceValueInr: request.data?.invoiceValueInr,
+        invoiceId: request.data?.invoiceId,
+        zohoCustomerId: request.data?.zohoCustomerId,
+      }, {
+        syncInvoice: async invoiceId => {
+          await syncSingleInvoiceFromZoho(
+            zohoSecrets(),
+            zohoOrganizationId.value(),
+            invoiceId,
+            {
+              skipPdfs: true,
+              skipImages: true,
+              source: 'delhivery-book',
+            },
+          );
+        },
+      });
       const result = await bookDelhiveryB2bShipment(db, {
         pickupLocationName,
         orderId: String(request.data?.orderId ?? '').trim() || `YW-${Date.now()}`,
@@ -4889,8 +4911,10 @@ export const bookDelhiveryShipmentFn = onCall(
         returnAddress: request.data?.returnAddress || null,
         billingAddress: request.data?.billingAddress || null,
         boxes,
-        invoiceNumber: request.data?.invoiceNumber,
-        invoiceValueInr: request.data?.invoiceValueInr,
+        invoiceId: request.data?.invoiceId,
+        zohoCustomerId: request.data?.zohoCustomerId,
+        invoiceNumber: invoiceFields.invoiceNumber,
+        invoiceValueInr: invoiceFields.invoiceValueInr,
         invoiceDate: request.data?.invoiceDate,
         productsDesc: request.data?.productsDesc,
         hsnCode: request.data?.hsnCode,

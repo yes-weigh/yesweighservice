@@ -925,6 +925,9 @@ async function ensureDraftBookingStub(input: {
     source: input.draft.source,
     invoiceId: input.draft.invoiceId ?? null,
     invoiceNumber: input.draft.invoiceNumber ?? null,
+    ...(Number.isFinite(Number(input.draft.invoiceValueInr)) && Number(input.draft.invoiceValueInr) > 0
+      ? { invoiceValueInr: Number(input.draft.invoiceValueInr) }
+      : {}),
     supportRequestId: input.draft.supportRequestId ?? null,
     supportRequestNumber: input.draft.supportRequestNumber ?? null,
     partnerId: input.draft.partnerId,
@@ -1203,6 +1206,9 @@ export async function persistLogisticsBookingDraft(
       source: draft.source,
       invoiceId: draft.invoiceId ?? null,
       invoiceNumber: draft.invoiceNumber ?? null,
+      ...(Number.isFinite(Number(draft.invoiceValueInr)) && Number(draft.invoiceValueInr) > 0
+        ? { invoiceValueInr: Number(draft.invoiceValueInr) }
+        : {}),
       supportRequestId: draft.supportRequestId ?? null,
       supportRequestNumber: draft.supportRequestNumber ?? null,
       partnerId: draft.partnerId,
