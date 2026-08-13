@@ -302,6 +302,7 @@ export const DealerSalesOrdersPage: React.FC = () => {
     rememberSalesOrderListReturn(listKey, {
       search,
       stageFilter,
+      category: 'all',
       rangePreset,
       sort: 'date',
       dealers: [],

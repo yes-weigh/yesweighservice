@@ -1,6 +1,7 @@
 import { YESONE_STAGE_FILTERS, type YesOneStageFilter } from './salesOrderWorkflow';
 import type { AdminSalesOrderSort } from './admin-sales-orders';
-import type { SalesRangePreset } from '../types/invoices';
+import type { InvoiceCategory, SalesRangePreset } from '../types/invoices';
+import { INVOICE_CATEGORIES } from '../types/invoices';
 
 const STORAGE_PREFIX = 'yesweigh.salesOrders.returnFocus:';
 const MAX_AGE_MS = 30 * 60 * 1000;
@@ -16,6 +17,7 @@ type SavedDealer = {
 export type SalesOrderListReturnFocus = {
   search: string;
   stageFilter: YesOneStageFilter | 'all';
+  category: InvoiceCategory | 'all';
   rangePreset: SalesRangePreset;
   sort: AdminSalesOrderSort;
   dealers: SavedDealer[];
@@ -44,6 +46,14 @@ function parseStageFilter(value: unknown): YesOneStageFilter | 'all' {
   if (value === 'all') return 'all';
   if (typeof value === 'string' && (YESONE_STAGE_FILTERS as string[]).includes(value)) {
     return value as YesOneStageFilter;
+  }
+  return 'all';
+}
+
+function parseCategoryFilter(value: unknown): InvoiceCategory | 'all' {
+  if (value === 'all') return 'all';
+  if (typeof value === 'string' && (INVOICE_CATEGORIES as readonly string[]).includes(value)) {
+    return value as InvoiceCategory;
   }
   return 'all';
 }
@@ -110,6 +120,7 @@ export function peekSalesOrderListReturn(
     return {
       search: String(parsed.search ?? ''),
       stageFilter: parseStageFilter(parsed.stageFilter),
+      category: parseCategoryFilter(parsed.category),
       rangePreset: parseRangePreset(parsed.rangePreset),
       sort: parsed.sort === 'syncedAt' ? 'syncedAt' : 'date',
       dealers: parseDealers(parsed.dealers),

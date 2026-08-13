@@ -51,26 +51,6 @@ export function SalesOrderStageFilterBlocks({
 
   return (
     <div className="unified-so-stage-blocks" role="tablist" aria-label="Order stage">
-      <button
-        type="button"
-        role="tab"
-        aria-selected={value === 'all'}
-        className={`unified-so-category-block unified-so-stage-block unified-so-stage-block--all${
-          value === 'all' ? ' is-active' : ''
-        }`}
-        onClick={() => onChange('all')}
-        title="all"
-      >
-        <span className="unified-so-category-block__icon" aria-hidden>
-          <span className="unified-so-stage-block__icon unified-so-stage-block__icon--all">
-            <LayoutGrid size={16} strokeWidth={2.2} />
-          </span>
-        </span>
-        <span className="unified-so-category-block__label">all</span>
-        <span className="unified-so-category-block__count">
-          {loading ? '…' : allCount.toLocaleString('en-IN')}
-        </span>
-      </button>
       {YESONE_STAGE_FILTERS.map(stage => {
         const active = value === stage;
         const label = yesOneStageLabelForAudience(stage, audience);
@@ -98,6 +78,26 @@ export function SalesOrderStageFilterBlocks({
           </button>
         );
       })}
+      <button
+        type="button"
+        role="tab"
+        aria-selected={value === 'all'}
+        className={`unified-so-category-block unified-so-stage-block unified-so-stage-block--all${
+          value === 'all' ? ' is-active' : ''
+        }`}
+        onClick={() => onChange('all')}
+        title="all"
+      >
+        <span className="unified-so-category-block__icon" aria-hidden>
+          <span className="unified-so-stage-block__icon unified-so-stage-block__icon--all">
+            <LayoutGrid size={16} strokeWidth={2.2} />
+          </span>
+        </span>
+        <span className="unified-so-category-block__label">all</span>
+        <span className="unified-so-category-block__count">
+          {loading ? '…' : allCount.toLocaleString('en-IN')}
+        </span>
+      </button>
     </div>
   );
 }

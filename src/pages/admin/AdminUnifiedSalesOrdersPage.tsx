@@ -18,6 +18,7 @@ import {
   InvoiceCategoryIcon,
 } from '../../components/invoices/InvoiceCategoryVisual';
 import { SalesOrderStageSeal } from '../../components/salesOrders/SalesOrderStageSeal';
+import { SalesOrderCategoryFilterBlocks } from '../../components/salesOrders/SalesOrderCategoryFilterBlocks';
 import {
   EMPTY_STAGE_COUNTS,
   SalesOrderStageFilterBlocks,
@@ -85,6 +86,7 @@ const SEARCH_FETCH_SIZE = 100;
 const DEFAULT_RANGE: SalesRangePreset = 'financial_year';
 const DEFAULT_SORT: AdminSalesOrderSort = 'date';
 const DEFAULT_CATEGORY: InvoiceCategory | 'all' = 'all';
+const DEFAULT_STAGE: YesOneStageFilter | 'all' = 'payment_submitted';
 
 const EMPTY_CATEGORY_COUNTS: AdminSalesOrderCategoryCounts = {
   all: 0,
@@ -346,9 +348,11 @@ export const AdminUnifiedSalesOrdersPage: React.FC = () => {
   const [rangePreset, setRangePreset] = useState<SalesRangePreset>(
     restored?.rangePreset ?? DEFAULT_RANGE,
   );
-  const category = DEFAULT_CATEGORY;
+  const [category, setCategory] = useState<InvoiceCategory | 'all'>(
+    restored?.category ?? DEFAULT_CATEGORY,
+  );
   const [stageFilter, setStageFilter] = useState<YesOneStageFilter | 'all'>(
-    restored?.stageFilter ?? 'all',
+    restored?.stageFilter ?? DEFAULT_STAGE,
   );
   const [selectedDealers, setSelectedDealers] = useState<DealerFilterSelection[]>(
     () => restored?.dealers ?? [],
@@ -447,6 +451,7 @@ export const AdminUnifiedSalesOrdersPage: React.FC = () => {
       search,
       rangePreset,
       stageFilter,
+      category,
       sort,
       selectedCustomerKey,
       useAggregate ? '1' : '0',
@@ -462,6 +467,7 @@ export const AdminUnifiedSalesOrdersPage: React.FC = () => {
     search,
     rangePreset,
     stageFilter,
+    category,
     sort,
     selectedCustomerKey,
     useAggregate,
@@ -872,7 +878,8 @@ export const AdminUnifiedSalesOrdersPage: React.FC = () => {
   }, [pageRows]);
 
   const hasActiveFilters = rangePreset !== DEFAULT_RANGE
-    || stageFilter !== 'all'
+    || stageFilter !== DEFAULT_STAGE
+    || category !== DEFAULT_CATEGORY
     || sort !== DEFAULT_SORT
     || selectedDealers.length > 0
     || aggregate;
@@ -897,6 +904,7 @@ export const AdminUnifiedSalesOrdersPage: React.FC = () => {
     rememberSalesOrderListReturn(listKey, {
       search,
       stageFilter,
+      category,
       rangePreset,
       sort,
       dealers: selectedDealers,
@@ -1014,6 +1022,12 @@ export const AdminUnifiedSalesOrdersPage: React.FC = () => {
           counts={stageCounts}
           loading={loading}
           onChange={setStageFilter}
+        />
+        <SalesOrderCategoryFilterBlocks
+          value={category}
+          counts={zohoCategoryCounts}
+          loading={loading}
+          onChange={setCategory}
         />
       </section>
 

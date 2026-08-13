@@ -19,7 +19,6 @@ import { db, app } from '../firebase';
 import { enrichInvoiceDetailImages } from './invoiceLineItemImages';
 import {
   getInvoicePeriodBounds,
-  invoiceHasCategory,
   invoiceErrorMessage,
   normalizeInvoiceCategories,
   normalizeInvoiceCategoryAmounts,
@@ -177,7 +176,8 @@ export function buildAdminPurchaseOrdersQuery(options: AdminPurchaseOrderListQue
   const constraints: QueryConstraint[] = [];
 
   if (category && category !== 'all') {
-    constraints.push(where('categories', 'array-contains', category));
+    // Primary (high-value) category only — mixed POs with product + spare stay under product.
+    constraints.push(where('purchaseOrderCategory', '==', category));
   }
 
   if (dateStart || dateEnd) {
@@ -258,7 +258,7 @@ export async function countAdminPurchaseOrders(
   const constraints: QueryConstraint[] = [];
 
   if (category && category !== 'all') {
-    constraints.push(where('categories', 'array-contains', category));
+    constraints.push(where('purchaseOrderCategory', '==', category));
   }
   if (dateStart || dateEnd) {
     if (dateStart) constraints.push(where('date', '>=', dateStart));
@@ -307,11 +307,10 @@ export function countPurchaseOrderRowsByCategory(
     gatc: 0,
   };
   for (const row of rows) {
-    const categories = row.categories.length
-      ? row.categories
-      : (row.purchaseOrderCategory ? [row.purchaseOrderCategory] : []);
-    for (const key of categories) {
-      counts[key] += 1;
+    const primary = row.purchaseOrderCategory
+      ?? (row.categories.length ? row.categories[0] : null);
+    if (primary && primary in counts) {
+      counts[primary] += 1;
     }
   }
   return counts;
@@ -359,10 +358,11 @@ export function filterAdminPurchaseOrders(
 ): AdminFirestorePurchaseOrder[] {
   let next = rows;
   if (category && category !== 'all') {
-    next = next.filter(row => invoiceHasCategory({
-      categories: row.categories,
-      invoiceCategory: row.purchaseOrderCategory,
-    }, category));
+    next = next.filter(row => {
+      const primary = row.purchaseOrderCategory
+        ?? (row.categories.length ? row.categories[0] : null);
+      return primary === category;
+    });
   }
   const needle = searchText.trim().toLowerCase();
   if (!needle) return next;

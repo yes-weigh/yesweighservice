@@ -26,9 +26,9 @@ export type YesOneStageFilter =
   | 'completed';
 
 export const YESONE_STAGE_FILTERS: YesOneStageFilter[] = [
+  'payment_submitted',
   'review',
   'ready_for_payment',
-  'payment_submitted',
   'completed',
 ];
 

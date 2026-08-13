@@ -17654,6 +17654,10 @@ body:has(.confirm-inline-bar) .confirm-inline-bar {
   overflow: visible;
 }
 
+.unified-so-category-blocks--sectors {
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+}
+
 .unified-so-category-block {
   width: 100%;
   min-width: 0;
