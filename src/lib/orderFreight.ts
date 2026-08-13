@@ -89,6 +89,18 @@ export function courierBySiteIsCustomerPickup(courierBySite: unknown): boolean {
   return values.some(id => isPickupPartner(id as LogisticsPartnerId));
 }
 
+/**
+ * Pickup SOs persist `yesOneCourierPartner: personal_collection`.
+ * `courierBySite` is often missing on the Firestore doc (used at create, not always saved).
+ */
+export function salesOrderDataIsCustomerPickup(data: unknown): boolean {
+  if (!data || typeof data !== 'object') return false;
+  const so = data as Record<string, unknown>;
+  if (courierBySiteIsCustomerPickup(so.courierBySite)) return true;
+  const partner = String(so.yesOneCourierPartner ?? '').trim();
+  return partner === PICKUP_PARTNER_ID;
+}
+
 /** Whether this partner has a usable rate for the destination at this origin. */
 export function partnerHasZoneRate(
   rates: LogisticsCourierRates,

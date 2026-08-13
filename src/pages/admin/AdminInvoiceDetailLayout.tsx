@@ -15,7 +15,7 @@ import { InvoiceCustomerPickupDialog } from '../../components/logistics/InvoiceC
 import { LogisticsAwbEntryButton } from '../../components/logistics/LogisticsAwbEntryButton';
 import { invoiceTotalInclGst } from '../../constants/ewayBill';
 import { useAuth } from '../../context/AuthContext';
-import { useCatalogPageHeader, usePageHeaderTitleBelow } from '../../context/PageHeaderContext';
+import { useCatalogPageHeader, usePageHeaderTitleMeta } from '../../context/PageHeaderContext';
 import {
   fetchAdminInvoiceDetail,
 } from '../../lib/admin-invoices';
@@ -110,7 +110,7 @@ export const AdminInvoiceDetailLayout: React.FC = () => {
     onBack: handleBack,
   });
 
-  const titleBelow = useMemo(() => {
+  const titleMeta = useMemo(() => {
     if (!invoice || !showKamOnTitle) return null;
     const salespersonLabel = String(invoice.salespersonName || '').trim()
       || (String(invoice.salespersonId || '').trim() ? 'Sales staff' : 'No staff');
@@ -133,7 +133,7 @@ export const AdminInvoiceDetailLayout: React.FC = () => {
     );
   }, [invoice, showKamOnTitle, kamCardOpen]);
 
-  usePageHeaderTitleBelow(titleBelow, Boolean(titleBelow));
+  usePageHeaderTitleMeta(titleMeta, Boolean(titleMeta));
 
   useEffect(() => {
     let cancelled = false;

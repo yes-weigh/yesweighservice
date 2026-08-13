@@ -43,7 +43,7 @@ import {
   normalizeSalespersonIdFilter,
 } from './salespersonScope';
 import { resolveZohoCustomerDisplayContact } from './zohoCustomerContact';
-import { courierBySiteIsCustomerPickup } from './orderFreight';
+import { salesOrderDataIsCustomerPickup } from './orderFreight';
 import type {
   DealerInvoiceDetail,
   DealerInvoiceLineItem,
@@ -1745,7 +1745,9 @@ export async function fetchAdminInvoiceDetail(
   let soAddressId: string | null = null;
   let sourceSalesOrderIsPickup = false;
   const salesOrderId = data.salesOrderId ? String(data.salesOrderId).trim() : '';
-  const salesOrderNumber = data.salesOrderNumber ? String(data.salesOrderNumber).trim() : '';
+  const salesOrderNumber = data.salesOrderNumber
+    ? String(data.salesOrderNumber).trim()
+    : (data.invoiceNumber ? String(data.invoiceNumber).trim() : '');
   let linkedSoFound = false;
   if (salesOrderId) {
     try {
@@ -1753,7 +1755,7 @@ export async function fetchAdminInvoiceDetail(
       if (soSnap.exists()) {
         linkedSoFound = true;
         const so = soSnap.data();
-        sourceSalesOrderIsPickup = courierBySiteIsCustomerPickup(so?.courierBySite);
+        sourceSalesOrderIsPickup = salesOrderDataIsCustomerPickup(so);
         if (!preferredAddress) {
           soAddress = so?.shippingAddress ? String(so.shippingAddress).trim() || null : null;
           soAddressId = so?.shippingAddressId ? String(so.shippingAddressId).trim() || null : null;
@@ -1772,7 +1774,7 @@ export async function fetchAdminInvoiceDetail(
       ));
       const so = byNumber.docs[0]?.data();
       if (so) {
-        sourceSalesOrderIsPickup = courierBySiteIsCustomerPickup(so.courierBySite);
+        sourceSalesOrderIsPickup = salesOrderDataIsCustomerPickup(so);
       }
     } catch {
       // optional — Book Courier stays available if SO lookup fails

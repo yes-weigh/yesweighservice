@@ -821,6 +821,7 @@ export async function submitDealerOrder(uid, role, payload = {}, secrets, orgId)
         yesOneFreightZone: freightZoneMeta.zone,
         yesOneFreightZoneInferred: freightZoneMeta.inferredZone,
         yesOneFreightBillingMode: freightBillingMode,
+        courierBySite: payload.courierBySite || {},
         ...(freightZoneMeta.zoneOverridden
           ? { yesOneFreightZoneOverrideReason: freightZoneOverrideReason }
           : {}),
@@ -1048,6 +1049,7 @@ export async function createStaffSalesOrder(uid, role, payload = {}, secrets, or
         yesOneFreightZone: freightZoneMeta.zone,
         yesOneFreightZoneInferred: freightZoneMeta.inferredZone,
         yesOneFreightBillingMode: freightBillingMode,
+        courierBySite: payload.courierBySite || {},
         ...(freightZoneMeta.zoneOverridden
           ? { yesOneFreightZoneOverrideReason: freightZoneOverrideReason }
           : {}),

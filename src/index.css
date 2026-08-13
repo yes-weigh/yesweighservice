@@ -1069,6 +1069,14 @@ html::-webkit-scrollbar {
   min-width: 4.75rem;
 }
 
+.page-title__meta:has(.page-title__salesperson) {
+  flex-direction: row;
+  align-items: center;
+  align-self: flex-start;
+  min-width: 0;
+  padding-top: 0.2rem;
+}
+
 .page-title__meta .invoices-category,
 .page-title__meta .invoices-status {
   flex: 1 1 0;
