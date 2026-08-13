@@ -352,12 +352,6 @@ service cloud.firestore {
       allow write: if false;
     }
 
-    // Org-wide Zoho purchase orders (vendor-scoped fields on each doc).
-    match /purchaseOrders/{poId} {
-      allow read: if isSuperAdmin();
-      allow write: if false;
-    }
-
     function staffHasInvoiceView() {
       return isStaff() && (
         userDoc().get('staffRoleId', '') == 'role-invoice-access'
@@ -366,6 +360,13 @@ service cloud.firestore {
             && (userDoc().staffDepartment == 'sales'
                 || userDoc().staffDepartment == 'admin'))
       );
+    }
+
+    // Org-wide Zoho purchase orders (vendor-scoped fields on each doc).
+    // Invoice-access staff may read so goods-receipt PO date can resolve.
+    match /purchaseOrders/{poId} {
+      allow read: if isSuperAdmin() || staffHasInvoiceView();
+      allow write: if false;
     }
 
     // Draft Zoho purchase bills mirrored as goods receipts.

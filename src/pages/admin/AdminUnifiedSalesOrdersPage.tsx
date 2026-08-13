@@ -10,7 +10,7 @@ import {
   SlidersHorizontal,
   X,
 } from 'lucide-react';
-import type { DocumentData, QueryDocumentSnapshot } from 'firebase/firestore';
+import type { DocumentData, DocumentSnapshot, QueryDocumentSnapshot } from 'firebase/firestore';
 import { FetchingLoader } from '../../components/FetchingLoader';
 import { ListTileKam } from '../../components/list/ListTileKam';
 import {
@@ -40,6 +40,7 @@ import {
   fetchAdminSalesOrdersPageDetailed,
   fetchAllAdminSalesOrdersInRange,
   filterAdminSalesOrders,
+  loadAdminSalesOrderCursorDocs,
   loadAdminSalesOrderKpis,
   toSalesOrderDateKey,
   type AdminFirestoreSalesOrder,
@@ -67,6 +68,12 @@ import {
   countYesOneStages,
   type UnifiedSalesOrderRow,
 } from '../../lib/unified-sales-orders';
+import {
+  FROM_SALES_ORDER_LIST_STATE,
+  clearSalesOrderListOpenedRow,
+  peekSalesOrderListReturn,
+  rememberSalesOrderListReturn,
+} from '../../lib/salesOrderListReturnFocus';
 import type { InvoiceCategory, SalesRangePreset } from '../../types/invoices';
 import { SALES_RANGE_OPTIONS } from '../../types/invoices';
 import type { YesOneStageFilter } from '../../lib/salesOrderWorkflow';
@@ -312,25 +319,51 @@ export const AdminUnifiedSalesOrdersPage: React.FC = () => {
     [dealersParam],
   );
   const basePath = pathname.startsWith('/staff') ? '/staff' : '/super-admin';
+  const listKey = basePath;
+  const pendingReturnRef = useRef(peekSalesOrderListReturn(listKey));
+  const skipPageResetRef = useRef(Boolean(pendingReturnRef.current));
+  const returnFocusAppliedRef = useRef(false);
   const canCreateStaffOrder = hasStaffPermission(user, 'orders.manage');
   const salespersonIds = useMemo(() => salespersonScopeForUser(user), [user]);
   const salespersonScopeKey = salespersonIds?.slice().sort().join(',') ?? '';
   const scrollRef = useRevealScrollbarOnScroll();
 
+  const restored = pendingReturnRef.current;
+  const restoredClientPaged = Boolean(
+    restored?.search?.trim()
+    || (restored?.dealers.length ?? 0) > 0
+    || restored?.aggregate,
+  );
+  const restoredCursorId = restored && restored.page > 1
+    ? restored.pageCursorIds[restored.page - 1]
+    : null;
+  const [cursorsReady, setCursorsReady] = useState(
+    () => restoredClientPaged || !restoredCursorId,
+  );
+
   const [zohoOrders, setZohoOrders] = useState<AdminFirestoreSalesOrder[]>([]);
   const [zohoLoading, setZohoLoading] = useState(true);
   const [countsLoading, setCountsLoading] = useState(true);
   const [error, setError] = useState('');
-  const [search, setSearch] = useState('');
-  const [sort, setSort] = useState<AdminSalesOrderSort>(DEFAULT_SORT);
-  const [rangePreset, setRangePreset] = useState<SalesRangePreset>(DEFAULT_RANGE);
+  const [search, setSearch] = useState(() => restored?.search ?? '');
+  const [sort, setSort] = useState<AdminSalesOrderSort>(restored?.sort ?? DEFAULT_SORT);
+  const [rangePreset, setRangePreset] = useState<SalesRangePreset>(
+    restored?.rangePreset ?? DEFAULT_RANGE,
+  );
   const category = DEFAULT_CATEGORY;
-  const [stageFilter, setStageFilter] = useState<YesOneStageFilter | 'all'>('all');
-  const [selectedDealers, setSelectedDealers] = useState<DealerFilterSelection[]>([]);
-  const [aggregate, setAggregate] = useState(false);
+  const [stageFilter, setStageFilter] = useState<YesOneStageFilter | 'all'>(
+    restored?.stageFilter ?? 'all',
+  );
+  const [selectedDealers, setSelectedDealers] = useState<DealerFilterSelection[]>(
+    () => restored?.dealers ?? [],
+  );
+  const [aggregate, setAggregate] = useState(() => Boolean(restored?.aggregate));
   const [truncated, setTruncated] = useState(false);
   const [filterOpen, setFilterOpen] = useState(false);
-  const [page, setPage] = useState(1);
+  const [page, setPage] = useState(() => restored?.page ?? 1);
+  const [highlightedOrderId, setHighlightedOrderId] = useState<string | null>(
+    () => restored?.openedOrderId ?? null,
+  );
   const [zohoTotal, setZohoTotal] = useState(0);
   const [zohoCategoryCounts, setZohoCategoryCounts] = useState<AdminSalesOrderCategoryCounts>(
     EMPTY_CATEGORY_COUNTS,
@@ -339,9 +372,9 @@ export const AdminUnifiedSalesOrdersPage: React.FC = () => {
   const [customerLocations, setCustomerLocations] = useState(
     () => new Map<string, { district: string | null; state: string | null }>(),
   );
-  const pageStartCursors = useRef<Array<QueryDocumentSnapshot<DocumentData> | null>>([null]);
+  const pageStartCursors = useRef<Array<DocumentSnapshot<DocumentData> | QueryDocumentSnapshot<DocumentData> | null>>([null]);
   const [pageCursorVersion, setPageCursorVersion] = useState(0);
-  const urlSeedDone = useRef(false);
+  const urlSeedDone = useRef(Boolean(restored?.dealers.length));
 
   const bounds = getInvoicePeriodBounds(rangePreset);
   const dateStart = bounds ? toSalesOrderDateKey(bounds.start) : null;
@@ -413,10 +446,43 @@ export const AdminUnifiedSalesOrdersPage: React.FC = () => {
 
   // Reset pagination whenever filters that affect the Zoho query change.
   useEffect(() => {
+    if (skipPageResetRef.current) {
+      skipPageResetRef.current = false;
+      return;
+    }
     setPage(1);
     pageStartCursors.current = [null];
     setPageCursorVersion(v => v + 1);
   }, [search, rangePreset, category, stageFilter, sort, selectedCustomerKey, useAggregate, salespersonScopeKey]);
+
+  useEffect(() => {
+    const focus = pendingReturnRef.current;
+    if (!focus || restoredClientPaged || !restoredCursorId) {
+      setCursorsReady(true);
+      return;
+    }
+    let cancelled = false;
+    void loadAdminSalesOrderCursorDocs(focus.pageCursorIds)
+      .then(snaps => {
+        if (cancelled) return;
+        pageStartCursors.current = snaps.length ? snaps : [null];
+        const startCursor = pageStartCursors.current[Math.max(0, focus.page - 1)];
+        if (!startCursor && focus.page > 1) {
+          setPage(1);
+        }
+        setCursorsReady(true);
+        setPageCursorVersion(v => v + 1);
+      })
+      .catch(() => {
+        if (cancelled) return;
+        setPage(1);
+        pageStartCursors.current = [null];
+        setCursorsReady(true);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [restoredClientPaged, restoredCursorId]);
 
   // Server category + YesOne stage counts (org-wide rollups when available).
   useEffect(() => {
@@ -511,6 +577,7 @@ export const AdminUnifiedSalesOrdersPage: React.FC = () => {
   useEffect(() => {
     let cancelled = false;
     if (dealerScoped) return;
+    if (!cursorsReady) return;
 
     setZohoLoading(true);
     setError('');
@@ -602,6 +669,7 @@ export const AdminUnifiedSalesOrdersPage: React.FC = () => {
     stageFilter,
     salespersonIds,
     salespersonScopeKey,
+    cursorsReady,
   ]);
 
   const loading = zohoLoading || countsLoading;
@@ -697,8 +765,43 @@ export const AdminUnifiedSalesOrdersPage: React.FC = () => {
   }, [clientPaged, filteredTotal, zohoTotal]);
 
   useEffect(() => {
+    if (loading) return;
     if (page > totalPages) setPage(totalPages);
-  }, [page, totalPages]);
+  }, [loading, page, totalPages]);
+
+  useEffect(() => {
+    if (returnFocusAppliedRef.current || loading) return;
+    const focus = pendingReturnRef.current;
+    if (!focus) return;
+    returnFocusAppliedRef.current = true;
+    if (focus.dealers.length) syncDealerParams(focus.dealers);
+
+    const openedId = focus.openedOrderId?.trim() || '';
+    if (openedId) {
+      setHighlightedOrderId(openedId);
+      window.setTimeout(() => {
+        setHighlightedOrderId(null);
+        clearSalesOrderListOpenedRow(listKey);
+      }, 4500);
+    }
+
+    window.requestAnimationFrame(() => {
+      window.setTimeout(() => {
+        if (openedId) {
+          const el = document.querySelector(
+            `[data-so-id="${CSS.escape(openedId)}"]`,
+          ) as HTMLElement | null;
+          if (el) {
+            el.scrollIntoView({ block: 'center', behavior: 'smooth' });
+            return;
+          }
+        }
+        if (scrollRef.current && Number.isFinite(focus.scrollTop) && focus.scrollTop > 0) {
+          scrollRef.current.scrollTop = focus.scrollTop;
+        }
+      }, 80);
+    });
+  }, [loading, pageRows, listKey, syncDealerParams]);
 
   useEffect(() => {
     const customerIds = pageRows
@@ -742,7 +845,19 @@ export const AdminUnifiedSalesOrdersPage: React.FC = () => {
       openAggregatedDealer(row);
       return;
     }
-    navigate(row.href);
+    rememberSalesOrderListReturn(listKey, {
+      search,
+      stageFilter,
+      rangePreset,
+      sort,
+      dealers: selectedDealers,
+      aggregate: useAggregate,
+      page,
+      pageCursorIds: pageStartCursors.current.map(docSnap => docSnap?.id ?? null),
+      scrollTop: scrollRef.current?.scrollTop ?? 0,
+      openedOrderId: row.id,
+    });
+    navigate(row.href, { state: FROM_SALES_ORDER_LIST_STATE });
   };
 
   const headerTools = useMemo(
@@ -921,9 +1036,11 @@ export const AdminUnifiedSalesOrdersPage: React.FC = () => {
                       return (
                       <tr
                         key={row.key}
+                        data-so-id={row.id}
                         className={[
                           'invoices-table__row--clickable',
                           row.sealKind ? 'unified-so-row--with-seal' : '',
+                          highlightedOrderId === row.id ? 'invoices-table__row--return-focus' : '',
                         ].filter(Boolean).join(' ')}
                         onClick={() => openRow(row)}
                         onKeyDown={e => {
@@ -1007,11 +1124,13 @@ export const AdminUnifiedSalesOrdersPage: React.FC = () => {
                   <button
                     key={row.key}
                     type="button"
+                    data-so-id={row.id}
                     className={[
                       'invoices-mobile-row',
                       'invoices-mobile-row--po-stack',
                       'unified-so-mobile-row',
                       row.sealKind ? 'unified-so-mobile-row--with-seal' : '',
+                      highlightedOrderId === row.id ? 'invoices-mobile-row--return-focus' : '',
                     ].filter(Boolean).join(' ')}
                     onClick={() => openRow(row)}
                     aria-label={`View ${row.primaryNumber}${row.sealKind ? `, ${row.sealKind.replace(/_/g, ' ')}` : ''}`}

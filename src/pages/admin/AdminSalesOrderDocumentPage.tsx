@@ -1061,6 +1061,18 @@ export const AdminSalesOrderDocumentPage: React.FC = () => {
             salespersonId={salesOrder.salespersonId}
             salespersonName={salesOrder.salespersonName}
             showMissing
+            assignStaff={
+              user?.role === 'super_admin' && workflowActions?.canAssignSalespersonStaff
+                ? {
+                    selectedUid: salespersonStaffUid,
+                    options: workflowActions.assignableStaff,
+                    onSelect: setSalespersonStaffUid,
+                    onAssign: () => workflowActions.onApplySalespersonFromStaff(salespersonStaffUid),
+                    busy: workflowActions.actionBusy === 'applySalespersonStaff',
+                    disabled: Boolean(workflowActions.actionBusy),
+                  }
+                : null
+            }
           />
         )}
       </header>
@@ -1074,18 +1086,22 @@ export const AdminSalesOrderDocumentPage: React.FC = () => {
           <div className="so-detail__salesperson-banner-copy">
             <span>
               Sales staff is required before Verify &amp; invoice.
-              {workflowActions.dealerPath ? (
+              {workflowActions.canAssignSalespersonStaff && user?.role === 'super_admin' ? (
+                <> Assign staff on the card above.</>
+              ) : workflowActions.canAssignSalespersonStaff ? (
+                <> Pick staff below, or assign a KAM on the dealer.</>
+              ) : workflowActions.dealerPath ? (
                 <>
                   {' '}
                   <Link to={workflowActions.dealerPath}>Open dealer</Link>
                   {' '}
-                  to assign a KAM with a linked Zoho salesperson, or pick staff below.
+                  to assign a KAM with a linked Zoho salesperson.
                 </>
               ) : (
-                <> Assign sales staff on the dealer, or pick staff below.</>
+                <> Assign sales staff on the dealer, then apply here.</>
               )}
             </span>
-            {workflowActions.canAssignSalespersonStaff ? (
+            {workflowActions.canAssignSalespersonStaff && user?.role !== 'super_admin' ? (
               <div className="so-detail__salesperson-assign">
                 <ThemeSelect
                   id="so-salesperson-staff"
@@ -1478,7 +1494,9 @@ export const AdminSalesOrderDocumentPage: React.FC = () => {
               title={
                 packageBlocksActions
                   ? freightPackageAlert ?? undefined
-                  : 'Assign sales staff on the dealer, then apply salesperson here'
+                  : user?.role === 'super_admin' && workflowActions.canAssignSalespersonStaff
+                    ? 'Assign sales staff above, then verify'
+                    : 'Assign sales staff on the dealer, then apply salesperson here'
               }
             >
               <Check size={16} aria-hidden />

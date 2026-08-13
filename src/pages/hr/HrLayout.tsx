@@ -98,6 +98,8 @@ export const HrLayout: React.FC<HrLayoutProps> = ({ basePath }) => {
     return items;
   }, [basePath, showMedia, showRoles, showSalary, showSpareIncharge, showSuperAdmins, showWarehouse]);
 
+  const nestedInSettings = /\/settings\/hr(\/|$)/.test(location.pathname);
+
   useEffect(() => {
     if (location.pathname === `${basePath}/hr` || location.pathname === `${basePath}/hr/`) {
       navigate(`${basePath}/hr/staff`, { replace: true });
@@ -116,21 +118,24 @@ export const HrLayout: React.FC<HrLayoutProps> = ({ basePath }) => {
 
   const isTabActive = (path: string) =>
     location.pathname === path || location.pathname.startsWith(`${path}/`);
+  const showAddStaff = canManageHr(user) && isTabActive(`${basePath}/hr/staff`);
 
   return (
-    <div className="hr-hub">
-      <header className="hr-hub__header panel glass">
-        <div>
-          <h2>Human Resources</h2>
-          {/* "warehouse" role/users in code = Stock auditor in the UI */}
-          <p className="text-muted text-sm">Staff records, work reports, holidays, salary, stock auditor, media, spare incharge, roles, and super admins.</p>
-        </div>
-        {canManageHr(user) && isTabActive(`${basePath}/hr/staff`) && (
-          <Link to={`${basePath}/hr/staff/new`} className="btn btn-primary btn-sm">
-            Add staff
-          </Link>
-        )}
-      </header>
+    <div className={`hr-hub${nestedInSettings ? ' hr-hub--nested' : ''}`}>
+      {!nestedInSettings && (
+        <header className="hr-hub__header panel glass">
+          <div>
+            <h2>Human Resources</h2>
+            {/* "warehouse" role/users in code = Stock auditor in the UI */}
+            <p className="text-muted text-sm">Staff records, work reports, holidays, salary, stock auditor, media, spare incharge, roles, and super admins.</p>
+          </div>
+          {showAddStaff && (
+            <Link to={`${basePath}/hr/staff/new`} className="btn btn-primary btn-sm">
+              Add staff
+            </Link>
+          )}
+        </header>
+      )}
 
       <nav className="hr-hub__tabs panel glass" aria-label="HR sections">
         {tabs.map(tab => (
@@ -149,6 +154,11 @@ export const HrLayout: React.FC<HrLayoutProps> = ({ basePath }) => {
         >
           My profile
         </Link>
+        {nestedInSettings && showAddStaff && (
+          <Link to={`${basePath}/hr/staff/new`} className="btn btn-primary btn-sm hr-hub__add">
+            Add staff
+          </Link>
+        )}
       </nav>
 
       <Outlet />

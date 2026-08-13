@@ -1,67 +1,124 @@
-import React, { useEffect } from 'react';
+import React, { useEffect, useMemo } from 'react';
 import { Link, Outlet, useLocation, useNavigate } from 'react-router-dom';
-import { Box, CalendarRange, Layers, Package, Printer, Tag, Truck, UserCircle } from 'lucide-react';
+import {
+  Box,
+  CalendarRange,
+  GraduationCap,
+  Layers,
+  Package,
+  Printer,
+  Tag,
+  Truck,
+  UserCircle,
+  Users,
+} from 'lucide-react';
+import { useAuth } from '../../context/AuthContext';
 import { isLocalhostDev } from '../../lib/isLocalhost';
+import { canAccessNavFeature, canViewHr } from '../../lib/staffAccess';
 
-const baseTabs = [
-  { id: 'profile', label: 'Profile', path: '/super-admin/settings/profile', icon: <UserCircle size={16} /> },
-  { id: 'warehouse', label: 'Warehouse', path: '/super-admin/settings/warehouse', icon: <Layers size={16} /> },
-  { id: 'store-room', label: 'Store room', path: '/super-admin/settings/store-room', icon: <Box size={16} /> },
-  { id: 'audit-cycles', label: 'Audit', path: '/super-admin/settings/audit-cycles', icon: <CalendarRange size={16} /> },
-  { id: 'product', label: 'Product settings', path: '/super-admin/settings/product', icon: <Package size={16} /> },
-  { id: 'logistics', label: 'Logistics', path: '/super-admin/settings/logistics', icon: <Truck size={16} /> },
-  { id: 'local-printers', label: 'Label printing', path: '/super-admin/settings/local-printers', icon: <Printer size={16} /> },
-] as const;
+type SettingsTab = {
+  id: string;
+  label: string;
+  path: string;
+  icon: React.ReactNode;
+};
 
-const skuCorrectionTab = {
-  id: 'sku-correction',
-  label: 'SKU correction',
-  path: '/super-admin/settings/sku-correction',
-  icon: <Tag size={16} />,
-} as const;
+function homePrefixFromPath(pathname: string): '/super-admin' | '/staff' {
+  return pathname.startsWith('/staff') ? '/staff' : '/super-admin';
+}
 
 export const SettingsLayout: React.FC = () => {
+  const { user } = useAuth();
   const location = useLocation();
   const navigate = useNavigate();
-  const showSkuCorrection = isLocalhostDev();
+  const home = homePrefixFromPath(location.pathname);
+  const isSuperAdmin = user?.role === 'super_admin';
+  const showSkuCorrection = isSuperAdmin && isLocalhostDev();
+  const showHr = Boolean(user && (isSuperAdmin || canViewHr(user)));
+  const showTraining = Boolean(user && (isSuperAdmin || canAccessNavFeature(user, 'training')));
 
-  const tabs = showSkuCorrection
-    ? [
-        ...baseTabs.slice(0, 5),
-        skuCorrectionTab,
-        ...baseTabs.slice(5),
-      ]
-    : [...baseTabs];
+  const tabs = useMemo((): SettingsTab[] => {
+    const profile: SettingsTab = {
+      id: 'profile',
+      label: 'Profile',
+      path: `${home}/settings/profile`,
+      icon: <UserCircle size={16} />,
+    };
+    const people: SettingsTab[] = [];
+    if (showHr) {
+      people.push({
+        id: 'hr',
+        label: 'HR',
+        path: `${home}/settings/hr`,
+        icon: <Users size={16} />,
+      });
+    }
+    if (showTraining) {
+      people.push({
+        id: 'training',
+        label: 'Trainings',
+        path: `${home}/settings/training`,
+        icon: <GraduationCap size={16} />,
+      });
+    }
+
+    if (!isSuperAdmin) {
+      return [profile, ...people];
+    }
+
+    const ops: SettingsTab[] = [
+      { id: 'warehouse', label: 'Warehouse', path: `${home}/settings/warehouse`, icon: <Layers size={16} /> },
+      { id: 'store-room', label: 'Store room', path: `${home}/settings/store-room`, icon: <Box size={16} /> },
+      { id: 'audit-cycles', label: 'Audit', path: `${home}/settings/audit-cycles`, icon: <CalendarRange size={16} /> },
+      { id: 'product', label: 'Product settings', path: `${home}/settings/product`, icon: <Package size={16} /> },
+    ];
+    if (showSkuCorrection) {
+      ops.push({
+        id: 'sku-correction',
+        label: 'SKU correction',
+        path: `${home}/settings/sku-correction`,
+        icon: <Tag size={16} />,
+      });
+    }
+    ops.push(
+      { id: 'logistics', label: 'Logistics', path: `${home}/settings/logistics`, icon: <Truck size={16} /> },
+      { id: 'local-printers', label: 'Label printing', path: `${home}/settings/local-printers`, icon: <Printer size={16} /> },
+    );
+    return [profile, ...people, ...ops];
+  }, [home, isSuperAdmin, showHr, showSkuCorrection, showTraining]);
 
   useEffect(() => {
-    if (
-      location.pathname === '/super-admin/settings'
-      || location.pathname === '/super-admin/settings/'
-    ) {
-      navigate('/super-admin/settings/profile', { replace: true });
+    if (location.pathname === `${home}/settings` || location.pathname === `${home}/settings/`) {
+      navigate(`${home}/settings/profile`, { replace: true });
       return;
     }
     if (
       !isLocalhostDev()
-      && location.pathname.startsWith('/super-admin/settings/sku-correction')
+      && location.pathname.startsWith(`${home}/settings/sku-correction`)
     ) {
-      navigate('/super-admin/settings/profile', { replace: true });
+      navigate(`${home}/settings/profile`, { replace: true });
     }
-  }, [location.pathname, navigate]);
+  }, [home, location.pathname, navigate]);
 
   const isTabActive = (path: string) =>
     location.pathname === path || location.pathname.startsWith(`${path}/`);
+
+  const subtitle = isSuperAdmin
+    ? (showSkuCorrection
+      ? 'Account profile, HR, trainings, warehouse zones, store room layout, audit, product settings, SKU correction, logistics, and label printing.'
+      : 'Account profile, HR, trainings, warehouse zones, store room layout, audit, product settings, logistics, and label printing.')
+    : [
+      'Account profile',
+      showHr ? 'HR' : null,
+      showTraining ? 'trainings' : null,
+    ].filter(Boolean).join(', ') + '.';
 
   return (
     <div className="settings-hub page-content fade-in">
       <header className="settings-hub__header panel glass">
         <div>
           <h2>Settings</h2>
-          <p className="text-muted text-sm">
-            {showSkuCorrection
-              ? 'Account profile, warehouse zones, store room layout, audit, product settings, SKU correction, logistics, and label printing.'
-              : 'Account profile, warehouse zones, store room layout, audit, product settings, logistics, and label printing.'}
-          </p>
+          <p className="text-muted text-sm">{subtitle}</p>
         </div>
       </header>
 

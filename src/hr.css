@@ -54,6 +54,15 @@
   gap: 1rem;
 }
 
+.hr-hub--nested {
+  gap: 0.75rem;
+}
+
+.hr-hub__add {
+  margin-left: 0.25rem;
+  align-self: center;
+}
+
 .hr-hub__header {
   display: flex;
   align-items: flex-start;

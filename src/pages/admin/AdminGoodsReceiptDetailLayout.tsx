@@ -1,10 +1,12 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { Outlet, useLocation, useNavigate, useParams } from 'react-router-dom';
 import { AlertCircle, PackageCheck } from 'lucide-react';
 import { FetchingLoader } from '../../components/FetchingLoader';
-import { useCatalogPageHeader } from '../../context/PageHeaderContext';
+import { useCatalogPageHeader, usePageHeaderTitleMeta } from '../../context/PageHeaderContext';
 import {
   fetchAdminGoodsReceiptDetail,
+  goodsReceiptLocationLabel,
+  goodsReceiptStatusLabel,
   type AdminGoodsReceiptDetail,
 } from '../../lib/admin-goods-receipts';
 import { formatInvoiceDate, invoiceErrorMessage } from '../../lib/invoices';
@@ -25,12 +27,32 @@ export const AdminGoodsReceiptDetailLayout: React.FC = () => {
     navigate(listPath);
   }, [navigate, listPath]);
 
+  const headerDate = goodsReceipt?.date ? formatInvoiceDate(goodsReceipt.date) : null;
+  const headerBranch = goodsReceipt
+    ? goodsReceiptLocationLabel(goodsReceipt.inventorySite)
+    : null;
+  const headerSubtitle = [headerDate, headerBranch && headerBranch !== '—' ? headerBranch : null]
+    .filter(Boolean)
+    .join(' · ') || null;
+
   useCatalogPageHeader({
     title: goodsReceipt?.billNumber ?? 'Goods receipt',
-    subtitle: goodsReceipt?.date ? formatInvoiceDate(goodsReceipt.date) : null,
+    subtitle: headerSubtitle,
     showBack: true,
     onBack: handleBack,
   });
+
+  const titleMeta = useMemo(() => {
+    if (!goodsReceipt) return null;
+    const statusKey = String(goodsReceipt.status || 'draft').toLowerCase().replace(/\s+/g, '_');
+    return (
+      <span className={`invoices-status invoices-status--${statusKey}`}>
+        {goodsReceiptStatusLabel(goodsReceipt.status)}
+      </span>
+    );
+  }, [goodsReceipt]);
+
+  usePageHeaderTitleMeta(titleMeta, Boolean(titleMeta));
 
   useEffect(() => {
     if (!goodsReceiptId) return;

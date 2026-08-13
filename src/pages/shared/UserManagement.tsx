@@ -66,7 +66,7 @@ type UserManagementProps = {
   preferUsernameLogin?: boolean;
   /**
    * HR Super Admins: base path for staff create/edit routes
-   * (e.g. `/super-admin` → `/super-admin/hr/staff/new?managerUid=`).
+   * (e.g. `/super-admin/settings` → `/super-admin/settings/hr/staff/new?managerUid=`).
    */
   hrStaffBasePath?: string;
 };

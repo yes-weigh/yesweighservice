@@ -313,17 +313,108 @@ function pickVendorAddressFromBill(raw) {
   };
 }
 
+function normalizeFieldKey(value) {
+  return String(value ?? '').toLowerCase().replace(/[^a-z0-9]+/g, '');
+}
+
+function normalizeDateValue(value) {
+  if (value == null || value === '') return null;
+  if (typeof value === 'object' && !Array.isArray(value)) {
+    return normalizeDateValue(value.value ?? value.date ?? value.value_formatted);
+  }
+  const s = String(value).trim();
+  return s || null;
+}
+
+function customFieldMatches(fieldKey, needles) {
+  return needles.some(needle => fieldKey === needle || fieldKey.endsWith(needle));
+}
+
+function pickCustomDate(raw, needles) {
+  const fields = Array.isArray(raw?.custom_fields) ? raw.custom_fields : [];
+  for (const field of fields) {
+    const keys = [
+      field?.label,
+      field?.api_name,
+      field?.placeholder,
+    ].map(normalizeFieldKey).filter(Boolean);
+    if (!keys.some(key => customFieldMatches(key, needles))) continue;
+    const date = normalizeDateValue(field?.value_formatted ?? field?.value);
+    if (date) return date;
+  }
+  for (const [key, value] of Object.entries(raw ?? {})) {
+    if (!/^cf_/i.test(key)) continue;
+    if (!customFieldMatches(normalizeFieldKey(key), needles)) continue;
+    const date = normalizeDateValue(value);
+    if (date) return date;
+  }
+  return null;
+}
+
+function pickLinkedPurchaseOrderDate(raw) {
+  const orders = Array.isArray(raw?.purchaseorders)
+    ? raw.purchaseorders
+    : (Array.isArray(raw?.purchase_orders) ? raw.purchase_orders : []);
+  for (const po of orders) {
+    const date = normalizeDateValue(po?.date ?? po?.purchaseorder_date);
+    if (date) return date;
+  }
+  return null;
+}
+
+function pickBillShipmentDates(raw) {
+  return {
+    poDate: pickLinkedPurchaseOrderDate(raw),
+    sailedDate: pickCustomDate(raw, ['saileddate', 'saildate', 'sailingdate', 'etd']),
+    receivedDate: pickCustomDate(raw, ['receiveddate', 'receivedon', 'receiptdate', 'arrivaldate']),
+  };
+}
+
+function linkedPurchaseOrderNumber(raw) {
+  const orders = Array.isArray(raw?.purchaseorders)
+    ? raw.purchaseorders
+    : (Array.isArray(raw?.purchase_orders) ? raw.purchase_orders : []);
+  for (const po of orders) {
+    const number = String(po?.purchaseorder_number ?? po?.purchase_order_number ?? '').trim();
+    if (number) return number;
+  }
+  return null;
+}
+
+async function lookupPurchaseOrderDate(poNumber) {
+  const number = String(poNumber ?? '').trim();
+  if (!number) return null;
+  const snap = await getFirestore()
+    .collection('purchaseOrders')
+    .where('purchaseOrderNumber', '==', number)
+    .limit(1)
+    .get();
+  if (snap.empty) return null;
+  const data = snap.docs[0].data() || {};
+  return normalizeDateValue(data.date ?? data.createdTime ?? data.createdAt);
+}
+
+async function resolveGoodsReceiptPoDate(mapped, raw) {
+  const poNumber = mapped.referenceNumber || linkedPurchaseOrderNumber(raw);
+  const fromPo = await lookupPurchaseOrderDate(poNumber);
+  return fromPo ?? mapped.poDate ?? null;
+}
+
 function mapGoodsReceipt(raw) {
   const lineItems = Array.isArray(raw.line_items)
     ? raw.line_items.map(mapLineItem)
     : [];
   const location = pickLocationFromBill(raw);
   const vendorAddress = pickVendorAddressFromBill(raw);
+  const shipmentDates = pickBillShipmentDates(raw);
   return {
     id: String(raw.bill_id ?? ''),
     billNumber: String(raw.bill_number ?? ''),
     date: raw.date ? String(raw.date) : null,
     dueDate: raw.due_date ? String(raw.due_date) : null,
+    poDate: shipmentDates.poDate,
+    sailedDate: shipmentDates.sailedDate,
+    receivedDate: shipmentDates.receivedDate,
     status: String(raw.status ?? 'draft'),
     total: Number(raw.total ?? 0),
     balance: Number(raw.balance ?? raw.total ?? 0),
@@ -350,6 +441,7 @@ function mapGoodsReceipt(raw) {
 async function upsertGoodsReceiptFromRaw(raw, options = {}) {
   const mapped = mapGoodsReceipt(raw);
   if (!mapped.id) throw new Error('Missing bill_id.');
+  mapped.poDate = await resolveGoodsReceiptPoDate(mapped, raw);
 
   // Feature stores draft purchase bills only.
   if (!isDraftBillStatus(mapped.status)) {
@@ -384,6 +476,8 @@ function detailStillValid(existing, summary) {
   if (!Object.prototype.hasOwnProperty.call(existing, 'branchName')) return false;
   // Force re-pull once after vendor state/country mapping was added.
   if (!Object.prototype.hasOwnProperty.call(existing, 'vendorCountry')) return false;
+  // Force re-pull once after PO / sailed / received dates were added.
+  if (!Object.prototype.hasOwnProperty.call(existing, 'poDate')) return false;
   const existingMod = String(existing.zohoLastModified ?? '');
   const summaryMod = String(summary.last_modified_time ?? '');
   return Boolean(existingMod && summaryMod && existingMod === summaryMod);
@@ -888,6 +982,9 @@ export function mapGoodsReceiptDoc(id, data) {
     billNumber: String(data.billNumber ?? ''),
     date: data.date ?? null,
     dueDate: data.dueDate ?? null,
+    poDate: data.poDate ?? null,
+    sailedDate: data.sailedDate ?? null,
+    receivedDate: data.receivedDate ?? null,
     status: String(data.status ?? 'draft'),
     total: Number(data.total ?? 0),
     balance: Number(data.balance ?? 0),

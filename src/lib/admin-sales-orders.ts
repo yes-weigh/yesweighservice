@@ -11,6 +11,7 @@ import {
   startAfter,
   where,
   type DocumentData,
+  type DocumentSnapshot,
   type QueryConstraint,
   type QueryDocumentSnapshot,
 } from 'firebase/firestore';
@@ -46,7 +47,7 @@ export type AdminSalesOrderSort = 'syncedAt' | 'date';
 export type AdminSalesOrderListQuery = {
   sort?: AdminSalesOrderSort;
   pageSize?: number;
-  cursor?: QueryDocumentSnapshot<DocumentData> | null;
+  cursor?: DocumentSnapshot<DocumentData> | QueryDocumentSnapshot<DocumentData> | null;
   category?: InvoiceCategory | 'all';
   /** Inclusive YYYY-MM-DD */
   dateStart?: string | null;
@@ -347,6 +348,23 @@ export async function fetchAdminSalesOrdersPageDetailed(
     docs: snap.docs,
     lastDoc: snap.docs.length ? snap.docs[snap.docs.length - 1] : null,
   };
+}
+
+/** Hydrate Firestore page cursors from saved document ids (list return-focus). */
+export async function loadAdminSalesOrderCursorDocs(
+  ids: Array<string | null>,
+): Promise<Array<DocumentSnapshot<DocumentData> | null>> {
+  const snaps: Array<DocumentSnapshot<DocumentData> | null> = [];
+  for (const id of ids) {
+    const trimmed = String(id ?? '').trim();
+    if (!trimmed) {
+      snaps.push(null);
+      continue;
+    }
+    const snap = await getDoc(doc(db, 'salesOrders', trimmed));
+    snaps.push(snap.exists() ? snap : null);
+  }
+  return snaps;
 }
 
 export async function countAdminSalesOrders(

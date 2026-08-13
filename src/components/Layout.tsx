@@ -65,7 +65,6 @@ const OPS_BEFORE_REPORTS_SUFFIXES = [
   '/verification',
   '/advertisements',
   '/loyalty',
-  '/training',
   '/notifications',
 ] as const;
 
@@ -137,7 +136,6 @@ function portalNavItems(
           'loyalty',
           'aiAssistant',
           'notifications',
-          'training',
         ]
       : order === 'dealer_staff'
         ? [
@@ -193,6 +191,7 @@ function staffPathToFeature(path: string): StaffNavFeature {
     'ai-assistant': 'ai-assistant',
     notifications: 'notifications',
     training: 'training',
+    settings: 'dashboard',
     hr: 'staff',
     reports: 'reports',
   };
@@ -278,7 +277,6 @@ const LayoutShell: React.FC = () => {
           { path: '/super-admin/products', icon: <Package size={20} />, label: 'Products' },
           { path: '/super-admin/sales-orders', icon: <ClipboardList size={20} />, label: 'Sales orders' },
           ...operationsNavItems('/super-admin', OPS_PRIORITY_SUFFIXES),
-          { path: '/super-admin/hr', icon: <Users size={20} />, label: 'HR' },
           { path: '/super-admin/dealers', icon: <Building2 size={20} />, label: 'Dealers' },
           { path: '/super-admin/invoices', icon: <FileText size={20} />, label: 'Invoices' },
           { path: '/super-admin/purchase-orders', icon: <ShoppingBag size={20} />, label: 'Purchase order' },
@@ -311,9 +309,6 @@ const LayoutShell: React.FC = () => {
           { path: '/staff/dealers', icon: <Building2 size={20} />, label: 'Dealers' },
           { path: '/staff/leads', icon: <UserRoundPlus size={20} />, label: 'Leads' },
         ];
-        if (canViewHr(user)) {
-          items.splice(1 + withExtras.length, 0, { path: '/staff/hr', icon: <Users size={20} />, label: 'HR' });
-        }
         return filterStaffNavItems(user, items);
       }
       case 'dealer':
@@ -339,8 +334,12 @@ const LayoutShell: React.FC = () => {
   const home = homePathForRole(user.role);
   const isSuperAdmin = user.role === 'super_admin';
   const compactTopNav = isInvoiceAccessOnlyStaff(user);
-  const footerNavPath = isSuperAdmin ? `${home}/settings` : `${home}/profile`;
-  const isFooterNavActive = isSuperAdmin
+  const usesSettingsFooter = isSuperAdmin
+    || (user.role === 'staff'
+      && (canViewHr(user) || canAccessNavFeature(user, 'training')));
+  const footerNavPath = usesSettingsFooter ? `${home}/settings` : `${home}/profile`;
+  const footerLabel = usesSettingsFooter ? 'Settings' : 'Profile';
+  const isFooterNavActive = usesSettingsFooter
     ? location.pathname === footerNavPath || location.pathname.startsWith(`${footerNavPath}/`)
     : location.pathname === footerNavPath;
 
@@ -382,7 +381,7 @@ const LayoutShell: React.FC = () => {
   const isSupportDetail = /\/warranty-support\/[^/]+$/.test(location.pathname)
     && !location.pathname.endsWith('/complaint-guidelines');
   const pageTitle = isFooterNavActive
-    ? (isSuperAdmin ? 'Settings' : 'Profile')
+    ? footerLabel
     : isDealerDetail
       ? 'Dealer'
     : isInvoiceDetail
@@ -491,15 +490,15 @@ const LayoutShell: React.FC = () => {
             <button
               type="button"
               className={`nav-item ${isFooterNavActive ? 'active' : ''}`}
-              onClick={() => handleNavClick(isSuperAdmin ? `${home}/settings/profile` : footerNavPath)}
-              aria-label={isSuperAdmin ? 'Open settings' : 'Open profile'}
-              title={isSuperAdmin ? 'Settings' : 'Profile'}
+              onClick={() => handleNavClick(usesSettingsFooter ? `${home}/settings/profile` : footerNavPath)}
+              aria-label={usesSettingsFooter ? 'Open settings' : 'Open profile'}
+              title={footerLabel}
             >
               <span className="nav-icon">
-                {isSuperAdmin ? <Settings size={20} /> : <UserCircle size={20} />}
+                {usesSettingsFooter ? <Settings size={20} /> : <UserCircle size={20} />}
               </span>
               {!collapsed && (
-                <span className="nav-label">{isSuperAdmin ? 'Settings' : 'Profile'}</span>
+                <span className="nav-label">{footerLabel}</span>
               )}
             </button>
           </div>

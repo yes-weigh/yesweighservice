@@ -277,7 +277,7 @@ export const SuperAdminDashboard: React.FC = () => {
 
   const quickActions = [
     { label: 'Manage Dealers', path: `${BASE}/dealers`, icon: <Building2 size={20} /> },
-    { label: 'HR', path: `${BASE}/hr`, icon: <Users size={20} /> },
+    { label: 'HR', path: `${BASE}/settings/hr`, icon: <Users size={20} /> },
     { label: 'Invoices', path: `${BASE}/invoices`, icon: <FileText size={20} /> },
     { label: 'Products', path: `${BASE}/products`, icon: <Package size={20} /> },
     { label: 'Warranty & Support', path: `${BASE}/warranty-support`, icon: <LifeBuoy size={20} /> },
@@ -292,7 +292,7 @@ export const SuperAdminDashboard: React.FC = () => {
       tone: 'purple' as const,
       icon: <Users size={18} />,
       actionLabel: 'Open HR',
-      path: `${BASE}/hr`,
+      path: `${BASE}/settings/hr`,
     },
     {
       label: 'Unassigned staff',

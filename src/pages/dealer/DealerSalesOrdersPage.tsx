@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { useNavigate } from 'react-router-dom';
 import {
@@ -27,6 +27,12 @@ import type {
 import { toSalesOrderDateKey } from '../../lib/admin-sales-orders';
 import { formatCurrency } from '../../lib/catalog';
 import { listDealerSalesOrders } from '../../lib/dealer-sales-orders';
+import {
+  FROM_SALES_ORDER_LIST_STATE,
+  clearSalesOrderListOpenedRow,
+  peekSalesOrderListReturn,
+  rememberSalesOrderListReturn,
+} from '../../lib/salesOrderListReturnFocus';
 import {
   formatInvoiceDate,
   formatInvoiceItemQuantity,
@@ -162,17 +168,29 @@ export const DealerSalesOrdersPage: React.FC = () => {
   const navigate = useNavigate();
   const { user } = useAuth();
   const basePath = user ? homePathForRole(user.role) : '/dealer';
+  const listKey = basePath;
+  const pendingReturnRef = useRef(peekSalesOrderListReturn(listKey));
+  const skipPageResetRef = useRef(Boolean(pendingReturnRef.current));
+  const returnFocusAppliedRef = useRef(false);
+  const restored = pendingReturnRef.current;
   const scrollRef = useRevealScrollbarOnScroll();
 
   const [zohoOrders, setZohoOrders] = useState<AdminFirestoreSalesOrder[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
-  const [search, setSearch] = useState('');
-  const [rangePreset, setRangePreset] = useState<SalesRangePreset>(DEFAULT_RANGE);
+  const [search, setSearch] = useState(() => restored?.search ?? '');
+  const [rangePreset, setRangePreset] = useState<SalesRangePreset>(
+    restored?.rangePreset ?? DEFAULT_RANGE,
+  );
   const category = DEFAULT_CATEGORY;
-  const [stageFilter, setStageFilter] = useState<YesOneStageFilter | 'all'>('all');
+  const [stageFilter, setStageFilter] = useState<YesOneStageFilter | 'all'>(
+    restored?.stageFilter ?? 'all',
+  );
   const [filterOpen, setFilterOpen] = useState(false);
-  const [page, setPage] = useState(1);
+  const [page, setPage] = useState(() => restored?.page ?? 1);
+  const [highlightedOrderId, setHighlightedOrderId] = useState<string | null>(
+    () => restored?.openedOrderId ?? null,
+  );
 
   const load = useCallback(() => {
     setLoading(true);
@@ -227,6 +245,10 @@ export const DealerSalesOrdersPage: React.FC = () => {
   }, [baseFiltered, stageFilter]);
 
   useEffect(() => {
+    if (skipPageResetRef.current) {
+      skipPageResetRef.current = false;
+      return;
+    }
     setPage(1);
   }, [search, rangePreset, stageFilter]);
 
@@ -237,13 +259,59 @@ export const DealerSalesOrdersPage: React.FC = () => {
   }, [filtered, page]);
 
   useEffect(() => {
+    if (loading) return;
     if (page > totalPages) setPage(totalPages);
-  }, [page, totalPages]);
+  }, [loading, page, totalPages]);
+
+  useEffect(() => {
+    if (returnFocusAppliedRef.current || loading) return;
+    const focus = pendingReturnRef.current;
+    if (!focus) return;
+    returnFocusAppliedRef.current = true;
+
+    const openedId = focus.openedOrderId?.trim() || '';
+    if (openedId) {
+      setHighlightedOrderId(openedId);
+      window.setTimeout(() => {
+        setHighlightedOrderId(null);
+        clearSalesOrderListOpenedRow(listKey);
+      }, 4500);
+    }
+
+    window.requestAnimationFrame(() => {
+      window.setTimeout(() => {
+        if (openedId) {
+          const el = document.querySelector(
+            `[data-so-id="${CSS.escape(openedId)}"]`,
+          ) as HTMLElement | null;
+          if (el) {
+            el.scrollIntoView({ block: 'center', behavior: 'smooth' });
+            return;
+          }
+        }
+        if (scrollRef.current && Number.isFinite(focus.scrollTop) && focus.scrollTop > 0) {
+          scrollRef.current.scrollTop = focus.scrollTop;
+        }
+      }, 80);
+    });
+  }, [loading, pageRows, listKey]);
 
   const hasActiveFilters = rangePreset !== DEFAULT_RANGE || stageFilter !== 'all';
 
   const openRow = (row: UnifiedSalesOrderRow) => {
-    navigate(row.href);
+    rememberSalesOrderListReturn(listKey, {
+      search,
+      stageFilter,
+      rangePreset,
+      sort: 'date',
+      dealers: [],
+      aggregate: false,
+      page,
+      pageCursorIds: [null],
+      scrollTop: scrollRef.current?.scrollTop ?? 0,
+      openedOrderId: row.id,
+    });
+    navigate(row.href, { state: FROM_SALES_ORDER_LIST_STATE });
   };
 
   const headerTools = useMemo(
@@ -348,9 +416,11 @@ export const DealerSalesOrdersPage: React.FC = () => {
                     {pageRows.map(row => (
                       <tr
                         key={row.key}
+                        data-so-id={row.id}
                         className={[
                           'invoices-table__row--clickable',
                           row.sealKind ? 'unified-so-row--with-seal' : '',
+                          highlightedOrderId === row.id ? 'invoices-table__row--return-focus' : '',
                         ].filter(Boolean).join(' ')}
                         onClick={() => openRow(row)}
                         onKeyDown={e => {
@@ -412,9 +482,11 @@ export const DealerSalesOrdersPage: React.FC = () => {
                   <button
                     key={row.key}
                     type="button"
+                    data-so-id={row.id}
                     className={[
                       'invoices-mobile-row invoices-mobile-row--po-stack unified-so-mobile-row',
                       row.sealKind ? 'unified-so-mobile-row--with-seal' : '',
+                      highlightedOrderId === row.id ? 'invoices-mobile-row--return-focus' : '',
                     ].filter(Boolean).join(' ')}
                     onClick={() => openRow(row)}
                     aria-label={`View ${row.primaryNumber}${row.sealKind ? `, ${row.statusLabel}` : ''}`}

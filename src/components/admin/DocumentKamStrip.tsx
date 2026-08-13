@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { Phone, UserRound } from 'lucide-react';
 import { HrStaffPhoto } from '../hr/HrStaffPhoto';
+import { ThemeSelect } from '../ThemeSelect';
 import {
   resolveStaffForZohoSalesperson,
   type ZohoSalespersonStaff,
@@ -14,6 +15,15 @@ function WhatsAppIcon({ size = 14 }: { size?: number }) {
   );
 }
 
+export type DocumentKamStripAssignStaff = {
+  selectedUid: string;
+  options: Array<{ uid: string; displayName: string }>;
+  onSelect: (uid: string) => void;
+  onAssign: () => void;
+  busy?: boolean;
+  disabled?: boolean;
+};
+
 type Props = {
   salespersonId?: string | null;
   salespersonName?: string | null;
@@ -21,6 +31,8 @@ type Props = {
   /** When true, show a missing-salesperson placeholder instead of hiding. */
   showMissing?: boolean;
   missingHint?: string | null;
+  /** Super admin / ops: assign sales staff from this document when none is set. */
+  assignStaff?: DocumentKamStripAssignStaff | null;
 };
 
 export const DocumentKamStrip: React.FC<Props> = ({
@@ -29,6 +41,7 @@ export const DocumentKamStrip: React.FC<Props> = ({
   className = '',
   showMissing = false,
   missingHint = null,
+  assignStaff = null,
 }) => {
   const id = salespersonId?.trim() || '';
   const zohoName = salespersonName?.trim() || '';
@@ -64,9 +77,10 @@ export const DocumentKamStrip: React.FC<Props> = ({
 
   if (!id && !zohoName) {
     if (!showMissing) return null;
+    const canAssign = Boolean(assignStaff?.options.length);
     return (
       <aside
-        className={`doc-kam-strip doc-kam-strip--missing ${className}`.trim()}
+        className={`doc-kam-strip doc-kam-strip--missing ${canAssign ? 'doc-kam-strip--assign' : ''} ${className}`.trim()}
         aria-label="Sales staff missing"
       >
         <div className="doc-kam-strip__media">
@@ -77,13 +91,46 @@ export const DocumentKamStrip: React.FC<Props> = ({
         <div className="doc-kam-strip__body">
           <strong className="doc-kam-strip__name">No sales staff</strong>
           <span className="doc-kam-strip__role">Required for Verify &amp; invoice</span>
-          {missingHint ? (
+          {canAssign ? (
+            <span className="doc-kam-strip__hint text-muted">
+              {missingHint || 'Pick sales staff to assign on this order'}
+            </span>
+          ) : missingHint ? (
             <span className="doc-kam-strip__hint text-muted">{missingHint}</span>
           ) : (
             <span className="doc-kam-strip__hint text-muted">
               Assign sales staff on the dealer, then apply here
             </span>
           )}
+          {canAssign && assignStaff ? (
+            <div className="doc-kam-strip__assign" data-capture-ignore="1">
+              <ThemeSelect
+                id="doc-kam-assign-staff"
+                compact
+                value={assignStaff.selectedUid}
+                placeholder="Select staff…"
+                options={assignStaff.options.map(staff => ({
+                  value: staff.uid,
+                  label: staff.displayName,
+                }))}
+                onChange={assignStaff.onSelect}
+                disabled={assignStaff.disabled || assignStaff.busy}
+                aria-label="Sales staff"
+              />
+              <button
+                type="button"
+                className="btn btn-primary btn-sm"
+                disabled={
+                  !assignStaff.selectedUid.trim()
+                  || assignStaff.disabled
+                  || assignStaff.busy
+                }
+                onClick={assignStaff.onAssign}
+              >
+                {assignStaff.busy ? 'Assigning…' : 'Assign'}
+              </button>
+            </div>
+          ) : null}
         </div>
       </aside>
     );

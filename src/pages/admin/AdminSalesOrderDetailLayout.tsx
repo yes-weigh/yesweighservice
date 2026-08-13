@@ -22,6 +22,7 @@ import {
   invoiceStatusLabel,
 } from '../../lib/invoices';
 import { canNavigateBackInApp } from '../../lib/navigation';
+import { isFromSalesOrderList } from '../../lib/salesOrderListReturnFocus';
 import {
   applySalesOrderSalespersonFromDealer,
   applySalesOrderSalespersonFromStaff,
@@ -48,7 +49,8 @@ import type {
 export const AdminSalesOrderDetailLayout: React.FC = () => {
   const { salesOrderId = '' } = useParams<{ salesOrderId: string }>();
   const navigate = useNavigate();
-  const { pathname } = useLocation();
+  const location = useLocation();
+  const { pathname } = location;
   const { user } = useAuth();
   const basePath = pathname.startsWith('/staff')
     ? '/staff'
@@ -79,8 +81,12 @@ export const AdminSalesOrderDetailLayout: React.FC = () => {
       }
       return;
     }
+    if (isFromSalesOrderList(location.state) && canNavigateBackInApp()) {
+      navigate(-1);
+      return;
+    }
     navigate(listPath);
-  }, [isPdfView, navigate, summaryPath, listPath]);
+  }, [isPdfView, navigate, summaryPath, listPath, location.state]);
 
   useCatalogPageHeader({
     title: salesOrder?.salesOrderNumber ?? 'Sales order',
@@ -201,7 +207,11 @@ export const AdminSalesOrderDetailLayout: React.FC = () => {
     && salesOrder?.customerId,
   );
   const canAssignSalespersonStaff = Boolean(
-    canApplySalesperson && assignableStaff.length > 0,
+    canManageZoho
+    && !hasSalesperson
+    && stage !== 'completed'
+    && stage !== 'void'
+    && assignableStaff.length > 0,
   );
   const canDelete = Boolean(
     (canManageZoho || isDealerView)

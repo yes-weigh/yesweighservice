@@ -1,6 +1,6 @@
 import React from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate, useLocation } from 'react-router-dom';
-import { AuthProvider } from './context/AuthContext';
+import { AuthProvider, useAuth } from './context/AuthContext';
 import { CartProvider } from './context/CartProvider';
 import { DealerPriceLevelProvider } from './context/DealerPriceLevelProvider';
 import { CartFlyProvider } from './context/CartFlyProvider';
@@ -77,10 +77,19 @@ import {
 } from './components/catalog/LegacyCatalogRedirects';
 import { WarehouseHomePage } from './pages/warehouse/WarehouseHomePage';
 import { WarehouseLayout } from './pages/warehouse/WarehouseLayout';
+import { canAccessNavFeature, canViewHr } from './lib/staffAccess';
 
 const LegacyPathRedirect: React.FC<{ from: string; to: string }> = ({ from, to }) => {
   const { pathname } = useLocation();
   return <Navigate to={pathname.replace(from, to)} replace />;
+};
+
+const StaffProfileEntry: React.FC = () => {
+  const { user } = useAuth();
+  if (user && (canViewHr(user) || canAccessNavFeature(user, 'training'))) {
+    return <Navigate to="/staff/settings/profile" replace />;
+  }
+  return <ProfilePage />;
 };
 
 const OpsOrderDetailRedirect: React.FC = () => {
@@ -125,7 +134,6 @@ const superAdminOpsRoutes = (
     <Route path="advertisements" element={<DealerMenuPages.Advertisements />} />
     <Route path="logistics" element={<DealerMenuPages.Logistics />} />
     <Route path="loyalty" element={<DealerMenuPages.Loyalty />} />
-    <Route path="training" element={<DealerMenuPages.Training />} />
     <Route path="notifications" element={<DealerMenuPages.Notifications />} />
     <Route path="ai-assistant" element={<DealerMenuPages.AiAssistant />} />
   </>
@@ -183,7 +191,6 @@ const portalMenuRoutes = (
     <Route path="advertisements" element={<DealerMenuPages.Advertisements />} />
     <Route path="logistics" element={<DealerMenuPages.Logistics />} />
     <Route path="loyalty" element={<DealerMenuPages.Loyalty />} />
-    <Route path="training" element={<DealerMenuPages.Training />} />
     <Route path="notifications" element={<DealerMenuPages.Notifications />} />
     <Route path="ai-assistant" element={<DealerMenuPages.AiAssistant />} />
   </>
@@ -207,12 +214,37 @@ const dealerRoutes = (
   <>
     <Route index element={<Navigate to="products" replace />} />
     {portalMenuRoutes}
+    <Route path="training" element={<DealerMenuPages.Training />} />
     {dealerInvoiceRoutes}
     {dealerSalesOrderRoutes}
     <Route path="team" element={<DealerTeamPage />} />
     <Route path="profile" element={<ProfilePage />} />
   </>
 );
+
+function hrNestedRoutes(settingsBase: string, includeAdminExtras: boolean) {
+  return (
+    <Route path="hr" element={<HrLayout basePath={settingsBase} />}>
+      <Route path="staff" element={<HrStaffListPage basePath={settingsBase} />} />
+      <Route path="staff/new" element={<HrStaffFormPage basePath={settingsBase} />} />
+      <Route path="staff/:uid" element={<HrStaffDetailPage basePath={settingsBase} />} />
+      <Route path="staff/:uid/edit" element={<HrStaffFormPage basePath={settingsBase} />} />
+      <Route path="report" element={<HrWorkReportPage basePath={settingsBase} />} />
+      <Route path="holidays" element={<HrHolidayCalendarPage />} />
+      <Route path="salary" element={<HrSalaryCalculationPage basePath={settingsBase} />} />
+      {includeAdminExtras ? (
+        <>
+          <Route path="super-admins" element={<HrSuperAdminsPage basePath={settingsBase} />} />
+          <Route path="roles" element={<HrRolesPage />} />
+        </>
+      ) : null}
+      <Route path="warehouse" element={<HrWarehousePage basePath={settingsBase} />} />
+      <Route path="media" element={<HrMediaPage basePath={settingsBase} />} />
+      <Route path="spare-incharge" element={<HrSpareInchargePage basePath={settingsBase} />} />
+      <Route path="me" element={<HrMyProfilePage />} />
+    </Route>
+  );
+}
 
 const App: React.FC = () => (
   <AuthProvider>
@@ -242,26 +274,13 @@ const App: React.FC = () => (
             <Route path="/super-admin" element={<Layout />}>
               <Route index element={<SuperAdminDashboard />} />
               {catalogRoutes}
-              <Route path="staff" element={<Navigate to="/super-admin/hr/staff" replace />} />
-              <Route path="super-admins" element={<Navigate to="/super-admin/hr/super-admins" replace />} />
+              <Route path="staff" element={<Navigate to="/super-admin/settings/hr/staff" replace />} />
+              <Route path="super-admins" element={<Navigate to="/super-admin/settings/hr/super-admins" replace />} />
               <Route path="dealers/*" element={<AdminDealersList />} />
               <Route path="hr/dealers/*" element={<LegacyPathRedirect from="/super-admin/hr/dealers" to="/super-admin/dealers" />} />
+              <Route path="hr/*" element={<LegacyPathRedirect from="/super-admin/hr" to="/super-admin/settings/hr" />} />
               <Route path="dealer-staff" element={<AdminDealerStaffList />} />
-              <Route path="hr" element={<HrLayout basePath="/super-admin" />}>
-                <Route path="staff" element={<HrStaffListPage basePath="/super-admin" />} />
-                <Route path="staff/new" element={<HrStaffFormPage basePath="/super-admin" />} />
-                <Route path="staff/:uid" element={<HrStaffDetailPage basePath="/super-admin" />} />
-                <Route path="staff/:uid/edit" element={<HrStaffFormPage basePath="/super-admin" />} />
-                <Route path="report" element={<HrWorkReportPage basePath="/super-admin" />} />
-                <Route path="holidays" element={<HrHolidayCalendarPage />} />
-                <Route path="salary" element={<HrSalaryCalculationPage basePath="/super-admin" />} />
-                <Route path="super-admins" element={<HrSuperAdminsPage basePath="/super-admin" />} />
-                <Route path="roles" element={<HrRolesPage />} />
-                <Route path="warehouse" element={<HrWarehousePage basePath="/super-admin" />} />
-                <Route path="media" element={<HrMediaPage basePath="/super-admin" />} />
-                <Route path="spare-incharge" element={<HrSpareInchargePage basePath="/super-admin" />} />
-                <Route path="me" element={<HrMyProfilePage />} />
-              </Route>
+              <Route path="training" element={<Navigate to="/super-admin/settings/training" replace />} />
               <Route path="dealer-accounts" element={<AdminDealerAccountsList />} />
               <Route path="invoices" element={<AdminInvoicesPage />} />
               <Route path="invoices/:customerId/:invoiceId" element={<AdminInvoiceDetailLayout />}>
@@ -303,6 +322,8 @@ const App: React.FC = () => (
               </Route>
               <Route path="settings" element={<SettingsLayout />}>
                 <Route path="profile" element={<SettingsProfileTab />} />
+                {hrNestedRoutes('/super-admin/settings', true)}
+                <Route path="training" element={<DealerMenuPages.Training />} />
                 <Route path="warehouse" element={<WarehouseLocationsTab />} />
                 <Route path="store-room" element={<StoreRoomTab />} />
                 <Route path="audit-cycles" element={<AuditCyclesTab />} />
@@ -347,20 +368,14 @@ const App: React.FC = () => (
                 <Route path="audit-report" element={<AuditReportTab />} />
                 <Route path="gatc-report" element={<GatcReportTab />} />
               </Route>
-              <Route path="hr" element={<HrLayout basePath="/staff" />}>
-                <Route path="staff" element={<HrStaffListPage basePath="/staff" />} />
-                <Route path="staff/new" element={<HrStaffFormPage basePath="/staff" />} />
-                <Route path="staff/:uid" element={<HrStaffDetailPage basePath="/staff" />} />
-                <Route path="staff/:uid/edit" element={<HrStaffFormPage basePath="/staff" />} />
-                <Route path="report" element={<HrWorkReportPage basePath="/staff" />} />
-                <Route path="holidays" element={<HrHolidayCalendarPage />} />
-                <Route path="salary" element={<HrSalaryCalculationPage basePath="/staff" />} />
-                <Route path="warehouse" element={<HrWarehousePage basePath="/staff" />} />
-                <Route path="media" element={<HrMediaPage basePath="/staff" />} />
-                <Route path="spare-incharge" element={<HrSpareInchargePage basePath="/staff" />} />
-                <Route path="me" element={<HrMyProfilePage />} />
+              <Route path="hr/*" element={<LegacyPathRedirect from="/staff/hr" to="/staff/settings/hr" />} />
+              <Route path="training" element={<Navigate to="/staff/settings/training" replace />} />
+              <Route path="settings" element={<SettingsLayout />}>
+                <Route path="profile" element={<SettingsProfileTab />} />
+                {hrNestedRoutes('/staff/settings', false)}
+                <Route path="training" element={<DealerMenuPages.Training />} />
               </Route>
-              <Route path="profile" element={<ProfilePage />} />
+              <Route path="profile" element={<StaffProfileEntry />} />
             </Route>
           </Route>
 

@@ -95,6 +95,9 @@ export interface AdminGoodsReceiptDetail {
   billNumber: string;
   date: string | null;
   dueDate: string | null;
+  poDate: string | null;
+  sailedDate: string | null;
+  receivedDate: string | null;
   status: string;
   total: number;
   balance: number;
@@ -583,6 +586,9 @@ export function mapAdminGoodsReceiptDetail(
     billNumber: String(data.billNumber ?? ''),
     date: data.date ? String(data.date) : null,
     dueDate: data.dueDate ? String(data.dueDate) : null,
+    poDate: data.poDate ? String(data.poDate) : null,
+    sailedDate: data.sailedDate ? String(data.sailedDate) : null,
+    receivedDate: data.receivedDate ? String(data.receivedDate) : null,
     status: String(data.status ?? 'draft'),
     total: Number(data.total ?? 0),
     balance: Number(data.balance ?? 0),
@@ -611,6 +617,19 @@ export function mapAdminGoodsReceiptDetail(
   };
 }
 
+async function lookupPurchaseOrderDate(poNumber: string): Promise<string | null> {
+  const number = poNumber.trim();
+  if (!number) return null;
+  const snap = await getDocs(query(
+    collection(db, 'purchaseOrders'),
+    where('purchaseOrderNumber', '==', number),
+    limit(1),
+  ));
+  if (snap.empty) return null;
+  const date = snap.docs[0].data()?.date;
+  return date ? String(date) : null;
+}
+
 export async function fetchAdminGoodsReceiptDetail(
   goodsReceiptId: string,
 ): Promise<AdminGoodsReceiptDetail> {
@@ -619,18 +638,24 @@ export async function fetchAdminGoodsReceiptDetail(
     throw new Error('Goods receipt not found.');
   }
   const detail = mapAdminGoodsReceiptDetail(goodsReceiptId, snap.data());
-  const withImages = await enrichInvoiceDetailImages({
-    ...detail,
-    invoiceNumber: detail.billNumber,
-    dueDate: detail.dueDate,
-    lastPaymentDate: null,
-    customerName: detail.vendorName,
-    invoiceUrl: null,
-    salesOrderId: null,
-    salesOrderNumber: null,
-  });
+  const [withImages, poDate] = await Promise.all([
+    enrichInvoiceDetailImages({
+      ...detail,
+      invoiceNumber: detail.billNumber,
+      dueDate: detail.dueDate,
+      lastPaymentDate: null,
+      customerName: detail.vendorName,
+      invoiceUrl: null,
+      salesOrderId: null,
+      salesOrderNumber: null,
+    }),
+    detail.referenceNumber
+      ? lookupPurchaseOrderDate(detail.referenceNumber).catch(() => detail.poDate)
+      : Promise.resolve(detail.poDate),
+  ]);
   return {
     ...detail,
+    poDate,
     lineItems: withImages.lineItems,
   };
 }

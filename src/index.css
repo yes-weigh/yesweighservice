@@ -31244,6 +31244,32 @@ body:has(.confirm-inline-bar) .confirm-inline-bar {
   background: rgba(255, 255, 255, 0.05);
 }
 
+.invoices-table__row--return-focus td,
+.invoices-mobile-row--return-focus {
+  animation: so-list-row-return-focus 4.5s ease-out forwards;
+}
+
+.invoices-table__row--return-focus,
+.invoices-mobile-row--return-focus {
+  scroll-margin-top: 5rem;
+  scroll-margin-bottom: 5.5rem;
+}
+
+@keyframes so-list-row-return-focus {
+  0% {
+    background: rgba(251, 191, 36, 0.28);
+    box-shadow: inset 3px 0 0 #fbbf24;
+  }
+  70% {
+    background: rgba(251, 191, 36, 0.1);
+    box-shadow: inset 3px 0 0 #fbbf24;
+  }
+  100% {
+    background: transparent;
+    box-shadow: none;
+  }
+}
+
 .invoices-table-wrap {
   overflow-x: auto;
 }
@@ -31326,7 +31352,8 @@ body:has(.confirm-inline-bar) .confirm-inline-bar {
 
 .invoices-status--draft,
 .invoices-status--unpaid,
-.invoices-status--partially_paid {
+.invoices-status--partially_paid,
+.invoices-status--scheduled {
   background: rgba(251, 191, 36, 0.14);
   color: #fcd34d;
 }
@@ -32541,6 +32568,63 @@ button.invoice-detail-top__card {
   flex-wrap: wrap;
 }
 
+.goods-receipt-receive__save-wrap {
+  display: inline-flex;
+}
+
+.goods-receipt-receive__save-wrap:has(button:disabled) {
+  cursor: not-allowed;
+}
+
+.goods-receipt-receive__save-wrap:has(button:disabled) button {
+  pointer-events: none;
+}
+
+.goods-receipt-detail {
+  display: flex;
+  flex-direction: column;
+  gap: 0.85rem;
+}
+
+.goods-receipt-detail__meta {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.goods-receipt-detail__dates {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.75rem 1rem;
+}
+
+.goods-receipt-detail__date--po strong {
+  color: #fbbf24;
+}
+
+.goods-receipt-detail__date--sailed strong {
+  color: #38bdf8;
+}
+
+.goods-receipt-detail__date--received strong {
+  color: #4ade80;
+}
+
+.goods-receipt-detail__meta-row {
+  display: flex;
+  gap: 1rem;
+  flex-wrap: wrap;
+}
+
+.goods-receipt-detail .invoice-detail-items {
+  padding: 0 !important;
+  background: transparent;
+  border: 0;
+  box-shadow: none;
+  backdrop-filter: none;
+  border-radius: 0;
+}
+
 .goods-receipt-receive__saved {
   display: inline-flex;
   align-items: center;
@@ -32569,7 +32653,8 @@ button.invoice-detail-top__card {
 }
 
 .goods-receipt-receive__summary .goods-receipt-receive__field,
-.goods-receipt-receive__summary .goods-receipt-receive__diff-wrap {
+.goods-receipt-receive__summary .goods-receipt-receive__diff-wrap,
+.goods-receipt-receive__summary .goods-receipt-receive__package-toggle {
   flex: 1 1 5.5rem;
   min-width: 4.75rem;
 }
@@ -32583,8 +32668,65 @@ button.invoice-detail-top__card {
 }
 
 .goods-receipt-receive__package {
-  margin-top: 0.65rem;
+  margin-top: 0.5rem;
   width: 100%;
+}
+
+.goods-receipt-receive__package-toggle {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  justify-content: flex-end;
+  gap: 0.28rem;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+  text-align: left;
+  min-width: 0;
+}
+
+.goods-receipt-receive__package-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.28rem;
+  min-height: 2.25rem;
+}
+
+.goods-receipt-receive__package-alarm {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.28rem;
+  color: #fbbf24;
+  font-size: 0.75rem;
+  font-weight: 750;
+}
+
+.goods-receipt-receive__package-alarm img {
+  display: block;
+}
+
+.goods-receipt-receive__package-ok {
+  color: #4ade80;
+  font-size: 0.8125rem;
+  font-weight: 800;
+}
+
+.goods-receipt-receive__package-chevron {
+  flex-shrink: 0;
+  color: #94a3b8;
+  transition: transform 0.15s ease;
+}
+
+.goods-receipt-receive__package-chevron.is-open {
+  transform: rotate(180deg);
+}
+
+.goods-receipt-receive__package.is-open .product-package__head {
+  display: none;
 }
 
 .goods-receipt-receive__package-hint {
@@ -32594,10 +32736,50 @@ button.invoice-detail-top__card {
   font-size: 0.75rem;
 }
 
+.goods-receipt-detail .invoice-detail-item-list {
+  gap: 0;
+}
+
+.goods-receipt-receive__item.invoice-detail-item {
+  display: block;
+  padding: 0.75rem 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+}
+
+.goods-receipt-receive__item.invoice-detail-item + .goods-receipt-receive__item {
+  border-top: 1px solid rgba(148, 163, 184, 0.14);
+}
+
+.goods-receipt-receive__item::after {
+  content: '';
+  display: table;
+  clear: both;
+}
+
+.goods-receipt-receive__item .invoice-detail-item__image-wrap {
+  float: left;
+  margin: 0 0.7rem 0.35rem 0;
+}
+
+.goods-receipt-receive__item .invoice-detail-item__body {
+  display: block;
+  flex: none;
+}
+
+.goods-receipt-receive__item .goods-receipt-receive__package,
+.goods-receipt-receive__item .goods-receipt-receive__locations {
+  clear: both;
+  width: 100%;
+}
+
 .goods-receipt-receive__item--package-missing {
-  outline: 1px solid rgba(251, 191, 36, 0.35);
-  outline-offset: 2px;
-  border-radius: 12px;
+  outline: none;
+  border-radius: 0;
+  box-shadow: inset 3px 0 0 rgba(251, 191, 36, 0.7);
+  padding-left: 0.55rem;
 }
 
 /* Dark + compact package block (matches freight package editor). */
@@ -32828,42 +33010,21 @@ button.invoice-detail-top__card {
   min-height: 2.25rem;
 }
 
-.goods-receipt-receive__add-btn {
+.goods-receipt-receive__row-actions {
   display: inline-flex;
   align-items: center;
   gap: 0.35rem;
-  align-self: flex-start;
-  margin-top: 0.15rem;
-  padding: 0.35rem 0.65rem;
-  border-radius: 8px;
-  border: 1px dashed rgba(148, 163, 184, 0.4);
-  background: transparent;
-  color: var(--text-secondary);
-  font: inherit;
-  font-size: 0.8125rem;
-  font-weight: 650;
-  cursor: pointer;
+  flex: 0 0 auto;
+  align-self: flex-end;
+  min-height: 2.25rem;
 }
 
-.goods-receipt-receive__add-btn:hover:not(:disabled) {
-  border-color: rgba(249, 115, 22, 0.55);
-  color: var(--text-primary);
-  background: rgba(249, 115, 22, 0.08);
-}
-
-.goods-receipt-receive__add-btn:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
-}
-
-.goods-receipt-receive__remove-btn {
+.goods-receipt-receive__icon-btn {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  flex: 0 0 auto;
   width: 2.25rem;
   height: 2.25rem;
-  margin-bottom: 0;
   border-radius: 8px;
   border: 1px solid rgba(148, 163, 184, 0.28);
   background: rgba(15, 23, 42, 0.35);
@@ -32871,13 +33032,24 @@ button.invoice-detail-top__card {
   cursor: pointer;
 }
 
-.goods-receipt-receive__remove-btn:hover:not(:disabled) {
+.goods-receipt-receive__icon-btn--add {
+  border-color: rgba(249, 115, 22, 0.4);
+  color: #fdba74;
+}
+
+.goods-receipt-receive__icon-btn--add:hover:not(:disabled) {
+  border-color: rgba(249, 115, 22, 0.65);
+  background: rgba(249, 115, 22, 0.12);
+  color: #fb923c;
+}
+
+.goods-receipt-receive__icon-btn--remove:hover:not(:disabled) {
   border-color: rgba(248, 113, 113, 0.55);
   color: #f87171;
   background: rgba(248, 113, 113, 0.1);
 }
 
-.goods-receipt-receive__remove-btn:disabled {
+.goods-receipt-receive__icon-btn:disabled {
   opacity: 0.35;
   cursor: not-allowed;
 }
@@ -43971,6 +44143,23 @@ button.invoice-detail-top__card {
 .doc-kam-strip__hint {
   font-size: 0.72rem;
   margin-top: 0.1rem;
+}
+
+.doc-kam-strip--assign .doc-kam-strip__body {
+  padding-right: 0.75rem;
+}
+
+.doc-kam-strip__assign {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.45rem;
+  margin-top: 0.45rem;
+}
+
+.doc-kam-strip__assign .theme-select {
+  min-width: 10.5rem;
+  flex: 1 1 10.5rem;
 }
 
 .doc-kam-strip__actions {

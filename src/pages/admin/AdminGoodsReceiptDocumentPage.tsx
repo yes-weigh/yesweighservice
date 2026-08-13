@@ -1,14 +1,13 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { useOutletContext } from 'react-router-dom';
-import { AlertCircle, Check, Package, Plus, X } from 'lucide-react';
+import { AlertCircle, Check, ChevronDown, Package, Plus, X } from 'lucide-react';
 import { DocumentLineItemSpec } from '../../components/invoices/DocumentLineItemSpec';
 import { ProductNcSelect } from '../../components/catalog/ProductNcSelect';
 import { ProductPackageInfo } from '../../components/catalog/ProductPackageInfo';
+import { PackageInfoIcon } from '../../components/catalog/PackageInfoIcon';
 import { useAuth } from '../../context/AuthContext';
 import { isFreightProductId, isFreightSku } from '../../constants/freightLines';
 import {
-  goodsReceiptLocationLabel,
-  goodsReceiptStatusLabel,
   receiveLineLocations,
   saveGoodsReceiptReceiveCheck,
 } from '../../lib/admin-goods-receipts';
@@ -126,6 +125,7 @@ export const AdminGoodsReceiptDocumentPage: React.FC = () => {
   const [rowsByZone, setRowsByZone] = useState<Record<string, WarehouseZoneRowDoc[]>>({});
   const [loadingZones, setLoadingZones] = useState(true);
   const [catalogById, setCatalogById] = useState<Record<string, CatalogProduct>>({});
+  const [expandedPackageIds, setExpandedPackageIds] = useState<Set<string>>(() => new Set());
 
   const lineItems = useMemo(
     () => (goodsReceipt ? moveFreightLinesToEnd(goodsReceipt.lineItems) : []),
@@ -249,6 +249,15 @@ export const AdminGoodsReceiptDocumentPage: React.FC = () => {
 
   if (!goodsReceipt) return null;
 
+  const togglePackageExpanded = (lineId: string) => {
+    setExpandedPackageIds(prev => {
+      const next = new Set(prev);
+      if (next.has(lineId)) next.delete(lineId);
+      else next.add(lineId);
+      return next;
+    });
+  };
+
   const onPackageInfoSaved = (productId: string, info: CatalogPackageInfo) => {
     setCatalogById(prev => {
       const existing = prev[productId];
@@ -371,78 +380,69 @@ export const AdminGoodsReceiptDocumentPage: React.FC = () => {
   };
 
   return (
-    <>
-      <section className="panel glass mb-4" style={{ padding: '1rem 1.25rem' }}>
-        <div className="flex gap-4 flex-wrap" style={{ justifyContent: 'space-between' }}>
-          <div>
-            <div className="text-muted text-sm">Vendor</div>
-            <strong>{goodsReceipt.vendorName ?? '—'}</strong>
-            {(goodsReceipt.vendorCity
-              || goodsReceipt.vendorState
-              || goodsReceipt.vendorCountry) && (
-              <p className="text-muted text-sm mt-1 mb-0">
-                {[
-                  goodsReceipt.vendorCity,
-                  goodsReceipt.vendorState,
-                  goodsReceipt.vendorCountry,
-                ].filter(Boolean).join(', ')}
-              </p>
-            )}
-          </div>
-          <div>
-            <div className="text-muted text-sm">Date</div>
-            <strong>{formatInvoiceDate(goodsReceipt.date)}</strong>
-          </div>
-          {goodsReceipt.dueDate && (
-            <div>
-              <div className="text-muted text-sm">Due date</div>
-              <strong>{formatInvoiceDate(goodsReceipt.dueDate)}</strong>
-            </div>
+    <div className="goods-receipt-detail">
+      <section className="goods-receipt-detail__meta">
+        <div>
+          <div className="text-muted text-sm">Vendor</div>
+          <strong>{goodsReceipt.vendorName ?? '—'}</strong>
+          {(goodsReceipt.vendorCity
+            || goodsReceipt.vendorState
+            || goodsReceipt.vendorCountry) && (
+            <p className="text-muted text-sm mt-1 mb-0">
+              {[
+                goodsReceipt.vendorCity,
+                goodsReceipt.vendorState,
+                goodsReceipt.vendorCountry,
+              ].filter(Boolean).join(', ')}
+            </p>
           )}
-          <div>
-            <div className="text-muted text-sm">Branch</div>
-            <strong>{goodsReceiptLocationLabel(goodsReceipt.inventorySite)}</strong>
+        </div>
+        <div className="goods-receipt-detail__dates">
+          <div className="goods-receipt-detail__date goods-receipt-detail__date--po">
+            <div className="text-muted text-sm">PO date</div>
+            <strong>{formatInvoiceDate(goodsReceipt.poDate)}</strong>
           </div>
-          <div>
-            <div className="text-muted text-sm">Status</div>
-            <strong>{goodsReceiptStatusLabel(goodsReceipt.status)}</strong>
+          <div className="goods-receipt-detail__date goods-receipt-detail__date--sailed">
+            <div className="text-muted text-sm">Sailed date</div>
+            <strong>{formatInvoiceDate(goodsReceipt.sailedDate)}</strong>
+          </div>
+          <div className="goods-receipt-detail__date goods-receipt-detail__date--received">
+            <div className="text-muted text-sm">Received date</div>
+            <strong>{formatInvoiceDate(goodsReceipt.receivedDate)}</strong>
           </div>
         </div>
-        {goodsReceipt.referenceNumber && (
-          <p className="text-muted text-sm mt-3 mb-0">Ref {goodsReceipt.referenceNumber}</p>
-        )}
         {goodsReceipt.notes && (
-          <p className="text-muted text-sm mt-2 mb-0">{goodsReceipt.notes}</p>
+          <p className="text-muted text-sm mb-0">{goodsReceipt.notes}</p>
         )}
       </section>
 
-      <section className="invoice-detail-items panel glass goods-receipt-receive">
+      <section className="invoice-detail-items goods-receipt-receive">
         <div className="goods-receipt-receive__header">
           <h3 className="invoice-detail-items__title mb-0">
             Items{lineItems.length ? ` (${lineItems.length})` : ''}
           </h3>
-          <button
-            type="button"
-            className="btn btn-primary btn-sm"
-            disabled={saving || !dirty || !packageDataReady}
-            onClick={() => void handleSave()}
+          <span
+            className="goods-receipt-receive__save-wrap"
+            title={
+              !packageDataReady
+                ? `Fill package info (weight + L × B × H) for ${
+                    missingPackageLines.length === 1
+                      ? missingPackageLines[0].name
+                      : `${missingPackageLines.length} products`
+                  }`
+                : undefined
+            }
           >
-            {saving ? 'Saving…' : 'Save'}
-          </button>
+            <button
+              type="button"
+              className="btn btn-primary btn-sm"
+              disabled={saving || !dirty || !packageDataReady}
+              onClick={() => void handleSave()}
+            >
+              {saving ? 'Saving…' : 'Save'}
+            </button>
+          </span>
         </div>
-
-        {!packageDataReady && (
-          <div className="products-inline-error panel glass mt-3" role="alert">
-            <AlertCircle size={16} />
-            <span>
-              Fill single box package information (weight + L × B × H) for{' '}
-              {missingPackageLines.length === 1
-                ? missingPackageLines[0].name
-                : `${missingPackageLines.length} products`}
-              {' '}before saving receive locations.
-            </span>
-          </div>
-        )}
 
         {saveError && (
           <div className="products-inline-error panel glass mt-3" role="alert">
@@ -496,6 +496,7 @@ export const AdminGoodsReceiptDocumentPage: React.FC = () => {
                   className={[
                     'invoice-detail-item',
                     'admin-invoice-detail-item',
+                    'goods-receipt-receive__item',
                     packageMissing ? 'goods-receipt-receive__item--package-missing' : '',
                   ].filter(Boolean).join(' ')}
                 >
@@ -553,15 +554,39 @@ export const AdminGoodsReceiptDocumentPage: React.FC = () => {
                           {diff == null ? '—' : formatDiff(diff)}
                         </strong>
                       </div>
+                      {showPackageInfo && catalogProduct && (
+                        <button
+                          type="button"
+                          className={`goods-receipt-receive__package-toggle${
+                            packageMissing ? ' is-missing' : ''
+                          }`}
+                          onClick={() => togglePackageExpanded(item.id)}
+                          aria-expanded={expandedPackageIds.has(item.id)}
+                        >
+                          <span className="goods-receipt-receive__label">Package</span>
+                          <span className="goods-receipt-receive__package-status">
+                            {packageMissing ? (
+                              <span className="goods-receipt-receive__package-alarm">
+                                <PackageInfoIcon size={16} title="Package info missing" />
+                                Missing
+                              </span>
+                            ) : (
+                              <span className="goods-receipt-receive__package-ok">OK</span>
+                            )}
+                            <ChevronDown
+                              size={14}
+                              aria-hidden
+                              className={`goods-receipt-receive__package-chevron${
+                                expandedPackageIds.has(item.id) ? ' is-open' : ''
+                              }`}
+                            />
+                          </span>
+                        </button>
+                      )}
                     </div>
 
-                    {showPackageInfo && catalogProduct && (
-                      <div className="goods-receipt-receive__package">
-                        {packageMissing && (
-                          <p className="goods-receipt-receive__package-hint text-sm mb-2">
-                            Single box weight + L × B × H required before Save.
-                          </p>
-                        )}
+                    {showPackageInfo && catalogProduct && expandedPackageIds.has(item.id) && (
+                      <div className="goods-receipt-receive__package is-open">
                         <ProductPackageInfo
                           product={catalogProduct}
                           packageInfo={catalogProduct.packageInfo}
@@ -574,8 +599,9 @@ export const AdminGoodsReceiptDocumentPage: React.FC = () => {
 
                     <div className="goods-receipt-receive__locations">
                       <span className="goods-receipt-receive__label">Warehouse locations</span>
-                      {draft.locations.map(loc => {
+                      {draft.locations.map((loc, locIndex) => {
                         const zoneRows = loc.zoneId ? (rowsByZone[loc.zoneId] ?? []) : [];
+                        const isLast = locIndex === draft.locations.length - 1;
                         return (
                           <div
                             key={loc.key}
@@ -633,27 +659,31 @@ export const AdminGoodsReceiptDocumentPage: React.FC = () => {
                                 aria-label={`Qty at location for ${item.name}`}
                               />
                             </label>
-                            <button
-                              type="button"
-                              className="goods-receipt-receive__remove-btn"
-                              disabled={saving || draft.locations.length <= 1}
-                              onClick={() => removeLocation(item.id, loc.key)}
-                              aria-label="Remove warehouse location"
-                            >
-                              <X size={14} aria-hidden />
-                            </button>
+                            <div className="goods-receipt-receive__row-actions">
+                              <button
+                                type="button"
+                                className="goods-receipt-receive__icon-btn goods-receipt-receive__icon-btn--remove"
+                                disabled={saving || draft.locations.length <= 1}
+                                onClick={() => removeLocation(item.id, loc.key)}
+                                aria-label="Remove warehouse location"
+                              >
+                                <X size={14} aria-hidden />
+                              </button>
+                              {isLast && (
+                                <button
+                                  type="button"
+                                  className="goods-receipt-receive__icon-btn goods-receipt-receive__icon-btn--add"
+                                  disabled={saving}
+                                  onClick={() => addLocation(item.id)}
+                                  aria-label="Add warehouse location"
+                                >
+                                  <Plus size={14} aria-hidden />
+                                </button>
+                              )}
+                            </div>
                           </div>
                         );
                       })}
-                      <button
-                        type="button"
-                        className="goods-receipt-receive__add-btn"
-                        disabled={saving}
-                        onClick={() => addLocation(item.id)}
-                      >
-                        <Plus size={14} aria-hidden />
-                        Add warehouse location
-                      </button>
                     </div>
                   </DocumentLineItemSpec>
                 </li>
@@ -664,6 +694,6 @@ export const AdminGoodsReceiptDocumentPage: React.FC = () => {
           <p className="invoice-detail-items__empty text-muted text-sm">No line items on this bill.</p>
         )}
       </section>
-    </>
+    </div>
   );
 };
