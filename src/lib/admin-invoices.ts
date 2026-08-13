@@ -32,6 +32,7 @@ import {
   invoiceCategoryAmount,
   invoiceHasCategory,
   invoiceAmountExclGst,
+  isGatcFeeOnlyInvoice,
   normalizeInvoiceCategories,
   normalizeInvoiceCategoryAmounts,
   parseInvoiceCategory,
@@ -489,8 +490,9 @@ function applyPortalGatcFee(
 
 /**
  * Align invoice-list membership and amounts with GATC Billwise:
- * overlay `gatcFeeTotal` onto matching invoices, drop Zoho-HSN-only stamping,
- * and append Billwise invoices missing from the dump.
+ * overlay `gatcFeeTotal` onto matching invoices, omit standalone GATC-fee
+ * Zoho invoices that have no Billwise report, and append Billwise invoices
+ * missing from the dump.
  */
 export function overlayPortalStampingOnInvoices(
   rows: AdminFirestoreInvoice[],
@@ -503,27 +505,34 @@ export function overlayPortalStampingOnInvoices(
   }
 
   const seen = new Set<string>();
-  const next: AdminFirestoreInvoice[] = rows.map(row => {
+  const next: AdminFirestoreInvoice[] = [];
+  for (const row of rows) {
     seen.add(row.id);
     const portal = portalById.get(row.id);
     if (portal) {
       const fee = Number(portal.categoryAmounts?.gatc ?? 0);
-      return applyPortalGatcFee(row, fee, portal.itemQuantity ?? undefined);
+      next.push(applyPortalGatcFee(row, fee, portal.itemQuantity ?? undefined));
+      continue;
     }
     const hasHsnGatc = row.categories.includes('gatc') || row.invoiceCategory === 'gatc';
-    if (!hasHsnGatc) return row;
+    if (!hasHsnGatc) {
+      next.push(row);
+      continue;
+    }
     const categories = row.categories.filter(category => category !== 'gatc');
     const amounts = { ...row.categoryAmounts };
     delete amounts.gatc;
-    return {
+    // Fee-only Zoho invoices with no Billwise report are not commerce invoices.
+    if (!categories.length) continue;
+    next.push({
       ...row,
       categories,
       invoiceCategory: row.invoiceCategory === 'gatc'
         ? (categories[0] ?? null)
         : row.invoiceCategory,
       categoryAmounts: amounts,
-    };
-  });
+    });
+  }
 
   let appended = false;
   for (const portal of portalRows) {
@@ -748,6 +757,8 @@ export function filterAdminInvoices(
   let next = rows;
   if (category && category !== 'all') {
     next = next.filter(row => invoiceHasCategory(row, category));
+  } else {
+    next = next.filter(row => !isGatcFeeOnlyInvoice(row));
   }
   const needle = searchText.trim().toLowerCase();
   if (!needle) return next;
@@ -1665,7 +1676,7 @@ export function countInvoiceRowsByCategory(
   rows: AdminFirestoreInvoice[],
 ): AdminInvoiceCategoryCounts {
   const counts: AdminInvoiceCategoryCounts = {
-    all: rows.length,
+    all: 0,
     product: 0,
     spare: 0,
     software_key: 0,
@@ -1673,6 +1684,8 @@ export function countInvoiceRowsByCategory(
     gatc: 0,
   };
   for (const row of rows) {
+    const gatcOnly = isGatcFeeOnlyInvoice(row);
+    if (!gatcOnly) counts.all += 1;
     const categories = row.categories.length ? row.categories : (row.invoiceCategory ? [row.invoiceCategory] : []);
     for (const key of categories) {
       counts[key] += 1;

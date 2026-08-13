@@ -54,6 +54,7 @@ import {
   invoiceAmountExclGst,
   invoiceCategoryAmount,
   invoiceCategoryLabel,
+  isGatcFeeOnlyInvoice,
 } from '../../lib/invoices';
 import {
   invoiceListFilterStatusKey,
@@ -764,14 +765,15 @@ export const AdminInvoicesPage: React.FC = () => {
       .then(([allRows, portal]) => {
         if (cancelled) return;
         const merged = overlayPortalStampingOnInvoices(allRows, portal.rows, sort);
+        const commerce = merged.filter(row => !isGatcFeeOnlyInvoice(row));
         const counts = countInvoiceRowsByCategory(merged);
         setCategoryCounts(counts);
-        setKpiCount(merged.length);
-        setKpiDocumentAmount(merged.reduce((sum, row) => sum + invoiceAmountExclGst(row), 0));
+        setKpiCount(commerce.length);
+        setKpiDocumentAmount(commerce.reduce((sum, row) => sum + invoiceAmountExclGst(row), 0));
         setRows(merged);
         setKpiCategoryAmount(
           category === 'all'
-            ? merged.reduce((sum, row) => sum + invoiceAmountExclGst(row), 0)
+            ? commerce.reduce((sum, row) => sum + invoiceAmountExclGst(row), 0)
             : merged.reduce((sum, row) => sum + invoiceCategoryAmount(row, category), 0),
         );
         setHasMore(false);
@@ -801,11 +803,13 @@ export const AdminInvoicesPage: React.FC = () => {
     () => {
       const rememberedPickupIds = new Set(readRememberedInvoiceCustomerPickupIds());
       const rememberedDeliveredIds = new Set(readRememberedInvoiceManualDeliveryIds());
-      return rows
+      const mapped = rows
         .filter(row => (row.aggregateInvoiceCount ?? 0) <= 1)
         .map(row => withRememberedFulfillment(row, rememberedPickupIds, rememberedDeliveredIds));
+      if (category === 'gatc') return mapped;
+      return mapped.filter(row => !isGatcFeeOnlyInvoice(row));
     },
-    [rows, locationKey],
+    [rows, locationKey, category],
   );
 
   const statusFiltered = useMemo(

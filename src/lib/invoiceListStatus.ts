@@ -62,6 +62,7 @@ export function invoiceAllowsLogisticsFulfillment(
 ): boolean {
   const categories = invoiceCategoriesForDisplay(invoice);
   if (!categories.length) return true;
+  if (categories.every(category => category === 'gatc')) return false;
   return categories.some(category => LOGISTICS_FREIGHT_CATEGORIES.has(category));
 }
 

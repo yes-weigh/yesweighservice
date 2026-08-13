@@ -678,6 +678,20 @@ function hsnMatchesCategory(
   return Boolean(hsn) && codes.includes(hsn);
 }
 
+/**
+ * GATC stamping-fee lines: SAC/HSN 998346 / 79061190, or fee SKU/name
+ * (e.g. GRV20 “GATC Fees upto 20kg”).
+ */
+export function isGatcFeeInvoiceLineItem(
+  item: Pick<DealerInvoiceLineItem, 'name' | 'sku'> & { hsn?: string | null },
+): boolean {
+  if (hsnMatchesCategory(normalizeCategoryHsn(item.hsn), INVOICE_CATEGORY_HSN.gatc)) return true;
+  const name = String(item.name ?? '').trim().toLowerCase();
+  if (name.includes('gatc fee')) return true;
+  const sku = item.sku?.trim().toLowerCase() ?? '';
+  return /^grv\d/.test(sku);
+}
+
 export function isFreightInvoiceLineItem(
   item: Pick<DealerInvoiceLineItem, 'name' | 'sku'> & {
     hsn?: string | null;
@@ -712,7 +726,7 @@ export function moveFreightLinesToEnd<T extends Parameters<typeof isFreightInvoi
 export function isQuantityExcludedInvoiceLineItem(
   item: Pick<DealerInvoiceLineItem, 'name' | 'sku'> & { hsn?: string | null },
 ): boolean {
-  if (hsnMatchesCategory(normalizeCategoryHsn(item.hsn), INVOICE_CATEGORY_HSN.gatc)) return true;
+  if (isGatcFeeInvoiceLineItem(item)) return true;
   return isFreightInvoiceLineItem(item);
 }
 
@@ -816,6 +830,18 @@ export function invoiceCategoriesForDisplay(
   return legacy ? [legacy] : [];
 }
 
+/**
+ * Standalone GATC fee invoices (SAC/HSN above) with no product/spare/service/software lines.
+ * These are not counted in All / To dispatch — Stamping tab still lists portal Billwise rows.
+ */
+export function isGatcFeeOnlyInvoice(
+  invoice: { categories?: unknown; invoiceCategory?: unknown } | null | undefined,
+): boolean {
+  const categories = invoiceCategoriesForDisplay(invoice);
+  if (!categories.length) return false;
+  return categories.every(category => category === 'gatc');
+}
+
 export function classifyInvoiceLineItem(
   item: InvoiceCategoryLineInput,
   catalogByItemId: Map<string, InvoiceCategoryCatalogMeta> = new Map(),
@@ -829,7 +855,7 @@ export function classifyInvoiceLineItem(
   const catalog = itemId ? catalogByItemId.get(itemId) : null;
   const hsn = normalizeCategoryHsn(hsnFromItem || catalog?.hsn);
 
-  if (hsnMatchesCategory(hsn, INVOICE_CATEGORY_HSN.gatc)) return 'gatc';
+  if (isGatcFeeInvoiceLineItem({ name, sku, hsn: hsnFromItem || catalog?.hsn })) return 'gatc';
   if (hsnMatchesCategory(hsn, INVOICE_CATEGORY_HSN.service)) return 'service';
   if (hsnMatchesCategory(hsn, INVOICE_CATEGORY_HSN.software_key)) return 'software_key';
   if (
@@ -927,8 +953,9 @@ export function classifyDealerOrderCategory(
 }
 
 export function isStampingInvoiceLineItem(
-  item: Pick<DealerInvoiceLineItem, 'name' | 'sku'>,
+  item: Pick<DealerInvoiceLineItem, 'name' | 'sku'> & { hsn?: string | null },
 ): boolean {
+  if (isGatcFeeInvoiceLineItem(item)) return true;
   const name = item.name.trim().toLowerCase();
   const sku = item.sku?.trim().toLowerCase() ?? '';
   return name.includes('stamping') || sku.includes('stamping');

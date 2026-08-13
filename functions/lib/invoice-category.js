@@ -21,6 +21,14 @@ function hsnMatchesCategory(hsn, codes) {
   return Boolean(hsn) && Array.isArray(codes) && codes.includes(hsn);
 }
 
+function isGatcFeeLineItem(name, sku, hsn) {
+  if (hsnMatchesCategory(normalizeHsn(hsn), INVOICE_CATEGORY_HSN.gatc)) return true;
+  const itemName = String(name ?? '').trim().toLowerCase();
+  if (itemName.includes('gatc fee')) return true;
+  const itemSku = String(sku ?? '').trim().toLowerCase();
+  return /^grv\d/.test(itemSku);
+}
+
 export function isGenericSpareCategoryName(name) {
   const normalized = String(name ?? '').trim().toLowerCase();
   if (!normalized) return false;
@@ -47,7 +55,7 @@ export function isFreightLineItem(name, sku, hsn) {
 
 /** Lines omitted from qty totals: freight and GATC lines. */
 export function isQuantityExcludedLineItem(name, sku, hsn) {
-  if (hsnMatchesCategory(normalizeHsn(hsn), INVOICE_CATEGORY_HSN.gatc)) return true;
+  if (isGatcFeeLineItem(name, sku, hsn)) return true;
   return isFreightLineItem(name, sku, hsn);
 }
 
@@ -85,7 +93,7 @@ export function classifyInvoiceLineItem(item, catalogByItemId = new Map()) {
   const catalog = itemId ? catalogByItemId.get(itemId) : null;
   const hsn = normalizeHsn(item?.hsn || catalog?.hsn);
 
-  if (hsnMatchesCategory(hsn, INVOICE_CATEGORY_HSN.gatc)) return 'gatc';
+  if (isGatcFeeLineItem(item?.name, item?.sku, item?.hsn || catalog?.hsn)) return 'gatc';
   if (hsnMatchesCategory(hsn, INVOICE_CATEGORY_HSN.service)) return 'service';
   if (hsnMatchesCategory(hsn, INVOICE_CATEGORY_HSN.software_key)) return 'software_key';
   if (isSoftwareSegmentCategoryName(catalog?.categoryName) || isSoftwareSegmentCategoryName(item?.categoryName)) {
