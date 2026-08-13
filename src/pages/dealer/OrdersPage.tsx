@@ -44,6 +44,7 @@ import { loadLogisticsCourierRates } from '../../lib/logisticsCourierRates';
 import { loadLogisticsSettings } from '../../lib/logisticsSettings';
 import type { InventorySite } from '../../lib/salesOrderSegments';
 import {
+  applyCourierSelectionForSite,
   cartLinesForFreightEstimate,
   estimateStCourierCartFreight,
   resolveSubmitCourierBySite,
@@ -702,7 +703,12 @@ const DealerCartPage: React.FC = () => {
                 onFreightBillingModeChange={setFreightBillingMode}
                 onCourierChange={(site, partnerId) => {
                   if (partnerId !== 'delhivery') setFreightBillingMode('btc');
-                  setCourierBySite(prev => ({ ...prev, [site]: partnerId }));
+                  setCourierBySite(prev => applyCourierSelectionForSite(
+                    prev,
+                    site,
+                    partnerId,
+                    freightEstimate?.sites.map(s => s.site),
+                  ));
                 }}
               />
               {!cartIsSpareOnly

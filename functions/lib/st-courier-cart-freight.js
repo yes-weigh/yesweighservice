@@ -417,6 +417,11 @@ export function buildDealerAutoFreightLines({
   const rates = parseLogisticsCourierRates(courierRates);
   const { zone } = resolveFreightZone(destination, freightZone);
   const selected = normalizeCourierBySite(courierBySite);
+  // Customer pickup is whole-order (dealer clubSites). Do not fall back to ST
+  // on a site that was missing from courierBySite.
+  if (Object.values(selected).some(id => id === 'personal_collection')) {
+    return [];
+  }
 
   /** @type {Map<string, object[]>} */
   const productParcelsBySite = new Map();

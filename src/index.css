@@ -32741,12 +32741,110 @@ button.invoice-detail-top__card {
 }
 
 .goods-receipt-receive__item.invoice-detail-item {
+  position: relative;
   display: block;
   padding: 0.75rem 0;
   border: 0;
   border-radius: 0;
   background: transparent;
   box-shadow: none;
+}
+
+.goods-receipt-receive__hide-btn {
+  position: absolute;
+  top: 0.55rem;
+  right: 0;
+  z-index: 2;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 2rem;
+  height: 2rem;
+  border-radius: 8px;
+  border: 1px solid rgba(148, 163, 184, 0.28);
+  background: rgba(15, 23, 42, 0.65);
+  color: #94a3b8;
+  cursor: pointer;
+}
+
+.goods-receipt-receive__hide-btn:hover:not(:disabled) {
+  border-color: rgba(148, 163, 184, 0.5);
+  color: #e2e8f0;
+  background: rgba(30, 41, 59, 0.9);
+}
+
+.goods-receipt-receive__hide-btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.goods-receipt-receive__hidden-list {
+  list-style: none;
+  margin: 0.85rem 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.45rem;
+}
+
+.goods-receipt-receive__hidden-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.65rem;
+  padding: 0.55rem 0.65rem;
+  border-radius: 10px;
+  border: 1px dashed rgba(148, 163, 184, 0.28);
+  background: rgba(15, 23, 42, 0.35);
+}
+
+.goods-receipt-receive__hidden-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0.35rem 0.55rem;
+  min-width: 0;
+}
+
+.goods-receipt-receive__hidden-badge {
+  font-size: 0.625rem;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: #94a3b8;
+}
+
+.goods-receipt-receive__hidden-name {
+  font-size: 0.875rem;
+  font-weight: 700;
+  color: var(--text-secondary);
+}
+
+.goods-receipt-receive__unhide-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  flex: 0 0 auto;
+  padding: 0.35rem 0.6rem;
+  border-radius: 8px;
+  border: 1px solid rgba(148, 163, 184, 0.3);
+  background: rgba(15, 23, 42, 0.45);
+  color: #cbd5e1;
+  font: inherit;
+  font-size: 0.75rem;
+  font-weight: 650;
+  cursor: pointer;
+}
+
+.goods-receipt-receive__unhide-btn:hover:not(:disabled) {
+  border-color: rgba(249, 115, 22, 0.55);
+  color: #fdba74;
+  background: rgba(249, 115, 22, 0.1);
+}
+
+.goods-receipt-receive__unhide-btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
 }
 
 .goods-receipt-receive__item.invoice-detail-item + .goods-receipt-receive__item {

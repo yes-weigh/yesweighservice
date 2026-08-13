@@ -1228,6 +1228,7 @@ export const AdminSalesOrderDocumentPage: React.FC = () => {
                   </p>
                 ) : null}
                 <SoFreightExpandPanel
+                  key={salesOrder.id}
                   lines={editLines}
                   onChangeLines={setEditLines}
                   catalogById={catalogById}

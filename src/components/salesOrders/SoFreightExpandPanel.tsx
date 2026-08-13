@@ -24,6 +24,7 @@ import {
   freightSkuForPartner,
   isPickupPartner,
   partnerIdForFreightSku,
+  PICKUP_PARTNER_ID,
 } from '../../lib/orderFreight';
 import {
   classifyOrderLineSegment,
@@ -131,6 +132,8 @@ export const SoFreightExpandPanel: React.FC<Props> = ({
   const hydratedRef = useRef(false);
   const lastAutoKeyRef = useRef('');
   const prevFreightInputsKeyRef = useRef(freightInputsKey);
+  /** Wait until existing SO freight/pickup is seeded — otherwise empty courierBySite defaults to ST. */
+  const [partnersReady, setPartnersReady] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -153,7 +156,16 @@ export const SoFreightExpandPanel: React.FC<Props> = ({
     if (lines.length === 0) return;
     hydratedRef.current = true;
     const freight = lines.find(isFreightDraftEditLine);
-    if (!freight) return;
+    if (!freight) {
+      // Dealer customer pickup (and deferred spare freight) leave no freight SKU.
+      // Do not fall through to ST — that is only the preferred default for new carts.
+      setCourierBySite({
+        cochin: PICKUP_PARTNER_ID,
+        head_office: PICKUP_PARTNER_ID,
+      });
+      setPartnersReady(true);
+      return;
+    }
     const option = freightOptionByProductId(freight.productId)
       || freightOptionBySku(freight.sku);
     // Prefer line.rate — catalogRate can be 0 for freight SKUs in the product catalog.
@@ -174,6 +186,7 @@ export const SoFreightExpandPanel: React.FC<Props> = ({
     } else if (partner === 'delhivery') {
       setFreightBillingMode('btc');
     }
+    setPartnersReady(true);
   }, [lines]);
 
   // Line qty/add/remove or destination change → resume auto freight (don't keep a stale manual ₹).
@@ -316,6 +329,7 @@ export const SoFreightExpandPanel: React.FC<Props> = ({
   };
 
   useEffect(() => {
+    if (!partnersReady) return;
     if (!freightEstimate?.usable || freightAmountManual || disabled) return;
     const site = freightEstimate.sites[0];
     if (!site) return;
@@ -385,9 +399,10 @@ export const SoFreightExpandPanel: React.FC<Props> = ({
     applyFreight(sku, String(rate));
     // Sync freight from estimate when courier / package / lines change.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [freightEstimate, freightAmountManual, disabled, showUi, freightBillingMode]);
+  }, [partnersReady, freightEstimate, freightAmountManual, disabled, showUi, freightBillingMode]);
 
   useEffect(() => {
+    if (!partnersReady) return;
     if (freightAmountManual || disabled) return;
     if (!selectedPartnerIsDelhivery(freightEstimate)) return;
     if (freightBillingMode === 'fod') return;
@@ -403,7 +418,7 @@ export const SoFreightExpandPanel: React.FC<Props> = ({
     setFreightAmount(String(rate));
     applyFreight(sku, String(rate));
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [delhiveryLive.preTaxInr, freightEstimate, freightAmountManual, disabled, freightBillingMode]);
+  }, [partnersReady, delhiveryLive.preTaxInr, freightEstimate, freightAmountManual, disabled, freightBillingMode]);
 
   const showDelhiveryQuote = selectedPartnerIsDelhivery(freightEstimate)
     && Boolean(shippingDestination?.zip);

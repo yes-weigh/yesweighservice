@@ -148,6 +148,8 @@ export type GoodsReceiptReceiveCheck = {
   lines: Record<string, GoodsReceiptReceiveLine>;
   /** Legacy qty-only map — kept in sync when saving. */
   byLineId: Record<string, number>;
+  /** Zoho line ids hidden from receive UI (super-admin only). */
+  hiddenLineIds: string[];
   updatedAt: string | null;
   updatedByUid: string | null;
   updatedByName: string | null;
@@ -571,6 +573,9 @@ function mapReceiveCheck(raw: unknown): GoodsReceiptReceiveCheck | null {
   return {
     lines,
     byLineId,
+    hiddenLineIds: Array.isArray(data.hiddenLineIds)
+      ? data.hiddenLineIds.map(id => String(id || '').trim()).filter(Boolean)
+      : [],
     updatedAt: timestampToIso(data.updatedAt),
     updatedByUid: data.updatedByUid != null ? String(data.updatedByUid) : null,
     updatedByName: data.updatedByName != null ? String(data.updatedByName) : null,
@@ -766,6 +771,17 @@ export async function saveGoodsReceiptReceiveCheck(
 
   const { lines, byLineId } = normalizeReceiveLines(input.lines);
   const previousLines = input.previous?.lines ?? {};
+  const previousHidden = input.previous?.hiddenLineIds ?? [];
+  const hiddenLineIds = [...new Set(
+    previousHidden.map(id => String(id || '').trim()).filter(Boolean),
+  )];
+
+  // Hidden lines stay out of receive placements (reverse any prior stock via empty next).
+  for (const lineId of hiddenLineIds) {
+    delete lines[lineId];
+    delete byLineId[lineId];
+  }
+
   const itemIdByLineId = new Map(
     input.lineItems
       .filter(line => line.id)
@@ -836,6 +852,7 @@ export async function saveGoodsReceiptReceiveCheck(
   const receiveCheck = {
     lines,
     byLineId,
+    hiddenLineIds,
     updatedAt: serverTimestamp(),
     updatedByUid: actor.uid,
     updatedByName: actor.displayName?.trim() || null,
@@ -873,6 +890,109 @@ export async function saveGoodsReceiptReceiveCheck(
   return {
     lines,
     byLineId,
+    hiddenLineIds,
+    updatedAt: new Date().toISOString(),
+    updatedByUid: actor.uid,
+    updatedByName: actor.displayName?.trim() || null,
+  };
+}
+
+/**
+ * Super-admin: hide/unhide a bill line from the receive UI.
+ * Hiding clears that line's placements and reverses warehouse inventory for them.
+ */
+export async function setGoodsReceiptLineHidden(
+  goodsReceiptId: string,
+  lineId: string,
+  hidden: boolean,
+  options: {
+    lineItems: DealerInvoiceLineItem[];
+    previous: GoodsReceiptReceiveCheck | null;
+  },
+  actor: { uid: string; displayName?: string | null },
+): Promise<GoodsReceiptReceiveCheck> {
+  const id = String(goodsReceiptId || '').trim();
+  const targetLineId = String(lineId || '').trim();
+  if (!id) throw new Error('Goods receipt id is required.');
+  if (!targetLineId) throw new Error('Line id is required.');
+
+  const previous = options.previous;
+  const previousLines = previous?.lines ?? {};
+  const previousByLineId = { ...(previous?.byLineId ?? {}) };
+  const nextLines: Record<string, GoodsReceiptReceiveLine> = { ...previousLines };
+  const nextByLineId: Record<string, number> = { ...previousByLineId };
+  const hiddenSet = new Set(
+    (previous?.hiddenLineIds ?? []).map(v => String(v || '').trim()).filter(Boolean),
+  );
+
+  if (hidden) hiddenSet.add(targetLineId);
+  else hiddenSet.delete(targetLineId);
+
+  const prevLocs = hidden ? receiveLineLocations(previousLines[targetLineId]) : [];
+  if (hidden) {
+    delete nextLines[targetLineId];
+    delete nextByLineId[targetLineId];
+  }
+
+  // Reverse inventory for placements cleared by hide.
+  const deltasByProduct = new Map<string, CatalogSiteInventoryLocationRow[]>();
+  let openCycleId: string | null = null;
+  if (prevLocs.length > 0) {
+    const line = options.lineItems.find(l => l.id === targetLineId);
+    const catalogProductId = line?.itemId?.trim() || null;
+    if (catalogProductId) {
+      const openCycle = await getOpenAuditCycle('cochin');
+      if (!openCycle?.id) {
+        throw new Error('No open audit cycle for Cochin. Counting is locked — open a cycle to update stock.');
+      }
+      openCycleId = openCycle.id;
+      const existing = await getCatalogSiteInventory(catalogProductId, 'cochin');
+      let working = getCatalogSiteInventoryLocations(existing).map(row => ({ ...row }));
+      for (const loc of prevLocs) {
+        working = applyLocationDelta(working, loc.zoneId, loc.zoneRowNumber, -loc.quantity);
+      }
+      deltasByProduct.set(catalogProductId, working);
+    }
+  }
+
+  const hiddenLineIds = [...hiddenSet];
+  const receiveCheck = {
+    lines: nextLines,
+    byLineId: nextByLineId,
+    hiddenLineIds,
+    updatedAt: serverTimestamp(),
+    updatedByUid: actor.uid,
+    updatedByName: actor.displayName?.trim() || null,
+  };
+
+  try {
+    await updateDoc(doc(db, 'goodsReceipts', id), { receiveCheck });
+  } catch (err) {
+    throw new Error(invoiceErrorMessage(err));
+  }
+
+  try {
+    for (const [catalogProductId, locations] of deltasByProduct) {
+      await saveCatalogSiteInventory({
+        catalogProductId,
+        site: 'cochin',
+        locations,
+        updatedByUid: actor.uid,
+        updatedByName: actor.displayName,
+      });
+      if (openCycleId) {
+        await recordCatalogProductAudit(catalogProductId, 'cochin_inventory', openCycleId);
+      }
+    }
+  } catch (err) {
+    const detail = err instanceof Error ? err.message : 'Unknown error';
+    throw new Error(`Item hidden, but warehouse / audit update failed: ${detail}`);
+  }
+
+  return {
+    lines: nextLines,
+    byLineId: nextByLineId,
+    hiddenLineIds,
     updatedAt: new Date().toISOString(),
     updatedByUid: actor.uid,
     updatedByName: actor.displayName?.trim() || null,

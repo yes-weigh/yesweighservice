@@ -36,6 +36,7 @@ import {
   listOrderCourierOptions,
   partnerAllowsManualFreightRate,
   partnerHasZoneRate,
+  PICKUP_PARTNER_ID,
   type OrderCourierOption,
 } from './orderFreight';
 import {
@@ -1168,10 +1169,22 @@ export function resolveSubmitCourierBySite(
   estimate: StCourierCartFreightEstimate | null | undefined,
   courierBySite: Partial<Record<InventorySite, LogisticsPartnerId>>,
 ): Partial<Record<InventorySite, LogisticsPartnerId>> {
-  if (!estimate?.usable) return { ...courierBySite };
+  const pickupOnSelection = Object.values(courierBySite).some(id => isPickupPartner(id));
+  if (!estimate?.usable) {
+    if (!pickupOnSelection) return { ...courierBySite };
+    return { cochin: PICKUP_PARTNER_ID, head_office: PICKUP_PARTNER_ID };
+  }
   const out: Partial<Record<InventorySite, LogisticsPartnerId>> = {};
+  let anyPickup = pickupOnSelection;
   for (const site of estimate.sites) {
-    out[site.site] = courierBySite[site.site] ?? site.partnerId;
+    const id = courierBySite[site.site] ?? site.partnerId;
+    out[site.site] = id;
+    if (isPickupPartner(id)) anyPickup = true;
+  }
+  if (anyPickup) {
+    for (const site of estimate.sites) {
+      out[site.site] = PICKUP_PARTNER_ID;
+    }
   }
   return out;
 }

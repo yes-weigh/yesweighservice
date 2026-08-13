@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { useOutletContext } from 'react-router-dom';
-import { AlertCircle, Check, ChevronDown, Package, Plus, X } from 'lucide-react';
+import { AlertCircle, Check, ChevronDown, Eye, EyeOff, Package, Plus, X } from 'lucide-react';
 import { DocumentLineItemSpec } from '../../components/invoices/DocumentLineItemSpec';
 import { ProductNcSelect } from '../../components/catalog/ProductNcSelect';
 import { ProductPackageInfo } from '../../components/catalog/ProductPackageInfo';
@@ -10,9 +10,11 @@ import { isFreightProductId, isFreightSku } from '../../constants/freightLines';
 import {
   receiveLineLocations,
   saveGoodsReceiptReceiveCheck,
+  setGoodsReceiptLineHidden,
 } from '../../lib/admin-goods-receipts';
 import { resolveCatalogProductsForLineItems, catalogProductHasCompleteSingleBoxPackageInfo } from '../../lib/catalog';
 import { formatInvoiceDate, invoiceErrorMessage, moveFreightLinesToEnd } from '../../lib/invoices';
+import { isFullSuperAdmin } from '../../lib/staffAccess';
 import {
   listWarehouseZoneRows,
   listWarehouseZones,
@@ -120,6 +122,7 @@ export const AdminGoodsReceiptDocumentPage: React.FC = () => {
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState('');
   const [saveOk, setSaveOk] = useState(false);
+  const [hidingLineId, setHidingLineId] = useState<string | null>(null);
 
   const [zones, setZones] = useState<WarehouseZoneDoc[]>([]);
   const [rowsByZone, setRowsByZone] = useState<Record<string, WarehouseZoneRowDoc[]>>({});
@@ -127,9 +130,26 @@ export const AdminGoodsReceiptDocumentPage: React.FC = () => {
   const [catalogById, setCatalogById] = useState<Record<string, CatalogProduct>>({});
   const [expandedPackageIds, setExpandedPackageIds] = useState<Set<string>>(() => new Set());
 
+  const canHideItems = isFullSuperAdmin(user);
+
+  const hiddenLineIds = useMemo(
+    () => new Set(goodsReceipt?.receiveCheck?.hiddenLineIds ?? []),
+    [goodsReceipt?.receiveCheck?.hiddenLineIds],
+  );
+
   const lineItems = useMemo(
     () => (goodsReceipt ? moveFreightLinesToEnd(goodsReceipt.lineItems) : []),
     [goodsReceipt],
+  );
+
+  const visibleLineItems = useMemo(
+    () => lineItems.filter(line => line.id && !hiddenLineIds.has(line.id)),
+    [lineItems, hiddenLineIds],
+  );
+
+  const hiddenLineItems = useMemo(
+    () => lineItems.filter(line => line.id && hiddenLineIds.has(line.id)),
+    [lineItems, hiddenLineIds],
   );
 
   const defaultZoneId = zones[0]?.id ?? '';
@@ -211,7 +231,7 @@ export const AdminGoodsReceiptDocumentPage: React.FC = () => {
     if (!goodsReceipt) return false;
     const savedLines = goodsReceipt.receiveCheck?.lines ?? {};
     for (const line of goodsReceipt.lineItems) {
-      if (!line.id) continue;
+      if (!line.id || hiddenLineIds.has(line.id)) continue;
       const draft = lineDrafts[line.id] ?? { locations: [newLocationDraft()] };
       const parsed = parseDraftLocations(draft);
       if (!parsed.ok) return true;
@@ -220,14 +240,14 @@ export const AdminGoodsReceiptDocumentPage: React.FC = () => {
       if (!locationsEqual(parsed.locations, saved)) return true;
     }
     return false;
-  }, [goodsReceipt, lineDrafts]);
+  }, [goodsReceipt, lineDrafts, hiddenLineIds]);
 
   const missingPackageLines = useMemo(() => {
     if (!goodsReceipt) return [] as Array<{ lineId: string; name: string; productId: string }>;
     const missing: Array<{ lineId: string; name: string; productId: string }> = [];
     const seen = new Set<string>();
     for (const line of goodsReceipt.lineItems) {
-      if (!line.id) continue;
+      if (!line.id || hiddenLineIds.has(line.id)) continue;
       if (isFreightProductId(line.itemId) || isFreightSku(line.sku)) continue;
       const product = resolveCatalogForLine(line, catalogById);
       if (!product) continue;
@@ -243,7 +263,7 @@ export const AdminGoodsReceiptDocumentPage: React.FC = () => {
       });
     }
     return missing;
-  }, [goodsReceipt, catalogById]);
+  }, [goodsReceipt, catalogById, hiddenLineIds]);
 
   const packageDataReady = missingPackageLines.length === 0;
 
@@ -264,6 +284,39 @@ export const AdminGoodsReceiptDocumentPage: React.FC = () => {
       if (!existing) return prev;
       return { ...prev, [productId]: { ...existing, packageInfo: info } };
     });
+  };
+
+  const handleToggleHidden = async (lineId: string, hidden: boolean) => {
+    if (!user?.uid || !canHideItems) return;
+    setHidingLineId(lineId);
+    setSaveError('');
+    try {
+      const receiveCheck = await setGoodsReceiptLineHidden(
+        goodsReceiptId,
+        lineId,
+        hidden,
+        {
+          lineItems: goodsReceipt.lineItems,
+          previous: goodsReceipt.receiveCheck,
+        },
+        {
+          uid: user.uid,
+          displayName: user.displayName,
+        },
+      );
+      setGoodsReceipt(prev => (prev ? { ...prev, receiveCheck } : prev));
+      if (hidden) {
+        setLineDrafts(prev => {
+          const next = { ...prev };
+          delete next[lineId];
+          return next;
+        });
+      }
+    } catch (err) {
+      setSaveError(invoiceErrorMessage(err));
+    } finally {
+      setHidingLineId(null);
+    }
   };
 
   const setLocationDraft = (
@@ -339,7 +392,7 @@ export const AdminGoodsReceiptDocumentPage: React.FC = () => {
     }> = {};
 
     for (const line of goodsReceipt.lineItems) {
-      if (!line.id) continue;
+      if (!line.id || hiddenLineIds.has(line.id)) continue;
       const draft = lineDrafts[line.id] ?? { locations: [newLocationDraft(defaultZoneId)] };
       const parsed = parseDraftLocations(draft);
       if (!parsed.ok) {
@@ -419,7 +472,10 @@ export const AdminGoodsReceiptDocumentPage: React.FC = () => {
       <section className="invoice-detail-items goods-receipt-receive">
         <div className="goods-receipt-receive__header">
           <h3 className="invoice-detail-items__title mb-0">
-            Items{lineItems.length ? ` (${lineItems.length})` : ''}
+            Items{visibleLineItems.length ? ` (${visibleLineItems.length})` : ''}
+            {canHideItems && hiddenLineItems.length > 0
+              ? ` · ${hiddenLineItems.length} hidden`
+              : ''}
           </h3>
           <span
             className="goods-receipt-receive__save-wrap"
@@ -460,9 +516,9 @@ export const AdminGoodsReceiptDocumentPage: React.FC = () => {
           </p>
         )}
 
-        {lineItems.length ? (
+        {visibleLineItems.length ? (
           <ul className="invoice-detail-item-list mt-3">
-            {lineItems.map(item => {
+            {visibleLineItems.map(item => {
               const ordered = Number(item.quantity ?? 0);
               const draft = lineDrafts[item.id] ?? {
                 locations: [newLocationDraft(defaultZoneId)],
@@ -500,6 +556,18 @@ export const AdminGoodsReceiptDocumentPage: React.FC = () => {
                     packageMissing ? 'goods-receipt-receive__item--package-missing' : '',
                   ].filter(Boolean).join(' ')}
                 >
+                  {canHideItems && (
+                    <button
+                      type="button"
+                      className="goods-receipt-receive__hide-btn"
+                      disabled={saving || hidingLineId === item.id}
+                      onClick={() => void handleToggleHidden(item.id, true)}
+                      aria-label={`Hide ${item.name} from this goods receipt`}
+                      title="Hide item"
+                    >
+                      <EyeOff size={15} aria-hidden />
+                    </button>
+                  )}
                   <div className="invoice-detail-item__image-wrap">
                     {item.imageUrl ? (
                       <img
@@ -691,7 +759,36 @@ export const AdminGoodsReceiptDocumentPage: React.FC = () => {
             })}
           </ul>
         ) : (
-          <p className="invoice-detail-items__empty text-muted text-sm">No line items on this bill.</p>
+          <p className="invoice-detail-items__empty text-muted text-sm">
+            {hiddenLineItems.length > 0
+              ? 'All items on this bill are hidden.'
+              : 'No line items on this bill.'}
+          </p>
+        )}
+
+        {canHideItems && hiddenLineItems.length > 0 && (
+          <ul className="goods-receipt-receive__hidden-list" aria-label="Hidden items">
+            {hiddenLineItems.map(item => (
+              <li key={item.id} className="goods-receipt-receive__hidden-item">
+                <div className="goods-receipt-receive__hidden-meta">
+                  <span className="goods-receipt-receive__hidden-badge">Hidden</span>
+                  <strong className="goods-receipt-receive__hidden-name">{item.name}</strong>
+                  {item.sku ? (
+                    <span className="text-muted text-sm">{item.sku}</span>
+                  ) : null}
+                </div>
+                <button
+                  type="button"
+                  className="goods-receipt-receive__unhide-btn"
+                  disabled={saving || hidingLineId === item.id}
+                  onClick={() => void handleToggleHidden(item.id, false)}
+                >
+                  <Eye size={14} aria-hidden />
+                  {hidingLineId === item.id ? '…' : 'Unhide'}
+                </button>
+              </li>
+            ))}
+          </ul>
         )}
       </section>
     </div>
