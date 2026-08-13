@@ -44345,6 +44345,10 @@ button.invoice-detail-top__card {
   margin-top: 0.1rem;
 }
 
+.doc-kam-strip--assign {
+  flex-wrap: wrap;
+}
+
 .doc-kam-strip--assign .doc-kam-strip__body {
   padding-right: 0.75rem;
 }

@@ -247,6 +247,14 @@ export async function applySalesOrderSalespersonFromStaff(
     );
   }
 
+  const existingId = String(data.salespersonId ?? '').trim();
+  if (existingId && !isFullSuperAdmin(user)) {
+    throw new HttpsError(
+      'permission-denied',
+      'Only super admin can change the salesperson on this order.',
+    );
+  }
+
   const resolved = await resolveSalespersonForStaff(targetUid);
   if (!resolved?.id) {
     throw new HttpsError(
@@ -373,6 +381,10 @@ function requireSuperAdmin(user) {
   if (user.role !== 'super_admin') {
     throw new HttpsError('permission-denied', 'Only super admin can verify payment.');
   }
+}
+
+function isFullSuperAdmin(user) {
+  return user.role === 'super_admin' && user.data?.superAdminAccess !== 'view_only';
 }
 
 function soRef(salesOrderId) {

@@ -20,6 +20,8 @@ export interface SalesOrderWorkflowActions {
   needsSalesperson: boolean;
   canApplySalesperson: boolean;
   canAssignSalespersonStaff: boolean;
+  /** Full super admin: replace salesperson even when one is already set. */
+  canChangeSalespersonStaff: boolean;
   assignableStaff: Array<{ uid: string; displayName: string }>;
   /** Manual mark completed after Zoho already invoiced outside YesOne. */
   canMarkInvoiced: boolean;

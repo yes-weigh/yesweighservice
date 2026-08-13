@@ -213,6 +213,13 @@ export const AdminSalesOrderDetailLayout: React.FC = () => {
     && stage !== 'void'
     && assignableStaff.length > 0,
   );
+  const canChangeSalespersonStaff = Boolean(
+    canSuperAdminWrite(user)
+    && hasSalesperson
+    && stage !== 'completed'
+    && stage !== 'void'
+    && assignableStaff.length > 0,
+  );
   const canDelete = Boolean(
     (canManageZoho || isDealerView)
     && (statusKey === 'draft' || statusKey === 'pending')
@@ -371,6 +378,7 @@ export const AdminSalesOrderDetailLayout: React.FC = () => {
         needsSalesperson: false,
         canApplySalesperson: false,
         canAssignSalespersonStaff: false,
+        canChangeSalespersonStaff: false,
         assignableStaff: [],
         canMarkInvoiced: false,
         canRepairInvoicing: false,
@@ -394,6 +402,7 @@ export const AdminSalesOrderDetailLayout: React.FC = () => {
       needsSalesperson,
       canApplySalesperson,
       canAssignSalespersonStaff,
+      canChangeSalespersonStaff,
       assignableStaff,
       canMarkInvoiced,
       canRepairInvoicing,
@@ -420,6 +429,7 @@ export const AdminSalesOrderDetailLayout: React.FC = () => {
     needsSalesperson,
     canApplySalesperson,
     canAssignSalespersonStaff,
+    canChangeSalespersonStaff,
     assignableStaff,
     canMarkInvoiced,
     canRepairInvoicing,

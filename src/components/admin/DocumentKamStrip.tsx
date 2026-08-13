@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { Phone, UserRound } from 'lucide-react';
 import { HrStaffPhoto } from '../hr/HrStaffPhoto';
 import { ThemeSelect } from '../ThemeSelect';
@@ -22,6 +22,8 @@ export type DocumentKamStripAssignStaff = {
   onAssign: () => void;
   busy?: boolean;
   disabled?: boolean;
+  /** Assign when missing; change when a salesperson is already on the document. */
+  mode?: 'assign' | 'change';
 };
 
 type Props = {
@@ -31,9 +33,51 @@ type Props = {
   /** When true, show a missing-salesperson placeholder instead of hiding. */
   showMissing?: boolean;
   missingHint?: string | null;
-  /** Super admin / ops: assign sales staff from this document when none is set. */
+  /** Super admin / ops: assign or change sales staff on this document. */
   assignStaff?: DocumentKamStripAssignStaff | null;
 };
+
+function AssignStaffControls({
+  assignStaff,
+  extraDisabled = false,
+}: {
+  assignStaff: DocumentKamStripAssignStaff;
+  extraDisabled?: boolean;
+}) {
+  const changing = assignStaff.mode === 'change';
+  return (
+    <div className="doc-kam-strip__assign" data-capture-ignore="1">
+      <ThemeSelect
+        id="doc-kam-assign-staff"
+        compact
+        value={assignStaff.selectedUid}
+        placeholder={changing ? 'Select new staff…' : 'Select staff…'}
+        options={assignStaff.options.map(row => ({
+          value: row.uid,
+          label: row.displayName,
+        }))}
+        onChange={assignStaff.onSelect}
+        disabled={assignStaff.disabled || assignStaff.busy}
+        aria-label={changing ? 'Change sales staff' : 'Sales staff'}
+      />
+      <button
+        type="button"
+        className="btn btn-primary btn-sm"
+        disabled={
+          !assignStaff.selectedUid.trim()
+          || assignStaff.disabled
+          || assignStaff.busy
+          || extraDisabled
+        }
+        onClick={assignStaff.onAssign}
+      >
+        {assignStaff.busy
+          ? (changing ? 'Changing…' : 'Assigning…')
+          : (changing ? 'Change' : 'Assign')}
+      </button>
+    </div>
+  );
+}
 
 export const DocumentKamStrip: React.FC<Props> = ({
   salespersonId,
@@ -47,6 +91,8 @@ export const DocumentKamStrip: React.FC<Props> = ({
   const zohoName = salespersonName?.trim() || '';
   const [staff, setStaff] = useState<ZohoSalespersonStaff | null>(null);
   const [resolved, setResolved] = useState(!(id || zohoName));
+  const seededForRef = useRef('');
+  const onSelectStaff = assignStaff?.onSelect;
 
   useEffect(() => {
     let active = true;
@@ -75,6 +121,14 @@ export const DocumentKamStrip: React.FC<Props> = ({
     };
   }, [id, zohoName]);
 
+  useEffect(() => {
+    if (!onSelectStaff || !staff?.uid) return;
+    const key = `${id}|${staff.uid}`;
+    if (seededForRef.current === key) return;
+    seededForRef.current = key;
+    onSelectStaff(staff.uid);
+  }, [id, staff?.uid, onSelectStaff]);
+
   if (!id && !zohoName) {
     if (!showMissing) return null;
     const canAssign = Boolean(assignStaff?.options.length);
@@ -102,35 +156,7 @@ export const DocumentKamStrip: React.FC<Props> = ({
               Assign sales staff on the dealer, then apply here
             </span>
           )}
-          {canAssign && assignStaff ? (
-            <div className="doc-kam-strip__assign" data-capture-ignore="1">
-              <ThemeSelect
-                id="doc-kam-assign-staff"
-                compact
-                value={assignStaff.selectedUid}
-                placeholder="Select staff…"
-                options={assignStaff.options.map(staff => ({
-                  value: staff.uid,
-                  label: staff.displayName,
-                }))}
-                onChange={assignStaff.onSelect}
-                disabled={assignStaff.disabled || assignStaff.busy}
-                aria-label="Sales staff"
-              />
-              <button
-                type="button"
-                className="btn btn-primary btn-sm"
-                disabled={
-                  !assignStaff.selectedUid.trim()
-                  || assignStaff.disabled
-                  || assignStaff.busy
-                }
-                onClick={assignStaff.onAssign}
-              >
-                {assignStaff.busy ? 'Assigning…' : 'Assign'}
-              </button>
-            </div>
-          ) : null}
+          {canAssign && assignStaff ? <AssignStaffControls assignStaff={assignStaff} /> : null}
         </div>
       </aside>
     );
@@ -141,9 +167,26 @@ export const DocumentKamStrip: React.FC<Props> = ({
     || staff?.zohoSalespersonName
     || zohoName
     || 'Sales staff';
+  const canChange = Boolean(assignStaff?.options.length);
+  const sameStaffSelected = Boolean(
+    staff?.uid
+    && assignStaff?.selectedUid
+    && staff.uid === assignStaff.selectedUid,
+  );
+  const changeOptions = (() => {
+    const rows = assignStaff?.options ?? [];
+    if (!staff?.uid || rows.some(row => row.uid === staff.uid)) return rows;
+    return [
+      { uid: staff.uid, displayName: staff.displayName || zohoName || 'Sales staff' },
+      ...rows,
+    ];
+  })();
 
   return (
-    <aside className={`doc-kam-strip ${className}`.trim()} aria-label="Sales staff">
+    <aside
+      className={`doc-kam-strip ${canChange ? 'doc-kam-strip--assign' : ''} ${className}`.trim()}
+      aria-label="Sales staff"
+    >
       <div className="doc-kam-strip__media">
         {staff ? (
           <HrStaffPhoto
@@ -167,6 +210,16 @@ export const DocumentKamStrip: React.FC<Props> = ({
         <span className="doc-kam-strip__role">Sales staff</span>
         {!staff && zohoName ? (
           <span className="doc-kam-strip__hint text-muted">Not linked to staff</span>
+        ) : null}
+        {canChange && assignStaff ? (
+          <AssignStaffControls
+            assignStaff={{
+              ...assignStaff,
+              options: changeOptions,
+              mode: assignStaff.mode ?? 'change',
+            }}
+            extraDisabled={sameStaffSelected}
+          />
         ) : null}
       </div>
       {staff?.telHref || staff?.whatsappHref ? (

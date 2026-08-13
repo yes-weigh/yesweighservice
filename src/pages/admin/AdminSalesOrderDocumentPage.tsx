@@ -51,7 +51,7 @@ import {
   cartLinesForFreightEstimate,
   listProductsMissingFreightPackageInfo,
 } from '../../lib/stCourierCartFreight';
-import { hasStaffPermission } from '../../lib/staffAccess';
+import { canSuperAdminWrite, hasStaffPermission } from '../../lib/staffAccess';
 import {
   submitSalesOrderPayment,
   canEditSalesOrderDraft,
@@ -781,9 +781,27 @@ export const AdminSalesOrderDocumentPage: React.FC = () => {
   };
 
   useEffect(() => {
-    if (!workflowActions?.assignableStaff.length || salespersonStaffUid) return;
+    if (!workflowActions?.assignableStaff.length) {
+      setSalespersonStaffUid('');
+      return;
+    }
+    if (workflowActions.canChangeSalespersonStaff) {
+      const name = String(salesOrder?.salespersonName ?? '').trim().toLowerCase();
+      const match = name
+        ? workflowActions.assignableStaff.find(
+          staff => staff.displayName.trim().toLowerCase() === name,
+        )
+        : null;
+      setSalespersonStaffUid(match?.uid ?? '');
+      return;
+    }
     setSalespersonStaffUid(workflowActions.assignableStaff[0]?.uid ?? '');
-  }, [workflowActions?.assignableStaff, salespersonStaffUid]);
+  }, [
+    salesOrder?.id,
+    salesOrder?.salespersonName,
+    workflowActions?.assignableStaff,
+    workflowActions?.canChangeSalespersonStaff,
+  ]);
 
   const shareWarmKey = useMemo(() => {
     if (!salesOrder) return '';
@@ -1062,7 +1080,11 @@ export const AdminSalesOrderDocumentPage: React.FC = () => {
             salespersonName={salesOrder.salespersonName}
             showMissing
             assignStaff={
-              user?.role === 'super_admin' && workflowActions?.canAssignSalespersonStaff
+              canSuperAdminWrite(user)
+              && (
+                workflowActions?.canAssignSalespersonStaff
+                || workflowActions?.canChangeSalespersonStaff
+              )
                 ? {
                     selectedUid: salespersonStaffUid,
                     options: workflowActions.assignableStaff,
@@ -1070,6 +1092,7 @@ export const AdminSalesOrderDocumentPage: React.FC = () => {
                     onAssign: () => workflowActions.onApplySalespersonFromStaff(salespersonStaffUid),
                     busy: workflowActions.actionBusy === 'applySalespersonStaff',
                     disabled: Boolean(workflowActions.actionBusy),
+                    mode: workflowActions.canChangeSalespersonStaff ? 'change' : 'assign',
                   }
                 : null
             }
@@ -1086,7 +1109,7 @@ export const AdminSalesOrderDocumentPage: React.FC = () => {
           <div className="so-detail__salesperson-banner-copy">
             <span>
               Sales staff is required before Verify &amp; invoice.
-              {workflowActions.canAssignSalespersonStaff && user?.role === 'super_admin' ? (
+              {workflowActions.canAssignSalespersonStaff && canSuperAdminWrite(user) ? (
                 <> Assign staff on the card above.</>
               ) : workflowActions.canAssignSalespersonStaff ? (
                 <> Pick staff below, or assign a KAM on the dealer.</>
@@ -1101,7 +1124,7 @@ export const AdminSalesOrderDocumentPage: React.FC = () => {
                 <> Assign sales staff on the dealer, then apply here.</>
               )}
             </span>
-            {workflowActions.canAssignSalespersonStaff && user?.role !== 'super_admin' ? (
+            {workflowActions.canAssignSalespersonStaff && !canSuperAdminWrite(user) ? (
               <div className="so-detail__salesperson-assign">
                 <ThemeSelect
                   id="so-salesperson-staff"
@@ -1495,7 +1518,10 @@ export const AdminSalesOrderDocumentPage: React.FC = () => {
               title={
                 packageBlocksActions
                   ? freightPackageAlert ?? undefined
-                  : user?.role === 'super_admin' && workflowActions.canAssignSalespersonStaff
+                  : canSuperAdminWrite(user) && (
+                    workflowActions.canAssignSalespersonStaff
+                    || workflowActions.canChangeSalespersonStaff
+                  )
                     ? 'Assign sales staff above, then verify'
                     : 'Assign sales staff on the dealer, then apply salesperson here'
               }
