@@ -7,6 +7,7 @@ import { Navigate } from 'react-router-dom';
 import { DealerOrderDetailPage } from './DealerOrderDetailPage';
 import { DealerSalesOrdersPage } from './DealerSalesOrdersPage';
 import { CatalogPage } from './CatalogPage';
+import { GatcVerificationEmbedPage } from './GatcVerificationEmbedPage';
 import { InvoicesPage } from './InvoicesPage';
 import { InvoiceDetailLayout } from './InvoiceDetailLayout';
 import { InvoiceDocumentPage } from './InvoiceDocumentPage';
@@ -101,12 +102,7 @@ export const DealerMenuPages = {
   OrderHistory: OrderHistoryRoute,
   OrderDetail: OrderDetailRoute,
   SalesOrders: SalesOrdersRoute,
-  Verification: () => (
-    <PagePlaceholder
-      title="Verification"
-      description="Track verification workflows, stamping records, and compliance checkpoints."
-    />
-  ),
+  Verification: GatcVerificationEmbedPage,
   Advertisements: () => (
     <PagePlaceholder
       title="Media Center"

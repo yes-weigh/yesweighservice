@@ -267,6 +267,10 @@ import { fetchBlueDartDieselFuelSurcharge } from './lib/blue-dart-diesel-fuel.js
 import { fetchBlueDartAirSurcharges } from './lib/blue-dart-air-surcharges.js';
 import { updatePublicSalaryShare as updatePublicSalaryShareRecord } from './lib/hr-salary-share-update.js';
 import { switchPublicSalarySharePeriod as switchPublicSalarySharePeriodRecord } from './lib/hr-salary-share-switch-period.js';
+import {
+  fetchGatcVerificationEmbedSrc,
+  GATC_VERIFICATION_EMBED_URL,
+} from './lib/gatc-verification-embed.js';
 import { CI_BUILD_TAG } from './lib/ci-build.js';
 
 // CI smoke-test marker (shared bundle entry — triggers full functions deploy in CI).
@@ -283,12 +287,14 @@ const watiToken = defineSecret('WATI_TOKEN');
 const watiEndpoint = defineSecret('WATI_ENDPOINT');
 const zohoOrganizationId = defineString('ZOHO_ORGANIZATION_ID');
 const zohoWebhookSecret = defineString('ZOHO_WEBHOOK_SECRET', { default: '' });
+const yesweighEmbedSecret = defineString('YESWEIGH_EMBED_SECRET', { default: '' });
 
 const ALLOWED_ROLES = new Set(['dealer', 'dealer_staff', 'staff', 'super_admin', 'media']);
 const SYNC_ROLES = new Set(['staff', 'super_admin']);
 const CATALOG_IMAGE_ROLES = new Set(['staff', 'super_admin', 'media']);
 const SUPER_ADMIN_ROLES = new Set(['super_admin']);
 const DEALER_INVOICE_ROLES = new Set(['dealer', 'dealer_staff', 'staff', 'super_admin']);
+const GATC_EMBED_ROLES = new Set(['dealer', 'dealer_staff', 'staff', 'super_admin']);
 
 function zohoSecrets() {
   return {
@@ -5734,6 +5740,24 @@ export const switchPublicSalarySharePeriod = onCall(
     } catch (err) {
       if (err instanceof HttpsError) throw err;
       throw new HttpsError('internal', err?.message ?? 'Could not switch salary month.');
+    }
+  },
+);
+
+/** Opens yesgatc.in/rc/verification inside this app (optional auto-login via shared secret). */
+export const getGatcVerificationEmbedToken = onCall(
+  {
+    region: 'asia-south1',
+    timeoutSeconds: 30,
+    memory: '256MiB',
+  },
+  async request => {
+    await requireActiveUser(request.auth?.uid, GATC_EMBED_ROLES, { allowViewOnly: true });
+    try {
+      return await fetchGatcVerificationEmbedSrc(yesweighEmbedSecret.value());
+    } catch (err) {
+      console.error('getGatcVerificationEmbedToken failed:', err);
+      return { src: GATC_VERIFICATION_EMBED_URL, autoLogin: false };
     }
   },
 );
