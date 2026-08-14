@@ -171,7 +171,7 @@ export function resolveAdjustedAuditDisplay(input: {
       prevZoho,
       currentZohoQty,
       lockedDiff,
-      snapshot.pendingZohoInbound,
+      snapshot.pendingZohoInbound ?? 0,
     )
     : lockedDiff;
   const displayAuditedQty = currentZohoQty + liveDiff;
