@@ -280,6 +280,7 @@ export async function ensureInvoiceEwayBill(secrets, orgId, input) {
       shipFromAddress: shippingContext.shipFromAddress,
       deliveryAddress: shippingContext.deliveryAddress || invoice.shippingAddress || null,
       shipFromSite: shippingContext.shipFromSite,
+      vehicleNumber: pickupVehicle || null,
       db,
     });
   }
@@ -591,6 +592,7 @@ export async function ensureInvoiceEwayBillForCustomerPickup(secrets, orgId, inp
       shipFromAddress: shippingContext.shipFromAddress,
       deliveryAddress: shippingContext.deliveryAddress || invoice.shippingAddress || null,
       shipFromSite: shippingContext.shipFromSite,
+      vehicleNumber,
       db,
     });
   }

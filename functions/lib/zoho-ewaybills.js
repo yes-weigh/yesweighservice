@@ -107,6 +107,26 @@ function isIrnDispatchLockedError(message) {
   );
 }
 
+function isMissingZohoEndpointError(message) {
+  return /invalid url|unknown url|not found|no such resource|uri not found|404/i.test(
+    String(message ?? ''),
+  );
+}
+
+export function formatEwayBillPortalError(message) {
+  const text = String(message ?? '').trim();
+  if (/api access is not available/i.test(text)) {
+    return (
+      'Zoho could not reach the GST e-way bill portal (API access is not available). '
+      + 'IRN is already generated; e-way bill uses a separate GSTN API. '
+      + 'In Zoho Inventory open Settings → Taxes → GST / E-Way Bills and save E-Way Bill Portal '
+      + 'username and password, then retry. Or generate the e-way bill on the invoice in Zoho '
+      + 'and tap E way bill here again.'
+    );
+  }
+  return text;
+}
+
 function isGeneratedEwayStatus(status) {
   const value = String(status ?? '').trim().toLowerCase();
   if (!value || value === 'yet_to_generate' || value === 'not_generated') return false;
@@ -294,6 +314,7 @@ export async function findZohoEwayBillForInvoice(accessToken, orgId, invoiceId) 
  *   deliveryAddress?: string | null;
  *   dispatchFromAddressId?: string | null;
  *   shipFromSite?: string | null;
+ *   vehicleNumber?: string | null;
  *   db?: import('firebase-admin/firestore').Firestore | null;
  * }} input
  */
@@ -308,6 +329,7 @@ export async function createZohoEwayBillForInvoice(accessToken, orgId, input) {
   const lr = String(input.lrNumber ?? '').trim();
   const shipFromAddress = String(input.shipFromAddress ?? '').trim();
   const deliveryAddress = String(input.deliveryAddress ?? '').trim();
+  const vehicleNumber = String(input.vehicleNumber ?? '').trim().toUpperCase().replace(/\s+/g, '');
   const hasIrn = invoiceHasIrn(invoice);
   const irnDispatchFromId = existingDispatchFromAddressId(invoice);
 
@@ -352,9 +374,21 @@ export async function createZohoEwayBillForInvoice(accessToken, orgId, input) {
     ...(shipToAddressId ? { ship_to_address_id: String(shipToAddressId) } : {}),
     ...(dispatchFromAddressId ? { dispatch_from_address_id: dispatchFromAddressId } : {}),
     ...(lr ? { transporter_document_number: lr.slice(0, 30) } : {}),
+    ...(vehicleNumber ? { vehicle_number: vehicleNumber.slice(0, 20) } : {}),
   };
 
   try {
+    if (hasIrn) {
+      const fromEinvoice = await createEwayBillFromEinvoice(accessToken, orgId, invoice, {
+        transporter_id: String(input.transporterId),
+        transportation_mode: 'road',
+        distance,
+        ...(lr ? { transporter_document_number: lr.slice(0, 30) } : {}),
+        ...(vehicleNumber ? { vehicle_number: vehicleNumber.slice(0, 20) } : {}),
+      });
+      if (fromEinvoice) return fromEinvoice;
+    }
+
     const payload = await zohoJson(accessToken, orgId, '/ewaybills', {
       method: 'POST',
       body,
@@ -364,11 +398,17 @@ export async function createZohoEwayBillForInvoice(accessToken, orgId, input) {
     const message = err instanceof Error ? err.message : String(err);
     if (isIrnDispatchLockedError(message) && body.dispatch_from_address_id) {
       const { dispatch_from_address_id: _ignored, ...withoutDispatch } = body;
-      const retried = await zohoJson(accessToken, orgId, '/ewaybills', {
-        method: 'POST',
-        body: withoutDispatch,
-      });
-      return retried?.ewaybill ?? null;
+      try {
+        const retried = await zohoJson(accessToken, orgId, '/ewaybills', {
+          method: 'POST',
+          body: withoutDispatch,
+        });
+        return retried?.ewaybill ?? null;
+      } catch (retryErr) {
+        throw new Error(formatEwayBillPortalError(
+          retryErr instanceof Error ? retryErr.message : String(retryErr),
+        ));
+      }
     }
     if (/already exists/i.test(message) && invoice.ewaybill_id) {
       const record = await fetchZohoEwayBillRecord(accessToken, orgId, String(invoice.ewaybill_id));
@@ -382,8 +422,43 @@ export async function createZohoEwayBillForInvoice(accessToken, orgId, input) {
         + 'Open the invoice in Zoho Inventory → E-Way Bill → generate a new bill there, then retry.',
       );
     }
-    throw err;
+    throw new Error(formatEwayBillPortalError(message));
   }
+}
+
+async function createEwayBillFromEinvoice(accessToken, orgId, invoice, body) {
+  const invoiceId = String(invoice.invoice_id ?? '').trim();
+  const einvoiceId = String(
+    invoice.einvoice_id
+    ?? invoice.einvoice_details?.einvoice_id
+    ?? '',
+  ).trim();
+  const paths = [];
+  if (invoiceId) {
+    paths.push(`/invoices/${encodeURIComponent(invoiceId)}/einvoice/ewaybill`);
+  }
+  if (einvoiceId) {
+    paths.push(`/einvoices/${encodeURIComponent(einvoiceId)}/ewaybill`);
+  }
+
+  let lastError = null;
+  for (const path of paths) {
+    try {
+      const payload = await zohoJson(accessToken, orgId, path, { method: 'POST', body });
+      return payload?.ewaybill ?? payload?.einvoice ?? payload;
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      lastError = err;
+      if (isMissingZohoEndpointError(message)) continue;
+      throw err;
+    }
+  }
+  if (lastError && !isMissingZohoEndpointError(
+    lastError instanceof Error ? lastError.message : String(lastError),
+  )) {
+    throw lastError;
+  }
+  return null;
 }
 
 /**
