@@ -10,7 +10,7 @@ import {
   Search,
 } from 'lucide-react';
 import { compareCatalogProductsInCategory, isHiddenCatalogCategory } from '../../lib/catalog';
-import { catalogGridStockQty } from '../../lib/catalogProductAudit/display';
+import { catalogActualWarehouseQty, catalogGridStockQty } from '../../lib/catalogProductAudit/display';
 import { buildProductNavState, buildSpareNavState, catalogOriginFromReturnView } from '../../lib/catalogNav';
 import type { CatalogNavState } from '../../lib/catalogNav';
 import { useCatalogPageHeader } from '../../context/PageHeaderContext';
@@ -109,6 +109,10 @@ function ProductListRow({
   showStockQuantity?: boolean;
 }) {
   const gridStockQty = catalogGridStockQty(product);
+  const gridActualQty = catalogActualWarehouseQty(product.auditSnapshot);
+  const showGridActualQty = showStockQuantity
+    && gridActualQty != null
+    && gridActualQty !== gridStockQty;
   const gridStockStatus = gridStockQty <= 0
     ? 'out_of_stock' as const
     : product.stockStatus === 'low_stock'
@@ -125,12 +129,23 @@ function ProductListRow({
         {product.sku && <span className="catalog-card__sku">{product.sku}</span>}
         <h3>{product.name}</h3>
         {showStockQuantity && (
-          <StockQuantity
-            stock={gridStockQty}
-            unit={product.unit}
-            status={gridStockStatus}
-            compact
-          />
+          <div className="catalog-row__qty-stack">
+            <StockQuantity
+              stock={showGridActualQty ? gridActualQty! : gridStockQty}
+              unit={product.unit}
+              status={showGridActualQty
+                ? (gridActualQty! <= 0 ? 'out_of_stock' : gridStockStatus)
+                : gridStockStatus}
+              compact
+            />
+            {showGridActualQty && (
+              <span className="catalog-product-card__actual-qty" title={`Audited stock: ${gridStockQty} ${product.unit}`}>
+                <strong>{gridStockQty}</strong>
+                <span>{product.unit}</span>
+                <em>audited</em>
+              </span>
+            )}
+          </div>
         )}
       </div>
       <div className="catalog-row__price">

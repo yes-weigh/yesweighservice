@@ -223,6 +223,63 @@ function isoFromUnknown(value) {
   return null;
 }
 
+function lineItemsForBillPut(bill) {
+  const items = Array.isArray(bill?.line_items) ? bill.line_items : [];
+  return items.map((item) => {
+    const line = {
+      item_id: item.item_id,
+      name: item.name,
+      rate: item.rate,
+      quantity: item.quantity,
+    };
+    if (item.line_item_id) line.line_item_id = item.line_item_id;
+    if (item.account_id) line.account_id = item.account_id;
+    if (item.location_id) line.location_id = item.location_id;
+    if (item.warehouse_id) line.warehouse_id = item.warehouse_id;
+    return line;
+  }).filter((line) => line.item_id);
+}
+
+/**
+ * Zoho bill `date` is yyyy-MM-dd only. Inventory posts as of this date when
+ * the draft is marked Open. Time-of-day stays on our opsReceivedAt stamp.
+ */
+async function setBillDateInZoho(accessToken, orgId, billId, dateKey) {
+  const date = String(dateKey ?? '').trim();
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return null;
+  const raw = await fetchBillRaw(accessToken, orgId, billId);
+  if (!raw) throw new Error('Goods receipt not found in Zoho.');
+  if (String(raw.date ?? '') === date) return raw;
+  const due = String(raw.due_date ?? '').trim();
+  const dueDate = due && due >= date ? due : date;
+  const payload = await zohoJsonRequest(accessToken, orgId, `/bills/${billId}`, {
+    method: 'PUT',
+    body: {
+      vendor_id: raw.vendor_id,
+      bill_number: raw.bill_number,
+      date,
+      due_date: dueDate,
+      line_items: lineItemsForBillPut(raw),
+      ...(raw.reference_number ? { reference_number: raw.reference_number } : {}),
+      ...(raw.notes ? { notes: raw.notes } : {}),
+    },
+  });
+  return payload?.bill ?? raw;
+}
+
+async function commentBillReceivedInZoho(accessToken, orgId, billId, description) {
+  const text = String(description ?? '').trim();
+  if (!text) return;
+  try {
+    await zohoJsonRequest(accessToken, orgId, `/bills/${billId}/comments`, {
+      method: 'POST',
+      body: { description: text },
+    });
+  } catch {
+    // Comment is best-effort; opening the bill still succeeds.
+  }
+}
+
 async function approveBillInZoho(accessToken, orgId, billId) {
   try {
     await zohoJsonRequest(accessToken, orgId, `/bills/${billId}/approve`, {
@@ -1166,7 +1223,10 @@ export async function markGoodsReceiptReceived(secrets, orgId, {
   const data = snap.data() || {};
 
   const existingReceivedAt = isoFromUnknown(data.opsReceivedAt);
-  if (existingReceivedAt) {
+  const currentStatus = normalizeBillStatus(data.status);
+  const stillDraft = currentStatus === 'draft' || !currentStatus;
+
+  if (existingReceivedAt && !stillDraft) {
     return {
       alreadyReceived: true,
       status: String(data.status ?? 'open'),
@@ -1177,15 +1237,8 @@ export async function markGoodsReceiptReceived(secrets, orgId, {
     };
   }
 
-  const accessToken = await getAccessToken(secrets);
-  const organizationId = await resolveOrganizationId(accessToken, orgId);
-  const currentStatus = normalizeBillStatus(data.status);
-  if (currentStatus === 'draft' || !currentStatus) {
-    await approveBillInZoho(accessToken, organizationId, id);
-  }
-
-  let receivedAt = new Date();
-  if (allowBackdate && receivedAtInput) {
+  let receivedAt = existingReceivedAt ? new Date(existingReceivedAt) : new Date();
+  if (!existingReceivedAt && allowBackdate && receivedAtInput) {
     const parsed = new Date(receivedAtInput);
     if (Number.isNaN(parsed.getTime())) {
       throw new Error('Invalid received datetime.');
@@ -1196,7 +1249,31 @@ export async function markGoodsReceiptReceived(secrets, orgId, {
     receivedAt = parsed;
   }
   const opsReceivedAt = receivedAt.toISOString();
-  const receivedDate = toIstDateKey(receivedAt);
+  const receivedDate = data.receivedDate
+    ? String(data.receivedDate)
+    : toIstDateKey(receivedAt);
+
+  const accessToken = await getAccessToken(secrets);
+  const organizationId = await resolveOrganizationId(accessToken, orgId);
+  if (stillDraft) {
+    await setBillDateInZoho(accessToken, organizationId, id, receivedDate);
+    await approveBillInZoho(accessToken, organizationId, id);
+    const receivedLabel = new Intl.DateTimeFormat('en-GB', {
+      timeZone: 'Asia/Kolkata',
+      day: '2-digit',
+      month: 'short',
+      year: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit',
+      hour12: true,
+    }).format(receivedAt);
+    await commentBillReceivedInZoho(
+      accessToken,
+      organizationId,
+      id,
+      `Goods received ${receivedLabel} IST. Draft marked Open with bill date ${receivedDate}.`,
+    );
+  }
 
   const raw = await fetchBillRaw(accessToken, organizationId, id);
   if (!raw) throw new Error('Goods receipt not found in Zoho.');
@@ -1210,17 +1287,21 @@ export async function markGoodsReceiptReceived(secrets, orgId, {
     status,
     receivedDate,
     opsReceivedAt,
-    opsReceivedByUid: markedByUid ?? null,
-    opsReceivedByName: markedByName ?? null,
+    opsReceivedByUid: data.opsReceivedByUid ?? markedByUid ?? null,
+    opsReceivedByName: data.opsReceivedByName ?? markedByName ?? null,
   }, { merge: true });
 
   return {
-    alreadyReceived: false,
+    alreadyReceived: Boolean(existingReceivedAt),
     status,
     receivedDate,
     opsReceivedAt,
-    opsReceivedByUid: markedByUid ?? null,
-    opsReceivedByName: markedByName ?? null,
+    opsReceivedByUid: data.opsReceivedByUid != null
+      ? String(data.opsReceivedByUid)
+      : (markedByUid ?? null),
+    opsReceivedByName: data.opsReceivedByName != null
+      ? String(data.opsReceivedByName)
+      : (markedByName ?? null),
   };
 }
 

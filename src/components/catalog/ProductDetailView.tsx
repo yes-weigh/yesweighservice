@@ -89,6 +89,7 @@ import { ProductOpenNcTile } from './ProductOpenNcTile';
 import { ProductSiteStockLocations } from './ProductSiteStockLocations';
 import { listOpenAuditCycles } from '../../lib/auditCycles/data';
 import {
+  catalogActualWarehouseQty,
   catalogGridStockQty,
   catalogGridStockUsesLedger,
   resolveAdjustedAuditDisplay,
@@ -702,6 +703,9 @@ export const ProductDetailView: React.FC<{
 
   const summaryAuditedQty = showAuditedStock ? adjustedAudit.displayAuditedQty : null;
   const summaryDifference = showAuditedStock ? adjustedAudit.displayDifference : null;
+  const summaryActualQty = showAuditedStock && product && !catalogGridStockUsesLedger(product)
+    ? (livePhysicalQty ?? catalogActualWarehouseQty(product.auditSnapshot))
+    : null;
 
   const detailOpenCycles = useMemo(
     () => (openAuditCycles ?? []).filter(cycle => activeInventorySites.includes(cycle.site)),
@@ -835,12 +839,15 @@ export const ProductDetailView: React.FC<{
       key: string;
       label: string;
       shortLabel: string;
-      tone: 'zoho' | 'audited' | 'diff' | 'nc';
+      tone: 'zoho' | 'actual' | 'audited' | 'diff' | 'nc';
       diffState?: 'over' | 'under' | 'match';
     }> = [];
 
     if (showStockQuantity) {
       cols.push({ key: 'zoho', label: 'Zoho stock', shortLabel: 'Zoho', tone: 'zoho' });
+    }
+    if (showAuditedStock && summaryActualQty != null) {
+      cols.push({ key: 'actual', label: 'Actual qty', shortLabel: 'Actual', tone: 'actual' });
     }
     if (showAuditedStock) {
       cols.push({ key: 'audited', label: 'Audited stock', shortLabel: 'Audited', tone: 'audited' });
@@ -859,13 +866,17 @@ export const ProductDetailView: React.FC<{
       cols.push({ key: 'nc', label: 'NC', shortLabel: 'NC', tone: 'nc' });
     }
     return cols;
-  }, [showStockQuantity, showAuditedStock, summaryDifference]);
+  }, [showStockQuantity, showAuditedStock, summaryDifference, summaryActualQty]);
 
   const renderStockValue = (key: string) => {
     if (!product) return null;
     switch (key) {
       case 'zoho':
         return formatStockQuantity(product.stock, product.unit);
+      case 'actual':
+        return summaryActualQty != null
+          ? formatStockQuantity(summaryActualQty, product.unit)
+          : '—';
       case 'audited':
         return auditLoading ? '…' : auditedStockLabel ?? '—';
       case 'diff':

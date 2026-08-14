@@ -5972,6 +5972,39 @@ body:has(.confirm-inline-bar) .confirm-inline-bar {
   letter-spacing: -0.015em;
 }
 
+.catalog-product-card__qty-stack,
+.catalog-row__qty-stack {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 0.18rem;
+  flex-shrink: 0;
+}
+
+.catalog-product-card__actual-qty {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 0.18rem;
+  padding: 0.12rem 0.4rem;
+  border-radius: 999px;
+  background: #ecfeff;
+  border: 1px solid #a5f3fc;
+  color: #0e7490;
+  font-size: 0.72rem;
+  font-weight: 800;
+  line-height: 1.1;
+  font-variant-numeric: tabular-nums;
+}
+
+.catalog-product-card__actual-qty em {
+  font-style: normal;
+  font-weight: 700;
+  font-size: 0.58rem;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: #155e75;
+}
+
 .catalog-product-card__price-row {
   display: flex;
   align-items: center;
@@ -14716,6 +14749,19 @@ body:has(.confirm-inline-bar) .confirm-inline-bar {
 
 .product-detail-page__summary-cell--value.product-detail-page__summary-cell--zoho {
   color: #5b21b6;
+}
+
+.product-detail-page__summary-cell--label.product-detail-page__summary-cell--actual,
+.product-detail-page__summary-cell--value.product-detail-page__summary-cell--actual {
+  background: #ecfeff;
+}
+
+.product-detail-page__summary-cell--label.product-detail-page__summary-cell--actual {
+  color: #0e7490;
+}
+
+.product-detail-page__summary-cell--value.product-detail-page__summary-cell--actual {
+  color: #155e75;
 }
 
 .product-detail-page__summary-cell--label.product-detail-page__summary-cell--audited,

@@ -22,14 +22,38 @@ export function nextAuditDiffAfterZohoChange(
 }
 
 /**
+ * Warehouse bins at last physical count (HO + Cochin). Does not follow Zoho.
+ */
+export function catalogActualWarehouseQty(
+  snapshot: CatalogProductAuditSnapshot | null | undefined,
+): number | null {
+  if (!snapshot) return null;
+  const ho = Number(snapshot.headOfficeQtyAtAudit ?? 0);
+  const co = Number(snapshot.cochinQtyAtAudit ?? 0);
+  if (!Number.isFinite(ho) && !Number.isFinite(co)) return null;
+  return (Number.isFinite(ho) ? ho : 0) + (Number.isFinite(co) ? co : 0);
+}
+
+/**
  * Quantity for catalog grid/list stock pills.
- * Audited = last physical adjusted with Zoho (snapshot.physicalQtyAtAudit).
+ * Audited = Zoho + remaining Diff (same as the product detail Audited column).
  * Returns 0 when the product has never been audited.
  */
 export function catalogGridAuditedStockQty(
   snapshot: CatalogProductAuditSnapshot | null | undefined,
+  currentZohoQty?: number | null,
 ): number {
   if (!snapshot) return 0;
+  if (currentZohoQty != null && Number.isFinite(currentZohoQty)) {
+    const adjusted = resolveAdjustedAuditDisplay({
+      currentZohoQty,
+      snapshot,
+      livePhysicalQty: null,
+    });
+    if (adjusted.displayAuditedQty != null && Number.isFinite(adjusted.displayAuditedQty)) {
+      return adjusted.displayAuditedQty;
+    }
+  }
   const qty = Number(snapshot.physicalQtyAtAudit);
   return Number.isFinite(qty) ? qty : 0;
 }
@@ -47,7 +71,7 @@ export function catalogGridStockQty(product: CatalogProduct): number {
     const qty = Number(product.ledgerClosingStock);
     return Number.isFinite(qty) ? qty : 0;
   }
-  return catalogGridAuditedStockQty(product.auditSnapshot);
+  return catalogGridAuditedStockQty(product.auditSnapshot, product.stock);
 }
 
 export interface AdjustedAuditDisplay {
