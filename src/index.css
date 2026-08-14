@@ -31910,7 +31910,7 @@ body:has(.confirm-inline-bar) .confirm-inline-bar {
   font-weight: 600;
   line-height: 1.2;
   color: var(--text-muted);
-  white-space: nowrap;
+  white-space: normal;
   text-align: center;
 }
 

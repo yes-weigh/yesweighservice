@@ -844,6 +844,9 @@ export function mapSalesOrderDoc(id, data) {
     id,
     salesOrderNumber: String(data.salesOrderNumber ?? ''),
     date,
+    createdTime: data.createdTime
+      ? String(data.createdTime)
+      : (data.zohoLastModified ? String(data.zohoLastModified) : null),
     shipmentDate: data.shipmentDate ?? null,
     status: String(data.status ?? 'draft'),
     total: Number(data.total ?? 0),
@@ -910,6 +913,7 @@ function mapSalesOrderListRow(id, data) {
     id: full.id,
     salesOrderNumber: full.salesOrderNumber,
     date: full.date,
+    createdTime: full.createdTime,
     shipmentDate: full.shipmentDate,
     status: full.status,
     total: full.total,

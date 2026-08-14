@@ -6,7 +6,7 @@ import {
   logisticsPartnerLabel,
   type LogisticsPartnerId,
 } from '../../constants/logisticsPartners';
-import { formatInvoiceDate } from '../../lib/invoices';
+import { formatInvoiceDate, formatInvoiceDateTime } from '../../lib/invoices';
 import {
   ENABLED_LOGISTICS_PARTNER_IDS,
 } from '../../lib/logisticsBooking';
@@ -18,7 +18,6 @@ import {
 import {
   resolveDelhiveryFreightBillingModeFromInvoice,
 } from '../../lib/logisticsPrefill';
-import { formatLogisticsDateTimeLabel } from '../../lib/logisticsDateTime';
 import type { User } from '../../types';
 import type { DealerInvoiceDetail } from '../../types/invoices';
 import type { LogisticsBooking } from '../../types/logistics-dispatch';
@@ -45,8 +44,11 @@ const PICKABLE_PARTNERS = LOGISTICS_PARTNERS.filter(partner => (
   && partner.id !== 'delhivery'
 ));
 
-function formatBookingDate(value: string): string {
-  return formatLogisticsDateTimeLabel(value);
+function formatBookingDate(booking: LogisticsBooking): string {
+  return formatInvoiceDateTime(
+    booking.bookingDate,
+    booking.courierTrack?.bookedAt?.trim() || booking.createdAt,
+  );
 }
 
 export const InvoiceAddLrDialog: React.FC<Props> = ({
@@ -442,7 +444,7 @@ export const InvoiceAddLrDialog: React.FC<Props> = ({
                       </span>
                       <span className="invoice-manual-logistics-link-list__body">
                         <strong className="invoice-manual-logistics-link-list__date">
-                          {formatBookingDate(booking.bookingDate)}
+                          {formatBookingDate(booking)}
                         </strong>
                         <span className="invoice-manual-logistics-link-list__tracking">
                           {booking.consignmentNo || booking.trackingNo || '—'}
