@@ -1,9 +1,18 @@
-﻿import { getFirestore } from 'firebase-admin/firestore';
+﻿import { getFirestore, FieldValue } from 'firebase-admin/firestore';
 import { getAccessToken, resolveOrganizationId, fetchProductDetail } from './zoho.js';
 
 const YES_STORE_ITEMS = 'yesStoreItems';
 const CATALOG_SITE_INVENTORY = 'catalogSiteInventory';
 const PRODUCTS_COLLECTION = 'catalogProducts';
+const META_DOC = 'catalogMeta/sync';
+
+/** Invalidate the client catalog list cache after auditSnapshot / stock writes. */
+async function bumpCatalogContentChange() {
+  await getFirestore().doc(META_DOC).set({
+    lastContentChangeAt: new Date().toISOString(),
+    updatedAt: FieldValue.serverTimestamp(),
+  }, { merge: true }).catch(() => {});
+}
 
 function readItemQuantity(item) {
   const qty = Number(item?.quantity ?? 0);
@@ -306,7 +315,10 @@ async function writeCatalogProductAuditEntry(productRef, entry) {
 
   await logRef.set(log);
   if (!skipSnapshot) {
-    await productRef.set({ auditSnapshot: snapshot }, { merge: true });
+    await Promise.all([
+      productRef.set({ auditSnapshot: snapshot }, { merge: true }),
+      bumpCatalogContentChange(),
+    ]);
   }
 
   return { log, snapshot };
@@ -444,7 +456,10 @@ async function rebuildProductAuditSnapshot(productRef) {
     });
     prior = snapshot;
   }
-  await productRef.set({ auditSnapshot: snapshot }, { merge: true });
+  await Promise.all([
+    productRef.set({ auditSnapshot: snapshot }, { merge: true }),
+    bumpCatalogContentChange(),
+  ]);
   return snapshot;
 }
 

@@ -6,9 +6,7 @@ import {
   expectsCatalogPackageInfo,
 } from '../../lib/catalog';
 import {
-  catalogActualWarehouseQty,
   catalogGridStockQty,
-  catalogGridStockUsesLedger,
   resolveAdjustedAuditDisplay,
 } from '../../lib/catalogProductAudit/display';
 import { normalizeGatcIdList, productHasLinkedGatc } from '../../lib/gatcCart';
@@ -201,12 +199,8 @@ export const ProductBrowseCard: React.FC<ProductBrowseCardProps> = ({
     });
   }, [showStockQuantity, product.auditSnapshot, product.stock]);
 
-  /** Grid qty pill: audited stock, or ledger closing for Software Keys 997331. */
+  /** Grid qty pill: audited stock (Zoho + Diff), same as the product detail Audited column. */
   const gridStockQty = showStockQuantity ? catalogGridStockQty(product) : 0;
-  const gridActualQty = showStockQuantity && !catalogGridStockUsesLedger(product)
-    ? catalogActualWarehouseQty(product.auditSnapshot)
-    : null;
-  const showGridActualQty = gridActualQty != null && gridActualQty !== gridStockQty;
 
   const gridStockStatus = gridStockQty <= 0
     ? 'out_of_stock' as const
@@ -352,26 +346,12 @@ export const ProductBrowseCard: React.FC<ProductBrowseCardProps> = ({
               )}
             </div>
             {showStockQuantity && (
-              <div className="catalog-product-card__qty-stack">
-                <StockQuantity
-                  stock={showGridActualQty ? gridActualQty! : gridStockQty}
-                  unit={product.unit}
-                  status={showGridActualQty
-                    ? (gridActualQty! <= 0 ? 'out_of_stock' : gridStockStatus)
-                    : gridStockStatus}
-                  compact
-                />
-                {showGridActualQty && (
-                  <span
-                    className="catalog-product-card__actual-qty"
-                    title={`Audited stock: ${gridStockQty} ${product.unit}`}
-                  >
-                    <strong>{gridStockQty}</strong>
-                    <span>{product.unit}</span>
-                    <em>audited</em>
-                  </span>
-                )}
-              </div>
+              <StockQuantity
+                stock={gridStockQty}
+                unit={product.unit}
+                status={gridStockStatus}
+                compact
+              />
             )}
           </div>
 

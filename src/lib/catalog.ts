@@ -20,6 +20,7 @@ import { effectiveCatalogStockStatus, isSacHsn } from './sacCatalog';
 import {
   clearCatalogCache,
   getCatalogInflight,
+  patchCatalogCacheProduct,
   peekCatalogCache,
   peekCatalogCacheStale,
   setCatalogCache,
@@ -1104,22 +1105,19 @@ async function loadCatalogPayload(options: FetchCatalogOptions): Promise<Catalog
     return promise;
   }
 
-  const fresh = peekCatalogCache();
-  if (fresh) return fresh;
-
-  const stale = peekCatalogCacheStale();
-  if (stale) {
-    // Soft TTL expired — one meta read; skip full catalog if Zoho sync wrote nothing new.
+  const cached = peekCatalogCacheStale();
+  if (cached) {
     try {
       const metaSnap = await getDoc(doc(db, 'catalogMeta', 'sync'));
       const meta = metaSnap.exists() ? metaSnap.data() : null;
       const contentKey = catalogContentKey(meta);
-      if (contentKey && contentKey === stale.contentKey) {
-        touchCatalogCache();
-        return stale;
+      if (contentKey && contentKey === cached.contentKey) {
+        if (!peekCatalogCache()) touchCatalogCache();
+        return cached;
       }
     } catch {
-      // Fall through to full fetch.
+      const fresh = peekCatalogCache();
+      if (fresh) return fresh;
     }
   }
 
@@ -1438,12 +1436,21 @@ export async function fetchCatalogProductDetail(productId: string): Promise<Cata
         .map(url => withCatalogImageCacheBust(url, syncedAt))
         .filter((url): url is string => Boolean(url))
       : undefined;
-    return supplementCatalogProductLedgerStock(productId, {
+    const supplemented = await supplementCatalogProductLedgerStock(productId, {
       ...detail,
       imageUrl,
       ...(imageUrls?.length ? { imageUrls } : {}),
       ...(imageDocs?.length ? { imageDocs } : {}),
     });
+    patchCatalogCacheProduct(supplemented.id, {
+      stock: supplemented.stock,
+      stockStatus: supplemented.stockStatus,
+      auditSnapshot: supplemented.auditSnapshot ?? null,
+      ...(supplemented.ledgerClosingStock != null
+        ? { ledgerClosingStock: supplemented.ledgerClosingStock }
+        : {}),
+    });
+    return supplemented;
   } catch (err) {
     throw new Error(catalogErrorMessage(err));
   }

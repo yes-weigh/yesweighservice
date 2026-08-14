@@ -1,6 +1,6 @@
 import type { CatalogCategory, CatalogProduct, CatalogStats } from '../types/catalog';
 
-const CACHE_VERSION = 'v1';
+const CACHE_VERSION = 'v2';
 const SESSION_KEY = `yws.catalog.${CACHE_VERSION}`;
 /** Soft TTL — within this window we skip Firestore entirely. */
 const TTL_MS = 10 * 60 * 1000;
@@ -80,6 +80,24 @@ export function setCatalogCache(data: CatalogCachePayload): void {
   const entry: CatalogCacheEnvelope = { savedAt: Date.now(), data };
   memory = entry;
   writeSession(entry);
+}
+
+/** Overlay live stock / audit fields onto a cached list item (e.g. after product detail). */
+export function patchCatalogCacheProduct(
+  productId: string,
+  patch: Partial<CatalogProduct>,
+): void {
+  const data = peekCatalogCacheStale();
+  if (!data) return;
+  const idx = data.allItems.findIndex(item => item.id === productId);
+  if (idx < 0) return;
+  const nextItem: CatalogProduct = { ...data.allItems[idx], ...patch };
+  if (patch.auditSnapshot === null) {
+    delete nextItem.auditSnapshot;
+  }
+  const allItems = data.allItems.slice();
+  allItems[idx] = nextItem;
+  setCatalogCache({ ...data, allItems });
 }
 
 /** Refresh soft TTL without changing payload (meta said content unchanged). */
