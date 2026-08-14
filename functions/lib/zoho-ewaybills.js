@@ -71,8 +71,36 @@ function normalizeGstin(value) {
   return /^[0-9A-Z]{15}$/.test(text) ? text : '';
 }
 
-function todayIsoDate() {
-  return new Date().toISOString().slice(0, 10);
+function invoiceHasIrn(invoice) {
+  if (!invoice || typeof invoice !== 'object') return false;
+  const details = invoice.einvoice_details && typeof invoice.einvoice_details === 'object'
+    ? invoice.einvoice_details
+    : {};
+  const irn = String(details.irn ?? details.IRN ?? invoice.irn ?? '').trim();
+  if (irn) return true;
+  const status = String(
+    details.status ?? invoice.einvoice_status ?? invoice.e_invoice_status ?? '',
+  ).trim().toLowerCase();
+  return Boolean(status) && /pushed|generated|success|active|irn/.test(status);
+}
+
+function existingDispatchFromAddressId(invoice) {
+  if (!invoice || typeof invoice !== 'object') return '';
+  const details = invoice.einvoice_details && typeof invoice.einvoice_details === 'object'
+    ? invoice.einvoice_details
+    : {};
+  return String(
+    invoice.dispatch_from_address_id
+    ?? invoice.dispatch_from_address?.address_id
+    ?? details.dispatch_from_address_id
+    ?? '',
+  ).trim();
+}
+
+function isIrnDispatchLockedError(message) {
+  return /dispatch associated with the irn|irn generated invoice can't be changed|cannot be changed/i.test(
+    String(message ?? ''),
+  );
 }
 
 function isGeneratedEwayStatus(status) {
@@ -276,9 +304,14 @@ export async function createZohoEwayBillForInvoice(accessToken, orgId, input) {
   const lr = String(input.lrNumber ?? '').trim();
   const shipFromAddress = String(input.shipFromAddress ?? '').trim();
   const deliveryAddress = String(input.deliveryAddress ?? '').trim();
+  const hasIrn = invoiceHasIrn(invoice);
+  const irnDispatchFromId = existingDispatchFromAddressId(invoice);
 
   let dispatchFromAddressId = String(input.dispatchFromAddressId ?? '').trim();
-  if (!dispatchFromAddressId && shipFromAddress) {
+  if (hasIrn) {
+    // IRN freezes dispatch-from. A new portal site address must not replace it.
+    dispatchFromAddressId = irnDispatchFromId;
+  } else if (!dispatchFromAddressId && shipFromAddress) {
     dispatchFromAddressId = await ensureZohoDispatchFromAddress(
       accessToken,
       orgId,
@@ -325,6 +358,14 @@ export async function createZohoEwayBillForInvoice(accessToken, orgId, input) {
     return payload?.ewaybill ?? null;
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
+    if (isIrnDispatchLockedError(message) && body.dispatch_from_address_id) {
+      const { dispatch_from_address_id: _ignored, ...withoutDispatch } = body;
+      const retried = await zohoJson(accessToken, orgId, '/ewaybills', {
+        method: 'POST',
+        body: withoutDispatch,
+      });
+      return retried?.ewaybill ?? null;
+    }
     if (/already exists/i.test(message) && invoice.ewaybill_id) {
       const record = await fetchZohoEwayBillRecord(accessToken, orgId, String(invoice.ewaybill_id));
       if (String(record?.ewaybill_status ?? '').toLowerCase() !== 'cancelled') {
