@@ -28,6 +28,7 @@ import {
   sumInvoiceItemQuantity,
   upsertInvoiceSummary,
 } from './invoice-stats.js';
+import { markInvoiceAsSent } from './zoho-sales-orders.js';
 
 const CUSTOMERS_COLLECTION = 'zohoCustomers';
 const INVOICES_SUBCOLLECTION = 'invoices';
@@ -765,8 +766,9 @@ export async function syncInvoicesToFirestore(secrets, orgId, options = {}) {
       const customerId = String(summary.customer_id);
       const existingSnap = await invoicesCollection(customerId).doc(invoiceId).get();
       const existing = existingSnap.exists ? existingSnap.data() : null;
+      const summaryStatus = String(summary.status || existing?.status || '').trim().toLowerCase();
 
-      if (invoiceDetailStillValid(existing, summary)) {
+      if (summaryStatus !== 'draft' && invoiceDetailStillValid(existing, summary)) {
         const result = await upsertInvoiceFromRaw(accessToken, organizationId, summary, {
           ...upsertOptions,
           useProvidedRaw: true,
@@ -794,6 +796,15 @@ export async function syncInvoicesToFirestore(secrets, orgId, options = {}) {
         skipped += 1;
         return;
       }
+      fullRaw = await promoteDraftInvoiceIfPaymentConfirmed(
+        secrets,
+        orgId,
+        accessToken,
+        organizationId,
+        invoiceId,
+        fullRaw,
+        existing,
+      );
       try {
         await upsertInvoiceFromRaw(accessToken, organizationId, fullRaw, {
           ...upsertOptions,
@@ -853,14 +864,66 @@ export async function syncInvoicesToFirestore(secrets, orgId, options = {}) {
   };
 }
 
+async function salesOrderPaymentConfirmed(salesOrderId) {
+  const soId = String(salesOrderId ?? '').trim();
+  if (!soId) return false;
+  try {
+    const snap = await getFirestore().collection('salesOrders').doc(soId).get();
+    if (!snap.exists) return false;
+    const data = snap.data() ?? {};
+    const stage = String(data.yesOneStage ?? '').trim().toLowerCase();
+    if (stage === 'completed') return true;
+    return Boolean(String(data.paymentVerifiedAt ?? '').trim());
+  } catch {
+    return false;
+  }
+}
+
+async function promoteDraftInvoiceIfPaymentConfirmed(
+  secrets,
+  orgId,
+  accessToken,
+  organizationId,
+  invoiceId,
+  invoiceRaw,
+  existingDoc = null,
+) {
+  const zohoStatus = String(invoiceRaw?.status || '').trim().toLowerCase();
+  if (zohoStatus !== 'draft') return invoiceRaw;
+  const soId = String(invoiceRaw?.salesorder_id || existingDoc?.salesOrderId || '').trim();
+  if (!soId || !(await salesOrderPaymentConfirmed(soId))) return invoiceRaw;
+  try {
+    await markInvoiceAsSent(secrets, orgId, invoiceId);
+    const refreshed = await fetchInvoiceRaw(accessToken, organizationId, invoiceId);
+    return refreshed || invoiceRaw;
+  } catch (sentErr) {
+    console.warn(
+      `Could not mark invoice ${invoiceId} as sent during sync (SO ${soId}):`,
+      sentErr?.message || sentErr,
+    );
+    return invoiceRaw;
+  }
+}
+
 export async function syncSingleInvoiceFromZoho(secrets, orgId, invoiceId, options = {}) {
   const accessToken = await getAccessToken(secrets);
   const organizationId = await resolveOrganizationId(accessToken, orgId);
   const syncOpts = defaultInvoiceSyncOptions(options);
-  const fullRaw = await fetchInvoiceRaw(accessToken, organizationId, invoiceId);
+  let fullRaw = await fetchInvoiceRaw(accessToken, organizationId, invoiceId);
   if (!fullRaw) {
     return { deleted: false, updated: false, reason: 'not found' };
   }
+
+  fullRaw = await promoteDraftInvoiceIfPaymentConfirmed(
+    secrets,
+    orgId,
+    accessToken,
+    organizationId,
+    invoiceId,
+    fullRaw,
+  );
+  const soId = String(fullRaw.salesorder_id || '').trim();
+
   const result = await upsertInvoiceFromRaw(accessToken, organizationId, fullRaw, {
     useProvidedRaw: true,
     forceDetail: true,
@@ -872,7 +935,6 @@ export async function syncSingleInvoiceFromZoho(secrets, orgId, invoiceId, optio
   });
 
   // Outside-portal invoices: move/settle pending freight Diff onto first invoiced SO with freight.
-  const soId = String(fullRaw?.salesorder_id || '').trim();
   const customerId = String(result?.customerId || fullRaw?.customer_id || '').trim();
   if (soId && customerId && !options.skipFreightDiffSettle) {
     try {

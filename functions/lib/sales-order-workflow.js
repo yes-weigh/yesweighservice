@@ -14,6 +14,7 @@ import {
   createInvoiceFromSalesOrder,
   deleteSalesOrder,
   getSalesOrderLinkedInvoice,
+  markInvoiceAsSent,
   pushInvoiceEinvoiceToIrp,
   setSalesOrderSalesperson,
   updateSalesOrderLines,
@@ -956,7 +957,7 @@ export async function submitSalesOrderPayment(uid, role, payload = {}) {
 
 /**
  * Super admin: verify payment → Confirm Zoho SO → create Invoice
- * → (B2B only) push e-invoice to IRP → mark completed.
+ * → (B2B only) push e-invoice to IRP → mark invoice Sent → mark completed.
  */
 export async function verifySalesOrderPayment(uid, role, salesOrderId, secrets, orgId) {
   const user = await loadUser(uid);
@@ -1058,6 +1059,15 @@ export async function verifySalesOrderPayment(uid, role, salesOrderId, secrets, 
           einvoicePushError,
         );
       }
+    }
+
+    try {
+      await markInvoiceAsSent(secrets, orgId, invoiceId);
+    } catch (sentErr) {
+      console.warn(
+        `Could not mark invoice ${invoiceId} as sent after payment verify (SO ${id}):`,
+        sentErr?.message || sentErr,
+      );
     }
 
     await mirrorSalesOrderFromZoho(secrets, orgId, id);
@@ -1169,6 +1179,15 @@ export async function markSalesOrderInvoicedManually(uid, role, salesOrderId, se
       ? `Could not confirm a Zoho invoice for this sales order: ${linkedLookupError.message || linkedLookupError}`
       : 'No invoice is linked to this sales order in Zoho.';
     throw new HttpsError('failed-precondition', message, { code: 'mark_invoiced_no_zoho_invoice' });
+  }
+
+  try {
+    await markInvoiceAsSent(secrets, orgId, invoiceId);
+  } catch (sentErr) {
+    console.warn(
+      `Could not mark invoice ${invoiceId} as sent on manual invoice mark (SO ${id}):`,
+      sentErr?.message || sentErr,
+    );
   }
 
   const at = nowIso();

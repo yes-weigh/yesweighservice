@@ -613,6 +613,60 @@ export async function createInvoiceFromSalesOrder(secrets, configuredOrgId, {
   };
 }
 
+function invoiceAlreadySentMessage(message) {
+  return /already (been )?sent|not (in )?draft|status is sent|has been sent/i.test(String(message ?? ''));
+}
+
+/**
+ * Move a Zoho invoice out of Draft (portal payment confirmed).
+ * No-ops if it is already sent. Approves first when Zoho requires it.
+ */
+export async function markInvoiceAsSent(secrets, configuredOrgId, invoiceId) {
+  const id = String(invoiceId || '').trim();
+  if (!id) throw new Error('Invoice id is required.');
+  const accessToken = await getAccessToken(secrets);
+  const orgId = await resolveOrganizationId(accessToken, configuredOrgId);
+
+  const postSent = () => zohoJson(
+    accessToken,
+    orgId,
+    `/invoices/${encodeURIComponent(id)}/status/sent`,
+    { method: 'POST', body: {} },
+  );
+
+  try {
+    await postSent();
+    return { invoiceId: id, status: 'sent' };
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    if (invoiceAlreadySentMessage(message)) {
+      return { invoiceId: id, status: 'sent' };
+    }
+    if (!/approv/i.test(message)) throw err;
+    try {
+      await zohoJson(
+        accessToken,
+        orgId,
+        `/invoices/${encodeURIComponent(id)}/approve`,
+        { method: 'POST', body: {} },
+      );
+    } catch (approveErr) {
+      const approveMessage = approveErr instanceof Error ? approveErr.message : String(approveErr);
+      if (!/already|approv/i.test(approveMessage)) throw approveErr;
+    }
+    try {
+      await postSent();
+      return { invoiceId: id, status: 'sent' };
+    } catch (sentErr) {
+      const sentMessage = sentErr instanceof Error ? sentErr.message : String(sentErr);
+      if (invoiceAlreadySentMessage(sentMessage)) {
+        return { invoiceId: id, status: 'sent' };
+      }
+      throw sentErr;
+    }
+  }
+}
+
 /**
  * Push an invoice's e-invoice to the IRP (Zoho "Push to IRP").
  * Only succeeds for GST-registered B2B customers.

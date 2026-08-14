@@ -42,6 +42,16 @@ export function invoiceErrorMessage(err: unknown): string {
     if (code === 'functions/permission-denied') {
       return 'You do not have permission to view invoices.';
     }
+    if (
+      /access denied|not authorized to perform this operation/i.test(message)
+      && !/go back to see items/i.test(message)
+    ) {
+      return (
+        'Zoho could not print this PDF (Access Denied). '
+        + 'The sales order is saved — go back to see items and amounts. '
+        + 'Software orders use Cloud Charges and often cannot be printed from Zoho.'
+      );
+    }
     if (message) return message;
   }
   return 'Could not load invoices.';

@@ -152,6 +152,9 @@ export const AdminSalesOrderPdfViewerPage: React.FC = () => {
         <div className="invoice-detail-pdf__error">
           <AlertCircle size={20} />
           <p>{error}</p>
+          <p className="invoice-detail-pdf__error-hint text-muted text-sm">
+            Use the back button for the order details. This screen is only the Zoho PDF.
+          </p>
         </div>
       ) : useNativeViewer && pdfUrl ? (
         <iframe

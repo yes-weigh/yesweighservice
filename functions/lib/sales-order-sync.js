@@ -80,6 +80,27 @@ function pdfPath(soId) {
   return `salesorders/${soId}.pdf`;
 }
 
+function isPdfBuffer(buffer) {
+  if (!buffer || buffer.length < 5) return false;
+  return buffer.subarray(0, 5).toString('latin1') === '%PDF-';
+}
+
+function bufferLooksLikeZohoDenied(buffer) {
+  const sample = buffer.subarray(0, 4096).toString('utf8');
+  return /access denied|not authorized to perform this operation/i.test(sample);
+}
+
+function zohoPdfDeniedMessage(rawMessage) {
+  const msg = String(rawMessage ?? '').trim();
+  if (/access denied|not authorized/i.test(msg)) {
+    return (
+      'Zoho could not print this sales order PDF (Access Denied). '
+      + 'The order is saved — go back for line items. Software orders use Cloud Charges and are not warehouse-stocked; Zoho often blocks the PDF for those.'
+    );
+  }
+  return msg || 'Could not download sales order PDF.';
+}
+
 async function zohoJsonRequest(accessToken, orgId, path) {
   const url = new URL(`${ZOHO_API_BASE}${path}`);
   if (!url.searchParams.has('organization_id')) {
@@ -799,17 +820,22 @@ export async function ensureSalesOrderPdf(secrets, orgId, soId) {
   const [exists] = await file.exists();
   if (exists) {
     const [buf] = await file.download();
-    return {
-      contentBase64: buf.toString('base64'),
-      filename: `${data.salesOrderNumber || id}.pdf`,
-      mimeType: 'application/pdf',
-    };
+    if (isPdfBuffer(buf) && !bufferLooksLikeZohoDenied(buf)) {
+      return {
+        contentBase64: buf.toString('base64'),
+        filename: `${data.salesOrderNumber || id}.pdf`,
+        mimeType: 'application/pdf',
+      };
+    }
+    await file.delete().catch(() => {});
+    await ref.set({ pdfStoragePath: FieldValue.delete() }, { merge: true }).catch(() => {});
   }
 
   const accessToken = await getAccessToken(secrets);
   const organizationId = await resolveOrganizationId(accessToken, orgId);
   const url = new URL(`${ZOHO_API_BASE}/salesorders/${id}`);
   url.searchParams.set('organization_id', organizationId);
+  url.searchParams.set('accept', 'pdf');
   const res = await fetch(url.toString(), {
     headers: {
       ...authHeaders(accessToken, organizationId),
@@ -817,11 +843,17 @@ export async function ensureSalesOrderPdf(secrets, orgId, soId) {
     },
   });
   await recordZohoApiResponse(res, { operation: `salesorders/${id}/pdf`, source: 'sales-order-sync' });
-  if (!res.ok) {
-    throw new Error(`Could not download sales order PDF (${res.status}).`);
-  }
   const buffer = Buffer.from(await res.arrayBuffer());
-  if (!buffer.length) throw new Error('PDF file is empty.');
+  if (!res.ok || !isPdfBuffer(buffer) || bufferLooksLikeZohoDenied(buffer)) {
+    let message = `Could not download sales order PDF (${res.status}).`;
+    try {
+      const payload = JSON.parse(buffer.toString('utf8'));
+      if (payload?.message) message = String(payload.message);
+    } catch {
+      if (bufferLooksLikeZohoDenied(buffer)) message = 'Access Denied';
+    }
+    throw new Error(zohoPdfDeniedMessage(message));
+  }
   await file.save(buffer, { resumable: false, contentType: 'application/pdf' });
   await ref.set({ pdfStoragePath: path }, { merge: true });
   return {
