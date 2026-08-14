@@ -56,6 +56,7 @@ import { isInternalOpsUser } from '../../lib/staffAccess';
 import {
   bookingInvoiceEwayRow,
   clubbedNeedsEwayBill,
+  ewayBillIsReady,
   invoiceNeedsEwayBillCard,
 } from '../../constants/ewayBill';
 import type { CatalogProduct } from '../../types/catalog';
@@ -351,8 +352,8 @@ export const AdminInvoiceDetailLayout: React.FC = () => {
     || bookingEwayRow?.ewayBillNumber?.trim()
     || '';
   const ewayBillReady = Boolean(
-    invoice?.ewayBill?.status === 'generated'
-    || ewayBillNumberOnCard,
+    ewayBillIsReady(invoice?.ewayBill?.status, ewayBillNumberOnCard)
+    || ewayBillIsReady(bookingEwayRow?.ewayBillStatus, bookingEwayRow?.ewayBillNumber),
   );
   const topCardCount = 1
     + (showOrderList ? 1 : 0)

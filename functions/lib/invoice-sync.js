@@ -661,6 +661,7 @@ export async function upsertInvoiceFromRaw(accessToken, orgId, invoiceRaw, optio
         ?? existing?.manualDeliveredAt
         ?? existing?.manualDelivery?.markedAt
         ?? null,
+      ewayBill: doc.ewayBill ?? existing?.ewayBill ?? null,
     };
     const beforeSnap = existing
       ? { ...existing, customerId: existing.customerId ?? customerId }

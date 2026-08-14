@@ -22,6 +22,16 @@ export function isEwayBillRequired(invoiceTotalInclGstInr: unknown): boolean {
   return Number.isFinite(total) && total > EWAY_BILL_THRESHOLD_INR;
 }
 
+/** Ready when a bill number exists, or Zoho/GST status is generated (incl. part_a_generated). */
+export function ewayBillIsReady(
+  status?: string | null,
+  ewaybillNumber?: string | null,
+): boolean {
+  if (String(ewaybillNumber || '').trim()) return true;
+  const normalized = String(status || '').trim().toLowerCase();
+  return normalized === 'generated' || normalized.includes('generated');
+}
+
 export function resolveEwayBillInvoiceTotal(
   booking: { invoiceValueInr?: number | null },
   invoice?: { total?: unknown; subtotal?: unknown; taxTotal?: unknown } | null,
@@ -114,7 +124,7 @@ export function invoiceNeedsEwayBillCard(input: {
   const invoice = input.invoice;
   if (!invoice) return false;
   const existing = invoice.ewayBill;
-  if (existing?.status === 'generated' || String(existing?.ewaybillNumber || '').trim()) return true;
+  if (ewayBillIsReady(existing?.status, existing?.ewaybillNumber)) return true;
   if (existing?.required === true || existing?.requiredBecause === 'clubbed_lr') return true;
   if (input.booking && bookingNeedsEwayBill(input.booking, invoiceTotalInclGst(invoice))) return true;
   if (input.customerPickup) return isEwayBillRequired(invoiceTotalInclGst(invoice));
@@ -157,7 +167,7 @@ export function ewayBillListChip(
 ): EwayBillListChip | null {
   if (!bookingNeedsEwayBill(booking, options?.invoiceTotalInclGst)) return null;
 
-  if (booking.ewayBillStatus === 'generated') {
+  if (ewayBillIsReady(booking.ewayBillStatus, booking.ewayBillNumber)) {
     return {
       tone: 'done',
       label: 'EWB',
@@ -188,8 +198,15 @@ export function invoiceListEwayChip(
 ): EwayBillListChip | null {
   const invoiceId = String(invoice?.id || '').trim();
   const total = invoiceTotalInclGst(invoice);
+  const existing = invoice?.ewayBill;
+  if (ewayBillIsReady(existing?.status, existing?.ewaybillNumber)) {
+    return { tone: 'done', label: 'EWB' };
+  }
+  if (existing?.status === 'cancelled') {
+    return { tone: 'cancelled', label: 'EWB cancelled' };
+  }
   const row = booking && invoiceId ? bookingInvoiceEwayRow(booking, invoiceId) : null;
-  if (row?.ewayBillStatus === 'generated' || String(row?.ewayBillNumber || '').trim()) {
+  if (ewayBillIsReady(row?.ewayBillStatus, row?.ewayBillNumber)) {
     return { tone: 'done', label: 'EWB' };
   }
   if (row?.ewayBillStatus === 'cancelled') {
@@ -197,14 +214,7 @@ export function invoiceListEwayChip(
   }
   if (booking) {
     const fromBooking = ewayBillListChip(booking, { invoiceTotalInclGst: total });
-    if (fromBooking) return fromBooking;
-  }
-  const existing = invoice?.ewayBill;
-  if (existing?.status === 'generated' || String(existing?.ewaybillNumber || '').trim()) {
-    return { tone: 'done', label: 'EWB' };
-  }
-  if (existing?.status === 'cancelled') {
-    return { tone: 'cancelled', label: 'EWB cancelled' };
+    if (fromBooking?.tone === 'done' || fromBooking?.tone === 'cancelled') return fromBooking;
   }
   if (
     existing?.required === true
@@ -212,6 +222,10 @@ export function invoiceListEwayChip(
     || existing?.status === 'missing'
   ) {
     return { tone: 'missing', label: 'No e-way bill' };
+  }
+  if (booking) {
+    const fromBooking = ewayBillListChip(booking, { invoiceTotalInclGst: total });
+    if (fromBooking) return fromBooking;
   }
   if (String(invoice?.customerPickup?.markedAt || '').trim() && isEwayBillRequired(total)) {
     return { tone: 'missing', label: 'No e-way bill' };

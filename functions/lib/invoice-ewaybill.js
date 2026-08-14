@@ -5,6 +5,7 @@ import { getFirestore } from 'firebase-admin/firestore';
 import { getStorage } from 'firebase-admin/storage';
 import { getAccessToken, resolveOrganizationId } from './zoho.js';
 import { invoicesCollection } from './invoice-sync.js';
+import { invoiceSummaryRef } from './invoice-stats.js';
 import {
   cancelZohoEwayBill,
   createZohoEwayBillForInvoice,
@@ -102,6 +103,16 @@ async function persistEwayBill(customerId, invoiceId, patch, bookingId = null) {
     { ewayBill: normalized },
     { merge: true },
   );
+  // Admin list reads invoiceSummaries — keep e-way chip in sync with the hot invoice.
+  await invoiceSummaryRef(customerId, invoiceId).set({
+    ewayBill: {
+      required: normalized.required !== false,
+      requiredBecause: normalized.requiredBecause ?? null,
+      status: normalized.status ?? null,
+      ewaybillNumber: normalized.ewaybillNumber ?? null,
+    },
+    updatedAt: new Date().toISOString(),
+  }, { merge: true }).catch(() => {});
   if (bookingId) {
     const bookingRef = db.collection('logisticsBookings').doc(String(bookingId));
     const snap = await bookingRef.get();

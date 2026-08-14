@@ -697,8 +697,11 @@ export async function fetchAllAdminInvoicesInRange(options: {
   const withPickup = listCollection === 'invoiceSummaries' && !cachedSummariesIncludeCustomerPickup
     ? await overlayCustomerPickupFromInvoiceDocs(sliced)
     : sliced;
+  const withEway = listCollection === 'invoiceSummaries'
+    ? await overlayEwayBillFromInvoiceDocs(withPickup)
+    : withPickup;
 
-  return { rows: withPickup, truncated };
+  return { rows: withEway, truncated };
 }
 
 async function overlayCustomerPickupFromInvoiceDocs(
@@ -762,6 +765,46 @@ async function overlayCustomerPickupFromInvoiceDocs(
       manualDelivery: row.manualDelivery?.markedAt ? row.manualDelivery : (delivered ?? row.manualDelivery),
       manualDeliveredAt: row.manualDeliveredAt || delivered?.markedAt || null,
     };
+  });
+}
+
+function invoiceListRowNeedsEwayOverlay(row: AdminFirestoreInvoice): boolean {
+  if (row.ewayBill?.ewaybillNumber || String(row.ewayBill?.status || '').toLowerCase().includes('generated')) {
+    return false;
+  }
+  if (row.customerPickup?.markedAt || row.customerPickupMarkedAt) return true;
+  return Boolean(
+    row.ewayBill?.required
+    || row.ewayBill?.requiredBecause
+    || row.ewayBill?.status === 'missing',
+  );
+}
+
+/** Summaries omit ewayBill until dual-write; pull it from the hot invoice for list chips. */
+async function overlayEwayBillFromInvoiceDocs(
+  rows: AdminFirestoreInvoice[],
+): Promise<AdminFirestoreInvoice[]> {
+  const targets = rows.filter(invoiceListRowNeedsEwayOverlay);
+  if (!targets.length) return rows;
+
+  const ewayById = new Map<string, AdminFirestoreInvoice['ewayBill']>();
+  for (let i = 0; i < targets.length; i += 8) {
+    const batch = targets.slice(i, i + 8);
+    const snaps = await Promise.all(
+      batch.map(row => getDoc(doc(db, 'zohoCustomers', row.customerId, 'invoices', row.id))),
+    );
+    snaps.forEach((snap, index) => {
+      if (!snap.exists()) return;
+      const mapped = mapInvoiceListEwayBill(snap.data()?.ewayBill);
+      if (mapped) ewayById.set(batch[index].id, mapped);
+    });
+  }
+
+  if (!ewayById.size) return rows;
+  return rows.map(row => {
+    const ewayBill = ewayById.get(row.id);
+    if (!ewayBill) return row;
+    return { ...row, ewayBill };
   });
 }
 

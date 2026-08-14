@@ -122,6 +122,7 @@ export function buildInvoiceSummaryFields(invoiceDoc, customerId, invoiceId) {
   const manualDeliveredAt = invoiceDoc.manualDeliveredAt
     ? String(invoiceDoc.manualDeliveredAt).trim() || null
     : (manualDelivery?.markedAt ?? null);
+  const ewayBill = ewayBillForSummary(invoiceDoc.ewayBill);
   return {
     id: String(invoiceId),
     customerId: String(customerId),
@@ -148,6 +149,7 @@ export function buildInvoiceSummaryFields(invoiceDoc, customerId, invoiceId) {
     customerPickupMarkedAt,
     manualDelivery,
     manualDeliveredAt,
+    ...(ewayBill ? { ewayBill } : {}),
     syncedAt: invoiceDoc.syncedAt ?? FieldValue.serverTimestamp(),
     updatedAt: FieldValue.serverTimestamp(),
   };
@@ -164,6 +166,22 @@ function customerPickupForSummary(raw) {
     shipFromSite: raw.shipFromSite ? String(raw.shipFromSite) : null,
     shipFromLabel: raw.shipFromLabel ? String(raw.shipFromLabel) : null,
     vehicleNumber: raw.vehicleNumber ? String(raw.vehicleNumber) : null,
+  };
+}
+
+function ewayBillForSummary(raw) {
+  if (!raw || typeof raw !== 'object') return null;
+  const ewaybillNumber = raw.ewaybillNumber ? String(raw.ewaybillNumber).trim() : '';
+  const status = raw.status ? String(raw.status).trim() : '';
+  const requiredBecause = raw.requiredBecause === 'clubbed_lr' || raw.requiredBecause === 'invoice_total'
+    ? raw.requiredBecause
+    : null;
+  if (!ewaybillNumber && !status && raw.required !== true && !requiredBecause) return null;
+  return {
+    required: raw.required !== false,
+    requiredBecause,
+    status: status || null,
+    ewaybillNumber: ewaybillNumber || null,
   };
 }
 
