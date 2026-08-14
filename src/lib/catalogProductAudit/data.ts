@@ -32,6 +32,7 @@ function mapAuditLog(id: string, data: Record<string, unknown>): CatalogProductA
     rawPhysicalQty: data.rawPhysicalQty != null ? Number(data.rawPhysicalQty) : null,
     zohoQtyAtAudit: Number(data.zohoQtyAtAudit ?? 0),
     baselineDifference: Number(data.baselineDifference ?? 0),
+    pendingZohoInbound: data.pendingZohoInbound != null ? Number(data.pendingZohoInbound) : null,
     trigger: (data.trigger as CatalogProductAuditTrigger) ?? 'manual',
     auditCycleId: (data.auditCycleId as string | null) ?? null,
     sourceGoodsReceiptId: data.sourceGoodsReceiptId != null
@@ -50,6 +51,7 @@ export function mapAuditSnapshot(data: unknown): CatalogProductAuditSnapshot | n
     lastAuditedByUid: (row.lastAuditedByUid as string | null) ?? null,
     lastAuditedByName: (row.lastAuditedByName as string | null) ?? null,
     baselineDifference: Number(row.baselineDifference),
+    pendingZohoInbound: row.pendingZohoInbound != null ? Number(row.pendingZohoInbound) : null,
     physicalQtyAtAudit: Number(row.physicalQtyAtAudit ?? 0),
     zohoQtyAtAudit: Number(row.zohoQtyAtAudit ?? 0),
     mode: row.mode === 'bundle' ? 'bundle' : 'unit',

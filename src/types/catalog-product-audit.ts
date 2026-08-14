@@ -24,6 +24,11 @@ export interface CatalogProductAuditLog {
   zohoQtyAtAudit: number;
   /** physicalQty - zohoQtyAtAudit at this entry. */
   baselineDifference: number;
+  /**
+   * Inbound qty from a goods receipt not yet in Zoho.
+   * Zoho increases consume this first; leftover Diff is the prior variance (e.g. -5).
+   */
+  pendingZohoInbound?: number | null;
   trigger: CatalogProductAuditTrigger;
   /** Open audit cycle when this physical count was recorded. */
   auditCycleId?: string | null;
@@ -37,10 +42,13 @@ export interface CatalogProductAuditSnapshot {
   lastAuditedByUid: string | null;
   lastAuditedByName: string | null;
   /**
-   * Diff at last write. Sales keep it; Zoho inbound toward Audited consumes it.
+   * Diff at last write. Sales keep it. Zoho inbound consumes pending receive qty
+   * and leaves the prior locked variance (e.g. -5).
    * Live Audited = current Zoho + remaining Diff.
    */
   baselineDifference: number;
+  /** Receive qty still waiting to hit Zoho. 0 after the bill is opened. */
+  pendingZohoInbound?: number | null;
   /** Audited qty after last write (follows Zoho on sales; stays when inbound closes Diff). */
   physicalQtyAtAudit: number;
   zohoQtyAtAudit: number;

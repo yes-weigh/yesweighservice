@@ -14751,19 +14751,6 @@ body:has(.confirm-inline-bar) .confirm-inline-bar {
   color: #5b21b6;
 }
 
-.product-detail-page__summary-cell--label.product-detail-page__summary-cell--actual,
-.product-detail-page__summary-cell--value.product-detail-page__summary-cell--actual {
-  background: #ecfeff;
-}
-
-.product-detail-page__summary-cell--label.product-detail-page__summary-cell--actual {
-  color: #0e7490;
-}
-
-.product-detail-page__summary-cell--value.product-detail-page__summary-cell--actual {
-  color: #155e75;
-}
-
 .product-detail-page__summary-cell--label.product-detail-page__summary-cell--audited,
 .product-detail-page__summary-cell--value.product-detail-page__summary-cell--audited {
   background: #f0fdf4;

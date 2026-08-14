@@ -3,22 +3,55 @@ import type { CatalogProduct } from '../../types/catalog';
 import type { CatalogProductAuditSnapshot } from '../../types/catalog-product-audit';
 
 /**
- * Sales keep Diff. Zoho inbound toward Audited consumes Diff (Audit stays).
- * Zoho -145 → 28 with Diff +173 → Diff 0, Audited 28.
+ * Sales keep Diff. Zoho inbound consumes pending receive qty first and leaves
+ * the prior locked variance (e.g. -5 after a 150 receive posts to Zoho).
  */
+export function nextAuditStateAfterZohoChange(
+  previousZohoQty: number,
+  nextZohoQty: number,
+  lockedDiff: number,
+  pendingInbound = 0,
+): { baselineDifference: number; pendingZohoInbound: number } {
+  const prev = Number(previousZohoQty);
+  const next = Number(nextZohoQty);
+  const diff = Number(lockedDiff);
+  let pending = Number(pendingInbound);
+  if (!Number.isFinite(pending) || pending < 0) pending = 0;
+  if (!Number.isFinite(prev) || !Number.isFinite(next) || !Number.isFinite(diff)) {
+    return { baselineDifference: diff, pendingZohoInbound: pending };
+  }
+  const delta = next - prev;
+  if (delta > 0 && pending > 0) {
+    const consumed = Math.min(delta, pending);
+    return {
+      baselineDifference: diff - consumed,
+      pendingZohoInbound: pending - consumed,
+    };
+  }
+  if (delta > 0 && pending <= 0 && diff > 0) {
+    return { baselineDifference: diff - delta, pendingZohoInbound: 0 };
+  }
+  if (delta < 0 && diff < 0) {
+    return {
+      baselineDifference: Math.min(0, diff - delta),
+      pendingZohoInbound: pending,
+    };
+  }
+  return { baselineDifference: diff, pendingZohoInbound: pending };
+}
+
 export function nextAuditDiffAfterZohoChange(
   previousZohoQty: number,
   nextZohoQty: number,
   lockedDiff: number,
+  pendingInbound = 0,
 ): number {
-  const prev = Number(previousZohoQty);
-  const next = Number(nextZohoQty);
-  const diff = Number(lockedDiff);
-  if (!Number.isFinite(prev) || !Number.isFinite(next) || !Number.isFinite(diff)) return diff;
-  const delta = next - prev;
-  if (delta > 0 && diff > 0) return Math.max(0, diff - delta);
-  if (delta < 0 && diff < 0) return Math.min(0, diff - delta);
-  return diff;
+  return nextAuditStateAfterZohoChange(
+    previousZohoQty,
+    nextZohoQty,
+    lockedDiff,
+    pendingInbound,
+  ).baselineDifference;
 }
 
 /**
@@ -134,7 +167,12 @@ export function resolveAdjustedAuditDisplay(input: {
     : Number(snapshot.physicalQtyAtAudit ?? 0) - Number(snapshot.zohoQtyAtAudit ?? 0);
   const prevZoho = Number(snapshot.zohoQtyAtAudit);
   const liveDiff = Number.isFinite(prevZoho)
-    ? nextAuditDiffAfterZohoChange(prevZoho, currentZohoQty, lockedDiff)
+    ? nextAuditDiffAfterZohoChange(
+      prevZoho,
+      currentZohoQty,
+      lockedDiff,
+      snapshot.pendingZohoInbound,
+    )
     : lockedDiff;
   const displayAuditedQty = currentZohoQty + liveDiff;
   const lastPhysicalAt = snapshot.lastPhysicalAuditedAt ?? snapshot.lastAuditedAt;

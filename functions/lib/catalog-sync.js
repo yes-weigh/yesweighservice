@@ -489,6 +489,7 @@ export async function syncCatalogToFirestore(secrets, configuredOrgId, options =
         rawPhysicalQty: null,
         zohoQtyAtAudit: zohoSyncEntry.zohoQtyAtAudit,
         baselineDifference: zohoSyncEntry.baselineDifference,
+        pendingZohoInbound: zohoSyncEntry.pendingZohoInbound ?? 0,
         trigger: 'zoho_sync',
         auditCycleId: null,
       };
@@ -497,6 +498,7 @@ export async function syncCatalogToFirestore(secrets, configuredOrgId, options =
         ...prior,
         lastAuditLogId: logRef.id,
         baselineDifference: zohoSyncEntry.baselineDifference,
+        pendingZohoInbound: zohoSyncEntry.pendingZohoInbound ?? Number(prior.pendingZohoInbound ?? 0),
         physicalQtyAtAudit: zohoSyncEntry.physicalQty,
         zohoQtyAtAudit: zohoSyncEntry.zohoQtyAtAudit,
         mode: zohoSyncEntry.mode,
@@ -2281,6 +2283,7 @@ export async function mirrorCatalogItemFromZoho(secrets, configuredOrgId, itemId
       rawPhysicalQty: null,
       zohoQtyAtAudit: zohoSyncEntry.zohoQtyAtAudit,
       baselineDifference: zohoSyncEntry.baselineDifference,
+      pendingZohoInbound: zohoSyncEntry.pendingZohoInbound ?? 0,
       trigger: 'zoho_sync',
       auditCycleId: null,
     };
@@ -2288,6 +2291,7 @@ export async function mirrorCatalogItemFromZoho(secrets, configuredOrgId, itemId
       ...prior,
       lastAuditLogId: logRef.id,
       baselineDifference: zohoSyncEntry.baselineDifference,
+      pendingZohoInbound: zohoSyncEntry.pendingZohoInbound ?? Number(prior.pendingZohoInbound ?? 0),
       physicalQtyAtAudit: zohoSyncEntry.physicalQty,
       zohoQtyAtAudit: zohoSyncEntry.zohoQtyAtAudit,
       mode: zohoSyncEntry.mode,

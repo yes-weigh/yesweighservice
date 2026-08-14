@@ -79,6 +79,10 @@ function mapLatestLog(doc) {
     sourceGoodsReceiptId: data.sourceGoodsReceiptId != null
       ? String(data.sourceGoodsReceiptId)
       : null,
+    baselineDifference: Number(
+      data.baselineDifference ?? (Number(data.physicalQty ?? 0) - Number(data.zohoQtyAtAudit ?? 0)),
+    ),
+    pendingZohoInbound: Number(data.pendingZohoInbound ?? 0),
     mode: data.mode === 'bundle' ? 'bundle' : 'unit',
   };
 }
@@ -172,6 +176,7 @@ function buildAuditSnapshot(prior, entry) {
     physicalQty,
     zohoQtyAtAudit,
     baselineDifference,
+    pendingZohoInbound,
     trigger,
     auditCycleId,
   } = entry;
@@ -229,6 +234,9 @@ function buildAuditSnapshot(prior, entry) {
       : (prev.lastAuditCycleId ?? null),
     lastHeadOfficeAuditCycleId: nextHeadOfficeCycleId,
     lastCochinAuditCycleId: nextCochinCycleId,
+    pendingZohoInbound: pendingZohoInbound != null
+      ? Number(pendingZohoInbound)
+      : Number(prev.pendingZohoInbound ?? 0),
   };
 }
 
@@ -244,6 +252,7 @@ async function writeCatalogProductAuditEntry(productRef, entry) {
     rawPhysicalQty,
     zohoQtyAtAudit,
     baselineDifference,
+    pendingZohoInbound,
     trigger,
     logId,
     auditCycleId,
@@ -275,6 +284,9 @@ async function writeCatalogProductAuditEntry(productRef, entry) {
   if (sourceGoodsReceiptId) {
     log.sourceGoodsReceiptId = String(sourceGoodsReceiptId);
   }
+  if (pendingZohoInbound != null && Number.isFinite(Number(pendingZohoInbound))) {
+    log.pendingZohoInbound = Number(pendingZohoInbound);
+  }
 
   const snapshot = buildAuditSnapshot(existingSnapshot, {
     logId: logRef.id,
@@ -287,6 +299,7 @@ async function writeCatalogProductAuditEntry(productRef, entry) {
     physicalQty,
     zohoQtyAtAudit,
     baselineDifference,
+    pendingZohoInbound,
     trigger,
     auditCycleId,
   });
@@ -331,6 +344,7 @@ async function rewriteLaterZohoSyncLogs(productRef, {
   headOfficeQty,
   mode,
   previousZohoQty,
+  pendingZohoInbound,
   skipSourceGoodsReceiptId,
 }) {
   const snap = await productRef.collection('auditLogs')
@@ -339,6 +353,8 @@ async function rewriteLaterZohoSyncLogs(productRef, {
   const skipSource = skipSourceGoodsReceiptId ? String(skipSourceGoodsReceiptId) : '';
   const updates = [];
   let runningDiff = Number(baselineDifference);
+  let runningPending = Number(pendingZohoInbound ?? 0);
+  if (!Number.isFinite(runningPending) || runningPending < 0) runningPending = 0;
   let prevZoho = Number(previousZohoQty);
   if (!Number.isFinite(prevZoho)) prevZoho = 0;
   for (const doc of snap.docs) {
@@ -347,16 +363,41 @@ async function rewriteLaterZohoSyncLogs(productRef, {
     if (!at || at <= afterIso) continue;
     const sourceId = data.sourceGoodsReceiptId != null ? String(data.sourceGoodsReceiptId) : '';
     if (skipSource && sourceId === skipSource) continue;
-    if (PHYSICAL_TRIGGERS.has(data.trigger)) break;
+    if (PHYSICAL_TRIGGERS.has(data.trigger)) {
+      const warehouse = Number(data.headOfficeQty ?? 0) + Number(data.cochinQty ?? 0);
+      const lockedWarehouse = Number(headOfficeQty) + Number(cochinQty);
+      if (warehouse !== lockedWarehouse) break;
+      const zoho = Number(data.zohoQtyAtAudit ?? 0);
+      const nextZoho = Number.isFinite(zoho) ? zoho : 0;
+      const next = nextAuditStateAfterZohoChange(prevZoho, nextZoho, runningDiff, runningPending);
+      runningDiff = next.baselineDifference;
+      runningPending = next.pendingZohoInbound;
+      prevZoho = nextZoho;
+      updates.push({
+        ref: doc.ref,
+        payload: {
+          baselineDifference: runningDiff,
+          pendingZohoInbound: runningPending,
+          cochinQty,
+          headOfficeQty,
+          mode,
+          physicalQty: nextZoho + runningDiff,
+        },
+      });
+      continue;
+    }
     if (data.trigger !== 'zoho_sync') continue;
     const zoho = Number(data.zohoQtyAtAudit ?? 0);
     const nextZoho = Number.isFinite(zoho) ? zoho : 0;
-    runningDiff = nextAuditDiffAfterZohoChange(prevZoho, nextZoho, runningDiff);
+    const next = nextAuditStateAfterZohoChange(prevZoho, nextZoho, runningDiff, runningPending);
+    runningDiff = next.baselineDifference;
+    runningPending = next.pendingZohoInbound;
     prevZoho = nextZoho;
     updates.push({
       ref: doc.ref,
       payload: {
         baselineDifference: runningDiff,
+        pendingZohoInbound: runningPending,
         cochinQty,
         headOfficeQty,
         mode,
@@ -397,6 +438,7 @@ async function rebuildProductAuditSnapshot(productRef) {
       physicalQty: Number(data.physicalQty ?? 0),
       zohoQtyAtAudit: Number(data.zohoQtyAtAudit ?? 0),
       baselineDifference: Number(data.baselineDifference ?? 0),
+      pendingZohoInbound: Number(data.pendingZohoInbound ?? 0),
       trigger: data.trigger,
       auditCycleId: data.auditCycleId ?? null,
     });
@@ -407,24 +449,60 @@ async function rebuildProductAuditSnapshot(productRef) {
 }
 
 /**
- * Sales (Zoho down with +Diff): keep Diff; Audited follows Zoho.
- * Inbound catching up (Zoho up toward Audited): consume Diff so Audit stays.
- * Example: Zoho -145 → 28 with Diff +173 writes Zoho 28, Audit 28, Diff 0.
+ * Sales keep Diff. Zoho inbound consumes pending receive qty first and leaves
+ * the prior locked variance (e.g. last Diff -5 after a 150 receive).
  */
-export function nextAuditDiffAfterZohoChange(previousZohoQty, nextZohoQty, lockedDiff) {
+export function nextAuditStateAfterZohoChange(
+  previousZohoQty,
+  nextZohoQty,
+  lockedDiff,
+  pendingInbound = 0,
+) {
   const prev = Number(previousZohoQty);
   const next = Number(nextZohoQty);
   const diff = Number(lockedDiff);
-  if (!Number.isFinite(prev) || !Number.isFinite(next) || !Number.isFinite(diff)) return diff;
+  let pending = Number(pendingInbound);
+  if (!Number.isFinite(pending) || pending < 0) pending = 0;
+  if (!Number.isFinite(prev) || !Number.isFinite(next) || !Number.isFinite(diff)) {
+    return { baselineDifference: diff, pendingZohoInbound: pending };
+  }
   const delta = next - prev;
-  if (delta > 0 && diff > 0) return Math.max(0, diff - delta);
-  if (delta < 0 && diff < 0) return Math.min(0, diff - delta);
-  return diff;
+  if (delta > 0 && pending > 0) {
+    const consumed = Math.min(delta, pending);
+    return {
+      baselineDifference: diff - consumed,
+      pendingZohoInbound: pending - consumed,
+    };
+  }
+  if (delta > 0 && pending <= 0 && diff > 0) {
+    return { baselineDifference: diff - delta, pendingZohoInbound: 0 };
+  }
+  if (delta < 0 && diff < 0) {
+    return {
+      baselineDifference: Math.min(0, diff - delta),
+      pendingZohoInbound: pending,
+    };
+  }
+  return { baselineDifference: diff, pendingZohoInbound: pending };
+}
+
+export function nextAuditDiffAfterZohoChange(
+  previousZohoQty,
+  nextZohoQty,
+  lockedDiff,
+  pendingInbound = 0,
+) {
+  return nextAuditStateAfterZohoChange(
+    previousZohoQty,
+    nextZohoQty,
+    lockedDiff,
+    pendingInbound,
+  ).baselineDifference;
 }
 
 /**
- * When Zoho stock changes on sync, keep Diff through sales; close Diff when
- * Zoho inbound catches up to Audited. Site HO/Cochin stay at last physical.
+ * When Zoho stock changes on sync, keep Diff through sales; consume pending
+ * receive inbound first so a prior variance (e.g. -5) remains.
  */
 export function buildZohoSyncAuditAdjustment(existingSnapshot, previousZohoQty, nextZohoQty, auditedAt) {
   if (!existingSnapshot || existingSnapshot.baselineDifference == null) return null;
@@ -437,8 +515,13 @@ export function buildZohoSyncAuditAdjustment(existingSnapshot, previousZohoQty, 
   const lockedDiff = Number(existingSnapshot.baselineDifference);
   if (!Number.isFinite(lockedDiff)) return null;
 
-  const baselineDifference = nextAuditDiffAfterZohoChange(prevZoho, nextZoho, lockedDiff);
-  const physicalQty = nextZoho + baselineDifference;
+  const next = nextAuditStateAfterZohoChange(
+    prevZoho,
+    nextZoho,
+    lockedDiff,
+    existingSnapshot.pendingZohoInbound,
+  );
+  const physicalQty = nextZoho + next.baselineDifference;
   const mode = existingSnapshot.mode === 'bundle' ? 'bundle' : 'unit';
   const headOfficeQty = Number(existingSnapshot.headOfficeQtyAtAudit ?? 0);
   const cochinQty = Number(existingSnapshot.cochinQtyAtAudit ?? 0);
@@ -454,7 +537,8 @@ export function buildZohoSyncAuditAdjustment(existingSnapshot, previousZohoQty, 
     physicalQty,
     rawPhysicalQty: null,
     zohoQtyAtAudit: nextZoho,
-    baselineDifference,
+    baselineDifference: next.baselineDifference,
+    pendingZohoInbound: next.pendingZohoInbound,
     trigger: 'zoho_sync',
     existingSnapshot,
   };
@@ -730,11 +814,42 @@ export async function recordCatalogProductAudit(
   const cochinQty = useHistoricalSites
     ? Math.max(0, priorAtT.cochinQty + cochinInboundQty)
     : liveCochinQty;
-  const physicalQty = headOfficeQty + cochinQty;
+  let physicalQty = headOfficeQty + cochinQty;
   const zohoQtyAtAudit = (hasLaterLogs && priorAtT)
     ? priorAtT.zohoQtyAtAudit
     : (hasLaterLogs ? 0 : liveZohoQty);
-  const baselineDifference = physicalQty - zohoQtyAtAudit;
+  let baselineDifference = physicalQty - zohoQtyAtAudit;
+  let pendingZohoInbound = 0;
+  const lastWarehouse = Number(existingSnapshot?.headOfficeQtyAtAudit ?? 0)
+    + Number(existingSnapshot?.cochinQtyAtAudit ?? 0);
+  if (sourceGoodsReceiptId && cochinInboundQty != null) {
+    const priorDiff = priorAtT && Number.isFinite(Number(priorAtT.baselineDifference))
+      ? Number(priorAtT.baselineDifference)
+      : 0;
+    pendingZohoInbound = Math.max(0, Number(cochinInboundQty) || 0);
+    baselineDifference = priorDiff + pendingZohoInbound;
+    physicalQty = zohoQtyAtAudit + baselineDifference;
+  } else if (
+    PHYSICAL_TRIGGERS.has(trigger)
+    && !sourceGoodsReceiptId
+    && existingSnapshot
+    && existingSnapshot.baselineDifference != null
+    && lastWarehouse === physicalQty
+  ) {
+    const locked = Number(existingSnapshot.baselineDifference);
+    if (Number.isFinite(locked)) {
+      const prevZoho = Number(existingSnapshot.zohoQtyAtAudit ?? zohoQtyAtAudit);
+      const next = nextAuditStateAfterZohoChange(
+        prevZoho,
+        zohoQtyAtAudit,
+        locked,
+        existingSnapshot.pendingZohoInbound,
+      );
+      baselineDifference = next.baselineDifference;
+      pendingZohoInbound = next.pendingZohoInbound;
+      physicalQty = zohoQtyAtAudit + baselineDifference;
+    }
+  }
   const mode = useHistoricalSites ? priorAtT.mode : headOffice.mode;
   const rawPhysicalQty = useHistoricalSites
     ? null
@@ -784,6 +899,7 @@ export async function recordCatalogProductAudit(
     rawPhysicalQty,
     zohoQtyAtAudit,
     baselineDifference,
+    pendingZohoInbound,
     trigger,
     logId: logRef.id,
     auditCycleId: resolvedCycleId,
@@ -804,6 +920,7 @@ export async function recordCatalogProductAudit(
       headOfficeQty,
       mode,
       previousZohoQty: zohoQtyAtAudit,
+      pendingZohoInbound,
       skipSourceGoodsReceiptId: sourceGoodsReceiptId,
     });
     const snapshot = await rebuildProductAuditSnapshot(productRef);
