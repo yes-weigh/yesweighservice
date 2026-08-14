@@ -95,7 +95,7 @@ export function contactFromCustomerData(
   preferredAddress?: string | null,
   preferredAddressId?: string | null,
 ): ZohoCustomerDisplayContact {
-  // Document-provided address always wins; only then fall back to customer addresses.
+  // Document-provided address always wins (invoice/SO Ship To); only then fall back to customer defaults.
   const address = trimStr(preferredAddress)
     || (data ? addressFromCustomer(data, preferredAddressId) : null);
   const billingAddress = data ? billingAddressFromCustomer(data) : null;

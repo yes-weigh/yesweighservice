@@ -24,6 +24,7 @@ import { isInternalOpsUser } from './staffAccess';
 import {
   isPlaceholderLogisticsAddress,
   resolveDeliveryAddress,
+  resolveDraftDeliveryAddress,
   zohoDealerToSnapshot,
 } from './logisticsDealers';
 import {
@@ -789,7 +790,7 @@ async function buildBookingPayload(input: PersistLogisticsBookingInput & {
     || createdBy.loginId?.trim()
     || createdBy.email?.trim()
     || 'YESWEIGH';
-  const deliveryAddress = resolveDeliveryAddress(dealer, draft.deliveryAddressKind);
+  const deliveryAddress = resolveDraftDeliveryAddress(dealer, draft);
   const courierDeliveryOffice = await resolveCourierDeliveryOfficeForPersist(
     draft.partnerId,
     deliveryAddress,
@@ -1001,7 +1002,7 @@ async function ensureDraftBookingStub(input: {
         : {}),
     },
     deliveryAddressKind: input.draft.deliveryAddressKind,
-    deliveryAddress: resolveDeliveryAddress(input.dealer, input.draft.deliveryAddressKind),
+    deliveryAddress: resolveDraftDeliveryAddress(input.dealer, input.draft),
     shipFromSite: input.draft.shipFromSite,
     shipFromAddress: '',
     shipmentMode: input.draft.shipmentMode,
@@ -1243,7 +1244,7 @@ export async function persistLogisticsBookingDraft(
       ? 'box'
       : (wizardStep ?? 'box');
 
-    const deliveryAddress = resolveDeliveryAddress(dealer, draft.deliveryAddressKind);
+    const deliveryAddress = resolveDraftDeliveryAddress(dealer, draft);
     const courierDeliveryOffice = await resolveCourierDeliveryOfficeForPersist(
       draft.partnerId,
       deliveryAddress,
@@ -1437,6 +1438,7 @@ export function bookingToWizardState(booking: LogisticsBooking): {
       zohoCustomerId: booking.dealer.zohoCustomerId || '',
       dealerId: booking.dealer.dealerId || '',
       deliveryAddressKind: booking.deliveryAddressKind,
+      deliveryAddress: booking.deliveryAddress || null,
       shipFromSite: booking.shipFromSite,
       shipmentMode: booking.shipmentMode,
       boxes: booking.boxes.map(box => ({
@@ -2227,7 +2229,10 @@ export async function recordInvoiceLogisticsBooking(
     || input.createdBy.loginId?.trim()
     || input.createdBy.email?.trim()
     || 'YESWEIGH';
-  const deliveryAddress = resolveDeliveryAddress(dealer, 'shipping');
+  const deliveryAddress = resolveDraftDeliveryAddress(dealer, {
+    deliveryAddressKind: 'shipping',
+    deliveryAddress: input.invoice.shippingAddress?.trim() || null,
+  });
 
   const payload: Record<string, unknown> = {
     orderRef: input.invoice.invoiceNumber || `INV-${bookingRef.id.slice(0, 8)}`,

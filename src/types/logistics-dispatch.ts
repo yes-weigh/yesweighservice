@@ -35,7 +35,9 @@ export interface LogisticsDealerSnapshot {
   shippingPhone?: string;
   /** Phone on Zoho billing address (when available). */
   billingPhone?: string;
+  /** Dealer default shipping (Zoho). Per-booking Ship To is deliveryAddress, not this field. */
   shippingAddress: string;
+  /** Dealer default billing (Zoho). */
   billingAddress: string;
   /** Preferred destination city for shipping labels. */
   destinationCity?: string;
@@ -121,6 +123,11 @@ export interface LogisticsBookingDraft {
   zohoCustomerId: string;
   dealerId: string;
   deliveryAddressKind: DeliveryAddressKind;
+  /**
+   * Selected delivery address for this booking only (invoice Ship To).
+   * When set, labels/slips use this; dealerSnapshot shipping/billing stay the dealer defaults.
+   */
+  deliveryAddress?: string | null;
   shipFromSite: StaffLogisticsSite;
   shipmentMode: ShipmentMode;
   boxes: ShipmentBoxDraft[];

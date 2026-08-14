@@ -251,6 +251,7 @@ export function buildInvoiceBookingDraftPatch(
   const freightBillingMode = partnerId === 'delhivery'
     ? (resolveInvoiceFreightBillingMode(invoice) || 'btc')
     : null;
+  const deliveryAddress = invoice.shippingAddress?.trim() || null;
 
   return {
     source: 'invoice',
@@ -265,6 +266,7 @@ export function buildInvoiceBookingDraftPatch(
     zohoCustomerId,
     dealerId,
     partnerId,
+    ...(deliveryAddress ? { deliveryAddress } : {}),
     ...(freightBillingMode ? { freightBillingMode } : {}),
     ...(shipFromSite ? { shipFromSite } : {}),
     ...(boxes && boxes.length > 0 ? { boxes } : {}),

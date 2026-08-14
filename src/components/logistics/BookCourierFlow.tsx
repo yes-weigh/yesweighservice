@@ -65,13 +65,15 @@ import {
 } from '../../lib/logisticsBooking';
 import {
   dealerMatchesLogisticsQuery,
+  hasExplicitDraftDeliveryAddress,
   isPlaceholderLogisticsAddress,
+  logisticsAddressesMatch,
   logisticsDealerHasDeliveryAddress,
   mergeZohoDealerLists,
   phoneDigitsForCourier,
   preferRicherZohoDealer,
-  preferredDeliveryAddressKind,
-  resolveDeliveryAddress,
+  reconcileDocumentDeliveryAddress,
+  resolveDraftDeliveryAddress,
   resolveReceiverPhoneFromSnapshot,
   zohoDealerToSnapshot,
 } from '../../lib/logisticsDealers';
@@ -199,6 +201,34 @@ function positiveCm(value: string | undefined): number | null {
 /** Delhivery LTL needs real L×B×H — no silent 30 cm defaults. */
 function boxHasRequiredLbh(box: ShipmentBoxDraft): boolean {
   return Boolean(positiveCm(box.lengthCm) && positiveCm(box.widthCm) && positiveCm(box.heightCm));
+}
+
+type DeliveryTileKind = DeliveryAddressKind | 'selected';
+
+function applyDealerDeliveryToDraft(
+  prev: LogisticsBookingDraft,
+  snapshot: LogisticsDealerSnapshot,
+  gstin?: string | null,
+): LogisticsBookingDraft {
+  const reconciled = reconcileDocumentDeliveryAddress(
+    snapshot,
+    prev.deliveryAddress,
+    prev.deliveryAddressKind,
+  );
+  return {
+    ...prev,
+    deliveryAddressKind: reconciled.deliveryAddressKind,
+    deliveryAddress: reconciled.deliveryAddress,
+    customerPhone: prev.customerPhone?.trim()
+      || phoneDigitsForCourier(resolveReceiverPhoneFromSnapshot(snapshot))
+      || phoneDigitsForCourier(snapshot.mobile)
+      || prev.customerPhone
+      || null,
+    customerGstin: normalizeGstinForCourier(prev.customerGstin)
+      || normalizeGstinForCourier(gstin)
+      || prev.customerGstin
+      || null,
+  };
 }
 
 interface BookCourierFlowProps {
@@ -484,15 +514,25 @@ export const BookCourierFlow: React.FC<BookCourierFlowProps> = ({
   }, [dealers, dealerQuery]);
 
   const addressTiles = useMemo(() => {
-    if (!selectedDealer) return [] as Array<{ kind: DeliveryAddressKind; address: string }>;
+    if (!selectedDealer) return [] as Array<{ kind: DeliveryTileKind; address: string }>;
+    const selectedDoc = draft.deliveryAddress?.trim() ?? '';
     const shipping = selectedDealer.shippingAddress?.trim() ?? '';
     const billing = selectedDealer.billingAddress?.trim() ?? '';
-    const tiles: Array<{ kind: DeliveryAddressKind; address: string }> = [];
-    if (shipping) tiles.push({ kind: 'shipping', address: shipping });
-    // Only add billing when it exists and differs from shipping.
-    if (billing && billing !== shipping) tiles.push({ kind: 'billing', address: billing });
+    const tiles: Array<{ kind: DeliveryTileKind; address: string }> = [];
+    const selectedIsDistinct = hasExplicitDraftDeliveryAddress(selectedDoc)
+      && !logisticsAddressesMatch(selectedDoc, shipping)
+      && !logisticsAddressesMatch(selectedDoc, billing);
+    if (selectedIsDistinct) {
+      tiles.push({ kind: 'selected', address: selectedDoc });
+    }
+    if (shipping && !isPlaceholderLogisticsAddress(shipping)) {
+      tiles.push({ kind: 'shipping', address: shipping });
+    }
+    if (billing && !isPlaceholderLogisticsAddress(billing) && !logisticsAddressesMatch(billing, shipping)) {
+      tiles.push({ kind: 'billing', address: billing });
+    }
     return tiles;
-  }, [selectedDealer]);
+  }, [draft.deliveryAddress, selectedDealer]);
 
   const galleryUrls = useMemo(() => {
     const urls = draft.boxes.flatMap(box =>
@@ -527,29 +567,16 @@ export const BookCourierFlow: React.FC<BookCourierFlowProps> = ({
         const snapshot = zohoDealerToSnapshot(dealer);
         setDraft(prev => {
           if (prev.zohoCustomerId !== dealer.id) return prev;
-          const kind = preferredDeliveryAddressKind(snapshot, prev.deliveryAddressKind);
-          const customerPhone = prev.customerPhone?.trim()
-            || phoneDigitsForCourier(resolveReceiverPhoneFromSnapshot(snapshot))
-            || phoneDigitsForCourier(snapshot.mobile)
-            || prev.customerPhone
-            || null;
-          const customerGstin = normalizeGstinForCourier(prev.customerGstin)
-            || normalizeGstinForCourier(dealer.zohoGstNo)
-            || prev.customerGstin
-            || null;
+          const next = applyDealerDeliveryToDraft(prev, snapshot, dealer.zohoGstNo);
           if (
-            kind === prev.deliveryAddressKind
-            && customerPhone === (prev.customerPhone ?? null)
-            && customerGstin === (prev.customerGstin ?? null)
+            next.deliveryAddressKind === prev.deliveryAddressKind
+            && (next.deliveryAddress ?? null) === (prev.deliveryAddress ?? null)
+            && next.customerPhone === (prev.customerPhone ?? null)
+            && next.customerGstin === (prev.customerGstin ?? null)
           ) {
             return prev;
           }
-          return {
-            ...prev,
-            deliveryAddressKind: kind,
-            customerPhone,
-            customerGstin,
-          };
+          return next;
         });
       })
       .catch(() => undefined);
@@ -905,19 +932,9 @@ export const BookCourierFlow: React.FC<BookCourierFlowProps> = ({
       return next;
     });
     setDraft(prev => ({
-      ...prev,
+      ...applyDealerDeliveryToDraft(prev, snapshot, dealer.zohoGstNo),
       zohoCustomerId: dealer.id,
       dealerId: dealer.portalUserId?.trim() || dealer.id,
-      deliveryAddressKind: preferredDeliveryAddressKind(snapshot, 'shipping'),
-      customerPhone: prev.customerPhone?.trim()
-        || phoneDigitsForCourier(resolveReceiverPhoneFromSnapshot(snapshot))
-        || phoneDigitsForCourier(snapshot.mobile)
-        || prev.customerPhone
-        || null,
-      customerGstin: normalizeGstinForCourier(prev.customerGstin)
-        || normalizeGstinForCourier(dealer.zohoGstNo)
-        || prev.customerGstin
-        || null,
     }));
     setDealerQuery('');
     // List-cache rows often lack Zoho street addresses — refresh detail immediately.
@@ -934,22 +951,7 @@ export const BookCourierFlow: React.FC<BookCourierFlowProps> = ({
           const detailedSnap = zohoDealerToSnapshot(detailed);
           setDraft(prev => {
             if (prev.zohoCustomerId !== detailed.id) return prev;
-            return {
-              ...prev,
-              deliveryAddressKind: preferredDeliveryAddressKind(
-                detailedSnap,
-                prev.deliveryAddressKind,
-              ),
-              customerPhone: prev.customerPhone?.trim()
-                || phoneDigitsForCourier(resolveReceiverPhoneFromSnapshot(detailedSnap))
-                || phoneDigitsForCourier(detailedSnap.mobile)
-                || prev.customerPhone
-                || null,
-              customerGstin: normalizeGstinForCourier(prev.customerGstin)
-                || normalizeGstinForCourier(detailed.zohoGstNo)
-                || prev.customerGstin
-                || null,
-            };
+            return applyDealerDeliveryToDraft(prev, detailedSnap, detailed.zohoGstNo);
           });
         })
         .catch(() => undefined);
@@ -1064,6 +1066,19 @@ export const BookCourierFlow: React.FC<BookCourierFlowProps> = ({
     });
   }, []);
 
+  const selectDeliveryTile = useCallback((tile: { kind: DeliveryTileKind; address: string }) => {
+    applyDraft(prev => {
+      if (tile.kind === 'selected') {
+        return { ...prev, deliveryAddress: tile.address };
+      }
+      return {
+        ...prev,
+        deliveryAddressKind: tile.kind,
+        deliveryAddress: null,
+      };
+    });
+  }, [applyDraft]);
+
   /** Create LR via Delhivery B2B API when no consignment is set yet. */
   const ensureDelhiveryLrn = useCallback(async (): Promise<boolean> => {
     if (!isDelhivery) return true;
@@ -1080,7 +1095,7 @@ export const BookCourierFlow: React.FC<BookCourierFlowProps> = ({
     setBookingDelhivery(true);
     setDelhiveryBookError('');
     try {
-      const address = resolveDeliveryAddress(selectedDealer, draftRef.current.deliveryAddressKind);
+      const address = resolveDraftDeliveryAddress(selectedDealer, draftRef.current);
       const pin = pincodeFromAddress(address);
       if (!pin) {
         throw new Error('Delivery address needs a 6-digit pincode for Delhivery booking.');
@@ -1276,9 +1291,10 @@ export const BookCourierFlow: React.FC<BookCourierFlowProps> = ({
     if (!zohoId) return selectedDealer;
 
     const kind = draftRef.current.deliveryAddressKind;
+    const hasDocumentAddress = hasExplicitDraftDeliveryAddress(draftRef.current.deliveryAddress);
     if (
       selectedDealer
-      && logisticsDealerHasDeliveryAddress(selectedDealer, kind)
+      && (hasDocumentAddress || logisticsDealerHasDeliveryAddress(selectedDealer, kind))
     ) {
       return selectedDealer;
     }
@@ -1293,17 +1309,19 @@ export const BookCourierFlow: React.FC<BookCourierFlowProps> = ({
         return next;
       });
       const snapshot = zohoDealerToSnapshot(detailed);
-      const nextKind = preferredDeliveryAddressKind(snapshot, kind);
-      if (nextKind !== kind) {
+      const nextDraft = applyDealerDeliveryToDraft(draftRef.current, snapshot, detailed.zohoGstNo);
+      if (
+        nextDraft.deliveryAddressKind !== draftRef.current.deliveryAddressKind
+        || (nextDraft.deliveryAddress ?? null) !== (draftRef.current.deliveryAddress ?? null)
+        || nextDraft.customerPhone !== draftRef.current.customerPhone
+        || nextDraft.customerGstin !== draftRef.current.customerGstin
+      ) {
         setDraft(prev => (
           prev.zohoCustomerId === detailed.id
-            ? { ...prev, deliveryAddressKind: nextKind }
+            ? applyDealerDeliveryToDraft(prev, snapshot, detailed.zohoGstNo)
             : prev
         ));
-        draftRef.current = {
-          ...draftRef.current,
-          deliveryAddressKind: nextKind,
-        };
+        draftRef.current = nextDraft;
       }
       return snapshot;
     } catch {
@@ -1566,8 +1584,8 @@ export const BookCourierFlow: React.FC<BookCourierFlowProps> = ({
       return sum + Math.max(actual, boxVolumetric(box, partnerId));
     }, 0);
   const deliveryAddressText = selectedDealer
-    ? resolveDeliveryAddress(selectedDealer, draft.deliveryAddressKind)
-    : '';
+    ? resolveDraftDeliveryAddress(selectedDealer, draft)
+    : (draft.deliveryAddress?.trim() || '');
   const stCourierTamilNaduOverMax = isStCourier
     && isTamilNaduDestination(deliveryAddressText)
     && stCourierTamilNaduMaxChargeableExceeded(totalChargeableWeight);
@@ -1579,8 +1597,8 @@ export const BookCourierFlow: React.FC<BookCourierFlowProps> = ({
     && !blueDartAirOverMax
     && !blueDartDpOverMax
     && !stCourierTamilNaduOverMax;
-  const delhiveryDestPin = selectedDealer
-    ? pinFromText(resolveDeliveryAddress(selectedDealer, draft.deliveryAddressKind))
+  const delhiveryDestPin = deliveryAddressText
+    ? pinFromText(deliveryAddressText)
     : '';
   const delhiveryOriginPin = pinFromText(fromAddresses[draft.shipFromSite] ?? '');
   const delhiveryQuoteDimensions = draft.boxes.map(box => ({
@@ -1658,7 +1676,10 @@ export const BookCourierFlow: React.FC<BookCourierFlowProps> = ({
     dealer: LogisticsDealerSnapshot,
     addressKind: DeliveryAddressKind = draft.deliveryAddressKind,
   ) => {
-    const deliveryAddress = resolveDeliveryAddress(dealer, addressKind);
+    const deliveryAddress = resolveDraftDeliveryAddress(dealer, {
+      deliveryAddressKind: addressKind,
+      deliveryAddress: draft.deliveryAddress,
+    });
     const fromName = STAFF_LOGISTICS_SITE_LABELS[draft.shipFromSite];
     const fromAddress = (fromAddresses[draft.shipFromSite] ?? '').trim();
     const bookingTime = formatShippingBookingTime();
@@ -1698,6 +1719,7 @@ export const BookCourierFlow: React.FC<BookCourierFlowProps> = ({
     });
   }, [
     draft.deliveryAddressKind,
+    draft.deliveryAddress,
     draft.shipFromSite,
     draft.consignmentNo,
     draft.branch,
@@ -1735,16 +1757,15 @@ export const BookCourierFlow: React.FC<BookCourierFlowProps> = ({
         );
         return;
       }
-      const kind = preferredDeliveryAddressKind(dealer, draftRef.current.deliveryAddressKind);
-      const deliveryAddress = resolveDeliveryAddress(dealer, kind);
+      const deliveryAddress = resolveDraftDeliveryAddress(dealer, draftRef.current);
       if (isPlaceholderLogisticsAddress(deliveryAddress)) {
         window.alert(
-          'Dealer delivery (TO) address is missing in Zoho. Open the dealer record, refresh from Zoho, then print again.',
+          'Delivery (TO) address is missing. Use the invoice Ship To or refresh the dealer from Zoho, then print again.',
         );
         return;
       }
 
-      const labels = buildShippingLabelsForDealer(dealer, kind);
+      const labels = buildShippingLabelsForDealer(dealer, draftRef.current.deliveryAddressKind);
       // Drop stale canvas slots if box count shrank since last render.
       shippingLabelCanvasRefs.current.length = labels.length;
       try {
@@ -1784,7 +1805,7 @@ export const BookCourierFlow: React.FC<BookCourierFlowProps> = ({
       partnerId,
       draft,
       dealer: selectedDealer,
-      deliveryAddress: resolveDeliveryAddress(selectedDealer, draft.deliveryAddressKind),
+      deliveryAddress: resolveDraftDeliveryAddress(selectedDealer, draft),
       piecesLabel: isEnvelope ? '1 envelope' : `${draft.boxes.length} box(es)`,
       weightKg: totalChargeableWeight || totalActualWeight,
       fromName,
@@ -2092,7 +2113,13 @@ export const BookCourierFlow: React.FC<BookCourierFlowProps> = ({
                   <p className="book-courier__address-heading">Deliver to</p>
                   <div className="book-courier__address-tiles">
                     {addressTiles.map(tile => {
-                      const selected = draft.deliveryAddressKind === tile.kind;
+                      const hasOverride = hasExplicitDraftDeliveryAddress(draft.deliveryAddress);
+                      const selected = tile.kind === 'selected'
+                        ? hasOverride
+                        : (!hasOverride && draft.deliveryAddressKind === tile.kind);
+                      const tileLabel = tile.kind === 'selected'
+                        ? (draft.source === 'invoice' ? 'Invoice Ship To' : 'Selected address')
+                        : tile.kind === 'shipping' ? 'Shipping address' : 'Billing address';
                       return (
                         <div
                           key={tile.kind}
@@ -2101,11 +2128,11 @@ export const BookCourierFlow: React.FC<BookCourierFlowProps> = ({
                           <button
                             type="button"
                             className="book-courier__address-tile-main"
-                            onClick={() => updateDraft('deliveryAddressKind', tile.kind)}
+                            onClick={() => selectDeliveryTile(tile)}
                           >
                             <span className="book-courier__address-tile-head">
                               <span className="book-courier__address-tile-label">
-                                {tile.kind === 'shipping' ? 'Shipping address' : 'Billing address'}
+                                {tileLabel}
                               </span>
                               {selected && <Check size={15} strokeWidth={3} aria-hidden />}
                             </span>
@@ -2701,7 +2728,7 @@ export const BookCourierFlow: React.FC<BookCourierFlowProps> = ({
                     <strong>{selectedDealer.name}</strong>
                     <span className="book-courier__dealer-code">{selectedDealer.code}</span>
                     <span>{selectedDealer.contactPerson} · {selectedDealer.mobile}</span>
-                    <span className="text-muted">{resolveDeliveryAddress(selectedDealer, draft.deliveryAddressKind)}</span>
+                    <span className="text-muted">{deliveryAddressText}</span>
                   </p>
                 )}
               </div>
@@ -2999,9 +3026,7 @@ export const BookCourierFlow: React.FC<BookCourierFlowProps> = ({
                         onClick={() => void handlePrintShippingLabels()}
                         disabled={
                           isPlaceholderLogisticsAddress(fromAddresses[draft.shipFromSite])
-                          || isPlaceholderLogisticsAddress(
-                            resolveDeliveryAddress(selectedDealer, draft.deliveryAddressKind),
-                          )
+                          || isPlaceholderLogisticsAddress(deliveryAddressText)
                         }
                       >
                         <Printer size={14} aria-hidden />
@@ -3010,13 +3035,11 @@ export const BookCourierFlow: React.FC<BookCourierFlowProps> = ({
                     </div>
                   </header>
                   {isPlaceholderLogisticsAddress(fromAddresses[draft.shipFromSite])
-                    || isPlaceholderLogisticsAddress(
-                      resolveDeliveryAddress(selectedDealer, draft.deliveryAddressKind),
-                    ) ? (
+                    || isPlaceholderLogisticsAddress(deliveryAddressText) ? (
                       <p className="book-courier__hint text-muted text-sm" role="alert">
                         {isPlaceholderLogisticsAddress(fromAddresses[draft.shipFromSite])
                           ? 'Ship-from (FROM) address is missing. Set it under Admin → Logistics → Sites for this location before the label can be shown.'
-                          : 'Dealer delivery (TO) address is missing. Refresh the dealer from Zoho before the label can be shown.'}
+                          : 'Delivery (TO) address is missing. Use the invoice Ship To or refresh the dealer from Zoho before the label can be shown.'}
                       </p>
                     ) : (
                       <>

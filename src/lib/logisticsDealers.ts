@@ -160,6 +160,48 @@ export function resolveDeliveryAddress(
   return preferred?.trim() || fallback?.trim() || '—';
 }
 
+/** Collapse newlines/commas so invoice Ship To can match a dealer default tile. */
+export function logisticsAddressKey(value: string | null | undefined): string {
+  return String(value ?? '')
+    .replace(/[,\n\r]+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .toLowerCase();
+}
+
+export function logisticsAddressesMatch(
+  a: string | null | undefined,
+  b: string | null | undefined,
+): boolean {
+  const left = logisticsAddressKey(a);
+  const right = logisticsAddressKey(b);
+  return Boolean(left && right && left === right);
+}
+
+export function hasExplicitDraftDeliveryAddress(value: string | null | undefined): boolean {
+  return !isPlaceholderLogisticsAddress(value);
+}
+
+export type LogisticsDraftDeliveryFields = {
+  deliveryAddressKind: DeliveryAddressKind;
+  deliveryAddress?: string | null;
+};
+
+/**
+ * Per-booking selected address wins (invoice Ship To). Dealer shipping/billing stay defaults.
+ * Same preference as invoice display: document address, then dealer profile.
+ */
+export function resolveDraftDeliveryAddress(
+  dealer: LogisticsDealerSnapshot | null | undefined,
+  draft: LogisticsDraftDeliveryFields,
+): string {
+  if (hasExplicitDraftDeliveryAddress(draft.deliveryAddress)) {
+    return String(draft.deliveryAddress).trim();
+  }
+  if (!dealer) return '—';
+  return resolveDeliveryAddress(dealer, draft.deliveryAddressKind);
+}
+
 export function logisticsDealerHasDeliveryAddress(
   dealer: LogisticsDealerSnapshot,
   kind?: DeliveryAddressKind,
@@ -228,6 +270,31 @@ export function preferredDeliveryAddressKind(
   if (!isPlaceholderLogisticsAddress(dealer.shippingAddress)) return 'shipping';
   if (!isPlaceholderLogisticsAddress(dealer.billingAddress)) return 'billing';
   return current;
+}
+
+/**
+ * If the document address is a dealer default, use that tile and leave the snapshot unchanged.
+ * A distinct invoice Ship To stays on the booking only.
+ */
+export function reconcileDocumentDeliveryAddress(
+  dealer: LogisticsDealerSnapshot,
+  documentAddress: string | null | undefined,
+  currentKind: DeliveryAddressKind = 'shipping',
+): { deliveryAddressKind: DeliveryAddressKind; deliveryAddress: string | null } {
+  const selected = documentAddress?.trim() || '';
+  if (isPlaceholderLogisticsAddress(selected)) {
+    return {
+      deliveryAddressKind: preferredDeliveryAddressKind(dealer, currentKind),
+      deliveryAddress: null,
+    };
+  }
+  if (logisticsAddressesMatch(selected, dealer.shippingAddress)) {
+    return { deliveryAddressKind: 'shipping', deliveryAddress: null };
+  }
+  if (logisticsAddressesMatch(selected, dealer.billingAddress)) {
+    return { deliveryAddressKind: 'billing', deliveryAddress: null };
+  }
+  return { deliveryAddressKind: currentKind, deliveryAddress: selected };
 }
 
 export function dealerMatchesLogisticsQuery(dealer: ZohoDealer, query: string): boolean {
