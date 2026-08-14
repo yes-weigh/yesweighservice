@@ -71,6 +71,10 @@ function normalizeGstin(value) {
   return /^[0-9A-Z]{15}$/.test(text) ? text : '';
 }
 
+function todayIsoDate() {
+  return new Date().toISOString().slice(0, 10);
+}
+
 function invoiceHasIrn(invoice) {
   if (!invoice || typeof invoice !== 'object') return false;
   const details = invoice.einvoice_details && typeof invoice.einvoice_details === 'object'
