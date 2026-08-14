@@ -613,7 +613,8 @@ export async function ensureInvoiceEwayBillForCustomerPickup(secrets, orgId, inp
     });
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
-    if (!/already|exist|duplicate/i.test(message)) throw err;
+    if (!/already|exist|duplicate|API access/i.test(message)) throw err;
+    // Generated e-way can still be downloaded if GST Part B API is unavailable.
   }
 
   const refreshed = await findZohoEwayBillForInvoice(accessToken, organizationId, invoiceId);
