@@ -779,6 +779,7 @@ export const LogisticsBookingDetail: React.FC<LogisticsBookingDetailProps> = ({
     if (ewayRequired) {
       const generated = ewayBillStatus === 'generated';
       const cancelled = ewayBillStatus === 'cancelled';
+      const delhiverySyncFailed = isDelhivery && booking.delhiveryEwaySync?.ok === false;
       cards.push({
         id: 'eway_bill',
         kind: 'eway_bill',
@@ -789,11 +790,16 @@ export const LogisticsBookingDetail: React.FC<LogisticsBookingDetailProps> = ({
           : cancelled
             ? 'E-way bill was cancelled.'
             : 'E-way bill is not generated yet.',
-        note: cancelled
-          ? (isOps ? 'Cancelled — tap to regenerate' : 'Cancelled')
-          : ewayClubbed
-            ? (generated ? `${ewayInvoiceRows.length} e-way bills` : `Generate ${ewayInvoiceRows.length}`)
-            : (ewayBillNumber ? `EWB ${ewayBillNumber}` : undefined),
+        note: [
+          cancelled
+            ? (isOps ? 'Cancelled — tap to regenerate' : 'Cancelled')
+            : ewayClubbed
+              ? (generated ? `${ewayInvoiceRows.length} e-way bills` : `Generate ${ewayInvoiceRows.length}`)
+              : (ewayBillNumber ? `EWB ${ewayBillNumber}` : undefined),
+          delhiverySyncFailed
+            ? (booking.delhiveryEwaySync?.error || 'Could not update Delhivery LR')
+            : null,
+        ].filter(Boolean).join(' · ') || undefined,
       });
     }
     return cards;
@@ -804,7 +810,10 @@ export const LogisticsBookingDetail: React.FC<LogisticsBookingDetailProps> = ({
     ewayInvoiceRows.length,
     ewayRequired,
     hasLinkedInvoice,
+    isDelhivery,
     isOps,
+    booking.delhiveryEwaySync?.ok,
+    booking.delhiveryEwaySync?.error,
   ]);
 
   /** AWB + shipping label + invoice + E-way; POD/COD when available. */

@@ -266,6 +266,7 @@ export function buildDelhiveryB2bManifestPayload(input) {
         );
       }
       return {
+        // Filled later via PUT /lrn/update/{lrn} once Zoho issues e-way bills.
         ewaybill: '',
         inv_num: invNum,
         inv_amt: invAmt,
@@ -274,6 +275,7 @@ export function buildDelhiveryB2bManifestPayload(input) {
     })
     : [
       {
+        // Filled later via PUT /lrn/update/{lrn} once Zoho issues e-way bills.
         ewaybill: '',
         inv_num: invoiceNumber,
         inv_amt: invoiceValue,
@@ -632,6 +634,163 @@ export async function cancelDelhiveryB2bShipment(db, lrn) {
     message: String(json?.data || json?.message || `Shipment ${id} cancelled.`),
     raw: json,
   };
+}
+
+function extractUpdateJobStatus(json) {
+  const blob = json && typeof json === 'object' ? json : {};
+  const data = blob.data && typeof blob.data === 'object' ? blob.data : {};
+  const raw = String(
+    blob.status
+    || data.status
+    || blob.state
+    || data.state
+    || blob.result
+    || '',
+  ).toLowerCase();
+  if (blob.success === false || data.success === false) return 'fail';
+  if (/fail|error|reject/.test(raw)) return 'fail';
+  if (/pending|process|queue|running|in.?progress/.test(raw)) return 'pending';
+  if (/success|done|complete|updated|ok/.test(raw)) return 'success';
+  if (blob.success === true || data.success === true) return 'success';
+  return 'pending';
+}
+
+/**
+ * Patch invoice / e-way bill numbers on an existing Delhivery LR.
+ * Docs: PUT {ltl}/lrn/update/{lrn} (async job_id)
+ *       GET {ltl}/lrn/update/status?job_id=…
+ * https://one.delhivery.com/developer-portal/document/b2b/detail/shipment-update
+ *
+ * Create-time /manifest always sends ewaybill: ''. This is how we fill it after
+ * Zoho generates e-way bills (including clubbed LRs with several invoices).
+ *
+ * @param {FirebaseFirestore.Firestore} db
+ * @param {string} lrn
+ * @param {Array<{ invoiceNumber: string, invoiceValueInr?: number, ewaybill?: string | null }>} invoices
+ * @param {{ pollMs?: number, maxAttempts?: number }} [options]
+ */
+export async function updateDelhiveryB2bLrInvoices(db, lrn, invoices, options = {}) {
+  const id = String(lrn || '').replace(/\D/g, '');
+  if (!/^\d{9}$/.test(id)) {
+    throw new Error('A 9-digit Delhivery LRN is required to update e-way bills.');
+  }
+  const rows = (Array.isArray(invoices) ? invoices : [])
+    .map((row) => {
+      const invNumber = nonEmpty(row?.invoiceNumber) || nonEmpty(row?.inv_number) || nonEmpty(row?.inv_num);
+      if (!invNumber) return null;
+      const amount = asNumber(row?.invoiceValueInr ?? row?.inv_amount ?? row?.inv_amt, 0);
+      const ewaybill = nonEmpty(row?.ewaybill ?? row?.ewayBillNumber) || '';
+      return {
+        inv_number: invNumber,
+        inv_num: invNumber,
+        inv_amount: amount,
+        inv_amt: amount,
+        ewaybill,
+        qr_code: '',
+      };
+    })
+    .filter(Boolean);
+  if (!rows.length) {
+    throw new Error('At least one invoice is required to update the Delhivery LR.');
+  }
+  if (!rows.some(row => row.ewaybill)) {
+    throw new Error('No e-way bill number to send to Delhivery.');
+  }
+
+  const config = await loadDelhiveryB2bPublicConfig(db);
+  if (!config.passwordSet) {
+    throw new Error('Delhivery B2B credentials are not configured.');
+  }
+
+  const auth = await getValidDelhiveryJwt(db);
+  const base = delhiveryLtlBaseUrl(auth.env);
+  const url = `${base}/lrn/update/${encodeURIComponent(id)}`;
+
+  async function send(jwt) {
+    const form = new FormData();
+    form.append('invoices', JSON.stringify(rows));
+    return fetch(url, {
+      method: 'PUT',
+      headers: {
+        Authorization: `Bearer ${jwt}`,
+        Accept: 'application/json',
+      },
+      body: form,
+    });
+  }
+
+  let res = await send(auth.jwt);
+  if (res.status === 401 || res.status === 403) {
+    const fresh = await getValidDelhiveryJwt(db, { force: true });
+    res = await send(fresh.jwt);
+  }
+
+  const text = await res.text();
+  let json = null;
+  try {
+    json = text ? JSON.parse(text) : null;
+  } catch {
+    json = null;
+  }
+
+  if (!res.ok || json?.success === false) {
+    throw new Error(extractErrorMessage(json, text, res.status));
+  }
+
+  const jobId = extractJobId(json);
+  const immediate = extractUpdateJobStatus(json);
+  if (!jobId || immediate === 'success') {
+    return {
+      ok: true,
+      lrn: id,
+      jobId: jobId || null,
+      env: auth.env,
+      invoices: rows.map(row => ({ inv_number: row.inv_number, ewaybill: row.ewaybill })),
+      raw: json,
+    };
+  }
+
+  const pollMs = Number(options.pollMs) > 0 ? Number(options.pollMs) : 2000;
+  const maxAttempts = Number(options.maxAttempts) > 0 ? Number(options.maxAttempts) : 15;
+  let lastJson = json;
+  for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
+    await sleep(pollMs);
+    const statusUrl = new URL(`${base}/lrn/update/status`);
+    statusUrl.searchParams.set('job_id', jobId);
+    const token = (await getValidDelhiveryJwt(db)).jwt;
+    const polled = await fetch(statusUrl, {
+      method: 'GET',
+      headers: {
+        Authorization: `Bearer ${token}`,
+        Accept: 'application/json',
+      },
+    });
+    const polledText = await polled.text();
+    try {
+      lastJson = polledText ? JSON.parse(polledText) : null;
+    } catch {
+      lastJson = null;
+    }
+    const state = extractUpdateJobStatus(lastJson);
+    if (state === 'success') {
+      return {
+        ok: true,
+        lrn: id,
+        jobId,
+        env: auth.env,
+        invoices: rows.map(row => ({ inv_number: row.inv_number, ewaybill: row.ewaybill })),
+        raw: lastJson,
+      };
+    }
+    if (state === 'fail' || (polled.ok === false && polled.status !== 404 && attempt >= 2)) {
+      throw new Error(extractErrorMessage(lastJson, polledText, polled.status));
+    }
+  }
+
+  throw new Error(
+    `Delhivery LR update job ${jobId} did not finish in time. `
+    + `Last response: ${JSON.stringify(lastJson)?.slice(0, 240) || '(empty)'}`,
+  );
 }
 
 /**

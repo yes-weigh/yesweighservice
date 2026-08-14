@@ -192,6 +192,17 @@ export interface LogisticsDelhiveryPickup {
   requestedAt: string;
 }
 
+/** Last attempt to push invoice e-way bill numbers onto the Delhivery LR. */
+export interface LogisticsDelhiveryEwaySync {
+  ok: boolean;
+  lrn: string | null;
+  fingerprint?: string | null;
+  jobId?: string | null;
+  error?: string | null;
+  invoices?: Array<{ inv_number: string; ewaybill: string }>;
+  syncedAt: string;
+}
+
 /** Official Delhivery documents cached in Storage (paths + metadata only). */
 export interface LogisticsDelhiveryDocumentsCache {
   lrn: string;
@@ -351,6 +362,8 @@ export interface LogisticsBooking {
   freightBillingModeSource?: 'booking' | 'api' | 'inferred' | 'manual' | null;
   /** Delhivery first-mile pickup request (auto after Create LR). */
   delhiveryPickup?: LogisticsDelhiveryPickup | null;
+  /** Result of pushing e-way bill numbers onto the Delhivery LR after Zoho generation. */
+  delhiveryEwaySync?: LogisticsDelhiveryEwaySync | null;
   /**
    * Official Delhivery docs cached in Firebase Storage after first open
    * (LR copy / shipping labels / POD / COD). Paths only — not file bytes.

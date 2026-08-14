@@ -784,15 +784,17 @@ export const AdminGoodsReceiptDocumentPage: React.FC = () => {
                               />
                             </label>
                             <div className="goods-receipt-receive__row-actions">
-                              <button
-                                type="button"
-                                className="goods-receipt-receive__icon-btn goods-receipt-receive__icon-btn--remove"
-                                disabled={saving || draft.locations.length <= 1}
-                                onClick={() => removeLocation(item.id, loc.key)}
-                                aria-label="Remove warehouse location"
-                              >
-                                <X size={14} aria-hidden />
-                              </button>
+                              {draft.locations.length > 1 && (
+                                <button
+                                  type="button"
+                                  className="goods-receipt-receive__icon-btn goods-receipt-receive__icon-btn--remove"
+                                  disabled={saving}
+                                  onClick={() => removeLocation(item.id, loc.key)}
+                                  aria-label="Remove warehouse location"
+                                >
+                                  <X size={16} aria-hidden />
+                                </button>
+                              )}
                               {isLast && (
                                 <button
                                   type="button"
@@ -801,7 +803,7 @@ export const AdminGoodsReceiptDocumentPage: React.FC = () => {
                                   onClick={() => addLocation(item.id)}
                                   aria-label="Add warehouse location"
                                 >
-                                  <Plus size={14} aria-hidden />
+                                  <Plus size={16} aria-hidden />
                                 </button>
                               )}
                             </div>

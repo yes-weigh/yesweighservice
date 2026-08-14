@@ -190,6 +190,38 @@ function mapDelhiveryPickup(raw: unknown): import('../types/logistics-dispatch')
   };
 }
 
+function mapDelhiveryEwaySync(raw: unknown): import('../types/logistics-dispatch').LogisticsDelhiveryEwaySync | null {
+  if (!raw || typeof raw !== 'object') return null;
+  const data = raw as Record<string, unknown>;
+  const syncedAt = typeof data.syncedAt === 'string' && data.syncedAt.trim()
+    ? data.syncedAt.trim()
+    : '';
+  if (!syncedAt && data.ok !== true && data.ok !== false) return null;
+  const invoices = Array.isArray(data.invoices)
+    ? data.invoices
+      .map((row) => {
+        if (!row || typeof row !== 'object') return null;
+        const item = row as Record<string, unknown>;
+        const invNumber = String(item.inv_number ?? item.invoiceNumber ?? '').trim();
+        if (!invNumber) return null;
+        return {
+          inv_number: invNumber,
+          ewaybill: String(item.ewaybill ?? item.ewayBillNumber ?? '').trim(),
+        };
+      })
+      .filter((row): row is { inv_number: string; ewaybill: string } => Boolean(row))
+    : [];
+  return {
+    ok: data.ok === true,
+    lrn: typeof data.lrn === 'string' && data.lrn.trim() ? data.lrn.trim() : null,
+    fingerprint: typeof data.fingerprint === 'string' ? data.fingerprint : null,
+    jobId: typeof data.jobId === 'string' ? data.jobId : null,
+    error: typeof data.error === 'string' ? data.error : null,
+    invoices,
+    syncedAt: syncedAt || new Date(0).toISOString(),
+  };
+}
+
 function mapDelhiveryDocuments(
   raw: unknown,
 ): import('../types/logistics-dispatch').LogisticsDelhiveryDocumentsCache | null {
@@ -635,6 +667,7 @@ export function mapLogisticsBookingDoc(id: string, data: DocumentData): Logistic
         : null
     ),
     delhiveryPickup: mapDelhiveryPickup(data.delhiveryPickup),
+    delhiveryEwaySync: mapDelhiveryEwaySync(data.delhiveryEwaySync),
     delhiveryDocuments: mapDelhiveryDocuments(data.delhiveryDocuments),
     blueDartDocuments: mapBlueDartDocuments(data.blueDartDocuments),
     ewayBillNumber: typeof data.ewayBillNumber === 'string' ? data.ewayBillNumber : null,
@@ -896,6 +929,7 @@ async function buildBookingPayload(input: PersistLogisticsBookingInput & {
     ...(draft.partnerId === 'delhivery'
       ? (() => {
         const pickup = draft.delhiveryPickup || mapDelhiveryPickup(existingData?.delhiveryPickup);
+        const ewaySync = mapDelhiveryEwaySync(existingData?.delhiveryEwaySync);
         return {
           freightBillingMode: (
             draft.freightBillingMode === 'fod' || draft.freightBillingMode === 'btc'
@@ -904,6 +938,7 @@ async function buildBookingPayload(input: PersistLogisticsBookingInput & {
           ),
           freightBillingModeSource: 'booking' as const,
           ...(pickup ? { delhiveryPickup: pickup } : {}),
+          ...(ewaySync ? { delhiveryEwaySync: ewaySync } : {}),
         };
       })()
       : {}),

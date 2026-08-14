@@ -20,6 +20,7 @@ import {
   ewayVehicleOriginFromAddress,
   resolveEwayShippingContext,
 } from './eway-shipping-context.js';
+import { updateDelhiveryB2bLrInvoices } from './delhivery-b2b-manifest.js';
 
 export const EWAY_BILL_THRESHOLD_INR = 50_000;
 const PICKUP_PARTNER_ID = 'personal_collection';
@@ -93,6 +94,173 @@ function rollupBookingEway(invoices) {
   return { ewayBillNumber: null, ewayBillStatus: 'missing' };
 }
 
+const DELHIVERY_EWAY_RETRY_MS = 15 * 60 * 1000;
+
+function normalizeDelhiveryLrn(raw) {
+  const digits = String(raw ?? '').replace(/\D/g, '');
+  return /^\d{9}$/.test(digits) ? digits : '';
+}
+
+function bookingInvoiceRowsForDelhivery(booking) {
+  const rows = Array.isArray(booking?.invoices) ? booking.invoices.filter(row => row && typeof row === 'object') : [];
+  if (rows.length) return rows;
+  const invoiceNumber = String(booking?.invoiceNumber || '').trim();
+  if (!invoiceNumber) return [];
+  return [{
+    invoiceId: String(booking?.invoiceId || '').trim(),
+    invoiceNumber,
+    valueInr: Number(booking?.invoiceValueInr) || 0,
+    ewayBillNumber: booking?.ewayBillNumber || null,
+    ewayBillStatus: booking?.ewayBillStatus || null,
+    ewayRequired: String(booking?.ewayBillStatus || '') !== 'not_required',
+  }];
+}
+
+function delhiveryEwayFingerprint(invoices) {
+  return invoices
+    .map(row => `${String(row.invoiceNumber || '').trim()}:${String(row.ewaybill || row.ewayBillNumber || '').trim()}`)
+    .filter(row => row !== ':')
+    .sort()
+    .join('|');
+}
+
+function bookingReadyForDelhiveryEwayPush(booking) {
+  const rows = bookingInvoiceRowsForDelhivery(booking);
+  if (!rows.length) return false;
+  const required = rows.filter(row => row.ewayRequired === true);
+  const watch = required.length ? required : rows;
+  return watch.every(row => (
+    String(row.ewayBillStatus || '') === 'generated'
+    && String(row.ewayBillNumber || '').trim()
+  ));
+}
+
+async function resolveDelhiveryBookingForEway(db, bookingId, invoiceId) {
+  if (bookingId) {
+    const snap = await db.collection('logisticsBookings').doc(String(bookingId)).get();
+    if (snap.exists) {
+      return { id: snap.id, ...(snap.data() || {}) };
+    }
+  }
+  const target = String(invoiceId || '').trim();
+  if (!target) return null;
+
+  const pick = (docs) => {
+    const rows = docs
+      .map(doc => ({ id: doc.id, ...(doc.data() || {}) }))
+      .filter(row => String(row.partnerId || '') === 'delhivery')
+      .filter(row => String(row.status || '') !== 'cancelled')
+      .filter(row => Boolean(normalizeDelhiveryLrn(row.consignmentNo)));
+    rows.sort((a, b) => String(b.updatedAt || '').localeCompare(String(a.updatedAt || '')));
+    return rows[0] || null;
+  };
+
+  const byIds = await db.collection('logisticsBookings')
+    .where('invoiceIds', 'array-contains', target)
+    .limit(20)
+    .get();
+  const found = pick(byIds.docs);
+  if (found) return found;
+
+  const byId = await db.collection('logisticsBookings')
+    .where('invoiceId', '==', target)
+    .limit(10)
+    .get();
+  return pick(byId.docs);
+}
+
+async function writeDelhiveryEwaySync(db, bookingId, patch) {
+  if (!bookingId) return;
+  await db.collection('logisticsBookings').doc(String(bookingId)).set({
+    delhiveryEwaySync: {
+      ...patch,
+      syncedAt: new Date().toISOString(),
+    },
+    updatedAt: new Date().toISOString(),
+  }, { merge: true });
+}
+
+/**
+ * Push generated e-way bill numbers onto the Delhivery LR (PUT /lrn/update/{lrn}).
+ * Waits until every required clubbed invoice has a number, then sends the full set.
+ * Failures are stored on the booking and never throw — Zoho generation still succeeded.
+ */
+async function maybePushEwayBillsToDelhiveryLr(db, { bookingId = null, invoiceId = null } = {}) {
+  try {
+    const booking = await resolveDelhiveryBookingForEway(db, bookingId, invoiceId);
+    if (!booking || String(booking.partnerId || '') !== 'delhivery') return null;
+    const lrn = normalizeDelhiveryLrn(booking.consignmentNo);
+    if (!lrn) return null;
+    if (!bookingReadyForDelhiveryEwayPush(booking)) return null;
+
+    const invoices = bookingInvoiceRowsForDelhivery(booking).map(row => ({
+      invoiceNumber: String(row.invoiceNumber || '').trim(),
+      invoiceValueInr: Number(row.valueInr) || 0,
+      ewaybill: String(row.ewayBillNumber || '').trim(),
+    })).filter(row => row.invoiceNumber);
+    if (!invoices.some(row => row.ewaybill)) return null;
+
+    const fingerprint = delhiveryEwayFingerprint(invoices);
+    const previous = booking.delhiveryEwaySync && typeof booking.delhiveryEwaySync === 'object'
+      ? booking.delhiveryEwaySync
+      : null;
+    if (previous?.ok === true && String(previous.fingerprint || '') === fingerprint) {
+      return previous;
+    }
+    if (
+      previous?.ok === false
+      && String(previous.fingerprint || '') === fingerprint
+      && previous.syncedAt
+    ) {
+      const age = Date.now() - Date.parse(String(previous.syncedAt));
+      if (Number.isFinite(age) && age >= 0 && age < DELHIVERY_EWAY_RETRY_MS) {
+        return previous;
+      }
+    }
+
+    const updated = await updateDelhiveryB2bLrInvoices(db, lrn, invoices);
+    const saved = {
+      ok: true,
+      lrn,
+      fingerprint,
+      jobId: updated.jobId || null,
+      error: null,
+      invoices: updated.invoices || invoices.map(row => ({
+        inv_number: row.invoiceNumber,
+        ewaybill: row.ewaybill,
+      })),
+    };
+    await writeDelhiveryEwaySync(db, booking.id, saved);
+    return saved;
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err ?? 'Delhivery LR update failed.');
+    console.warn('Delhivery LR e-way bill update failed:', message);
+    try {
+      const booking = await resolveDelhiveryBookingForEway(db, bookingId, invoiceId);
+      if (booking?.id) {
+        const invoices = bookingInvoiceRowsForDelhivery(booking).map(row => ({
+          invoiceNumber: String(row.invoiceNumber || '').trim(),
+          ewaybill: String(row.ewayBillNumber || '').trim(),
+        })).filter(row => row.invoiceNumber);
+        await writeDelhiveryEwaySync(db, booking.id, {
+          ok: false,
+          lrn: normalizeDelhiveryLrn(booking.consignmentNo) || null,
+          fingerprint: delhiveryEwayFingerprint(invoices),
+          jobId: null,
+          error: message,
+          invoices: invoices.map(row => ({
+            inv_number: row.invoiceNumber,
+            ewaybill: row.ewaybill,
+          })),
+        });
+      }
+    } catch (writeErr) {
+      console.warn('Could not store Delhivery e-way sync error:', writeErr?.message ?? writeErr);
+    }
+    return null;
+  }
+}
+
 async function persistEwayBill(customerId, invoiceId, patch, bookingId = null) {
   const db = getFirestore();
   const normalized = {
@@ -141,6 +309,13 @@ async function persistEwayBill(customerId, invoiceId, patch, bookingId = null) {
       ewayBillStatus: rollup.ewayBillStatus,
       updatedAt: new Date().toISOString(),
     }, { merge: true });
+  }
+  if (
+    bookingId
+    && String(normalized.status || '') === 'generated'
+    && String(normalized.ewaybillNumber || '').trim()
+  ) {
+    await maybePushEwayBillsToDelhiveryLr(db, { bookingId, invoiceId });
   }
   return normalized;
 }
@@ -233,11 +408,15 @@ export async function ensureInvoiceEwayBill(secrets, orgId, input) {
       message: `E-way bill is not required for invoice totals incl. GST of ₹${EWAY_BILL_THRESHOLD_INR.toLocaleString('en-IN')} or below.`,
     };
   }
+  const db = getFirestore();
   if (existing?.pdfStoragePath && existing.status === 'generated') {
     const buffer = await readPdfFromStorage(existing.pdfStoragePath);
     if (buffer) {
       const ext = existing.pdfStoragePath.endsWith('.html') ? 'html' : 'pdf';
       const mimeType = ext === 'html' ? 'text/html' : 'application/pdf';
+      if (existing.ewaybillNumber) {
+        await maybePushEwayBillsToDelhiveryLr(db, { bookingId, invoiceId });
+      }
       return {
         required: true,
         status: 'generated',
@@ -249,8 +428,6 @@ export async function ensureInvoiceEwayBill(secrets, orgId, input) {
       };
     }
   }
-
-  const db = getFirestore();
   const pickupVehicle = normalizeVehicleNumber(invoice.customerPickup?.vehicleNumber);
   const isCustomerPickup = partnerId === PICKUP_PARTNER_ID
     || Boolean(String(invoice.customerPickup?.markedAt ?? '').trim());
