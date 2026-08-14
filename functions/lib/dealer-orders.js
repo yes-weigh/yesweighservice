@@ -27,6 +27,7 @@ import {
   segmentSiteOrderSuffix,
   segmentToInvoiceCategory,
   staffCanAddOrderSegment,
+  segmentSkipsOpsReview,
 } from './sales-order-segments.js';
 import {
   resolveZohoLocationIdForSite,
@@ -616,6 +617,8 @@ async function createSegmentSalesOrders({
       workflowBase.yesOnePriceChanges,
       segmentLines,
     );
+    const skipOpsReview = segmentSkipsOpsReview(segment);
+    const readyForPayment = skipOpsReview || workflowBase.yesOneStage === 'ready_for_payment';
     const workflowExtras = {
       ...workflowBase,
       yesOneCartReference: orderNumber,
@@ -636,8 +639,18 @@ async function createSegmentSalesOrders({
         salespersonId: salesperson.id,
         salespersonName: salesperson.name,
       } : {}),
-      ...(workflowBase.yesOneStage === 'ready_for_payment'
-        ? { paymentAmount: subtotal }
+      ...(readyForPayment
+        ? {
+          yesOneStage: 'ready_for_payment',
+          paymentAmount: subtotal,
+          readyForPaymentAt: workflowBase.readyForPaymentAt || nowIso(),
+          readyForPaymentByUid: workflowBase.readyForPaymentByUid
+            || workflowBase.yesOneCreatedByUid
+            || null,
+          readyForPaymentByName: workflowBase.readyForPaymentByName
+            || (skipOpsReview ? 'Software order' : workflowBase.yesOneCreatedByName)
+            || null,
+        }
         : {}),
     };
 
@@ -671,6 +684,7 @@ async function createSegmentSalesOrders({
       hasFreight: segmentLines.some(isFreightOrderLine),
       salespersonId: salesperson?.id || null,
       salespersonName: salesperson?.name || null,
+      yesOneStage: readyForPayment ? 'ready_for_payment' : 'review',
     });
   }
 
@@ -1093,7 +1107,9 @@ export async function createStaffSalesOrder(uid, role, payload = {}, secrets, or
     zohoSalesOrderNumber: primary?.zohoSalesOrderNumber || null,
     orderNumber: primary?.orderNumber || orderNumber,
     status: primary?.status || 'draft',
-    yesOneStage: stageTarget,
+    yesOneStage: salesOrders.length && salesOrders.every(so => so.yesOneStage === 'ready_for_payment')
+      ? 'ready_for_payment'
+      : stageTarget,
     subtotal,
     itemCount: sumItemCount(linesWithFreight),
     zohoCustomerId,

@@ -75,6 +75,11 @@ export function orderSegmentFromInvoiceCategory(
   return null;
 }
 
+/** Software keys skip ops review and open as Awaiting payment. */
+export function segmentSkipsOpsReview(segment: OrderSegment | string | null | undefined): boolean {
+  return segment === 'software';
+}
+
 export function parseInventorySite(value: unknown): InventorySite | null {
   const site = String(value ?? '').trim().toLowerCase();
   if (site === 'cochin' || site === 'head_office') return site;

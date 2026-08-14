@@ -36,6 +36,7 @@ export interface SegmentSalesOrderResult {
   itemCount: number;
   salespersonId: string | null;
   salespersonName: string | null;
+  yesOneStage?: string;
 }
 
 export interface SubmitDealerOrderResult {

@@ -42,6 +42,9 @@ export const MultiSalesOrderSuccess: React.FC<Props> = ({
                 {so.salespersonName ? ` · ${so.salespersonName}` : ''}
                 {' · '}
                 {formatCurrency(so.subtotal)}
+                {so.segment === 'software' || so.yesOneStage === 'ready_for_payment'
+                  ? ' · Payment due'
+                  : ''}
               </p>
             </div>
             <Link

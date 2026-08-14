@@ -17623,6 +17623,19 @@ body:has(.confirm-inline-bar) .confirm-inline-bar {
   line-height: 1.15;
 }
 
+.unified-so-mobile-row__kam-line {
+  align-items: baseline;
+}
+
+.unified-so-mobile-row__kam-line .list-tile-kam {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.unified-so-mobile-row__kam-line .invoices-mobile-row__amount-value {
+  margin-left: auto;
+}
+
 .unified-so-dealer-filter-note {
   margin: 0;
 }

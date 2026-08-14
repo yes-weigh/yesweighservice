@@ -1230,13 +1230,25 @@ export const AdminUnifiedSalesOrdersPage: React.FC = () => {
                     <InvoiceCategoryIcon category={row.category} />
                     <span className="invoices-mobile-row__body">
                       <span className="invoices-mobile-row__invoice">
-                        <span className="invoices-mobile-row__pair">
-                          <span className="invoices-mobile-row__title">
-                            <strong>{row.primaryNumber}</strong>
-                            <span className="invoices-mobile-row__meta unified-so-mobile-row__date">
-                              {formatInvoiceDateTime(row.date, row.createdTime)}
-                            </span>
+                        <span className="invoices-mobile-row__title">
+                          <strong>{row.primaryNumber}</strong>
+                          <span className="invoices-mobile-row__meta unified-so-mobile-row__date">
+                            {formatInvoiceDateTime(row.date, row.createdTime)}
                           </span>
+                        </span>
+                        <strong className="invoices-mobile-row__company">
+                          {row.partyName}
+                        </strong>
+                        <span className="invoices-mobile-row__pair unified-so-mobile-row__kam-line">
+                          {showKam ? (
+                            <ListTileKam
+                              name={resolveDealerKamName({
+                                zohoCustomerId: row.customerId,
+                                documentSalespersonName: row.salespersonName,
+                                dealerStaffById,
+                              })}
+                            />
+                          ) : null}
                           <strong className="invoices-mobile-row__amount-value">
                             {formatCurrency(
                               category === 'all'
@@ -1246,18 +1258,6 @@ export const AdminUnifiedSalesOrdersPage: React.FC = () => {
                             )}
                           </strong>
                         </span>
-                        <strong className="invoices-mobile-row__company">
-                          {row.partyName}
-                        </strong>
-                        {showKam ? (
-                          <ListTileKam
-                            name={resolveDealerKamName({
-                              zohoCustomerId: row.customerId,
-                              documentSalespersonName: row.salespersonName,
-                              dealerStaffById,
-                            })}
-                          />
-                        ) : null}
                         <span className="invoices-mobile-row__pair unified-so-mobile-row__footer">
                           <span className="invoices-mobile-row__meta">
                             {locationLabel ? (

@@ -271,6 +271,7 @@ export async function createStaffSalesOrder(input: {
     itemCount: number;
     salespersonId: string | null;
     salespersonName: string | null;
+    yesOneStage?: string;
   }>;
 }> {
   try {

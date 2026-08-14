@@ -303,6 +303,11 @@ export function parseOrderSegment(value) {
   return null;
 }
 
+/** Software keys skip ops review and open as Awaiting payment. */
+export function segmentSkipsOpsReview(segment) {
+  return parseOrderSegment(segment) === 'software';
+}
+
 /**
  * Who may add a segment on staff/super-admin create paths.
  * Dealers are not gated here (cart path).
