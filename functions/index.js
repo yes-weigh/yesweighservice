@@ -90,7 +90,7 @@ import {
   updateCustomerPickupEwayPartB,
 } from './lib/invoice-customer-pickup.js';
 import { markInvoiceDelivered } from './lib/invoice-manual-delivery.js';
-import { listZohoTransporters } from './lib/zoho-ewaybills.js';
+import { listZohoTransporters, formatEwayBillPortalError } from './lib/zoho-ewaybills.js';
 import { syncOrgInvoicesToFirestore } from './lib/org-invoice-sync.js';
 import {
   backfillInvoiceCategoriesToProduct,
@@ -2006,8 +2006,8 @@ export const ensureInvoiceEwayBillFn = onCall(
       });
     } catch (err) {
       if (err instanceof HttpsError) throw err;
-      const message = err?.message ?? 'Could not ensure e-way bill.';
-      const code = /not configured|not linked|not required|not found|cancelled|Distance \(km\)|Ship-from address/i.test(message)
+      const message = formatEwayBillPortalError(err?.message ?? 'Could not ensure e-way bill.');
+      const code = /not configured|not linked|not required|not found|cancelled|Distance \(km\)|Ship-from|API access|GST|e-way|IRN|dispatch|transporter|pincode/i.test(message)
         ? 'failed-precondition'
         : 'internal';
       throw new HttpsError(code, message);
@@ -2105,8 +2105,8 @@ export const markInvoiceCustomerPickupFn = onCall(
       });
     } catch (err) {
       if (err instanceof HttpsError) throw err;
-      const message = err?.message ?? 'Could not mark customer pickup.';
-      const code = /already|required|not found|missing|vehicle|Ship-from|transporter/i.test(message)
+      const message = formatEwayBillPortalError(err?.message ?? 'Could not mark customer pickup.');
+      const code = /already|required|not found|missing|vehicle|Ship-from|transporter|API access|GST|e-way|IRN|dispatch/i.test(message)
         ? 'failed-precondition'
         : 'internal';
       throw new HttpsError(code, message);
@@ -2176,8 +2176,8 @@ export const updateCustomerPickupEwayPartBFn = onCall(
       });
     } catch (err) {
       if (err instanceof HttpsError) throw err;
-      const message = err?.message ?? 'Could not update e-way bill Part B.';
-      const code = /not found|missing|required|Ship-from|transporter|pincode/i.test(message)
+      const message = formatEwayBillPortalError(err?.message ?? 'Could not update e-way bill Part B.');
+      const code = /not found|missing|required|Ship-from|transporter|pincode|API access|GST|e-way|IRN|dispatch/i.test(message)
         ? 'failed-precondition'
         : 'internal';
       throw new HttpsError(code, message);

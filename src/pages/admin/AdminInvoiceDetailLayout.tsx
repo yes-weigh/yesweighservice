@@ -21,9 +21,7 @@ import {
 } from '../../lib/admin-invoices';
 import { fetchCatalog } from '../../lib/catalog';
 import { pinFromText } from '../../lib/delhiveryQuote';
-import {
-  type InvoiceEwayBillResult,
-} from '../../lib/invoiceEwayBill';
+import type { InvoiceEwayBillResult } from '../../lib/invoiceEwayBill';
 import {
   formatInvoiceDate,
   invoiceErrorMessage,

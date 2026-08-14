@@ -596,24 +596,28 @@ export async function addZohoEwayBillVehicle(accessToken, orgId, ewaybillId, inp
   };
 
   const vehicleId = String(input.vehicleId ?? '').trim();
-  if (vehicleId) {
-    body.vehicle_id = vehicleId;
+  try {
+    if (vehicleId) {
+      body.vehicle_id = vehicleId;
+      const payload = await zohoJson(
+        accessToken,
+        orgId,
+        `/ewaybills/${encodeURIComponent(id)}/vehicles/${encodeURIComponent(vehicleId)}`,
+        { method: 'PUT', body },
+      );
+      return payload?.vehicle_details ?? payload?.ewaybill ?? payload;
+    }
+
     const payload = await zohoJson(
       accessToken,
       orgId,
-      `/ewaybills/${encodeURIComponent(id)}/vehicles/${encodeURIComponent(vehicleId)}`,
-      { method: 'PUT', body },
+      `/ewaybills/${encodeURIComponent(id)}/vehicles`,
+      { method: 'POST', body },
     );
     return payload?.vehicle_details ?? payload?.ewaybill ?? payload;
+  } catch (err) {
+    throw new Error(formatEwayBillPortalError(err instanceof Error ? err.message : String(err)));
   }
-
-  const payload = await zohoJson(
-    accessToken,
-    orgId,
-    `/ewaybills/${encodeURIComponent(id)}/vehicles`,
-    { method: 'POST', body },
-  );
-  return payload?.vehicle_details ?? payload?.ewaybill ?? payload;
 }
 
 /**
