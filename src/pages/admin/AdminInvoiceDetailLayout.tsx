@@ -14,7 +14,6 @@ import { InvoiceAddLrDialog } from '../../components/logistics/InvoiceAddLrDialo
 import { InvoiceCustomerPickupDialog } from '../../components/logistics/InvoiceCustomerPickupDialog';
 import { InvoiceMarkDeliveredDialog } from '../../components/logistics/InvoiceMarkDeliveredDialog';
 import { LogisticsAwbEntryButton } from '../../components/logistics/LogisticsAwbEntryButton';
-import { invoiceTotalInclGst } from '../../constants/ewayBill';
 import { useAuth } from '../../context/AuthContext';
 import { useCatalogPageHeader, usePageHeaderTitleMeta } from '../../context/PageHeaderContext';
 import {
@@ -23,7 +22,6 @@ import {
 import { fetchCatalog } from '../../lib/catalog';
 import { pinFromText } from '../../lib/delhiveryQuote';
 import {
-  ensureInvoiceEwayBill,
   type InvoiceEwayBillResult,
 } from '../../lib/invoiceEwayBill';
 import {
@@ -395,62 +393,38 @@ export const AdminInvoiceDetailLayout: React.FC = () => {
     setEwayDocOpening(true);
     setEwayDocError('');
     try {
-      const alreadyGenerated = invoice.ewayBill?.status === 'generated'
-        || Boolean(invoice.ewayBill?.ewaybillNumber?.trim());
       const pickupVehicle = String(invoice.customerPickup?.vehicleNumber ?? '').trim();
-
-      if (!alreadyGenerated) {
-        if (!pickupVehicle) {
-          setEwayDocError(
-            'Vehicle number is required to generate e-way bill Part B for customer pickup.',
-          );
-          return;
-        }
-        const pickupResult = await updateCustomerPickupEwayPartB({
-          customerId,
-          invoiceId,
-          vehicleNumber: pickupVehicle,
-        });
-        if (pickupResult.customerPickup) {
-          setInvoice(prev => prev ? {
-            ...prev,
-            customerPickup: pickupResult.customerPickup,
-            ewayBill: pickupResult.eway?.status
-              ? {
-                ...(prev.ewayBill ?? {}),
-                status: pickupResult.eway.status,
-                ewaybillNumber: pickupResult.eway.ewaybillNumber ?? prev.ewayBill?.ewaybillNumber ?? null,
-                required: pickupResult.eway.required,
-              }
-              : prev.ewayBill,
-          } : prev);
-        }
-        if (pickupResult.eway) {
-          showPickupEwayFromResult(pickupResult.eway);
-        } else {
-          setEwayDocError('E-way bill is not ready yet.');
-        }
+      if (!pickupVehicle) {
+        setEwayDocError(
+          'Vehicle number is required to generate e-way bill Part B for customer pickup.',
+        );
         return;
       }
 
-      const result = await ensureInvoiceEwayBill({
+      const pickupResult = await updateCustomerPickupEwayPartB({
         customerId,
         invoiceId,
-        partnerId: 'personal_collection',
-        lrNumber: invoice.customerPickup?.vehicleNumber || null,
-        invoiceTotalInr: invoiceTotalInclGst(invoice),
-        autoGenerate: false,
+        vehicleNumber: pickupVehicle,
       });
-      setInvoice(prev => prev ? {
-        ...prev,
-        ewayBill: {
-          ...(prev.ewayBill ?? {}),
-          status: result.status ?? prev.ewayBill?.status ?? null,
-          ewaybillNumber: result.ewaybillNumber ?? prev.ewayBill?.ewaybillNumber ?? null,
-          required: result.required,
-        },
-      } : prev);
-      showPickupEwayFromResult(result);
+      if (pickupResult.customerPickup) {
+        setInvoice(prev => prev ? {
+          ...prev,
+          customerPickup: pickupResult.customerPickup,
+          ewayBill: pickupResult.eway?.status
+            ? {
+              ...(prev.ewayBill ?? {}),
+              status: pickupResult.eway.status,
+              ewaybillNumber: pickupResult.eway.ewaybillNumber ?? prev.ewayBill?.ewaybillNumber ?? null,
+              required: pickupResult.eway.required,
+            }
+            : prev.ewayBill,
+        } : prev);
+      }
+      if (pickupResult.eway) {
+        showPickupEwayFromResult(pickupResult.eway);
+      } else {
+        setEwayDocError('E-way bill is not ready yet.');
+      }
     } catch (err) {
       setEwayDocError(err instanceof Error ? err.message : 'Could not open e-way bill.');
     } finally {

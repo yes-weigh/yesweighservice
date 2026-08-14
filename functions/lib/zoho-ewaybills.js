@@ -9,6 +9,7 @@ import {
 } from './zoho-api-usage.js';
 import {
   ensureZohoDispatchFromAddress,
+  ewayVehicleOriginFromAddress,
   resolvePortalEwayDistanceKm,
 } from './eway-shipping-context.js';
 
@@ -325,13 +326,31 @@ export async function createZohoEwayBillForInvoice(accessToken, orgId, input) {
   const invoice = await fetchZohoInvoice(accessToken, orgId, invoiceId);
   if (!invoice) throw new Error('Invoice not found in Zoho.');
 
-  const invoiceEwayStatus = String(invoice.ewaybill_status ?? '').trim().toLowerCase();
   const lr = String(input.lrNumber ?? '').trim();
   const shipFromAddress = String(input.shipFromAddress ?? '').trim();
   const deliveryAddress = String(input.deliveryAddress ?? '').trim();
   const vehicleNumber = String(input.vehicleNumber ?? '').trim().toUpperCase().replace(/\s+/g, '');
   const hasIrn = invoiceHasIrn(invoice);
   const irnDispatchFromId = existingDispatchFromAddressId(invoice);
+
+  let vehicleOrigin = null;
+  if (vehicleNumber && shipFromAddress) {
+    try {
+      vehicleOrigin = ewayVehicleOriginFromAddress(shipFromAddress);
+    } catch {
+      vehicleOrigin = null;
+    }
+  }
+
+  const vehicleFields = vehicleNumber
+    ? {
+      vehicle_number: vehicleNumber.slice(0, 20),
+      vehicle_type: 'regular',
+      ...(vehicleOrigin
+        ? { from_place: vehicleOrigin.fromPlace, from_state: vehicleOrigin.fromState }
+        : {}),
+    }
+    : {};
 
   let dispatchFromAddressId = String(input.dispatchFromAddressId ?? '').trim();
   if (hasIrn) {
@@ -374,7 +393,7 @@ export async function createZohoEwayBillForInvoice(accessToken, orgId, input) {
     ...(shipToAddressId ? { ship_to_address_id: String(shipToAddressId) } : {}),
     ...(dispatchFromAddressId ? { dispatch_from_address_id: dispatchFromAddressId } : {}),
     ...(lr ? { transporter_document_number: lr.slice(0, 30) } : {}),
-    ...(vehicleNumber ? { vehicle_number: vehicleNumber.slice(0, 20) } : {}),
+    ...vehicleFields,
   };
 
   try {
@@ -384,7 +403,7 @@ export async function createZohoEwayBillForInvoice(accessToken, orgId, input) {
         transportation_mode: 'road',
         distance,
         ...(lr ? { transporter_document_number: lr.slice(0, 30) } : {}),
-        ...(vehicleNumber ? { vehicle_number: vehicleNumber.slice(0, 20) } : {}),
+        ...vehicleFields,
       });
       if (fromEinvoice) return fromEinvoice;
     }
@@ -412,15 +431,9 @@ export async function createZohoEwayBillForInvoice(accessToken, orgId, input) {
     }
     if (/already exists/i.test(message) && invoice.ewaybill_id) {
       const record = await fetchZohoEwayBillRecord(accessToken, orgId, String(invoice.ewaybill_id));
-      if (String(record?.ewaybill_status ?? '').toLowerCase() !== 'cancelled') {
+      if (record && String(record?.ewaybill_status ?? '').toLowerCase() !== 'cancelled') {
         return record;
       }
-    }
-    if (invoiceEwayStatus === 'cancelled' || /cancel/i.test(message)) {
-      throw new Error(
-        'This invoice\'s previous e-way bill was cancelled in Zoho. '
-        + 'Open the invoice in Zoho Inventory → E-Way Bill → generate a new bill there, then retry.',
-      );
     }
     throw new Error(formatEwayBillPortalError(message));
   }
