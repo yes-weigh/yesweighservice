@@ -48,7 +48,7 @@ import { initYesOneSalesOrderWorkflow } from './sales-order-workflow.js';
 import { yesOneGatcPersistFields } from './gatc-report.js';
 import { resolveShippingAddressId } from './zoho-contact-addresses.js';
 import { isQuantityExcludedLineItem } from './invoice-category.js';
-import { effectiveCatalogStockStatus } from './sac-catalog.js';
+import { effectiveCatalogStockStatus, isSacHsn } from './sac-catalog.js';
 import {
   appendWeighingScaleDescription,
   loadWeighingScaleCategoryIdSet,
@@ -538,39 +538,57 @@ async function createSegmentSalesOrders({
       : `${orderNumberBase}-${segmentSiteOrderSuffix(segment, site)}`;
 
     // Resolve from pre-mapper lines — pricedLineMapper strips warehouses[] for Zoho.
+    // Software / SAC-only buckets are not warehouse-stocked in Zoho. Forcing Head Office
+    // warehouse_id on those lines is rejected as "You are not authorized to perform this operation".
+    const needsZohoWarehouse = segment !== 'software'
+      && bucket.lines.some(line => !isFreightOrderLine(line) && !isSacHsn(line.hsn));
     let locationId = null;
-    for (const line of bucket.lines) {
-      locationId = warehouseIdFromLineWarehouses(site, line.warehouses);
-      if (locationId) break;
-    }
-    if (!locationId) {
-      try {
-        locationId = await resolveZohoLocationIdForSite(site, secrets, orgId);
-      } catch (err) {
-        throw new HttpsError(
-          'failed-precondition',
-          err?.message || `Could not resolve Zoho warehouse for ${inventorySiteLabel(site)}.`,
-        );
+    if (needsZohoWarehouse) {
+      for (const line of bucket.lines) {
+        locationId = warehouseIdFromLineWarehouses(site, line.warehouses);
+        if (locationId) break;
+      }
+      if (!locationId) {
+        try {
+          locationId = await resolveZohoLocationIdForSite(site, secrets, orgId);
+        } catch (err) {
+          throw new HttpsError(
+            'failed-precondition',
+            err?.message || `Could not resolve Zoho warehouse for ${inventorySiteLabel(site)}.`,
+          );
+        }
       }
     }
 
     const bucketLabel = segmentSiteLabel(segment, site);
-    const so = await createSalesOrderFromDealerOrder(secrets, orgId, {
-      id: orderNumber,
-      orderNumber,
-      zohoCustomerId,
-      lines: segmentLines,
-      subtotal,
-      locationId,
-      remarks: buckets.length === 1
-        ? remarks
-        : (remarks
-          ? `${remarks}\n[${bucketLabel}]`
-          : `[${bucketLabel}]`),
-      shippingAddressId: shippingResolved.shippingAddressId,
-      shippingAddressInline: shippingResolved.useInline ? shippingResolved.address : null,
-      salespersonId: salesperson?.id || null,
-    });
+    let so;
+    try {
+      so = await createSalesOrderFromDealerOrder(secrets, orgId, {
+        id: orderNumber,
+        orderNumber,
+        zohoCustomerId,
+        lines: segmentLines,
+        subtotal,
+        locationId,
+        remarks: buckets.length === 1
+          ? remarks
+          : (remarks
+            ? `${remarks}\n[${bucketLabel}]`
+            : `[${bucketLabel}]`),
+        shippingAddressId: shippingResolved.shippingAddressId,
+        shippingAddressInline: shippingResolved.useInline ? shippingResolved.address : null,
+        salespersonId: salesperson?.id || null,
+      });
+    } catch (err) {
+      const zohoMessage = String(err?.message || 'Could not create Zoho sales order.');
+      if (segment === 'software' && /not authorized to perform this operation/i.test(zohoMessage)) {
+        throw new HttpsError(
+          'failed-precondition',
+          'Zoho rejected the software sales order. Software items are billed as Cloud Charges (not your salesperson) and are not warehouse-stocked. Confirm “Cloud Charges” is an active Zoho salesperson, then try again.',
+        );
+      }
+      throw err;
+    }
 
     const salesOrderId = so.salesOrderId;
     const salesOrderNumber = so.salesOrderNumber;

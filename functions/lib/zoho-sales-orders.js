@@ -7,6 +7,7 @@ import {
   recordZohoApiFailure,
   classifyZohoHttpError,
 } from './zoho-api-usage.js';
+import { isSacHsn } from './sac-catalog.js';
 
 async function zohoJson(accessToken, orgId, path, { method = 'GET', body } = {}) {
   const url = new URL(`${ZOHO_API_BASE}${path}`);
@@ -48,6 +49,8 @@ async function zohoJson(accessToken, orgId, path, { method = 'GET', body } = {})
 function lineItemsFromOrder(order, warehouseId = null) {
   const lines = Array.isArray(order.lines) ? order.lines : [];
   // Multi-warehouse orgs accept warehouse_id; location_id is rejected when Locations is off.
+  // SAC/service lines (software keys, GATC, freight) must not send warehouse_id —
+  // Zoho returns "You are not authorized to perform this operation".
   const warehouse = warehouseId != null && String(warehouseId).trim()
     ? String(warehouseId).trim()
     : null;
@@ -59,7 +62,7 @@ function lineItemsFromOrder(order, warehouseId = null) {
     unit: String(line.unit || 'pcs'),
     ...(line.description ? { description: String(line.description) } : {}),
     ...(line.hsn ? { hsn_or_sac: String(line.hsn) } : {}),
-    ...(warehouse ? { warehouse_id: warehouse } : {}),
+    ...(warehouse && !isSacHsn(line.hsn) ? { warehouse_id: warehouse } : {}),
   })).filter(line => line.quantity > 0 && line.item_id);
 }
 
