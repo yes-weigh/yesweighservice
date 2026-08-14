@@ -1370,16 +1370,22 @@ export const recordCatalogProductAudit = onCall(
   {
     region: 'asia-south1',
     secrets: [zohoClientId, zohoClientSecret, zohoRefreshToken],
-    timeoutSeconds: 60,
+    timeoutSeconds: 90,
     memory: '256MiB',
   },
   async request => {
     const uid = request.auth?.uid;
-    await requireActiveUser(uid, SYNC_ROLES);
+    const role = await requireActiveUser(uid, SYNC_ROLES);
 
     const catalogProductId = String(request.data?.catalogProductId ?? '').trim();
     const trigger = String(request.data?.trigger ?? 'manual').trim();
     const auditCycleId = String(request.data?.auditCycleId ?? '').trim() || null;
+    const requestedAt = String(request.data?.auditedAt ?? '').trim() || null;
+    const allowBackdate = role === 'super_admin';
+    const incomingZohoQty = Number(request.data?.incomingZohoQty);
+    const cochinInboundQty = Number(request.data?.cochinInboundQty);
+    const sourceGoodsReceiptId = String(request.data?.sourceGoodsReceiptId ?? '').trim() || null;
+    const inboundAlreadyInZoho = request.data?.inboundAlreadyInZoho === true;
 
     if (!catalogProductId) {
       throw new HttpsError('invalid-argument', 'catalogProductId is required.');
@@ -1398,12 +1404,25 @@ export const recordCatalogProductAudit = onCall(
         zohoSecrets(),
         zohoOrganizationId.value(),
         catalogProductId,
-        { trigger, auditCycleId, editor: { uid: uid ?? null, displayName } },
+        {
+          trigger,
+          auditCycleId,
+          editor: { uid: uid ?? null, displayName },
+          auditedAt: allowBackdate ? requestedAt : null,
+          allowBackdate,
+          incomingZohoQty: Number.isFinite(incomingZohoQty) ? incomingZohoQty : 0,
+          cochinInboundQty: Number.isFinite(cochinInboundQty) ? cochinInboundQty : null,
+          sourceGoodsReceiptId,
+          inboundAlreadyInZoho,
+        },
       );
       return result;
     } catch (err) {
       if (err?.code === 'failed-precondition') {
         throw new HttpsError('failed-precondition', err.message);
+      }
+      if (err?.code === 'invalid-argument') {
+        throw new HttpsError('invalid-argument', err.message);
       }
       throw new HttpsError('internal', err?.message ?? 'Could not record product audit.');
     }
@@ -3161,10 +3180,11 @@ export const markGoodsReceiptReceivedFn = onCall(
   },
   async request => {
     const uid = request.auth?.uid;
-    await requireActiveUser(uid, SYNC_ROLES);
+    const role = await requireActiveUser(uid, SYNC_ROLES);
     const userSnap = await getFirestore().doc(`users/${uid}`).get();
     const userData = userSnap.data() ?? {};
     const goodsReceiptId = String(request.data?.goodsReceiptId ?? '').trim();
+    const receivedAt = String(request.data?.receivedAt ?? '').trim() || null;
     if (!goodsReceiptId) {
       throw new HttpsError('invalid-argument', 'goodsReceiptId is required.');
     }
@@ -3178,6 +3198,8 @@ export const markGoodsReceiptReceivedFn = onCall(
           markedByName: String(
             userData.displayName ?? userData.loginId ?? userData.email ?? 'YESWEIGH',
           ).trim(),
+          receivedAt,
+          allowBackdate: role === 'super_admin',
         },
       );
     } catch (err) {

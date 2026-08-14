@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { useOutletContext } from 'react-router-dom';
 import { AlertCircle, Check, ChevronDown, Eye, EyeOff, Package, PackageCheck, Plus, X } from 'lucide-react';
+import { GoodsReceiptReceivedDialog } from '../../components/admin/GoodsReceiptReceivedDialog';
 import { DocumentLineItemSpec } from '../../components/invoices/DocumentLineItemSpec';
 import { ProductNcSelect } from '../../components/catalog/ProductNcSelect';
 import { ProductPackageInfo } from '../../components/catalog/ProductPackageInfo';
@@ -8,6 +9,7 @@ import { PackageInfoIcon } from '../../components/catalog/PackageInfoIcon';
 import { useAuth } from '../../context/AuthContext';
 import { isFreightProductId, isFreightSku } from '../../constants/freightLines';
 import {
+  isReceivedBillStatus,
   markGoodsReceiptReceived,
   receiveLineLocations,
   saveGoodsReceiptReceiveCheck,
@@ -124,6 +126,7 @@ export const AdminGoodsReceiptDocumentPage: React.FC = () => {
   const [saveOk, setSaveOk] = useState('');
   const [hidingLineId, setHidingLineId] = useState<string | null>(null);
   const [busy, setBusy] = useState<'draft' | 'post' | null>(null);
+  const [receiveDialogOpen, setReceiveDialogOpen] = useState(false);
 
   const [zones, setZones] = useState<WarehouseZoneDoc[]>([]);
   const [rowsByZone, setRowsByZone] = useState<Record<string, WarehouseZoneRowDoc[]>>({});
@@ -132,6 +135,7 @@ export const AdminGoodsReceiptDocumentPage: React.FC = () => {
   const [expandedPackageIds, setExpandedPackageIds] = useState<Set<string>>(() => new Set());
 
   const canHideItems = isFullSuperAdmin(user);
+  const canBackdateReceived = isFullSuperAdmin(user);
   const canMarkReceived = Boolean(user) && !isViewOnlySuperAdmin(user);
   const saving = Boolean(busy);
 
@@ -411,7 +415,9 @@ export const AdminGoodsReceiptDocumentPage: React.FC = () => {
     return lines;
   };
 
-  const persistReceiveCheck = async (mode: 'draft' | 'post') => {
+  const alreadyReceived = Boolean(goodsReceipt.opsReceivedAt);
+
+  const persistReceiveCheck = async (mode: 'draft' | 'post', auditedAt?: string | null) => {
     if (!user?.uid) {
       setSaveError('You must be signed in to save.');
       return null;
@@ -425,6 +431,8 @@ export const AdminGoodsReceiptDocumentPage: React.FC = () => {
         lineItems: goodsReceipt.lineItems,
         previous: goodsReceipt.receiveCheck,
         mode,
+        auditedAt: mode === 'post' ? (auditedAt ?? null) : null,
+        zohoAlreadyIncludesInbound: alreadyReceived || isReceivedBillStatus(goodsReceipt.status),
       },
       {
         uid: user.uid,
@@ -432,8 +440,6 @@ export const AdminGoodsReceiptDocumentPage: React.FC = () => {
       },
     );
   };
-
-  const alreadyReceived = Boolean(goodsReceipt.opsReceivedAt);
 
   const handleSaveDraft = async () => {
     setBusy('draft');
@@ -451,7 +457,7 @@ export const AdminGoodsReceiptDocumentPage: React.FC = () => {
     }
   };
 
-  const handleGoodsReceived = async () => {
+  const openGoodsReceivedDialog = () => {
     if (!user || !canMarkReceived) return;
 
     if (!packageDataReady) {
@@ -467,11 +473,20 @@ export const AdminGoodsReceiptDocumentPage: React.FC = () => {
       return;
     }
 
+    if (!collectReceiveLines()) return;
+    setSaveError('');
+    setSaveOk('');
+    setReceiveDialogOpen(true);
+  };
+
+  const handleGoodsReceived = async (receivedAtIso: string) => {
+    if (!user || !canMarkReceived) return;
+
     setBusy('post');
     setSaveError('');
     setSaveOk('');
     try {
-      const receiveCheck = await persistReceiveCheck('post');
+      const receiveCheck = await persistReceiveCheck('post', receivedAtIso);
       if (!receiveCheck) return;
       let nextStatus = goodsReceipt.status;
       let nextReceivedDate = goodsReceipt.receivedDate;
@@ -479,7 +494,7 @@ export const AdminGoodsReceiptDocumentPage: React.FC = () => {
       let nextOpsReceivedByUid = goodsReceipt.opsReceivedByUid;
       let nextOpsReceivedByName = goodsReceipt.opsReceivedByName;
       if (!alreadyReceived) {
-        const result = await markGoodsReceiptReceived(goodsReceiptId);
+        const result = await markGoodsReceiptReceived(goodsReceiptId, receivedAtIso);
         nextStatus = result.status;
         nextReceivedDate = result.receivedDate;
         nextOpsReceivedAt = result.opsReceivedAt;
@@ -495,6 +510,7 @@ export const AdminGoodsReceiptDocumentPage: React.FC = () => {
         opsReceivedByUid: nextOpsReceivedByUid,
         opsReceivedByName: nextOpsReceivedByName,
       } : prev));
+      setReceiveDialogOpen(false);
       setSaveOk('Goods received');
     } catch (err) {
       setSaveError(invoiceErrorMessage(err));
@@ -627,7 +643,6 @@ export const AdminGoodsReceiptDocumentPage: React.FC = () => {
                   <DocumentLineItemSpec
                     name={item.name}
                     sku={item.sku}
-                    description={item.description}
                   >
                     <div className="goods-receipt-receive__summary">
                       <label className="goods-receipt-receive__field">
@@ -868,14 +883,14 @@ export const AdminGoodsReceiptDocumentPage: React.FC = () => {
                         ? missingPackageLines[0].name
                         : `${missingPackageLines.length} products`
                     }`
-                  : 'Posts warehouse stock and a product audit, then opens this draft bill in Zoho'
+                    : 'Posts warehouse stock and a product audit, then opens this draft bill in Zoho'
               }
             >
               <button
                 type="button"
                 className="btn btn-primary"
                 disabled={saving || !packageDataReady || (alreadyReceived && !dirty && !unposted)}
-                onClick={() => void handleGoodsReceived()}
+                onClick={openGoodsReceivedDialog}
               >
                 <PackageCheck size={16} aria-hidden />
                 {busy === 'post' ? 'Updating…' : 'Goods received'}
@@ -884,6 +899,19 @@ export const AdminGoodsReceiptDocumentPage: React.FC = () => {
           </div>
         </div>
       )}
+
+      <GoodsReceiptReceivedDialog
+        open={receiveDialogOpen}
+        billNumber={goodsReceipt.billNumber}
+        canBackdate={canBackdateReceived}
+        saving={busy === 'post'}
+        error={receiveDialogOpen ? saveError : ''}
+        onClose={() => {
+          if (busy === 'post') return;
+          setReceiveDialogOpen(false);
+        }}
+        onConfirm={iso => void handleGoodsReceived(iso)}
+      />
     </div>
   );
 };

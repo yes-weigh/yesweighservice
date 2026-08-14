@@ -27,6 +27,8 @@ export interface CatalogProductAuditLog {
   trigger: CatalogProductAuditTrigger;
   /** Open audit cycle when this physical count was recorded. */
   auditCycleId?: string | null;
+  /** Goods receipt bill that created this Cochin receive log. */
+  sourceGoodsReceiptId?: string | null;
 }
 
 export interface CatalogProductAuditSnapshot {

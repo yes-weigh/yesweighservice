@@ -1154,6 +1154,8 @@ export async function markGoodsReceiptReceived(secrets, orgId, {
   goodsReceiptId,
   markedByUid,
   markedByName,
+  receivedAt: receivedAtInput,
+  allowBackdate,
 }) {
   const id = String(goodsReceiptId ?? '').trim();
   if (!id) throw new Error('goodsReceiptId is required.');
@@ -1182,7 +1184,17 @@ export async function markGoodsReceiptReceived(secrets, orgId, {
     await approveBillInZoho(accessToken, organizationId, id);
   }
 
-  const receivedAt = new Date();
+  let receivedAt = new Date();
+  if (allowBackdate && receivedAtInput) {
+    const parsed = new Date(receivedAtInput);
+    if (Number.isNaN(parsed.getTime())) {
+      throw new Error('Invalid received datetime.');
+    }
+    if (parsed.getTime() > Date.now() + 60_000) {
+      throw new Error('Received datetime cannot be in the future.');
+    }
+    receivedAt = parsed;
+  }
   const opsReceivedAt = receivedAt.toISOString();
   const receivedDate = toIstDateKey(receivedAt);
 

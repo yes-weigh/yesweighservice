@@ -75,7 +75,23 @@ function mapLatestLog(doc) {
     zohoQtyAtAudit: Number(data.zohoQtyAtAudit ?? 0),
     headOfficeQty: Number(data.headOfficeQty ?? 0),
     cochinQty: Number(data.cochinQty ?? 0),
+    trigger: data.trigger ?? null,
+    sourceGoodsReceiptId: data.sourceGoodsReceiptId != null
+      ? String(data.sourceGoodsReceiptId)
+      : null,
+    mode: data.mode === 'bundle' ? 'bundle' : 'unit',
   };
+}
+
+function readFiniteQty(value, fallback = 0) {
+  const n = Number(value);
+  if (!Number.isFinite(n)) return fallback;
+  return Math.trunc(n);
+}
+
+function clampInboundQty(value) {
+  const n = readFiniteQty(value, 0);
+  return Math.max(-1_000_000, Math.min(1_000_000, n));
 }
 
 const DEFAULT_WAREHOUSE_COUNTED_BY_NAME = 'Diya';
@@ -119,6 +135,102 @@ function resolveLegacyAuditor(items, cochinData) {
 }
 
 const PHYSICAL_TRIGGERS = new Set(['warehouse_count', 'cochin_inventory', 'manual', 'legacy_backfill']);
+const BACKDATE_FUTURE_SLACK_MS = 60_000;
+const BACKDATE_MAX_AGE_MS = 5 * 365 * 24 * 60 * 60 * 1000;
+
+function invalidArgument(message) {
+  const err = new Error(message);
+  err.code = 'invalid-argument';
+  return err;
+}
+
+function resolveAuditedAt(requested, allowBackdate) {
+  const now = new Date();
+  if (!allowBackdate || !requested) return now.toISOString();
+  const parsed = new Date(requested);
+  if (Number.isNaN(parsed.getTime())) {
+    throw invalidArgument('Invalid received datetime.');
+  }
+  if (parsed.getTime() > now.getTime() + BACKDATE_FUTURE_SLACK_MS) {
+    throw invalidArgument('Received datetime cannot be in the future.');
+  }
+  if (parsed.getTime() < now.getTime() - BACKDATE_MAX_AGE_MS) {
+    throw invalidArgument('Received datetime is too far in the past.');
+  }
+  return parsed.toISOString();
+}
+
+function buildAuditSnapshot(prior, entry) {
+  const {
+    logId,
+    auditedAt,
+    auditedByUid,
+    auditedByName,
+    mode,
+    headOfficeQty,
+    cochinQty,
+    physicalQty,
+    zohoQtyAtAudit,
+    baselineDifference,
+    trigger,
+    auditCycleId,
+  } = entry;
+  const isPhysical = PHYSICAL_TRIGGERS.has(trigger);
+  const prev = prior && typeof prior === 'object' ? prior : {};
+  const nextHeadOfficeCycleId = isPhysical
+    ? (
+      trigger === 'warehouse_count'
+        ? (auditCycleId ?? prev.lastHeadOfficeAuditCycleId ?? null)
+        : (trigger === 'manual' || trigger === 'legacy_backfill') && Number(headOfficeQty) > 0
+          ? (auditCycleId ?? prev.lastHeadOfficeAuditCycleId ?? null)
+          : (prev.lastHeadOfficeAuditCycleId ?? null)
+    )
+    : (prev.lastHeadOfficeAuditCycleId ?? null);
+  const nextCochinCycleId = isPhysical
+    ? (
+      trigger === 'cochin_inventory'
+        ? (auditCycleId ?? prev.lastCochinAuditCycleId ?? null)
+        : (trigger === 'manual' || trigger === 'legacy_backfill') && Number(cochinQty) > 0
+          ? (auditCycleId ?? prev.lastCochinAuditCycleId ?? null)
+          : (prev.lastCochinAuditCycleId ?? null)
+    )
+    : (prev.lastCochinAuditCycleId ?? null);
+
+  return {
+    lastAuditLogId: logId,
+    lastAuditedAt: isPhysical ? auditedAt : (prev.lastAuditedAt ?? auditedAt),
+    lastAuditedByUid: isPhysical ? (auditedByUid ?? null) : (prev.lastAuditedByUid ?? null),
+    lastAuditedByName: isPhysical ? (auditedByName ?? null) : (prev.lastAuditedByName ?? null),
+    baselineDifference,
+    // Physical counts rewrite audited qty. Zoho sync moves audited with Zoho to keep Diff locked.
+    physicalQtyAtAudit: (isPhysical || trigger === 'zoho_sync')
+      ? physicalQty
+      : Number(prev.physicalQtyAtAudit ?? physicalQty),
+    zohoQtyAtAudit,
+    mode,
+    // Site breakdown stays at last physical count (not shifted by Zoho sync).
+    headOfficeQtyAtAudit: isPhysical
+      ? headOfficeQty
+      : Number(prev.headOfficeQtyAtAudit ?? headOfficeQty),
+    cochinQtyAtAudit: isPhysical
+      ? cochinQty
+      : Number(prev.cochinQtyAtAudit ?? cochinQty),
+    lastPhysicalAuditedAt: isPhysical
+      ? auditedAt
+      : (prev.lastPhysicalAuditedAt ?? prev.lastAuditedAt ?? null),
+    lastPhysicalAuditedByUid: isPhysical
+      ? (auditedByUid ?? null)
+      : (prev.lastPhysicalAuditedByUid ?? prev.lastAuditedByUid ?? null),
+    lastPhysicalAuditedByName: isPhysical
+      ? (auditedByName ?? null)
+      : (prev.lastPhysicalAuditedByName ?? prev.lastAuditedByName ?? null),
+    lastAuditCycleId: isPhysical
+      ? (auditCycleId ?? prev.lastAuditCycleId ?? null)
+      : (prev.lastAuditCycleId ?? null),
+    lastHeadOfficeAuditCycleId: nextHeadOfficeCycleId,
+    lastCochinAuditCycleId: nextCochinCycleId,
+  };
+}
 
 async function writeCatalogProductAuditEntry(productRef, entry) {
   const {
@@ -136,13 +248,14 @@ async function writeCatalogProductAuditEntry(productRef, entry) {
     logId,
     auditCycleId,
     existingSnapshot,
+    skipSnapshot,
+    sourceGoodsReceiptId,
   } = entry;
 
   const logRef = logId
     ? productRef.collection('auditLogs').doc(logId)
     : productRef.collection('auditLogs').doc();
 
-  const isPhysical = PHYSICAL_TRIGGERS.has(trigger);
   const log = {
     id: logRef.id,
     catalogProductId: productRef.id,
@@ -159,66 +272,131 @@ async function writeCatalogProductAuditEntry(productRef, entry) {
     trigger,
     auditCycleId: auditCycleId ?? null,
   };
+  if (sourceGoodsReceiptId) {
+    log.sourceGoodsReceiptId = String(sourceGoodsReceiptId);
+  }
 
-  const prior = existingSnapshot && typeof existingSnapshot === 'object' ? existingSnapshot : {};
-  const nextHeadOfficeCycleId = isPhysical
-    ? (
-      trigger === 'warehouse_count'
-        ? (auditCycleId ?? prior.lastHeadOfficeAuditCycleId ?? null)
-        : (trigger === 'manual' || trigger === 'legacy_backfill') && Number(headOfficeQty) > 0
-          ? (auditCycleId ?? prior.lastHeadOfficeAuditCycleId ?? null)
-          : (prior.lastHeadOfficeAuditCycleId ?? null)
-    )
-    : (prior.lastHeadOfficeAuditCycleId ?? null);
-  const nextCochinCycleId = isPhysical
-    ? (
-      trigger === 'cochin_inventory'
-        ? (auditCycleId ?? prior.lastCochinAuditCycleId ?? null)
-        : (trigger === 'manual' || trigger === 'legacy_backfill') && Number(cochinQty) > 0
-          ? (auditCycleId ?? prior.lastCochinAuditCycleId ?? null)
-          : (prior.lastCochinAuditCycleId ?? null)
-    )
-    : (prior.lastCochinAuditCycleId ?? null);
-
-  const snapshot = {
-    lastAuditLogId: logRef.id,
-    lastAuditedAt: isPhysical ? auditedAt : (prior.lastAuditedAt ?? auditedAt),
-    lastAuditedByUid: isPhysical ? (auditedByUid ?? null) : (prior.lastAuditedByUid ?? null),
-    lastAuditedByName: isPhysical ? (auditedByName ?? null) : (prior.lastAuditedByName ?? null),
-    baselineDifference,
-    // Physical counts rewrite audited qty. Zoho sync moves audited with Zoho to keep Diff locked.
-    physicalQtyAtAudit: (isPhysical || trigger === 'zoho_sync')
-      ? physicalQty
-      : Number(prior.physicalQtyAtAudit ?? physicalQty),
-    zohoQtyAtAudit,
+  const snapshot = buildAuditSnapshot(existingSnapshot, {
+    logId: logRef.id,
+    auditedAt,
+    auditedByUid,
+    auditedByName,
     mode,
-    // Site breakdown stays at last physical count (not shifted by Zoho sync).
-    headOfficeQtyAtAudit: isPhysical
-      ? headOfficeQty
-      : Number(prior.headOfficeQtyAtAudit ?? headOfficeQty),
-    cochinQtyAtAudit: isPhysical
-      ? cochinQty
-      : Number(prior.cochinQtyAtAudit ?? cochinQty),
-    lastPhysicalAuditedAt: isPhysical
-      ? auditedAt
-      : (prior.lastPhysicalAuditedAt ?? prior.lastAuditedAt ?? null),
-    lastPhysicalAuditedByUid: isPhysical
-      ? (auditedByUid ?? null)
-      : (prior.lastPhysicalAuditedByUid ?? prior.lastAuditedByUid ?? null),
-    lastPhysicalAuditedByName: isPhysical
-      ? (auditedByName ?? null)
-      : (prior.lastPhysicalAuditedByName ?? prior.lastAuditedByName ?? null),
-    lastAuditCycleId: isPhysical
-      ? (auditCycleId ?? prior.lastAuditCycleId ?? null)
-      : (prior.lastAuditCycleId ?? null),
-    lastHeadOfficeAuditCycleId: nextHeadOfficeCycleId,
-    lastCochinAuditCycleId: nextCochinCycleId,
-  };
+    headOfficeQty,
+    cochinQty,
+    physicalQty,
+    zohoQtyAtAudit,
+    baselineDifference,
+    trigger,
+    auditCycleId,
+  });
 
   await logRef.set(log);
-  await productRef.set({ auditSnapshot: snapshot }, { merge: true });
+  if (!skipSnapshot) {
+    await productRef.set({ auditSnapshot: snapshot }, { merge: true });
+  }
 
   return { log, snapshot };
+}
+
+async function resolveLastLogAtOrBefore(productRef, auditedAtIso, excludeSourceGoodsReceiptId) {
+  const snap = await productRef.collection('auditLogs')
+    .where('auditedAt', '<=', auditedAtIso)
+    .orderBy('auditedAt', 'desc')
+    .limit(20)
+    .get();
+  const exclude = excludeSourceGoodsReceiptId ? String(excludeSourceGoodsReceiptId) : '';
+  for (const doc of snap.docs) {
+    const mapped = mapLatestLog(doc);
+    if (!mapped) continue;
+    if (exclude && mapped.sourceGoodsReceiptId === exclude) continue;
+    return mapped;
+  }
+  return null;
+}
+
+async function findLogsForGoodsReceipt(productRef, goodsReceiptId) {
+  const id = String(goodsReceiptId ?? '').trim();
+  if (!id) return [];
+  const snap = await productRef.collection('auditLogs')
+    .where('sourceGoodsReceiptId', '==', id)
+    .get();
+  return snap.docs;
+}
+
+async function rewriteLaterZohoSyncLogs(productRef, {
+  afterIso,
+  baselineDifference,
+  cochinQty,
+  headOfficeQty,
+  mode,
+  skipSourceGoodsReceiptId,
+}) {
+  const snap = await productRef.collection('auditLogs')
+    .orderBy('auditedAt', 'asc')
+    .get();
+  const skipSource = skipSourceGoodsReceiptId ? String(skipSourceGoodsReceiptId) : '';
+  const updates = [];
+  for (const doc of snap.docs) {
+    const data = doc.data() ?? {};
+    const at = String(data.auditedAt ?? '');
+    if (!at || at <= afterIso) continue;
+    const sourceId = data.sourceGoodsReceiptId != null ? String(data.sourceGoodsReceiptId) : '';
+    if (skipSource && sourceId === skipSource) continue;
+    if (PHYSICAL_TRIGGERS.has(data.trigger)) break;
+    if (data.trigger !== 'zoho_sync') continue;
+    const zoho = Number(data.zohoQtyAtAudit ?? 0);
+    updates.push({
+      ref: doc.ref,
+      payload: {
+        baselineDifference,
+        cochinQty,
+        headOfficeQty,
+        mode,
+        physicalQty: (Number.isFinite(zoho) ? zoho : 0) + baselineDifference,
+      },
+    });
+  }
+
+  const db = getFirestore();
+  for (let i = 0; i < updates.length; i += 400) {
+    const batch = db.batch();
+    for (const row of updates.slice(i, i + 400)) {
+      batch.update(row.ref, row.payload);
+    }
+    await batch.commit();
+  }
+  return updates.length;
+}
+
+async function rebuildProductAuditSnapshot(productRef) {
+  const snap = await productRef.collection('auditLogs')
+    .orderBy('auditedAt', 'asc')
+    .get();
+  if (snap.empty) return null;
+
+  let prior = null;
+  let snapshot = null;
+  for (const doc of snap.docs) {
+    const data = doc.data() ?? {};
+    snapshot = buildAuditSnapshot(prior, {
+      logId: doc.id,
+      auditedAt: data.auditedAt,
+      auditedByUid: data.auditedByUid ?? null,
+      auditedByName: data.auditedByName ?? null,
+      mode: data.mode === 'bundle' ? 'bundle' : 'unit',
+      headOfficeQty: Number(data.headOfficeQty ?? 0),
+      cochinQty: Number(data.cochinQty ?? 0),
+      physicalQty: Number(data.physicalQty ?? 0),
+      zohoQtyAtAudit: Number(data.zohoQtyAtAudit ?? 0),
+      baselineDifference: Number(data.baselineDifference ?? 0),
+      trigger: data.trigger,
+      auditCycleId: data.auditCycleId ?? null,
+    });
+    prior = snapshot;
+  }
+  await productRef.set({ auditSnapshot: snapshot }, { merge: true });
+  return snapshot;
 }
 
 /**
@@ -444,7 +622,7 @@ export async function recordCatalogProductAudit(
   const accessToken = await getAccessToken(secrets);
   const organizationId = await resolveOrganizationId(accessToken, configuredOrgId);
   const zohoDetail = await fetchProductDetail(accessToken, organizationId, id);
-  const zohoQtyAtAudit = Number(zohoDetail.stock ?? 0);
+  const liveZohoQty = Number(zohoDetail.stock ?? 0);
 
   const [items, cochinData] = await Promise.all([
     listYesStoreItemsByCatalogProduct(id),
@@ -452,10 +630,13 @@ export async function recordCatalogProductAudit(
   ]);
 
   const headOffice = computeHeadOfficeTotals(items);
-  const cochinQty = readCochinQuantity(cochinData);
-  const physicalQty = headOffice.countedQty + cochinQty;
-  const baselineDifference = physicalQty - zohoQtyAtAudit;
-  const now = new Date().toISOString();
+  const liveCochinQty = readCochinQuantity(cochinData);
+  const incomingZohoQty = clampInboundQty(options.incomingZohoQty);
+  const cochinInboundQty = options.cochinInboundQty == null
+    ? null
+    : clampInboundQty(options.cochinInboundQty);
+  const sourceGoodsReceiptId = String(options.sourceGoodsReceiptId ?? '').trim() || null;
+  const auditedAt = resolveAuditedAt(options.auditedAt, options.allowBackdate === true);
 
   const db = getFirestore();
   const productRef = db.collection(PRODUCTS_COLLECTION).doc(id);
@@ -493,6 +674,52 @@ export async function recordCatalogProductAudit(
     ? (productSnap.data()?.auditSnapshot ?? null)
     : null;
 
+  const existingSourceDocs = sourceGoodsReceiptId
+    ? await findLogsForGoodsReceipt(productRef, sourceGoodsReceiptId)
+    : [];
+  existingSourceDocs.sort((a, b) => (
+    String(b.data()?.auditedAt ?? '').localeCompare(String(a.data()?.auditedAt ?? ''))
+  ));
+  const reuseLogId = existingSourceDocs[0]?.id ?? null;
+  const extraSourceDocs = existingSourceDocs.slice(1);
+
+  const laterSnap = await productRef.collection('auditLogs')
+    .where('auditedAt', '>', auditedAt)
+    .orderBy('auditedAt', 'asc')
+    .limit(25)
+    .get();
+  const hasLaterLogs = laterSnap.docs.some((doc) => {
+    const sourceId = doc.data()?.sourceGoodsReceiptId != null
+      ? String(doc.data().sourceGoodsReceiptId)
+      : '';
+    return !sourceGoodsReceiptId || sourceId !== sourceGoodsReceiptId;
+  });
+
+  const priorAtT = hasLaterLogs || cochinInboundQty != null
+    ? await resolveLastLogAtOrBefore(productRef, auditedAt, sourceGoodsReceiptId)
+    : null;
+
+  const useHistoricalSites = Boolean(hasLaterLogs && priorAtT && cochinInboundQty != null);
+  const headOfficeQty = useHistoricalSites
+    ? priorAtT.headOfficeQty
+    : headOffice.countedQty;
+  const cochinQty = useHistoricalSites
+    ? Math.max(0, priorAtT.cochinQty + cochinInboundQty)
+    : liveCochinQty;
+  const physicalQty = headOfficeQty + cochinQty;
+  const zohoBase = (hasLaterLogs && priorAtT)
+    ? priorAtT.zohoQtyAtAudit
+    : liveZohoQty;
+  const addInboundToZoho = (hasLaterLogs && priorAtT)
+    ? incomingZohoQty
+    : (options.inboundAlreadyInZoho ? 0 : incomingZohoQty);
+  const zohoQtyAtAudit = zohoBase + addInboundToZoho;
+  const baselineDifference = physicalQty - zohoQtyAtAudit;
+  const mode = useHistoricalSites ? priorAtT.mode : headOffice.mode;
+  const rawPhysicalQty = useHistoricalSites
+    ? null
+    : (headOffice.mode === 'bundle' ? headOffice.rawCountedQty : null);
+
   const latestSnap = await productRef.collection('auditLogs')
     .orderBy('auditedAt', 'desc')
     .limit(1)
@@ -501,11 +728,17 @@ export async function recordCatalogProductAudit(
   const latestCycleId = latestSnap.docs[0]
     ? (latestSnap.docs[0].data()?.auditCycleId ?? null)
     : null;
+  const latestIsThisReceipt = Boolean(
+    sourceGoodsReceiptId
+    && latest?.sourceGoodsReceiptId === sourceGoodsReceiptId,
+  );
   if (
-    latest
+    !hasLaterLogs
+    && !latestIsThisReceipt
+    && latest
     && latest.physicalQty === physicalQty
     && latest.zohoQtyAtAudit === zohoQtyAtAudit
-    && latest.headOfficeQty === headOffice.countedQty
+    && latest.headOfficeQty === headOfficeQty
     && latest.cochinQty === cochinQty
     && (latestCycleId ?? null) === (resolvedCycleId ?? null)
   ) {
@@ -517,23 +750,44 @@ export async function recordCatalogProductAudit(
     };
   }
 
-  const logRef = productRef.collection('auditLogs').doc();
+  const logRef = reuseLogId
+    ? productRef.collection('auditLogs').doc(reuseLogId)
+    : productRef.collection('auditLogs').doc();
   const result = await writeCatalogProductAuditEntry(productRef, {
-    auditedAt: now,
+    auditedAt,
     auditedByUid: editor.uid ?? null,
     auditedByName: editor.displayName ?? null,
-    mode: headOffice.mode,
-    headOfficeQty: headOffice.countedQty,
+    mode,
+    headOfficeQty,
     cochinQty,
     physicalQty,
-    rawPhysicalQty: headOffice.mode === 'bundle' ? headOffice.rawCountedQty : null,
+    rawPhysicalQty,
     zohoQtyAtAudit,
     baselineDifference,
     trigger,
     logId: logRef.id,
     auditCycleId: resolvedCycleId,
     existingSnapshot,
+    skipSnapshot: hasLaterLogs,
+    sourceGoodsReceiptId,
   });
+
+  for (const extra of extraSourceDocs) {
+    await extra.ref.delete().catch(() => {});
+  }
+
+  if (hasLaterLogs) {
+    await rewriteLaterZohoSyncLogs(productRef, {
+      afterIso: auditedAt,
+      baselineDifference,
+      cochinQty,
+      headOfficeQty,
+      mode,
+      skipSourceGoodsReceiptId: sourceGoodsReceiptId,
+    });
+    const snapshot = await rebuildProductAuditSnapshot(productRef);
+    return { skipped: false, log: result.log, snapshot: snapshot ?? result.snapshot };
+  }
 
   return { skipped: false, log: result.log, snapshot: result.snapshot };
 }

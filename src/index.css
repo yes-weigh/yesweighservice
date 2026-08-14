@@ -33125,6 +33125,20 @@ button.invoice-detail-top__card {
 
 .goods-receipt-detail__actions-status {
   margin: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+}
+
+.goods-receipt-received-dialog__body {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  padding: 0 0 0.5rem;
+}
+
+.goods-receipt-received-dialog .dealers-modal__field input[type='datetime-local'] {
+  color-scheme: dark;
 }
 
 .goods-receipt-detail {
@@ -33419,6 +33433,15 @@ button.invoice-detail-top__card {
 .goods-receipt-receive__item .invoice-detail-item__body {
   display: block;
   flex: none;
+}
+
+.goods-receipt-receive__item .invoice-detail-item__name,
+.goods-receipt-receive__item .invoice-detail-item__sku {
+  display: block;
+}
+
+.goods-receipt-receive__item .invoice-detail-item__name {
+  padding-right: 2.4rem;
 }
 
 .goods-receipt-receive__item .goods-receipt-receive__package,

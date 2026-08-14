@@ -21,9 +21,9 @@ import { db, app } from '../firebase';
 import { getOpenAuditCycle } from './auditCycles/data';
 import { recordCatalogProductAudit } from './catalogProductAudit/data';
 import {
-  getCatalogSiteInventory,
-  saveCatalogSiteInventory,
+  applyCatalogSiteInventoryDeltas,
 } from './catalogSiteInventory/data';
+import { isFreightProductId, isFreightSku } from '../constants/freightLines';
 import { enrichInvoiceDetailImages } from './invoiceLineItemImages';
 import {
   getInvoicePeriodBounds,
@@ -34,12 +34,6 @@ import {
   sumInvoiceProductQuantity,
   firstDateTimeValue,
 } from './invoices';
-import type {
-  CatalogSiteInventoryLocationRow,
-} from '../types/catalog-site-inventory';
-import {
-  getCatalogSiteInventoryLocations,
-} from '../types/catalog-site-inventory';
 import type {
   DealerInvoiceLineItem,
   InvoiceCategory,
@@ -252,7 +246,7 @@ function receiveCheckHasQty(raw: unknown): boolean {
   return false;
 }
 
-function isReceivedBillStatus(status: string | null | undefined): boolean {
+export function isReceivedBillStatus(status: string | null | undefined): boolean {
   const key = String(status ?? '').trim().toLowerCase().replace(/\s+/g, '_');
   return key === 'open' || key === 'paid' || key === 'partially_paid' || key === 'overdue';
 }
@@ -898,26 +892,37 @@ function receivePlacementsEqual(
   return tally.size === 0;
 }
 
-function applyLocationDelta(
-  locations: CatalogSiteInventoryLocationRow[],
-  zoneId: string,
-  zoneRowNumber: number,
-  deltaQty: number,
-): CatalogSiteInventoryLocationRow[] {
-  if (!deltaQty) return locations;
-  const zone = zoneId.trim().toLowerCase();
-  const row = Math.max(1, Math.floor(zoneRowNumber));
-  const next = locations.map(loc => ({ ...loc }));
-  const idx = next.findIndex(loc => loc.zoneId === zone && loc.zoneRowNumber === row);
-  if (idx >= 0) {
-    next[idx] = {
-      ...next[idx],
-      quantity: Math.max(0, next[idx].quantity + deltaQty),
-    };
-  } else if (deltaQty > 0) {
-    next.push({ zoneId: zone, zoneRowNumber: row, quantity: Math.floor(deltaQty) });
+function lineQty(line: DealerInvoiceLineItem): number {
+  const n = Number(line.quantity);
+  return Number.isFinite(n) && n > 0 ? Math.floor(n) : 0;
+}
+
+function isFreightGoodsReceiptLine(line: DealerInvoiceLineItem): boolean {
+  return isFreightProductId(line.itemId) || isFreightSku(line.sku);
+}
+
+function zohoInboundQtyForProduct(
+  lineItems: DealerInvoiceLineItem[],
+  catalogProductId: string,
+): number {
+  return lineItems.reduce((sum, line) => {
+    if (isFreightGoodsReceiptLine(line)) return sum;
+    if ((line.itemId?.trim() || null) !== catalogProductId) return sum;
+    return sum + lineQty(line);
+  }, 0);
+}
+
+function placedQtyForProduct(
+  lines: Record<string, GoodsReceiptReceiveLine>,
+  itemIdByLineId: Map<string, string | null>,
+  catalogProductId: string,
+): number {
+  let total = 0;
+  for (const [lineId, line] of Object.entries(lines)) {
+    if (itemIdByLineId.get(lineId) !== catalogProductId) continue;
+    total += receiveLineLocations(line).reduce((sum, loc) => sum + loc.quantity, 0);
   }
-  return next.filter(loc => loc.quantity > 0);
+  return total;
 }
 
 function toClientReceiveCheck(
@@ -953,6 +958,8 @@ export async function saveGoodsReceiptReceiveCheck(
     lineItems: DealerInvoiceLineItem[];
     previous: GoodsReceiptReceiveCheck | null;
     mode: 'draft' | 'post';
+    auditedAt?: string | null;
+    zohoAlreadyIncludesInbound?: boolean;
   },
   actor: { uid: string; displayName?: string | null },
 ): Promise<GoodsReceiptReceiveCheck> {
@@ -973,7 +980,7 @@ export async function saveGoodsReceiptReceiveCheck(
 
   const nextPostedLines = input.mode === 'post' ? { ...lines } : postedLines;
   const postedAtIso = input.mode === 'post'
-    ? new Date().toISOString()
+    ? (input.auditedAt?.trim() || new Date().toISOString())
     : (input.previous?.postedAt ?? null);
   const postedByUid = input.mode === 'post'
     ? actor.uid
@@ -1000,7 +1007,11 @@ export async function saveGoodsReceiptReceiveCheck(
     )
   ));
 
-  const deltasByProduct = new Map<string, CatalogSiteInventoryLocationRow[]>();
+  const deltasByProduct = new Map<string, Array<{
+    zoneId: string;
+    zoneRowNumber: number;
+    quantityDelta: number;
+  }>>();
   let openCycleId: string | null = null;
 
   if (input.mode === 'post' && changedLineIds.length > 0) {
@@ -1028,13 +1039,12 @@ export async function saveGoodsReceiptReceiveCheck(
       }
     }
 
-    const ensureProductLocations = async (catalogProductId: string) => {
-      let locs = deltasByProduct.get(catalogProductId);
-      if (locs) return locs;
-      const existing = await getCatalogSiteInventory(catalogProductId, 'cochin');
-      locs = getCatalogSiteInventoryLocations(existing).map(row => ({ ...row }));
-      deltasByProduct.set(catalogProductId, locs);
-      return locs;
+    const ensureProductDeltas = (catalogProductId: string) => {
+      let deltas = deltasByProduct.get(catalogProductId);
+      if (deltas) return deltas;
+      deltas = [];
+      deltasByProduct.set(catalogProductId, deltas);
+      return deltas;
     };
 
     for (const lineId of changedLineIds) {
@@ -1042,15 +1052,21 @@ export async function saveGoodsReceiptReceiveCheck(
       if (!catalogProductId) continue;
       const prevLocs = receiveLineLocations(postedLines[lineId]);
       const nextLocs = receiveLineLocations(lines[lineId]);
-      let working = await ensureProductLocations(catalogProductId);
-
+      const deltas = ensureProductDeltas(catalogProductId);
       for (const loc of prevLocs) {
-        working = applyLocationDelta(working, loc.zoneId, loc.zoneRowNumber, -loc.quantity);
+        deltas.push({
+          zoneId: loc.zoneId,
+          zoneRowNumber: loc.zoneRowNumber,
+          quantityDelta: -loc.quantity,
+        });
       }
       for (const loc of nextLocs) {
-        working = applyLocationDelta(working, loc.zoneId, loc.zoneRowNumber, loc.quantity);
+        deltas.push({
+          zoneId: loc.zoneId,
+          zoneRowNumber: loc.zoneRowNumber,
+          quantityDelta: loc.quantity,
+        });
       }
-      deltasByProduct.set(catalogProductId, working);
     }
   }
 
@@ -1058,7 +1074,9 @@ export async function saveGoodsReceiptReceiveCheck(
     lines,
     byLineId,
     postedLines: nextPostedLines,
-    postedAt: input.mode === 'post' ? serverTimestamp() : (input.previous?.postedAt ?? null),
+    postedAt: input.mode === 'post'
+      ? (input.auditedAt?.trim() ? new Date(input.auditedAt) : serverTimestamp())
+      : (input.previous?.postedAt ?? null),
     postedByUid,
     postedByName,
     hiddenLineIds,
@@ -1073,20 +1091,50 @@ export async function saveGoodsReceiptReceiveCheck(
     throw new Error(invoiceErrorMessage(err));
   }
 
+  const productsToAudit = new Set<string>(deltasByProduct.keys());
+  if (input.mode === 'post' && input.auditedAt) {
+    for (const [lineId, line] of Object.entries(lines)) {
+      if (!receiveLineHasPlacement(line)) continue;
+      const catalogProductId = itemIdByLineId.get(lineId);
+      if (catalogProductId) productsToAudit.add(catalogProductId);
+    }
+  }
+
+  if (input.mode === 'post' && productsToAudit.size > 0 && !openCycleId) {
+    const openCycle = await getOpenAuditCycle('cochin');
+    if (!openCycle?.id) {
+      throw new Error('No open audit cycle for Cochin. Counting is locked — open a cycle to place stock.');
+    }
+    openCycleId = openCycle.id;
+  }
+
+  const inboundAlreadyInZoho = Boolean(input.zohoAlreadyIncludesInbound);
   const auditedProducts = new Set<string>();
   try {
-    for (const [catalogProductId, locations] of deltasByProduct) {
-      await saveCatalogSiteInventory({
+    for (const [catalogProductId, deltas] of deltasByProduct) {
+      await applyCatalogSiteInventoryDeltas({
         catalogProductId,
         site: 'cochin',
-        locations,
+        deltas,
         updatedByUid: actor.uid,
         updatedByName: actor.displayName,
       });
-      if (openCycleId) {
-        await recordCatalogProductAudit(catalogProductId, 'cochin_inventory', openCycleId);
-        auditedProducts.add(catalogProductId);
-      }
+    }
+    for (const catalogProductId of productsToAudit) {
+      if (!openCycleId) continue;
+      await recordCatalogProductAudit(
+        catalogProductId,
+        'cochin_inventory',
+        openCycleId,
+        {
+          auditedAt: input.auditedAt ?? null,
+          incomingZohoQty: zohoInboundQtyForProduct(input.lineItems, catalogProductId),
+          cochinInboundQty: placedQtyForProduct(lines, itemIdByLineId, catalogProductId),
+          sourceGoodsReceiptId: id,
+          inboundAlreadyInZoho,
+        },
+      );
+      auditedProducts.add(catalogProductId);
     }
   } catch (err) {
     const detail = err instanceof Error ? err.message : 'Unknown error';
@@ -1147,23 +1195,25 @@ export async function setGoodsReceiptLineHidden(
     delete nextPostedLines[targetLineId];
   }
 
-  const deltasByProduct = new Map<string, CatalogSiteInventoryLocationRow[]>();
   let openCycleId: string | null = null;
+  let reverseProductId: string | null = null;
+  const reverseDeltas: Array<{ zoneId: string; zoneRowNumber: number; quantityDelta: number }> = [];
   if (postedLocs.length > 0) {
     const line = options.lineItems.find(l => l.id === targetLineId);
-    const catalogProductId = line?.itemId?.trim() || null;
-    if (catalogProductId) {
+    reverseProductId = line?.itemId?.trim() || null;
+    if (reverseProductId) {
       const openCycle = await getOpenAuditCycle('cochin');
       if (!openCycle?.id) {
         throw new Error('No open audit cycle for Cochin. Counting is locked — open a cycle to update stock.');
       }
       openCycleId = openCycle.id;
-      const existing = await getCatalogSiteInventory(catalogProductId, 'cochin');
-      let working = getCatalogSiteInventoryLocations(existing).map(row => ({ ...row }));
       for (const loc of postedLocs) {
-        working = applyLocationDelta(working, loc.zoneId, loc.zoneRowNumber, -loc.quantity);
+        reverseDeltas.push({
+          zoneId: loc.zoneId,
+          zoneRowNumber: loc.zoneRowNumber,
+          quantityDelta: -loc.quantity,
+        });
       }
-      deltasByProduct.set(catalogProductId, working);
     }
   }
 
@@ -1191,16 +1241,16 @@ export async function setGoodsReceiptLineHidden(
   }
 
   try {
-    for (const [catalogProductId, locations] of deltasByProduct) {
-      await saveCatalogSiteInventory({
-        catalogProductId,
+    if (reverseProductId && reverseDeltas.length > 0) {
+      await applyCatalogSiteInventoryDeltas({
+        catalogProductId: reverseProductId,
         site: 'cochin',
-        locations,
+        deltas: reverseDeltas,
         updatedByUid: actor.uid,
         updatedByName: actor.displayName,
       });
       if (openCycleId) {
-        await recordCatalogProductAudit(catalogProductId, 'cochin_inventory', openCycleId);
+        await recordCatalogProductAudit(reverseProductId, 'cochin_inventory', openCycleId);
       }
     }
   } catch (err) {
@@ -1249,9 +1299,10 @@ export type MarkGoodsReceiptReceivedResult = {
 
 export async function markGoodsReceiptReceived(
   goodsReceiptId: string,
+  receivedAt?: string | null,
 ): Promise<MarkGoodsReceiptReceivedResult> {
   const callable = httpsCallable<
-    { goodsReceiptId: string },
+    { goodsReceiptId: string; receivedAt?: string | null },
     MarkGoodsReceiptReceivedResult
   >(
     functions,
@@ -1259,7 +1310,10 @@ export async function markGoodsReceiptReceived(
     { timeout: 120_000 },
   );
   try {
-    const result = await callable({ goodsReceiptId });
+    const result = await callable({
+      goodsReceiptId,
+      receivedAt: receivedAt ?? null,
+    });
     return result.data;
   } catch (err) {
     throw new Error(invoiceErrorMessage(err));

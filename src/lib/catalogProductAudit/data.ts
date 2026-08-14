@@ -34,6 +34,9 @@ function mapAuditLog(id: string, data: Record<string, unknown>): CatalogProductA
     baselineDifference: Number(data.baselineDifference ?? 0),
     trigger: (data.trigger as CatalogProductAuditTrigger) ?? 'manual',
     auditCycleId: (data.auditCycleId as string | null) ?? null,
+    sourceGoodsReceiptId: data.sourceGoodsReceiptId != null
+      ? String(data.sourceGoodsReceiptId)
+      : null,
   };
 }
 
@@ -75,24 +78,43 @@ export async function fetchCatalogProductAuditLogs(
   return snap.docs.map(docSnap => mapAuditLog(docSnap.id, docSnap.data() as Record<string, unknown>));
 }
 
+export type RecordCatalogProductAuditOptions = {
+  auditedAt?: string | null;
+  incomingZohoQty?: number | null;
+  cochinInboundQty?: number | null;
+  sourceGoodsReceiptId?: string | null;
+  inboundAlreadyInZoho?: boolean;
+};
+
 export async function recordCatalogProductAudit(
   catalogProductId: string,
   trigger: CatalogProductAuditTrigger = 'manual',
   auditCycleId?: string | null,
+  options?: RecordCatalogProductAuditOptions,
 ): Promise<{ log: CatalogProductAuditLog; skipped: boolean }> {
   const callable = httpsCallable<
     {
       catalogProductId: string;
       trigger: CatalogProductAuditTrigger;
       auditCycleId?: string | null;
+      auditedAt?: string | null;
+      incomingZohoQty?: number | null;
+      cochinInboundQty?: number | null;
+      sourceGoodsReceiptId?: string | null;
+      inboundAlreadyInZoho?: boolean;
     },
     { log: CatalogProductAuditLog; skipped: boolean }
-  >(functions, 'recordCatalogProductAudit', { timeout: 60_000 });
+  >(functions, 'recordCatalogProductAudit', { timeout: 90_000 });
 
   const result = await callable({
     catalogProductId,
     trigger,
     auditCycleId: auditCycleId ?? null,
+    auditedAt: options?.auditedAt ?? null,
+    incomingZohoQty: options?.incomingZohoQty ?? 0,
+    cochinInboundQty: options?.cochinInboundQty ?? null,
+    sourceGoodsReceiptId: options?.sourceGoodsReceiptId ?? null,
+    inboundAlreadyInZoho: options?.inboundAlreadyInZoho === true,
   });
   return result.data;
 }
