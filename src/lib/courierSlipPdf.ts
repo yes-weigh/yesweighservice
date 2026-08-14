@@ -2,7 +2,7 @@
  * Fills the ST Courier multi-copy POD form (OG.pdf) with booking details.
  * Coordinates are PDF points relative to the top-left of each slip copy.
  */
-import { PDFDocument, StandardFonts, rgb, type PDFFont, type PDFImage, type PDFPage } from 'pdf-lib';
+import { PDFDocument, StandardFonts, degrees, rgb, type PDFFont, type PDFImage, type PDFPage } from 'pdf-lib';
 import QRCode from 'qrcode';
 import { FIRM_NAME } from '../constants/brand';
 import { shippingLabelBarcodeBars, stCourierTrackingUrl } from './shippingLabel';
@@ -73,7 +73,17 @@ const LAYOUT = {
   trackQr: { x: 468, y: 210, size: 40 },
   // Middle-left column — centered just above printed "Consignor's Signature".
   consignorSign: { centerX: 242, y: 240, size: 9, maxWidth: 88 },
+  // Vertical copy-type bar to the right of the consignment barcode.
+  copyBar: { x: 498.8, w: 17.6, top: 83, bottom: 150 },
 } as const;
+
+/** Pink keeps template "POD COPY". Blue / orange are overpainted. */
+const COPY_LABELS = [null, 'ACCOUNTS COPY', 'CONSIGNER COPY'] as const;
+const COPY_BAR_FILL = [
+  rgb(226 / 255, 9 / 255, 100 / 255),
+  rgb(104 / 255, 22 / 255, 148 / 255),
+  rgb(237 / 255, 101 / 255, 1 / 255),
+] as const;
 
 let templateBytesPromise: Promise<ArrayBuffer> | null = null;
 
@@ -322,6 +332,47 @@ function drawTrackingQr(
   });
 }
 
+function drawCopyLabel(page: PDFPage, font: PDFFont, slipIndex: number): void {
+  const label = COPY_LABELS[slipIndex];
+  const fill = COPY_BAR_FILL[slipIndex];
+  if (!label || !fill) return;
+
+  const { x, w, top, bottom } = LAYOUT.copyBar;
+  const barH = bottom - top;
+  page.drawRectangle({
+    x,
+    y: pdfY(slipIndex, bottom),
+    width: w,
+    height: barH,
+    color: fill,
+  });
+
+  const chars = [...label];
+  const tracking = 0.55;
+  const measure = (s: number) => {
+    const glyphs = chars.reduce((sum, ch) => sum + font.widthOfTextAtSize(ch, s), 0);
+    return glyphs + Math.max(0, chars.length - 1) * tracking;
+  };
+  let size = 8.6;
+  while (size > 6.2 && measure(size) > barH - 5) {
+    size -= 0.15;
+  }
+  const pad = Math.max(2, (barH - measure(size)) / 2);
+  const originX = x + (w - size * 0.8) / 2;
+  let yFromTop = top + pad;
+  for (const ch of chars) {
+    page.drawText(ch, {
+      x: originX,
+      y: pdfY(slipIndex, yFromTop),
+      size,
+      font,
+      color: rgb(1, 1, 1),
+      rotate: degrees(-90),
+    });
+    yFromTop += font.widthOfTextAtSize(ch, size) + tracking;
+  }
+}
+
 function fillSlip(
   page: PDFPage,
   font: PDFFont,
@@ -485,6 +536,8 @@ function fillSlip(
   if (trackingQr) {
     drawTrackingQr(page, trackingQr, slipIndex);
   }
+
+  drawCopyLabel(page, bold, slipIndex);
 }
 
 /** Build a filled ST Courier POD PDF (all three copies on the page). */
