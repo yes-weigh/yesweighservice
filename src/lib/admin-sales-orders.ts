@@ -26,6 +26,7 @@ import {
   normalizeInvoiceCategoryAmounts,
   parseInvoiceCategory,
   sumInvoiceProductQuantity,
+  firstDateTimeValue,
 } from './invoices';
 import {
   appendSalespersonIdConstraint,
@@ -89,6 +90,7 @@ export interface AdminFirestoreSalesOrder {
   salespersonId?: string | null;
   salespersonName?: string | null;
   date: string | null;
+  createdTime?: string | null;
   shipmentDate: string | null;
   status: string;
   total: number;
@@ -225,6 +227,12 @@ export function mapAdminSalesOrderDoc(
     salespersonId: data.salespersonId ? String(data.salespersonId) : null,
     salespersonName: data.salespersonName ? String(data.salespersonName) : null,
     date: data.date ? String(data.date) : null,
+    createdTime: firstDateTimeValue(
+      timestampToIso(data.createdTime),
+      timestampToIso(data.zohoCreatedTime),
+      timestampToIso(data.zohoLastModified),
+      timestampToIso(data.createdAt),
+    ),
     shipmentDate: data.shipmentDate ? String(data.shipmentDate) : null,
     status: String(data.status ?? 'draft'),
     total: Number(data.total ?? 0),

@@ -28,6 +28,8 @@ export interface DealerInvoice {
   id: string;
   invoiceNumber: string;
   date: string | null;
+  /** Zoho created_time when present (list tiles show clock time). */
+  createdTime?: string | null;
   dueDate: string | null;
   status: InvoiceStatus | string;
   /** Grand total including GST. */

@@ -29,6 +29,7 @@ import {
   fetchDealerInvoiceDashboardWithCache,
   fetchDealerInvoicesWithCache,
   formatInvoiceDate,
+  formatInvoiceDateTime,
   invoiceCategoryAmount,
   invoiceAmountExclGst,
   invoiceCategoryLabel,
@@ -349,7 +350,7 @@ function InvoiceMobileRow({
           {invoice.referenceNumber ? (
             <span className="invoices-mobile-row__so">{invoice.referenceNumber}</span>
           ) : null}
-          <span className="invoices-mobile-row__meta">{formatInvoiceDate(invoice.date)}</span>
+          <span className="invoices-mobile-row__meta">{formatInvoiceDateTime(invoice.date, invoice.createdTime)}</span>
         </span>
         <span className="invoices-mobile-row__amount">
           <strong>{formatCurrency(displayAmount)}</strong>
@@ -877,7 +878,7 @@ export const InvoicesPage: React.FC = () => {
                               </span>
                             )}
                           </td>
-                          <td>{formatInvoiceDate(invoice.date)}</td>
+                          <td>{formatInvoiceDateTime(invoice.date, invoice.createdTime)}</td>
                           <td>{formatInvoiceDate(invoice.dueDate)}</td>
                           <td>
                             {categoryLabel ? (

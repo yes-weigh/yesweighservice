@@ -47,7 +47,7 @@ import {
 import { formatCurrency } from '../../lib/catalog';
 import { fetchDealerById } from '../../lib/dealers';
 import {
-  formatInvoiceDate,
+  formatInvoiceDateTime,
   formatInvoiceItemQuantity,
   formatKpiPeriodRange,
   getInvoicePeriodBounds,
@@ -1108,7 +1108,7 @@ export const AdminInvoicesPage: React.FC = () => {
             </span>
             <span className="admin-invoice-search-menu__meta">
               {invoice.customerName || '—'}
-              {invoice.date ? ` · ${formatInvoiceDate(invoice.date)}` : ''}
+              {invoice.date ? ` · ${formatInvoiceDateTime(invoice.date, invoice.createdTime)}` : ''}
             </span>
           </button>
         ))}
@@ -1340,7 +1340,7 @@ export const AdminInvoicesPage: React.FC = () => {
                           <div className="invoices-table__ref text-muted text-sm">{locationLabel}</div>
                         )}
                       </td>
-                      <td>{formatInvoiceDate(invoice.date)}</td>
+                      <td>{formatInvoiceDateTime(invoice.date, invoice.createdTime)}</td>
                       <td className="invoices-table__num">{formatInvoiceItemQuantity(invoice.itemQuantity)}</td>
                       <td className="invoices-table__num">
                         {formatCurrency(
@@ -1431,7 +1431,7 @@ export const AdminInvoicesPage: React.FC = () => {
                         />
                       ) : null}
                       <span className="invoices-mobile-row__meta">
-                        {formatInvoiceDate(invoice.date)}
+                        {formatInvoiceDateTime(invoice.date, invoice.createdTime)}
                         {' • '}
                         Qty {formatInvoiceItemQuantity(invoice.itemQuantity)}
                       </span>

@@ -28,7 +28,7 @@ import {
   type GoodsReceiptLocationFilter,
 } from '../../lib/admin-goods-receipts';
 import {
-  formatInvoiceDate,
+  formatInvoiceDateTime,
   formatInvoiceItemQuantity,
   getInvoicePeriodBounds,
   invoiceErrorMessage,
@@ -495,7 +495,7 @@ export const AdminGoodsReceiptsPage: React.FC = () => {
                           </td>
                           <td>{po.vendorName ?? '—'}</td>
                           <td>{goodsReceiptLocationLabel(po.inventorySite)}</td>
-                          <td>{formatInvoiceDate(po.date)}</td>
+                          <td>{formatInvoiceDateTime(po.date, po.createdTime)}</td>
                           <td className="invoices-table__num">{formatInvoiceItemQuantity(po.itemQuantity)}</td>
                           <td>
                             <span className={poStatusClass(po.status)}>
@@ -529,7 +529,7 @@ export const AdminGoodsReceiptsPage: React.FC = () => {
                         </strong>
                         <span className="invoices-mobile-row__pair invoices-mobile-row__pair--mid">
                           <span className="invoices-mobile-row__date">
-                            {formatInvoiceDate(po.date)}
+                            {formatInvoiceDateTime(po.date, po.createdTime)}
                             {' · '}
                             {goodsReceiptLocationLabel(po.inventorySite)}
                           </span>

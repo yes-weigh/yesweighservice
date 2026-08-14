@@ -70,10 +70,8 @@ import {
   LOGISTICS_OPEN_BOOKING_STATE_KEY,
   type LogisticsEntryState,
 } from '../../lib/logisticsPrefill';
-import {
-  formatLogisticsDateTime,
-  formatLogisticsDateTimeLabel,
-} from '../../lib/logisticsDateTime';
+import { formatInvoiceDateTime } from '../../lib/invoices';
+import { formatLogisticsDateTime } from '../../lib/logisticsDateTime';
 import type { LogisticsCourierRates } from '../../types/logistics-courier-rates';
 import { staffLogisticsSiteLabel } from '../../types/staff-logistics';
 import { supportDetailPath } from '../../lib/dealerSupport';
@@ -218,20 +216,18 @@ function inDateRange(booking: LogisticsBooking, from: string, to: string): boole
 }
 
 function formatShipmentDateTime(booking: LogisticsBooking): string {
-  const bookedAt = booking.courierTrack?.bookedAt?.trim()
-    || earliestTrackHistoryAt(booking);
-  if (bookedAt) {
-    const withTime = formatLogisticsDateTime(bookedAt);
-    if (withTime) return withTime;
-  }
-  return formatLogisticsDateTimeLabel(booking.bookingDate);
+  return formatInvoiceDateTime(
+    booking.bookingDate,
+    booking.courierTrack?.bookedAt?.trim()
+      || earliestTrackHistoryAt(booking)
+      || booking.createdAt,
+  );
 }
 
 function formatDeliveredDateTime(booking: LogisticsBooking): string {
   const deliveredAt = booking.courierTrack?.deliveredAt?.trim();
   if (deliveredAt) {
-    const withTime = formatLogisticsDateTime(deliveredAt);
-    if (withTime) return withTime;
+    return formatInvoiceDateTime(deliveredAt, deliveredAt);
   }
   return formatShipmentDateTime(booking);
 }

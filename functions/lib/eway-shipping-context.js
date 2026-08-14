@@ -224,6 +224,32 @@ export async function estimateRoadDistanceKm(fromPin, toPin) {
   return 500;
 }
 
+function normalizeStaffSite(site) {
+  const raw = String(site ?? '').trim().toLowerCase().replace(/[\s-]+/g, '_');
+  if (!raw) return '';
+  if (raw === 'head_office' || raw === 'headoffice' || (raw.includes('head') && raw.includes('office'))) {
+    return 'head_office';
+  }
+  if (raw === 'cochin' || raw.includes('cochin') || raw === 'kochi') return 'cochin';
+  return '';
+}
+
+function fromAddressForSite(fromAddresses, site) {
+  if (!fromAddresses || typeof fromAddresses !== 'object') return '';
+  const key = normalizeStaffSite(site);
+  if (key) {
+    const direct = String(fromAddresses[key] ?? '').trim();
+    if (direct) return direct;
+  }
+  const raw = String(site ?? '').trim();
+  return raw ? String(fromAddresses[raw] ?? '').trim() : '';
+}
+
+async function loadSiteFromAddress(db, site) {
+  const settingsSnap = await db.doc('appSettings/logisticsSettings').get();
+  return fromAddressForSite(settingsSnap.data()?.fromAddresses, site);
+}
+
 /**
  * @param {import('firebase-admin/firestore').Firestore} db
  * @param {string} bookingId
@@ -236,16 +262,10 @@ export async function loadBookingShippingContext(db, bookingId) {
   if (!snap.exists) return null;
   const data = snap.data() ?? {};
 
+  const shipFromSite = normalizeStaffSite(data.shipFromSite) || String(data.shipFromSite ?? '').trim() || null;
   let shipFromAddress = String(data.shipFromAddress ?? '').trim();
-  if (!shipFromAddress) {
-    const site = String(data.shipFromSite ?? '').trim();
-    if (site) {
-      const settingsSnap = await db.doc('appSettings/logisticsSettings').get();
-      const fromAddresses = settingsSnap.data()?.fromAddresses;
-      if (fromAddresses && typeof fromAddresses === 'object') {
-        shipFromAddress = String(fromAddresses[site] ?? '').trim();
-      }
-    }
+  if (!shipFromAddress && shipFromSite) {
+    shipFromAddress = await loadSiteFromAddress(db, shipFromSite);
   }
 
   const deliveryAddress = String(data.deliveryAddress ?? '').trim()
@@ -257,7 +277,7 @@ export async function loadBookingShippingContext(db, bookingId) {
   return {
     shipFromAddress,
     deliveryAddress,
-    shipFromSite: data.shipFromSite ? String(data.shipFromSite) : null,
+    shipFromSite,
   };
 }
 
@@ -329,16 +349,53 @@ export async function loadInvoiceShippingContext(db, customerId, invoiceId, ship
   if (!snap.exists) return null;
   const invoice = snap.data() ?? {};
 
-  const site = String(shipFromSite ?? 'cochin').trim() || 'cochin';
-  const settingsSnap = await db.doc('appSettings/logisticsSettings').get();
-  const fromAddresses = settingsSnap.data()?.fromAddresses;
-  const shipFromAddress = fromAddresses && typeof fromAddresses === 'object'
-    ? String(fromAddresses[site] ?? '').trim()
-    : '';
+  const site = normalizeStaffSite(shipFromSite) || 'cochin';
+  const shipFromAddress = await loadSiteFromAddress(db, site);
 
   const deliveryAddress = String(invoice.shippingAddress ?? invoice.billingAddress ?? '').trim();
   if (!shipFromAddress) return null;
 
+  return {
+    shipFromAddress,
+    deliveryAddress,
+    shipFromSite: site,
+  };
+}
+
+/**
+ * Booking ship-from when present; otherwise Logistics settings Sites address for the invoice.
+ * @param {import('firebase-admin/firestore').Firestore} db
+ * @param {{
+ *   bookingId?: string | null;
+ *   customerId?: string | null;
+ *   invoiceId?: string | null;
+ *   invoice?: object | null;
+ *   shipFromSite?: string | null;
+ * }} input
+ */
+export async function resolveEwayShippingContext(db, input) {
+  const bookingId = String(input.bookingId ?? '').trim();
+  if (bookingId) {
+    const fromBooking = await loadBookingShippingContext(db, bookingId);
+    if (fromBooking?.shipFromAddress) return fromBooking;
+  }
+
+  const invoice = input.invoice && typeof input.invoice === 'object' ? input.invoice : null;
+  let site = normalizeStaffSite(input.shipFromSite)
+    || normalizeStaffSite(invoice?.customerPickup?.shipFromSite);
+  if (!site) {
+    site = (await resolveInvoiceShipFromSite(db, invoice)).site;
+  }
+
+  const customerId = String(input.customerId ?? '').trim();
+  const invoiceId = String(input.invoiceId ?? '').trim();
+  if (customerId && invoiceId) {
+    return loadInvoiceShippingContext(db, customerId, invoiceId, site);
+  }
+
+  const shipFromAddress = await loadSiteFromAddress(db, site);
+  if (!shipFromAddress) return null;
+  const deliveryAddress = String(invoice?.shippingAddress ?? invoice?.billingAddress ?? '').trim();
   return {
     shipFromAddress,
     deliveryAddress,

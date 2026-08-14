@@ -26,6 +26,7 @@ export interface UnifiedSalesOrderRow {
   customerId: string | null;
   salespersonName: string | null;
   date: string | null;
+  createdTime?: string | null;
   sortAt: number;
   amount: number;
   currencyCode: string;
@@ -167,6 +168,7 @@ export function mapZohoOrderToUnified(
     customerId: so.customerId || null,
     salespersonName: so.salespersonName?.trim() || null,
     date: so.date,
+    createdTime: so.createdTime ?? null,
     sortAt: parseDayTs(so.date) || parseDayTs(so.syncedAt),
     amount: Number(so.total ?? 0),
     currencyCode: so.currencyCode || 'INR',

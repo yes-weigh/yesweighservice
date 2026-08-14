@@ -330,6 +330,56 @@ export function formatInvoiceDate(value: string | null | undefined): string {
   }).format(parsed);
 }
 
+/** True when the string is a calendar date with no real clock time. */
+export function isDateOnlyTimestamp(value: string | null | undefined): boolean {
+  const trimmed = String(value ?? '').trim();
+  if (!trimmed) return true;
+  if (/^\d{4}-\d{2}-\d{2}$/.test(trimmed)) return true;
+  if (/^\d{2}-\d{2}-\d{4}$/.test(trimmed)) return true;
+  return /^\d{4}-\d{2}-\d{2}T00:00:00(\.0+)?(Z|[+-]00:00)?$/.test(trimmed);
+}
+
+function formatClockAmPm(date: Date): string {
+  return new Intl.DateTimeFormat('en-IN', {
+    hour: 'numeric',
+    minute: '2-digit',
+    hour12: true,
+  }).format(date).replace(/\u202f/g, ' ').replace(/\s+/g, ' ').toLowerCase();
+}
+
+export function firstDateTimeValue(
+  ...values: Array<string | null | undefined>
+): string | null {
+  for (const value of values) {
+    const trimmed = String(value ?? '').trim();
+    if (!trimmed || isDateOnlyTimestamp(trimmed)) continue;
+    if (Number.isNaN(Date.parse(trimmed))) continue;
+    return trimmed;
+  }
+  return null;
+}
+
+/**
+ * List/table stamp: `14 Aug 2026, 10:13 am` when a real time exists.
+ * Date-only values stay `14 Aug 2026` (never invent midnight).
+ */
+export function formatInvoiceDateTime(
+  date: string | null | undefined,
+  timestamp?: string | null,
+): string {
+  const dateLabel = formatInvoiceDate(date);
+  const ts = firstDateTimeValue(timestamp, date);
+  if (!ts) return dateLabel;
+  const parsed = Date.parse(ts);
+  if (Number.isNaN(parsed)) return dateLabel;
+  const timeLabel = formatClockAmPm(new Date(parsed));
+  if (dateLabel === '—') {
+    const fromTs = formatInvoiceDate(ts);
+    return fromTs === '—' ? timeLabel : `${fromTs}, ${timeLabel}`;
+  }
+  return `${dateLabel}, ${timeLabel}`;
+}
+
 export function normalizeInvoiceStatusKey(status: unknown): string {
   return String(status ?? 'draft').trim().toLowerCase().replace(/\s+/g, '_');
 }

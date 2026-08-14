@@ -24,6 +24,7 @@ import {
   normalizeInvoiceCategoryAmounts,
   parseInvoiceCategory,
   sumInvoiceProductQuantity,
+  firstDateTimeValue,
 } from './invoices';
 import type {
   DealerInvoiceLineItem,
@@ -56,6 +57,7 @@ export interface AdminFirestorePurchaseOrder {
   vendorId: string;
   vendorName: string | null;
   date: string | null;
+  createdTime?: string | null;
   deliveryDate: string | null;
   status: string;
   total: number;
@@ -143,6 +145,11 @@ export function mapAdminPurchaseOrderDoc(
     vendorId: String(data.vendorId ?? ''),
     vendorName: data.vendorName ? String(data.vendorName) : null,
     date: data.date ? String(data.date) : null,
+    createdTime: firstDateTimeValue(
+      timestampToIso(data.createdTime),
+      timestampToIso(data.zohoCreatedTime),
+      timestampToIso(data.zohoLastModified),
+    ),
     deliveryDate: data.deliveryDate ? String(data.deliveryDate) : null,
     status: String(data.status ?? 'draft'),
     total: Number(data.total ?? 0),

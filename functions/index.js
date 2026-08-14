@@ -2176,7 +2176,11 @@ export const updateCustomerPickupEwayPartBFn = onCall(
       });
     } catch (err) {
       if (err instanceof HttpsError) throw err;
-      throw new HttpsError('internal', err?.message ?? 'Could not update e-way bill Part B.');
+      const message = err?.message ?? 'Could not update e-way bill Part B.';
+      const code = /not found|missing|required|Ship-from|transporter|pincode/i.test(message)
+        ? 'failed-precondition'
+        : 'internal';
+      throw new HttpsError(code, message);
     }
   },
 );

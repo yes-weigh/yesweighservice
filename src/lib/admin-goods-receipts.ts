@@ -32,6 +32,7 @@ import {
   normalizeInvoiceCategoryAmounts,
   parseInvoiceCategory,
   sumInvoiceProductQuantity,
+  firstDateTimeValue,
 } from './invoices';
 import type {
   CatalogSiteInventoryLocationRow,
@@ -74,6 +75,7 @@ export interface AdminFirestoreGoodsReceipt {
   vendorId: string;
   vendorName: string | null;
   date: string | null;
+  createdTime?: string | null;
   dueDate: string | null;
   status: string;
   total: number;
@@ -256,6 +258,11 @@ export function mapAdminGoodsReceiptDoc(
     vendorId: String(data.vendorId ?? ''),
     vendorName: data.vendorName ? String(data.vendorName) : null,
     date: data.date ? String(data.date) : null,
+    createdTime: firstDateTimeValue(
+      timestampToIso(data.createdTime),
+      timestampToIso(data.zohoCreatedTime),
+      timestampToIso(data.zohoLastModified),
+    ),
     dueDate: data.dueDate ? String(data.dueDate) : null,
     status: String(data.status ?? 'draft'),
     total: Number(data.total ?? 0),

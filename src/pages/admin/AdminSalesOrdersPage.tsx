@@ -28,7 +28,7 @@ import {
 import { formatCurrency } from '../../lib/catalog';
 import {
   computeSalesForPeriod,
-  formatInvoiceDate,
+  formatInvoiceDateTime,
   formatInvoiceItemQuantity,
   formatKpiPeriodRange,
   invoiceCategoryLabel,
@@ -489,7 +489,7 @@ export const AdminSalesOrdersPage: React.FC = () => {
                             )}
                           </td>
                           <td>{po.customerName ?? '—'}</td>
-                          <td>{formatInvoiceDate(po.date)}</td>
+                          <td>{formatInvoiceDateTime(po.date, po.createdTime)}</td>
                           <td className="invoices-table__num">{formatInvoiceItemQuantity(po.itemQuantity)}</td>
                           <td className="invoices-table__num">
                             {formatCurrency(
@@ -546,7 +546,7 @@ export const AdminSalesOrdersPage: React.FC = () => {
                           {po.customerName ?? '—'}
                         </span>
                         <span className="invoices-mobile-row__meta">
-                          {formatInvoiceDate(po.date)}
+                          {formatInvoiceDateTime(po.date, po.createdTime)}
                           {' • '}
                           Qty {formatInvoiceItemQuantity(po.itemQuantity)}
                         </span>

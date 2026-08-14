@@ -130,6 +130,9 @@ export function buildInvoiceSummaryFields(invoiceDoc, customerId, invoiceId) {
     salespersonId: invoiceDoc.salespersonId ? String(invoiceDoc.salespersonId) : null,
     salespersonName: invoiceDoc.salespersonName ? String(invoiceDoc.salespersonName) : null,
     date: invoiceDoc.date ? String(invoiceDoc.date) : null,
+    createdTime: invoiceDoc.createdTime
+      ? String(invoiceDoc.createdTime)
+      : (invoiceDoc.zohoLastModified ? String(invoiceDoc.zohoLastModified) : null),
     status: String(invoiceDoc.status ?? 'draft'),
     total: Number(invoiceDoc.total ?? 0),
     subtotal: invoiceDoc.subtotal != null ? Number(invoiceDoc.subtotal) : null,

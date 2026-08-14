@@ -34,7 +34,7 @@ import {
   rememberSalesOrderListReturn,
 } from '../../lib/salesOrderListReturnFocus';
 import {
-  formatInvoiceDate,
+  formatInvoiceDateTime,
   formatInvoiceItemQuantity,
   getInvoicePeriodBounds,
   invoiceErrorMessage,
@@ -440,7 +440,7 @@ export const DealerSalesOrdersPage: React.FC = () => {
                           <div className="unified-so-order-cell">
                             <strong>{row.primaryNumber}</strong>
                             <span className="invoices-table__ref text-muted text-sm">
-                              {formatInvoiceDate(row.date)}
+                              {formatInvoiceDateTime(row.date, row.createdTime)}
                             </span>
                             <span className="unified-so-order-cell__badges">
                               <InvoiceCategoryBadgeList
@@ -513,7 +513,7 @@ export const DealerSalesOrdersPage: React.FC = () => {
                         </strong>
                         <span className="invoices-mobile-row__pair unified-so-mobile-row__footer">
                           <span className="invoices-mobile-row__meta">
-                            {formatInvoiceDate(row.date)}
+                            {formatInvoiceDateTime(row.date, row.createdTime)}
                             {' • '}
                             Qty {formatInvoiceItemQuantity(row.qty)}
                           </span>

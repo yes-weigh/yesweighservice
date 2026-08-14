@@ -57,7 +57,7 @@ import { formatCurrency } from '../../lib/catalog';
 import { fetchDealerById } from '../../lib/dealers';
 import { salespersonScopeForUser } from '../../lib/salespersonScope';
 import {
-  formatInvoiceDate,
+  formatInvoiceDateTime,
   formatInvoiceItemQuantity,
   getInvoicePeriodBounds,
   invoiceErrorMessage,
@@ -1148,7 +1148,7 @@ export const AdminUnifiedSalesOrdersPage: React.FC = () => {
                           <div className="unified-so-order-cell">
                             <strong>{row.primaryNumber}</strong>
                             <span className="invoices-table__ref text-muted text-sm">
-                              {formatInvoiceDate(row.date)}
+                              {formatInvoiceDateTime(row.date, row.createdTime)}
                             </span>
                             <span className="unified-so-order-cell__badges">
                               <InvoiceCategoryBadgeList
@@ -1234,7 +1234,7 @@ export const AdminUnifiedSalesOrdersPage: React.FC = () => {
                           <span className="invoices-mobile-row__title">
                             <strong>{row.primaryNumber}</strong>
                             <span className="invoices-mobile-row__meta unified-so-mobile-row__date">
-                              {formatInvoiceDate(row.date)}
+                              {formatInvoiceDateTime(row.date, row.createdTime)}
                             </span>
                           </span>
                           <strong className="invoices-mobile-row__amount-value">

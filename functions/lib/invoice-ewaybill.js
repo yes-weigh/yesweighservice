@@ -17,11 +17,15 @@ import {
 } from './zoho-ewaybills.js';
 import {
   ewayVehicleOriginFromAddress,
-  loadBookingShippingContext,
-  loadInvoiceShippingContext,
+  resolveEwayShippingContext,
 } from './eway-shipping-context.js';
 
 export const EWAY_BILL_THRESHOLD_INR = 50_000;
+const PICKUP_PARTNER_ID = 'personal_collection';
+
+function normalizeVehicleNumber(raw) {
+  return String(raw ?? '').trim().toUpperCase().replace(/\s+/g, '').slice(0, 20);
+}
 
 function isEwayBillRequired(totalInclGst) {
   const total = Number(totalInclGst);
@@ -235,10 +239,17 @@ export async function ensureInvoiceEwayBill(secrets, orgId, input) {
     }
   }
 
+  const db = getFirestore();
+  const pickupVehicle = normalizeVehicleNumber(invoice.customerPickup?.vehicleNumber);
+  const isCustomerPickup = partnerId === PICKUP_PARTNER_ID
+    || Boolean(String(invoice.customerPickup?.markedAt ?? '').trim());
+  const transporterDocumentNumber = isCustomerPickup ? '' : lrNumber;
+
   const accessToken = await getAccessToken(secrets);
   const organizationId = await resolveOrganizationId(accessToken, orgId);
 
   let remote = await findZohoEwayBillForInvoice(accessToken, organizationId, invoiceId);
+  let shippingContext = null;
   if (!remote && autoGenerate) {
     if (!partnerId) {
       throw new Error('Delivery partner is required to generate an e-way bill.');
@@ -246,12 +257,16 @@ export async function ensureInvoiceEwayBill(secrets, orgId, input) {
     const { transporterId } = await resolveTransporterForPartner(
       accessToken,
       organizationId,
-      getFirestore(),
+      db,
       partnerId,
     );
-    const shippingContext = bookingId
-      ? await loadBookingShippingContext(getFirestore(), bookingId)
-      : null;
+    shippingContext = await resolveEwayShippingContext(db, {
+      bookingId,
+      customerId,
+      invoiceId,
+      invoice,
+      shipFromSite: invoice.customerPickup?.shipFromSite,
+    });
     if (!shippingContext?.shipFromAddress) {
       throw new Error(
         'Ship-from address is missing on this shipment. '
@@ -261,11 +276,11 @@ export async function ensureInvoiceEwayBill(secrets, orgId, input) {
     remote = await createZohoEwayBillForInvoice(accessToken, organizationId, {
       invoiceId,
       transporterId,
-      lrNumber,
+      lrNumber: transporterDocumentNumber,
       shipFromAddress: shippingContext.shipFromAddress,
       deliveryAddress: shippingContext.deliveryAddress || invoice.shippingAddress || null,
       shipFromSite: shippingContext.shipFromSite,
-      db: getFirestore(),
+      db,
     });
   }
 
@@ -274,7 +289,7 @@ export async function ensureInvoiceEwayBill(secrets, orgId, input) {
       required: true,
       status: autoGenerate ? 'pending' : 'missing',
       partnerId: partnerId || existing?.partnerId || null,
-      lrNumber: lrNumber || existing?.lrNumber || null,
+      lrNumber: transporterDocumentNumber || existing?.lrNumber || null,
     }, bookingId);
     return {
       required: true,
@@ -289,6 +304,37 @@ export async function ensureInvoiceEwayBill(secrets, orgId, input) {
   const mapped = mapZohoEwayBillRecord(remote);
   if (!mapped?.zohoEwaybillId) {
     throw new Error('Zoho returned an invalid e-way bill record.');
+  }
+
+  if (autoGenerate && isCustomerPickup && pickupVehicle) {
+    if (!shippingContext?.shipFromAddress) {
+      shippingContext = await resolveEwayShippingContext(db, {
+        bookingId,
+        customerId,
+        invoiceId,
+        invoice,
+        shipFromSite: invoice.customerPickup?.shipFromSite,
+      });
+    }
+    if (!shippingContext?.shipFromAddress) {
+      throw new Error(
+        'Ship-from address is missing on this shipment. '
+        + 'Apply the site address from Logistics settings, then retry e-way bill generation.',
+      );
+    }
+    const { fromPlace, fromState } = ewayVehicleOriginFromAddress(shippingContext.shipFromAddress);
+    try {
+      await addZohoEwayBillVehicle(accessToken, organizationId, mapped.zohoEwaybillId, {
+        vehicleNumber: pickupVehicle,
+        fromPlace,
+        fromState,
+        reason: 'first_time',
+        remarks: 'Customer pickup',
+      });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      if (!/already|exist|duplicate/i.test(message)) throw err;
+    }
   }
 
   let pdfStoragePath = existing?.pdfStoragePath ?? null;
@@ -314,7 +360,8 @@ export async function ensureInvoiceEwayBill(secrets, orgId, input) {
     requiredBecause: forceRequired ? 'clubbed_lr' : 'invoice_total',
     pdfStoragePath,
     partnerId: partnerId || existing?.partnerId || null,
-    lrNumber: lrNumber || existing?.lrNumber || null,
+    lrNumber: transporterDocumentNumber || existing?.lrNumber || null,
+    ...(pickupVehicle ? { vehicleNumber: pickupVehicle } : {}),
     transporterGstin: mapped.transporterGstin || existing?.transporterGstin || null,
     error: null,
   }, bookingId);
@@ -477,12 +524,6 @@ export async function cancelInvoiceEwayBill(secrets, orgId, input) {
   };
 }
 
-const PICKUP_PARTNER_ID = 'personal_collection';
-
-function normalizeVehicleNumber(raw) {
-  return String(raw ?? '').trim().toUpperCase().replace(/\s+/g, '').slice(0, 20);
-}
-
 /**
  * Generate (or fetch) e-way bill for customer pickup, then update Part B with vehicle number.
  * @param {object} secrets
@@ -519,7 +560,12 @@ export async function ensureInvoiceEwayBillForCustomerPickup(secrets, orgId, inp
     };
   }
 
-  const shippingContext = await loadInvoiceShippingContext(db, customerId, invoiceId, shipFromSite);
+  const shippingContext = await resolveEwayShippingContext(db, {
+    customerId,
+    invoiceId,
+    invoice,
+    shipFromSite,
+  });
   if (!shippingContext?.shipFromAddress) {
     throw new Error(
       'Ship-from address is missing. Apply the site address from Logistics settings, then retry.',
@@ -555,13 +601,18 @@ export async function ensureInvoiceEwayBillForCustomerPickup(secrets, orgId, inp
   }
 
   const { fromPlace, fromState } = ewayVehicleOriginFromAddress(shippingContext.shipFromAddress);
-  await addZohoEwayBillVehicle(accessToken, organizationId, mapped.zohoEwaybillId, {
-    vehicleNumber,
-    fromPlace,
-    fromState,
-    reason: 'first_time',
-    remarks: 'Customer pickup',
-  });
+  try {
+    await addZohoEwayBillVehicle(accessToken, organizationId, mapped.zohoEwaybillId, {
+      vehicleNumber,
+      fromPlace,
+      fromState,
+      reason: 'first_time',
+      remarks: 'Customer pickup',
+    });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    if (!/already|exist|duplicate/i.test(message)) throw err;
+  }
 
   const refreshed = await findZohoEwayBillForInvoice(accessToken, organizationId, invoiceId);
   const finalMapped = mapZohoEwayBillRecord(refreshed) ?? mapped;

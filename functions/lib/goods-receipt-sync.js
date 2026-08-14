@@ -411,6 +411,7 @@ function mapGoodsReceipt(raw) {
     id: String(raw.bill_id ?? ''),
     billNumber: String(raw.bill_number ?? ''),
     date: raw.date ? String(raw.date) : null,
+    createdTime: raw.created_time ? String(raw.created_time) : (raw.createdTime ? String(raw.createdTime) : null),
     dueDate: raw.due_date ? String(raw.due_date) : null,
     poDate: shipmentDates.poDate,
     sailedDate: shipmentDates.sailedDate,

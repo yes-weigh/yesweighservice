@@ -248,6 +248,7 @@ function mapSalesOrder(raw) {
     id: String(raw.salesorder_id ?? ''),
     salesOrderNumber: String(raw.salesorder_number ?? ''),
     date: raw.date ? String(raw.date) : null,
+    createdTime: raw.created_time ? String(raw.created_time) : (raw.createdTime ? String(raw.createdTime) : null),
     shipmentDate: raw.shipment_date ? String(raw.shipment_date) : null,
     status: String(raw.status ?? 'draft'),
     total: Number(raw.total ?? 0),

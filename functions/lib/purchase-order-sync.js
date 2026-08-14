@@ -225,6 +225,7 @@ function mapPurchaseOrder(raw) {
     id: String(raw.purchaseorder_id ?? ''),
     purchaseOrderNumber: String(raw.purchaseorder_number ?? ''),
     date: raw.date ? String(raw.date) : null,
+    createdTime: raw.created_time ? String(raw.created_time) : (raw.createdTime ? String(raw.createdTime) : null),
     deliveryDate: raw.delivery_date ? String(raw.delivery_date) : null,
     status: String(raw.status ?? 'draft'),
     total: Number(raw.total ?? 0),

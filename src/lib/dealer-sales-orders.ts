@@ -7,6 +7,7 @@ import {
   normalizeInvoiceCategoryAmounts,
   parseInvoiceCategory,
   sumInvoiceProductQuantity,
+  firstDateTimeValue,
 } from './invoices';
 import type { DealerInvoiceLineItem } from '../types/invoices';
 
@@ -37,6 +38,11 @@ function mapListRow(raw: Record<string, unknown>): AdminFirestoreSalesOrder {
     customerId: String(raw.customerId ?? ''),
     customerName: raw.customerName ? String(raw.customerName) : null,
     date: raw.date ? String(raw.date) : null,
+    createdTime: firstDateTimeValue(
+      raw.createdTime ? String(raw.createdTime) : null,
+      raw.zohoLastModified ? String(raw.zohoLastModified) : null,
+      raw.createdAt ? String(raw.createdAt) : null,
+    ),
     shipmentDate: raw.shipmentDate ? String(raw.shipmentDate) : null,
     status: String(raw.status ?? 'draft'),
     total: Number(raw.total ?? 0),

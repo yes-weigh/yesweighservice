@@ -49,6 +49,7 @@ import {
   invoiceNeedsCustomerPickupEwayVehicle,
   isInvoiceCustomerPickup,
   rememberInvoiceCustomerPickup,
+  updateCustomerPickupEwayPartB,
 } from '../../lib/invoiceCustomerPickup';
 import {
   canMarkInvoiceDelivered,
@@ -394,13 +395,51 @@ export const AdminInvoiceDetailLayout: React.FC = () => {
     setEwayDocOpening(true);
     setEwayDocError('');
     try {
+      const alreadyGenerated = invoice.ewayBill?.status === 'generated'
+        || Boolean(invoice.ewayBill?.ewaybillNumber?.trim());
+      const pickupVehicle = String(invoice.customerPickup?.vehicleNumber ?? '').trim();
+
+      if (!alreadyGenerated) {
+        if (!pickupVehicle) {
+          setEwayDocError(
+            'Vehicle number is required to generate e-way bill Part B for customer pickup.',
+          );
+          return;
+        }
+        const pickupResult = await updateCustomerPickupEwayPartB({
+          customerId,
+          invoiceId,
+          vehicleNumber: pickupVehicle,
+        });
+        if (pickupResult.customerPickup) {
+          setInvoice(prev => prev ? {
+            ...prev,
+            customerPickup: pickupResult.customerPickup,
+            ewayBill: pickupResult.eway?.status
+              ? {
+                ...(prev.ewayBill ?? {}),
+                status: pickupResult.eway.status,
+                ewaybillNumber: pickupResult.eway.ewaybillNumber ?? prev.ewayBill?.ewaybillNumber ?? null,
+                required: pickupResult.eway.required,
+              }
+              : prev.ewayBill,
+          } : prev);
+        }
+        if (pickupResult.eway) {
+          showPickupEwayFromResult(pickupResult.eway);
+        } else {
+          setEwayDocError('E-way bill is not ready yet.');
+        }
+        return;
+      }
+
       const result = await ensureInvoiceEwayBill({
         customerId,
         invoiceId,
         partnerId: 'personal_collection',
         lrNumber: invoice.customerPickup?.vehicleNumber || null,
         invoiceTotalInr: invoiceTotalInclGst(invoice),
-        autoGenerate: invoice.ewayBill?.status !== 'generated',
+        autoGenerate: false,
       });
       setInvoice(prev => prev ? {
         ...prev,

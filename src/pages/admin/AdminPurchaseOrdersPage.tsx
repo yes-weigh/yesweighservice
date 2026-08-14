@@ -31,7 +31,7 @@ import {
 } from '../../lib/admin-purchase-orders';
 import { formatCurrency } from '../../lib/catalog';
 import {
-  formatInvoiceDate,
+  formatInvoiceDateTime,
   formatInvoiceItemQuantity,
   formatKpiPeriodRange,
   getInvoicePeriodBounds,
@@ -631,7 +631,7 @@ export const AdminPurchaseOrdersPage: React.FC = () => {
                             )}
                           </td>
                           <td>{po.vendorName ?? '—'}</td>
-                          <td>{formatInvoiceDate(po.date)}</td>
+                          <td>{formatInvoiceDateTime(po.date, po.createdTime)}</td>
                           <td className="invoices-table__num">{formatInvoiceItemQuantity(po.itemQuantity)}</td>
                           <td className="invoices-table__num">
                             {formatCurrency(
@@ -687,7 +687,7 @@ export const AdminPurchaseOrdersPage: React.FC = () => {
                         </strong>
                         <span className="invoices-mobile-row__pair invoices-mobile-row__pair--mid">
                           <span className="invoices-mobile-row__date">
-                            {formatInvoiceDate(po.date)}
+                            {formatInvoiceDateTime(po.date, po.createdTime)}
                           </span>
                           <span className={poStatusClass(po.status)}>
                             {invoiceStatusLabel(po.status)}
