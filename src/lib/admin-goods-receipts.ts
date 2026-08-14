@@ -94,6 +94,9 @@ export interface AdminFirestoreGoodsReceipt {
   categoryAmounts: Partial<Record<InvoiceCategory, number>>;
   sailedDate: string | null;
   receivedDate: string | null;
+  /** ISO datetime when ops marked this bill received (opens Zoho draft → open). */
+  opsReceivedAt: string | null;
+  opsReceivedByName: string | null;
   /** True when ops receive-check has any received qty. */
   receiveChecked: boolean;
 }
@@ -106,6 +109,9 @@ export interface AdminGoodsReceiptDetail {
   poDate: string | null;
   sailedDate: string | null;
   receivedDate: string | null;
+  opsReceivedAt: string | null;
+  opsReceivedByUid: string | null;
+  opsReceivedByName: string | null;
   status: string;
   total: number;
   balance: number;
@@ -156,6 +162,16 @@ export type GoodsReceiptReceiveCheck = {
   lines: Record<string, GoodsReceiptReceiveLine>;
   /** Legacy qty-only map — kept in sync when saving. */
   byLineId: Record<string, number>;
+  /**
+   * Last placements pushed to Cochin site inventory + product audit.
+   * Draft saves update `lines` only; Goods received copies `lines` here after posting.
+   */
+  postedLines: Record<string, GoodsReceiptReceiveLine>;
+  /** True when `postedLines` was stored (false = legacy Save, treat `lines` as posted). */
+  hasPostedSnapshot: boolean;
+  postedAt: string | null;
+  postedByUid: string | null;
+  postedByName: string | null;
   /** Zoho line ids hidden from receive UI (super-admin only). */
   hiddenLineIds: string[];
   updatedAt: string | null;
@@ -236,10 +252,24 @@ function receiveCheckHasQty(raw: unknown): boolean {
   return false;
 }
 
+function isReceivedBillStatus(status: string | null | undefined): boolean {
+  const key = String(status ?? '').trim().toLowerCase().replace(/\s+/g, '_');
+  return key === 'open' || key === 'paid' || key === 'partially_paid' || key === 'overdue';
+}
+
 export function goodsReceiptShipmentStage(
-  row: Pick<AdminFirestoreGoodsReceipt, 'sailedDate' | 'receivedDate' | 'receiveChecked'>,
+  row: Pick<
+    AdminFirestoreGoodsReceipt,
+    'sailedDate' | 'receivedDate' | 'opsReceivedAt' | 'status'
+  >,
 ): GoodsReceiptShipmentStage {
-  if (hasGoodsReceiptDate(row.receivedDate) || row.receiveChecked) return 'received';
+  if (
+    hasGoodsReceiptDate(row.opsReceivedAt)
+    || hasGoodsReceiptDate(row.receivedDate)
+    || isReceivedBillStatus(row.status)
+  ) {
+    return 'received';
+  }
   if (hasGoodsReceiptDate(row.sailedDate)) return 'in_transit';
   return 'scheduled';
 }
@@ -278,12 +308,23 @@ export function goodsReceiptLocationLabel(
   return '—';
 }
 
-/** Zoho draft purchase bills are shown as Scheduled in Goods receipt. */
+/** Zoho draft → Scheduled; open/paid after receive → Received. */
 export function goodsReceiptStatusLabel(status: string): string {
-  const key = String(status ?? '').trim().toLowerCase();
+  const key = String(status ?? '').trim().toLowerCase().replace(/\s+/g, '_');
   if (key === 'draft') return 'Scheduled';
+  if (isReceivedBillStatus(key)) return 'Received';
   if (!key) return '—';
   return key.replace(/_/g, ' ').replace(/\b\w/g, ch => ch.toUpperCase());
+}
+
+export function goodsReceiptStatusClass(status: string): string {
+  const label = goodsReceiptStatusLabel(status);
+  const key = label === 'Scheduled'
+    ? 'scheduled'
+    : label === 'Received'
+      ? 'received'
+      : String(status ?? '').trim().toLowerCase().replace(/\s+/g, '_');
+  return `invoices-status invoices-status--${key || 'draft'}`;
 }
 
 function timestampToIso(value: unknown): string | null {
@@ -349,6 +390,8 @@ export function mapAdminGoodsReceiptDoc(
     categoryAmounts: normalizeInvoiceCategoryAmounts(data.categoryAmounts),
     sailedDate: data.sailedDate ? String(data.sailedDate) : null,
     receivedDate: data.receivedDate ? String(data.receivedDate) : null,
+    opsReceivedAt: timestampToIso(data.opsReceivedAt),
+    opsReceivedByName: data.opsReceivedByName ? String(data.opsReceivedByName) : null,
     receiveChecked: receiveCheckHasQty(data.receiveCheck),
   };
 }
@@ -585,59 +628,72 @@ export function buildAdminGoodsReceiptSalesEntries(
     .map(row => ({ date: row.date!, total: row.total }));
 }
 
+function mapReceiveLineMap(raw: unknown): {
+  lines: Record<string, GoodsReceiptReceiveLine>;
+  byLineId: Record<string, number>;
+} {
+  const lines: Record<string, GoodsReceiptReceiveLine> = {};
+  const byLineId: Record<string, number> = {};
+  if (!raw || typeof raw !== 'object') return { lines, byLineId };
+
+  for (const [key, value] of Object.entries(raw as Record<string, unknown>)) {
+    if (!value || typeof value !== 'object') continue;
+    const row = value as Record<string, unknown>;
+    const qty = Number(row.receivedQty);
+    if (!Number.isFinite(qty)) continue;
+    const zoneId = row.zoneId != null && String(row.zoneId).trim()
+      ? String(row.zoneId).trim().toLowerCase()
+      : null;
+    const zoneRowNumber = row.zoneRowNumber != null && Number.isFinite(Number(row.zoneRowNumber))
+      ? Math.max(1, Math.floor(Number(row.zoneRowNumber)))
+      : null;
+    const locationsRaw = Array.isArray(row.locations) ? row.locations : [];
+    const locations: GoodsReceiptReceiveLocation[] = locationsRaw
+      .filter((loc): loc is Record<string, unknown> => Boolean(loc) && typeof loc === 'object')
+      .map(loc => ({
+        zoneId: String(loc.zoneId ?? '').trim().toLowerCase(),
+        zoneRowNumber: Math.max(1, Math.floor(Number(loc.zoneRowNumber))),
+        quantity: Math.max(0, Number(loc.quantity)),
+      }))
+      .filter(loc => (
+        loc.zoneId
+        && Number.isFinite(loc.zoneRowNumber)
+        && Number.isFinite(loc.quantity)
+        && loc.quantity > 0
+      ));
+    const normalizedLocations = locations.length > 0
+      ? locations
+      : (zoneId && zoneRowNumber != null && qty > 0
+        ? [{ zoneId, zoneRowNumber, quantity: qty }]
+        : []);
+    const receivedQty = normalizedLocations.length > 0
+      ? normalizedLocations.reduce((sum, loc) => sum + loc.quantity, 0)
+      : qty;
+    const first = normalizedLocations[0] ?? null;
+    lines[key] = {
+      receivedQty,
+      zoneId: first?.zoneId ?? zoneId,
+      zoneRowNumber: first?.zoneRowNumber ?? zoneRowNumber,
+      locations: normalizedLocations,
+    };
+    byLineId[key] = receivedQty;
+  }
+  return { lines, byLineId };
+}
+
+function resolvePostedLines(previous: GoodsReceiptReceiveCheck | null): Record<string, GoodsReceiptReceiveLine> {
+  if (!previous) return {};
+  if (previous.hasPostedSnapshot) return previous.postedLines;
+  return previous.lines;
+}
+
 function mapReceiveCheck(raw: unknown): GoodsReceiptReceiveCheck | null {
   if (!raw || typeof raw !== 'object') return null;
   const data = raw as Record<string, unknown>;
-  const lines: Record<string, GoodsReceiptReceiveLine> = {};
-  const byLineId: Record<string, number> = {};
+  const mapped = mapReceiveLineMap(data.lines);
+  const lines = mapped.lines;
+  const byLineId = { ...mapped.byLineId };
 
-  const linesRaw = data.lines;
-  if (linesRaw && typeof linesRaw === 'object') {
-    for (const [key, value] of Object.entries(linesRaw as Record<string, unknown>)) {
-      if (!value || typeof value !== 'object') continue;
-      const row = value as Record<string, unknown>;
-      const qty = Number(row.receivedQty);
-      if (!Number.isFinite(qty)) continue;
-      const zoneId = row.zoneId != null && String(row.zoneId).trim()
-        ? String(row.zoneId).trim().toLowerCase()
-        : null;
-      const zoneRowNumber = row.zoneRowNumber != null && Number.isFinite(Number(row.zoneRowNumber))
-        ? Math.max(1, Math.floor(Number(row.zoneRowNumber)))
-        : null;
-      const locationsRaw = Array.isArray(row.locations) ? row.locations : [];
-      const locations: GoodsReceiptReceiveLocation[] = locationsRaw
-        .filter((loc): loc is Record<string, unknown> => Boolean(loc) && typeof loc === 'object')
-        .map(loc => ({
-          zoneId: String(loc.zoneId ?? '').trim().toLowerCase(),
-          zoneRowNumber: Math.max(1, Math.floor(Number(loc.zoneRowNumber))),
-          quantity: Math.max(0, Number(loc.quantity)),
-        }))
-        .filter(loc => (
-          loc.zoneId
-          && Number.isFinite(loc.zoneRowNumber)
-          && Number.isFinite(loc.quantity)
-          && loc.quantity > 0
-        ));
-      const normalizedLocations = locations.length > 0
-        ? locations
-        : (zoneId && zoneRowNumber != null && qty > 0
-          ? [{ zoneId, zoneRowNumber, quantity: qty }]
-          : []);
-      const receivedQty = normalizedLocations.length > 0
-        ? normalizedLocations.reduce((sum, loc) => sum + loc.quantity, 0)
-        : qty;
-      const first = normalizedLocations[0] ?? null;
-      lines[key] = {
-        receivedQty,
-        zoneId: first?.zoneId ?? zoneId,
-        zoneRowNumber: first?.zoneRowNumber ?? zoneRowNumber,
-        locations: normalizedLocations,
-      };
-      byLineId[key] = receivedQty;
-    }
-  }
-
-  // Legacy: byLineId only
   const byLineRaw = data.byLineId;
   if (byLineRaw && typeof byLineRaw === 'object') {
     for (const [key, value] of Object.entries(byLineRaw as Record<string, unknown>)) {
@@ -650,9 +706,19 @@ function mapReceiveCheck(raw: unknown): GoodsReceiptReceiveCheck | null {
     }
   }
 
+  const hasPostedSnapshot = Object.prototype.hasOwnProperty.call(data, 'postedLines');
+  const postedLines = hasPostedSnapshot
+    ? mapReceiveLineMap(data.postedLines).lines
+    : { ...lines };
+
   return {
     lines,
     byLineId,
+    postedLines,
+    hasPostedSnapshot,
+    postedAt: timestampToIso(data.postedAt),
+    postedByUid: data.postedByUid != null ? String(data.postedByUid) : null,
+    postedByName: data.postedByName != null ? String(data.postedByName) : null,
     hiddenLineIds: Array.isArray(data.hiddenLineIds)
       ? data.hiddenLineIds.map(id => String(id || '').trim()).filter(Boolean)
       : [],
@@ -674,6 +740,9 @@ export function mapAdminGoodsReceiptDetail(
     poDate: data.poDate ? String(data.poDate) : null,
     sailedDate: data.sailedDate ? String(data.sailedDate) : null,
     receivedDate: data.receivedDate ? String(data.receivedDate) : null,
+    opsReceivedAt: timestampToIso(data.opsReceivedAt),
+    opsReceivedByUid: data.opsReceivedByUid != null ? String(data.opsReceivedByUid) : null,
+    opsReceivedByName: data.opsReceivedByName ? String(data.opsReceivedByName) : null,
     status: String(data.status ?? 'draft'),
     total: Number(data.total ?? 0),
     balance: Number(data.balance ?? 0),
@@ -811,6 +880,24 @@ function receiveLineHasPlacement(line: GoodsReceiptReceiveLine | null | undefine
   return receiveLineLocations(line).some(loc => loc.quantity > 0);
 }
 
+function receivePlacementsEqual(
+  a: GoodsReceiptReceiveLocation[],
+  b: GoodsReceiptReceiveLocation[],
+): boolean {
+  const tally = new Map<string, number>();
+  for (const loc of a) {
+    const key = `${loc.zoneId}:${loc.zoneRowNumber}`;
+    tally.set(key, (tally.get(key) ?? 0) + loc.quantity);
+  }
+  for (const loc of b) {
+    const key = `${loc.zoneId}:${loc.zoneRowNumber}`;
+    const next = (tally.get(key) ?? 0) - loc.quantity;
+    if (next === 0) tally.delete(key);
+    else tally.set(key, next);
+  }
+  return tally.size === 0;
+}
+
 function applyLocationDelta(
   locations: CatalogSiteInventoryLocationRow[],
   zoneId: string,
@@ -833,9 +920,31 @@ function applyLocationDelta(
   return next.filter(loc => loc.quantity > 0);
 }
 
+function toClientReceiveCheck(
+  fields: {
+    lines: Record<string, GoodsReceiptReceiveLine>;
+    byLineId: Record<string, number>;
+    postedLines: Record<string, GoodsReceiptReceiveLine>;
+    postedAt: string | null;
+    postedByUid: string | null;
+    postedByName: string | null;
+    hiddenLineIds: string[];
+  },
+  actor: { uid: string; displayName?: string | null },
+): GoodsReceiptReceiveCheck {
+  return {
+    ...fields,
+    hasPostedSnapshot: true,
+    updatedAt: new Date().toISOString(),
+    updatedByUid: actor.uid,
+    updatedByName: actor.displayName?.trim() || null,
+  };
+}
+
 /**
- * Persist receive check, place zone/row qty onto Cochin site inventory (delta vs previous),
- * and write a product audit log for each affected catalog item.
+ * Persist receive placements on the goods receipt.
+ * `draft` stores entries on the bill only.
+ * `post` also applies Cochin stock + product audit (delta vs last posted snapshot).
  */
 export async function saveGoodsReceiptReceiveCheck(
   goodsReceiptId: string,
@@ -843,6 +952,7 @@ export async function saveGoodsReceiptReceiveCheck(
     lines: Record<string, GoodsReceiptReceiveLineInput>;
     lineItems: DealerInvoiceLineItem[];
     previous: GoodsReceiptReceiveCheck | null;
+    mode: 'draft' | 'post';
   },
   actor: { uid: string; displayName?: string | null },
 ): Promise<GoodsReceiptReceiveCheck> {
@@ -850,17 +960,27 @@ export async function saveGoodsReceiptReceiveCheck(
   if (!id) throw new Error('Goods receipt id is required.');
 
   const { lines, byLineId } = normalizeReceiveLines(input.lines);
-  const previousLines = input.previous?.lines ?? {};
+  const postedLines = resolvePostedLines(input.previous);
   const previousHidden = input.previous?.hiddenLineIds ?? [];
   const hiddenLineIds = [...new Set(
-    previousHidden.map(id => String(id || '').trim()).filter(Boolean),
+    previousHidden.map(hiddenId => String(hiddenId || '').trim()).filter(Boolean),
   )];
 
-  // Hidden lines stay out of receive placements (reverse any prior stock via empty next).
   for (const lineId of hiddenLineIds) {
     delete lines[lineId];
     delete byLineId[lineId];
   }
+
+  const nextPostedLines = input.mode === 'post' ? { ...lines } : postedLines;
+  const postedAtIso = input.mode === 'post'
+    ? new Date().toISOString()
+    : (input.previous?.postedAt ?? null);
+  const postedByUid = input.mode === 'post'
+    ? actor.uid
+    : (input.previous?.postedByUid ?? null);
+  const postedByName = input.mode === 'post'
+    ? (actor.displayName?.trim() || null)
+    : (input.previous?.postedByName ?? null);
 
   const itemIdByLineId = new Map(
     input.lineItems
@@ -870,18 +990,27 @@ export async function saveGoodsReceiptReceiveCheck(
 
   const placementLineIds = new Set<string>([
     ...Object.keys(lines).filter(lineId => receiveLineHasPlacement(lines[lineId])),
-    ...Object.keys(previousLines).filter(lineId => receiveLineHasPlacement(previousLines[lineId])),
+    ...Object.keys(postedLines).filter(lineId => receiveLineHasPlacement(postedLines[lineId])),
   ]);
 
+  const changedLineIds = [...placementLineIds].filter(lineId => (
+    !receivePlacementsEqual(
+      receiveLineLocations(postedLines[lineId]),
+      receiveLineLocations(lines[lineId]),
+    )
+  ));
+
+  const deltasByProduct = new Map<string, CatalogSiteInventoryLocationRow[]>();
   let openCycleId: string | null = null;
-  if (placementLineIds.size > 0) {
+
+  if (input.mode === 'post' && changedLineIds.length > 0) {
     const openCycle = await getOpenAuditCycle('cochin');
     if (!openCycle?.id) {
       throw new Error('No open audit cycle for Cochin. Counting is locked — open a cycle to place stock.');
     }
     openCycleId = openCycle.id;
 
-    for (const lineId of placementLineIds) {
+    for (const lineId of changedLineIds) {
       const itemId = itemIdByLineId.get(lineId);
       const lineName = input.lineItems.find(l => l.id === lineId)?.name ?? lineId;
       const needsForward = receiveLineHasPlacement(lines[lineId]);
@@ -896,42 +1025,42 @@ export async function saveGoodsReceiptReceiveCheck(
         if (needsForward) {
           throw new Error(`Catalog product not found for ${lineName}.`);
         }
-        continue;
       }
     }
-  }
 
-  // Aggregate location deltas per catalog product (reverse old placement, apply new).
-  const deltasByProduct = new Map<string, CatalogSiteInventoryLocationRow[]>();
+    const ensureProductLocations = async (catalogProductId: string) => {
+      let locs = deltasByProduct.get(catalogProductId);
+      if (locs) return locs;
+      const existing = await getCatalogSiteInventory(catalogProductId, 'cochin');
+      locs = getCatalogSiteInventoryLocations(existing).map(row => ({ ...row }));
+      deltasByProduct.set(catalogProductId, locs);
+      return locs;
+    };
 
-  const ensureProductLocations = async (catalogProductId: string) => {
-    let locs = deltasByProduct.get(catalogProductId);
-    if (locs) return locs;
-    const existing = await getCatalogSiteInventory(catalogProductId, 'cochin');
-    locs = getCatalogSiteInventoryLocations(existing).map(row => ({ ...row }));
-    deltasByProduct.set(catalogProductId, locs);
-    return locs;
-  };
+    for (const lineId of changedLineIds) {
+      const catalogProductId = itemIdByLineId.get(lineId);
+      if (!catalogProductId) continue;
+      const prevLocs = receiveLineLocations(postedLines[lineId]);
+      const nextLocs = receiveLineLocations(lines[lineId]);
+      let working = await ensureProductLocations(catalogProductId);
 
-  for (const lineId of placementLineIds) {
-    const catalogProductId = itemIdByLineId.get(lineId);
-    if (!catalogProductId) continue;
-    const prevLocs = receiveLineLocations(previousLines[lineId]);
-    const nextLocs = receiveLineLocations(lines[lineId]);
-    let working = await ensureProductLocations(catalogProductId);
-
-    for (const loc of prevLocs) {
-      working = applyLocationDelta(working, loc.zoneId, loc.zoneRowNumber, -loc.quantity);
+      for (const loc of prevLocs) {
+        working = applyLocationDelta(working, loc.zoneId, loc.zoneRowNumber, -loc.quantity);
+      }
+      for (const loc of nextLocs) {
+        working = applyLocationDelta(working, loc.zoneId, loc.zoneRowNumber, loc.quantity);
+      }
+      deltasByProduct.set(catalogProductId, working);
     }
-    for (const loc of nextLocs) {
-      working = applyLocationDelta(working, loc.zoneId, loc.zoneRowNumber, loc.quantity);
-    }
-    deltasByProduct.set(catalogProductId, working);
   }
 
   const receiveCheck = {
     lines,
     byLineId,
+    postedLines: nextPostedLines,
+    postedAt: input.mode === 'post' ? serverTimestamp() : (input.previous?.postedAt ?? null),
+    postedByUid,
+    postedByName,
     hiddenLineIds,
     updatedAt: serverTimestamp(),
     updatedByUid: actor.uid,
@@ -960,26 +1089,26 @@ export async function saveGoodsReceiptReceiveCheck(
       }
     }
   } catch (err) {
-    // Receive check already saved — surface inventory/audit failure clearly.
     const detail = err instanceof Error ? err.message : 'Unknown error';
     throw new Error(
-      `Receive check saved, but warehouse / audit update failed (${auditedProducts.size} product(s) audited): ${detail}`,
+      `Placements saved, but warehouse / audit update failed (${auditedProducts.size} product(s) audited): ${detail}`,
     );
   }
 
-  return {
+  return toClientReceiveCheck({
     lines,
     byLineId,
+    postedLines: nextPostedLines,
+    postedAt: postedAtIso,
+    postedByUid,
+    postedByName,
     hiddenLineIds,
-    updatedAt: new Date().toISOString(),
-    updatedByUid: actor.uid,
-    updatedByName: actor.displayName?.trim() || null,
-  };
+  }, actor);
 }
 
 /**
  * Super-admin: hide/unhide a bill line from the receive UI.
- * Hiding clears that line's placements and reverses warehouse inventory for them.
+ * Hiding clears draft placements; posted stock is reversed only if that line was posted.
  */
 export async function setGoodsReceiptLineHidden(
   goodsReceiptId: string,
@@ -1001,6 +1130,9 @@ export async function setGoodsReceiptLineHidden(
   const previousByLineId = { ...(previous?.byLineId ?? {}) };
   const nextLines: Record<string, GoodsReceiptReceiveLine> = { ...previousLines };
   const nextByLineId: Record<string, number> = { ...previousByLineId };
+  const nextPostedLines: Record<string, GoodsReceiptReceiveLine> = {
+    ...resolvePostedLines(previous),
+  };
   const hiddenSet = new Set(
     (previous?.hiddenLineIds ?? []).map(v => String(v || '').trim()).filter(Boolean),
   );
@@ -1008,16 +1140,16 @@ export async function setGoodsReceiptLineHidden(
   if (hidden) hiddenSet.add(targetLineId);
   else hiddenSet.delete(targetLineId);
 
-  const prevLocs = hidden ? receiveLineLocations(previousLines[targetLineId]) : [];
+  const postedLocs = hidden ? receiveLineLocations(nextPostedLines[targetLineId]) : [];
   if (hidden) {
     delete nextLines[targetLineId];
     delete nextByLineId[targetLineId];
+    delete nextPostedLines[targetLineId];
   }
 
-  // Reverse inventory for placements cleared by hide.
   const deltasByProduct = new Map<string, CatalogSiteInventoryLocationRow[]>();
   let openCycleId: string | null = null;
-  if (prevLocs.length > 0) {
+  if (postedLocs.length > 0) {
     const line = options.lineItems.find(l => l.id === targetLineId);
     const catalogProductId = line?.itemId?.trim() || null;
     if (catalogProductId) {
@@ -1028,7 +1160,7 @@ export async function setGoodsReceiptLineHidden(
       openCycleId = openCycle.id;
       const existing = await getCatalogSiteInventory(catalogProductId, 'cochin');
       let working = getCatalogSiteInventoryLocations(existing).map(row => ({ ...row }));
-      for (const loc of prevLocs) {
+      for (const loc of postedLocs) {
         working = applyLocationDelta(working, loc.zoneId, loc.zoneRowNumber, -loc.quantity);
       }
       deltasByProduct.set(catalogProductId, working);
@@ -1036,9 +1168,16 @@ export async function setGoodsReceiptLineHidden(
   }
 
   const hiddenLineIds = [...hiddenSet];
+  const postedAt = previous?.postedAt ?? null;
+  const postedByUid = previous?.postedByUid ?? null;
+  const postedByName = previous?.postedByName ?? null;
   const receiveCheck = {
     lines: nextLines,
     byLineId: nextByLineId,
+    postedLines: nextPostedLines,
+    postedAt: previous?.postedAt ?? null,
+    postedByUid,
+    postedByName,
     hiddenLineIds,
     updatedAt: serverTimestamp(),
     updatedByUid: actor.uid,
@@ -1069,14 +1208,15 @@ export async function setGoodsReceiptLineHidden(
     throw new Error(`Item hidden, but warehouse / audit update failed: ${detail}`);
   }
 
-  return {
+  return toClientReceiveCheck({
     lines: nextLines,
     byLineId: nextByLineId,
+    postedLines: nextPostedLines,
+    postedAt,
+    postedByUid,
+    postedByName,
     hiddenLineIds,
-    updatedAt: new Date().toISOString(),
-    updatedByUid: actor.uid,
-    updatedByName: actor.displayName?.trim() || null,
-  };
+  }, actor);
 }
 
 export async function downloadGoodsReceiptDocument(
@@ -1089,6 +1229,34 @@ export async function downloadGoodsReceiptDocument(
     functions,
     'downloadGoodsReceiptDocument',
     { timeout: 60_000 },
+  );
+  try {
+    const result = await callable({ goodsReceiptId });
+    return result.data;
+  } catch (err) {
+    throw new Error(invoiceErrorMessage(err));
+  }
+}
+
+export type MarkGoodsReceiptReceivedResult = {
+  alreadyReceived: boolean;
+  status: string;
+  receivedDate: string | null;
+  opsReceivedAt: string | null;
+  opsReceivedByUid: string | null;
+  opsReceivedByName: string | null;
+};
+
+export async function markGoodsReceiptReceived(
+  goodsReceiptId: string,
+): Promise<MarkGoodsReceiptReceivedResult> {
+  const callable = httpsCallable<
+    { goodsReceiptId: string },
+    MarkGoodsReceiptReceivedResult
+  >(
+    functions,
+    'markGoodsReceiptReceivedFn',
+    { timeout: 120_000 },
   );
   try {
     const result = await callable({ goodsReceiptId });

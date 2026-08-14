@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { useOutletContext } from 'react-router-dom';
-import { AlertCircle, Check, ChevronDown, Eye, EyeOff, Package, Plus, X } from 'lucide-react';
+import { AlertCircle, Check, ChevronDown, Eye, EyeOff, Package, PackageCheck, Plus, X } from 'lucide-react';
 import { DocumentLineItemSpec } from '../../components/invoices/DocumentLineItemSpec';
 import { ProductNcSelect } from '../../components/catalog/ProductNcSelect';
 import { ProductPackageInfo } from '../../components/catalog/ProductPackageInfo';
@@ -8,13 +8,14 @@ import { PackageInfoIcon } from '../../components/catalog/PackageInfoIcon';
 import { useAuth } from '../../context/AuthContext';
 import { isFreightProductId, isFreightSku } from '../../constants/freightLines';
 import {
+  markGoodsReceiptReceived,
   receiveLineLocations,
   saveGoodsReceiptReceiveCheck,
   setGoodsReceiptLineHidden,
 } from '../../lib/admin-goods-receipts';
 import { resolveCatalogProductsForLineItems, catalogProductHasCompleteSingleBoxPackageInfo } from '../../lib/catalog';
-import { formatInvoiceDate, invoiceErrorMessage, moveFreightLinesToEnd } from '../../lib/invoices';
-import { isFullSuperAdmin } from '../../lib/staffAccess';
+import { formatInvoiceDate, formatInvoiceDateTime, invoiceErrorMessage, moveFreightLinesToEnd } from '../../lib/invoices';
+import { isFullSuperAdmin, isViewOnlySuperAdmin } from '../../lib/staffAccess';
 import {
   listWarehouseZoneRows,
   listWarehouseZones,
@@ -119,10 +120,10 @@ export const AdminGoodsReceiptDocumentPage: React.FC = () => {
   >();
 
   const [lineDrafts, setLineDrafts] = useState<Record<string, LineDraft>>({});
-  const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState('');
-  const [saveOk, setSaveOk] = useState(false);
+  const [saveOk, setSaveOk] = useState('');
   const [hidingLineId, setHidingLineId] = useState<string | null>(null);
+  const [busy, setBusy] = useState<'draft' | 'post' | null>(null);
 
   const [zones, setZones] = useState<WarehouseZoneDoc[]>([]);
   const [rowsByZone, setRowsByZone] = useState<Record<string, WarehouseZoneRowDoc[]>>({});
@@ -131,6 +132,8 @@ export const AdminGoodsReceiptDocumentPage: React.FC = () => {
   const [expandedPackageIds, setExpandedPackageIds] = useState<Set<string>>(() => new Set());
 
   const canHideItems = isFullSuperAdmin(user);
+  const canMarkReceived = Boolean(user) && !isViewOnlySuperAdmin(user);
+  const saving = Boolean(busy);
 
   const hiddenLineIds = useMemo(
     () => new Set(goodsReceipt?.receiveCheck?.hiddenLineIds ?? []),
@@ -224,7 +227,7 @@ export const AdminGoodsReceiptDocumentPage: React.FC = () => {
     }
     setLineDrafts(next);
     setSaveError('');
-    setSaveOk(false);
+    setSaveOk('');
   }, [goodsReceipt, defaultZoneId]);
 
   const dirty = useMemo(() => {
@@ -238,6 +241,21 @@ export const AdminGoodsReceiptDocumentPage: React.FC = () => {
       const saved = receiveLineLocations(savedLines[line.id]);
       if (parsed.empty && saved.length === 0) continue;
       if (!locationsEqual(parsed.locations, saved)) return true;
+    }
+    return false;
+  }, [goodsReceipt, lineDrafts, hiddenLineIds]);
+
+  const unposted = useMemo(() => {
+    if (!goodsReceipt) return false;
+    const postedLines = goodsReceipt.receiveCheck?.postedLines ?? {};
+    for (const line of goodsReceipt.lineItems) {
+      if (!line.id || hiddenLineIds.has(line.id)) continue;
+      const draft = lineDrafts[line.id] ?? { locations: [newLocationDraft()] };
+      const parsed = parseDraftLocations(draft);
+      if (!parsed.ok) return true;
+      const posted = receiveLineLocations(postedLines[line.id]);
+      if (parsed.empty && posted.length === 0) continue;
+      if (!locationsEqual(parsed.locations, posted)) return true;
     }
     return false;
   }, [goodsReceipt, lineDrafts, hiddenLineIds]);
@@ -335,7 +353,7 @@ export const AdminGoodsReceiptDocumentPage: React.FC = () => {
         },
       };
     });
-    setSaveOk(false);
+    setSaveOk('');
     setSaveError('');
   };
 
@@ -349,7 +367,7 @@ export const AdminGoodsReceiptDocumentPage: React.FC = () => {
         },
       };
     });
-    setSaveOk(false);
+    setSaveOk('');
     setSaveError('');
   };
 
@@ -364,29 +382,13 @@ export const AdminGoodsReceiptDocumentPage: React.FC = () => {
         },
       };
     });
-    setSaveOk(false);
+    setSaveOk('');
     setSaveError('');
   };
 
-  const handleSave = async () => {
-    if (!user?.uid) {
-      setSaveError('You must be signed in to save.');
-      return;
-    }
-
-    if (!packageDataReady) {
-      const sample = missingPackageLines
-        .slice(0, 3)
-        .map(row => row.name)
-        .join(', ');
-      setSaveError(
-        `Fill single box package information (weight + L × B × H) before saving${
-          sample ? ` — ${sample}${missingPackageLines.length > 3 ? '…' : ''}` : ''
-        }.`,
-      );
-      return;
-    }
-
+  const collectReceiveLines = (): Record<string, {
+    locations: Array<{ zoneId: string; zoneRowNumber: number; quantity: number }>;
+  }> | null => {
     const lines: Record<string, {
       locations: Array<{ zoneId: string; zoneRowNumber: number; quantity: number }>;
     }> = {};
@@ -397,38 +399,107 @@ export const AdminGoodsReceiptDocumentPage: React.FC = () => {
       const parsed = parseDraftLocations(draft);
       if (!parsed.ok) {
         setSaveError(`${parsed.error} (${line.name})`);
-        return;
+        return null;
       }
       if (parsed.empty) continue;
       if (parsed.locations.length === 0) {
         setSaveError(`Enter qty for at least one warehouse location on ${line.name}.`);
-        return;
+        return null;
       }
       lines[line.id] = { locations: parsed.locations };
     }
+    return lines;
+  };
 
-    setSaving(true);
+  const persistReceiveCheck = async (mode: 'draft' | 'post') => {
+    if (!user?.uid) {
+      setSaveError('You must be signed in to save.');
+      return null;
+    }
+    const lines = collectReceiveLines();
+    if (!lines) return null;
+    return saveGoodsReceiptReceiveCheck(
+      goodsReceiptId,
+      {
+        lines,
+        lineItems: goodsReceipt.lineItems,
+        previous: goodsReceipt.receiveCheck,
+        mode,
+      },
+      {
+        uid: user.uid,
+        displayName: user.displayName,
+      },
+    );
+  };
+
+  const alreadyReceived = Boolean(goodsReceipt.opsReceivedAt);
+
+  const handleSaveDraft = async () => {
+    setBusy('draft');
     setSaveError('');
-    setSaveOk(false);
+    setSaveOk('');
     try {
-      const receiveCheck = await saveGoodsReceiptReceiveCheck(
-        goodsReceiptId,
-        {
-          lines,
-          lineItems: goodsReceipt.lineItems,
-          previous: goodsReceipt.receiveCheck,
-        },
-        {
-          uid: user.uid,
-          displayName: user.displayName,
-        },
-      );
+      const receiveCheck = await persistReceiveCheck('draft');
+      if (!receiveCheck) return;
       setGoodsReceipt(prev => (prev ? { ...prev, receiveCheck } : prev));
-      setSaveOk(true);
+      setSaveOk('Draft saved');
     } catch (err) {
       setSaveError(invoiceErrorMessage(err));
     } finally {
-      setSaving(false);
+      setBusy(null);
+    }
+  };
+
+  const handleGoodsReceived = async () => {
+    if (!user || !canMarkReceived) return;
+
+    if (!packageDataReady) {
+      const sample = missingPackageLines
+        .slice(0, 3)
+        .map(row => row.name)
+        .join(', ');
+      setSaveError(
+        `Fill single box package information (weight + L × B × H) before marking goods received${
+          sample ? ` — ${sample}${missingPackageLines.length > 3 ? '…' : ''}` : ''
+        }.`,
+      );
+      return;
+    }
+
+    setBusy('post');
+    setSaveError('');
+    setSaveOk('');
+    try {
+      const receiveCheck = await persistReceiveCheck('post');
+      if (!receiveCheck) return;
+      let nextStatus = goodsReceipt.status;
+      let nextReceivedDate = goodsReceipt.receivedDate;
+      let nextOpsReceivedAt = goodsReceipt.opsReceivedAt;
+      let nextOpsReceivedByUid = goodsReceipt.opsReceivedByUid;
+      let nextOpsReceivedByName = goodsReceipt.opsReceivedByName;
+      if (!alreadyReceived) {
+        const result = await markGoodsReceiptReceived(goodsReceiptId);
+        nextStatus = result.status;
+        nextReceivedDate = result.receivedDate;
+        nextOpsReceivedAt = result.opsReceivedAt;
+        nextOpsReceivedByUid = result.opsReceivedByUid;
+        nextOpsReceivedByName = result.opsReceivedByName;
+      }
+      setGoodsReceipt(prev => (prev ? {
+        ...prev,
+        receiveCheck,
+        status: nextStatus,
+        receivedDate: nextReceivedDate,
+        opsReceivedAt: nextOpsReceivedAt,
+        opsReceivedByUid: nextOpsReceivedByUid,
+        opsReceivedByName: nextOpsReceivedByName,
+      } : prev));
+      setSaveOk('Goods received');
+    } catch (err) {
+      setSaveError(invoiceErrorMessage(err));
+    } finally {
+      setBusy(null);
     }
   };
 
@@ -460,8 +531,15 @@ export const AdminGoodsReceiptDocumentPage: React.FC = () => {
             <strong>{formatInvoiceDate(goodsReceipt.sailedDate)}</strong>
           </div>
           <div className="goods-receipt-detail__date goods-receipt-detail__date--received">
-            <div className="text-muted text-sm">Received date</div>
-            <strong>{formatInvoiceDate(goodsReceipt.receivedDate)}</strong>
+            <div className="text-muted text-sm">Received</div>
+            <strong>
+              {formatInvoiceDateTime(goodsReceipt.receivedDate, goodsReceipt.opsReceivedAt)}
+            </strong>
+            {alreadyReceived && goodsReceipt.opsReceivedByName && (
+              <span className="text-muted text-sm">
+                {goodsReceipt.opsReceivedByName}
+              </span>
+            )}
           </div>
         </div>
         {goodsReceipt.notes && (
@@ -477,44 +555,7 @@ export const AdminGoodsReceiptDocumentPage: React.FC = () => {
               ? ` · ${hiddenLineItems.length} hidden`
               : ''}
           </h3>
-          <span
-            className="goods-receipt-receive__save-wrap"
-            title={
-              !packageDataReady
-                ? `Fill package info (weight + L × B × H) for ${
-                    missingPackageLines.length === 1
-                      ? missingPackageLines[0].name
-                      : `${missingPackageLines.length} products`
-                  }`
-                : undefined
-            }
-          >
-            <button
-              type="button"
-              className="btn btn-primary btn-sm"
-              disabled={saving || !dirty || !packageDataReady}
-              onClick={() => void handleSave()}
-            >
-              {saving ? 'Saving…' : 'Save'}
-            </button>
-          </span>
         </div>
-
-        {saveError && (
-          <div className="products-inline-error panel glass mt-3" role="alert">
-            <AlertCircle size={16} />
-            <span>{saveError}</span>
-          </div>
-        )}
-        {saveOk && !dirty && (
-          <p className="goods-receipt-receive__saved text-sm mt-3 mb-0" role="status">
-            <Check size={14} aria-hidden />
-            Saved
-            {goodsReceipt.receiveCheck?.updatedByName
-              ? ` · ${goodsReceipt.receiveCheck.updatedByName}`
-              : ''}
-          </p>
-        )}
 
         {visibleLineItems.length ? (
           <ul className="invoice-detail-item-list mt-3">
@@ -791,6 +832,58 @@ export const AdminGoodsReceiptDocumentPage: React.FC = () => {
           </ul>
         )}
       </section>
+
+      {canMarkReceived && (
+        <div className="goods-receipt-detail__actions">
+          {saveError && (
+            <div className="products-inline-error panel glass goods-receipt-detail__actions-error" role="alert">
+              <AlertCircle size={16} />
+              <span>{saveError}</span>
+            </div>
+          )}
+          {saveOk && !dirty && (
+            <p className="goods-receipt-receive__saved text-sm mb-0 goods-receipt-detail__actions-status" role="status">
+              <Check size={14} aria-hidden />
+              {saveOk}
+              {goodsReceipt.receiveCheck?.updatedByName
+                ? ` · ${goodsReceipt.receiveCheck.updatedByName}`
+                : ''}
+            </p>
+          )}
+          <div className="goods-receipt-detail__actions-btns">
+            <button
+              type="button"
+              className="btn btn-secondary"
+              disabled={saving || !dirty}
+              onClick={() => void handleSaveDraft()}
+            >
+              {busy === 'draft' ? 'Saving…' : 'Save as draft'}
+            </button>
+            <span
+              className="goods-receipt-detail__actions-primary"
+              title={
+                !packageDataReady
+                  ? `Fill package info (weight + L × B × H) for ${
+                      missingPackageLines.length === 1
+                        ? missingPackageLines[0].name
+                        : `${missingPackageLines.length} products`
+                    }`
+                  : 'Posts warehouse stock and a product audit, then opens this draft bill in Zoho'
+              }
+            >
+              <button
+                type="button"
+                className="btn btn-primary"
+                disabled={saving || !packageDataReady || (alreadyReceived && !dirty && !unposted)}
+                onClick={() => void handleGoodsReceived()}
+              >
+                <PackageCheck size={16} aria-hidden />
+                {busy === 'post' ? 'Updating…' : 'Goods received'}
+              </button>
+            </span>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

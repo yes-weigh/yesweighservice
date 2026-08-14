@@ -129,6 +129,7 @@ import {
   reclassifyGoodsReceiptCategoriesFromCatalog,
   ensureGoodsReceiptPdf,
   handleZohoGoodsReceiptWebhook,
+  markGoodsReceiptReceived,
 } from './lib/goods-receipt-sync.js';
 import {
   syncOrgSalesOrdersToFirestore,
@@ -2519,7 +2520,7 @@ export const syncZohoPurchaseOrdersScheduled = onSchedule(
   },
 );
 
-/** Nightly draft purchase bills → goodsReceipts (4:30 AM IST, after POs). */
+/** Nightly purchase bills → goodsReceipts (4:30 AM IST, after POs). */
 export const syncZohoGoodsReceiptsScheduled = onSchedule(
   {
     schedule: '30 3 * * *',
@@ -3123,7 +3124,7 @@ export const reclassifyGoodsReceiptCategoriesFromCatalogFn = onCall(
   },
 );
 
-/** Download goods receipt (draft bill) PDF — staff / super admin. */
+/** Download goods receipt (purchase bill) PDF — staff / super admin. */
 export const downloadGoodsReceiptDocument = onCall(
   {
     region: 'asia-south1',
@@ -3146,6 +3147,46 @@ export const downloadGoodsReceiptDocument = onCall(
     } catch (err) {
       console.error('downloadGoodsReceiptDocument failed:', err);
       throw new HttpsError('internal', err?.message ?? 'Could not download goods receipt PDF.');
+    }
+  },
+);
+
+/** Ops: mark goods receipt received — stamp datetime and open the Zoho draft bill. */
+export const markGoodsReceiptReceivedFn = onCall(
+  {
+    region: 'asia-south1',
+    secrets: [zohoClientId, zohoClientSecret, zohoRefreshToken],
+    timeoutSeconds: 120,
+    memory: '512MiB',
+  },
+  async request => {
+    const uid = request.auth?.uid;
+    await requireActiveUser(uid, SYNC_ROLES);
+    const userSnap = await getFirestore().doc(`users/${uid}`).get();
+    const userData = userSnap.data() ?? {};
+    const goodsReceiptId = String(request.data?.goodsReceiptId ?? '').trim();
+    if (!goodsReceiptId) {
+      throw new HttpsError('invalid-argument', 'goodsReceiptId is required.');
+    }
+    try {
+      return await markGoodsReceiptReceived(
+        zohoSecrets(),
+        zohoOrganizationId.value(),
+        {
+          goodsReceiptId,
+          markedByUid: uid,
+          markedByName: String(
+            userData.displayName ?? userData.loginId ?? userData.email ?? 'YESWEIGH',
+          ).trim(),
+        },
+      );
+    } catch (err) {
+      if (err instanceof HttpsError) throw err;
+      const message = err?.message ?? 'Could not mark goods receipt as received.';
+      const code = /already|not found|required|draft|approv|open|authorized/i.test(message)
+        ? 'failed-precondition'
+        : 'internal';
+      throw new HttpsError(code, message);
     }
   },
 );

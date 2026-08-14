@@ -6,6 +6,7 @@ import { useCatalogPageHeader, usePageHeaderTitleMeta } from '../../context/Page
 import {
   fetchAdminGoodsReceiptDetail,
   goodsReceiptLocationLabel,
+  goodsReceiptStatusClass,
   goodsReceiptStatusLabel,
   type AdminGoodsReceiptDetail,
 } from '../../lib/admin-goods-receipts';
@@ -44,9 +45,8 @@ export const AdminGoodsReceiptDetailLayout: React.FC = () => {
 
   const titleMeta = useMemo(() => {
     if (!goodsReceipt) return null;
-    const statusKey = String(goodsReceipt.status || 'draft').toLowerCase().replace(/\s+/g, '_');
     return (
-      <span className={`invoices-status invoices-status--${statusKey}`}>
+      <span className={goodsReceiptStatusClass(goodsReceipt.status)}>
         {goodsReceiptStatusLabel(goodsReceipt.status)}
       </span>
     );

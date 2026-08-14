@@ -25,7 +25,7 @@ import {
   setCachedInvoiceList,
 } from './invoice-cache';
 import { enrichInvoiceDetailImages } from './invoiceLineItemImages';
-import { isFreightProductId, isFreightSku, freightOptionBySku, freightOptionByProductId } from '../constants/freightLines';
+import { isFreightProductId, isFreightSku, freightOptionFromLine } from '../constants/freightLines';
 
 const functions = getFunctions(app, 'asia-south1');
 
@@ -788,16 +788,32 @@ export function invoiceHasNoCourierFreightLine(invoice: InvoiceFreightLinesSourc
 
 /** First recognized courier freight SKU on the invoice (STFRC, DELFRC, …). */
 export function freightSkuFromInvoiceLines(
-  lines: Array<{ sku?: string | null; itemId?: string | null; id?: string | null }> | null | undefined,
+  lines: Array<{
+    sku?: string | null;
+    itemId?: string | null;
+    id?: string | null;
+    productId?: string | null;
+    item_id?: string | null;
+    name?: string | null;
+    hsn?: string | null;
+  }> | null | undefined,
 ): string | null {
   if (!Array.isArray(lines)) return null;
+  let generic: string | null = null;
   for (const line of lines) {
-    const bySku = freightOptionBySku(line?.sku);
-    if (bySku) return bySku.sku;
-    const byId = freightOptionByProductId(line?.itemId) ?? freightOptionByProductId(line?.id);
-    if (byId) return byId.sku;
+    const option = freightOptionFromLine(line);
+    if (option) return option.sku;
+    if (!generic && isFreightInvoiceLineItem({
+      name: String(line?.name ?? ''),
+      sku: line?.sku ?? null,
+      hsn: line?.hsn,
+      itemId: line?.itemId ?? line?.productId ?? line?.item_id,
+      id: line?.id,
+    })) {
+      generic = 'FRC';
+    }
   }
-  return null;
+  return generic;
 }
 
 /** Keep product/spare lines first; freight charge lines always last. */

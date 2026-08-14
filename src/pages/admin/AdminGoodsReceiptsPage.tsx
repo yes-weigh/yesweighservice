@@ -26,6 +26,7 @@ import {
   fetchAdminGoodsReceiptsPageDetailed,
   filterAdminGoodsReceipts,
   goodsReceiptLocationLabel,
+  goodsReceiptStatusClass,
   goodsReceiptStatusLabel,
   toGoodsReceiptDateKey,
   type AdminFirestoreGoodsReceipt,
@@ -73,11 +74,6 @@ const SORT_OPTIONS: Array<{ value: AdminGoodsReceiptSort; label: string }> = [
   { value: 'date', label: 'Bill date' },
   { value: 'syncedAt', label: 'Most recently updated' },
 ];
-
-function poStatusClass(status: string): string {
-  const key = status.toLowerCase().replace(/\s+/g, '_');
-  return `invoices-status invoices-status--${key}`;
-}
 
 function LocationBlockIcon({ value }: { value: GoodsReceiptLocationFilter }) {
   if (value === 'head_office') return <Building2 size={18} strokeWidth={2.2} />;
@@ -585,7 +581,7 @@ export const AdminGoodsReceiptsPage: React.FC = () => {
                           <td>{formatInvoiceDateTime(po.date, po.createdTime)}</td>
                           <td className="invoices-table__num">{formatInvoiceItemQuantity(po.itemQuantity)}</td>
                           <td>
-                            <span className={poStatusClass(po.status)}>
+                            <span className={goodsReceiptStatusClass(po.status)}>
                               {goodsReceiptStatusLabel(po.status)}
                             </span>
                           </td>
@@ -620,7 +616,7 @@ export const AdminGoodsReceiptsPage: React.FC = () => {
                             {' · '}
                             {goodsReceiptLocationLabel(po.inventorySite)}
                           </span>
-                          <span className={poStatusClass(po.status)}>
+                          <span className={goodsReceiptStatusClass(po.status)}>
                             {goodsReceiptStatusLabel(po.status)}
                           </span>
                         </span>

@@ -89,3 +89,28 @@ export function freightOptionByProductId(productId: string | null | undefined) {
   const value = String(productId ?? '').trim();
   return FREIGHT_LINE_OPTIONS.find(option => option.productId === value) ?? null;
 }
+
+type FreightLineLike = {
+  sku?: string | null;
+  itemId?: string | null;
+  id?: string | null;
+  productId?: string | null;
+  item_id?: string | null;
+  name?: string | null;
+};
+
+export function freightOptionFromLine(line: FreightLineLike | null | undefined) {
+  if (!line) return null;
+  const bySku = freightOptionBySku(line.sku);
+  if (bySku) return bySku;
+  const byId = freightOptionByProductId(line.itemId)
+    ?? freightOptionByProductId(line.productId)
+    ?? freightOptionByProductId(line.item_id)
+    ?? freightOptionByProductId(line.id);
+  if (byId) return byId;
+  const name = String(line.name ?? '').trim().toUpperCase();
+  if (!name) return null;
+  return FREIGHT_LINE_OPTIONS.find(option => (
+    name.includes(option.name.toUpperCase()) || name.includes(option.sku)
+  )) ?? null;
+}

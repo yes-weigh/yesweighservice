@@ -31779,7 +31779,8 @@ body:has(.confirm-inline-bar) .confirm-inline-bar {
 }
 
 .invoices-status--paid,
-.invoices-status--delivered {
+.invoices-status--delivered,
+.invoices-status--received {
   background: rgba(52, 211, 153, 0.14);
   color: #6ee7b7;
 }
@@ -33079,6 +33080,53 @@ button.invoice-detail-top__card {
   pointer-events: none;
 }
 
+.goods-receipt-detail__actions {
+  position: sticky;
+  bottom: 0;
+  z-index: 4;
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 0.55rem;
+  margin-top: 0.85rem;
+  padding: 0.75rem 0 calc(0.4rem + env(safe-area-inset-bottom));
+  background: linear-gradient(to top, rgba(15, 23, 42, 0.97) 72%, rgba(15, 23, 42, 0.88) 100%);
+  border-top: 1px solid var(--border-glass);
+}
+
+.goods-receipt-detail__actions-btns {
+  display: flex;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.goods-receipt-detail__actions-primary {
+  display: inline-flex;
+}
+
+.goods-receipt-detail__actions-primary:has(button:disabled) {
+  cursor: not-allowed;
+}
+
+.goods-receipt-detail__actions-primary:has(button:disabled) button {
+  pointer-events: none;
+}
+
+.goods-receipt-detail__actions-btns .btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+}
+
+.goods-receipt-detail__actions-error {
+  margin: 0;
+}
+
+.goods-receipt-detail__actions-status {
+  margin: 0;
+}
+
 .goods-receipt-detail {
   display: flex;
   flex-direction: column;
@@ -33095,6 +33143,13 @@ button.invoice-detail-top__card {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 0.75rem 1rem;
+}
+
+.goods-receipt-detail__date {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.15rem;
 }
 
 .goods-receipt-detail__date--po strong {

@@ -1,7 +1,8 @@
 /**
- * Zoho Inventory draft purchase bills → Firestore mirror (goods receipts).
+ * Zoho Inventory purchase bills → Firestore mirror (goods receipts).
  * Pattern mirrors purchase-order-sync / invoice-sync; docs live at goodsReceipts/{id}.
- * Only draft bills are kept — open/paid/void bills are dropped from the mirror.
+ * New bills are pulled as drafts (Scheduled). After ops marks received, the bill is
+ * approved to Open in Zoho and kept on the mirror (open/paid). Void/cancelled drop.
  */
 import { getApp } from 'firebase-admin/app';
 import { getFirestore, FieldValue, Timestamp } from 'firebase-admin/firestore';
@@ -76,12 +77,20 @@ function pdfPath(poId) {
   return `goodsreceipts/${poId}.pdf`;
 }
 
-async function zohoJsonRequest(accessToken, orgId, path) {
+async function zohoJsonRequest(accessToken, orgId, path, { method = 'GET', body } = {}) {
   const url = new URL(`${ZOHO_API_BASE}${path}`);
   if (!url.searchParams.has('organization_id')) {
     url.searchParams.set('organization_id', orgId);
   }
-  const res = await fetch(url.toString(), { headers: authHeaders(accessToken, orgId) });
+  const init = {
+    method,
+    headers: {
+      ...authHeaders(accessToken, orgId),
+      ...(body !== undefined ? { 'Content-Type': 'application/json' } : {}),
+    },
+  };
+  if (body !== undefined) init.body = JSON.stringify(body);
+  const res = await fetch(url.toString(), init);
   await recordZohoApiResponse(res, { operation: path, source: 'goods-receipt-sync' });
   const text = await res.text();
   let payload = null;
@@ -149,7 +158,7 @@ async function fetchBillsListPage(accessToken, orgId, page, options = {}) {
   url.searchParams.set('organization_id', orgId);
   url.searchParams.set('page', String(page));
   url.searchParams.set('per_page', '200');
-  // Goods receipt list is draft purchase bills only.
+  // Nightly/org pull only discovers drafts. Open/paid bills stay if already mirrored.
   url.searchParams.set('status', options.status ?? 'draft');
   url.searchParams.set('sort_column', options.sortColumn ?? 'last_modified_time');
   url.searchParams.set('sort_order', options.sortOrder ?? 'D');
@@ -175,6 +184,63 @@ async function fetchBillRaw(accessToken, orgId, billId) {
 
 function isDraftBillStatus(status) {
   return String(status ?? '').trim().toLowerCase() === 'draft';
+}
+
+function normalizeBillStatus(status) {
+  return String(status ?? '').trim().toLowerCase().replace(/\s+/g, '_');
+}
+
+/** Bills ops has already received — keep on the goods-receipt mirror. */
+function isKeptBillStatus(status) {
+  const key = normalizeBillStatus(status);
+  return key === 'draft'
+    || key === 'open'
+    || key === 'paid'
+    || key === 'partially_paid'
+    || key === 'overdue';
+}
+
+function alreadyOpenMessage(message) {
+  return /already|approv|open/i.test(String(message ?? ''));
+}
+
+function toIstDateKey(date) {
+  return new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'Asia/Kolkata',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).format(date);
+}
+
+function isoFromUnknown(value) {
+  if (!value) return null;
+  if (typeof value === 'string' && value.trim()) return value.trim();
+  if (typeof value === 'object' && typeof value.toDate === 'function') {
+    const date = value.toDate();
+    return Number.isNaN(date.getTime()) ? null : date.toISOString();
+  }
+  return null;
+}
+
+async function approveBillInZoho(accessToken, orgId, billId) {
+  try {
+    await zohoJsonRequest(accessToken, orgId, `/bills/${billId}/approve`, {
+      method: 'POST',
+      body: {},
+    });
+  } catch (err) {
+    if (alreadyOpenMessage(err?.message)) return;
+    try {
+      await zohoJsonRequest(accessToken, orgId, `/bills/${billId}/status/open`, {
+        method: 'POST',
+        body: {},
+      });
+    } catch (fallbackErr) {
+      if (alreadyOpenMessage(fallbackErr?.message)) return;
+      throw err;
+    }
+  }
 }
 
 async function removeGoodsReceiptDoc(billId) {
@@ -439,15 +505,24 @@ function mapGoodsReceipt(raw) {
   };
 }
 
-async function upsertGoodsReceiptFromRaw(raw, options = {}) {
+async function upsertGoodsReceiptFromRaw(raw) {
   const mapped = mapGoodsReceipt(raw);
   if (!mapped.id) throw new Error('Missing bill_id.');
   mapped.poDate = await resolveGoodsReceiptPoDate(mapped, raw);
 
-  // Feature stores draft purchase bills only.
+  const existingSnap = await poCollection().doc(mapped.id).get();
+  const existing = existingSnap.exists ? (existingSnap.data() || {}) : null;
+
+  // New bills: drafts only. Already-mirrored bills stay after ops opens them in Zoho.
   if (!isDraftBillStatus(mapped.status)) {
-    await removeGoodsReceiptDoc(mapped.id);
-    return { id: mapped.id, goodsReceiptCategory: null, dropped: true };
+    if (!existing || !isKeptBillStatus(mapped.status)) {
+      await removeGoodsReceiptDoc(mapped.id);
+      return { id: mapped.id, goodsReceiptCategory: null, dropped: true };
+    }
+  }
+
+  if (!mapped.receivedDate && existing?.receivedDate) {
+    mapped.receivedDate = existing.receivedDate;
   }
 
   const catalog = await loadCatalogMeta(mapped.lineItems.map(line => line.itemId).filter(Boolean));
@@ -851,7 +926,7 @@ export async function syncOrgGoodsReceiptsToFirestore(secrets, orgId, options = 
     : quotaReserved
       ? `Scheduled sync stopped to preserve ${Math.round((quotaReserveRatio || SCHEDULED_API_QUOTA_RESERVE_RATIO) * 100)}% of today's Zoho API quota for daytime use. Resume with Pull now or wait for the next 3 AM run.`
       : completed
-        ? 'All draft purchase bills are synced.'
+        ? 'All draft purchase bills are synced. Received bills already on the list are kept.'
         : 'Goods receipt sync paused.';
 
   console.log(
@@ -1061,7 +1136,7 @@ export async function deleteGoodsReceiptFromFirestore(billId) {
   await removeGoodsReceiptDoc(billId);
 }
 
-/** Pull one draft purchase bill from Zoho into Firestore (webhook / single refresh). */
+/** Pull one purchase bill from Zoho into Firestore (webhook / single refresh). */
 export async function mirrorGoodsReceiptFromZoho(secrets, orgId, billId) {
   const id = String(billId ?? '').trim();
   if (!id) throw new Error('billId is required.');
@@ -1070,6 +1145,71 @@ export async function mirrorGoodsReceiptFromZoho(secrets, orgId, billId) {
   const raw = await fetchBillRaw(accessToken, organizationId, id);
   if (!raw) throw new Error('Goods receipt not found in Zoho.');
   return upsertGoodsReceiptFromRaw(raw);
+}
+
+/**
+ * Ops: record received datetime and approve the Zoho draft bill (Draft → Open).
+ */
+export async function markGoodsReceiptReceived(secrets, orgId, {
+  goodsReceiptId,
+  markedByUid,
+  markedByName,
+}) {
+  const id = String(goodsReceiptId ?? '').trim();
+  if (!id) throw new Error('goodsReceiptId is required.');
+
+  const ref = poCollection().doc(id);
+  const snap = await ref.get();
+  if (!snap.exists) throw new Error('Goods receipt not found.');
+  const data = snap.data() || {};
+
+  const existingReceivedAt = isoFromUnknown(data.opsReceivedAt);
+  if (existingReceivedAt) {
+    return {
+      alreadyReceived: true,
+      status: String(data.status ?? 'open'),
+      receivedDate: data.receivedDate ? String(data.receivedDate) : null,
+      opsReceivedAt: existingReceivedAt,
+      opsReceivedByUid: data.opsReceivedByUid != null ? String(data.opsReceivedByUid) : null,
+      opsReceivedByName: data.opsReceivedByName != null ? String(data.opsReceivedByName) : null,
+    };
+  }
+
+  const accessToken = await getAccessToken(secrets);
+  const organizationId = await resolveOrganizationId(accessToken, orgId);
+  const currentStatus = normalizeBillStatus(data.status);
+  if (currentStatus === 'draft' || !currentStatus) {
+    await approveBillInZoho(accessToken, organizationId, id);
+  }
+
+  const receivedAt = new Date();
+  const opsReceivedAt = receivedAt.toISOString();
+  const receivedDate = toIstDateKey(receivedAt);
+
+  const raw = await fetchBillRaw(accessToken, organizationId, id);
+  if (!raw) throw new Error('Goods receipt not found in Zoho.');
+  const upserted = await upsertGoodsReceiptFromRaw(raw);
+  if (upserted?.dropped) {
+    throw new Error('Could not keep this bill after opening it in Zoho.');
+  }
+
+  const status = String(raw.status ?? 'open');
+  await ref.set({
+    status,
+    receivedDate,
+    opsReceivedAt,
+    opsReceivedByUid: markedByUid ?? null,
+    opsReceivedByName: markedByName ?? null,
+  }, { merge: true });
+
+  return {
+    alreadyReceived: false,
+    status,
+    receivedDate,
+    opsReceivedAt,
+    opsReceivedByUid: markedByUid ?? null,
+    opsReceivedByName: markedByName ?? null,
+  };
 }
 
 /**

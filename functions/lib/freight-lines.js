@@ -67,13 +67,23 @@ export function isFreightOrderLine(line = {}) {
 
 export function freightSkuFromInvoiceLines(lineItems) {
   const items = Array.isArray(lineItems) ? lineItems : [];
+  let generic = null;
   for (const item of items) {
     const sku = String(item?.sku ?? '').trim().toUpperCase();
     if (isFreightSku(sku)) return sku;
-    const productId = String(item?.itemId ?? item?.productId ?? item?.id ?? '').trim();
-    if (!isFreightProductId(productId)) continue;
-    const option = FREIGHT_LINE_OPTIONS.find(row => String(row.productId) === productId);
-    if (option?.sku) return String(option.sku).toUpperCase();
+    const productId = String(item?.itemId ?? item?.productId ?? item?.item_id ?? item?.id ?? '').trim();
+    if (isFreightProductId(productId)) {
+      const option = FREIGHT_LINE_OPTIONS.find(row => String(row.productId) === productId);
+      if (option?.sku) return String(option.sku).toUpperCase();
+    }
+    const name = String(item?.name ?? '').trim().toUpperCase();
+    if (name) {
+      const byName = FREIGHT_LINE_OPTIONS.find(row => (
+        name.includes(String(row.name).toUpperCase()) || name.includes(String(row.sku).toUpperCase())
+      ));
+      if (byName?.sku) return String(byName.sku).toUpperCase();
+    }
+    if (!generic && (sku.includes('FREIGHT') || name.includes('FREIGHT'))) generic = 'FRC';
   }
-  return null;
+  return generic;
 }

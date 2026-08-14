@@ -46,6 +46,7 @@ import {
   normalizeSalespersonIdFilter,
 } from './salespersonScope';
 import { resolveZohoCustomerDisplayContact } from './zohoCustomerContact';
+import { invoiceAllowsLogisticsFulfillment } from './invoiceListStatus';
 import { salesOrderDataIsCustomerPickup } from './orderFreight';
 import type {
   DealerInvoiceDetail,
@@ -231,7 +232,8 @@ export function mapAdminInvoiceDoc(
     freightSku: String(data.freightSku ?? '').trim().toUpperCase()
       || freightSkuFromInvoiceLines(
         Array.isArray(data.lineItems) ? data.lineItems : null,
-      ),
+      )
+      || null,
     customerPickup: mapInvoiceCustomerPickupField(data.customerPickup, data.customerPickupMarkedAt),
     customerPickupMarkedAt: pickupMarkedAt(data.customerPickupMarkedAt),
     manualDelivery: mapInvoiceManualDelivery(data.manualDelivery, data.manualDeliveredAt),
@@ -399,7 +401,7 @@ export async function fetchAdminInvoicesPage(
     dateEnd,
     salespersonIds,
   }, listCollection);
-  return snap.docs.map(mapAdminInvoiceDoc);
+  return overlayFreightSkuFromInvoiceDocs(snap.docs.map(mapAdminInvoiceDoc));
 }
 
 /**
@@ -634,7 +636,7 @@ export async function fetchAdminInvoicesPageResult(options: {
     salespersonIds: options.salespersonIds,
   }, listCollection);
   return {
-    rows: snap.docs.map(mapAdminInvoiceDoc),
+    rows: await overlayFreightSkuFromInvoiceDocs(snap.docs.map(mapAdminInvoiceDoc)),
     lastDoc: snap.docs[snap.docs.length - 1] ?? null,
     hasMore: snap.size >= pageSize,
   };
@@ -707,8 +709,9 @@ export async function fetchAllAdminInvoicesInRange(options: {
   const withEway = listCollection === 'invoiceSummaries'
     ? await overlayEwayBillFromInvoiceDocs(withPickup)
     : withPickup;
+  const withFreight = await overlayFreightSkuFromInvoiceDocs(withEway);
 
-  return { rows: withEway, truncated };
+  return { rows: withFreight, truncated };
 }
 
 async function overlayCustomerPickupFromInvoiceDocs(
@@ -785,6 +788,44 @@ function invoiceListRowNeedsEwayOverlay(row: AdminFirestoreInvoice): boolean {
     || row.ewayBill?.requiredBecause
     || row.ewayBill?.status === 'missing',
   );
+}
+
+/** Summaries omit freightSku until dual-write; pull it from the hot invoice for partner tiles. */
+const FREIGHT_SKU_OVERLAY_MAX = 300;
+
+async function overlayFreightSkuFromInvoiceDocs(
+  rows: AdminFirestoreInvoice[],
+): Promise<AdminFirestoreInvoice[]> {
+  const targets = rows.filter(row => (
+    invoiceAllowsLogisticsFulfillment(row)
+    && !String(row.freightSku ?? '').trim()
+    && Boolean(row.customerId)
+  )).slice(0, FREIGHT_SKU_OVERLAY_MAX);
+  if (!targets.length) return rows;
+
+  const skuById = new Map<string, string>();
+  for (let i = 0; i < targets.length; i += 8) {
+    const batch = targets.slice(i, i + 8);
+    const snaps = await Promise.all(
+      batch.map(row => getDoc(doc(db, 'zohoCustomers', row.customerId, 'invoices', row.id))),
+    );
+    snaps.forEach((snap, index) => {
+      if (!snap.exists()) return;
+      const data = snap.data() ?? {};
+      const sku = String(data.freightSku ?? '').trim().toUpperCase()
+        || freightSkuFromInvoiceLines(
+          Array.isArray(data.lineItems) ? data.lineItems : null,
+        );
+      if (sku) skuById.set(batch[index].id, sku);
+    });
+  }
+
+  if (!skuById.size) return rows;
+  return rows.map(row => {
+    const freightSku = skuById.get(row.id);
+    if (!freightSku) return row;
+    return { ...row, freightSku };
+  });
 }
 
 /** Summaries omit ewayBill until dual-write; pull it from the hot invoice for list chips. */
@@ -940,7 +981,7 @@ async function prefixQueryAdminInvoices(
       limit(rowLimit),
     ),
   );
-  return snap.docs.map(mapAdminInvoiceDoc);
+  return overlayFreightSkuFromInvoiceDocs(snap.docs.map(mapAdminInvoiceDoc));
 }
 
 /**
@@ -1878,7 +1919,7 @@ export async function fetchAdminInvoicesForCustomers(options: {
 
   merged.sort((a, b) => compareInvoiceSortKey(a, b, sort));
 
-  return merged;
+  return overlayFreightSkuFromInvoiceDocs(merged);
 }
 
 export interface AdminCustomerLocation {
@@ -1980,7 +2021,8 @@ export function mapAdminInvoiceDetail(
     freightSku: String(data.freightSku ?? '').trim().toUpperCase()
       || freightSkuFromInvoiceLines(
         Array.isArray(data.lineItems) ? data.lineItems : null,
-      ),
+      )
+      || null,
     salesOrderId: data.salesOrderId ? String(data.salesOrderId) : null,
     salesOrderNumber: data.salesOrderNumber ? String(data.salesOrderNumber) : null,
     subtotal: Number(data.subtotal ?? 0),

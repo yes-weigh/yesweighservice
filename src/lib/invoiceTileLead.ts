@@ -24,7 +24,13 @@ type InvoiceTileLeadInvoice = {
   freightSku?: string | null;
   customerPickup?: { markedAt?: string | null } | null;
   customerPickupMarkedAt?: string | null;
-  lineItems?: Array<{ sku?: string | null; itemId?: string | null; id?: string | null }> | null;
+  lineItems?: Array<{
+    sku?: string | null;
+    itemId?: string | null;
+    id?: string | null;
+    name?: string | null;
+    hsn?: string | null;
+  }> | null;
 };
 
 /**
