@@ -21581,11 +21581,33 @@ body:has(.confirm-inline-bar) .confirm-inline-bar {
 }
 
 .logistics-shipment__tracked {
+  display: flex;
+  align-items: baseline;
+  gap: 0.35rem;
   margin: 0.15rem 0 0;
   font-size: 0.6875rem;
   line-height: 1.3;
   color: #94a3b8;
   white-space: nowrap;
+  overflow: hidden;
+  min-width: 0;
+}
+
+.logistics-shipment__track-activity {
+  flex-shrink: 0;
+  color: #86efac;
+  font-size: 0.8125rem;
+  font-weight: 700;
+  line-height: 1.2;
+}
+
+.logistics-shipment__tracked-sep {
+  flex-shrink: 0;
+  color: #64748b;
+}
+
+.logistics-shipment__tracked-time {
+  min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
 }
@@ -31785,6 +31807,31 @@ body:has(.confirm-inline-bar) .confirm-inline-bar {
 
 .invoices-mobile-row:active {
   background: rgba(255, 255, 255, 0.03);
+}
+
+.invoices-mobile-row__lead {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.22rem;
+  flex-shrink: 0;
+  align-self: flex-start;
+  padding-top: 0.12rem;
+  min-width: 2.85rem;
+}
+
+.invoices-mobile-row__lead .logistics-shipment__eway {
+  white-space: normal;
+  text-align: center;
+  line-height: 1.15;
+  max-width: 3.2rem;
+}
+
+.invoices-table__status-stack {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.28rem;
 }
 
 .invoices-mobile-row__icon {

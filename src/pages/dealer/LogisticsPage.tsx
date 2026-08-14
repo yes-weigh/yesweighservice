@@ -233,8 +233,15 @@ function formatDeliveredDateTime(booking: LogisticsBooking): string {
 }
 
 /** Last courier track sync label for list tiles (not tracked / failed / time). */
+function latestTrackActivity(booking: LogisticsBooking): string {
+  const history = booking.courierTrack?.history;
+  const latest = Array.isArray(history) && history.length > 0 ? history[0] : null;
+  return String(latest?.activity || booking.courierTrack?.status || '').trim();
+}
+
 function lastTrackedLabel(booking: LogisticsBooking): {
   text: string;
+  activity: string | null;
   tone: 'ok' | 'failed' | 'missing';
 } | null {
   const trackedPartner = (
@@ -246,17 +253,21 @@ function lastTrackedLabel(booking: LogisticsBooking): {
   if (!trackedPartner) return null;
   const track = booking.courierTrack;
   const fetchedAt = formatLogisticsDateTime(track?.fetchedAt || booking.trackFetchedAt);
+  const activity = latestTrackActivity(booking);
   if (!track && !booking.trackFetchedAt) {
-    return { text: 'Not tracked', tone: 'missing' };
+    return { text: 'Not tracked', activity: null, tone: 'missing' };
   }
   if (track && track.ok === false) {
     // Failed track is shown as Booked — no extra track line.
     return null;
   }
   if (fetchedAt) {
-    return { text: `Last tracked ${fetchedAt}`, tone: 'ok' };
+    return { text: `Last tracked ${fetchedAt}`, activity: activity || null, tone: 'ok' };
   }
-  return { text: 'Not tracked', tone: 'missing' };
+  if (activity) {
+    return { text: '', activity, tone: 'ok' };
+  }
+  return { text: 'Not tracked', activity: null, tone: 'missing' };
 }
 
 function cardToneForStatus(booking: LogisticsBooking): CardTone {
@@ -1385,7 +1396,19 @@ export const LogisticsPage: React.FC = () => {
                               <p
                                 className={`logistics-shipment__tracked logistics-shipment__tracked--${tracked.tone}`}
                               >
-                                {tracked.text}
+                                {tracked.activity ? (
+                                  <span className="logistics-shipment__track-activity">
+                                    {tracked.activity}
+                                  </span>
+                                ) : null}
+                                {tracked.activity && tracked.text ? (
+                                  <span className="logistics-shipment__tracked-sep" aria-hidden>
+                                    ·
+                                  </span>
+                                ) : null}
+                                {tracked.text ? (
+                                  <span className="logistics-shipment__tracked-time">{tracked.text}</span>
+                                ) : null}
                               </p>
                             )}
 

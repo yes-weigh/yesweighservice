@@ -21,7 +21,7 @@ import {
 } from '../../lib/admin-invoices';
 import { fetchCatalog } from '../../lib/catalog';
 import { pinFromText } from '../../lib/delhiveryQuote';
-import type { InvoiceEwayBillResult } from '../../lib/invoiceEwayBill';
+import { ensureInvoiceEwayBill, type InvoiceEwayBillResult } from '../../lib/invoiceEwayBill';
 import {
   formatInvoiceDate,
   invoiceErrorMessage,
@@ -42,7 +42,6 @@ import { loadLogisticsSettings } from '../../lib/logisticsSettings';
 import { resolveInvoiceShipFromSiteOrDefault, shipFromSiteLabel } from '../../lib/logisticsShipFrom';
 import {
   canMarkInvoiceCustomerPickup,
-  invoiceNeedsCustomerPickupEwayVehicle,
   isInvoiceCustomerPickup,
   rememberInvoiceCustomerPickup,
   updateCustomerPickupEwayPartB,
@@ -54,6 +53,11 @@ import {
 } from '../../lib/invoiceManualDelivery';
 import { base64ToUint8Array } from '../../lib/pdfViewer';
 import { isInternalOpsUser } from '../../lib/staffAccess';
+import {
+  bookingInvoiceEwayRow,
+  clubbedNeedsEwayBill,
+  invoiceNeedsEwayBillCard,
+} from '../../constants/ewayBill';
 import type { CatalogProduct } from '../../types/catalog';
 import type { LogisticsPartnerId } from '../../constants/logisticsPartners';
 import type { DealerInvoiceDetail } from '../../types/invoices';
@@ -334,22 +338,27 @@ export const AdminInvoiceDetailLayout: React.FC = () => {
     || customerPickupActive
     || manualDeliveredActive,
   );
-  const showPickupEwayCard = Boolean(
-    customerPickupActive
-    && invoice
-    && (
-      invoice.ewayBill?.status === 'generated'
-      || Boolean(invoice.ewayBill?.ewaybillNumber?.trim())
-      || invoice.ewayBill?.required === true
-      || invoiceNeedsCustomerPickupEwayVehicle(invoice)
-    ),
+  const bookingEwayRow = bookingInvoiceEwayRow(existingBooking, invoiceId);
+  const showEwayCard = Boolean(
+    invoice
+    && invoiceNeedsEwayBillCard({
+      invoice,
+      booking: existingBooking,
+      customerPickup: customerPickupActive,
+    }),
+  );
+  const ewayBillNumberOnCard = invoice?.ewayBill?.ewaybillNumber?.trim()
+    || bookingEwayRow?.ewayBillNumber?.trim()
+    || '';
+  const ewayBillReady = Boolean(
+    invoice?.ewayBill?.status === 'generated'
+    || ewayBillNumberOnCard,
   );
   const topCardCount = 1
     + (showOrderList ? 1 : 0)
     + (showCourierCard ? 1 : 0)
-    + (showMarkDelivered ? 1 : 0)
     + (showCustomerPickup ? 1 : 0)
-    + (showPickupEwayCard ? 1 : 0);
+    + (showEwayCard ? 1 : 0);
   const actionsLayout = topCardCount >= 4
     ? 'quad'
     : topCardCount === 3
@@ -358,7 +367,7 @@ export const AdminInvoiceDetailLayout: React.FC = () => {
         ? 'pair'
         : 'single';
 
-  const showPickupEwayFromResult = useCallback((result: InvoiceEwayBillResult) => {
+  const showEwayFromResult = useCallback((result: InvoiceEwayBillResult) => {
     if (!result.required) {
       setEwayDocError(result.message || 'E-way bill is not required for this invoice.');
       return;
@@ -386,49 +395,89 @@ export const AdminInvoiceDetailLayout: React.FC = () => {
     });
   }, []);
 
-  const openPickupEwayBillDocument = useCallback(async () => {
+  const openInvoiceEwayBillDocument = useCallback(async () => {
     if (!invoice || !customerId || !invoiceId) return;
     setEwayDocOpening(true);
     setEwayDocError('');
     try {
-      const pickupVehicle = String(invoice.customerPickup?.vehicleNumber ?? '').trim();
-      if (!pickupVehicle) {
-        setEwayDocError(
-          'Vehicle number is required to generate e-way bill Part B for customer pickup.',
-        );
+      if (customerPickupActive) {
+        const pickupVehicle = String(invoice.customerPickup?.vehicleNumber ?? '').trim();
+        if (!pickupVehicle) {
+          setEwayDocError(
+            'Vehicle number is required to generate e-way bill Part B for customer pickup.',
+          );
+          return;
+        }
+
+        const pickupResult = await updateCustomerPickupEwayPartB({
+          customerId,
+          invoiceId,
+          vehicleNumber: pickupVehicle,
+        });
+        if (pickupResult.customerPickup) {
+          setInvoice(prev => prev ? {
+            ...prev,
+            customerPickup: pickupResult.customerPickup,
+            ewayBill: pickupResult.eway?.status
+              ? {
+                ...(prev.ewayBill ?? {}),
+                status: pickupResult.eway.status,
+                ewaybillNumber: pickupResult.eway.ewaybillNumber ?? prev.ewayBill?.ewaybillNumber ?? null,
+                required: pickupResult.eway.required,
+              }
+              : prev.ewayBill,
+          } : prev);
+        }
+        if (pickupResult.eway) {
+          showEwayFromResult(pickupResult.eway);
+        } else {
+          setEwayDocError('E-way bill is not ready yet.');
+        }
         return;
       }
 
-      const pickupResult = await updateCustomerPickupEwayPartB({
+      const result = await ensureInvoiceEwayBill({
         customerId,
         invoiceId,
-        vehicleNumber: pickupVehicle,
+        partnerId: existingBooking?.partnerId || null,
+        lrNumber: existingBooking?.consignmentNo?.trim() || existingBooking?.trackingNo?.trim() || null,
+        bookingId: existingBooking?.id || null,
+        invoiceTotalInr: invoice.total ?? null,
+        autoGenerate: Boolean(user && isInternalOpsUser(user) && canCreateLogisticsBooking(user)),
+        forceRequired: Boolean(
+          existingBooking
+          && clubbedNeedsEwayBill(existingBooking.invoices ?? existingBooking.invoiceValueInr ?? 0),
+        ),
       });
-      if (pickupResult.customerPickup) {
-        setInvoice(prev => prev ? {
-          ...prev,
-          customerPickup: pickupResult.customerPickup,
-          ewayBill: pickupResult.eway?.status
-            ? {
-              ...(prev.ewayBill ?? {}),
-              status: pickupResult.eway.status,
-              ewaybillNumber: pickupResult.eway.ewaybillNumber ?? prev.ewayBill?.ewaybillNumber ?? null,
-              required: pickupResult.eway.required,
-            }
-            : prev.ewayBill,
-        } : prev);
-      }
-      if (pickupResult.eway) {
-        showPickupEwayFromResult(pickupResult.eway);
-      } else {
-        setEwayDocError('E-way bill is not ready yet.');
-      }
+      setInvoice(prev => prev ? {
+        ...prev,
+        ewayBill: {
+          ...(prev.ewayBill ?? {}),
+          status: result.status,
+          ewaybillNumber: result.ewaybillNumber ?? prev.ewayBill?.ewaybillNumber ?? null,
+          required: result.required,
+          requiredBecause: existingBooking && clubbedNeedsEwayBill(
+            existingBooking.invoices ?? existingBooking.invoiceValueInr ?? 0,
+          )
+            ? 'clubbed_lr'
+            : (prev.ewayBill?.requiredBecause ?? 'invoice_total'),
+        },
+      } : prev);
+      showEwayFromResult(result);
     } catch (err) {
       setEwayDocError(err instanceof Error ? err.message : 'Could not open e-way bill.');
     } finally {
       setEwayDocOpening(false);
     }
-  }, [customerId, invoice, invoiceId, showPickupEwayFromResult]);
+  }, [
+    customerId,
+    customerPickupActive,
+    existingBooking,
+    invoice,
+    invoiceId,
+    showEwayFromResult,
+    user,
+  ]);
 
   return (
     <div className={`page-content fade-in invoice-detail-page ${isPdfView ? 'invoice-detail-page--pdf-view' : ''}`}>
@@ -530,19 +579,6 @@ export const AdminInvoiceDetailLayout: React.FC = () => {
                 ) : courierEntry ? (
                   <BookCourierEntryButton entry={courierEntry} variant="card" />
                 ) : null}
-                {showMarkDelivered ? (
-                  <button
-                    type="button"
-                    className="invoice-detail-top__card invoice-detail-top__card--green"
-                    title="Mark this invoice delivered — no logistics booking required"
-                    onClick={() => setDeliveredOpen(true)}
-                  >
-                    <span className="invoice-detail-top__card-icon">
-                      <CheckCircle2 size={28} strokeWidth={1.75} aria-hidden />
-                    </span>
-                    <span className="invoice-detail-top__card-label">Mark as delivered</span>
-                  </button>
-                ) : null}
                 {showCustomerPickup ? (
                   <button
                     type="button"
@@ -556,19 +592,17 @@ export const AdminInvoiceDetailLayout: React.FC = () => {
                     <span className="invoice-detail-top__card-label">Customer pickup</span>
                   </button>
                 ) : null}
-                {showPickupEwayCard ? (
+                {showEwayCard ? (
                   <button
                     type="button"
                     className={[
                       'invoice-detail-top__card',
                       'invoice-detail-top__card--purple',
-                      invoice.ewayBill?.status === 'generated' || invoice.ewayBill?.ewaybillNumber
-                        ? 'is-active'
-                        : '',
+                      ewayBillReady ? 'is-active' : '',
                       ewayDocOpening ? 'is-disabled' : '',
                     ].filter(Boolean).join(' ')}
                     title="View or download e-way bill"
-                    onClick={() => { void openPickupEwayBillDocument(); }}
+                    onClick={() => { void openInvoiceEwayBillDocument(); }}
                     disabled={ewayDocOpening}
                   >
                     <span className="invoice-detail-top__card-icon" aria-hidden>
@@ -578,8 +612,8 @@ export const AdminInvoiceDetailLayout: React.FC = () => {
                     <span className="invoice-detail-top__card-sub">
                       {ewayDocOpening
                         ? 'Opening…'
-                        : (invoice.ewayBill?.ewaybillNumber
-                          ? `EWB ${invoice.ewayBill.ewaybillNumber}`
+                        : (ewayBillNumberOnCard
+                          ? `EWB ${ewayBillNumberOnCard}`
                           : 'View or download e-way bill')}
                     </span>
                   </button>

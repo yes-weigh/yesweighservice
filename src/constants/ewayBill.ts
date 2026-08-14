@@ -63,6 +63,64 @@ export function bookingLinkedInvoiceIds(booking: {
   return [...new Set(ids.map(id => String(id || '').trim()).filter(Boolean))];
 }
 
+export function bookingInvoiceEwayRow(
+  booking: {
+    invoiceId?: string | null;
+    ewayBillNumber?: string | null;
+    ewayBillStatus?: string | null;
+    invoices?: ReadonlyArray<{
+      invoiceId?: string | null;
+      ewayBillNumber?: string | null;
+      ewayBillStatus?: string | null;
+      ewayRequired?: boolean;
+    }> | null;
+  } | null | undefined,
+  invoiceId: string,
+): { ewayBillNumber: string | null; ewayBillStatus: string | null; ewayRequired: boolean } | null {
+  const id = String(invoiceId || '').trim();
+  if (!id || !booking) return null;
+  const row = (booking.invoices ?? []).find(item => String(item.invoiceId || '').trim() === id);
+  if (row) {
+    return {
+      ewayBillNumber: row.ewayBillNumber ?? null,
+      ewayBillStatus: row.ewayBillStatus ?? null,
+      ewayRequired: row.ewayRequired === true,
+    };
+  }
+  if (String(booking.invoiceId || '').trim() !== id) return null;
+  return {
+    ewayBillNumber: booking.ewayBillNumber ?? null,
+    ewayBillStatus: booking.ewayBillStatus ?? null,
+    ewayRequired: bookingNeedsEwayBill(booking),
+  };
+}
+
+/** Show the e-way bill card on an invoice when pickup, clubbed LR, or a stored e-way requires it. */
+export function invoiceNeedsEwayBillCard(input: {
+  invoice?: {
+    total?: unknown;
+    subtotal?: unknown;
+    taxTotal?: unknown;
+    ewayBill?: {
+      required?: boolean;
+      requiredBecause?: string | null;
+      status?: string | null;
+      ewaybillNumber?: string | null;
+    } | null;
+  } | null;
+  booking?: Parameters<typeof bookingNeedsEwayBill>[0] | null;
+  customerPickup?: boolean;
+}): boolean {
+  const invoice = input.invoice;
+  if (!invoice) return false;
+  const existing = invoice.ewayBill;
+  if (existing?.status === 'generated' || String(existing?.ewaybillNumber || '').trim()) return true;
+  if (existing?.required === true || existing?.requiredBecause === 'clubbed_lr') return true;
+  if (input.booking && bookingNeedsEwayBill(input.booking, invoiceTotalInclGst(invoice))) return true;
+  if (input.customerPickup) return isEwayBillRequired(invoiceTotalInclGst(invoice));
+  return false;
+}
+
 export function bookingNeedsEwayBill(
   booking: {
     invoiceId?: string | null;
@@ -109,6 +167,56 @@ export function ewayBillListChip(
     return { tone: 'cancelled', label: 'EWB cancelled' };
   }
   return { tone: 'missing', label: 'No e-way bill' };
+}
+
+/** EWB chip on invoice list tiles (clubbed LR, stored e-way, or pickup over threshold). */
+export function invoiceListEwayChip(
+  invoice: {
+    id?: string;
+    total?: unknown;
+    subtotal?: unknown;
+    taxTotal?: unknown;
+    ewayBill?: {
+      required?: boolean;
+      requiredBecause?: string | null;
+      status?: string | null;
+      ewaybillNumber?: string | null;
+    } | null;
+    customerPickup?: { markedAt?: string | null } | null;
+  } | null | undefined,
+  booking?: Parameters<typeof ewayBillListChip>[0] | null,
+): EwayBillListChip | null {
+  const invoiceId = String(invoice?.id || '').trim();
+  const total = invoiceTotalInclGst(invoice);
+  const row = booking && invoiceId ? bookingInvoiceEwayRow(booking, invoiceId) : null;
+  if (row?.ewayBillStatus === 'generated' || String(row?.ewayBillNumber || '').trim()) {
+    return { tone: 'done', label: 'EWB' };
+  }
+  if (row?.ewayBillStatus === 'cancelled') {
+    return { tone: 'cancelled', label: 'EWB cancelled' };
+  }
+  if (booking) {
+    const fromBooking = ewayBillListChip(booking, { invoiceTotalInclGst: total });
+    if (fromBooking) return fromBooking;
+  }
+  const existing = invoice?.ewayBill;
+  if (existing?.status === 'generated' || String(existing?.ewaybillNumber || '').trim()) {
+    return { tone: 'done', label: 'EWB' };
+  }
+  if (existing?.status === 'cancelled') {
+    return { tone: 'cancelled', label: 'EWB cancelled' };
+  }
+  if (
+    existing?.required === true
+    || existing?.requiredBecause === 'clubbed_lr'
+    || existing?.status === 'missing'
+  ) {
+    return { tone: 'missing', label: 'No e-way bill' };
+  }
+  if (String(invoice?.customerPickup?.markedAt || '').trim() && isEwayBillRequired(total)) {
+    return { tone: 'missing', label: 'No e-way bill' };
+  }
+  return null;
 }
 
 export function ewayBillRequiredLabel(totalInr: unknown): string {

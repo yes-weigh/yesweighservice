@@ -91,6 +91,12 @@ export interface AdminFirestoreInvoice {
   customerPickupMarkedAt?: string | null;
   manualDelivery?: InvoiceManualDelivery | null;
   manualDeliveredAt?: string | null;
+  ewayBill?: {
+    required?: boolean;
+    requiredBecause?: 'invoice_total' | 'clubbed_lr' | null;
+    status?: string | null;
+    ewaybillNumber?: string | null;
+  } | null;
 }
 
 function pickupMarkedAt(value: unknown): string | null {
@@ -156,6 +162,23 @@ function mapInvoiceCustomerPickupField(
   };
 }
 
+function mapInvoiceListEwayBill(raw: unknown): AdminFirestoreInvoice['ewayBill'] {
+  if (!raw || typeof raw !== 'object') return null;
+  const data = raw as Record<string, unknown>;
+  const requiredBecause = data.requiredBecause === 'clubbed_lr' || data.requiredBecause === 'invoice_total'
+    ? data.requiredBecause
+    : null;
+  const ewaybillNumber = data.ewaybillNumber ? String(data.ewaybillNumber).trim() : '';
+  const status = data.status ? String(data.status).trim() : '';
+  if (!ewaybillNumber && !status && data.required !== true && !requiredBecause) return null;
+  return {
+    required: data.required === true,
+    requiredBecause,
+    status: status || null,
+    ewaybillNumber: ewaybillNumber || null,
+  };
+}
+
 function timestampToIso(value: unknown): string | null {
   if (!value) return null;
   if (typeof value === 'string') return value;
@@ -206,6 +229,7 @@ export function mapAdminInvoiceDoc(
     customerPickupMarkedAt: pickupMarkedAt(data.customerPickupMarkedAt),
     manualDelivery: mapInvoiceManualDelivery(data.manualDelivery, data.manualDeliveredAt),
     manualDeliveredAt: pickupMarkedAt(data.manualDeliveredAt),
+    ewayBill: mapInvoiceListEwayBill(data.ewayBill),
   };
 }
 

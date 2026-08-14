@@ -64,6 +64,7 @@ import {
 import { readRememberedInvoiceCustomerPickupIds } from '../../lib/invoiceCustomerPickup';
 import { readRememberedInvoiceManualDeliveryIds } from '../../lib/invoiceManualDelivery';
 import { findLogisticsBookingsForInvoices } from '../../lib/logisticsBookings';
+import { invoiceListEwayChip, type EwayBillListChip } from '../../constants/ewayBill';
 import { resolveDealerKamName } from '../../lib/dealerKamDisplay';
 import { isInternalOpsUser } from '../../lib/staffAccess';
 import { useDealerStaffById } from '../../lib/useDealerStaffById';
@@ -187,6 +188,20 @@ function invoiceRowStatusDisplay(
     label: invoiceListStatusLabel(key),
     className: invoiceStatusClass(tone),
   };
+}
+
+function InvoiceListEwayChip({ chip }: { chip: EwayBillListChip | null }) {
+  if (!chip) return null;
+  return (
+    <span
+      className={[
+        'logistics-shipment__eway',
+        chip.tone === 'done' ? 'is-done' : chip.tone === 'cancelled' ? 'is-cancelled' : 'is-missing',
+      ].join(' ')}
+    >
+      {chip.label}
+    </span>
+  );
 }
 
 function AdminFilterSheet({
@@ -1293,6 +1308,9 @@ export const AdminInvoicesPage: React.FC = () => {
                       invoice,
                       logisticsByInvoiceId.get(invoice.id),
                     );
+                  const ewayChip = isAggregateRow
+                    ? null
+                    : invoiceListEwayChip(invoice, logisticsByInvoiceId.get(invoice.id));
                   return (
                     <tr
                       key={`${invoice.customerId}-${invoice.id}`}
@@ -1367,7 +1385,10 @@ export const AdminInvoicesPage: React.FC = () => {
                             {invoice.aggregateInvoiceCount} invoices
                           </span>
                         ) : (
-                          <span className={rowStatus.className}>{rowStatus.label}</span>
+                          <span className="invoices-table__status-stack">
+                            <span className={rowStatus.className}>{rowStatus.label}</span>
+                            <InvoiceListEwayChip chip={ewayChip} />
+                          </span>
                         )}
                       </td>
                     </tr>
@@ -1393,6 +1414,9 @@ export const AdminInvoicesPage: React.FC = () => {
                   invoice,
                   logisticsByInvoiceId.get(invoice.id),
                 );
+              const ewayChip = isAggregateRow
+                ? null
+                : invoiceListEwayChip(invoice, logisticsByInvoiceId.get(invoice.id));
               return (
                 <button
                   key={`${invoice.customerId}-${invoice.id}`}
@@ -1406,7 +1430,10 @@ export const AdminInvoicesPage: React.FC = () => {
                       : `View invoice ${invoice.invoiceNumber || invoice.id}`
                   }
                 >
-                  <InvoiceCategoryIcon category={invoice.invoiceCategory} />
+                  <span className="invoices-mobile-row__lead">
+                    <InvoiceCategoryIcon category={invoice.invoiceCategory} />
+                    <InvoiceListEwayChip chip={ewayChip} />
+                  </span>
                   <span className="invoices-mobile-row__body">
                     <span className="invoices-mobile-row__invoice">
                       <span className="invoices-mobile-row__title">
