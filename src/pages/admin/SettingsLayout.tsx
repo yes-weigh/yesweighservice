@@ -4,6 +4,7 @@ import {
   Box,
   CalendarRange,
   GraduationCap,
+  Hash,
   Layers,
   Package,
   Printer,
@@ -71,6 +72,7 @@ export const SettingsLayout: React.FC = () => {
       { id: 'store-room', label: 'Store room', path: `${home}/settings/store-room`, icon: <Box size={16} /> },
       { id: 'audit-cycles', label: 'Audit', path: `${home}/settings/audit-cycles`, icon: <CalendarRange size={16} /> },
       { id: 'product', label: 'Product settings', path: `${home}/settings/product`, icon: <Package size={16} /> },
+      { id: 'serial-numbers', label: 'Serial numbers', path: `${home}/settings/serial-numbers`, icon: <Hash size={16} /> },
     ];
     if (showSkuCorrection) {
       ops.push({
@@ -105,8 +107,8 @@ export const SettingsLayout: React.FC = () => {
 
   const subtitle = isSuperAdmin
     ? (showSkuCorrection
-      ? 'Account profile, HR, trainings, warehouse zones, store room layout, audit, product settings, SKU correction, logistics, and label printing.'
-      : 'Account profile, HR, trainings, warehouse zones, store room layout, audit, product settings, logistics, and label printing.')
+      ? 'Account profile, HR, trainings, warehouse zones, store room layout, audit, product settings, serial numbers, SKU correction, logistics, and label printing.'
+      : 'Account profile, HR, trainings, warehouse zones, store room layout, audit, product settings, serial numbers, logistics, and label printing.')
     : [
       'Account profile',
       showHr ? 'HR' : null,

@@ -229,6 +229,7 @@ service cloud.firestore {
         && (
         bootstrapOpen()
         || (docId == 'productSettings' && isFullSuperAdmin())
+        || (docId == 'serialNumberAllotment' && isFullSuperAdmin())
         || (docId == 'logisticsSettings' && isFullSuperAdmin())
         || (docId == 'logisticsCourierRates' && isFullSuperAdmin())
         || (docId == 'priceLevels' && (isFullSuperAdmin() || staffHasDealersView()))

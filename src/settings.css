@@ -7064,3 +7064,171 @@
     top: 0;
   }
 }
+
+.settings-serial-allotment__total {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 0.1rem;
+  flex: 0 0 auto;
+}
+
+.settings-serial-allotment__total span {
+  font-size: 0.6875rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: #94a3b8;
+}
+
+.settings-serial-allotment__total strong {
+  font-size: 1.25rem;
+  font-weight: 800;
+  line-height: 1.1;
+  color: #86efac;
+}
+
+.settings-serial-allotment__form {
+  align-items: flex-end;
+}
+
+.settings-serial-allotment__missing {
+  min-height: 2.6rem;
+  width: 100%;
+  resize: vertical;
+  border-radius: 8px;
+  border: 1px solid rgba(148, 163, 184, 0.28);
+  background: rgba(15, 23, 42, 0.55);
+  color: inherit;
+  padding: 0.45rem 0.55rem;
+  font: inherit;
+  line-height: 1.35;
+}
+
+.settings-serial-allotment__missing:focus {
+  outline: none;
+  border-color: rgba(245, 130, 32, 0.65);
+}
+
+.settings-serial-allotment__count {
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+  min-width: 7.5rem;
+}
+
+.settings-serial-allotment__count span {
+  font-size: 0.6875rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: #94a3b8;
+}
+
+.settings-serial-allotment__count strong {
+  font-size: 1.05rem;
+  font-weight: 800;
+  line-height: 1.15;
+  color: #f8fafc;
+}
+
+.settings-serial-allotment__count strong.is-error {
+  color: #fca5a5;
+}
+
+.settings-serial-allotment__count small {
+  font-size: 0.6875rem;
+  color: #94a3b8;
+}
+
+.settings-serial-allotment__ignored {
+  margin: -0.35rem 0 0.75rem;
+}
+
+.settings-serial-allotment__list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.45rem;
+}
+
+.settings-serial-allotment__row {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto auto;
+  align-items: center;
+  gap: 0.65rem;
+  padding: 0.7rem 0.8rem;
+  border-radius: 12px;
+  border: 1px solid rgba(148, 163, 184, 0.16);
+  background: rgba(15, 23, 42, 0.35);
+}
+
+.settings-serial-allotment__icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.85rem;
+  height: 1.85rem;
+  border-radius: 8px;
+  background: rgba(245, 130, 32, 0.14);
+  color: #fdba74;
+}
+
+.settings-serial-allotment__copy {
+  display: flex;
+  flex-direction: column;
+  gap: 0.12rem;
+  min-width: 0;
+}
+
+.settings-serial-allotment__copy strong {
+  font-size: 0.9rem;
+}
+
+.settings-serial-allotment__missing-list {
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: #fbbf24;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.settings-serial-allotment__row-count {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 0.05rem;
+}
+
+.settings-serial-allotment__row-count strong {
+  font-size: 1rem;
+  font-weight: 800;
+  color: #86efac;
+}
+
+.settings-serial-allotment__row-count span {
+  font-size: 0.6875rem;
+  font-weight: 600;
+  color: #94a3b8;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.settings-serial-allotment__meta {
+  margin: 0.75rem 0 0;
+}
+
+@media (max-width: 720px) {
+  .settings-serial-allotment__row {
+    grid-template-columns: auto minmax(0, 1fr) auto;
+  }
+
+  .settings-serial-allotment__row-count {
+    grid-column: 2;
+    align-items: flex-start;
+  }
+}
+
