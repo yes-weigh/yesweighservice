@@ -4,7 +4,7 @@ import type { CatalogProductAuditSnapshot } from '../../types/catalog-product-au
 
 /**
  * Quantity for catalog grid/list stock pills.
- * Uses last audited physical qty only — never Zoho book stock.
+ * Audited = last physical adjusted with Zoho (snapshot.physicalQtyAtAudit).
  * Returns 0 when the product has never been audited.
  */
 export function catalogGridAuditedStockQty(
@@ -90,7 +90,6 @@ export function resolveAdjustedAuditDisplay(input: {
   const lockedDiff = Number.isFinite(baselineDifference)
     ? baselineDifference
     : Number(snapshot.physicalQtyAtAudit ?? 0) - Number(snapshot.zohoQtyAtAudit ?? 0);
-  const displayDifference = lockedDiff;
   const displayAuditedQty = currentZohoQty + lockedDiff;
   const lastPhysicalAt = snapshot.lastPhysicalAuditedAt ?? snapshot.lastAuditedAt;
   const lastPhysicalBy = snapshot.lastPhysicalAuditedByName ?? snapshot.lastAuditedByName;
@@ -98,7 +97,7 @@ export function resolveAdjustedAuditDisplay(input: {
   return {
     hasAuditSnapshot: true,
     displayAuditedQty,
-    displayDifference,
+    displayDifference: lockedDiff,
     physicalQtyAtAudit: displayAuditedQty,
     zohoQtyAtAudit: snapshot.zohoQtyAtAudit,
     lastAuditedAt: lastPhysicalAt,

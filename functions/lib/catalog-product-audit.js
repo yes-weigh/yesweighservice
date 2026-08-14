@@ -400,8 +400,8 @@ async function rebuildProductAuditSnapshot(productRef) {
 }
 
 /**
- * When Zoho stock changes on sync, keep locked Diff and move Audited with Zoho.
- * Audited = nextZoho + baselineDifference. Site HO/Cochin qty stay at last physical count.
+ * When Zoho stock changes on sync, keep locked Diff from last physical count.
+ * Audited = nextZoho + baselineDifference. Site HO/Cochin stay at last physical.
  */
 export function buildZohoSyncAuditAdjustment(existingSnapshot, previousZohoQty, nextZohoQty, auditedAt) {
   if (!existingSnapshot || existingSnapshot.baselineDifference == null) return null;
@@ -707,13 +707,9 @@ export async function recordCatalogProductAudit(
     ? Math.max(0, priorAtT.cochinQty + cochinInboundQty)
     : liveCochinQty;
   const physicalQty = headOfficeQty + cochinQty;
-  const zohoBase = (hasLaterLogs && priorAtT)
+  const zohoQtyAtAudit = (hasLaterLogs && priorAtT)
     ? priorAtT.zohoQtyAtAudit
-    : liveZohoQty;
-  const addInboundToZoho = (hasLaterLogs && priorAtT)
-    ? incomingZohoQty
-    : (options.inboundAlreadyInZoho ? 0 : incomingZohoQty);
-  const zohoQtyAtAudit = zohoBase + addInboundToZoho;
+    : (hasLaterLogs ? 0 : liveZohoQty);
   const baselineDifference = physicalQty - zohoQtyAtAudit;
   const mode = useHistoricalSites ? priorAtT.mode : headOffice.mode;
   const rawPhysicalQty = useHistoricalSites

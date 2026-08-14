@@ -106,10 +106,11 @@ export function buildAuditCycleProductRows(
     const snap = product.auditSnapshot!;
     const auditedQty = siteAuditedQty(product, cycle.site);
     const zohoAtAudit = Number(snap.zohoQtyAtAudit ?? 0);
-    // Prefer locked baseline Diff when it matches full physical; else site qty − Zoho@audit.
-    const fullPhysical = Number(snap.physicalQtyAtAudit ?? auditedQty);
+    // Prefer locked Diff when this site holds the last warehouse total.
+    const lastWarehouseQty = Number(snap.headOfficeQtyAtAudit ?? 0)
+      + Number(snap.cochinQtyAtAudit ?? 0);
     const auditDiff = Number.isFinite(Number(snap.baselineDifference))
-      && fullPhysical === auditedQty
+      && lastWarehouseQty === auditedQty
       ? Number(snap.baselineDifference)
       : auditedQty - zohoAtAudit;
     const rate = Number(product.rate ?? 0);
