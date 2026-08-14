@@ -128,16 +128,28 @@ export function formatEwayBillPortalError(message) {
   return text;
 }
 
+function isCancelledEwayStatus(status) {
+  return /cancel/.test(String(status ?? '').trim().toLowerCase());
+}
+
 function isGeneratedEwayStatus(status) {
   const value = String(status ?? '').trim().toLowerCase();
   if (!value || value === 'yet_to_generate' || value === 'not_generated') return false;
-  if (value === 'cancelled' || value === 'excluded') return false;
-  return true;
+  if (isCancelledEwayStatus(value) || value === 'excluded') return false;
+  return value.includes('generated') || value === 'valid' || value === 'active';
+}
+
+function recordLooksCancelled(record) {
+  if (!record || typeof record !== 'object') return false;
+  if (record.is_cancelled === true || record.cancelled === true) return true;
+  return isCancelledEwayStatus(
+    record.ewaybill_status ?? record.eway_bill_status ?? record.status,
+  );
 }
 
 function normalizeMappedEwayStatus(status) {
   const value = String(status ?? '').trim().toLowerCase();
-  if (value === 'cancelled') return 'cancelled';
+  if (isCancelledEwayStatus(value)) return 'cancelled';
   if (!value || value === 'yet_to_generate' || value === 'not_generated') return 'missing';
   if (value.includes('generated')) return 'generated';
   return value;
@@ -293,7 +305,8 @@ function collectEwayBillIds(invoice) {
 
 function isActiveGeneratedRecord(record) {
   if (!record || typeof record !== 'object') return false;
-  const status = String(record.ewaybill_status ?? record.status ?? '').toLowerCase();
+  if (recordLooksCancelled(record)) return false;
+  const status = String(record.ewaybill_status ?? record.eway_bill_status ?? record.status ?? '').toLowerCase();
   return isGeneratedEwayStatus(status);
 }
 
@@ -601,7 +614,7 @@ export function mapZohoEwayBillRecord(raw) {
   return {
     zohoEwaybillId: raw.ewaybill_id ? String(raw.ewaybill_id) : null,
     ewaybillNumber: number || null,
-    status: normalizeMappedEwayStatus(raw.ewaybill_status),
+    status: normalizeMappedEwayStatus(raw.ewaybill_status ?? raw.eway_bill_status ?? raw.status),
     generatedAt: raw.ewaybill_date ? String(raw.ewaybill_date) : null,
     expiryDate: raw.ewaybill_expiry_date ? String(raw.ewaybill_expiry_date) : null,
     transporterGstin: normalizeGstin(raw.transporter_registration_id) || null,

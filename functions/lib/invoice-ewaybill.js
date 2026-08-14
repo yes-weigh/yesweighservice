@@ -578,6 +578,7 @@ export async function ensureInvoiceEwayBillForCustomerPickup(secrets, orgId, inp
   const partnerId = PICKUP_PARTNER_ID;
 
   let remote = await findZohoEwayBillForInvoice(accessToken, organizationId, invoiceId);
+  if (mapZohoEwayBillRecord(remote)?.status === 'cancelled') remote = null;
   if (!remote) {
     const { transporterId } = await resolveTransporterForPartner(
       accessToken,
@@ -601,6 +602,13 @@ export async function ensureInvoiceEwayBillForCustomerPickup(secrets, orgId, inp
   if (!mapped?.zohoEwaybillId) {
     throw new Error('Zoho returned an invalid e-way bill record.');
   }
+  if (mapped.status === 'cancelled') {
+    throw new Error(
+      'The latest e-way bill on this invoice is cancelled. '
+      + 'Generate a new e-way bill in Zoho with vehicle '
+      + `${vehicleNumber} (Part B), then tap E way bill here again.`,
+    );
+  }
 
   const { fromPlace, fromState } = ewayVehicleOriginFromAddress(shippingContext.shipFromAddress);
   try {
@@ -613,8 +621,7 @@ export async function ensureInvoiceEwayBillForCustomerPickup(secrets, orgId, inp
     });
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
-    if (!/already|exist|duplicate|API access/i.test(message)) throw err;
-    // Generated e-way can still be downloaded if GST Part B API is unavailable.
+    if (!/already|exist|duplicate|API access|cancel/i.test(message)) throw err;
   }
 
   const refreshed = await findZohoEwayBillForInvoice(accessToken, organizationId, invoiceId);
@@ -630,6 +637,24 @@ export async function ensureInvoiceEwayBillForCustomerPickup(secrets, orgId, inp
     buffer = printed.buffer;
     mimeType = printed.mimeType;
     extension = printed.extension;
+    const printText = mimeType.includes('html') || mimeType.includes('text')
+      ? buffer.toString('utf8')
+      : '';
+    if (/e-?way bill status[\s\S]{0,120}cancell/i.test(printText)) {
+      await persistEwayBill(customerId, invoiceId, {
+        ...finalMapped,
+        required: true,
+        status: 'cancelled',
+        pdfStoragePath: null,
+        partnerId,
+        error: 'GST copy is cancelled.',
+      }, null);
+      throw new Error(
+        'Zoho returned a cancelled e-way bill copy. '
+        + `Generate a new e-way bill in Zoho with vehicle ${vehicleNumber} (Part B), `
+        + 'then tap E way bill here again.',
+      );
+    }
     pdfStoragePath = await uploadPdfToStorage(
       ewayBillPdfPath(customerId, invoiceId, extension),
       buffer,

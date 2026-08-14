@@ -2177,7 +2177,7 @@ export const updateCustomerPickupEwayPartBFn = onCall(
     } catch (err) {
       if (err instanceof HttpsError) throw err;
       const message = formatEwayBillPortalError(err?.message ?? 'Could not update e-way bill Part B.');
-      const code = /not found|missing|required|Ship-from|transporter|pincode|API access|GST|e-way|IRN|dispatch/i.test(message)
+      const code = /not found|missing|required|Ship-from|transporter|pincode|API access|GST|e-way|IRN|dispatch|cancel/i.test(message)
         ? 'failed-precondition'
         : 'internal';
       throw new HttpsError(code, message);
