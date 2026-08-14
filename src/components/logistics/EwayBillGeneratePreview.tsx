@@ -13,6 +13,7 @@ export type EwayBillGeneratePreview = {
   supplyType: string;
   transactionType: string;
   documentDate: string;
+  invoiceCount?: number;
 };
 
 function PreviewRow({ label, value }: { label: string; value: React.ReactNode }) {
@@ -53,9 +54,12 @@ export const EwayBillGeneratePreviewBody: React.FC<BodyProps> = ({
         </p>
       )}
       <dl className="logistics-eway-generate__preview">
-        <PreviewRow label="Invoice" value={preview.invoiceNumber || '—'} />
         <PreviewRow
-          label="Invoice total (incl. GST)"
+          label={(preview.invoiceCount ?? 1) > 1 ? 'Invoices' : 'Invoice'}
+          value={preview.invoiceNumber || '—'}
+        />
+        <PreviewRow
+          label={(preview.invoiceCount ?? 1) > 1 ? 'Clubbed total (incl. GST)' : 'Invoice total (incl. GST)'}
           value={formatCurrency(preview.invoiceTotalInr)}
         />
         <PreviewRow label="Consignee" value={preview.consigneeName || '—'} />

@@ -10,7 +10,6 @@ import {
 import {
   ensureZohoDispatchFromAddress,
   ewayVehicleOriginFromAddress,
-  resolvePortalEwayDistanceKm,
 } from './eway-shipping-context.js';
 
 function formatZohoApiError(payload, fallback) {
@@ -114,6 +113,12 @@ function isMissingZohoEndpointError(message) {
   );
 }
 
+function isGstDistanceMismatchError(message) {
+  return /distance between the pincodes|too high or low|invalid approximate distance/i.test(
+    String(message ?? ''),
+  );
+}
+
 export function formatEwayBillPortalError(message) {
   const text = String(message ?? '').trim();
   if (/api access is not available/i.test(text)) {
@@ -169,37 +174,14 @@ async function fetchZohoEwayBillRecord(accessToken, orgId, ewaybillId) {
   return payload?.ewaybill ?? null;
 }
 
-async function resolveEwayDistanceKm(accessToken, orgId, invoice, options = {}) {
+function resolveEwayDistanceKm(options = {}) {
   const explicit = Number(options.explicitDistance);
   if (Number.isFinite(explicit) && explicit > 0) {
     return Math.round(explicit);
   }
-
-  const portalDistance = await resolvePortalEwayDistanceKm({
-    shipFromAddress: options.shipFromAddress,
-    deliveryAddress: options.deliveryAddress,
-    zohoShippingAddress: invoice?.shipping_address ?? invoice?.shippingAddress,
-  });
-  if (Number.isFinite(portalDistance) && portalDistance > 0) {
-    return Math.round(portalDistance);
-  }
-
-  const ewaybillId = invoice?.ewaybill_id ? String(invoice.ewaybill_id) : '';
-  if (ewaybillId) {
-    try {
-      const stub = await fetchZohoEwayBillRecord(accessToken, orgId, ewaybillId);
-      const fromStub = Number(stub?.distance);
-      if (Number.isFinite(fromStub) && fromStub > 0) {
-        return Math.round(fromStub);
-      }
-    } catch {
-      // Fall through to actionable error below.
-    }
-  }
-
-  throw new Error(
-    'Distance (km) could not be calculated. Confirm ship-from and delivery addresses on this shipment include valid 6-digit pincodes, then retry.',
-  );
+  // GST NIC auto-calculates pin-to-pin when distance is 0. A haversine estimate
+  // is often outside NIC's ±10% band ("distance between the pincodes is too high or low").
+  return 0;
 }
 
 /**
@@ -441,10 +423,8 @@ export async function createZohoEwayBillForInvoice(accessToken, orgId, input) {
     );
   }
 
-  const distance = await resolveEwayDistanceKm(accessToken, orgId, invoice, {
+  const distance = resolveEwayDistanceKm({
     explicitDistance: input.distance,
-    shipFromAddress,
-    deliveryAddress,
   });
   const shipToAddressId = invoice.shipping_address?.address_id
     ?? invoice.shipping_address_id
@@ -468,25 +448,38 @@ export async function createZohoEwayBillForInvoice(accessToken, orgId, input) {
     ...vehicleFields,
   };
 
-  try {
+  const postEway = async (distanceValue) => {
+    const payloadBody = { ...body, distance: distanceValue };
     if (hasIrn) {
       const fromEinvoice = await createEwayBillFromEinvoice(accessToken, orgId, invoice, {
         transporter_id: String(input.transporterId),
         transportation_mode: 'road',
-        distance,
+        distance: distanceValue,
         ...(lr ? { transporter_document_number: lr.slice(0, 30) } : {}),
         ...vehicleFields,
       });
       if (fromEinvoice) return fromEinvoice;
     }
-
     const payload = await zohoJson(accessToken, orgId, '/ewaybills', {
       method: 'POST',
-      body,
+      body: payloadBody,
     });
     return payload?.ewaybill ?? null;
+  };
+
+  try {
+    return await postEway(distance);
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
+    if (isGstDistanceMismatchError(message) && distance !== 0) {
+      try {
+        return await postEway(0);
+      } catch (retryErr) {
+        throw new Error(formatEwayBillPortalError(
+          retryErr instanceof Error ? retryErr.message : String(retryErr),
+        ));
+      }
+    }
     if (isIrnDispatchLockedError(message) && body.dispatch_from_address_id) {
       const { dispatch_from_address_id: _ignored, ...withoutDispatch } = body;
       try {

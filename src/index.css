@@ -22465,6 +22465,34 @@ body:has(.confirm-inline-bar) .confirm-inline-bar {
   margin: 0;
 }
 
+.logistics-eway-clubbed-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 0.55rem;
+}
+
+.logistics-eway-clubbed-list li {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  padding: 0.55rem 0.65rem;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 10px;
+}
+
+.logistics-eway-clubbed-list li div {
+  display: grid;
+  gap: 0.15rem;
+  min-width: 0;
+}
+
+.logistics-eway-clubbed-list li strong {
+  font-size: 0.9rem;
+}
+
 .book-courier__eway-panel {
   padding: 0;
 }

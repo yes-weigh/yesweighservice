@@ -104,9 +104,14 @@ import {
   invoiceDocumentToBlob,
 } from '../../lib/invoices';
 import { ensureInvoiceEwayBill, cancelInvoiceEwayBill, type InvoiceEwayBillResult } from '../../lib/invoiceEwayBill';
-import { clubbedNeedsEwayBill, isEwayBillRequired, type EwayBillCancelReason } from '../../constants/ewayBill';
+import {
+  bookingNeedsEwayBill,
+  clubbedEwayBillRequiredLabel,
+  clubbedNeedsEwayBill,
+  type EwayBillCancelReason,
+} from '../../constants/ewayBill';
 import { EwayBillCancelDialog } from './EwayBillCancelDialog';
-import { EwayBillGenerateDialog } from './EwayBillGenerateDialog';
+import { EwayBillGenerateDialog, EwayClubbedBillsDialog, type EwayClubbedBillRow } from './EwayBillGenerateDialog';
 import { ewayBillDocumentDateLabel } from './EwayBillGeneratePreview';
 import { deliveryPartnerTabForLogisticsPartner } from '../../constants/deliveryPartnerTabs';
 import { base64ToUint8Array } from '../../lib/pdfViewer';
@@ -136,6 +141,35 @@ const LOGISTICS_DOC_KIND_ORDER: Record<string, number> = {
   eway_bill: 40,
   pod: 50,
 };
+
+function clubbedInvoiceRowsFromBooking(booking: {
+  invoiceId?: string | null;
+  invoiceNumber?: string | null;
+  invoiceValueInr?: number | null;
+  invoices?: Array<{
+    invoiceId?: string | null;
+    invoiceNumber?: string | null;
+    valueInr?: number | null;
+  }> | null;
+}): Array<{ invoiceId: string; invoiceNumber: string; valueInr: number }> {
+  const rows = (booking.invoices?.length
+    ? booking.invoices
+    : (booking.invoiceId
+      ? [{
+        invoiceId: booking.invoiceId,
+        invoiceNumber: booking.invoiceNumber || booking.invoiceId,
+        valueInr: booking.invoiceValueInr ?? 0,
+      }]
+      : [])
+  );
+  return rows
+    .map(row => ({
+      invoiceId: String(row.invoiceId || '').trim(),
+      invoiceNumber: String(row.invoiceNumber || row.invoiceId || '').trim(),
+      valueInr: Number(row.valueInr) || 0,
+    }))
+    .filter(row => row.invoiceId);
+}
 
 function logisticsTopCardTone(kind: string): 'green' | 'blue' | 'orange' | 'purple' {
   if (kind === 'lr_copy' || kind === 'courier_slip') return 'green';
@@ -332,6 +366,8 @@ export const LogisticsBookingDetail: React.FC<LogisticsBookingDetailProps> = ({
   const [ewayCancelOpen, setEwayCancelOpen] = useState(false);
   const [ewayCancelling, setEwayCancelling] = useState(false);
   const [ewayCancelError, setEwayCancelError] = useState('');
+  const [ewayClubbedOpen, setEwayClubbedOpen] = useState(false);
+  const [ewayClubbedRows, setEwayClubbedRows] = useState<EwayClubbedBillRow[]>([]);
   const [cancellingDelhivery, setCancellingDelhivery] = useState(false);
   const [cancelDelhiveryError, setCancelDelhiveryError] = useState('');
   const [requestingPickup, setRequestingPickup] = useState(false);
@@ -385,8 +421,10 @@ export const LogisticsBookingDetail: React.FC<LogisticsBookingDetailProps> = ({
     [booking, isDelhivery],
   );
   const hasLinkedInvoice = Boolean(booking.invoiceId?.trim());
+  const ewayInvoiceRows = useMemo(() => clubbedInvoiceRowsFromBooking(booking), [booking]);
   const invoiceTotalForEway = Number(booking.invoiceValueInr ?? 0);
-  const ewayRequired = hasLinkedInvoice && isEwayBillRequired(invoiceTotalForEway);
+  const ewayRequired = hasLinkedInvoice && bookingNeedsEwayBill(booking);
+  const ewayClubbed = ewayInvoiceRows.length > 1;
   const ewayCustomerId = booking.dealer.zohoCustomerId?.trim() || '';
   const ewayLrNumber = (delhiveryIds?.lrn || booking.consignmentNo || '').trim();
   const needsDelhiveryIds = Boolean(
@@ -455,7 +493,9 @@ export const LogisticsBookingDetail: React.FC<LogisticsBookingDetailProps> = ({
   }, [booking.ewayBillNumber, booking.ewayBillStatus]);
 
   const ewayGeneratePreview = useMemo(() => ({
-    invoiceNumber: booking.invoiceNumber?.trim() || booking.invoiceId?.trim() || '—',
+    invoiceNumber: ewayClubbed
+      ? ewayInvoiceRows.map(row => row.invoiceNumber).join(', ')
+      : (booking.invoiceNumber?.trim() || booking.invoiceId?.trim() || '—'),
     invoiceTotalInr: invoiceTotalForEway,
     consigneeName: booking.dealer.name?.trim() || booking.dealer.code?.trim() || '—',
     partnerLabel: logisticsPartnerLabel(booking.partnerId),
@@ -465,16 +505,23 @@ export const LogisticsBookingDetail: React.FC<LogisticsBookingDetailProps> = ({
     supplyType: 'Supply',
     transactionType: 'Regular',
     documentDate: ewayBillDocumentDateLabel(),
+    invoiceCount: ewayInvoiceRows.length,
   }), [
     booking.dealer.code,
     booking.dealer.name,
     booking.invoiceId,
     booking.invoiceNumber,
     booking.partnerId,
+    ewayClubbed,
+    ewayInvoiceRows,
     ewayLrNumber,
     ewayTransporterName,
     invoiceTotalForEway,
   ]);
+  const ewayGenerateIntro = clubbedEwayBillRequiredLabel({
+    invoiceCount: ewayInvoiceRows.length,
+    clubbedTotalInr: invoiceTotalForEway,
+  });
 
   const ewayPromptCheckedRef = useRef('');
   const ewayGenerateDismissedRef = useRef('');
@@ -583,52 +630,74 @@ export const LogisticsBookingDetail: React.FC<LogisticsBookingDetailProps> = ({
     });
   }, [isOps]);
 
+  const fetchClubbedEwayBills = useCallback(async (autoGenerate: boolean) => {
+    const forceRequired = clubbedNeedsEwayBill(ewayInvoiceRows);
+    const rows: EwayClubbedBillRow[] = [];
+    const failures: string[] = [];
+    for (const row of ewayInvoiceRows) {
+      try {
+        const result = await ensureInvoiceEwayBill({
+          customerId: ewayCustomerId,
+          invoiceId: row.invoiceId,
+          partnerId: booking.partnerId,
+          lrNumber: ewayLrNumber || null,
+          bookingId: booking.id,
+          invoiceTotalInr: row.valueInr || booking.invoiceValueInr || null,
+          autoGenerate,
+          forceRequired,
+        });
+        const failed = result.status !== 'generated' && result.required !== false;
+        if (failed) {
+          failures.push(`${row.invoiceNumber}: ${result.message || result.status || 'not generated'}`);
+        }
+        rows.push({
+          invoiceId: row.invoiceId,
+          invoiceNumber: row.invoiceNumber,
+          ewaybillNumber: result.ewaybillNumber,
+          status: result.status,
+          error: failed ? (result.message || result.status || 'not generated') : undefined,
+          result,
+        });
+      } catch (err) {
+        const message = err instanceof Error ? err.message : 'failed';
+        failures.push(`${row.invoiceNumber}: ${message}`);
+        rows.push({
+          invoiceId: row.invoiceId,
+          invoiceNumber: row.invoiceNumber,
+          error: message,
+        });
+      }
+    }
+    return { rows, failures };
+  }, [
+    booking.id,
+    booking.invoiceValueInr,
+    booking.partnerId,
+    ewayCustomerId,
+    ewayInvoiceRows,
+    ewayLrNumber,
+  ]);
+
   const handleConfirmGenerateEwayBill = useCallback(async () => {
-    const rows = (booking.invoices?.length
-      ? booking.invoices
-      : (booking.invoiceId
-        ? [{
-          invoiceId: booking.invoiceId,
-          invoiceNumber: booking.invoiceNumber || booking.invoiceId,
-          valueInr: booking.invoiceValueInr ?? 0,
-        }]
-        : [])
-    ).filter(row => row.invoiceId);
-    if (!rows.length || !ewayCustomerId) return;
-    const forceRequired = clubbedNeedsEwayBill(rows);
+    if (!ewayInvoiceRows.length || !ewayCustomerId) return;
     setEwayEnsuring(true);
     setEwayGenerateError('');
     try {
-      let last: InvoiceEwayBillResult | null = null;
-      const failures: string[] = [];
-      for (const row of rows) {
-        try {
-          const result = await ensureInvoiceEwayBill({
-            customerId: ewayCustomerId,
-            invoiceId: row.invoiceId,
-            partnerId: booking.partnerId,
-            lrNumber: ewayLrNumber || null,
-            bookingId: booking.id,
-            invoiceTotalInr: row.valueInr || booking.invoiceValueInr || null,
-            autoGenerate: true,
-            forceRequired,
-          });
-          last = result;
-          if (result.status !== 'generated' && result.required !== false) {
-            failures.push(`${row.invoiceNumber}: ${result.message || result.status || 'not generated'}`);
-          }
-        } catch (err) {
-          failures.push(`${row.invoiceNumber}: ${err instanceof Error ? err.message : 'failed'}`);
-        }
-      }
-      if (last) {
-        setEwayBillStatus(failures.length ? 'missing' : (last.status ?? null));
-        setEwayBillNumber(last.ewaybillNumber ?? null);
-        setEwayGenerateOpen(false);
-        showEwayBillFromResult(last);
-      }
-      if (failures.length) {
+      const { rows, failures } = await fetchClubbedEwayBills(true);
+      const generated = rows.filter(row => row.result?.status === 'generated');
+      setEwayClubbedRows(rows);
+      if (failures.length && !ewayClubbed) {
         setEwayGenerateError(failures.join(' '));
+        return;
+      }
+      setEwayBillStatus(failures.length ? 'missing' : (generated[0]?.status ?? null));
+      setEwayBillNumber(generated[0]?.ewaybillNumber ?? null);
+      setEwayGenerateOpen(false);
+      if (ewayClubbed) {
+        setEwayGenerateError(failures.join(' '));
+        setEwayClubbedOpen(true);
+      } else if (generated[0]?.result) {
+        showEwayBillFromResult(generated[0].result);
       }
     } catch (err) {
       setEwayGenerateError(
@@ -638,20 +707,15 @@ export const LogisticsBookingDetail: React.FC<LogisticsBookingDetailProps> = ({
       setEwayEnsuring(false);
     }
   }, [
-    booking.id,
-    booking.invoiceId,
-    booking.invoiceNumber,
-    booking.invoiceValueInr,
-    booking.invoices,
-    booking.partnerId,
+    ewayClubbed,
     ewayCustomerId,
-    ewayLrNumber,
+    ewayInvoiceRows.length,
+    fetchClubbedEwayBills,
     showEwayBillFromResult,
   ]);
 
   const openEwayBillDocument = useCallback(async () => {
-    const invoiceId = booking.invoiceId?.trim();
-    if (!invoiceId) {
+    if (!ewayInvoiceRows.length) {
       setDelhiveryDocsError('No invoice linked to this shipment.');
       return;
     }
@@ -667,19 +731,21 @@ export const LogisticsBookingDetail: React.FC<LogisticsBookingDetailProps> = ({
     setDelhiveryDocOpening('eway_bill');
     setDelhiveryDocsError('');
     try {
-      const result = await ensureInvoiceEwayBill({
-        customerId: ewayCustomerId,
-        invoiceId,
-        partnerId: booking.partnerId,
-        lrNumber: ewayLrNumber || null,
-        bookingId: booking.id,
-        invoiceTotalInr: booking.invoiceValueInr ?? null,
-        autoGenerate: false,
-        forceRequired: clubbedNeedsEwayBill(booking.invoices ?? booking.invoiceValueInr ?? 0),
-      });
-      setEwayBillStatus(result.status ?? null);
-      setEwayBillNumber(result.ewaybillNumber ?? null);
-      showEwayBillFromResult(result);
+      const { rows, failures } = await fetchClubbedEwayBills(false);
+      const generated = rows.filter(row => row.result?.status === 'generated');
+      setEwayClubbedRows(rows);
+      setEwayBillStatus(failures.length ? 'missing' : (generated[0]?.status ?? rows[0]?.status ?? null));
+      setEwayBillNumber(generated[0]?.ewaybillNumber ?? null);
+      if (ewayClubbed) {
+        setEwayClubbedOpen(true);
+      } else if (generated[0]?.result) {
+        showEwayBillFromResult(generated[0].result);
+      } else if (rows[0]?.result) {
+        showEwayBillFromResult(rows[0].result);
+      }
+      if (failures.length) {
+        setDelhiveryDocsError(failures.join(' '));
+      }
     } catch (err) {
       setDelhiveryDocsError(
         err instanceof Error ? err.message : 'Could not open e-way bill.',
@@ -688,13 +754,11 @@ export const LogisticsBookingDetail: React.FC<LogisticsBookingDetailProps> = ({
       setDelhiveryDocOpening(null);
     }
   }, [
-    booking.id,
-    booking.invoiceId,
-    booking.invoiceValueInr,
-    booking.partnerId,
     ewayBillStatus,
+    ewayClubbed,
     ewayCustomerId,
-    ewayLrNumber,
+    ewayInvoiceRows.length,
+    fetchClubbedEwayBills,
     isOps,
     showEwayBillFromResult,
   ]);
@@ -724,13 +788,17 @@ export const LogisticsBookingDetail: React.FC<LogisticsBookingDetailProps> = ({
             : 'E-way bill is not generated yet.',
         note: cancelled
           ? (isOps ? 'Cancelled — tap to regenerate' : 'Cancelled')
-          : (ewayBillNumber ? `EWB ${ewayBillNumber}` : undefined),
+          : ewayClubbed
+            ? (generated ? `${ewayInvoiceRows.length} e-way bills` : `Generate ${ewayInvoiceRows.length}`)
+            : (ewayBillNumber ? `EWB ${ewayBillNumber}` : undefined),
       });
     }
     return cards;
   }, [
     ewayBillNumber,
     ewayBillStatus,
+    ewayClubbed,
+    ewayInvoiceRows.length,
     ewayRequired,
     hasLinkedInvoice,
     isOps,
@@ -2613,6 +2681,8 @@ export const LogisticsBookingDetail: React.FC<LogisticsBookingDetailProps> = ({
       {ewayGenerateOpen ? (
         <EwayBillGenerateDialog
           preview={ewayGeneratePreview}
+          intro={ewayGenerateIntro}
+          confirmLabel={ewayClubbed ? `Generate ${ewayInvoiceRows.length} e-way bills` : undefined}
           busy={ewayEnsuring}
           error={ewayGenerateError}
           onClose={() => {
@@ -2622,6 +2692,21 @@ export const LogisticsBookingDetail: React.FC<LogisticsBookingDetailProps> = ({
             setEwayGenerateError('');
           }}
           onConfirm={handleConfirmGenerateEwayBill}
+        />
+      ) : null}
+
+      {ewayClubbedOpen ? (
+        <EwayClubbedBillsDialog
+          rows={ewayClubbedRows}
+          busy={ewayEnsuring || delhiveryDocOpening === 'eway_bill'}
+          error={ewayGenerateError}
+          onClose={() => {
+            setEwayClubbedOpen(false);
+            setEwayGenerateError('');
+          }}
+          onView={(row) => {
+            if (row.result) showEwayBillFromResult(row.result);
+          }}
         />
       ) : null}
 
