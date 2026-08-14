@@ -768,6 +768,24 @@ export function isFreightInvoiceLineItem(
   return sku === 'freight' || sku.includes('freight');
 }
 
+type InvoiceFreightLinesSource = {
+  lineItems?: Array<Parameters<typeof isFreightInvoiceLineItem>[0]> | null;
+} | null | undefined;
+
+export function invoiceHasCourierFreightLine(invoice: InvoiceFreightLinesSource): boolean {
+  return (invoice?.lineItems ?? []).some(line => isFreightInvoiceLineItem(line));
+}
+
+/**
+ * Line items are loaded and none are courier freight (customer pickup / omitted freight).
+ * False when line items are missing so list rows are not treated as pickup.
+ */
+export function invoiceHasNoCourierFreightLine(invoice: InvoiceFreightLinesSource): boolean {
+  const lines = invoice?.lineItems;
+  if (!Array.isArray(lines) || lines.length === 0) return false;
+  return !lines.some(line => isFreightInvoiceLineItem(line));
+}
+
 /** First recognized courier freight SKU on the invoice (STFRC, DELFRC, …). */
 export function freightSkuFromInvoiceLines(
   lines: Array<{ sku?: string | null; itemId?: string | null; id?: string | null }> | null | undefined,

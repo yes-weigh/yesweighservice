@@ -1,7 +1,8 @@
 import { getFunctions, httpsCallable } from 'firebase/functions';
 import { app } from '../firebase';
 import { isEwayBillRequired, invoiceTotalInclGst } from '../constants/ewayBill';
-import { isFreightInvoiceLineItem } from './invoices';
+import { invoiceHasCourierFreightLine, invoiceHasNoCourierFreightLine } from './invoices';
+import { invoiceAllowsLogisticsFulfillment } from './invoiceListStatus';
 import type {
   DealerInvoiceDetail,
   InvoiceCustomerPickup,
@@ -65,23 +66,18 @@ export function invoiceNeedsCustomerPickupEwayVehicle(
   return isEwayBillRequired(total);
 }
 
-function invoiceHasCourierFreightLine(
-  invoice: Pick<DealerInvoiceDetail, 'lineItems'> | null | undefined,
-): boolean {
-  return (invoice?.lineItems ?? []).some(line => isFreightInvoiceLineItem(line));
-}
-
 export function canMarkInvoiceCustomerPickup(
   invoice: Pick<
     DealerInvoiceDetail,
-    'customerPickup' | 'sourceSalesOrderIsPickup' | 'lineItems'
+    'customerPickup' | 'sourceSalesOrderIsPickup' | 'lineItems' | 'invoiceCategory' | 'categories'
   > | null | undefined,
   hasActiveLogisticsBooking: boolean,
 ): boolean {
   if (!invoice || hasActiveLogisticsBooking) return false;
   if (isInvoiceCustomerPickup(invoice)) return false;
   if (invoiceHasCourierFreightLine(invoice)) return false;
-  return Boolean(invoice.sourceSalesOrderIsPickup);
+  if (!invoiceAllowsLogisticsFulfillment(invoice)) return false;
+  return invoiceHasNoCourierFreightLine(invoice) || Boolean(invoice.sourceSalesOrderIsPickup);
 }
 
 export async function markInvoiceCustomerPickup(input: {

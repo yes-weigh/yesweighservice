@@ -11,7 +11,7 @@ import type {
   ShipmentBoxDraft,
 } from '../types/logistics-dispatch';
 import type { StaffLogisticsSite } from '../types/staff-logistics';
-import { isFreightInvoiceLineItem } from './invoices';
+import { invoiceHasNoCourierFreightLine, isFreightInvoiceLineItem } from './invoices';
 import { invoiceAllowsLogisticsFulfillment } from './invoiceListStatus';
 import {
   emptyShipmentBoxDraft,
@@ -60,16 +60,20 @@ function invoiceCalendarDay(value: string): Date | null {
 }
 
 /**
- * Book Courier is available only for recent product/spare invoices (freight-line eligible).
- * Hidden for software / stamping / service-only, pickup SOs, or invoices older than 4 days.
+ * Book Courier is available only for recent product/spare invoices that have a
+ * courier freight line. Hidden for software / stamping / service-only, pickup
+ * (no freight), or invoices older than 4 days.
  */
 export function canBookCourierForInvoice(
   invoice: Pick<
     DealerInvoiceDetail,
     'date' | 'invoiceCategory' | 'categories' | 'sourceSalesOrderIsPickup'
-  >,
+  > & {
+    lineItems?: DealerInvoiceDetail['lineItems'] | null;
+  },
 ): boolean {
   if (invoice.sourceSalesOrderIsPickup) return false;
+  if (invoiceHasNoCourierFreightLine(invoice)) return false;
   if (!invoiceAllowsLogisticsFulfillment(invoice)) return false;
 
   const dateRaw = invoice.date?.trim();
@@ -92,9 +96,12 @@ export function canRecordInvoiceLogisticsLr(
   invoice: Pick<
     DealerInvoiceDetail,
     'invoiceCategory' | 'categories' | 'sourceSalesOrderIsPickup'
-  >,
+  > & {
+    lineItems?: DealerInvoiceDetail['lineItems'] | null;
+  },
 ): boolean {
   if (invoice.sourceSalesOrderIsPickup) return false;
+  if (invoiceHasNoCourierFreightLine(invoice)) return false;
   return invoiceAllowsLogisticsFulfillment(invoice);
 }
 

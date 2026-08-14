@@ -26,6 +26,7 @@ import {
   formatInvoiceDate,
   invoiceErrorMessage,
   invoiceHasCategory,
+  invoiceHasNoCourierFreightLine,
 } from '../../lib/invoices';
 import {
   canCreateLogisticsBooking,
@@ -226,6 +227,7 @@ export const AdminInvoiceDetailLayout: React.FC = () => {
       if (
         isInvoiceCustomerPickup(invoice)
         || invoice.sourceSalesOrderIsPickup
+        || invoiceHasNoCourierFreightLine(invoice)
         || isInvoiceManuallyDelivered(invoice)
       ) {
         setCourierEntry(null);
@@ -265,7 +267,6 @@ export const AdminInvoiceDetailLayout: React.FC = () => {
           },
         ),
         dealerQuery: invoice.customerName ?? undefined,
-        // No freight line → ops picks partner on Logistics.
         lockPartner: courierPartner.fromFreight,
       });
     })();
@@ -282,6 +283,7 @@ export const AdminInvoiceDetailLayout: React.FC = () => {
     && !existingBooking
     && !isInvoiceCustomerPickup(invoice)
     && !invoice?.sourceSalesOrderIsPickup
+    && !invoiceHasNoCourierFreightLine(invoice)
     && !isInvoiceManuallyDelivered(invoice),
   );
   const customerPickupActive = isInvoiceCustomerPickup(invoice);
