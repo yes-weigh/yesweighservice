@@ -32,6 +32,7 @@ import {
   consignmentChargeableWeightKg,
   draftBoxesHaveRequiredPhotos,
   emptyShipmentBoxDraft,
+  isApiBookedLogisticsPartner,
   isPipelineEnabledPartner,
   statusForDocument,
   type BookCourierStep,
@@ -272,6 +273,30 @@ function mapDelhiveryDocuments(
         shippingLabels: typeof prefetchRaw.shippingLabels === 'string' ? prefetchRaw.shippingLabels : undefined,
         pod: typeof prefetchRaw.pod === 'string' ? prefetchRaw.pod : undefined,
         cod: typeof prefetchRaw.cod === 'string' ? prefetchRaw.cod : undefined,
+      }
+      : null,
+  };
+}
+
+function mapBlueDartDocuments(
+  raw: unknown,
+): import('../types/logistics-dispatch').LogisticsBlueDartDocumentsCache | null {
+  if (!raw || typeof raw !== 'object') return null;
+  const data = raw as Record<string, unknown>;
+  const awb = String(data.awb ?? '').replace(/\D/g, '').trim();
+  if (!awb) return null;
+  const waybillRaw = data.waybill && typeof data.waybill === 'object'
+    ? data.waybill as Record<string, unknown>
+    : null;
+  const storagePath = typeof waybillRaw?.storagePath === 'string' ? waybillRaw.storagePath.trim() : '';
+  return {
+    awb,
+    waybill: storagePath
+      ? {
+        storagePath,
+        contentType: typeof waybillRaw?.contentType === 'string' ? waybillRaw.contentType : 'application/pdf',
+        fileName: typeof waybillRaw?.fileName === 'string' ? waybillRaw.fileName : `${awb}-waybill.pdf`,
+        cachedAt: typeof waybillRaw?.cachedAt === 'string' ? waybillRaw.cachedAt : '',
       }
       : null,
   };
@@ -611,6 +636,7 @@ export function mapLogisticsBookingDoc(id: string, data: DocumentData): Logistic
     ),
     delhiveryPickup: mapDelhiveryPickup(data.delhiveryPickup),
     delhiveryDocuments: mapDelhiveryDocuments(data.delhiveryDocuments),
+    blueDartDocuments: mapBlueDartDocuments(data.blueDartDocuments),
     ewayBillNumber: typeof data.ewayBillNumber === 'string' ? data.ewayBillNumber : null,
     ewayBillStatus: typeof data.ewayBillStatus === 'string' ? data.ewayBillStatus : null,
     freightDiffSettledAt: typeof data.freightDiffSettledAt === 'string'
@@ -853,13 +879,13 @@ async function buildBookingPayload(input: PersistLogisticsBookingInput & {
       photos: firestoreBoxPhotos(box.photos),
     })),
     finalPackagePhotoStoragePath: finalPackagePhotoStoragePath ?? null,
-    labelGenerated: draft.partnerId === 'delhivery'
+    labelGenerated: isApiBookedLogisticsPartner(draft.partnerId)
       ? Boolean(draft.consignmentNo.trim())
       : Boolean(draft.labelGenerated),
-    courierSlipGenerated: draft.partnerId === 'delhivery'
+    courierSlipGenerated: isApiBookedLogisticsPartner(draft.partnerId)
       ? false
       : Boolean(draft.labelGenerated),
-    shippingLabelGenerated: draft.partnerId === 'delhivery'
+    shippingLabelGenerated: isApiBookedLogisticsPartner(draft.partnerId)
       ? false
       : Boolean(draft.labelGenerated),
     packingSlipGenerated: false,
@@ -881,6 +907,11 @@ async function buildBookingPayload(input: PersistLogisticsBookingInput & {
         };
       })()
       : {}),
+    ...(draft.blueDartDocuments?.awb
+      ? { blueDartDocuments: draft.blueDartDocuments }
+      : (mapBlueDartDocuments(existingData?.blueDartDocuments)
+        ? { blueDartDocuments: mapBlueDartDocuments(existingData?.blueDartDocuments) }
+        : {})),
     createdAt,
     updatedAt: now,
     createdByUid: existingCreatedByUid || createdBy.uid,
@@ -1371,14 +1402,16 @@ export async function persistLogisticsBooking(
   }
 
   try {
-    const labelsPrinted = draft.partnerId === 'delhivery'
+    const labelsPrinted = isApiBookedLogisticsPartner(draft.partnerId)
       ? Boolean(draft.consignmentNo.trim())
       : Boolean(draft.labelGenerated);
     if (!labelsPrinted) {
       throw new Error(
         draft.partnerId === 'delhivery'
           ? 'Create the Delhivery LR before confirming the shipment.'
-          : 'Generate the shipping label before confirming the shipment.',
+          : isApiBookedLogisticsPartner(draft.partnerId)
+            ? 'Create the Blue Dart AWB before confirming the shipment.'
+            : 'Generate the shipping label before confirming the shipment.',
       );
     }
     const payload = await buildBookingPayload({
@@ -1465,6 +1498,7 @@ export function bookingToWizardState(booking: LogisticsBooking): {
           ...(booking.delhiveryPickup ? { delhiveryPickup: booking.delhiveryPickup } : {}),
         }
         : {}),
+      ...(booking.blueDartDocuments ? { blueDartDocuments: booking.blueDartDocuments } : {}),
     },
   };
 }

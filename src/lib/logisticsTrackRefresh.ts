@@ -3,15 +3,19 @@
  * Callables persist courierTrack (+ Delhivery freight when weight-captured) on the booking.
  */
 
-import { isTrackonLogisticsPartnerId } from '../constants/logisticsPartners';
+import { isBlueDartLogisticsPartnerId, isTrackonLogisticsPartnerId } from '../constants/logisticsPartners';
 import type { LogisticsPartnerId } from '../constants/logisticsPartners';
+import { fetchBlueDartShipmentTrack } from './blueDartApi';
 import { fetchDelhiveryShipmentTrack } from './delhiveryTrack';
 import { fetchStCourierShipmentTrack } from './stCourierTrack';
 import { fetchTrackonShipmentTrack } from './trackonTrack';
 
 export function partnerSupportsTrackRefresh(partnerId: string | null | undefined): boolean {
   const id = String(partnerId || '');
-  return id === 'st_courier' || id === 'delhivery' || isTrackonLogisticsPartnerId(id);
+  return id === 'st_courier'
+    || id === 'delhivery'
+    || isTrackonLogisticsPartnerId(id)
+    || isBlueDartLogisticsPartnerId(id);
 }
 
 export type LogisticsTrackRefreshInput = {
@@ -37,6 +41,10 @@ export async function refreshLogisticsBookingTrack(
 
   if (partnerId === 'delhivery') {
     await fetchDelhiveryShipmentTrack(awb, { bookingId });
+    return true;
+  }
+  if (isBlueDartLogisticsPartnerId(partnerId)) {
+    await fetchBlueDartShipmentTrack({ awb, bookingId });
     return true;
   }
   if (isTrackonLogisticsPartnerId(partnerId)) {

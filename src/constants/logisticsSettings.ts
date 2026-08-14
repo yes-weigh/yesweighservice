@@ -4,7 +4,7 @@ export const LOGISTICS_SETTINGS_DOC_ID = 'logisticsSettings';
 
 export const DEFAULT_STAFF_LOGISTICS_SITE: StaffLogisticsSite = 'cochin';
 
-export type LogisticsBookingOfficeProvider = 'st_courier' | 'trackon' | 'delhivery';
+export type LogisticsBookingOfficeProvider = 'st_courier' | 'trackon' | 'delhivery' | 'bluedart';
 
 /**
  * Courier booking office contact shown under tracking history so dealers can
@@ -27,6 +27,10 @@ export const LOGISTICS_BRANCH_TRACKING_CONTACTS: Record<
     ].join('\n'),
   },
   delhivery: {
+    cochin: '',
+    head_office: '',
+  },
+  bluedart: {
     cochin: '',
     head_office: '',
   },

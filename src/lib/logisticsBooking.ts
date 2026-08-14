@@ -1,6 +1,10 @@
 import { BLUE_DART_DP_SLAB_KG } from '../constants/blueDartRates';
 import type { LogisticsPartnerId } from '../constants/logisticsPartners';
-import { LOGISTICS_PARTNER_IDS, logisticsPartnerLabel } from '../constants/logisticsPartners';
+import {
+  LOGISTICS_PARTNER_IDS,
+  isBlueDartLogisticsPartnerId,
+  logisticsPartnerLabel,
+} from '../constants/logisticsPartners';
 import type {
   LogisticsBooking,
   LogisticsBookingDraft,
@@ -24,6 +28,11 @@ export const STANDALONE_LOGISTICS_PARTNER_IDS: ReadonlyArray<LogisticsPartnerId>
 
 export function isPipelineEnabledPartner(id: string): boolean {
   return ENABLED_LOGISTICS_PARTNER_IDS.includes(id as LogisticsPartnerId);
+}
+
+/** Delhivery / Blue Dart: AWB is created via API on Review — skip scan + local label. */
+export function isApiBookedLogisticsPartner(id: string): boolean {
+  return id === 'delhivery' || isBlueDartLogisticsPartnerId(id);
 }
 
 export const LOGISTICS_BOOKING_STATUSES: ReadonlyArray<{
@@ -345,7 +354,7 @@ export const BOOK_COURIER_STEPS: ReadonlyArray<{ id: BookCourierStep; label: str
   { id: 'final_photo', label: 'Photo' },
 ];
 
-/** Delhivery: LR is created on Review — no local label / outer-photo wizard steps. */
+/** Delhivery / Blue Dart: AWB is created on Review — no local label / outer-photo wizard steps. */
 export const DELHIVERY_BOOK_COURIER_STEPS: ReadonlyArray<{ id: BookCourierStep; label: string }> = [
   { id: 'address', label: 'Address' },
   { id: 'box', label: 'Box' },
@@ -387,7 +396,7 @@ function delhiveryFlowOrder(options?: BookCourierStepOptions): readonly BookCour
 export function bookCourierStepsForPartner(
   partnerId: LogisticsPartnerId,
 ): ReadonlyArray<{ id: BookCourierStep; label: string }> {
-  return partnerId === 'delhivery' ? DELHIVERY_BOOK_COURIER_STEPS : BOOK_COURIER_STEPS;
+  return isApiBookedLogisticsPartner(partnerId) ? DELHIVERY_BOOK_COURIER_STEPS : BOOK_COURIER_STEPS;
 }
 
 /** Progress steps for an in-flight booking (optional e-way / club invoices). */
@@ -395,7 +404,7 @@ export function bookCourierStepsForBooking(
   partnerId: LogisticsPartnerId,
   options?: BookCourierStepOptions,
 ): ReadonlyArray<{ id: BookCourierStep; label: string }> {
-  if (partnerId === 'delhivery') return delhiveryProgressSteps(options);
+  if (isApiBookedLogisticsPartner(partnerId)) return delhiveryProgressSteps(options);
   const base = bookCourierStepsForPartner(partnerId);
   if (!options?.includeEwayBill) return base;
   return [...base, { id: 'eway_bill', label: 'E-way bill' }];
@@ -413,7 +422,7 @@ export function bookStepFlowIndex(
       : BOOK_COURIER_STEPS;
     return steps.length;
   }
-  if (partnerId === 'delhivery') {
+  if (partnerId && isApiBookedLogisticsPartner(partnerId)) {
     const idx = delhiveryFlowOrder(options).indexOf(step);
     if (idx >= 0) return idx;
     if (step === 'scan') return 0;
@@ -434,7 +443,7 @@ export function bookStepProgressVisualState(
 ): BookStepProgressVisualState {
   if (currentStep === 'complete') return 'done';
 
-  if (partnerId === 'delhivery') {
+  if (isApiBookedLogisticsPartner(partnerId)) {
     if (stepId === 'eway_bill' && options?.includeEwayBill) {
       if (currentStep === 'eway_bill') return 'current';
       return 'pending';
@@ -469,7 +478,7 @@ export function bookStepProgressIndex(
   if (step === 'complete') return steps.length;
   const idx = steps.findIndex(item => item.id === step);
   if (idx >= 0) return idx;
-  if (partnerId === 'delhivery') {
+  if (partnerId && isApiBookedLogisticsPartner(partnerId)) {
     const flow = delhiveryFlowOrder(options);
     const mapped = step === 'scan' ? 'address' : step;
     const flowIdx = flow.indexOf(mapped);

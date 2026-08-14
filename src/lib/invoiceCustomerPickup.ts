@@ -51,7 +51,7 @@ export function readRememberedInvoiceCustomerPickupIds(): string[] {
 }
 
 export function isInvoiceCustomerPickup(
-  invoice: Pick<DealerInvoiceDetail, 'customerPickup'> | null | undefined,
+  invoice: { customerPickup?: { markedAt?: string | null } | null } | null | undefined,
 ): boolean {
   const markedAt = invoice?.customerPickup?.markedAt;
   return typeof markedAt === 'string' ? Boolean(markedAt.trim()) : Boolean(markedAt);

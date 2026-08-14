@@ -219,13 +219,17 @@ service cloud.firestore {
     }
 
     match /appSettings/{docId} {
-      // Delhivery B2B password + cached JWT are Admin SDK only (Cloud Functions).
+      // Courier API passwords / license keys + cached JWTs are Admin SDK only.
       allow read: if signedIn()
         && docId != 'delhiveryB2bSecrets'
-        && docId != 'delhiveryB2bAuth';
+        && docId != 'delhiveryB2bAuth'
+        && docId != 'blueDartSecrets'
+        && docId != 'blueDartAuth';
       allow write: if signedIn()
         && docId != 'delhiveryB2bSecrets'
         && docId != 'delhiveryB2bAuth'
+        && docId != 'blueDartSecrets'
+        && docId != 'blueDartAuth'
         && (
         bootstrapOpen()
         || (docId == 'productSettings' && isFullSuperAdmin())

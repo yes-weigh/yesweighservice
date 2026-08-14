@@ -61,6 +61,7 @@ import { TrackonRatesEditor } from './TrackonRatesEditor';
 import { PartnerStatusControl } from './PartnerStatusControl';
 import { PartnerTransporterControl } from './PartnerTransporterControl';
 import { DelhiveryB2bApiPanel } from './DelhiveryB2bApiPanel';
+import { BlueDartApiPanel } from './BlueDartApiPanel';
 
 type SaveStatus = 'idle' | 'pending' | 'saving' | 'saved' | 'error';
 
@@ -610,16 +611,19 @@ export const StCourierRatesSettings: React.FC<Props> = ({
           <div className="loader-ring" />
         </div>
       ) : partnerId === 'bluedart' ? (
-        <BlueDartRatesEditor
-          config={draft.bluedart}
-          service={blueDartService}
-          onServiceChange={setBlueDartService}
-          onChange={patchBlueDart}
-          serviceStatuses={blueDartServiceStatuses}
-          onServiceStatusChange={(service, next) => {
-            setLogisticsPartnerStatus(BLUEDART_SERVICE_TO_PARTNER[service], next);
-          }}
-        />
+        <>
+          <BlueDartApiPanel onError={onError} />
+          <BlueDartRatesEditor
+            config={draft.bluedart}
+            service={blueDartService}
+            onServiceChange={setBlueDartService}
+            onChange={patchBlueDart}
+            serviceStatuses={blueDartServiceStatuses}
+            onServiceStatusChange={(service, next) => {
+              setLogisticsPartnerStatus(BLUEDART_SERVICE_TO_PARTNER[service], next);
+            }}
+          />
+        </>
       ) : partnerId === 'trackon' ? (
         <TrackonRatesEditor
           config={draft.trackon}

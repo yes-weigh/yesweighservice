@@ -15,6 +15,10 @@ import {
   delhiveryTrackFromBooking,
   type DelhiveryTrackResult,
 } from '../../lib/delhiveryTrack';
+import {
+  fetchBlueDartShipmentTrack,
+  blueDartTrackFromBooking,
+} from '../../lib/blueDartApi';
 import { formatLogisticsDateTime, formatLogisticsDateTimeLabel } from '../../lib/logisticsDateTime';
 import type {
   LogisticsCourierDeliveryOffice,
@@ -22,7 +26,7 @@ import type {
 } from '../../types/logistics-dispatch';
 import { isStaffLogisticsSite, type StaffLogisticsSite } from '../../types/staff-logistics';
 
-export type CourierTrackProvider = 'st_courier' | 'trackon' | 'delhivery';
+export type CourierTrackProvider = 'st_courier' | 'trackon' | 'delhivery' | 'bluedart';
 
 type CourierTrackResult = StCourierTrackResult | DelhiveryTrackResult;
 
@@ -68,6 +72,7 @@ export const StCourierTrackPanel: React.FC<StCourierTrackPanelProps> = ({
   const [result, setResult] = useState<CourierTrackResult | null>(() => {
     if (provider === 'trackon') return trackonTrackFromBooking(cachedTrack);
     if (provider === 'delhivery') return delhiveryTrackFromBooking(cachedTrack);
+    if (provider === 'bluedart') return blueDartTrackFromBooking(cachedTrack);
     return stCourierTrackFromBooking(cachedTrack);
   });
 
@@ -78,7 +83,9 @@ export const StCourierTrackPanel: React.FC<StCourierTrackPanelProps> = ({
         ? trackonTrackFromBooking(cachedTrack)
         : provider === 'delhivery'
           ? delhiveryTrackFromBooking(cachedTrack)
-          : stCourierTrackFromBooking(cachedTrack),
+          : provider === 'bluedart'
+            ? blueDartTrackFromBooking(cachedTrack)
+            : stCourierTrackFromBooking(cachedTrack),
     );
     // Failed tracks map to Booked — don't surface raw courier error text.
     setError('');
@@ -92,7 +99,9 @@ export const StCourierTrackPanel: React.FC<StCourierTrackPanelProps> = ({
         ? await fetchTrackonShipmentTrack(awb, { bookingId })
         : provider === 'delhivery'
           ? await fetchDelhiveryShipmentTrack(awb, { bookingId })
-          : await fetchStCourierShipmentTrack(awb, { bookingId });
+          : provider === 'bluedart'
+            ? await fetchBlueDartShipmentTrack({ awb, bookingId })
+            : await fetchStCourierShipmentTrack(awb, { bookingId });
       setResult(next);
       onTrackUpdated?.(next);
     } catch (err) {

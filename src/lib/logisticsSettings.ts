@@ -16,6 +16,8 @@ import type { LogisticsDeliveryRulesMatrix } from '../types/logistics-delivery-r
 import type { LogisticsPartnerStatuses } from '../types/logistics-partner-status';
 import type { DelhiveryB2bPublicConfig } from '../types/delhivery-b2b';
 import { emptyDelhiveryB2bPublicConfig } from '../types/delhivery-b2b';
+import type { BlueDartPublicConfig } from '../types/blue-dart-api';
+import { emptyBlueDartPublicConfig } from '../types/blue-dart-api';
 import {
   STAFF_LOGISTICS_SITES,
   type StaffLogisticsSite,
@@ -91,6 +93,27 @@ function parseDelhiveryB2b(data: Record<string, unknown> | undefined): Delhivery
   return base;
 }
 
+function parseBlueDart(data: Record<string, unknown> | undefined): BlueDartPublicConfig {
+  const base = emptyBlueDartPublicConfig();
+  const raw = data?.blueDart;
+  if (!raw || typeof raw !== 'object') return base;
+  const obj = raw as Record<string, unknown>;
+  base.env = String(obj.env ?? '').trim().toLowerCase() === 'sandbox' ? 'sandbox' : 'production';
+  if (typeof obj.loginId === 'string') base.loginId = obj.loginId;
+  if (typeof obj.customerCode === 'string') base.customerCode = obj.customerCode;
+  if (typeof obj.originArea === 'string') base.originArea = obj.originArea;
+  if (typeof obj.customerPincode === 'string') base.customerPincode = obj.customerPincode;
+  if (typeof obj.customerName === 'string') base.customerName = obj.customerName;
+  base.clientSecretSet = Boolean(obj.clientSecretSet);
+  base.shippingLicenseSet = Boolean(obj.shippingLicenseSet);
+  base.trackingLicenseSet = Boolean(obj.trackingLicenseSet);
+  base.sandboxLicenseSet = Boolean(obj.sandboxLicenseSet);
+  if (typeof obj.lastTestAt === 'string') base.lastTestAt = obj.lastTestAt;
+  base.lastTestOk = Boolean(obj.lastTestOk);
+  if (typeof obj.lastTestMessage === 'string') base.lastTestMessage = obj.lastTestMessage;
+  return base;
+}
+
 export interface LogisticsSettings {
   /** Free-text ship-from address per logistics site. */
   fromAddresses: Record<StaffLogisticsSite, string>;
@@ -106,6 +129,8 @@ export interface LogisticsSettings {
   partnerTransporters: DeliveryPartnerTransporters;
   /** Public Delhivery B2B API connection metadata (password never returned). */
   delhiveryB2b: DelhiveryB2bPublicConfig;
+  /** Public Blue Dart APIGEE connection metadata (license keys never returned). */
+  blueDart: BlueDartPublicConfig;
   /** Named spare carton presets (name + L×B×H cm) for Book Courier. */
   spareBoxDefinitions: SpareBoxDefinition[];
   updatedAt: string;
@@ -123,6 +148,7 @@ export async function loadLogisticsSettings(): Promise<LogisticsSettings> {
         partnerStatuses: defaultLogisticsPartnerStatuses(),
         partnerTransporters: defaultDeliveryPartnerTransporters(),
         delhiveryB2b: emptyDelhiveryB2bPublicConfig(),
+        blueDart: emptyBlueDartPublicConfig(),
         spareBoxDefinitions: [],
         updatedAt: '',
       };
@@ -137,6 +163,7 @@ export async function loadLogisticsSettings(): Promise<LogisticsSettings> {
         (data as Record<string, unknown>).partnerTransporters,
       ),
       delhiveryB2b: parseDelhiveryB2b(data as Record<string, unknown>),
+      blueDart: parseBlueDart(data as Record<string, unknown>),
       spareBoxDefinitions: normalizeSpareBoxDefinitions(
         (data as Record<string, unknown>).spareBoxDefinitions,
       ),
@@ -151,6 +178,7 @@ export async function loadLogisticsSettings(): Promise<LogisticsSettings> {
       partnerStatuses: defaultLogisticsPartnerStatuses(),
       partnerTransporters: defaultDeliveryPartnerTransporters(),
       delhiveryB2b: emptyDelhiveryB2bPublicConfig(),
+      blueDart: emptyBlueDartPublicConfig(),
       spareBoxDefinitions: [],
       updatedAt: '',
     };

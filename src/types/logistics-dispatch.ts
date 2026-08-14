@@ -145,6 +145,8 @@ export interface LogisticsBookingDraft {
   delhiveryPickup?: LogisticsDelhiveryPickup | null;
   /** Delhivery Master AWB (MWB) when known at Create LR. */
   masterAwb?: string | null;
+  /** Blue Dart waybill PDF cache (set after GenerateWayBill). */
+  blueDartDocuments?: LogisticsBlueDartDocumentsCache | null;
 }
 
 /** Persisted ST Courier track snapshot (from hourly sync / live fetch). */
@@ -229,6 +231,17 @@ export interface LogisticsDelhiveryDocumentsCache {
     shippingLabelsError?: string;
     podError?: string;
     codError?: string;
+  } | null;
+}
+
+/** Official Blue Dart waybill cached in Storage after GenerateWayBill. */
+export interface LogisticsBlueDartDocumentsCache {
+  awb: string;
+  waybill?: {
+    storagePath: string;
+    contentType: string;
+    fileName: string;
+    cachedAt: string;
   } | null;
 }
 
@@ -343,6 +356,8 @@ export interface LogisticsBooking {
    * (LR copy / shipping labels / POD / COD). Paths only — not file bytes.
    */
   delhiveryDocuments?: LogisticsDelhiveryDocumentsCache | null;
+  /** Official Blue Dart waybill PDF cached in Storage after GenerateWayBill. */
+  blueDartDocuments?: LogisticsBlueDartDocumentsCache | null;
   /** E-way bill number mirrored from linked invoice when generated. */
   ewayBillNumber?: string | null;
   ewayBillStatus?: string | null;

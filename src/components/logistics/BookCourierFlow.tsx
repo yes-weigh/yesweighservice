@@ -33,7 +33,7 @@ import {
   blueDartDpMaxChargeableExceeded,
   blueDartDpMaxChargeableReason,
 } from '../../constants/blueDartRates';
-import { logisticsPartnerLabel } from '../../constants/logisticsPartners';
+import { logisticsPartnerLabel, isBlueDartLogisticsPartnerId } from '../../constants/logisticsPartners';
 import type { LogisticsPartnerId } from '../../constants/logisticsPartners';
 import {
   ST_COURIER_TAMIL_NADU_MAX_CHARGEABLE_KG,
@@ -58,6 +58,7 @@ import {
   draftBoxesHaveRequiredPhotos,
   emptyBookingDraft,
   emptyShipmentBoxDraft,
+  isApiBookedLogisticsPartner,
   parseCourierBarcode,
   suggestCombinedBoxDims,
   sumDraftBoxWeightsKg,
@@ -99,6 +100,7 @@ import {
   putLogisticsVaultPhoto,
 } from '../../lib/logisticsPhotoVault';
 import { bookDelhiveryShipment } from '../../lib/delhiveryB2b';
+import { bookBlueDartShipment } from '../../lib/blueDartApi';
 import { pinFromText } from '../../lib/delhiveryQuote';
 import { fetchAdminInvoiceDetail } from '../../lib/admin-invoices';
 import { resolveInvoiceFreightBillingMode } from '../../lib/logisticsPrefill';
@@ -340,9 +342,11 @@ export const BookCourierFlow: React.FC<BookCourierFlowProps> = ({
   onBookingUpdated,
 }) => {
   const isDelhivery = partnerId === 'delhivery';
+  const isBlueDart = isBlueDartLogisticsPartnerId(partnerId);
+  const isApiCourier = isApiBookedLogisticsPartner(partnerId);
   const isOps = isInternalOpsUser(user);
   const initialStep = initialStepProp
-    ?? (isDelhivery ? 'address' : 'scan');
+    ?? (isApiCourier ? 'address' : 'scan');
   const [step, setStep] = useState<BookCourierStep>(() => {
     const boxes = initialDraft?.boxes?.length
       ? initialDraft.boxes
@@ -355,6 +359,8 @@ export const BookCourierFlow: React.FC<BookCourierFlowProps> = ({
   });
   const [bookingDelhivery, setBookingDelhivery] = useState(false);
   const [delhiveryBookError, setDelhiveryBookError] = useState('');
+  const [bookingBlueDart, setBookingBlueDart] = useState(false);
+  const [blueDartBookError, setBlueDartBookError] = useState('');
   const [draft, setDraft] = useState<LogisticsBookingDraft>(() => ({
     ...emptyBookingDraft(partnerId),
     ...initialDraft,
@@ -1286,6 +1292,133 @@ export const BookCourierFlow: React.FC<BookCourierFlowProps> = ({
     }
   }, [applyDraft, fromAddresses, fromSiteContacts, invoiceBranchShipFrom, isDelhivery, selectedDealer]);
 
+  /** Create AWB via Blue Dart GenerateWayBill when no consignment is set yet. */
+  const ensureBlueDartAwb = useCallback(async (): Promise<boolean> => {
+    if (!isBlueDart) return true;
+    if (draftRef.current.consignmentNo.trim()) return true;
+    if (!selectedDealer) {
+      setBlueDartBookError('Select a delivery address before booking Blue Dart.');
+      return false;
+    }
+    if (draftRef.current.shipmentMode !== 'envelope'
+      && draftRef.current.boxes.some(box => !boxHasRequiredLbh(box))) {
+      setBlueDartBookError('Enter L × B × H (cm) for every box before creating a Blue Dart AWB.');
+      return false;
+    }
+    setBookingBlueDart(true);
+    setBlueDartBookError('');
+    try {
+      const address = resolveDraftDeliveryAddress(selectedDealer, draftRef.current);
+      const pin = pincodeFromAddress(address);
+      if (!pin) {
+        throw new Error('Delivery address needs a 6-digit pincode for Blue Dart booking.');
+      }
+      const fromAddress = (fromAddresses[draftRef.current.shipFromSite] ?? '').trim();
+      const siteContact = fromSiteContacts[draftRef.current.shipFromSite] ?? { phone: '', gstin: '' };
+      const shipperPhone = phoneDigitsForCourier(siteContact.phone)
+        || phoneDigitsForCourier(FIRM_PHONE);
+      const shipperGstin = normalizeGstinForCourier(siteContact.gstin)
+        || normalizeGstinForCourier(FIRM_GSTIN);
+      if (!shipperPhone) {
+        throw new Error('Ship-from phone is missing. Set it in Logistics Settings → Sites.');
+      }
+      const consigneePhone = phoneDigitsForCourier(draftRef.current.customerPhone)
+        || phoneDigitsForCourier(resolveReceiverPhoneFromSnapshot(selectedDealer))
+        || phoneDigitsForCourier(selectedDealer.mobile);
+      if (!consigneePhone) {
+        throw new Error('Consignee phone is required before creating a Blue Dart AWB.');
+      }
+      const consigneeGstin = normalizeGstinForCourier(draftRef.current.customerGstin);
+      const deliveryPlace = cityStateFromAddress(address);
+      const shipFromPlace = cityStateFromAddress(fromAddress);
+      const shipFromPin = pincodeFromAddress(fromAddress) || pin;
+      const invoiceId = draftRef.current.invoiceId?.trim() || '';
+      const customerId = draftRef.current.zohoCustomerId?.trim() || '';
+      const fromInvoice = draftRef.current.source === 'invoice' || Boolean(invoiceId);
+      let invoiceNumber = draftRef.current.invoiceNumber?.trim() || '';
+      let invoiceValueInr = positiveInvoiceTotalInr(draftRef.current.invoiceValueInr);
+      if (fromInvoice && invoiceId && customerId) {
+        const hydrated = await hydrateInvoiceFieldsForDelhiveryBooking({
+          customerId,
+          invoiceId,
+          knownNumber: invoiceNumber,
+          knownTotal: invoiceValueInr,
+        });
+        invoiceNumber = hydrated.invoiceNumber?.trim() || invoiceNumber;
+        invoiceValueInr = hydrated.invoiceValueInr || invoiceValueInr;
+      }
+      const shipperRef = (
+        draftRef.current.salesOrderNumber?.trim()
+        || invoiceBranchShipFrom?.salesOrderNumber?.trim()
+        || invoiceNumber
+        || `YW-${Date.now()}`
+      );
+      const siteLabel = STAFF_LOGISTICS_SITE_LABELS[draftRef.current.shipFromSite];
+      const result = await bookBlueDartShipment({
+        partnerId,
+        shipFromSite: draftRef.current.shipFromSite,
+        orderId: shipperRef,
+        consignee: {
+          name: selectedDealer.name,
+          phone: consigneePhone,
+          address,
+          city: selectedDealer.destinationCity?.trim() || deliveryPlace.city,
+          state: deliveryPlace.state,
+          pincode: pin,
+          gstin: consigneeGstin || undefined,
+        },
+        returnAddress: fromAddress
+          ? {
+            name: siteLabel,
+            phone: shipperPhone,
+            address: fromAddress,
+            city: shipFromPlace.city,
+            state: shipFromPlace.state,
+            pincode: shipFromPin,
+          }
+          : null,
+        boxes: draftRef.current.boxes.map(box => ({
+          lengthCm: positiveCm(box.lengthCm) ?? undefined,
+          widthCm: positiveCm(box.widthCm) ?? undefined,
+          heightCm: positiveCm(box.heightCm) ?? undefined,
+          weightKg: Number.parseFloat(box.weightKg) || undefined,
+          quantity: 1,
+        })),
+        invoiceId: invoiceId || null,
+        zohoCustomerId: customerId || null,
+        invoiceNumber: invoiceNumber || draftRef.current.invoiceNumber,
+        invoiceValueInr,
+        sellerGstin: shipperGstin || undefined,
+        freightBillingMode: draftRef.current.freightBillingMode === 'fod' ? 'fod' : 'btc',
+      });
+      const awb = String(result.awb || '').replace(/\D/g, '').trim();
+      if (!awb) throw new Error('Blue Dart did not return an AWB.');
+      applyDraft(prev => ({
+        ...prev,
+        ...(invoiceNumber ? { invoiceNumber } : {}),
+        ...(invoiceValueInr > 0 ? { invoiceValueInr } : {}),
+        consignmentNo: awb,
+        barcodeRaw: prev.barcodeRaw || awb,
+        branch: 'Blue Dart',
+        ...(result.documents ? { blueDartDocuments: result.documents } : {}),
+      }));
+      return true;
+    } catch (err) {
+      setBlueDartBookError(err instanceof Error ? err.message : 'Could not book Blue Dart AWB.');
+      return false;
+    } finally {
+      setBookingBlueDart(false);
+    }
+  }, [
+    applyDraft,
+    fromAddresses,
+    fromSiteContacts,
+    invoiceBranchShipFrom,
+    isBlueDart,
+    partnerId,
+    selectedDealer,
+  ]);
+
   const ensureDealerAddressHydrated = useCallback(async (): Promise<LogisticsDealerSnapshot | null> => {
     const zohoId = draftRef.current.zohoCustomerId?.trim();
     if (!zohoId) return selectedDealer;
@@ -1338,21 +1471,21 @@ export const BookCourierFlow: React.FC<BookCourierFlowProps> = ({
       setStep('eway_bill');
       return;
     }
-    if (isDelhivery) {
+    if (isApiCourier) {
       onComplete(created);
       return;
     }
     setStep('complete');
-  }, [isDelhivery, onComplete, showEwayWizardStep]);
+  }, [isApiCourier, onComplete, showEwayWizardStep]);
 
   const finishWizardFromEwayStep = useCallback(() => {
     if (!booking) return;
-    if (isDelhivery) {
+    if (isApiCourier) {
       onComplete(booking);
       return;
     }
     setStep('complete');
-  }, [booking, isDelhivery, onComplete]);
+  }, [booking, isApiCourier, onComplete]);
 
   const openEwayPdfFromResult = useCallback((contentBase64: string, mimeType: string) => {
     const bytes = base64ToUint8Array(contentBase64);
@@ -1559,10 +1692,10 @@ export const BookCourierFlow: React.FC<BookCourierFlowProps> = ({
     && draft.boxes.every(box => {
       if (isEnvelope) return true;
       if ((Number.parseFloat(box.weightKg) || 0) <= 0) return false;
-      if (isDelhivery && !boxHasRequiredLbh(box)) return false;
+      if ((isDelhivery || isBlueDart) && !boxHasRequiredLbh(box)) return false;
       return true;
     });
-  const delhiveryNeedsLbh = isDelhivery
+  const delhiveryNeedsLbh = (isDelhivery || isBlueDart)
     && !isEnvelope
     && draft.boxes.some(box => !boxHasRequiredLbh(box));
   const totalActualWeight = draft.boxes.reduce(
@@ -1654,6 +1787,23 @@ export const BookCourierFlow: React.FC<BookCourierFlowProps> = ({
     || Boolean(draft.consignmentNo.trim())
     || delhiveryContactIssues.length === 0;
 
+  const blueDartContactIssues = useMemo(() => {
+    if (!isBlueDart) return [] as string[];
+    const issues: string[] = [];
+    if (!delhiveryResolvedContacts.shipperPhone) {
+      issues.push('Ship-from phone is missing — set it under Logistics → Sites.');
+    }
+    if (!selectedDealer) {
+      issues.push('Select a delivery address.');
+    } else if (!delhiveryResolvedContacts.consigneePhone) {
+      issues.push('Consignee phone is missing — enter it below or add it on the dealer / invoice.');
+    }
+    return issues;
+  }, [delhiveryResolvedContacts, isBlueDart, selectedDealer]);
+  const canCreateBlueDartAwb = !isBlueDart
+    || Boolean(draft.consignmentNo.trim())
+    || blueDartContactIssues.length === 0;
+
   const confirmDelhiveryFromReview = useCallback(async () => {
     if (!canCreateDelhiveryLrn) {
       setDelhiveryBookError(
@@ -1668,6 +1818,23 @@ export const BookCourierFlow: React.FC<BookCourierFlowProps> = ({
     canCreateDelhiveryLrn,
     delhiveryContactIssues,
     ensureDelhiveryLrn,
+    handleConfirmShipment,
+  ]);
+
+  const confirmBlueDartFromReview = useCallback(async () => {
+    if (!canCreateBlueDartAwb) {
+      setBlueDartBookError(
+        blueDartContactIssues[0] || 'Consignee phone is required before booking.',
+      );
+      return;
+    }
+    const ok = await ensureBlueDartAwb();
+    if (!ok) return;
+    await handleConfirmShipment();
+  }, [
+    blueDartContactIssues,
+    canCreateBlueDartAwb,
+    ensureBlueDartAwb,
     handleConfirmShipment,
   ]);
 
@@ -1877,7 +2044,7 @@ export const BookCourierFlow: React.FC<BookCourierFlowProps> = ({
     switch (step) {
       case 'scan': onClose(); break;
       case 'address':
-        if (isDelhivery && !draft.consignmentNo.trim() && !draft.barcodeRaw.trim()) {
+        if (isApiCourier && !draft.consignmentNo.trim() && !draft.barcodeRaw.trim()) {
           onClose();
         } else {
           setStep('scan');
@@ -1888,7 +2055,7 @@ export const BookCourierFlow: React.FC<BookCourierFlowProps> = ({
       case 'review': setStep('box'); break;
       case 'label': setStep('review'); break;
       case 'final_photo':
-        setStep(isDelhivery ? 'review' : 'label');
+        setStep(isApiCourier ? 'review' : 'label');
         break;
       case 'eway_bill':
       case 'complete':
@@ -2395,7 +2562,7 @@ export const BookCourierFlow: React.FC<BookCourierFlowProps> = ({
                     index={index}
                     partnerId={partnerId}
                     isEnvelope={isEnvelope}
-                    dimsRequired={isDelhivery}
+                    dimsRequired={isDelhivery || isBlueDart}
                     spareBoxDefinitions={spareBoxDefinitions}
                     canRemove={!isEnvelope && draft.boxes.length > 1 && !combineSelectMode}
                     selectMode={combineSelectMode}
@@ -2703,7 +2870,9 @@ export const BookCourierFlow: React.FC<BookCourierFlowProps> = ({
                       <dd>
                         {draft.consignmentNo || (isDelhivery
                           ? 'Will create via Delhivery API'
-                          : '—')}
+                          : isBlueDart
+                            ? 'Will create via Blue Dart API'
+                            : '—')}
                       </dd>
                     </div>
                     <div><dt>Service Type</dt><dd>{draft.serviceType || (isDelhivery ? 'Surface' : '—')}</dd></div>
@@ -2714,6 +2883,9 @@ export const BookCourierFlow: React.FC<BookCourierFlowProps> = ({
 
               {isDelhivery && delhiveryBookError ? (
                 <p className="book-courier__slip-error" role="alert">{delhiveryBookError}</p>
+              ) : null}
+              {isBlueDart && blueDartBookError ? (
+                <p className="book-courier__slip-error" role="alert">{blueDartBookError}</p>
               ) : null}
 
               <div className="book-courier__review-card">
@@ -2962,27 +3134,37 @@ export const BookCourierFlow: React.FC<BookCourierFlowProps> = ({
                 <button
                   type="button"
                   className="btn btn-primary book-courier__next"
-                  disabled={bookingDelhivery || saving || !canCreateDelhiveryLrn}
+                  disabled={bookingDelhivery || bookingBlueDart || saving || !canCreateDelhiveryLrn || !canCreateBlueDartAwb}
                   onClick={() => {
                     if (isDelhivery) {
                       void confirmDelhiveryFromReview();
                       return;
                     }
+                    if (isBlueDart) {
+                      void confirmBlueDartFromReview();
+                      return;
+                    }
                     setStep('label');
                   }}
                 >
-                  {bookingDelhivery || saving
+                  {bookingDelhivery || bookingBlueDart || saving
                     ? (isDelhivery
                       ? ((draft.source === 'invoice' || Boolean(draft.invoiceId?.trim()))
                         && !(positiveInvoiceTotalInr(draft.invoiceValueInr) > 0)
                         ? 'Waiting for invoice & booking…'
                         : 'Booking Delhivery…')
-                      : 'Saving…')
+                      : isBlueDart
+                        ? 'Booking Blue Dart…'
+                        : 'Saving…')
                     : (isDelhivery
                       ? (canCreateDelhiveryLrn
                         ? (draft.consignmentNo.trim() ? 'Confirm shipment' : 'Create LR & Confirm')
                         : 'Fix phone & GSTIN to continue')
-                      : 'Next')}
+                      : isBlueDart
+                        ? (canCreateBlueDartAwb
+                          ? (draft.consignmentNo.trim() ? 'Confirm shipment' : 'Create AWB & Confirm')
+                          : 'Fix phone to continue')
+                        : 'Next')}
                 </button>
               ) : (
                 <button
@@ -2999,7 +3181,7 @@ export const BookCourierFlow: React.FC<BookCourierFlowProps> = ({
           )}
 
           {/* SCREEN 5 — LABELS (non-Delhivery) */}
-          {!isDelhivery && step === 'label' && selectedDealer && (
+          {!isApiCourier && step === 'label' && selectedDealer && (
             <section className="book-courier__section">
               <h3 className="book-courier__section-title">
                 Print <span className="accent">Labels</span>
@@ -3140,7 +3322,7 @@ export const BookCourierFlow: React.FC<BookCourierFlowProps> = ({
           )}
 
           {/* SCREEN 6 — FINAL PACKAGE PHOTO (optional, non-Delhivery) */}
-          {!isDelhivery && step === 'final_photo' && (
+          {!isApiCourier && step === 'final_photo' && (
             <section className="book-courier__section">
               <h3 className="book-courier__section-title">
                 Capture <span className="accent">Outer</span> Package Photo

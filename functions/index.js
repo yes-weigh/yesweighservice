@@ -194,6 +194,18 @@ import {
   testDelhiveryB2bConnection,
 } from './lib/delhivery-b2b.js';
 import {
+  loadBlueDartPublicConfig,
+  saveBlueDartConfig,
+  testBlueDartConnection,
+  bookBlueDartShipment,
+  fetchBlueDartTrack,
+  readBlueDartWaybillPdf,
+} from './lib/blue-dart-api.js';
+import {
+  persistBlueDartTrackOnBooking,
+  syncBlueDartTrackingForBookings,
+} from './lib/blue-dart-track-sync.js';
+import {
   bookDelhiveryB2bShipment,
   cancelDelhiveryB2bShipment,
   resolveDelhiveryPickupLocationName,
@@ -4929,6 +4941,236 @@ export const testDelhiveryB2bConnectionFn = onCall(
         err?.message ?? 'Could not test Delhivery B2B connection.',
       );
     }
+  },
+);
+
+/** Save Blue Dart APIGEE credentials (license keys write-only via Admin SDK). */
+export const saveBlueDartCredentialsFn = onCall(
+  {
+    region: 'asia-south1',
+    timeoutSeconds: 60,
+    memory: '256MiB',
+  },
+  async request => {
+    await requireActiveUser(request.auth?.uid, SUPER_ADMIN_ROLES);
+    try {
+      const config = await saveBlueDartConfig(getFirestore(), {
+        env: request.data?.env,
+        loginId: request.data?.loginId,
+        clientId: request.data?.clientId,
+        clientSecret: request.data?.clientSecret,
+        shippingLicenseKey: request.data?.shippingLicenseKey,
+        trackingLicenseKey: request.data?.trackingLicenseKey,
+        sandboxLicenseKey: request.data?.sandboxLicenseKey,
+        customerCode: request.data?.customerCode,
+        originArea: request.data?.originArea,
+        customerPincode: request.data?.customerPincode,
+        customerName: request.data?.customerName,
+        updatedBy: request.auth?.uid ?? null,
+      });
+      return { ok: true, config };
+    } catch (err) {
+      if (err instanceof HttpsError) throw err;
+      throw new HttpsError(
+        'internal',
+        err?.message ?? 'Could not save Blue Dart credentials.',
+      );
+    }
+  },
+);
+
+/** Public (non-secret) Blue Dart connection status for Logistics Settings. */
+export const getBlueDartConfigFn = onCall(
+  {
+    region: 'asia-south1',
+    timeoutSeconds: 30,
+    memory: '256MiB',
+  },
+  async request => {
+    await requireActiveUser(request.auth?.uid, SUPER_ADMIN_ROLES, { allowViewOnly: true });
+    try {
+      return await loadBlueDartPublicConfig(getFirestore());
+    } catch (err) {
+      if (err instanceof HttpsError) throw err;
+      throw new HttpsError(
+        'internal',
+        err?.message ?? 'Could not load Blue Dart config.',
+      );
+    }
+  },
+);
+
+/** JWT + Location Finder smoke test for Blue Dart. */
+export const testBlueDartConnectionFn = onCall(
+  {
+    region: 'asia-south1',
+    timeoutSeconds: 60,
+    memory: '256MiB',
+  },
+  async request => {
+    await requireActiveUser(request.auth?.uid, SUPER_ADMIN_ROLES);
+    try {
+      return await testBlueDartConnection(getFirestore());
+    } catch (err) {
+      if (err instanceof HttpsError) throw err;
+      throw new HttpsError(
+        'internal',
+        err?.message ?? 'Could not test Blue Dart connection.',
+      );
+    }
+  },
+);
+
+/** Create a Blue Dart AWB via GenerateWayBill. */
+export const bookBlueDartShipmentFn = onCall(
+  {
+    region: 'asia-south1',
+    timeoutSeconds: 120,
+    memory: '256MiB',
+    secrets: [zohoClientId, zohoClientSecret, zohoRefreshToken],
+  },
+  async request => {
+    await requireActiveUser(request.auth?.uid, ALLOWED_ROLES);
+    const db = getFirestore();
+    try {
+      const invoiceFields = await resolveInvoiceFieldsForDelhiveryBook(db, {
+        invoiceNumber: request.data?.invoiceNumber,
+        invoiceValueInr: request.data?.invoiceValueInr,
+        invoiceId: request.data?.invoiceId,
+        zohoCustomerId: request.data?.zohoCustomerId,
+      }, {
+        syncInvoice: async invoiceId => {
+          await syncSingleInvoiceFromZoho(
+            zohoSecrets(),
+            zohoOrganizationId.value(),
+            invoiceId,
+            {
+              skipPdfs: true,
+              skipImages: true,
+              source: 'bluedart-book',
+            },
+          );
+        },
+      });
+      return await bookBlueDartShipment(db, {
+        partnerId: request.data?.partnerId,
+        shipFromSite: request.data?.shipFromSite,
+        orderId: String(request.data?.orderId ?? '').trim() || invoiceFields.invoiceNumber || `YW-${Date.now()}`,
+        consignee: request.data?.consignee || {},
+        returnAddress: request.data?.returnAddress || null,
+        boxes: Array.isArray(request.data?.boxes) ? request.data.boxes : [],
+        invoiceNumber: invoiceFields.invoiceNumber,
+        invoiceValueInr: invoiceFields.invoiceValueInr,
+        sellerGstin: request.data?.sellerGstin,
+        freightBillingMode: request.data?.freightBillingMode,
+        registerPickup: request.data?.registerPickup,
+      });
+    } catch (err) {
+      if (err instanceof HttpsError) throw err;
+      throw new HttpsError(
+        'failed-precondition',
+        err?.message ?? 'Could not book Blue Dart shipment.',
+      );
+    }
+  },
+);
+
+/** Download cached Blue Dart waybill PDF. */
+export const getBlueDartWaybillFn = onCall(
+  {
+    region: 'asia-south1',
+    timeoutSeconds: 30,
+    memory: '256MiB',
+  },
+  async request => {
+    await requireActiveUser(request.auth?.uid, ALLOWED_ROLES, { allowViewOnly: true });
+    try {
+      const bookingId = String(request.data?.bookingId ?? '').trim();
+      let storagePath = String(request.data?.storagePath ?? '').trim();
+      if (!storagePath && bookingId) {
+        const snap = await getFirestore().collection('logisticsBookings').doc(bookingId).get();
+        const docs = snap.exists ? snap.data()?.blueDartDocuments : null;
+        storagePath = String(docs?.waybill?.storagePath || '').trim();
+      }
+      return await readBlueDartWaybillPdf(getFirestore(), storagePath);
+    } catch (err) {
+      if (err instanceof HttpsError) throw err;
+      throw new HttpsError(
+        'internal',
+        err?.message ?? 'Could not load Blue Dart waybill.',
+      );
+    }
+  },
+);
+
+/** Track a Blue Dart AWB and persist onto the booking when bookingId is set. */
+export const trackBlueDartShipmentFn = onCall(
+  {
+    region: 'asia-south1',
+    timeoutSeconds: 60,
+    memory: '256MiB',
+  },
+  async request => {
+    await requireActiveUser(request.auth?.uid, ALLOWED_ROLES, { allowViewOnly: true });
+    const awb = String(request.data?.awb ?? '').replace(/\D/g, '').trim();
+    if (!awb) {
+      throw new HttpsError('invalid-argument', 'AWB is required.');
+    }
+    const bookingId = String(request.data?.bookingId ?? '').trim();
+    try {
+      const result = await fetchBlueDartTrack(getFirestore(), awb);
+      if (bookingId && result) {
+        try {
+          await persistBlueDartTrackOnBooking(getFirestore(), bookingId, result, {
+            updatePipelineStatus: true,
+          });
+        } catch (persistErr) {
+          console.warn(
+            'trackBlueDartShipmentFn: persist failed for',
+            bookingId,
+            persistErr?.message || persistErr,
+          );
+        }
+      }
+      return result;
+    } catch (err) {
+      if (err instanceof HttpsError) throw err;
+      throw new HttpsError(
+        'internal',
+        err?.message ?? 'Could not fetch Blue Dart shipment status.',
+      );
+    }
+  },
+);
+
+/** Hourly: sync open Blue Dart logistics bookings from Tracking API. */
+export const syncBlueDartTrackingScheduled = onSchedule(
+  {
+    schedule: '15 * * * *',
+    timeZone: 'Asia/Kolkata',
+    region: 'asia-south1',
+    timeoutSeconds: 540,
+    memory: '512MiB',
+  },
+  async () => {
+    const summary = await syncBlueDartTrackingForBookings(getFirestore(), {
+      includeDelivered: false,
+      includeCancelled: false,
+      concurrency: 2,
+      delayMs: 350,
+      onProgress: (event) => {
+        if (event.type === 'error' || event.type === 'write_error') {
+          console.warn(
+            `syncBlueDartTracking: ${event.type} id=${event.id} awb=${event.awb}: ${event.error}`,
+          );
+        }
+      },
+    });
+    console.log(
+      `syncBlueDartTracking: scanned=${summary.scanned}, targeted=${summary.targeted}, `
+      + `ok=${summary.fetchedOk}, fail=${summary.fetchedFail}, updated=${summary.updated}, `
+      + `statusAdvanced=${summary.statusAdvanced}, errors=${summary.errors.length}`,
+    );
   },
 );
 

@@ -20,7 +20,8 @@ import {
 import { useAuth } from '../../context/AuthContext';
 import { useConfirm } from '../../context/ConfirmContext';
 import { cancelDelhiveryShipment, createDelhiveryPickupRequest } from '../../lib/delhiveryB2b';
-import { LOGISTICS_PARTNERS } from '../../constants/logisticsPartners';
+import { getBlueDartWaybill } from '../../lib/blueDartApi';
+import { LOGISTICS_PARTNERS, isBlueDartLogisticsPartnerId } from '../../constants/logisticsPartners';
 import { logisticsPartnerLabel } from '../../constants/logisticsPartners';
 import { formatCurrency } from '../../lib/catalog';
 import {
@@ -136,6 +137,7 @@ type DocCardIcon = React.FC<{ size?: number; strokeWidth?: number; className?: s
 const LOGISTICS_DOC_KIND_ORDER: Record<string, number> = {
   lr_copy: 10,
   courier_slip: 10,
+  bluedart_waybill: 10,
   shipping_label: 20,
   invoice: 30,
   eway_bill: 40,
@@ -185,7 +187,7 @@ function logisticsDocCardMeta(kind: string): {
   subtitle: string;
   Icon: DocCardIcon | LucideIcon;
 } {
-  if (kind === 'lr_copy' || kind === 'courier_slip') {
+  if (kind === 'lr_copy' || kind === 'courier_slip' || kind === 'bluedart_waybill') {
     return {
       tone: 'slip',
       title: 'AWB',
@@ -416,6 +418,7 @@ export const LogisticsBookingDetail: React.FC<LogisticsBookingDetailProps> = ({
     || booking.partnerId === 'trackon_surface'
   );
   const isDelhivery = booking.partnerId === 'delhivery';
+  const isBlueDart = isBlueDartLogisticsPartnerId(booking.partnerId);
   const delhiveryIds = useMemo(
     () => (isDelhivery ? resolveDelhiveryBookingIds(booking) : null),
     [booking, isDelhivery],
@@ -433,7 +436,7 @@ export const LogisticsBookingDetail: React.FC<LogisticsBookingDetailProps> = ({
     && delhiveryIds
     && (delhiveryIds.missingLrn || delhiveryIds.missingMasterAwb),
   );
-  const showInAppTrack = (isStCourier || isTrackon || isDelhivery) && Boolean(trackAwb);
+  const showInAppTrack = (isStCourier || isTrackon || isDelhivery || isBlueDart) && Boolean(trackAwb);
   const shippingLabelGate = useMemo(() => shippingLabelAddressGate(booking), [booking]);
   const shippingLabelBlocked = Boolean(shippingLabelGate.message);
 
@@ -857,6 +860,23 @@ export const LogisticsBookingDetail: React.FC<LogisticsBookingDetailProps> = ({
 
   const logisticsDocCards = useMemo((): LogisticsDocCard[] => {
     if (isDelhivery) return delhiveryDocCards;
+    if (isBlueDart) {
+      const hasAwb = Boolean((booking.consignmentNo || '').replace(/\D/g, ''));
+      return [
+        {
+          id: 'bluedart_waybill',
+          kind: 'bluedart_waybill',
+          label: 'Waybill',
+          enabled: hasAwb && Boolean(booking.blueDartDocuments?.waybill?.storagePath),
+          disabledReason: hasAwb
+            ? (booking.blueDartDocuments?.waybill?.storagePath
+              ? null
+              : 'Waybill PDF was not returned by Blue Dart.')
+            : 'Create a Blue Dart AWB first.',
+        },
+        ...sharedDocCards,
+      ];
+    }
     const cards: LogisticsDocCard[] = [
       {
         id: 'courier_slip',
@@ -876,7 +896,10 @@ export const LogisticsBookingDetail: React.FC<LogisticsBookingDetailProps> = ({
   }, [
     delhiveryDocCards,
     isDelhivery,
+    isBlueDart,
     isOps,
+    booking.consignmentNo,
+    booking.blueDartDocuments,
     sharedDocCards,
     shippingLabelBlocked,
     shippingLabelGate.message,
@@ -1130,6 +1153,34 @@ export const LogisticsBookingDetail: React.FC<LogisticsBookingDetailProps> = ({
       void openEwayBillDocument();
       return;
     }
+    if (card.kind === 'bluedart_waybill') {
+      void (async () => {
+        setDelhiveryDocOpening(card.id);
+        setDelhiveryDocsError('');
+        try {
+          const pdf = await getBlueDartWaybill({
+            bookingId: booking.id,
+            storagePath: booking.blueDartDocuments?.waybill?.storagePath,
+          });
+          const bytes = base64ToUint8Array(pdf.contentBase64);
+          const blob = new Blob([Uint8Array.from(bytes)], { type: pdf.contentType || 'application/pdf' });
+          setDelhiveryDocDialog({
+            title: `Waybill ${booking.consignmentNo}`,
+            contentType: pdf.contentType || 'application/pdf',
+            pdfBytes: bytes,
+            fileName: pdf.fileName || `${booking.consignmentNo}-waybill.pdf`,
+            downloadBlob: blob,
+          });
+        } catch (err) {
+          setDelhiveryDocsError(
+            err instanceof Error ? err.message : 'Could not open Blue Dart waybill.',
+          );
+        } finally {
+          setDelhiveryDocOpening(null);
+        }
+      })();
+      return;
+    }
     if (card.kind === 'shipping_label' && !isDelhivery) {
       openShippingLabel();
       return;
@@ -1141,6 +1192,9 @@ export const LogisticsBookingDetail: React.FC<LogisticsBookingDetailProps> = ({
       urls: card.urls,
     });
   }, [
+    booking.blueDartDocuments?.waybill?.storagePath,
+    booking.consignmentNo,
+    booking.id,
     isDelhivery,
     openDelhiveryDocument,
     openEwayBillDocument,
@@ -1813,7 +1867,7 @@ export const LogisticsBookingDetail: React.FC<LogisticsBookingDetailProps> = ({
         <StCourierTrackPanel
           awb={trackAwb}
           bookingId={booking.id}
-          provider={isTrackon ? 'trackon' : isDelhivery ? 'delhivery' : 'st_courier'}
+          provider={isTrackon ? 'trackon' : isDelhivery ? 'delhivery' : isBlueDart ? 'bluedart' : 'st_courier'}
           shipFromSite={booking.shipFromSite}
           courierDeliveryOffice={isStCourier ? booking.courierDeliveryOffice : null}
           cachedTrack={booking.courierTrack}
