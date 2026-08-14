@@ -36,9 +36,12 @@ export interface CatalogProductAuditSnapshot {
   lastAuditedAt: string;
   lastAuditedByUid: string | null;
   lastAuditedByName: string | null;
-  /** Locked Diff at last physical audit. Live Audited = current Zoho + this Diff. */
+  /**
+   * Diff at last write. Sales keep it; Zoho inbound toward Audited consumes it.
+   * Live Audited = current Zoho + remaining Diff.
+   */
   baselineDifference: number;
-  /** Audited qty after last write (moves with Zoho sync to keep Diff locked). */
+  /** Audited qty after last write (follows Zoho on sales; stays when inbound closes Diff). */
   physicalQtyAtAudit: number;
   zohoQtyAtAudit: number;
   mode: 'unit' | 'bundle';

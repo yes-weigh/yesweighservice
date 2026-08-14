@@ -330,6 +330,7 @@ async function rewriteLaterZohoSyncLogs(productRef, {
   cochinQty,
   headOfficeQty,
   mode,
+  previousZohoQty,
   skipSourceGoodsReceiptId,
 }) {
   const snap = await productRef.collection('auditLogs')
@@ -337,6 +338,9 @@ async function rewriteLaterZohoSyncLogs(productRef, {
     .get();
   const skipSource = skipSourceGoodsReceiptId ? String(skipSourceGoodsReceiptId) : '';
   const updates = [];
+  let runningDiff = Number(baselineDifference);
+  let prevZoho = Number(previousZohoQty);
+  if (!Number.isFinite(prevZoho)) prevZoho = 0;
   for (const doc of snap.docs) {
     const data = doc.data() ?? {};
     const at = String(data.auditedAt ?? '');
@@ -346,14 +350,17 @@ async function rewriteLaterZohoSyncLogs(productRef, {
     if (PHYSICAL_TRIGGERS.has(data.trigger)) break;
     if (data.trigger !== 'zoho_sync') continue;
     const zoho = Number(data.zohoQtyAtAudit ?? 0);
+    const nextZoho = Number.isFinite(zoho) ? zoho : 0;
+    runningDiff = nextAuditDiffAfterZohoChange(prevZoho, nextZoho, runningDiff);
+    prevZoho = nextZoho;
     updates.push({
       ref: doc.ref,
       payload: {
-        baselineDifference,
+        baselineDifference: runningDiff,
         cochinQty,
         headOfficeQty,
         mode,
-        physicalQty: (Number.isFinite(zoho) ? zoho : 0) + baselineDifference,
+        physicalQty: nextZoho + runningDiff,
       },
     });
   }
@@ -400,8 +407,24 @@ async function rebuildProductAuditSnapshot(productRef) {
 }
 
 /**
- * When Zoho stock changes on sync, keep locked Diff from last physical count.
- * Audited = nextZoho + baselineDifference. Site HO/Cochin stay at last physical.
+ * Sales (Zoho down with +Diff): keep Diff; Audited follows Zoho.
+ * Inbound catching up (Zoho up toward Audited): consume Diff so Audit stays.
+ * Example: Zoho -145 → 28 with Diff +173 writes Zoho 28, Audit 28, Diff 0.
+ */
+export function nextAuditDiffAfterZohoChange(previousZohoQty, nextZohoQty, lockedDiff) {
+  const prev = Number(previousZohoQty);
+  const next = Number(nextZohoQty);
+  const diff = Number(lockedDiff);
+  if (!Number.isFinite(prev) || !Number.isFinite(next) || !Number.isFinite(diff)) return diff;
+  const delta = next - prev;
+  if (delta > 0 && diff > 0) return Math.max(0, diff - delta);
+  if (delta < 0 && diff < 0) return Math.min(0, diff - delta);
+  return diff;
+}
+
+/**
+ * When Zoho stock changes on sync, keep Diff through sales; close Diff when
+ * Zoho inbound catches up to Audited. Site HO/Cochin stay at last physical.
  */
 export function buildZohoSyncAuditAdjustment(existingSnapshot, previousZohoQty, nextZohoQty, auditedAt) {
   if (!existingSnapshot || existingSnapshot.baselineDifference == null) return null;
@@ -411,9 +434,10 @@ export function buildZohoSyncAuditAdjustment(existingSnapshot, previousZohoQty, 
   if (!Number.isFinite(prevZoho) || !Number.isFinite(nextZoho)) return null;
   if (prevZoho === nextZoho) return null;
 
-  const baselineDifference = Number(existingSnapshot.baselineDifference);
-  if (!Number.isFinite(baselineDifference)) return null;
+  const lockedDiff = Number(existingSnapshot.baselineDifference);
+  if (!Number.isFinite(lockedDiff)) return null;
 
+  const baselineDifference = nextAuditDiffAfterZohoChange(prevZoho, nextZoho, lockedDiff);
   const physicalQty = nextZoho + baselineDifference;
   const mode = existingSnapshot.mode === 'bundle' ? 'bundle' : 'unit';
   const headOfficeQty = Number(existingSnapshot.headOfficeQtyAtAudit ?? 0);
@@ -779,6 +803,7 @@ export async function recordCatalogProductAudit(
       cochinQty,
       headOfficeQty,
       mode,
+      previousZohoQty: zohoQtyAtAudit,
       skipSourceGoodsReceiptId: sourceGoodsReceiptId,
     });
     const snapshot = await rebuildProductAuditSnapshot(productRef);

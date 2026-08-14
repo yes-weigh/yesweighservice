@@ -2403,7 +2403,7 @@ export const ProductDetailView: React.FC<{
                 <div className="product-detail-page__audit-cycle-banner">
                   {zohoMovedDuringOpenCycle && (
                     <p className="product-detail-page__audit-cycle-warn text-sm">
-                      Zoho stock changed since the last physical count. Diff stays locked; Audited tracks Zoho.
+                      Zoho stock changed since the last physical count. Sales keep Diff locked; when Zoho catches up to Audited, Diff closes.
                     </p>
                   )}
                   {auditedLiveMismatch && canEditHeadOffice && (

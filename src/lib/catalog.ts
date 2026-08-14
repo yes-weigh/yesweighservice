@@ -478,7 +478,7 @@ export function catalogProductIsAudited(
   return cochinAuditedIds.has(product.id);
 }
 
-/** Audit vs book stock variance: locked Diff from last physical count. */
+/** Audit vs book stock variance: remaining Diff after sales / inbound catch-up. */
 export function catalogProductAuditVariance(
   product: Pick<CatalogProduct, 'stock' | 'auditSnapshot'>,
 ): 'zero' | 'overage' | 'shortage' | null {

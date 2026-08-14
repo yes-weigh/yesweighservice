@@ -3,6 +3,25 @@ import type { CatalogProduct } from '../../types/catalog';
 import type { CatalogProductAuditSnapshot } from '../../types/catalog-product-audit';
 
 /**
+ * Sales keep Diff. Zoho inbound toward Audited consumes Diff (Audit stays).
+ * Zoho -145 → 28 with Diff +173 → Diff 0, Audited 28.
+ */
+export function nextAuditDiffAfterZohoChange(
+  previousZohoQty: number,
+  nextZohoQty: number,
+  lockedDiff: number,
+): number {
+  const prev = Number(previousZohoQty);
+  const next = Number(nextZohoQty);
+  const diff = Number(lockedDiff);
+  if (!Number.isFinite(prev) || !Number.isFinite(next) || !Number.isFinite(diff)) return diff;
+  const delta = next - prev;
+  if (delta > 0 && diff > 0) return Math.max(0, diff - delta);
+  if (delta < 0 && diff < 0) return Math.min(0, diff - delta);
+  return diff;
+}
+
+/**
  * Quantity for catalog grid/list stock pills.
  * Audited = last physical adjusted with Zoho (snapshot.physicalQtyAtAudit).
  * Returns 0 when the product has never been audited.
@@ -34,13 +53,12 @@ export function catalogGridStockQty(product: CatalogProduct): number {
 export interface AdjustedAuditDisplay {
   hasAuditSnapshot: boolean;
   /**
-   * Audited stock that tracks Zoho while Diff stays locked:
-   * currentZoho + baselineDifference.
+   * Audited stock: follows Zoho on sales; stays put when Zoho inbound
+   * consumes pending Diff (currentZoho + live Diff).
    */
   displayAuditedQty: number | null;
   /**
-   * Locked Diff from the last physical count (baselineDifference).
-   * Does not move when Zoho stock changes between counts.
+   * Diff from last physical, reduced when Zoho inbound catches up to Audited.
    */
   displayDifference: number | null;
   physicalQtyAtAudit: number | null;
@@ -56,8 +74,8 @@ export interface AdjustedAuditDisplay {
 }
 
 /**
- * Diff stays locked at the last physical count.
- * Audited moves with current Zoho: Audited = Zoho + locked Diff.
+ * Sales: Diff stays locked, Audited = Zoho + Diff.
+ * Zoho inbound that closes the gap: Diff shrinks, Audited stays.
  */
 export function resolveAdjustedAuditDisplay(input: {
   currentZohoQty: number | null;
@@ -90,19 +108,23 @@ export function resolveAdjustedAuditDisplay(input: {
   const lockedDiff = Number.isFinite(baselineDifference)
     ? baselineDifference
     : Number(snapshot.physicalQtyAtAudit ?? 0) - Number(snapshot.zohoQtyAtAudit ?? 0);
-  const displayAuditedQty = currentZohoQty + lockedDiff;
+  const prevZoho = Number(snapshot.zohoQtyAtAudit);
+  const liveDiff = Number.isFinite(prevZoho)
+    ? nextAuditDiffAfterZohoChange(prevZoho, currentZohoQty, lockedDiff)
+    : lockedDiff;
+  const displayAuditedQty = currentZohoQty + liveDiff;
   const lastPhysicalAt = snapshot.lastPhysicalAuditedAt ?? snapshot.lastAuditedAt;
   const lastPhysicalBy = snapshot.lastPhysicalAuditedByName ?? snapshot.lastAuditedByName;
 
   return {
     hasAuditSnapshot: true,
     displayAuditedQty,
-    displayDifference: lockedDiff,
+    displayDifference: liveDiff,
     physicalQtyAtAudit: displayAuditedQty,
     zohoQtyAtAudit: snapshot.zohoQtyAtAudit,
     lastAuditedAt: lastPhysicalAt,
     lastAuditedByName: lastPhysicalBy,
-    baselineDifference: lockedDiff,
+    baselineDifference: liveDiff,
     livePhysicalQty,
     lastAuditCycleId: snapshot.lastAuditCycleId ?? null,
   };

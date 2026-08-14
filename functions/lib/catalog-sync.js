@@ -492,7 +492,7 @@ export async function syncCatalogToFirestore(secrets, configuredOrgId, options =
         trigger: 'zoho_sync',
         auditCycleId: null,
       };
-      // Keep locked Diff; move Audited with Zoho. Site HO/Cochin stay at last physical count.
+      // Sales: keep Diff, move Audited. Inbound catch-up: consume Diff, Audit stays. HO/Cochin frozen.
       const snapshot = {
         ...prior,
         lastAuditLogId: logRef.id,
