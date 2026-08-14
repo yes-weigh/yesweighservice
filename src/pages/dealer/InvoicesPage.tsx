@@ -17,6 +17,7 @@ import { FetchingLoader } from '../../components/FetchingLoader';
 import {
   InvoiceCategoryBadgeList,
   InvoiceCategoryIcon,
+  InvoiceTileLeadIcon,
 } from '../../components/invoices/InvoiceCategoryVisual';
 import { useAuth } from '../../context/AuthContext';
 import { useCatalogPageHeader, usePageHeaderSlot } from '../../context/PageHeaderContext';
@@ -341,7 +342,7 @@ function InvoiceMobileRow({
       onClick={() => onOpen(invoice.id)}
       aria-label={`View invoice ${invoice.invoiceNumber || invoice.id}`}
     >
-      <InvoiceCategoryIcon category={invoice.invoiceCategory} />
+      <InvoiceTileLeadIcon invoice={invoice} />
       <span className="invoices-mobile-row__body">
         <span className="invoices-mobile-row__invoice">
           <span className="invoices-mobile-row__title">

@@ -17823,21 +17823,24 @@ body:has(.confirm-inline-bar) .confirm-inline-bar {
 .unified-so-stage-block__icon--draft,
 .unified-so-stage-block__icon--unpaid,
 .unified-so-stage-block__icon--partially_paid,
-.unified-so-stage-block__icon--to_dispatch {
+.unified-so-stage-block__icon--to_dispatch,
+.unified-so-stage-block__icon--scheduled {
   background: rgba(251, 191, 36, 0.18);
   color: #fcd34d;
 }
 
 .unified-so-stage-block__icon--sent,
 .unified-so-stage-block__icon--viewed,
-.unified-so-stage-block__icon--in_transit {
+.unified-so-stage-block__icon--in_transit,
+.unified-so-stage-block__icon--shipped {
   background: rgba(96, 165, 250, 0.18);
   color: #93c5fd;
 }
 
 .unified-so-stage-block__icon--paid,
 .unified-so-stage-block__icon--delivered,
-.unified-so-stage-block__icon--customer_pickup {
+.unified-so-stage-block__icon--customer_pickup,
+.unified-so-stage-block__icon--received {
   background: rgba(52, 211, 153, 0.18);
   color: #6ee7b7;
 }
@@ -17939,6 +17942,14 @@ body:has(.confirm-inline-bar) .confirm-inline-bar {
 .unified-so-category-blocks--sectors .unified-so-category-block__icon--all {
   background: rgba(45, 212, 191, 0.18);
   color: #5eead4;
+}
+
+.unified-so-category-blocks--goods-receipt {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.unified-so-stage-blocks--goods-receipt {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
 }
 
 @media (max-width: 640px) {
@@ -31942,6 +31953,18 @@ body:has(.confirm-inline-bar) .confirm-inline-bar {
 .invoices-mobile-row__icon--unknown {
   background: rgba(148, 163, 184, 0.12);
   color: #94a3b8;
+}
+
+.invoices-mobile-row__icon--partner {
+  background: rgba(255, 255, 255, 0.94);
+  padding: 0.22rem;
+  overflow: hidden;
+}
+
+.invoices-mobile-row__icon--partner img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
 }
 
 .invoices-mobile-row__body {

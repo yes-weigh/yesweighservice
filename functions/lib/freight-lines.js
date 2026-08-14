@@ -64,3 +64,16 @@ export function isFreightProductId(productId) {
 export function isFreightOrderLine(line = {}) {
   return isFreightProductId(line.productId || line.itemId) || isFreightSku(line.sku);
 }
+
+export function freightSkuFromInvoiceLines(lineItems) {
+  const items = Array.isArray(lineItems) ? lineItems : [];
+  for (const item of items) {
+    const sku = String(item?.sku ?? '').trim().toUpperCase();
+    if (isFreightSku(sku)) return sku;
+    const productId = String(item?.itemId ?? item?.productId ?? item?.id ?? '').trim();
+    if (!isFreightProductId(productId)) continue;
+    const option = FREIGHT_LINE_OPTIONS.find(row => String(row.productId) === productId);
+    if (option?.sku) return String(option.sku).toUpperCase();
+  }
+  return null;
+}

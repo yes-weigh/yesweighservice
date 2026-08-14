@@ -7,6 +7,8 @@ import {
 } from '../../lib/invoices';
 import type { OrderSegment } from '../../lib/salesOrderSegments';
 import type { InvoiceCategory } from '../../types/invoices';
+import { invoiceTileLeadVisual } from '../../lib/invoiceTileLead';
+import type { LogisticsBooking } from '../../types/logistics-dispatch';
 
 const INVOICE_CATEGORIES = new Set<InvoiceCategory>([
   'product',
@@ -67,6 +69,48 @@ export function InvoiceCategoryIcon({
     >
       {key ? invoiceCategoryIconNode(key) : invoiceCategoryIconNode('product')}
     </span>
+  );
+}
+
+export function InvoiceTileLeadIcon({
+  invoice,
+  booking,
+}: {
+  invoice: Parameters<typeof invoiceTileLeadVisual>[0];
+  booking?: Pick<LogisticsBooking, 'partnerId'> | null;
+}) {
+  const lead = invoiceTileLeadVisual(invoice, booking);
+  if (lead.kind === 'partner') {
+    return (
+      <span
+        className="invoices-mobile-row__icon invoices-mobile-row__icon--partner"
+        title={lead.label}
+        aria-label={lead.label}
+      >
+        <img src={lead.image} alt="" />
+      </span>
+    );
+  }
+  return <InvoiceCategoryIcon category={lead.category} />;
+}
+
+export function SalesOrderTileLeadIcon({
+  category,
+  categories,
+  freightSku,
+}: {
+  category?: InvoiceCategory | null;
+  categories?: InvoiceCategory[] | null;
+  freightSku?: string | null;
+}) {
+  return (
+    <InvoiceTileLeadIcon
+      invoice={{
+        invoiceCategory: category,
+        categories,
+        freightSku,
+      }}
+    />
   );
 }
 

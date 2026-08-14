@@ -38,6 +38,7 @@ import {
   parseInvoiceCategory,
   sumInvoiceProductQuantity,
   firstDateTimeValue,
+  freightSkuFromInvoiceLines,
 } from './invoices';
 import {
   appendSalespersonIdConstraint,
@@ -85,6 +86,8 @@ export interface AdminFirestoreInvoice {
   invoiceCategory: InvoiceCategory | null;
   categories: InvoiceCategory[];
   categoryAmounts: Partial<Record<InvoiceCategory, number>>;
+  /** Courier freight SKU when the invoice includes a delivery-partner line. */
+  freightSku?: string | null;
   /** Set when Aggregate mode clubs invoices into one row per dealer. */
   aggregateInvoiceCount?: number;
   customerPickup?: InvoiceCustomerPickup | null;
@@ -225,6 +228,10 @@ export function mapAdminInvoiceDoc(
     invoiceCategory: parseInvoiceCategory(data.invoiceCategory),
     categories: normalizeInvoiceCategories(data.categories),
     categoryAmounts: normalizeInvoiceCategoryAmounts(data.categoryAmounts),
+    freightSku: String(data.freightSku ?? '').trim().toUpperCase()
+      || freightSkuFromInvoiceLines(
+        Array.isArray(data.lineItems) ? data.lineItems : null,
+      ),
     customerPickup: mapInvoiceCustomerPickupField(data.customerPickup, data.customerPickupMarkedAt),
     customerPickupMarkedAt: pickupMarkedAt(data.customerPickupMarkedAt),
     manualDelivery: mapInvoiceManualDelivery(data.manualDelivery, data.manualDeliveredAt),
@@ -1970,6 +1977,10 @@ export function mapAdminInvoiceDetail(
     invoiceCategory: parseInvoiceCategory(data.invoiceCategory),
     categories: normalizeInvoiceCategories(data.categories),
     categoryAmounts: normalizeInvoiceCategoryAmounts(data.categoryAmounts),
+    freightSku: String(data.freightSku ?? '').trim().toUpperCase()
+      || freightSkuFromInvoiceLines(
+        Array.isArray(data.lineItems) ? data.lineItems : null,
+      ),
     salesOrderId: data.salesOrderId ? String(data.salesOrderId) : null,
     salesOrderNumber: data.salesOrderNumber ? String(data.salesOrderNumber) : null,
     subtotal: Number(data.subtotal ?? 0),

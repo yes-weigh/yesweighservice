@@ -55,6 +55,8 @@ const ADMIN_GR_AGGREGATE_MAX_ROWS = 2500;
 export type AdminGoodsReceiptSort = 'syncedAt' | 'date';
 export type GoodsReceiptLocation = 'head_office' | 'cochin';
 export type GoodsReceiptLocationFilter = GoodsReceiptLocation | 'all';
+export type GoodsReceiptShipmentStage = 'in_transit' | 'scheduled' | 'received';
+export type GoodsReceiptShipmentFilter = 'all' | GoodsReceiptShipmentStage;
 
 export type AdminGoodsReceiptListQuery = {
   sort?: AdminGoodsReceiptSort;
@@ -90,6 +92,10 @@ export interface AdminFirestoreGoodsReceipt {
   goodsReceiptCategory: InvoiceCategory | null;
   categories: InvoiceCategory[];
   categoryAmounts: Partial<Record<InvoiceCategory, number>>;
+  sailedDate: string | null;
+  receivedDate: string | null;
+  /** True when ops receive-check has any received qty. */
+  receiveChecked: boolean;
 }
 
 export interface AdminGoodsReceiptDetail {
@@ -193,6 +199,66 @@ export type AdminGoodsReceiptLocationCounts = {
   cochin: number;
 };
 
+export type AdminGoodsReceiptShipmentCounts = {
+  all: number;
+  in_transit: number;
+  scheduled: number;
+  received: number;
+};
+
+export const EMPTY_GOODS_RECEIPT_SHIPMENT_COUNTS: AdminGoodsReceiptShipmentCounts = {
+  all: 0,
+  in_transit: 0,
+  scheduled: 0,
+  received: 0,
+};
+
+function hasGoodsReceiptDate(value: unknown): boolean {
+  return Boolean(String(value ?? '').trim());
+}
+
+function receiveCheckHasQty(raw: unknown): boolean {
+  if (!raw || typeof raw !== 'object') return false;
+  const data = raw as Record<string, unknown>;
+  const byLineId = data.byLineId;
+  if (byLineId && typeof byLineId === 'object') {
+    if (Object.values(byLineId as Record<string, unknown>).some(qty => Number(qty) > 0)) {
+      return true;
+    }
+  }
+  const lines = data.lines;
+  if (lines && typeof lines === 'object') {
+    for (const value of Object.values(lines as Record<string, unknown>)) {
+      if (!value || typeof value !== 'object') continue;
+      if (Number((value as Record<string, unknown>).receivedQty) > 0) return true;
+    }
+  }
+  return false;
+}
+
+export function goodsReceiptShipmentStage(
+  row: Pick<AdminFirestoreGoodsReceipt, 'sailedDate' | 'receivedDate' | 'receiveChecked'>,
+): GoodsReceiptShipmentStage {
+  if (hasGoodsReceiptDate(row.receivedDate) || row.receiveChecked) return 'received';
+  if (hasGoodsReceiptDate(row.sailedDate)) return 'in_transit';
+  return 'scheduled';
+}
+
+export function countAdminGoodsReceiptsByShipment(
+  rows: AdminFirestoreGoodsReceipt[],
+): AdminGoodsReceiptShipmentCounts {
+  const counts: AdminGoodsReceiptShipmentCounts = {
+    all: rows.length,
+    in_transit: 0,
+    scheduled: 0,
+    received: 0,
+  };
+  for (const row of rows) {
+    counts[goodsReceiptShipmentStage(row)] += 1;
+  }
+  return counts;
+}
+
 export function parseGoodsReceiptLocation(value: unknown): GoodsReceiptLocation | null {
   const raw = String(value ?? '').trim().toLowerCase();
   if (!raw) return null;
@@ -281,6 +347,9 @@ export function mapAdminGoodsReceiptDoc(
     goodsReceiptCategory: parseInvoiceCategory(data.goodsReceiptCategory),
     categories: normalizeInvoiceCategories(data.categories),
     categoryAmounts: normalizeInvoiceCategoryAmounts(data.categoryAmounts),
+    sailedDate: data.sailedDate ? String(data.sailedDate) : null,
+    receivedDate: data.receivedDate ? String(data.receivedDate) : null,
+    receiveChecked: receiveCheckHasQty(data.receiveCheck),
   };
 }
 
@@ -455,10 +524,14 @@ export function filterAdminGoodsReceipts(
   rows: AdminFirestoreGoodsReceipt[],
   searchText: string,
   location: GoodsReceiptLocationFilter = 'all',
+  shipment: GoodsReceiptShipmentFilter = 'all',
 ): AdminFirestoreGoodsReceipt[] {
   let next = rows;
   if (location && location !== 'all') {
     next = next.filter(row => row.inventorySite === location);
+  }
+  if (shipment && shipment !== 'all') {
+    next = next.filter(row => goodsReceiptShipmentStage(row) === shipment);
   }
   const needle = searchText.trim().toLowerCase();
   if (!needle) return next;

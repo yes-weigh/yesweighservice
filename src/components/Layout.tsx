@@ -108,7 +108,7 @@ function portalNavItems(
     },
     services: { path: `${home}/services`, icon: <Wrench size={20} />, label: 'Services' },
     returns: { path: `${home}/returns`, icon: <RotateCcw size={20} />, label: 'Returns' },
-    verification: { path: `${home}/verification`, icon: <ShieldCheck size={20} />, label: 'Verification' },
+    verification: { path: `${home}/verification`, icon: <ShieldCheck size={20} />, label: 'GATC' },
     advertisements: { path: `${home}/advertisements`, icon: <Megaphone size={20} />, label: 'Media Center' },
     invoices: { path: `${home}/invoices`, icon: <FileText size={20} />, label: 'Invoice' },
     goodsReceipts: {

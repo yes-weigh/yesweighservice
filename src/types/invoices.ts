@@ -53,6 +53,8 @@ export interface DealerInvoice {
   categories?: InvoiceCategory[];
   /** Sum of line totals per category on this document. */
   categoryAmounts?: Partial<Record<InvoiceCategory, number>>;
+  /** Courier freight SKU when the invoice includes a delivery-partner line. */
+  freightSku?: string | null;
 }
 
 export interface DealerInvoiceLineItem {

@@ -15,7 +15,7 @@ import { FetchingLoader } from '../../components/FetchingLoader';
 import { ListTileKam } from '../../components/list/ListTileKam';
 import {
   InvoiceCategoryBadgeList,
-  InvoiceCategoryIcon,
+  SalesOrderTileLeadIcon,
 } from '../../components/invoices/InvoiceCategoryVisual';
 import { SalesOrderStageSeal } from '../../components/salesOrders/SalesOrderStageSeal';
 import { SalesOrderCategoryFilterBlocks } from '../../components/salesOrders/SalesOrderCategoryFilterBlocks';
@@ -1227,7 +1227,11 @@ export const AdminUnifiedSalesOrdersPage: React.FC = () => {
                     onMouseDown={preventMouseFocusScroll}
                     aria-label={`View ${row.primaryNumber}${row.sealKind ? `, ${row.sealKind.replace(/_/g, ' ')}` : ''}`}
                   >
-                    <InvoiceCategoryIcon category={row.category} />
+                    <SalesOrderTileLeadIcon
+                      category={row.category}
+                      categories={row.categories}
+                      freightSku={row.freightSku}
+                    />
                     <span className="invoices-mobile-row__body">
                       <span className="invoices-mobile-row__invoice">
                         <span className="invoices-mobile-row__title">

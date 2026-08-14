@@ -7,9 +7,12 @@ import {
   Building2,
   ChevronRight,
   FileText,
+  CalendarClock,
   LayoutGrid,
+  PackageCheck,
   Search,
   SlidersHorizontal,
+  Truck,
   Warehouse,
   X,
 } from 'lucide-react';
@@ -17,6 +20,9 @@ import { FetchingLoader } from '../../components/FetchingLoader';
 import { useCatalogPageHeader, usePageHeaderSlot } from '../../context/PageHeaderContext';
 import {
   countAdminGoodsReceiptsByLocation,
+  countAdminGoodsReceiptsByShipment,
+  EMPTY_GOODS_RECEIPT_SHIPMENT_COUNTS,
+  fetchAllAdminGoodsReceiptsInRange,
   fetchAdminGoodsReceiptsPageDetailed,
   filterAdminGoodsReceipts,
   goodsReceiptLocationLabel,
@@ -26,6 +32,7 @@ import {
   type AdminGoodsReceiptLocationCounts,
   type AdminGoodsReceiptSort,
   type GoodsReceiptLocationFilter,
+  type GoodsReceiptShipmentFilter,
 } from '../../lib/admin-goods-receipts';
 import {
   formatInvoiceDateTime,
@@ -39,15 +46,21 @@ import type { SalesRangePreset } from '../../types/invoices';
 import { SALES_RANGE_OPTIONS } from '../../types/invoices';
 
 const LIST_PAGE_SIZE = 25;
-const SEARCH_FETCH_SIZE = 100;
 const DEFAULT_RANGE: SalesRangePreset = 'financial_year';
 const DEFAULT_SORT: AdminGoodsReceiptSort = 'date';
 const DEFAULT_LOCATION: GoodsReceiptLocationFilter = 'all';
+const DEFAULT_SHIPMENT: GoodsReceiptShipmentFilter = 'all';
 
 const LOCATION_BLOCKS: Array<{ value: GoodsReceiptLocationFilter; label: string }> = [
   { value: 'all', label: 'All' },
   { value: 'head_office', label: 'Head office' },
   { value: 'cochin', label: 'Cochin' },
+];
+
+const SHIPMENT_BLOCKS: Array<{ value: Exclude<GoodsReceiptShipmentFilter, 'all'>; label: string }> = [
+  { value: 'in_transit', label: 'In transit' },
+  { value: 'scheduled', label: 'Scheduled' },
+  { value: 'received', label: 'Received' },
 ];
 
 const EMPTY_LOCATION_COUNTS: AdminGoodsReceiptLocationCounts = {
@@ -70,6 +83,12 @@ function LocationBlockIcon({ value }: { value: GoodsReceiptLocationFilter }) {
   if (value === 'head_office') return <Building2 size={18} strokeWidth={2.2} />;
   if (value === 'cochin') return <Warehouse size={18} strokeWidth={2.2} />;
   return <LayoutGrid size={18} strokeWidth={2.2} />;
+}
+
+function ShipmentBlockIcon({ value }: { value: Exclude<GoodsReceiptShipmentFilter, 'all'> }) {
+  if (value === 'received') return <PackageCheck size={16} strokeWidth={2.2} />;
+  if (value === 'in_transit') return <Truck size={16} strokeWidth={2.2} />;
+  return <CalendarClock size={16} strokeWidth={2.2} />;
 }
 
 function GoodsReceiptFilterSheet({
@@ -225,14 +244,17 @@ export const AdminGoodsReceiptsPage: React.FC = () => {
 
   const [rows, setRows] = useState<AdminFirestoreGoodsReceipt[]>([]);
   const [locationCounts, setLocationCounts] = useState(EMPTY_LOCATION_COUNTS);
-  const [totalCount, setTotalCount] = useState(0);
+  const [shipmentScanRows, setShipmentScanRows] = useState<AdminFirestoreGoodsReceipt[]>([]);
+  const [shipmentCounts, setShipmentCounts] = useState(EMPTY_GOODS_RECEIPT_SHIPMENT_COUNTS);
   const [loading, setLoading] = useState(true);
   const [countsLoading, setCountsLoading] = useState(true);
+  const [scanLoading, setScanLoading] = useState(true);
   const [error, setError] = useState('');
   const [search, setSearch] = useState('');
   const [sort, setSort] = useState<AdminGoodsReceiptSort>(DEFAULT_SORT);
   const [rangePreset, setRangePreset] = useState<SalesRangePreset>(DEFAULT_RANGE);
   const [location, setLocationFilter] = useState<GoodsReceiptLocationFilter>(DEFAULT_LOCATION);
+  const [shipment, setShipmentFilter] = useState<GoodsReceiptShipmentFilter>(DEFAULT_SHIPMENT);
   const [filterOpen, setFilterOpen] = useState(false);
   const [page, setPage] = useState(1);
 
@@ -240,12 +262,14 @@ export const AdminGoodsReceiptsPage: React.FC = () => {
   const dateStart = bounds?.start ? toGoodsReceiptDateKey(bounds.start) : null;
   const dateEnd = bounds?.end ? toGoodsReceiptDateKey(bounds.end) : null;
   const searchActive = Boolean(search.trim());
+  const shipmentActive = shipment !== 'all';
+  const useScan = searchActive || shipmentActive;
 
   useEffect(() => {
     setPage(1);
     pageStartCursors.current = [null];
     setPageCursorVersion(v => v + 1);
-  }, [search, rangePreset, location, sort]);
+  }, [search, rangePreset, location, shipment, sort]);
 
   useEffect(() => {
     let cancelled = false;
@@ -254,7 +278,6 @@ export const AdminGoodsReceiptsPage: React.FC = () => {
       .then(counts => {
         if (cancelled) return;
         setLocationCounts(counts);
-        setTotalCount(location === 'all' ? counts.all : counts[location]);
       })
       .catch(err => {
         if (!cancelled) setError(invoiceErrorMessage(err));
@@ -265,9 +288,36 @@ export const AdminGoodsReceiptsPage: React.FC = () => {
     return () => {
       cancelled = true;
     };
-  }, [dateStart, dateEnd, location]);
+  }, [dateStart, dateEnd]);
 
   useEffect(() => {
+    let cancelled = false;
+    setScanLoading(true);
+    void fetchAllAdminGoodsReceiptsInRange({
+      sort,
+      location,
+      dateStart,
+      dateEnd,
+    })
+      .then(result => {
+        if (cancelled) return;
+        setShipmentScanRows(result.rows);
+        setShipmentCounts(countAdminGoodsReceiptsByShipment(result.rows));
+      })
+      .catch(err => {
+        if (!cancelled) setError(invoiceErrorMessage(err));
+      })
+      .finally(() => {
+        if (!cancelled) setScanLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [sort, location, dateStart, dateEnd]);
+
+  useEffect(() => {
+    if (useScan) return;
+
     let cancelled = false;
     const cursor = pageStartCursors.current[page - 1] ?? null;
     setLoading(true);
@@ -275,16 +325,16 @@ export const AdminGoodsReceiptsPage: React.FC = () => {
 
     void fetchAdminGoodsReceiptsPageDetailed({
       sort,
-      pageSize: searchActive ? SEARCH_FETCH_SIZE : LIST_PAGE_SIZE,
-      cursor: searchActive ? null : cursor,
-      location: searchActive ? 'all' : location,
+      pageSize: LIST_PAGE_SIZE,
+      cursor,
+      location,
       dateStart,
       dateEnd,
     })
       .then(result => {
         if (cancelled) return;
         setRows(result.rows);
-        if (!searchActive && result.lastDoc) {
+        if (result.lastDoc) {
           pageStartCursors.current[page] = result.lastDoc;
         }
       })
@@ -301,22 +351,28 @@ export const AdminGoodsReceiptsPage: React.FC = () => {
     return () => {
       cancelled = true;
     };
-  }, [page, pageCursorVersion, sort, location, dateStart, dateEnd, searchActive]);
+  }, [page, pageCursorVersion, sort, location, dateStart, dateEnd, useScan]);
 
   const filtered = useMemo(
-    () => filterAdminGoodsReceipts(rows, search, searchActive ? location : 'all'),
-    [rows, search, location, searchActive],
+    () => filterAdminGoodsReceipts(
+      useScan ? shipmentScanRows : rows,
+      search,
+      'all',
+      shipment,
+    ),
+    [rows, shipmentScanRows, search, shipment, useScan],
   );
 
-  const clientPaged = searchActive;
-  const filteredTotal = searchActive ? filtered.length : totalCount;
+  const clientPaged = useScan;
+  const locationTotal = location === 'all' ? locationCounts.all : locationCounts[location];
+  const filteredTotal = useScan ? filtered.length : locationTotal;
   const pageRows = useMemo(() => {
-    if (searchActive) {
+    if (clientPaged) {
       const start = (page - 1) * LIST_PAGE_SIZE;
       return filtered.slice(start, start + LIST_PAGE_SIZE);
     }
     return filtered;
-  }, [searchActive, filtered, page]);
+  }, [clientPaged, filtered, page]);
 
   const totalPages = useMemo(() => {
     if (clientPaged) return Math.max(1, Math.ceil(filteredTotal / LIST_PAGE_SIZE));
@@ -333,7 +389,6 @@ export const AdminGoodsReceiptsPage: React.FC = () => {
   };
 
   const hasActiveFilters = rangePreset !== DEFAULT_RANGE || sort !== DEFAULT_SORT;
-  const busy = loading || countsLoading;
 
   const headerTools = useMemo(
     () => (
@@ -383,8 +438,8 @@ export const AdminGoodsReceiptsPage: React.FC = () => {
 
   return (
     <div className="page-content fade-in admin-invoices-page invoices-page">
-      <section className="invoices-summary" aria-label="Goods receipt locations">
-        <div className="unified-so-category-blocks" role="tablist" aria-label="Bill location">
+      <section className="invoices-summary" aria-label="Goods receipt filters">
+        <div className="unified-so-category-blocks unified-so-category-blocks--goods-receipt" role="tablist" aria-label="Bill location">
           {LOCATION_BLOCKS.map(item => {
             const active = location === item.value;
             const count = locationCounts[item.value];
@@ -402,7 +457,39 @@ export const AdminGoodsReceiptsPage: React.FC = () => {
                 </span>
                 <span className="unified-so-category-block__label">{item.label}</span>
                 <span className="unified-so-category-block__count">
-                  {busy ? '…' : count.toLocaleString('en-IN')}
+                  {countsLoading ? '…' : count.toLocaleString('en-IN')}
+                </span>
+              </button>
+            );
+          })}
+        </div>
+        <div
+          className="unified-so-stage-blocks unified-so-stage-blocks--goods-receipt"
+          role="tablist"
+          aria-label="Bill shipment"
+        >
+          {SHIPMENT_BLOCKS.map(item => {
+            const active = shipment === item.value;
+            const count = shipmentCounts[item.value];
+            return (
+              <button
+                key={item.value}
+                type="button"
+                role="tab"
+                aria-selected={active}
+                className={`unified-so-category-block unified-so-stage-block unified-so-stage-block--${item.value}${
+                  active ? ' is-active' : ''
+                }`}
+                onClick={() => setShipmentFilter(active ? 'all' : item.value)}
+              >
+                <span className="unified-so-category-block__icon" aria-hidden>
+                  <span className={`unified-so-stage-block__icon unified-so-stage-block__icon--${item.value}`}>
+                    <ShipmentBlockIcon value={item.value} />
+                  </span>
+                </span>
+                <span className="unified-so-category-block__label">{item.label}</span>
+                <span className="unified-so-category-block__count">
+                  {scanLoading ? '…' : count.toLocaleString('en-IN')}
                 </span>
               </button>
             );
@@ -418,7 +505,7 @@ export const AdminGoodsReceiptsPage: React.FC = () => {
           </div>
         )}
 
-        {loading && rows.length === 0 ? (
+        {(useScan ? scanLoading : loading && rows.length === 0) ? (
           <FetchingLoader label="Loading goods receipts…" />
         ) : pageRows.length === 0 ? (
           <div className="invoices-empty panel glass">

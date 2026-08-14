@@ -42,6 +42,7 @@ export interface UnifiedSalesOrderRow {
   category: InvoiceCategory | null;
   categories: InvoiceCategory[];
   categoryAmounts: Partial<Record<InvoiceCategory, number>>;
+  freightSku?: string | null;
   qty: number | null;
   /** Zoho reference number when present. */
   portalOrderNumber: string | null;
@@ -181,6 +182,7 @@ export function mapZohoOrderToUnified(
     category: so.salesOrderCategory,
     categories: so.categories,
     categoryAmounts: so.categoryAmounts,
+    freightSku: so.freightSku ?? null,
     qty: so.itemQuantity,
     portalOrderNumber: so.referenceNumber,
     zohoSalesOrderId: so.id,

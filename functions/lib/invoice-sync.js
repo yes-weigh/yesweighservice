@@ -29,6 +29,7 @@ import {
   upsertInvoiceSummary,
 } from './invoice-stats.js';
 import { markInvoiceAsSent } from './zoho-sales-orders.js';
+import { freightSkuFromInvoiceLines } from './freight-lines.js';
 
 const CUSTOMERS_COLLECTION = 'zohoCustomers';
 const INVOICES_SUBCOLLECTION = 'invoices';
@@ -444,6 +445,7 @@ async function buildFirestoreInvoiceDoc(accessToken, orgId, invoiceRaw, options 
     invoiceCategory,
     categories: categoryBreakdown.categories,
     categoryAmounts: categoryBreakdown.categoryAmounts,
+    freightSku: freightSkuFromInvoiceLines(lineItems),
     zohoLastModified: invoiceRaw.last_modified_time
       ? String(invoiceRaw.last_modified_time)
       : null,
@@ -1001,6 +1003,7 @@ const INVOICE_LIST_SELECT_FIELDS = [
   'salespersonName',
   'invoiceUrl',
   'invoiceCategory',
+  'freightSku',
 ];
 
 export async function readCustomerInvoicesFromFirestore(

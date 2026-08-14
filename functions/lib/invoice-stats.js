@@ -4,6 +4,7 @@
  */
 
 import { getFirestore, FieldValue } from 'firebase-admin/firestore';
+import { freightSkuFromInvoiceLines } from './freight-lines.js';
 
 export const INVOICE_STATS_COLLECTION = 'invoiceStats';
 export const INVOICE_MONTH_STATS_COLLECTION = 'invoiceMonthStats';
@@ -145,6 +146,9 @@ export function buildInvoiceSummaryFields(invoiceDoc, customerId, invoiceId) {
     categoryAmounts,
     itemQuantity,
     amountExclGst: amount,
+    freightSku: invoiceDoc.freightSku
+      ? String(invoiceDoc.freightSku).trim().toUpperCase() || null
+      : freightSkuFromInvoiceLines(invoiceDoc.lineItems),
     customerPickup,
     customerPickupMarkedAt,
     manualDelivery,

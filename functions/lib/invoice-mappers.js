@@ -1,3 +1,5 @@
+import { freightSkuFromInvoiceLines } from './freight-lines.js';
+
 function formatAddressObject(addr) {
   if (!addr || typeof addr !== 'object') return null;
   const parts = [
@@ -529,6 +531,9 @@ export function firestoreDocToListInvoice(data) {
     invoiceCategory,
     categories: normalizeCategories(data.categories),
     categoryAmounts: normalizeCategoryAmounts(data.categoryAmounts),
+    freightSku: data.freightSku
+      ? String(data.freightSku).trim().toUpperCase() || null
+      : freightSkuFromInvoiceLines(data.lineItems),
     customerPickup: data.customerPickup && typeof data.customerPickup === 'object'
       ? data.customerPickup
       : null,

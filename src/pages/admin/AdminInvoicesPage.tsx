@@ -23,6 +23,7 @@ import {
 import {
   InvoiceCategoryBadgeList,
   InvoiceCategoryIcon,
+  InvoiceTileLeadIcon,
 } from '../../components/invoices/InvoiceCategoryVisual';
 import { InvoiceStatusFilterBlocks } from '../../components/invoices/InvoiceStatusFilterBlocks';
 import { useCatalogPageHeader, usePageHeaderSlot } from '../../context/PageHeaderContext';
@@ -1431,7 +1432,10 @@ export const AdminInvoicesPage: React.FC = () => {
                   }
                 >
                   <span className="invoices-mobile-row__lead">
-                    <InvoiceCategoryIcon category={invoice.invoiceCategory} />
+                    <InvoiceTileLeadIcon
+                      invoice={invoice}
+                      booking={logisticsByInvoiceId.get(invoice.id)}
+                    />
                     <InvoiceListEwayChip chip={ewayChip} />
                   </span>
                   <span className="invoices-mobile-row__body">

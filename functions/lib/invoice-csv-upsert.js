@@ -4,6 +4,7 @@ import {
   classifyInvoiceFromLineItems,
   parseInvoiceCategory,
 } from './invoice-category.js';
+import { freightSkuFromInvoiceLines } from './freight-lines.js';
 
 const CUSTOMERS_COLLECTION = 'zohoCustomers';
 const INVOICES_SUBCOLLECTION = 'invoices';
@@ -241,6 +242,7 @@ async function upsertOneInvoice(input) {
     ...mergedHeader,
     categories: categoryBreakdown.categories,
     categoryAmounts: categoryBreakdown.categoryAmounts,
+    freightSku: freightSkuFromInvoiceLines(lineItems),
     lineItems,
     searchBlob: buildSearchBlob(mergedHeader, lineItems),
     contentFingerprint: `csv-import|${invoiceId}|${Date.now()}`,

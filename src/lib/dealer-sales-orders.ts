@@ -8,6 +8,7 @@ import {
   parseInvoiceCategory,
   sumInvoiceProductQuantity,
   firstDateTimeValue,
+  freightSkuFromInvoiceLines,
 } from './invoices';
 import type { DealerInvoiceLineItem } from '../types/invoices';
 
@@ -56,6 +57,9 @@ function mapListRow(raw: Record<string, unknown>): AdminFirestoreSalesOrder {
     salesOrderCategory: parseInvoiceCategory(raw.salesOrderCategory),
     categories: normalizeInvoiceCategories(raw.categories),
     categoryAmounts: normalizeInvoiceCategoryAmounts(raw.categoryAmounts),
+    freightSku: String(raw.freightSku ?? '').trim().toUpperCase()
+      || freightSkuFromInvoiceLines(lineItems)
+      || null,
     yesOneStage: raw.yesOneStage ? String(raw.yesOneStage) : null,
     yesOneCreatedFromCart: Boolean(raw.yesOneCreatedFromCart),
   };

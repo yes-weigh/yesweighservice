@@ -19,6 +19,7 @@ import {
   sumNonFreightQuantity,
 } from './invoice-category.js';
 import { parseOrderSegment, segmentToInvoiceCategory } from './sales-order-segments.js';
+import { freightSkuFromInvoiceLines } from './freight-lines.js';
 import { reconcileSalesOrderStats } from './sales-order-stats.js';
 import { resolveZohoCustomerIdForUser } from './zoho-invoices.js';
 import { formatZohoAddress } from './zoho-contact-fields.js';
@@ -327,6 +328,7 @@ async function upsertSalesOrderFromRaw(raw, options = {}) {
     salesOrderCategory,
     categories,
     categoryAmounts,
+    freightSku: freightSkuFromInvoiceLines(mapped.lineItems),
     itemQuantity: sumNonFreightQuantity(mapped.lineItems),
     syncedAt: now,
     contentFingerprint: `${mapped.zohoLastModified}|${mapped.lineItems.length}|${mapped.total}`,
@@ -896,6 +898,9 @@ export function mapSalesOrderDoc(id, data) {
     notes: data.notes ?? null,
     lineItems,
     salesOrderCategory: parseInvoiceCategory(data.salesOrderCategory),
+    freightSku: data.freightSku
+      ? String(data.freightSku).trim().toUpperCase() || null
+      : freightSkuFromInvoiceLines(lineItems),
     categories: Array.isArray(data.categories) ? data.categories.map(String) : [],
     categoryAmounts: data.categoryAmounts && typeof data.categoryAmounts === 'object'
       ? { ...data.categoryAmounts }

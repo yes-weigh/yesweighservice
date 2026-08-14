@@ -27,6 +27,7 @@ import {
   parseInvoiceCategory,
   sumInvoiceProductQuantity,
   firstDateTimeValue,
+  freightSkuFromInvoiceLines,
 } from './invoices';
 import {
   appendSalespersonIdConstraint,
@@ -102,6 +103,8 @@ export interface AdminFirestoreSalesOrder {
   salesOrderCategory: InvoiceCategory | null;
   categories: InvoiceCategory[];
   categoryAmounts: Partial<Record<InvoiceCategory, number>>;
+  /** Courier freight SKU when the SO has a freight line (STFRC, DELFRC, …). */
+  freightSku?: string | null;
   /** YesOne workflow stage on the SO mirror (null for legacy sync-only rows). */
   yesOneStage?: string | null;
   /** True when this Draft SO was created from a dealer cart submit. */
@@ -246,6 +249,9 @@ export function mapAdminSalesOrderDoc(
     salesOrderCategory: parseInvoiceCategory(data.salesOrderCategory),
     categories: normalizeInvoiceCategories(data.categories),
     categoryAmounts: normalizeInvoiceCategoryAmounts(data.categoryAmounts),
+    freightSku: String(data.freightSku ?? '').trim().toUpperCase()
+      || freightSkuFromInvoiceLines(lineItems)
+      || null,
     yesOneStage: data.yesOneStage ? String(data.yesOneStage) : null,
     yesOneCreatedFromCart: Boolean(data.yesOneCreatedFromCart),
     yesOnePriceCustomized: Boolean(data.yesOnePriceCustomized),
@@ -631,6 +637,7 @@ export function aggregateAdminSalesOrdersByDealer(
       referenceNumber: count === 1 ? latest.referenceNumber : null,
       itemQuantity: orders.some(o => o.itemQuantity != null) ? itemQuantity : null,
       salesOrderCategory: categories.size === 1 ? [...categories][0]! : null,
+      freightSku: count === 1 ? (latest.freightSku ?? null) : null,
       yesOneStage: count === 1 ? latest.yesOneStage : null,
       yesOneCreatedFromCart: count === 1 ? latest.yesOneCreatedFromCart : false,
       yesOnePriceCustomized: count === 1 ? Boolean(latest.yesOnePriceCustomized) : false,
@@ -1095,6 +1102,7 @@ function mapAdminSalesOrderDealerStatsDoc(
     salesOrderCategory: categories.length === 1 ? categories[0]! : null,
     categories: [...categories],
     categoryAmounts: amountByCategory,
+    freightSku: null,
     yesOneStage: null,
     yesOneCreatedFromCart: false,
     aggregateOrderCount: count,

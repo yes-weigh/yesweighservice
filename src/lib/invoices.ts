@@ -25,7 +25,7 @@ import {
   setCachedInvoiceList,
 } from './invoice-cache';
 import { enrichInvoiceDetailImages } from './invoiceLineItemImages';
-import { isFreightProductId, isFreightSku } from '../constants/freightLines';
+import { isFreightProductId, isFreightSku, freightOptionBySku, freightOptionByProductId } from '../constants/freightLines';
 
 const functions = getFunctions(app, 'asia-south1');
 
@@ -766,6 +766,20 @@ export function isFreightInvoiceLineItem(
   if (name === 'freight' || name.includes('freight')) return true;
   const sku = item.sku?.trim().toLowerCase() ?? '';
   return sku === 'freight' || sku.includes('freight');
+}
+
+/** First recognized courier freight SKU on the invoice (STFRC, DELFRC, …). */
+export function freightSkuFromInvoiceLines(
+  lines: Array<{ sku?: string | null; itemId?: string | null; id?: string | null }> | null | undefined,
+): string | null {
+  if (!Array.isArray(lines)) return null;
+  for (const line of lines) {
+    const bySku = freightOptionBySku(line?.sku);
+    if (bySku) return bySku.sku;
+    const byId = freightOptionByProductId(line?.itemId) ?? freightOptionByProductId(line?.id);
+    if (byId) return byId.sku;
+  }
+  return null;
 }
 
 /** Keep product/spare lines first; freight charge lines always last. */

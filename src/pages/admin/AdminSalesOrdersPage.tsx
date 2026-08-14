@@ -14,7 +14,7 @@ import {
 import { FetchingLoader } from '../../components/FetchingLoader';
 import {
   InvoiceCategoryBadgeList,
-  InvoiceCategoryIcon,
+  SalesOrderTileLeadIcon,
 } from '../../components/invoices/InvoiceCategoryVisual';
 import { useCatalogPageHeader, usePageHeaderSlot } from '../../context/PageHeaderContext';
 import {
@@ -536,7 +536,11 @@ export const AdminSalesOrdersPage: React.FC = () => {
                     onMouseDown={preventMouseFocusScroll}
                     aria-label={`View Sales order ${po.salesOrderNumber || po.id}`}
                   >
-                    <InvoiceCategoryIcon category={po.salesOrderCategory} />
+                    <SalesOrderTileLeadIcon
+                      category={po.salesOrderCategory}
+                      categories={po.categories}
+                      freightSku={po.freightSku}
+                    />
                     <span className="invoices-mobile-row__body">
                       <span className="invoices-mobile-row__invoice">
                         <span className="invoices-mobile-row__title">
