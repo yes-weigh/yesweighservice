@@ -1,23 +1,18 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { useLocation, useNavigate } from 'react-router-dom';
+import { useNavigate } from 'react-router-dom';
 import type { DocumentData, QueryDocumentSnapshot } from 'firebase/firestore';
 import {
   AlertCircle,
-  ChevronRight,
   FileText,
   IndianRupee,
-  LayoutGrid,
   Search,
   ShoppingBag,
   SlidersHorizontal,
   X,
 } from 'lucide-react';
 import { FetchingLoader } from '../../components/FetchingLoader';
-import {
-  InvoiceCategoryBadgeList,
-  InvoiceCategoryIcon,
-} from '../../components/invoices/InvoiceCategoryVisual';
+import { AdminPurchaseOrderDocCard } from '../../components/admin/AdminPurchaseOrderDocCard';
 import { useCatalogPageHeader, usePageHeaderSlot } from '../../context/PageHeaderContext';
 import {
   countAdminPurchaseOrdersByCategory,
@@ -26,69 +21,35 @@ import {
   filterAdminPurchaseOrders,
   toPurchaseOrderDateKey,
   type AdminFirestorePurchaseOrder,
-  type AdminPurchaseOrderCategoryCounts,
   type AdminPurchaseOrderSort,
 } from '../../lib/admin-purchase-orders';
 import { formatCurrency } from '../../lib/catalog';
 import {
-  formatInvoiceDateTime,
-  formatInvoiceItemQuantity,
   formatKpiPeriodRange,
   getInvoicePeriodBounds,
-  invoiceCategoryLabel,
   invoiceErrorMessage,
-  invoiceStatusLabel,
 } from '../../lib/invoices';
 import { useRevealScrollbarOnScroll } from '../../lib/useRevealScrollbarOnScroll';
-import { preventMouseFocusScroll } from '../../lib/preventMouseFocusScroll';
-import type { InvoiceCategory, SalesRangePreset } from '../../types/invoices';
+import type { SalesRangePreset } from '../../types/invoices';
 import { SALES_RANGE_OPTIONS } from '../../types/invoices';
 
 const LIST_PAGE_SIZE = 25;
 const SEARCH_FETCH_SIZE = 100;
 const DEFAULT_RANGE: SalesRangePreset = 'financial_year';
 const DEFAULT_SORT: AdminPurchaseOrderSort = 'date';
-const DEFAULT_CATEGORY: InvoiceCategory | 'all' = 'all';
-
-const CATEGORY_BLOCKS: Array<{ value: InvoiceCategory | 'all'; label: string }> = [
-  { value: 'all', label: 'All' },
-  { value: 'product', label: 'Product' },
-  { value: 'spare', label: 'Spares' },
-  { value: 'software_key', label: 'Software' },
-  { value: 'service', label: 'Service' },
-  { value: 'gatc', label: 'Stamping' },
-];
-
-const EMPTY_CATEGORY_COUNTS: AdminPurchaseOrderCategoryCounts = {
-  all: 0,
-  product: 0,
-  spare: 0,
-  software_key: 0,
-  service: 0,
-  gatc: 0,
-};
 
 const SORT_OPTIONS: Array<{ value: AdminPurchaseOrderSort; label: string }> = [
   { value: 'date', label: 'PO date' },
   { value: 'syncedAt', label: 'Most recently updated' },
 ];
 
-function poStatusClass(status: string): string {
-  const key = status.toLowerCase().replace(/\s+/g, '_');
-  return `invoices-status invoices-status--${key}`;
-}
-
 function totalsByCurrency(
   rows: AdminFirestorePurchaseOrder[],
-  category: InvoiceCategory | 'all',
 ): Array<{ currencyCode: string; total: number }> {
   const map = new Map<string, number>();
   for (const row of rows) {
     const code = (row.currencyCode || 'INR').toUpperCase();
-    const amount = category === 'all'
-      ? Number(row.total ?? 0)
-      : Number(row.categoryAmounts[category] ?? row.total ?? 0);
-    map.set(code, (map.get(code) ?? 0) + amount);
+    map.set(code, (map.get(code) ?? 0) + Number(row.total ?? 0));
   }
   return [...map.entries()]
     .map(([currencyCode, total]) => ({ currencyCode, total }))
@@ -244,15 +205,13 @@ function PurchaseOrderFilterSheet({
 
 export const AdminPurchaseOrdersPage: React.FC = () => {
   const navigate = useNavigate();
-  const { pathname } = useLocation();
-  const basePath = pathname.startsWith('/staff') ? '/staff' : '/super-admin';
+  const basePath = '/super-admin';
   const scrollRef = useRevealScrollbarOnScroll();
   const pageStartCursors = useRef<Array<QueryDocumentSnapshot<DocumentData> | null>>([null]);
   const [pageCursorVersion, setPageCursorVersion] = useState(0);
 
   const [rows, setRows] = useState<AdminFirestorePurchaseOrder[]>([]);
   const [amountRows, setAmountRows] = useState<AdminFirestorePurchaseOrder[]>([]);
-  const [categoryCounts, setCategoryCounts] = useState(EMPTY_CATEGORY_COUNTS);
   const [totalCount, setTotalCount] = useState(0);
   const [loading, setLoading] = useState(true);
   const [countsLoading, setCountsLoading] = useState(true);
@@ -261,7 +220,6 @@ export const AdminPurchaseOrdersPage: React.FC = () => {
   const [search, setSearch] = useState('');
   const [sort, setSort] = useState<AdminPurchaseOrderSort>(DEFAULT_SORT);
   const [rangePreset, setRangePreset] = useState<SalesRangePreset>(DEFAULT_RANGE);
-  const [category, setCategory] = useState<InvoiceCategory | 'all'>(DEFAULT_CATEGORY);
   const [filterOpen, setFilterOpen] = useState(false);
   const [page, setPage] = useState(1);
 
@@ -274,7 +232,7 @@ export const AdminPurchaseOrdersPage: React.FC = () => {
     setPage(1);
     pageStartCursors.current = [null];
     setPageCursorVersion(v => v + 1);
-  }, [search, rangePreset, category, sort]);
+  }, [search, rangePreset, sort]);
 
   useEffect(() => {
     let cancelled = false;
@@ -282,8 +240,7 @@ export const AdminPurchaseOrdersPage: React.FC = () => {
     void countAdminPurchaseOrdersByCategory({ dateStart, dateEnd })
       .then(counts => {
         if (cancelled) return;
-        setCategoryCounts(counts);
-        setTotalCount(category === 'all' ? counts.all : counts[category]);
+        setTotalCount(counts.all);
       })
       .catch(err => {
         if (!cancelled) setError(invoiceErrorMessage(err));
@@ -294,7 +251,7 @@ export const AdminPurchaseOrdersPage: React.FC = () => {
     return () => {
       cancelled = true;
     };
-  }, [dateStart, dateEnd, category]);
+  }, [dateStart, dateEnd]);
 
   // Full-period scan for amount KPIs (bounded).
   useEffect(() => {
@@ -328,7 +285,7 @@ export const AdminPurchaseOrdersPage: React.FC = () => {
       sort,
       pageSize: searchActive ? SEARCH_FETCH_SIZE : LIST_PAGE_SIZE,
       cursor: searchActive ? null : cursor,
-      category: searchActive ? 'all' : category,
+      category: 'all',
       dateStart,
       dateEnd,
     })
@@ -352,16 +309,16 @@ export const AdminPurchaseOrdersPage: React.FC = () => {
     return () => {
       cancelled = true;
     };
-  }, [page, pageCursorVersion, sort, category, dateStart, dateEnd, searchActive]);
+  }, [page, pageCursorVersion, sort, dateStart, dateEnd, searchActive]);
 
   const filtered = useMemo(
-    () => filterAdminPurchaseOrders(rows, search, searchActive ? category : 'all'),
-    [rows, search, category, searchActive],
+    () => filterAdminPurchaseOrders(rows, search, 'all'),
+    [rows, search],
   );
 
   const amountFiltered = useMemo(
-    () => filterAdminPurchaseOrders(amountRows, search, category),
-    [amountRows, search, category],
+    () => filterAdminPurchaseOrders(amountRows, search, 'all'),
+    [amountRows, search],
   );
 
   const clientPaged = searchActive;
@@ -389,14 +346,14 @@ export const AdminPurchaseOrdersPage: React.FC = () => {
   };
 
   const summary = useMemo(() => {
-    const categoryTotalsByCurrency = totalsByCurrency(amountFiltered, category);
+    const categoryTotalsByCurrency = totalsByCurrency(amountFiltered);
     return {
       count: filteredTotal,
       categoryTotalsByCurrency,
       periodStart: bounds?.start?.toISOString() ?? null,
       periodEnd: bounds?.end?.toISOString() ?? new Date().toISOString(),
     };
-  }, [amountFiltered, category, filteredTotal, bounds]);
+  }, [amountFiltered, filteredTotal, bounds]);
 
   const dateRange = formatKpiPeriodRange(summary.periodStart, summary.periodEnd);
   const hasActiveFilters = rangePreset !== DEFAULT_RANGE || sort !== DEFAULT_SORT;
@@ -472,9 +429,7 @@ export const AdminPurchaseOrdersPage: React.FC = () => {
               <IndianRupee size={16} strokeWidth={2.4} />
             </span>
             <div className="invoices-summary__kpi-body">
-              <span className="invoices-summary__kpi-label">
-                {category === 'all' ? 'Total Amount' : 'Category Amount'}
-              </span>
+              <span className="invoices-summary__kpi-label">Total Amount</span>
               {busy ? (
                 <strong className="invoices-summary__kpi-value invoices-summary__kpi-value--amount">…</strong>
               ) : summary.categoryTotalsByCurrency.length === 0 ? (
@@ -502,45 +457,10 @@ export const AdminPurchaseOrdersPage: React.FC = () => {
                   ? 'Partial (scan cap)'
                   : summary.categoryTotalsByCurrency.length > 1
                     ? `${summary.categoryTotalsByCurrency.length} currencies`
-                    : (category === 'all' ? 'Amount' : `${invoiceCategoryLabel(category)} lines`)}
+                    : 'Amount'}
               </span>
             </div>
           </div>
-        </div>
-
-        <div className="unified-so-category-blocks" role="tablist" aria-label="PO category">
-          {CATEGORY_BLOCKS.map(item => {
-            const active = category === item.value;
-            const count = item.value === 'all'
-              ? categoryCounts.all
-              : categoryCounts[item.value];
-            return (
-              <button
-                key={item.value}
-                type="button"
-                role="tab"
-                aria-selected={active}
-                className={`unified-so-category-block${active ? ' is-active' : ''}${
-                  item.value !== 'all' ? ` unified-so-category-block--${item.value}` : ''
-                }`}
-                onClick={() => setCategory(item.value)}
-              >
-                <span className="unified-so-category-block__icon" aria-hidden>
-                  {item.value === 'all' ? (
-                    <span className="unified-so-category-block__icon--all">
-                      <LayoutGrid size={18} strokeWidth={2.2} />
-                    </span>
-                  ) : (
-                    <InvoiceCategoryIcon category={item.value} />
-                  )}
-                </span>
-                <span className="unified-so-category-block__label">{item.label}</span>
-                <span className="unified-so-category-block__count">
-                  {busy ? '…' : count.toLocaleString('en-IN')}
-                </span>
-              </button>
-            );
-          })}
         </div>
       </section>
 
@@ -589,133 +509,14 @@ export const AdminPurchaseOrdersPage: React.FC = () => {
                 </div>
               </div>
             )}
-            <div className="panel glass invoices-table-panel admin-invoices-table-panel">
-              <div className="invoices-table-wrap invoices-table-wrap--desktop">
-                <table className="invoices-table">
-                  <thead>
-                    <tr>
-                      <th>Purchase order</th>
-                      <th>Vendor</th>
-                      <th>Date</th>
-                      <th className="invoices-table__num">Qty</th>
-                      <th className="invoices-table__num">Total</th>
-                      <th>Category</th>
-                      <th>Status</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {pageRows.map(po => {
-                      const categoryLabel = invoiceCategoryLabel(po.purchaseOrderCategory);
-                      return (
-                        <tr
-                          key={po.id}
-                          className="invoices-table__row--clickable"
-                          onClick={() => openPo(po)}
-                          onMouseDown={preventMouseFocusScroll}
-                          onKeyDown={e => {
-                            if (e.key === 'Enter' || e.key === ' ') {
-                              e.preventDefault();
-                              openPo(po);
-                            }
-                          }}
-                          role="button"
-                          tabIndex={0}
-                          aria-label={`View purchase order ${po.purchaseOrderNumber || po.id}`}
-                        >
-                          <td>
-                            <strong>{po.purchaseOrderNumber || po.id}</strong>
-                            {po.referenceNumber && (
-                              <div className="invoices-table__ref text-muted text-sm">
-                                Ref {po.referenceNumber}
-                              </div>
-                            )}
-                          </td>
-                          <td>{po.vendorName ?? '—'}</td>
-                          <td>{formatInvoiceDateTime(po.date, po.createdTime)}</td>
-                          <td className="invoices-table__num">{formatInvoiceItemQuantity(po.itemQuantity)}</td>
-                          <td className="invoices-table__num">
-                            {formatCurrency(
-                              category === 'all'
-                                ? po.total
-                                : Number(po.categoryAmounts[category] ?? po.total ?? 0),
-                              po.currencyCode,
-                            )}
-                          </td>
-                          <td>
-                            {categoryLabel || po.categories.length ? (
-                              <span className="unified-so-order-cell__badges">
-                                <InvoiceCategoryBadgeList
-                                  categories={po.categories}
-                                  invoiceCategory={po.purchaseOrderCategory}
-                                />
-                              </span>
-                            ) : (
-                              <span className="text-muted">—</span>
-                            )}
-                          </td>
-                          <td>
-                            <span className={poStatusClass(po.status)}>
-                              {invoiceStatusLabel(po.status)}
-                            </span>
-                          </td>
-                        </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
-              </div>
-
-              <div className="invoices-mobile-list admin-invoices-mobile-list">
-                <div className="invoices-mobile-list__head" aria-hidden>
-                  <span>Purchase order</span>
-                  <span>Amount</span>
-                </div>
-                {pageRows.map(po => (
-                  <button
-                    key={po.id}
-                    type="button"
-                    className="invoices-mobile-row invoices-mobile-row--po-stack"
-                    onClick={() => openPo(po)}
-                    onMouseDown={preventMouseFocusScroll}
-                    aria-label={`View purchase order ${po.purchaseOrderNumber || po.id}`}
-                  >
-                    <InvoiceCategoryIcon category={po.purchaseOrderCategory} />
-                    <span className="invoices-mobile-row__body">
-                      <span className="invoices-mobile-row__invoice">
-                        <strong className="invoices-mobile-row__company">
-                          {po.vendorName ?? '—'}
-                        </strong>
-                        <span className="invoices-mobile-row__pair invoices-mobile-row__pair--mid">
-                          <span className="invoices-mobile-row__date">
-                            {formatInvoiceDateTime(po.date, po.createdTime)}
-                          </span>
-                          <span className={poStatusClass(po.status)}>
-                            {invoiceStatusLabel(po.status)}
-                          </span>
-                        </span>
-                        <span className="invoices-mobile-row__pair">
-                          <span className="invoices-mobile-row__po-num">
-                            {po.purchaseOrderNumber || po.id}
-                            {' • '}
-                            Qty {formatInvoiceItemQuantity(po.itemQuantity)}
-                          </span>
-                          <strong className="invoices-mobile-row__amount-value">
-                            {formatCurrency(
-                              category === 'all'
-                                ? po.total
-                                : Number(po.categoryAmounts[category] ?? po.total ?? 0),
-                              po.currencyCode,
-                            )}
-                          </strong>
-                        </span>
-                      </span>
-                    </span>
-                    <span className="invoices-mobile-row__chevron" aria-hidden>
-                      <ChevronRight size={18} />
-                    </span>
-                  </button>
-                ))}
-              </div>
+            <div className="invoice-doc-card-list">
+              {pageRows.map(po => (
+                <AdminPurchaseOrderDocCard
+                  key={po.id}
+                  purchaseOrder={po}
+                  onOpen={openPo}
+                />
+              ))}
             </div>
             {totalPages > 1 && (
               <footer className="invoices-pagination invoices-pagination--sticky">

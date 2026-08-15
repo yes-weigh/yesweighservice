@@ -3201,7 +3201,7 @@ export const reclassifyPurchaseOrderCategoriesFromCatalogFn = onCall(
   },
 );
 
-/** Download purchase order PDF (lazy cache) — staff / super admin. */
+/** Download purchase order PDF (lazy cache) — super admin view, including view-only. */
 export const downloadPurchaseOrderDocument = onCall(
   {
     region: 'asia-south1',
@@ -3210,7 +3210,7 @@ export const downloadPurchaseOrderDocument = onCall(
     memory: '512MiB',
   },
   async request => {
-    await requireActiveUser(request.auth?.uid, SYNC_ROLES);
+    await requireActiveUser(request.auth?.uid, SUPER_ADMIN_ROLES, { allowViewOnly: true });
     const poId = String(request.data?.purchaseOrderId ?? '').trim();
     if (!poId) {
       throw new HttpsError('invalid-argument', 'purchaseOrderId is required.');

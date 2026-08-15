@@ -13,7 +13,6 @@ import {
   Store,
   Warehouse,
 } from 'lucide-react';
-import { formatCurrency } from '../../lib/catalog';
 import {
   goodsReceiptLocationLabel,
   goodsReceiptShipmentStage,
@@ -32,17 +31,29 @@ import { preventMouseFocusScroll } from '../../lib/preventMouseFocusScroll';
 import { FitSingleLine } from '../invoices/FitSingleLine';
 import { InvoiceCategoryIcon } from '../invoices/InvoiceCategoryVisual';
 
+type FieldTone =
+  | 'bill'
+  | 'ref'
+  | 'qty'
+  | 'date'
+  | 'sailed'
+  | 'received'
+  | 'category'
+  | 'location';
+
 function CardField({
   icon: Icon,
   label,
+  tone,
   children,
 }: {
   icon?: LucideIcon;
   label?: string;
+  tone?: FieldTone;
   children: ReactNode;
 }) {
   return (
-    <span className="invoice-doc-card__field">
+    <span className={`invoice-doc-card__field${tone ? ` invoice-doc-card__field--${tone}` : ''}`}>
       {label ? (
         <span className="invoice-doc-card__field-head">
           {Icon ? <Icon size={13} strokeWidth={2.2} className="invoice-doc-card__icon" aria-hidden /> : null}
@@ -84,7 +95,7 @@ export function GoodsReceiptDocCard({
   return (
     <button
       type="button"
-      className={`invoice-doc-card invoice-doc-card--${cardAccent(stage)}`}
+      className={`invoice-doc-card invoice-doc-card--goods-receipt invoice-doc-card--${cardAccent(stage)}`}
       onMouseDown={preventMouseFocusScroll}
       onClick={() => onOpen(goodsReceipt)}
       aria-label={`View goods receipt ${goodsReceipt.billNumber || goodsReceipt.id}`}
@@ -107,7 +118,11 @@ export function GoodsReceiptDocCard({
           </span>
           <span className="invoice-doc-card__head-end">
             <FitSingleLine className="invoice-doc-card__amount">
-              {formatCurrency(goodsReceipt.total, goodsReceipt.currencyCode)}
+              {goodsReceipt.itemVariantCount == null
+                ? '—'
+                : `${goodsReceipt.itemVariantCount.toLocaleString('en-IN')} ${
+                  goodsReceipt.itemVariantCount === 1 ? 'variant' : 'variants'
+                }`}
             </FitSingleLine>
             <ChevronRight size={18} className="invoice-doc-card__chevron" aria-hidden />
           </span>
@@ -115,29 +130,29 @@ export function GoodsReceiptDocCard({
 
         <span className="invoice-doc-card__grid">
           <span className="invoice-doc-card__row">
-            <CardField icon={FileText} label="Bill No.">
+            <CardField tone="bill" icon={FileText} label="Bill No.">
               {goodsReceipt.billNumber || goodsReceipt.id}
             </CardField>
-            <CardField icon={ClipboardList} label="Ref No.">
+            <CardField tone="ref" icon={ClipboardList} label="Ref No.">
               {goodsReceipt.referenceNumber || '—'}
             </CardField>
-            <CardField icon={Package} label="Qty">
+            <CardField tone="qty" icon={Package} label="Qty">
               {formatInvoiceItemQuantity(goodsReceipt.itemQuantity)}
             </CardField>
           </span>
           <span className="invoice-doc-card__row">
-            <CardField icon={Calendar} label="Date & Time">
+            <CardField tone="date" icon={Calendar} label="Date & Time">
               {formatInvoiceDateTime(goodsReceipt.date, goodsReceipt.createdTime) || '—'}
             </CardField>
-            <CardField icon={Ship} label="Sailed">
+            <CardField tone="sailed" icon={Ship} label="Sailed">
               {formatInvoiceDate(goodsReceipt.sailedDate)}
             </CardField>
-            <CardField icon={PackageCheck} label="Received">
+            <CardField tone="received" icon={PackageCheck} label="Received">
               {formatInvoiceDateTime(goodsReceipt.receivedDate, goodsReceipt.opsReceivedAt) || '—'}
             </CardField>
           </span>
           <span className="invoice-doc-card__row">
-            <CardField>
+            <CardField tone="category">
               <span className="invoice-doc-card__lead invoice-doc-card__lead--row">
                 <InvoiceCategoryIcon category={category} />
                 <FitSingleLine className="invoice-doc-card__lead-label">
@@ -145,7 +160,7 @@ export function GoodsReceiptDocCard({
                 </FitSingleLine>
               </span>
             </CardField>
-            <CardField icon={Warehouse} label="Location">
+            <CardField tone="location" icon={Warehouse} label="Location">
               {locationLabel}
             </CardField>
             <span className="invoice-doc-card__field invoice-doc-card__field--status">

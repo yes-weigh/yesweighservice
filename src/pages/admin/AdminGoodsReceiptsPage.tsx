@@ -22,6 +22,7 @@ import {
   fetchAllAdminGoodsReceiptsInRange,
   fetchAdminGoodsReceiptsPageDetailed,
   filterAdminGoodsReceipts,
+  sortAdminGoodsReceiptsByReceived,
   toGoodsReceiptDateKey,
   type AdminFirestoreGoodsReceipt,
   type AdminGoodsReceiptLocationCounts,
@@ -375,11 +376,13 @@ export const AdminGoodsReceiptsPage: React.FC = () => {
   }, [page, pageCursorVersion, sort, location, dateStart, dateEnd, useScan]);
 
   const filtered = useMemo(
-    () => filterAdminGoodsReceipts(
-      useScan ? shipmentScanRows : rows,
-      search,
-      'all',
-      shipment,
+    () => sortAdminGoodsReceiptsByReceived(
+      filterAdminGoodsReceipts(
+        useScan ? shipmentScanRows : rows,
+        search,
+        'all',
+        shipment,
+      ),
     ),
     [rows, shipmentScanRows, search, shipment, useScan],
   );

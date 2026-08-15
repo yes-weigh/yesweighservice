@@ -61,6 +61,20 @@ export function isViewOnlySuperAdmin(
     && normalizeSuperAdminAccess(user.superAdminAccess) === 'view_only';
 }
 
+/** Purchase order list / PDF — any super admin (including view-only). */
+export function canViewPurchaseOrders(
+  user: Pick<User, 'role'> | null | undefined,
+): boolean {
+  return isPlatformAdmin(user);
+}
+
+/** Purchase order sync / mutate — full-access super admin only. */
+export function canUpdatePurchaseOrders(
+  user: Pick<User, 'role' | 'superAdminAccess'> | null | undefined,
+): boolean {
+  return isFullSuperAdmin(user);
+}
+
 export function readStaffAccessProfile(user: User | null | undefined): StaffAccessProfile {
   if (!user || user.role !== 'staff') return DEFAULT_STAFF_ACCESS;
   return {
@@ -289,6 +303,7 @@ export function isInvoiceAccessOnlyStaff(user: User | null | undefined): boolean
 
 export function canAccessNavFeature(user: User | null | undefined, feature: StaffNavFeature): boolean {
   if (!user) return false;
+  if (feature === 'purchase-orders') return canViewPurchaseOrders(user);
   if (user.role === 'super_admin') return feature !== 'staff' || true;
   if (user.role === 'dealer' || user.role === 'dealer_staff') return true;
   if (user.role !== 'staff') return false;

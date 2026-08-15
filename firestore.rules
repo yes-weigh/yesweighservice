@@ -367,10 +367,9 @@ service cloud.firestore {
       );
     }
 
-    // Org-wide Zoho purchase orders (vendor-scoped fields on each doc).
-    // Invoice-access staff may read so goods-receipt PO date can resolve.
+    // Org-wide Zoho purchase orders — view any super admin; writes via functions only.
     match /purchaseOrders/{poId} {
-      allow read: if isSuperAdmin() || staffHasInvoiceView();
+      allow read: if isSuperAdmin();
       allow write: if false;
     }
 

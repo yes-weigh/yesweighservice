@@ -1,5 +1,5 @@
 import React from 'react';
-import { BrowserRouter as Router, Routes, Route, Navigate, useLocation } from 'react-router-dom';
+import { BrowserRouter as Router, Routes, Route, Navigate, Outlet, useLocation } from 'react-router-dom';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import { CartProvider } from './context/CartProvider';
 import { DealerPriceLevelProvider } from './context/DealerPriceLevelProvider';
@@ -78,11 +78,20 @@ import {
 } from './components/catalog/LegacyCatalogRedirects';
 import { WarehouseHomePage } from './pages/warehouse/WarehouseHomePage';
 import { WarehouseLayout } from './pages/warehouse/WarehouseLayout';
-import { canAccessNavFeature, canViewHr } from './lib/staffAccess';
+import { canAccessNavFeature, canViewHr, canViewPurchaseOrders } from './lib/staffAccess';
+import { landingPathForRole } from './types';
 
 const LegacyPathRedirect: React.FC<{ from: string; to: string }> = ({ from, to }) => {
   const { pathname } = useLocation();
   return <Navigate to={pathname.replace(from, to)} replace />;
+};
+
+const SuperAdminPurchaseOrderRoute: React.FC = () => {
+  const { user } = useAuth();
+  if (!canViewPurchaseOrders(user)) {
+    return <Navigate to={user ? landingPathForRole(user.role) : '/login'} replace />;
+  }
+  return <Outlet />;
 };
 
 const StaffProfileEntry: React.FC = () => {
@@ -304,11 +313,13 @@ const App: React.FC = () => (
               <Route path="orders" element={<OpsOrdersListRedirect />} />
               <Route path="orders/history" element={<OpsOrdersListRedirect />} />
               <Route path="orders/:orderId" element={<OpsOrderDetailRedirect />} />
-              <Route path="purchase-orders" element={<AdminPurchaseOrdersPage />} />
-              <Route path="purchase-orders/sync" element={<Navigate to="/super-admin/purchase-orders" replace />} />
-              <Route path="purchase-orders/:purchaseOrderId" element={<AdminPurchaseOrderDetailLayout />}>
-                <Route index element={<AdminPurchaseOrderDocumentPage />} />
-                <Route path="view" element={<AdminPurchaseOrderPdfViewerPage />} />
+              <Route element={<SuperAdminPurchaseOrderRoute />}>
+                <Route path="purchase-orders" element={<AdminPurchaseOrdersPage />} />
+                <Route path="purchase-orders/sync" element={<Navigate to="/super-admin/purchase-orders" replace />} />
+                <Route path="purchase-orders/:purchaseOrderId" element={<AdminPurchaseOrderDetailLayout />}>
+                  <Route index element={<AdminPurchaseOrderDocumentPage />} />
+                  <Route path="view" element={<AdminPurchaseOrderPdfViewerPage />} />
+                </Route>
               </Route>
               <Route path="goods-receipts" element={<AdminGoodsReceiptsPage />} />
               <Route path="goods-receipts/sync" element={<Navigate to="/super-admin/goods-receipts" replace />} />

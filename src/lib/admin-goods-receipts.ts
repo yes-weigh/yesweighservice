@@ -80,6 +80,7 @@ export interface AdminFirestoreGoodsReceipt {
   referenceNumber: string | null;
   syncedAt: string | null;
   itemQuantity: number | null;
+  itemVariantCount: number | null;
   locationId: string | null;
   locationName: string | null;
   inventorySite: GoodsReceiptLocation | null;
@@ -374,6 +375,11 @@ export function mapAdminGoodsReceiptDoc(
     itemQuantity: lineItems.length
       ? sumInvoiceProductQuantity(lineItems)
       : (data.itemQuantity != null ? Number(data.itemQuantity) : null),
+    itemVariantCount: lineItems.length
+      ? lineItems.filter(line => !isFreightProductId(line.itemId) && !isFreightSku(line.sku)).length
+      : (data.itemVariantCount != null && Number.isFinite(Number(data.itemVariantCount))
+        ? Number(data.itemVariantCount)
+        : null),
     locationId: data.locationId != null ? String(data.locationId) : null,
     locationName: data.locationName ? String(data.locationName) : null,
     inventorySite: parseGoodsReceiptLocation(data.inventorySite)
@@ -588,6 +594,24 @@ export function filterAdminGoodsReceipts(
       .join(' ')
       .toLowerCase();
     return haystack.includes(needle);
+  });
+}
+
+function goodsReceiptReceivedMs(row: AdminFirestoreGoodsReceipt): number {
+  const raw = row.opsReceivedAt || row.receivedDate;
+  if (!raw) return 0;
+  const parsed = Date.parse(raw);
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
+/** Latest received first; bills with no receive time stay below. */
+export function sortAdminGoodsReceiptsByReceived(
+  rows: AdminFirestoreGoodsReceipt[],
+): AdminFirestoreGoodsReceipt[] {
+  return [...rows].sort((a, b) => {
+    const receivedDelta = goodsReceiptReceivedMs(b) - goodsReceiptReceivedMs(a);
+    if (receivedDelta !== 0) return receivedDelta;
+    return String(b.date ?? '').localeCompare(String(a.date ?? ''));
   });
 }
 

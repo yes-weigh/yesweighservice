@@ -32336,6 +32336,73 @@ body:has(.confirm-inline-bar) .confirm-inline-bar {
   }
 }
 
+.invoice-doc-card--goods-receipt .invoice-doc-card__dealer > .invoice-doc-card__icon {
+  color: #818cf8;
+}
+
+.invoice-doc-card--goods-receipt .invoice-doc-card__title {
+  color: #e0e7ff;
+}
+
+.invoice-doc-card--goods-receipt .invoice-doc-card__meta-item,
+.invoice-doc-card--goods-receipt .invoice-doc-card__meta-item svg {
+  color: #fb7185;
+}
+
+.invoice-doc-card--goods-receipt .invoice-doc-card__amount {
+  color: #e879f9;
+}
+
+.invoice-doc-card--goods-receipt .invoice-doc-card__field-label,
+.invoice-doc-card--goods-receipt .invoice-doc-card__field .invoice-doc-card__icon {
+  color: var(--gr-field-title, #94a3b8);
+}
+
+.invoice-doc-card--goods-receipt .invoice-doc-card__field-value,
+.invoice-doc-card--goods-receipt .invoice-doc-card__lead-label {
+  color: var(--gr-field-value, #fff);
+}
+
+.invoice-doc-card--goods-receipt .invoice-doc-card__field--bill {
+  --gr-field-title: #38bdf8;
+  --gr-field-value: #bae6fd;
+}
+
+.invoice-doc-card--goods-receipt .invoice-doc-card__field--ref {
+  --gr-field-title: #a78bfa;
+  --gr-field-value: #ddd6fe;
+}
+
+.invoice-doc-card--goods-receipt .invoice-doc-card__field--qty {
+  --gr-field-title: #fbbf24;
+  --gr-field-value: #fde68a;
+}
+
+.invoice-doc-card--goods-receipt .invoice-doc-card__field--date {
+  --gr-field-title: #2dd4bf;
+  --gr-field-value: #99f6e4;
+}
+
+.invoice-doc-card--goods-receipt .invoice-doc-card__field--sailed {
+  --gr-field-title: #60a5fa;
+  --gr-field-value: #bfdbfe;
+}
+
+.invoice-doc-card--goods-receipt .invoice-doc-card__field--received {
+  --gr-field-title: #34d399;
+  --gr-field-value: #a7f3d0;
+}
+
+.invoice-doc-card--goods-receipt .invoice-doc-card__field--category {
+  --gr-field-title: #4ade80;
+  --gr-field-value: #bbf7d0;
+}
+
+.invoice-doc-card--goods-receipt .invoice-doc-card__field--location {
+  --gr-field-title: #fb923c;
+  --gr-field-value: #fed7aa;
+}
+
 .invoices-mobile-list {
   display: none;
   flex-direction: column;

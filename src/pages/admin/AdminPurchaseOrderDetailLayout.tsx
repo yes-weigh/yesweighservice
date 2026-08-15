@@ -15,7 +15,7 @@ export const AdminPurchaseOrderDetailLayout: React.FC = () => {
   const { purchaseOrderId = '' } = useParams<{ purchaseOrderId: string }>();
   const navigate = useNavigate();
   const { pathname } = useLocation();
-  const basePath = pathname.startsWith('/staff') ? '/staff' : '/super-admin';
+  const basePath = '/super-admin';
   const listPath = `${basePath}/purchase-orders`;
   const summaryPath = `${listPath}/${purchaseOrderId}`;
   const isPdfView = pathname.endsWith('/view');
