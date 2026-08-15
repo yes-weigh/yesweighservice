@@ -1,16 +1,211 @@
-import React from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { useOutletContext } from 'react-router-dom';
+import { Plus, Trash2 } from 'lucide-react';
+import { DecimalAmountInput } from '../../components/DecimalAmountInput';
+import { QuantityStepper } from '../../components/QuantityStepper';
 import { InvoiceCategoryBadge } from '../../components/invoices/InvoiceCategoryVisual';
 import { InvoiceDocumentBody } from '../../components/invoices/InvoiceDocumentBody';
-import { formatInvoiceDate, invoiceCategoryLabel, invoiceStatusLabel } from '../../lib/invoices';
+import { SoDetailCatalogAddSheet } from '../../components/salesOrders/SoDetailCatalogAddSheet';
+import type { DraftEditLine } from '../../components/salesOrders/SalesOrderDraftLineEditor';
+import { useAuth } from '../../context/AuthContext';
+import {
+  updateAdminPurchaseOrder,
+  type AdminPurchaseOrderDetail,
+} from '../../lib/admin-purchase-orders';
+import { formatCurrency } from '../../lib/catalog';
+import { newCartLineId } from '../../lib/gatcCart';
+import { formatInvoiceDate, invoiceCategoryLabel, invoiceErrorMessage, invoiceStatusLabel } from '../../lib/invoices';
+import { canUpdatePurchaseOrders } from '../../lib/staffAccess';
+import type { DealerInvoiceLineItem } from '../../types/invoices';
 import type { AdminPurchaseOrderDetailOutletContext } from './adminPurchaseOrderDetailContext';
 
+type EditLine = {
+  lineId: string;
+  productId: string;
+  name: string;
+  sku: string | null;
+  quantity: number;
+  rate: number;
+  imageUrl: string | null;
+};
+
+const LOCKED_STATUSES = new Set(['cancelled', 'canceled', 'billed', 'closed', 'void']);
+
+function linesFromPurchaseOrder(po: AdminPurchaseOrderDetail): EditLine[] {
+  return po.lineItems.map(item => ({
+    lineId: item.id || newCartLineId(),
+    productId: String(item.itemId ?? '').trim(),
+    name: item.name,
+    sku: item.sku,
+    quantity: Math.max(1, Math.floor(Number(item.quantity) || 1)),
+    rate: Math.round(Number(item.rate ?? 0) * 100) / 100,
+    imageUrl: item.imageUrl,
+  }));
+}
+
+function toDraftLines(lines: EditLine[]): DraftEditLine[] {
+  return lines.map(line => ({
+    lineId: line.lineId,
+    productId: line.productId,
+    name: line.name,
+    sku: line.sku,
+    description: null,
+    imageUrl: line.imageUrl,
+    catalogRate: line.rate,
+    gatcFeePerUnit: 0,
+    gatcStampingPriceId: null,
+    gatcStampingRange: null,
+    rate: line.rate,
+    unit: 'pcs',
+    quantity: line.quantity,
+    stockStatus: null,
+    categoryName: null,
+    categoryId: null,
+  }));
+}
+
+function fromDraftLines(lines: DraftEditLine[]): EditLine[] {
+  return lines
+    .filter(line => line.productId && line.quantity > 0)
+    .map(line => ({
+      lineId: line.lineId || newCartLineId(),
+      productId: line.productId,
+      name: line.name,
+      sku: line.sku,
+      quantity: Math.max(1, Math.floor(line.quantity || 1)),
+      rate: Math.round(Number(line.rate ?? line.catalogRate ?? 0) * 100) / 100,
+      imageUrl: line.imageUrl,
+    }));
+}
+
+function detailsFingerprint(input: {
+  date: string;
+  deliveryDate: string;
+  referenceNumber: string;
+  notes: string;
+  lines: EditLine[];
+}): string {
+  return JSON.stringify({
+    date: input.date,
+    deliveryDate: input.deliveryDate,
+    referenceNumber: input.referenceNumber,
+    notes: input.notes,
+    lines: input.lines.map(line => ({
+      productId: line.productId,
+      quantity: line.quantity,
+      rate: line.rate,
+    })),
+  });
+}
+
 export const AdminPurchaseOrderDocumentPage: React.FC = () => {
-  const { purchaseOrder } = useOutletContext<AdminPurchaseOrderDetailOutletContext>();
+  const { purchaseOrder, setPurchaseOrder, purchaseOrderId } = useOutletContext<AdminPurchaseOrderDetailOutletContext>();
+  const { user } = useAuth();
+  const canEdit = canUpdatePurchaseOrders(user)
+    && Boolean(purchaseOrder)
+    && !LOCKED_STATUSES.has(String(purchaseOrder?.status ?? '').toLowerCase());
+
+  const [date, setDate] = useState('');
+  const [deliveryDate, setDeliveryDate] = useState('');
+  const [referenceNumber, setReferenceNumber] = useState('');
+  const [notes, setNotes] = useState('');
+  const [lines, setLines] = useState<EditLine[]>([]);
+  const [baseline, setBaseline] = useState('');
+  const [saving, setSaving] = useState(false);
+  const [saveError, setSaveError] = useState('');
+  const [catalogOpen, setCatalogOpen] = useState(false);
+  const [catalogSession, setCatalogSession] = useState(0);
+
+  useEffect(() => {
+    if (!purchaseOrder) return;
+    const nextLines = linesFromPurchaseOrder(purchaseOrder);
+    const next = {
+      date: purchaseOrder.date ?? '',
+      deliveryDate: purchaseOrder.deliveryDate ?? '',
+      referenceNumber: purchaseOrder.referenceNumber ?? '',
+      notes: purchaseOrder.notes ?? '',
+      lines: nextLines,
+    };
+    setDate(next.date);
+    setDeliveryDate(next.deliveryDate);
+    setReferenceNumber(next.referenceNumber);
+    setNotes(next.notes);
+    setLines(nextLines);
+    setBaseline(detailsFingerprint(next));
+    setSaveError('');
+  }, [purchaseOrder]);
+
+  const dirty = useMemo(
+    () => detailsFingerprint({ date, deliveryDate, referenceNumber, notes, lines }) !== baseline,
+    [date, deliveryDate, referenceNumber, notes, lines, baseline],
+  );
+
+  const previewItems: DealerInvoiceLineItem[] = useMemo(
+    () => lines.map(line => ({
+      id: line.lineId,
+      itemId: line.productId,
+      name: line.name,
+      description: null,
+      sku: line.sku,
+      quantity: line.quantity,
+      rate: line.rate,
+      total: Math.round(line.rate * line.quantity * 100) / 100,
+      imageUrl: line.imageUrl,
+    })),
+    [lines],
+  );
+
+  const previewSubtotal = useMemo(
+    () => previewItems.reduce((sum, item) => sum + item.total, 0),
+    [previewItems],
+  );
 
   if (!purchaseOrder) return null;
 
   const categoryLabel = invoiceCategoryLabel(purchaseOrder.purchaseOrderCategory);
+  const currency = purchaseOrder.currencyCode || 'INR';
+
+  const resetFromPo = () => {
+    const nextLines = linesFromPurchaseOrder(purchaseOrder);
+    setDate(purchaseOrder.date ?? '');
+    setDeliveryDate(purchaseOrder.deliveryDate ?? '');
+    setReferenceNumber(purchaseOrder.referenceNumber ?? '');
+    setNotes(purchaseOrder.notes ?? '');
+    setLines(nextLines);
+    setSaveError('');
+  };
+
+  const save = async () => {
+    if (!canEdit) return;
+    const payloadLines = lines.filter(line => line.productId && line.quantity > 0);
+    if (!payloadLines.length) {
+      setSaveError('Add at least one item.');
+      return;
+    }
+    setSaving(true);
+    setSaveError('');
+    try {
+      const next = await updateAdminPurchaseOrder({
+        purchaseOrderId,
+        vendorId: purchaseOrder.vendorId,
+        date: date || purchaseOrder.date,
+        deliveryDate: deliveryDate || null,
+        referenceNumber: referenceNumber.trim() || null,
+        notes: notes.trim() || null,
+        lines: payloadLines.map(line => ({
+          productId: line.productId,
+          quantity: line.quantity,
+          rate: line.rate,
+          name: line.name,
+        })),
+      });
+      setPurchaseOrder(next);
+    } catch (err) {
+      setSaveError(invoiceErrorMessage(err));
+    } finally {
+      setSaving(false);
+    }
+  };
 
   return (
     <>
@@ -22,14 +217,36 @@ export const AdminPurchaseOrderDocumentPage: React.FC = () => {
           </div>
           <div>
             <div className="text-muted text-sm">Date</div>
-            <strong>{formatInvoiceDate(purchaseOrder.date)}</strong>
+            {canEdit ? (
+              <input
+                type="date"
+                className="input-field"
+                value={date}
+                onChange={e => setDate(e.target.value)}
+                disabled={saving}
+                aria-label="Purchase order date"
+              />
+            ) : (
+              <strong>{formatInvoiceDate(purchaseOrder.date)}</strong>
+            )}
           </div>
-          {purchaseOrder.deliveryDate && (
-            <div>
-              <div className="text-muted text-sm">Delivery</div>
+          <div>
+            <div className="text-muted text-sm">Delivery</div>
+            {canEdit ? (
+              <input
+                type="date"
+                className="input-field"
+                value={deliveryDate}
+                onChange={e => setDeliveryDate(e.target.value)}
+                disabled={saving}
+                aria-label="Delivery date"
+              />
+            ) : purchaseOrder.deliveryDate ? (
               <strong>{formatInvoiceDate(purchaseOrder.deliveryDate)}</strong>
-            </div>
-          )}
+            ) : (
+              <span className="text-muted">—</span>
+            )}
+          </div>
           <div>
             <div className="text-muted text-sm">Status</div>
             <strong>{invoiceStatusLabel(purchaseOrder.status)}</strong>
@@ -43,17 +260,171 @@ export const AdminPurchaseOrderDocumentPage: React.FC = () => {
             )}
           </div>
         </div>
-        {purchaseOrder.referenceNumber && (
-          <p className="text-muted text-sm mt-3 mb-0">Ref {purchaseOrder.referenceNumber}</p>
-        )}
-        {purchaseOrder.notes && (
-          <p className="text-muted text-sm mt-2 mb-0">{purchaseOrder.notes}</p>
+        {canEdit ? (
+          <div className="create-po-page__detail-fields">
+            <label>
+              <span className="text-muted text-sm">Reference</span>
+              <input
+                type="text"
+                className="input-field"
+                value={referenceNumber}
+                onChange={e => setReferenceNumber(e.target.value)}
+                disabled={saving}
+                placeholder="Reference #"
+              />
+            </label>
+            <label>
+              <span className="text-muted text-sm">Notes</span>
+              <textarea
+                className="input-field"
+                rows={2}
+                value={notes}
+                onChange={e => setNotes(e.target.value)}
+                disabled={saving}
+                placeholder="Notes"
+              />
+            </label>
+          </div>
+        ) : (
+          <>
+            {purchaseOrder.referenceNumber && (
+              <p className="text-muted text-sm mt-3 mb-0">Ref {purchaseOrder.referenceNumber}</p>
+            )}
+            {purchaseOrder.notes && (
+              <p className="text-muted text-sm mt-2 mb-0">{purchaseOrder.notes}</p>
+            )}
+          </>
         )}
       </section>
-      <InvoiceDocumentBody
-        invoice={purchaseOrder}
-        currencyCode={purchaseOrder.currencyCode}
-        itemClassName="admin-invoice-detail-item"
+
+      {canEdit ? (
+        <section className="invoice-detail-items panel glass">
+          <div className="staff-create-so-page__section-head">
+            <h3 className="invoice-detail-items__title" style={{ margin: 0 }}>Items</h3>
+            <button
+              type="button"
+              className="btn btn-secondary btn-sm"
+              disabled={saving}
+              onClick={() => {
+                setCatalogSession(n => n + 1);
+                setCatalogOpen(true);
+              }}
+            >
+              <Plus size={14} aria-hidden />
+              Add item
+            </button>
+          </div>
+          {lines.length === 0 ? (
+            <p className="text-muted text-sm">No items. Add from catalog.</p>
+          ) : (
+            <ul className="staff-create-so-page__cart-list">
+              {lines.map(line => (
+                <li key={line.lineId} className="staff-create-so-page__cart-item">
+                  <div className="staff-create-so-page__cart-info">
+                    <strong>{line.name}</strong>
+                    {line.sku ? <p className="text-muted text-sm">{line.sku}</p> : null}
+                    <div className="so-line-inline__row" style={{ marginTop: '0.45rem' }}>
+                      <label className="so-line-inline__rate">
+                        <span className="text-muted text-sm">Rate</span>
+                        <DecimalAmountInput
+                          className="input-field so-line-inline__rate-input"
+                          value={line.rate}
+                          min={0}
+                          decimals={2}
+                          disabled={saving}
+                          onChange={next => {
+                            if (next == null) return;
+                            setLines(prev => prev.map(row => (
+                              row.lineId === line.lineId
+                                ? { ...row, rate: Math.round(next * 100) / 100 }
+                                : row
+                            )));
+                          }}
+                          aria-label={`Rate for ${line.name}`}
+                        />
+                      </label>
+                      <QuantityStepper
+                        value={line.quantity}
+                        disabled={saving}
+                        onChange={qty => {
+                          setLines(prev => prev.map(row => (
+                            row.lineId === line.lineId ? { ...row, quantity: qty } : row
+                          )));
+                        }}
+                        aria-label={`Quantity for ${line.name}`}
+                      />
+                    </div>
+                  </div>
+                  <div className="staff-create-so-page__cart-actions">
+                    <strong>{formatCurrency(line.rate * line.quantity, currency)}</strong>
+                    <button
+                      type="button"
+                      className="btn btn-secondary btn-sm"
+                      disabled={saving || lines.length <= 1}
+                      onClick={() => setLines(prev => prev.filter(row => row.lineId !== line.lineId))}
+                      aria-label={`Remove ${line.name}`}
+                    >
+                      <Trash2 size={14} aria-hidden />
+                    </button>
+                  </div>
+                </li>
+              ))}
+            </ul>
+          )}
+          <div className="create-po-page__totals">
+            <p>
+              <span className="text-muted">Estimated subtotal</span>
+              <strong>{formatCurrency(previewSubtotal, currency)}</strong>
+            </p>
+          </div>
+        </section>
+      ) : (
+        <InvoiceDocumentBody
+          invoice={purchaseOrder}
+          currencyCode={currency}
+          itemClassName="admin-invoice-detail-item"
+        />
+      )}
+
+      {saveError ? (
+        <div className="products-inline-error panel glass" role="alert">
+          <span>{saveError}</span>
+        </div>
+      ) : null}
+
+      {canEdit && dirty ? (
+        <footer className="so-detail__actions so-detail__actions--edit-dock" data-capture-ignore="1">
+          <div className="so-detail__edit-dock-meta">
+            <strong>Unsaved purchase order changes</strong>
+            <span className="text-muted text-sm">
+              Est. {formatCurrency(previewSubtotal, currency)} before tax
+            </span>
+          </div>
+          <button type="button" className="btn btn-secondary" disabled={saving} onClick={resetFromPo}>
+            Cancel
+          </button>
+          <button
+            type="button"
+            className="btn btn-primary"
+            disabled={saving || lines.length === 0}
+            onClick={() => { void save(); }}
+          >
+            {saving ? 'Saving…' : 'Save to Zoho'}
+          </button>
+        </footer>
+      ) : null}
+
+      <SoDetailCatalogAddSheet
+        open={catalogOpen}
+        sessionKey={catalogSession}
+        seedLines={toDraftLines(lines)}
+        orderCategory={null}
+        allowAllProducts
+        onClose={() => setCatalogOpen(false)}
+        onApply={next => {
+          setLines(fromDraftLines(next));
+          setCatalogOpen(false);
+        }}
       />
     </>
   );

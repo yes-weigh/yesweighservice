@@ -46,10 +46,22 @@ export const PORTAL_PURCHASE_ORDER_STATUS = 'draft';
 export const PURCHASE_ORDER_KEEP_AFTER_DATE = '2026-04-01';
 /** Older POs that must still appear in the portal. */
 export const PURCHASE_ORDER_KEEP_NUMBERS = ['PO-00279', 'PO-00283'] as const;
+/** POs that stay in Firebase but must not appear in the portal. */
+export const PURCHASE_ORDER_HIDE_NUMBERS = ['PO-00307'] as const;
+
+function normalizePurchaseOrderNumber(value?: string | null): string {
+  return String(value ?? '').trim().toUpperCase();
+}
 
 export function isKeptPurchaseOrderNumber(value?: string | null): boolean {
   return PURCHASE_ORDER_KEEP_NUMBERS.includes(
-    String(value ?? '').trim().toUpperCase() as (typeof PURCHASE_ORDER_KEEP_NUMBERS)[number],
+    normalizePurchaseOrderNumber(value) as (typeof PURCHASE_ORDER_KEEP_NUMBERS)[number],
+  );
+}
+
+export function isHiddenPurchaseOrderNumber(value?: string | null): boolean {
+  return PURCHASE_ORDER_HIDE_NUMBERS.includes(
+    normalizePurchaseOrderNumber(value) as (typeof PURCHASE_ORDER_HIDE_NUMBERS)[number],
   );
 }
 
@@ -57,8 +69,15 @@ export function purchaseOrderVisibleInPortal(row: {
   date?: string | null;
   purchaseOrderNumber?: string | null;
 }): boolean {
+  if (isHiddenPurchaseOrderNumber(row.purchaseOrderNumber)) return false;
   if (isKeptPurchaseOrderNumber(row.purchaseOrderNumber)) return true;
   return String(row.date ?? '').trim().slice(0, 10) >= PURCHASE_ORDER_KEEP_AFTER_DATE;
+}
+
+function excludeHiddenPurchaseOrders(
+  rows: AdminFirestorePurchaseOrder[],
+): AdminFirestorePurchaseOrder[] {
+  return rows.filter(row => !isHiddenPurchaseOrderNumber(row.purchaseOrderNumber));
 }
 
 export function clampPurchaseOrderDateStart(dateStart?: string | null): string {
@@ -285,6 +304,7 @@ function mergeKeptPurchaseOrders(
   const wanted = String(options.status ?? PORTAL_PURCHASE_ORDER_STATUS).trim().toLowerCase();
   const category = options.category ?? 'all';
   const extra = kept.filter(row => {
+    if (isHiddenPurchaseOrderNumber(row.purchaseOrderNumber)) return false;
     if (wanted && row.status !== wanted) return false;
     if (category && category !== 'all') {
       const primary = row.purchaseOrderCategory
@@ -304,11 +324,11 @@ export async function fetchAdminPurchaseOrdersPageDetailed(
   const kept = mergeKept ? await fetchKeptPurchaseOrders() : [];
   try {
     const snap = await getDocs(buildAdminPurchaseOrdersQuery(options));
-    const rows = mergeKeptPurchaseOrders(
+    const rows = excludeHiddenPurchaseOrders(mergeKeptPurchaseOrders(
       snap.docs.map(mapAdminPurchaseOrderDoc),
       kept,
       { status: options.status, category: options.category },
-    );
+    ));
     return {
       rows,
       docs: snap.docs,
@@ -318,13 +338,13 @@ export async function fetchAdminPurchaseOrdersPageDetailed(
     if (!isFirestoreIndexError(err)) throw err;
     const snap = await getDocs(buildAdminPurchaseOrdersQuery({ ...options, status: '' }));
     const wanted = String(options.status ?? PORTAL_PURCHASE_ORDER_STATUS).trim().toLowerCase();
-    const rows = mergeKeptPurchaseOrders(
+    const rows = excludeHiddenPurchaseOrders(mergeKeptPurchaseOrders(
       snap.docs
         .map(mapAdminPurchaseOrderDoc)
         .filter(row => !wanted || row.status === wanted),
       kept,
       { status: options.status, category: options.category },
-    );
+    ));
     return {
       rows,
       docs: snap.docs,
@@ -367,6 +387,7 @@ export async function countAdminPurchaseOrders(
     const snap = await getCountFromServer(query(collection(db, 'purchaseOrders'), ...constraints));
     const kept = await fetchKeptPurchaseOrders();
     const extra = kept.filter(row => {
+      if (isHiddenPurchaseOrderNumber(row.purchaseOrderNumber)) return false;
       if (status && row.status !== status) return false;
       if (category && category !== 'all') {
         const primary = row.purchaseOrderCategory
@@ -377,7 +398,25 @@ export async function countAdminPurchaseOrders(
       if (date && date >= dateStart && (!dateEnd || date <= dateEnd)) return false;
       return true;
     }).length;
-    return snap.data().count + extra;
+    const hidden = PURCHASE_ORDER_HIDE_NUMBERS.length
+      ? await getDocs(query(
+        collection(db, 'purchaseOrders'),
+        where('purchaseOrderNumber', 'in', [...PURCHASE_ORDER_HIDE_NUMBERS]),
+      ))
+      : null;
+    const hiddenInRange = (hidden?.docs ?? []).map(mapAdminPurchaseOrderDoc).filter(row => {
+      if (status && row.status !== status) return false;
+      if (category && category !== 'all') {
+        const primary = row.purchaseOrderCategory
+          ?? (row.categories.length ? row.categories[0] : null);
+        if (primary !== category) return false;
+      }
+      const date = String(row.date ?? '').trim().slice(0, 10);
+      if (dateStart && date && date < dateStart) return false;
+      if (dateEnd && date && date > dateEnd) return false;
+      return true;
+    }).length;
+    return snap.data().count + extra - hiddenInRange;
   } catch (err) {
     if (!isFirestoreIndexError(err)) throw err;
     const { rows } = await fetchAllAdminPurchaseOrdersInRange({
@@ -467,7 +506,8 @@ export async function fetchAllAdminPurchaseOrdersInRange(options: {
     if (result.rows.length < ADMIN_PO_PAGE_SIZE) break;
   }
 
-  return { rows: truncated ? rows.slice(0, maxRows) : rows, truncated };
+  const visible = excludeHiddenPurchaseOrders(rows);
+  return { rows: truncated ? visible.slice(0, maxRows) : visible, truncated };
 }
 
 export function filterAdminPurchaseOrders(
@@ -586,6 +626,37 @@ export async function fetchAdminPurchaseOrderDetail(
     ...detail,
     lineItems: withImages.lineItems,
   };
+}
+
+export async function updateAdminPurchaseOrder(input: {
+  purchaseOrderId: string;
+  vendorId?: string | null;
+  date?: string | null;
+  deliveryDate?: string | null;
+  referenceNumber?: string | null;
+  notes?: string | null;
+  lines: Array<{
+    productId: string;
+    quantity: number;
+    rate: number;
+    name?: string;
+  }>;
+}): Promise<AdminPurchaseOrderDetail> {
+  const callable = httpsCallable(functions, 'updatePurchaseOrder', { timeout: 120_000 });
+  try {
+    await callable({
+      purchaseOrderId: input.purchaseOrderId,
+      vendorId: input.vendorId ?? undefined,
+      date: input.date ?? undefined,
+      deliveryDate: input.deliveryDate ?? null,
+      referenceNumber: input.referenceNumber ?? null,
+      notes: input.notes ?? null,
+      lines: input.lines,
+    });
+  } catch (err) {
+    throw new Error(invoiceErrorMessage(err));
+  }
+  return fetchAdminPurchaseOrderDetail(input.purchaseOrderId);
 }
 
 export async function downloadPurchaseOrderDocument(

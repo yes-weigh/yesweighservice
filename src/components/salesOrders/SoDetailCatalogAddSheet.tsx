@@ -80,6 +80,7 @@ const SoDetailCatalogAddBody: React.FC<{
   orderCategory: InvoiceCategory | null | undefined;
   orderSegment: OrderSegment | null;
   inventorySite: InventorySite | null;
+  allowAllProducts?: boolean;
   /** Product ids already on the SO — kept even if warehouse stock later flips site. */
   seedProductIds: Set<string>;
   onClose: () => void;
@@ -88,6 +89,7 @@ const SoDetailCatalogAddBody: React.FC<{
   orderCategory,
   orderSegment,
   inventorySite,
+  allowAllProducts = false,
   seedProductIds,
   onClose,
   onApply,
@@ -124,13 +126,14 @@ const SoDetailCatalogAddBody: React.FC<{
 
   const isCartable = useMemo(
     () => (product: CatalogProduct) => {
+      if (allowAllProducts) return true;
       const full = catalogById.get(product.id) ?? product;
       return productMatchesSalesOrderBucket(full, {
         segment: resolvedSegment,
         site: resolvedSite,
       });
     },
-    [catalogById, resolvedSegment, resolvedSite],
+    [allowAllProducts, catalogById, resolvedSegment, resolvedSite],
   );
 
   /**
@@ -351,6 +354,7 @@ export const SoDetailCatalogAddSheet: React.FC<{
   orderCategory?: InvoiceCategory | null;
   orderSegment?: OrderSegment | null;
   inventorySite?: InventorySite | null;
+  allowAllProducts?: boolean;
   onClose: () => void;
   onApply: (productLines: DraftEditLine[]) => void;
 }> = ({
@@ -360,6 +364,7 @@ export const SoDetailCatalogAddSheet: React.FC<{
   orderCategory,
   orderSegment = null,
   inventorySite = null,
+  allowAllProducts = false,
   onClose,
   onApply,
 }) => {
@@ -380,6 +385,7 @@ export const SoDetailCatalogAddSheet: React.FC<{
         orderCategory={orderCategory}
         orderSegment={orderSegment}
         inventorySite={inventorySite}
+        allowAllProducts={allowAllProducts}
         seedProductIds={seedProductIds}
         onClose={onClose}
         onApply={onApply}

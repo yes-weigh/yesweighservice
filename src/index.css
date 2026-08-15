@@ -19029,6 +19029,18 @@ body:has(.confirm-inline-bar) .confirm-inline-bar {
   }
 }
 
+.create-po-page__detail-fields {
+  display: grid;
+  gap: 0.75rem;
+  margin-top: 1rem;
+}
+
+.create-po-page__detail-fields label {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+}
+
 .create-po-page__last-cost {
   margin: 0.2rem 0 0.45rem;
 }

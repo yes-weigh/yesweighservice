@@ -77,6 +77,7 @@ export const AdminPurchaseOrderDetailLayout: React.FC = () => {
 
   const outletContext: AdminPurchaseOrderDetailOutletContext = {
     purchaseOrder,
+    setPurchaseOrder,
     loading,
     error,
     purchaseOrderId,

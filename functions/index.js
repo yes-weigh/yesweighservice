@@ -127,6 +127,7 @@ import {
   reclassifyPurchaseOrderCategoriesFromCatalog,
   ensurePurchaseOrderPdf,
   handleZohoPurchaseOrderWebhook,
+  updatePurchaseOrderInZoho,
 } from './lib/purchase-order-sync.js';
 import { searchZohoVendors as searchZohoVendorContacts } from './lib/zoho-vendors.js';
 import {
@@ -3226,6 +3227,49 @@ export const searchZohoVendors = onCall(
     } catch (err) {
       console.error('searchZohoVendors failed:', err);
       throw new HttpsError('internal', err?.message ?? 'Could not search vendors.');
+    }
+  },
+);
+
+/** Update PO details + lines in Zoho, then remirror — full-access super admin. */
+export const updatePurchaseOrder = onCall(
+  {
+    region: 'asia-south1',
+    secrets: [zohoClientId, zohoClientSecret, zohoRefreshToken],
+    timeoutSeconds: 120,
+    memory: '512MiB',
+  },
+  async request => {
+    await requireActiveUser(request.auth?.uid, SUPER_ADMIN_ROLES);
+    const poId = String(request.data?.purchaseOrderId ?? '').trim();
+    if (!poId) {
+      throw new HttpsError('invalid-argument', 'purchaseOrderId is required.');
+    }
+    const lines = Array.isArray(request.data?.lines) ? request.data.lines : [];
+    if (!lines.length) {
+      throw new HttpsError('invalid-argument', 'At least one line item is required.');
+    }
+    try {
+      return await updatePurchaseOrderInZoho(
+        zohoSecrets(),
+        zohoOrganizationId.value(),
+        poId,
+        {
+          vendorId: request.data?.vendorId,
+          date: request.data?.date,
+          deliveryDate: request.data?.deliveryDate,
+          referenceNumber: request.data?.referenceNumber,
+          notes: request.data?.notes,
+          lines,
+        },
+      );
+    } catch (err) {
+      console.error('updatePurchaseOrder failed:', err);
+      const message = err?.message ?? 'Could not update purchase order.';
+      if (/invalid-argument|no longer be edited|at least one/i.test(message)) {
+        throw new HttpsError('failed-precondition', message);
+      }
+      throw new HttpsError('internal', message);
     }
   },
 );

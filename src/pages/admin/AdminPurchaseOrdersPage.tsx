@@ -4,8 +4,8 @@ import { useNavigate } from 'react-router-dom';
 import type { DocumentData, QueryDocumentSnapshot } from 'firebase/firestore';
 import {
   AlertCircle,
+  DollarSign,
   FileText,
-  IndianRupee,
   Plus,
   Search,
   ShoppingBag,
@@ -446,7 +446,7 @@ export const AdminPurchaseOrdersPage: React.FC = () => {
           <div className="invoices-summary__divider" aria-hidden />
           <div className="invoices-summary__kpi">
             <span className="invoices-summary__kpi-icon" aria-hidden>
-              <IndianRupee size={16} strokeWidth={2.4} />
+              <DollarSign size={16} strokeWidth={2.4} />
             </span>
             <div className="invoices-summary__kpi-body">
               <span className="invoices-summary__kpi-label">Total Amount</span>

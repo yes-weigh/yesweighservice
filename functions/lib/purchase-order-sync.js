@@ -83,12 +83,19 @@ function pdfPath(poId) {
   return `purchaseorders/${poId}.pdf`;
 }
 
-async function zohoJsonRequest(accessToken, orgId, path) {
+async function zohoJsonRequest(accessToken, orgId, path, { method = 'GET', body } = {}) {
   const url = new URL(`${ZOHO_API_BASE}${path}`);
   if (!url.searchParams.has('organization_id')) {
     url.searchParams.set('organization_id', orgId);
   }
-  const res = await fetch(url.toString(), { headers: authHeaders(accessToken, orgId) });
+  const res = await fetch(url.toString(), {
+    method,
+    headers: {
+      ...authHeaders(accessToken, orgId),
+      ...(body ? { 'Content-Type': 'application/json' } : {}),
+    },
+    ...(body ? { body: JSON.stringify(body) } : {}),
+  });
   await recordZohoApiResponse(res, { operation: path, source: 'purchase-order-sync' });
   const text = await res.text();
   let payload = null;
@@ -291,6 +298,7 @@ async function upsertPurchaseOrderFromRaw(raw, options = {}) {
     itemQuantity: sumNonFreightQuantity(mapped.lineItems),
     syncedAt: now,
     contentFingerprint: `${mapped.zohoLastModified}|${mapped.lineItems.length}|${mapped.total}`,
+    forceKeep: purchaseOrderNumberKept(mapped.purchaseOrderNumber),
   };
 
   await poCollection().doc(mapped.id).set(doc, { merge: true });
@@ -957,7 +965,7 @@ export async function deletePurchaseOrdersBeforeKeepDate({ onProgress, dryRun = 
       scanned += 1;
       const data = docSnap.data() ?? {};
       const date = String(data.date ?? '').trim().slice(0, 10);
-      if (purchaseOrderShouldKeep(date, data.purchaseOrderNumber)) continue;
+      if (data.forceKeep || purchaseOrderShouldKeep(date, data.purchaseOrderNumber)) continue;
       if (!dryRun) {
         await deletePurchaseOrderFromFirestore(docSnap.id);
       }
@@ -1018,6 +1026,77 @@ export async function importPurchaseOrdersByNumber(secrets, orgId, purchaseOrder
     });
   }
   return results;
+}
+
+const PO_LOCKED_STATUSES = new Set(['cancelled', 'canceled', 'billed', 'closed', 'void']);
+
+export async function updatePurchaseOrderInZoho(secrets, orgId, purchaseOrderId, patch = {}) {
+  const id = String(purchaseOrderId ?? '').trim();
+  if (!id) throw new Error('purchaseOrderId is required.');
+  const accessToken = await getAccessToken(secrets);
+  const organizationId = await resolveOrganizationId(accessToken, orgId);
+  const raw = await fetchPurchaseOrderRaw(accessToken, organizationId, id);
+  if (!raw) throw new Error('Purchase order not found in Zoho.');
+
+  const status = String(raw.status ?? '').trim().toLowerCase();
+  if (PO_LOCKED_STATUSES.has(status)) {
+    throw new Error('This purchase order can no longer be edited.');
+  }
+
+  const lines = Array.isArray(patch.lines) ? patch.lines : [];
+  const lineItems = lines
+    .map(line => ({
+      item_id: String(line.productId ?? line.itemId ?? '').trim(),
+      name: line.name ? String(line.name) : undefined,
+      quantity: Number(line.quantity) || 0,
+      rate: Number(line.rate) || 0,
+    }))
+    .filter(line => line.item_id && line.quantity > 0);
+  if (!lineItems.length) {
+    throw new Error('Purchase order must have at least one item.');
+  }
+
+  const body = {
+    vendor_id: String(patch.vendorId ?? raw.vendor_id ?? '').trim() || raw.vendor_id,
+    date: String(patch.date ?? raw.date ?? '').trim().slice(0, 10) || raw.date,
+    line_items: lineItems,
+  };
+  if (patch.deliveryDate !== undefined) {
+    body.delivery_date = String(patch.deliveryDate ?? '').trim().slice(0, 10);
+  } else if (raw.delivery_date) {
+    body.delivery_date = raw.delivery_date;
+  }
+  if (patch.referenceNumber !== undefined) {
+    body.reference_number = String(patch.referenceNumber ?? '').trim();
+  } else if (raw.reference_number) {
+    body.reference_number = raw.reference_number;
+  }
+  if (patch.notes !== undefined) {
+    body.notes = String(patch.notes ?? '');
+  } else if (raw.notes) {
+    body.notes = raw.notes;
+  }
+
+  const payload = await zohoJsonRequest(
+    accessToken,
+    organizationId,
+    `/purchaseorders/${id}`,
+    { method: 'PUT', body },
+  );
+  const updated = payload?.purchaseorder ?? raw;
+  await upsertPurchaseOrderFromRaw(updated);
+  try {
+    await storageBucket().file(pdfPath(id)).delete({ ignoreNotFound: true });
+    await poCollection().doc(id).set({ pdfStoragePath: FieldValue.delete() }, { merge: true });
+  } catch {
+    // ignore stale PDF cache errors
+  }
+  return {
+    id,
+    purchaseOrderNumber: updated.purchaseorder_number
+      ? String(updated.purchaseorder_number)
+      : String(raw.purchaseorder_number ?? ''),
+  };
 }
 
 /** Pull one PO from Zoho into Firestore (webhook / single refresh). */
