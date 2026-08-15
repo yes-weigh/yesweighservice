@@ -49,6 +49,23 @@ export async function ensureInvoiceEwayBill(input: {
   }
 }
 
+export async function pushDelhiveryLrEwayBills(input: {
+  bookingId?: string | null;
+  invoiceId?: string | null;
+}): Promise<{ ok: boolean; lrn: string | null; error: string | null }> {
+  try {
+    const fn = httpsCallable<typeof input, { ok: boolean; lrn: string | null; error: string | null }>(
+      functions,
+      'pushDelhiveryLrEwayBillsFn',
+      { timeout: 90_000 },
+    );
+    const result = await fn(input);
+    return result.data;
+  } catch (err) {
+    throw callableError(err, 'Could not push e-way bills to Delhivery.');
+  }
+}
+
 export async function cancelInvoiceEwayBill(input: {
   customerId: string;
   invoiceId: string;

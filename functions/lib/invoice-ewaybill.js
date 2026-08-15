@@ -185,7 +185,7 @@ async function writeDelhiveryEwaySync(db, bookingId, patch) {
  * Waits until every required clubbed invoice has a number, then sends the full set.
  * Failures are stored on the booking and never throw — Zoho generation still succeeded.
  */
-async function maybePushEwayBillsToDelhiveryLr(db, { bookingId = null, invoiceId = null } = {}) {
+async function maybePushEwayBillsToDelhiveryLr(db, { bookingId = null, invoiceId = null, force = false } = {}) {
   try {
     const booking = await resolveDelhiveryBookingForEway(db, bookingId, invoiceId);
     if (!booking || String(booking.partnerId || '') !== 'delhivery') return null;
@@ -208,7 +208,8 @@ async function maybePushEwayBillsToDelhiveryLr(db, { bookingId = null, invoiceId
       return previous;
     }
     if (
-      previous?.ok === false
+      !force
+      && previous?.ok === false
       && String(previous.fingerprint || '') === fingerprint
       && previous.syncedAt
     ) {
@@ -879,6 +880,36 @@ export async function ensureInvoiceEwayBillForCustomerPickup(secrets, orgId, inp
     mimeType,
     cached: false,
   };
+}
+
+/**
+ * Manual / retry push of generated e-way bills onto the Delhivery LR.
+ * Throws when the booking is not ready or Delhivery rejects the update.
+ */
+export async function pushEwayBillsToDelhiveryLr(db, input = {}) {
+  const bookingId = String(input.bookingId ?? '').trim() || null;
+  const invoiceId = String(input.invoiceId ?? '').trim() || null;
+  const booking = await resolveDelhiveryBookingForEway(db, bookingId, invoiceId);
+  if (!booking) {
+    throw new Error('Delhivery booking not found for this invoice.');
+  }
+  if (!normalizeDelhiveryLrn(booking.consignmentNo)) {
+    throw new Error('A Delhivery LR number is required before pushing e-way bills.');
+  }
+  if (!bookingReadyForDelhiveryEwayPush(booking)) {
+    throw new Error('Generate all required e-way bills first, then push them to Delhivery.');
+  }
+  const result = await maybePushEwayBillsToDelhiveryLr(db, {
+    bookingId: booking.id,
+    invoiceId,
+    force: true,
+  });
+  if (result?.ok) {
+    return { ok: true, lrn: result.lrn || null, error: null };
+  }
+  const fresh = await resolveDelhiveryBookingForEway(db, booking.id, invoiceId);
+  const error = String(fresh?.delhiveryEwaySync?.error || 'Could not update e-way bills on the Delhivery LR.');
+  throw new Error(error);
 }
 
 export { isEwayBillRequired };

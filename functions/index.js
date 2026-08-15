@@ -84,7 +84,7 @@ import {
   verifyZohoWebhookSignature,
   handleZohoInvoiceWebhook,
 } from './lib/invoice-sync.js';
-import { ensureInvoiceEwayBill, cancelInvoiceEwayBill } from './lib/invoice-ewaybill.js';
+import { ensureInvoiceEwayBill, cancelInvoiceEwayBill, pushEwayBillsToDelhiveryLr } from './lib/invoice-ewaybill.js';
 import {
   markInvoiceCustomerPickup,
   updateCustomerPickupEwayPartB,
@@ -2053,6 +2053,32 @@ export const ensureInvoiceEwayBillFn = onCall(
         ? 'failed-precondition'
         : 'internal';
       throw new HttpsError(code, message);
+    }
+  },
+);
+
+/** Push generated e-way bill numbers onto an existing Delhivery LR. */
+export const pushDelhiveryLrEwayBillsFn = onCall(
+  {
+    region: 'asia-south1',
+    timeoutSeconds: 90,
+    memory: '256MiB',
+  },
+  async request => {
+    await requireActiveUser(request.auth?.uid, ALLOWED_ROLES);
+    const bookingId = String(request.data?.bookingId ?? '').trim();
+    const invoiceId = String(request.data?.invoiceId ?? '').trim();
+    if (!bookingId && !invoiceId) {
+      throw new HttpsError('invalid-argument', 'Booking id is required.');
+    }
+    try {
+      return await pushEwayBillsToDelhiveryLr(getFirestore(), { bookingId, invoiceId });
+    } catch (err) {
+      if (err instanceof HttpsError) throw err;
+      throw new HttpsError(
+        'failed-precondition',
+        err?.message ?? 'Could not push e-way bills to Delhivery.',
+      );
     }
   },
 );

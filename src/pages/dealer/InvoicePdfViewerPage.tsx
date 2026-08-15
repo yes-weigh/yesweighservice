@@ -1,11 +1,8 @@
 import React, { Suspense, lazy, useEffect, useMemo, useState } from 'react';
 import { useOutletContext } from 'react-router-dom';
-import { AlertCircle, Download, ExternalLink } from 'lucide-react';
+import { AlertCircle, Download, ExternalLink, Loader2, Share2 } from 'lucide-react';
 import { FetchingLoader } from '../../components/FetchingLoader';
-
-const InvoicePdfCanvas = lazy(() =>
-  import('../../components/invoices/InvoicePdfCanvas').then(m => ({ default: m.InvoicePdfCanvas })),
-);
+import { shareDocumentPdf } from '../../lib/documentWhatsAppShare';
 import {
   downloadDealerInvoiceDocument,
   invoiceDocumentToBlob,
@@ -17,6 +14,10 @@ import { base64ToUint8Array, prefersNativePdfViewer } from '../../lib/pdfViewer'
 import type { InvoiceDocumentDownload } from '../../types/invoices';
 import type { InvoiceDetailOutletContext } from './invoiceDetailContext';
 
+const InvoicePdfCanvas = lazy(() =>
+  import('../../components/invoices/InvoicePdfCanvas').then(m => ({ default: m.InvoicePdfCanvas })),
+);
+
 export const InvoicePdfViewerPage: React.FC = () => {
   const { invoice, invoiceId } = useOutletContext<InvoiceDetailOutletContext>();
   const useNativeViewer = useMemo(() => prefersNativePdfViewer(), []);
@@ -26,6 +27,8 @@ export const InvoicePdfViewerPage: React.FC = () => {
   const [pdfBytes, setPdfBytes] = useState<Uint8Array | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  const [sharing, setSharing] = useState(false);
+  const [shareError, setShareError] = useState('');
 
   useEffect(() => {
     if (!invoiceId) return;
@@ -35,6 +38,7 @@ export const InvoicePdfViewerPage: React.FC = () => {
 
     setLoading(true);
     setError('');
+    setShareError('');
     setDocument(null);
     setPdfUrl(null);
     setPdfBytes(null);
@@ -69,30 +73,68 @@ export const InvoicePdfViewerPage: React.FC = () => {
     };
   }, [invoiceId, useNativeViewer]);
 
+  const sharePdf = async () => {
+    if (!document || sharing) return;
+    setSharing(true);
+    setShareError('');
+    const label = invoice.invoiceNumber?.trim() || invoiceId;
+    try {
+      await shareDocumentPdf(document, {
+        title: label,
+        text: `Invoice ${label}`,
+      });
+    } catch (err) {
+      setShareError(err instanceof Error ? err.message : 'Could not share this PDF.');
+    } finally {
+      setSharing(false);
+    }
+  };
+
   if (!invoice) return null;
 
   return (
     <section className="invoice-detail-pdf invoice-detail-pdf--fullscreen panel glass">
-      {!useNativeViewer && document && !loading && !error && (
+      {document && !loading && !error ? (
         <div className="invoice-detail-pdf__toolbar">
+          {!useNativeViewer ? (
+            <>
+              <button
+                type="button"
+                className="btn btn-secondary btn-sm invoice-detail-pdf__toolbar-btn"
+                onClick={() => openInvoiceDocument(document)}
+              >
+                <ExternalLink size={16} aria-hidden />
+                Open PDF
+              </button>
+              <button
+                type="button"
+                className="btn btn-secondary btn-sm invoice-detail-pdf__toolbar-btn"
+                onClick={() => saveInvoiceDocumentFile(document)}
+              >
+                <Download size={16} aria-hidden />
+                Download
+              </button>
+            </>
+          ) : null}
           <button
             type="button"
-            className="btn btn-secondary btn-sm invoice-detail-pdf__toolbar-btn"
-            onClick={() => openInvoiceDocument(document)}
+            className="invoice-detail-pdf__share"
+            onClick={() => void sharePdf()}
+            disabled={sharing}
+            aria-label="Share invoice PDF"
           >
-            <ExternalLink size={16} aria-hidden />
-            Open PDF
-          </button>
-          <button
-            type="button"
-            className="btn btn-secondary btn-sm invoice-detail-pdf__toolbar-btn"
-            onClick={() => saveInvoiceDocumentFile(document)}
-          >
-            <Download size={16} aria-hidden />
-            Download
+            {sharing ? <Loader2 size={22} className="spin-icon" aria-hidden /> : <Share2 size={22} aria-hidden />}
+            Share
           </button>
         </div>
-      )}
+      ) : null}
+
+      {shareError ? (
+        <div className="invoice-detail-pdf__error invoice-detail-pdf__error--inline" role="alert">
+          <AlertCircle size={18} />
+          <p>{shareError}</p>
+        </div>
+      ) : null}
 
       {loading ? (
         <FetchingLoader label="Loading invoice PDF…" />
@@ -102,11 +144,13 @@ export const InvoicePdfViewerPage: React.FC = () => {
           <p>{error}</p>
         </div>
       ) : useNativeViewer && pdfUrl ? (
-        <iframe
-          title={`Invoice ${invoice.invoiceNumber}`}
-          src={pdfUrl}
-          className="invoice-detail-pdf__frame"
-        />
+        <div className="invoice-detail-pdf__frame-clip">
+          <iframe
+            title={`Invoice ${invoice.invoiceNumber}`}
+            src={pdfUrl}
+            className="invoice-detail-pdf__frame"
+          />
+        </div>
       ) : pdfBytes ? (
         <Suspense fallback={<FetchingLoader label="Preparing PDF viewer…" />}>
           <InvoicePdfCanvas data={pdfBytes} />

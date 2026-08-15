@@ -149,34 +149,51 @@ export function bookingNeedsEwayBill(
 }
 
 export type EwayBillListChip = {
-  tone: 'done' | 'cancelled' | 'missing';
+  tone: 'done' | 'cancelled' | 'missing' | 'pending';
   label: string;
+  lines?: readonly string[];
+  title?: string;
 };
 
 /** Chip on logistics list tiles when an e-way bill is required for the linked invoice. */
 export function ewayBillListChip(
   booking: {
+    partnerId?: string | null;
     ewayBillStatus?: string | null;
     ewayBillNumber?: string | null;
     invoiceId?: string | null;
     invoiceIds?: string[] | null;
     invoices?: ReadonlyArray<{ invoiceId?: string | null; valueInr?: number | null; ewayRequired?: boolean }> | null;
     invoiceValueInr?: number | null;
+    delhiveryEwaySync?: { ok?: boolean } | null;
   },
   options?: { invoiceTotalInclGst?: number | null },
 ): EwayBillListChip | null {
   if (!bookingNeedsEwayBill(booking, options?.invoiceTotalInclGst)) return null;
 
-  if (ewayBillIsReady(booking.ewayBillStatus, booking.ewayBillNumber)) {
-    return {
-      tone: 'done',
-      label: 'EWB',
-    };
-  }
   if (booking.ewayBillStatus === 'cancelled') {
-    return { tone: 'cancelled', label: 'EWB cancelled' };
+    return { tone: 'cancelled', label: 'EWB cancelled', lines: ['EWB', 'cancelled'] };
   }
-  return { tone: 'missing', label: 'No e-way bill' };
+  if (ewayBillIsReady(booking.ewayBillStatus, booking.ewayBillNumber)) {
+    if (booking.partnerId === 'delhivery') {
+      if (booking.delhiveryEwaySync?.ok === true) {
+        return {
+          tone: 'done',
+          label: 'E-way updated',
+          lines: ['E-way', 'updated'],
+          title: 'E-way bills updated to partner',
+        };
+      }
+      return {
+        tone: 'pending',
+        label: 'E-way not updated',
+        lines: ['E-way', 'not updated'],
+        title: 'E-way bills are generated but not yet pushed to Delhivery',
+      };
+    }
+    return { tone: 'done', label: 'EWB' };
+  }
+  return { tone: 'missing', label: 'No e-way bill', lines: ['No', 'e-way bill'] };
 }
 
 /** EWB chip on invoice list tiles (clubbed LR, stored e-way, or pickup over threshold). */

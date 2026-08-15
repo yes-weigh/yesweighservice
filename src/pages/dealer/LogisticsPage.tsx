@@ -1256,12 +1256,21 @@ export const LogisticsPage: React.FC = () => {
                                   'logistics-shipment__eway',
                                   ewayChip.tone === 'done'
                                     ? 'is-done'
-                                    : ewayChip.tone === 'cancelled'
-                                      ? 'is-cancelled'
-                                      : 'is-missing',
+                                    : ewayChip.tone === 'pending'
+                                      ? 'is-pending'
+                                      : ewayChip.tone === 'cancelled'
+                                        ? 'is-cancelled'
+                                        : 'is-missing',
                                 ].join(' ')}
+                                title={ewayChip.title || ewayChip.label}
                               >
-                                {ewayChip.label}
+                                {ewayChip.lines?.length
+                                  ? ewayChip.lines.map((line) => (
+                                      <span key={line} className="logistics-shipment__eway-line">
+                                        {line}
+                                      </span>
+                                    ))
+                                  : ewayChip.label}
                               </span>
                             ) : null}
                             {clubbedCount > 1 ? (

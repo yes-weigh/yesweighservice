@@ -373,7 +373,7 @@ function applyCategoryDelta(byCategory, category, deltaCount) {
  * Apply +1/-1 to org + month + dealer rollups for one invoice snapshot.
  * @param {'add'|'remove'} op
  */
-export async function applyInvoiceStatsDelta(invoiceLike, op) {
+export async function applyInvoiceStatsDelta(invoiceLike, op, options = {}) {
   const sign = op === 'remove' ? -1 : 1;
   const countDelta = sign;
   const amount = amountExclGst(invoiceLike);
@@ -386,10 +386,13 @@ export async function applyInvoiceStatsDelta(invoiceLike, op) {
   const categoryAmounts = categoryAmountsFromInvoiceLike(invoiceLike, amount);
   const monthKey = invoiceMonthKey(invoiceLike.date);
   const customerId = String(invoiceLike?.customerId ?? '').trim();
-  const listStatus = invoiceLike?.listStatus
-    ? String(invoiceLike.listStatus)
-    : invoiceListStatusFromDoc(invoiceLike);
-  const filterStatus = invoiceListFilterStatusFromDoc(listStatus);
+  const skipStatus = options.skipStatus === true;
+  const listStatus = skipStatus
+    ? ''
+    : (invoiceLike?.listStatus
+      ? String(invoiceLike.listStatus)
+      : invoiceListStatusFromDoc(invoiceLike));
+  const filterStatus = skipStatus ? null : invoiceListFilterStatusFromDoc(listStatus);
 
   const db = getFirestore();
   const batch = db.batch();
@@ -496,9 +499,9 @@ export async function applyListStatusRollupShift(invoiceLike, prevListStatus, ne
 /**
  * Reconcile stats when an invoice changes category/amount/date.
  */
-export async function reconcileInvoiceStats(before, after) {
-  if (before) await applyInvoiceStatsDelta(before, 'remove');
-  if (after) await applyInvoiceStatsDelta(after, 'add');
+export async function reconcileInvoiceStats(before, after, options = {}) {
+  if (before) await applyInvoiceStatsDelta(before, 'remove', options);
+  if (after) await applyInvoiceStatsDelta(after, 'add', options);
 }
 
 /**
@@ -508,6 +511,7 @@ export async function reconcileInvoiceStats(before, after) {
  */
 export async function writeInvoiceSummaryAndReconcile(customerId, invoiceId, afterDoc, beforeDoc = null) {
   const { fields, prevListStatus } = await upsertInvoiceSummary(customerId, invoiceId, afterDoc);
+  const isUpdate = Boolean(beforeDoc);
   await reconcileInvoiceStats(
     beforeDoc
       ? {
@@ -524,7 +528,15 @@ export async function writeInvoiceSummaryAndReconcile(customerId, invoiceId, aft
       categories: fields.categories,
       date: fields.date,
     },
+    { skipStatus: isUpdate },
   );
+  if (isUpdate && String(prevListStatus ?? '') !== String(fields.listStatus ?? '')) {
+    await applyListStatusRollupShift(
+      { ...fields, customerId },
+      prevListStatus,
+      fields.listStatus,
+    );
+  }
   return fields;
 }
 
@@ -881,6 +893,128 @@ export async function backfillInvoiceSummaryListStatus({ onProgress } = {}) {
   }
 
   return { scanned, patched, months: monthMaps.size };
+}
+
+function emptyNestedStatusMaps() {
+  return {
+    byStatus: {},
+    byFilterStatus: {},
+    byCategoryAndFilterStatus: {},
+  };
+}
+
+function subtractStatusMaps(from, minus) {
+  const next = {
+    byStatus: { ...(from.byStatus ?? {}) },
+    byFilterStatus: { ...(from.byFilterStatus ?? {}) },
+    byCategoryAndFilterStatus: {},
+  };
+  for (const [key, value] of Object.entries(minus.byStatus ?? {})) {
+    next.byStatus[key] = Math.max(0, Number(next.byStatus[key] ?? 0) - Number(value ?? 0));
+  }
+  for (const [key, value] of Object.entries(minus.byFilterStatus ?? {})) {
+    next.byFilterStatus[key] = Math.max(0, Number(next.byFilterStatus[key] ?? 0) - Number(value ?? 0));
+  }
+  const cats = new Set([
+    ...Object.keys(from.byCategoryAndFilterStatus ?? {}),
+    ...Object.keys(minus.byCategoryAndFilterStatus ?? {}),
+  ]);
+  for (const cat of cats) {
+    next.byCategoryAndFilterStatus[cat] = { ...((from.byCategoryAndFilterStatus ?? {})[cat] ?? {}) };
+    for (const [status, value] of Object.entries((minus.byCategoryAndFilterStatus ?? {})[cat] ?? {})) {
+      next.byCategoryAndFilterStatus[cat][status] = Math.max(
+        0,
+        Number(next.byCategoryAndFilterStatus[cat][status] ?? 0) - Number(value ?? 0),
+      );
+    }
+  }
+  return next;
+}
+
+function addStatusMapValues(into, add) {
+  for (const [key, value] of Object.entries(add.byStatus ?? {})) {
+    into.byStatus[key] = Number(into.byStatus[key] ?? 0) + Number(value ?? 0);
+  }
+  for (const [key, value] of Object.entries(add.byFilterStatus ?? {})) {
+    into.byFilterStatus[key] = Number(into.byFilterStatus[key] ?? 0) + Number(value ?? 0);
+  }
+  for (const [cat, statuses] of Object.entries(add.byCategoryAndFilterStatus ?? {})) {
+    if (!into.byCategoryAndFilterStatus[cat]) into.byCategoryAndFilterStatus[cat] = {};
+    for (const [status, value] of Object.entries(statuses ?? {})) {
+      into.byCategoryAndFilterStatus[cat][status] = (
+        Number(into.byCategoryAndFilterStatus[cat][status] ?? 0) + Number(value ?? 0)
+      );
+    }
+  }
+  return into;
+}
+
+/**
+ * Rebuild one month's status chip maps from live invoiceSummaries and
+ * patch org by the same delta so To dispatch chips match the list.
+ */
+export async function rebuildInvoiceStatusRollupsForMonth(monthKey) {
+  const key = String(monthKey ?? '').trim();
+  if (!/^\d{4}-\d{2}$/.test(key)) {
+    throw new Error(`Invalid month key: ${monthKey}`);
+  }
+  const db = getFirestore();
+  const dateStart = `${key}-01`;
+  const dateEnd = `${key}-31`;
+  const live = emptyNestedStatusMaps();
+  let scanned = 0;
+  let lastDoc = null;
+
+  for (;;) {
+    let q = db.collectionGroup(INVOICE_SUMMARIES_SUBCOLLECTION)
+      .where('date', '>=', dateStart)
+      .where('date', '<=', dateEnd)
+      .orderBy('date', 'desc')
+      .orderBy('invoiceNumber', 'desc')
+      .limit(400);
+    if (lastDoc) q = q.startAfter(lastDoc);
+    const snap = await q.get();
+    if (!snap.size) break;
+    for (const docSnap of snap.docs) {
+      const data = docSnap.data() ?? {};
+      if (invoiceMonthKey(data.date) !== key) continue;
+      const listStatus = data.listStatus
+        ? String(data.listStatus)
+        : invoiceListStatusFromDoc(data);
+      addStatusMaps(live, { ...data, listStatus });
+      scanned += 1;
+    }
+    lastDoc = snap.docs[snap.docs.length - 1];
+    if (snap.size < 400) break;
+  }
+
+  const monthRef = db.doc(`${INVOICE_MONTH_STATS_COLLECTION}/${key}`);
+  const orgRef = db.doc(`${INVOICE_STATS_COLLECTION}/org`);
+  const [monthSnap, orgSnap] = await Promise.all([monthRef.get(), orgRef.get()]);
+  const previous = {
+    byStatus: { ...((monthSnap.data() ?? {}).byStatus ?? {}) },
+    byFilterStatus: { ...((monthSnap.data() ?? {}).byFilterStatus ?? {}) },
+    byCategoryAndFilterStatus: {
+      ...((monthSnap.data() ?? {}).byCategoryAndFilterStatus ?? {}),
+    },
+  };
+  const orgMaps = {
+    byStatus: { ...((orgSnap.data() ?? {}).byStatus ?? {}) },
+    byFilterStatus: { ...((orgSnap.data() ?? {}).byFilterStatus ?? {}) },
+    byCategoryAndFilterStatus: {
+      ...((orgSnap.data() ?? {}).byCategoryAndFilterStatus ?? {}),
+    },
+  };
+  const nextOrg = addStatusMapValues(subtractStatusMaps(orgMaps, previous), live);
+  const stamp = { updatedAt: FieldValue.serverTimestamp() };
+  await monthRef.set({ ...live, ...stamp }, { merge: true });
+  await orgRef.set({ ...nextOrg, ...stamp }, { merge: true });
+  return {
+    monthKey: key,
+    scanned,
+    previous: previous.byCategoryAndFilterStatus,
+    live: live.byCategoryAndFilterStatus,
+  };
 }
 
 export async function deleteInvoiceSummary(customerId, invoiceId) {

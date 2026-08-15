@@ -1775,6 +1775,31 @@ async function sumLiveInvoiceKpiAmounts(options: {
   return { categoryAmount, documentAmount };
 }
 
+async function withLiveFilterChipMaps(
+  kpi: AdminInvoiceStatsKpi,
+  options: {
+    dateStart?: string | null;
+    dateEnd?: string | null;
+    salespersonIds?: string[] | null;
+  },
+): Promise<AdminInvoiceStatsKpi> {
+  if (!options.dateStart || !options.dateEnd) return kpi;
+  try {
+    const live = await countAdminInvoiceFilterChipMaps({
+      dateStart: options.dateStart,
+      dateEnd: options.dateEnd,
+      salespersonIds: options.salespersonIds,
+    });
+    return {
+      ...kpi,
+      byFilterStatus: live.byFilterStatus,
+      byCategoryAndFilterStatus: live.byCategoryAndFilterStatus,
+    };
+  } catch {
+    return kpi;
+  }
+}
+
 async function finalizeAdminInvoiceKpi(
   rollup: AdminInvoiceStatsKpi,
   options: {
@@ -1799,21 +1824,21 @@ async function finalizeAdminInvoiceKpi(
     });
     categoryAmount = pickCategoryKpiAmount(live.categoryAmount, live.documentAmount);
     documentAmount = Number(live.documentAmount) || categoryAmount;
-    return {
+    return withLiveFilterChipMaps({
       ...repaired,
       categoryAmount,
       documentAmount,
       totalAmount: documentAmount,
       source: 'query',
-    };
+    }, options);
   }
 
-  return {
+  return withLiveFilterChipMaps({
     ...repaired,
     categoryAmount,
     documentAmount,
     totalAmount: documentAmount,
-  };
+  }, options);
 }
 
 export async function loadAdminInvoiceKpis(options: {
@@ -1998,6 +2023,83 @@ export async function loadAdminInvoiceKpis(options: {
     category,
     portalGatcCount: portalStamping.count,
   });
+}
+
+const FILTER_CHIP_STATUSES = ['to_dispatch', 'in_transit', 'delivered', 'returned', 'void'] as const;
+const FILTER_CHIP_CATEGORIES = ['product', 'spare', 'software_key', 'service'] as const;
+
+function listStatusCountValues(status: string): string[] {
+  if (status === 'delivered') return ['delivered', 'customer_pickup'];
+  return [status];
+}
+
+/**
+ * Live chip counts for the selected date window.
+ * Month rollups drift when a booking updates listStatus but the increment fails.
+ */
+export async function countAdminInvoiceFilterChipMaps(options: {
+  dateStart?: string | null;
+  dateEnd?: string | null;
+  salespersonIds?: string[] | null;
+}): Promise<{
+  byFilterStatus: Record<string, number>;
+  byCategoryAndFilterStatus: Record<string, Record<string, number>>;
+}> {
+  const dateStart = options.dateStart?.trim() || null;
+  const dateEnd = options.dateEnd?.trim() || null;
+  const listCollection = await resolveAdminInvoiceListCollection();
+  const byFilterStatus: Record<string, number> = {};
+  const byCategoryAndFilterStatus: Record<string, Record<string, number>> = {};
+
+  const countOnce = async (
+    status: string,
+    category: (typeof FILTER_CHIP_CATEGORIES)[number] | null,
+  ): Promise<number> => {
+    const values = listStatusCountValues(status);
+    let total = 0;
+    for (const listStatus of values) {
+      const constraints: QueryConstraint[] = [];
+      if (appendSalespersonIdConstraint(constraints, options.salespersonIds) === 'empty') {
+        return 0;
+      }
+      if (category) constraints.push(where('categories', 'array-contains', category));
+      constraints.push(where('listStatus', '==', listStatus));
+      if (dateStart) constraints.push(where('date', '>=', dateStart));
+      if (dateEnd) constraints.push(where('date', '<=', dateEnd));
+      constraints.push(orderBy('date', 'desc'));
+      try {
+        const snap = await getCountFromServer(
+          query(collectionGroup(db, listCollection), ...constraints),
+        );
+        total += snap.data().count;
+      } catch (err) {
+        if (listCollection === 'invoiceSummaries' && isFirestoreIndexError(err)) {
+          const snap = await getCountFromServer(
+            query(collectionGroup(db, 'invoices'), ...constraints),
+          );
+          total += snap.data().count;
+          continue;
+        }
+        throw err;
+      }
+    }
+    return total;
+  };
+
+  const jobs: Array<Promise<void>> = [];
+  for (const status of FILTER_CHIP_STATUSES) {
+    jobs.push(countOnce(status, null).then(count => {
+      byFilterStatus[status] = count;
+    }));
+    for (const category of FILTER_CHIP_CATEGORIES) {
+      jobs.push(countOnce(status, category).then(count => {
+        if (!byCategoryAndFilterStatus[category]) byCategoryAndFilterStatus[category] = {};
+        byCategoryAndFilterStatus[category][status] = count;
+      }));
+    }
+  }
+  await Promise.all(jobs);
+  return { byFilterStatus, byCategoryAndFilterStatus };
 }
 
 export async function countAdminInvoicesByCategory(options: {

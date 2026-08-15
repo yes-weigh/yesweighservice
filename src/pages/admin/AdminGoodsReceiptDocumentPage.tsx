@@ -115,6 +115,26 @@ function parseDraftLocations(draft: LineDraft): {
   return { ok: true, locations: prepared, empty: !anyPartial && prepared.length === 0 };
 }
 
+function warehouseZoneLabel(zoneId: string, zones: WarehouseZoneDoc[]): string {
+  const id = zoneId.trim();
+  if (!id) return '—';
+  const zone = zones.find(item => item.id === id);
+  if (!zone) return id.toUpperCase();
+  return zone.label ? `${zone.id.toUpperCase()} — ${zone.label}` : zone.id.toUpperCase();
+}
+
+function warehouseRowLabel(
+  zoneId: string,
+  rowNumber: string,
+  rowsByZone: Record<string, WarehouseZoneRowDoc[]>,
+): string {
+  const n = rowNumber.trim();
+  if (!n) return '—';
+  const row = (rowsByZone[zoneId] ?? []).find(item => String(item.number) === n);
+  if (!row) return n;
+  return row.label ? `${row.number} — ${row.label}` : String(row.number);
+}
+
 export const AdminGoodsReceiptDocumentPage: React.FC = () => {
   const { user } = useAuth();
   const { goodsReceipt, setGoodsReceipt, goodsReceiptId } = useOutletContext<
@@ -401,6 +421,7 @@ export const AdminGoodsReceiptDocumentPage: React.FC = () => {
   };
 
   const alreadyReceived = Boolean(goodsReceipt.opsReceivedAt);
+  const receiveLocked = alreadyReceived || isReceivedBillStatus(goodsReceipt.status);
 
   const persistReceiveCheck = async (mode: 'draft' | 'post', auditedAt?: string | null) => {
     if (!user?.uid) {
@@ -587,6 +608,9 @@ export const AdminGoodsReceiptDocumentPage: React.FC = () => {
                 ? catalogProductHasCompleteSingleBoxPackageInfo(catalogProduct)
                 : true;
               const packageMissing = showPackageInfo && packageRequired && !packageComplete;
+              const postedLocations = draft.locations.filter(
+                loc => loc.zoneId.trim() || loc.quantity.trim(),
+              );
 
               return (
                 <li
@@ -598,7 +622,7 @@ export const AdminGoodsReceiptDocumentPage: React.FC = () => {
                     packageMissing ? 'goods-receipt-receive__item--package-missing' : '',
                   ].filter(Boolean).join(' ')}
                 >
-                  {canHideItems && (
+                  {canHideItems && !receiveLocked && (
                     <button
                       type="button"
                       className="goods-receipt-receive__hide-btn"
@@ -632,27 +656,37 @@ export const AdminGoodsReceiptDocumentPage: React.FC = () => {
                     <div className="goods-receipt-receive__summary">
                       <label className="goods-receipt-receive__field">
                         <span className="goods-receipt-receive__label">Ordered qty</span>
-                        <input
-                          type="text"
-                          className="goods-receipt-receive__input"
-                          value={String(ordered)}
-                          readOnly
-                          tabIndex={-1}
-                          aria-readonly="true"
-                        />
+                        {receiveLocked ? (
+                          <span className="goods-receipt-receive__value">{String(ordered)}</span>
+                        ) : (
+                          <input
+                            type="text"
+                            className="goods-receipt-receive__input"
+                            value={String(ordered)}
+                            readOnly
+                            tabIndex={-1}
+                            aria-readonly="true"
+                          />
+                        )}
                       </label>
                       <label className="goods-receipt-receive__field">
                         <span className="goods-receipt-receive__label">Received qty</span>
-                        <input
-                          type="text"
-                          className="goods-receipt-receive__input"
-                          value={hasAnyQty ? String(receivedTotal) : ''}
-                          placeholder="—"
-                          readOnly
-                          tabIndex={-1}
-                          aria-readonly="true"
-                          aria-label={`Received qty for ${item.name}`}
-                        />
+                        {receiveLocked ? (
+                          <span className="goods-receipt-receive__value">
+                            {hasAnyQty ? String(receivedTotal) : '—'}
+                          </span>
+                        ) : (
+                          <input
+                            type="text"
+                            className="goods-receipt-receive__input"
+                            value={hasAnyQty ? String(receivedTotal) : ''}
+                            placeholder="—"
+                            readOnly
+                            tabIndex={-1}
+                            aria-readonly="true"
+                            aria-label={`Received qty for ${item.name}`}
+                          />
+                        )}
                       </label>
                       <div className="goods-receipt-receive__diff-wrap">
                         <span className="goods-receipt-receive__label">Difference</span>
@@ -699,8 +733,8 @@ export const AdminGoodsReceiptDocumentPage: React.FC = () => {
                         <ProductPackageInfo
                           product={catalogProduct}
                           packageInfo={catalogProduct.packageInfo}
-                          canEdit
-                          defaultEditing={packageMissing}
+                          canEdit={!receiveLocked}
+                          defaultEditing={packageMissing && !receiveLocked}
                           onPackageInfoChange={info => onPackageInfoSaved(catalogProduct.id, info)}
                         />
                       </div>
@@ -708,93 +742,125 @@ export const AdminGoodsReceiptDocumentPage: React.FC = () => {
 
                     <div className="goods-receipt-receive__locations">
                       <span className="goods-receipt-receive__label">Warehouse locations</span>
-                      {draft.locations.map((loc, locIndex) => {
-                        const zoneRows = loc.zoneId ? (rowsByZone[loc.zoneId] ?? []) : [];
-                        const isLast = locIndex === draft.locations.length - 1;
-                        return (
-                          <div
-                            key={loc.key}
-                            className="goods-receipt-receive__location-row"
-                          >
-                            <label className="goods-receipt-receive__field">
-                              <span className="goods-receipt-receive__label">Zone</span>
-                              <ProductNcSelect
-                                aria-label={`Zone for ${item.name}`}
-                                value={loc.zoneId}
-                                disabled={loadingZones || saving}
-                                placeholder={loadingZones ? 'Loading…' : 'Select zone'}
-                                onChange={next => setLocationDraft(item.id, loc.key, {
-                                  zoneId: next,
-                                  zoneRowNumber: '',
-                                })}
-                                options={zones.map(zone => ({
-                                  value: zone.id,
-                                  label: `${zone.id.toUpperCase()}${zone.label ? ` — ${zone.label}` : ''}`,
-                                }))}
-                              />
-                            </label>
-                            <label className="goods-receipt-receive__field">
-                              <span className="goods-receipt-receive__label">Row</span>
-                              <ProductNcSelect
-                                aria-label={`Row for ${item.name}`}
-                                value={loc.zoneRowNumber}
-                                disabled={saving || !loc.zoneId || zoneRows.length === 0}
-                                placeholder={!loc.zoneId ? 'Select zone first' : 'Select row'}
-                                onChange={next => setLocationDraft(item.id, loc.key, {
-                                  zoneRowNumber: next,
-                                })}
-                                options={zoneRows.map(row => ({
-                                  value: String(row.number),
-                                  label: row.label
-                                    ? `${row.number} — ${row.label}`
-                                    : String(row.number),
-                                }))}
-                              />
-                            </label>
-                            <label className="goods-receipt-receive__field goods-receipt-receive__field--qty">
-                              <span className="goods-receipt-receive__label">Qty</span>
-                              <input
-                                type="number"
-                                inputMode="numeric"
-                                min={0}
-                                step={1}
-                                className="goods-receipt-receive__input goods-receipt-receive__input--editable"
-                                value={loc.quantity}
-                                placeholder="—"
-                                disabled={saving}
-                                onChange={e => setLocationDraft(item.id, loc.key, {
-                                  quantity: e.target.value,
-                                })}
-                                aria-label={`Qty at location for ${item.name}`}
-                              />
-                            </label>
-                            <div className="goods-receipt-receive__row-actions">
-                              {draft.locations.length > 1 && (
-                                <button
-                                  type="button"
-                                  className="goods-receipt-receive__icon-btn goods-receipt-receive__icon-btn--remove"
+                      {receiveLocked ? (
+                        postedLocations.length === 0 ? (
+                          <span className="goods-receipt-receive__value">—</span>
+                        ) : (
+                          postedLocations.map(loc => (
+                              <div
+                                key={loc.key}
+                                className="goods-receipt-receive__location-row goods-receipt-receive__location-row--readonly"
+                              >
+                                <div className="goods-receipt-receive__field">
+                                  <span className="goods-receipt-receive__label">Zone</span>
+                                  <span className="goods-receipt-receive__value">
+                                    {warehouseZoneLabel(loc.zoneId, zones)}
+                                  </span>
+                                </div>
+                                <div className="goods-receipt-receive__field">
+                                  <span className="goods-receipt-receive__label">Row</span>
+                                  <span className="goods-receipt-receive__value">
+                                    {warehouseRowLabel(loc.zoneId, loc.zoneRowNumber, rowsByZone)}
+                                  </span>
+                                </div>
+                                <div className="goods-receipt-receive__field goods-receipt-receive__field--qty">
+                                  <span className="goods-receipt-receive__label">Qty</span>
+                                  <span className="goods-receipt-receive__value">
+                                    {loc.quantity.trim() || '—'}
+                                  </span>
+                                </div>
+                              </div>
+                            ))
+                        )
+                      ) : (
+                        draft.locations.map((loc, locIndex) => {
+                          const zoneRows = loc.zoneId ? (rowsByZone[loc.zoneId] ?? []) : [];
+                          const isLast = locIndex === draft.locations.length - 1;
+                          return (
+                            <div
+                              key={loc.key}
+                              className="goods-receipt-receive__location-row"
+                            >
+                              <label className="goods-receipt-receive__field">
+                                <span className="goods-receipt-receive__label">Zone</span>
+                                <ProductNcSelect
+                                  aria-label={`Zone for ${item.name}`}
+                                  value={loc.zoneId}
+                                  disabled={loadingZones || saving}
+                                  placeholder={loadingZones ? 'Loading…' : 'Select zone'}
+                                  onChange={next => setLocationDraft(item.id, loc.key, {
+                                    zoneId: next,
+                                    zoneRowNumber: '',
+                                  })}
+                                  options={zones.map(zone => ({
+                                    value: zone.id,
+                                    label: `${zone.id.toUpperCase()}${zone.label ? ` — ${zone.label}` : ''}`,
+                                  }))}
+                                />
+                              </label>
+                              <label className="goods-receipt-receive__field">
+                                <span className="goods-receipt-receive__label">Row</span>
+                                <ProductNcSelect
+                                  aria-label={`Row for ${item.name}`}
+                                  value={loc.zoneRowNumber}
+                                  disabled={saving || !loc.zoneId || zoneRows.length === 0}
+                                  placeholder={!loc.zoneId ? 'Select zone first' : 'Select row'}
+                                  onChange={next => setLocationDraft(item.id, loc.key, {
+                                    zoneRowNumber: next,
+                                  })}
+                                  options={zoneRows.map(row => ({
+                                    value: String(row.number),
+                                    label: row.label
+                                      ? `${row.number} — ${row.label}`
+                                      : String(row.number),
+                                  }))}
+                                />
+                              </label>
+                              <label className="goods-receipt-receive__field goods-receipt-receive__field--qty">
+                                <span className="goods-receipt-receive__label">Qty</span>
+                                <input
+                                  type="number"
+                                  inputMode="numeric"
+                                  min={0}
+                                  step={1}
+                                  className="goods-receipt-receive__input goods-receipt-receive__input--editable"
+                                  value={loc.quantity}
+                                  placeholder="—"
                                   disabled={saving}
-                                  onClick={() => removeLocation(item.id, loc.key)}
-                                  aria-label="Remove warehouse location"
-                                >
-                                  <X size={16} aria-hidden />
-                                </button>
-                              )}
-                              {isLast && (
-                                <button
-                                  type="button"
-                                  className="goods-receipt-receive__icon-btn goods-receipt-receive__icon-btn--add"
-                                  disabled={saving}
-                                  onClick={() => addLocation(item.id)}
-                                  aria-label="Add warehouse location"
-                                >
-                                  <Plus size={16} aria-hidden />
-                                </button>
-                              )}
+                                  onChange={e => setLocationDraft(item.id, loc.key, {
+                                    quantity: e.target.value,
+                                  })}
+                                  aria-label={`Qty at location for ${item.name}`}
+                                />
+                              </label>
+                              <div className="goods-receipt-receive__row-actions">
+                                {draft.locations.length > 1 && (
+                                  <button
+                                    type="button"
+                                    className="goods-receipt-receive__icon-btn goods-receipt-receive__icon-btn--remove"
+                                    disabled={saving}
+                                    onClick={() => removeLocation(item.id, loc.key)}
+                                    aria-label="Remove warehouse location"
+                                  >
+                                    <X size={16} aria-hidden />
+                                  </button>
+                                )}
+                                {isLast && (
+                                  <button
+                                    type="button"
+                                    className="goods-receipt-receive__icon-btn goods-receipt-receive__icon-btn--add"
+                                    disabled={saving}
+                                    onClick={() => addLocation(item.id)}
+                                    aria-label="Add warehouse location"
+                                  >
+                                    <Plus size={16} aria-hidden />
+                                  </button>
+                                )}
+                              </div>
                             </div>
-                          </div>
-                        );
-                      })}
+                          );
+                        })
+                      )}
                     </div>
                   </DocumentLineItemSpec>
                 </li>
@@ -809,7 +875,7 @@ export const AdminGoodsReceiptDocumentPage: React.FC = () => {
           </p>
         )}
 
-        {canHideItems && hiddenLineItems.length > 0 && (
+        {canHideItems && !receiveLocked && hiddenLineItems.length > 0 && (
           <ul className="goods-receipt-receive__hidden-list" aria-label="Hidden items">
             {hiddenLineItems.map(item => (
               <li key={item.id} className="goods-receipt-receive__hidden-item">
@@ -835,7 +901,7 @@ export const AdminGoodsReceiptDocumentPage: React.FC = () => {
         )}
       </section>
 
-      {canMarkReceived && !alreadyReceived && !isReceivedBillStatus(goodsReceipt.status) && (
+      {canMarkReceived && !receiveLocked && (
         <div className="goods-receipt-detail__actions">
           {saveError && (
             <div className="products-inline-error panel glass goods-receipt-detail__actions-error" role="alert">
