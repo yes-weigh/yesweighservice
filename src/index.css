@@ -21548,6 +21548,22 @@ body:has(.confirm-inline-bar) .confirm-inline-bar {
   line-height: 1.3;
 }
 
+.logistics-shipment__clubbed {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  max-width: 100%;
+  font-size: 0.5625rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  padding: 0.1rem 0.35rem;
+  border-radius: 999px;
+  white-space: nowrap;
+  color: #c4b5fd;
+  border: 1px solid rgba(167, 139, 250, 0.4);
+  background: rgba(139, 92, 246, 0.16);
+}
+
 .logistics-shipment__freight-diff.is-under {
   color: #f87171;
   font-weight: 700;

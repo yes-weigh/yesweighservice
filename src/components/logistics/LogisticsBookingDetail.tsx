@@ -1544,8 +1544,9 @@ export const LogisticsBookingDetail: React.FC<LogisticsBookingDetailProps> = ({
 
   const invoiceSectionLabel = useMemo(() => {
     const number = freightCompare?.invoiceNumber || booking.invoiceNumber;
-    return number ? `Invoice & items · ${number}` : 'Invoice & items';
-  }, [booking.invoiceNumber, freightCompare?.invoiceNumber]);
+    const clubbed = ewayInvoiceRows.length > 1 ? ` · clubbed ${ewayInvoiceRows.length}` : '';
+    return `${number ? `Invoice & items · ${number}` : 'Invoice & items'}${clubbed}`;
+  }, [booking.invoiceNumber, ewayInvoiceRows.length, freightCompare?.invoiceNumber]);
 
   const syncActiveSection = useCallback(() => {
     const article = articleRef.current;
@@ -1949,8 +1950,8 @@ export const LogisticsBookingDetail: React.FC<LogisticsBookingDetailProps> = ({
                 : booking.invoiceNumber
                   ? ` · ${booking.invoiceNumber}`
                   : ''}
-              {(booking.invoices?.length ?? 0) > 1
-                ? ` · ${booking.invoices!.length} invoices`
+              {ewayInvoiceRows.length > 1
+                ? ` · clubbed ${ewayInvoiceRows.length}`
                 : ''}
             </h4>
             {freightLoading && !freightCompare && (
@@ -2136,7 +2137,10 @@ export const LogisticsBookingDetail: React.FC<LogisticsBookingDetailProps> = ({
             ) : (
             <dl className="logistics-booking__freight-compare">
               <div>
-                <dt>Paid freight</dt>
+                <dt>
+                  Paid freight
+                  {ewayInvoiceRows.length > 1 ? ` · ${ewayInvoiceRows.length} invoices` : ''}
+                </dt>
                 <dd>
                   {freightCompare?.paidFreightInr != null
                     ? formatCurrency(freightCompare.paidFreightInr)

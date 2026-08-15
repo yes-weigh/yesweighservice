@@ -53,6 +53,7 @@ import {
 } from '../../lib/logisticsBookings';
 import { formatCurrency } from '../../lib/catalog';
 import { ewayBillListChip } from '../../constants/ewayBill';
+import { clubbedInvoiceCount } from '../../lib/logisticsClubInvoices';
 import {
   loadLogisticsFreightCompare,
   type LogisticsFreightCompare,
@@ -1225,6 +1226,7 @@ export const LogisticsPage: React.FC = () => {
                     ? supportDetailPath(user.role, supportRequestId)
                     : null;
                   const supportLinked = isSupportLinkedLogisticsBooking(booking);
+                  const clubbedCount = clubbedInvoiceCount(booking);
                   return (
                     <li key={booking.id}>
                       <article
@@ -1260,6 +1262,11 @@ export const LogisticsPage: React.FC = () => {
                                 ].join(' ')}
                               >
                                 {ewayChip.label}
+                              </span>
+                            ) : null}
+                            {clubbedCount > 1 ? (
+                              <span className="logistics-shipment__clubbed" title={`${clubbedCount} invoices on this LR`}>
+                                clubbed {clubbedCount}
                               </span>
                             ) : null}
                             {supportLinked && supportHref ? (
@@ -1303,10 +1310,13 @@ export const LogisticsPage: React.FC = () => {
                                           : 0
                                       )
                                   );
-                                  if (!(invoiceValueInr > 0)) return null;
+                                  if (!(invoiceValueInr > 0) && clubbedCount < 2) return null;
                                   return (
                                     <span className="logistics-shipment__invoice-value">
-                                      Invoice {formatCurrency(invoiceValueInr)}
+                                      {invoiceValueInr > 0
+                                        ? `Invoice ${formatCurrency(invoiceValueInr)}`
+                                        : 'Invoice'}
+                                      {clubbedCount > 1 ? ` · clubbed ${clubbedCount}` : ''}
                                     </span>
                                   );
                                 })()}

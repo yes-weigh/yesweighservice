@@ -107,7 +107,7 @@ export type LogisticsFreightCompare = {
   /** Zoho KAM / salesperson on the linked invoice (when known). */
   salespersonName: string | null;
   items: LogisticsInvoiceItemRow[];
-  /** Freight billed on the linked invoice (sum of freight line totals). */
+  /** Freight billed on linked invoice(s) — sum of freight lines across clubbed invoices. */
   paidFreightInr: number | null;
   /** Rate-card estimate from booked boxes / weights. */
   actualFreightInr: number | null;
@@ -134,6 +134,27 @@ export function sumPaidFreightInr(
   return lineItems.reduce((sum, line) => (
     isFreightInvoiceLineItem(line) ? sum + lineAmount(line) : sum
   ), 0);
+}
+
+/** All invoice ids on a booking (clubbed LRs include every linked invoice). */
+export function linkedInvoiceIdsForBooking(booking: Pick<
+  LogisticsBooking,
+  'invoiceId' | 'invoiceIds' | 'invoices'
+>): string[] {
+  const ids = [
+    ...(Array.isArray(booking.invoiceIds) ? booking.invoiceIds : []),
+    ...(Array.isArray(booking.invoices) ? booking.invoices.map(row => row.invoiceId) : []),
+    booking.invoiceId,
+  ]
+    .map(id => String(id ?? '').trim())
+    .filter(Boolean);
+  return [...new Set(ids)];
+}
+
+export function sumPaidFreightAcrossInvoices(
+  invoices: ReadonlyArray<Pick<DealerInvoiceDetail, 'lineItems'>>,
+): number {
+  return invoices.reduce((sum, invoice) => sum + sumPaidFreightInr(invoice.lineItems ?? []), 0);
 }
 
 function normKey(value: string | null | undefined): string {
@@ -691,18 +712,40 @@ export function quoteActualFreightFromBooking(
   };
 }
 
+function freightBillingModeFromInvoices(
+  invoices: ReadonlyArray<Pick<DealerInvoiceDetail, 'lineItems'>>,
+): 'fod' | 'btc' | null {
+  if (invoices.some(invoice => resolveInvoiceFreightBillingMode(invoice) === 'btc')) return 'btc';
+  if (invoices.some(invoice => resolveInvoiceFreightBillingMode(invoice) === 'fod')) return 'fod';
+  return null;
+}
+
 export function buildLogisticsFreightCompare(input: {
   booking: LogisticsBooking;
   invoice: DealerInvoiceDetail | null;
+  invoices?: readonly DealerInvoiceDetail[] | null;
   rates: LogisticsCourierRates | null;
   gatcLines?: readonly GatcReportLineItem[] | null;
+  gatcLinesByInvoiceId?: ReadonlyMap<string, readonly GatcReportLineItem[]>;
 }): LogisticsFreightCompare {
   const { booking, invoice, rates } = input;
-  const items = invoice
-    ? invoiceItemsForLogistics(invoice.lineItems, input.gatcLines ?? [])
-    : [];
-  const paidFreightInr = invoice
-    ? sumPaidFreightInr(invoice.lineItems)
+  const allInvoices = (input.invoices?.length
+    ? [...input.invoices]
+    : (invoice ? [invoice] : [])
+  );
+  if (invoice && !allInvoices.some(row => row.id === invoice.id)) {
+    allInvoices.unshift(invoice);
+  }
+  const items = allInvoices.flatMap((row) => {
+    const gatc = input.gatcLinesByInvoiceId?.get(row.id)
+      ?? (invoice && row.id === invoice.id ? (input.gatcLines ?? []) : []);
+    return invoiceItemsForLogistics(row.lineItems ?? [], gatc).map(item => ({
+      ...item,
+      id: `${row.id}:${item.id}`,
+    }));
+  });
+  const paidFreightInr = allInvoices.length
+    ? sumPaidFreightAcrossInvoices(allInvoices)
     : null;
 
   let actualFreightInr: number | null = null;
@@ -769,10 +812,10 @@ export function buildLogisticsFreightCompare(input: {
   }
 
   const invoiceDerivedMode = (
-    invoice
+    allInvoices.length
     && booking.invoiceId?.trim()
     && booking.partnerId === 'delhivery'
-      ? (resolveInvoiceFreightBillingMode(invoice) || 'btc')
+      ? (freightBillingModeFromInvoices(allInvoices) || 'btc')
       : null
   );
   const freightBillingMode = invoiceDerivedMode ?? (
@@ -791,16 +834,29 @@ export function buildLogisticsFreightCompare(input: {
       : null
   );
 
-  const invoiceStatus = invoice?.status != null ? String(invoice.status) : null;
+  const invoiceStatus = invoice?.status != null ? String(invoice.status) : (
+    allInvoices[0]?.status != null ? String(allInvoices[0].status) : null
+  );
   const billingModeLocked = booking.partnerId === 'delhivery'
-    && (isDelhiveryFreightBillingModeLocked(booking) || isInvoicePaidStatus(invoiceStatus));
+    && (
+      isDelhiveryFreightBillingModeLocked(booking)
+      || isInvoicePaidStatus(invoiceStatus)
+      || allInvoices.some(row => isInvoicePaidStatus(row.status))
+    );
+  const clubbedInvoiceTotal = allInvoices.reduce((sum, row) => {
+    const total = invoiceTotalInclGst(row);
+    return sum + (Number.isFinite(total) ? Number(total) : 0);
+  }, 0);
+  const bookingInvoiceTotal = Number(booking.invoiceValueInr);
 
   return {
     invoiceId: invoice?.id ?? booking.invoiceId,
     invoiceNumber: invoice?.invoiceNumber ?? booking.invoiceNumber,
     invoiceStatus,
     billingModeLocked,
-    invoiceTotalInclGst: invoice ? invoiceTotalInclGst(invoice) : null,
+    invoiceTotalInclGst: clubbedInvoiceTotal > 0
+      ? clubbedInvoiceTotal
+      : (Number.isFinite(bookingInvoiceTotal) && bookingInvoiceTotal > 0 ? bookingInvoiceTotal : null),
     salespersonName: invoice?.salespersonName?.trim() || null,
     items,
     paidFreightInr,
@@ -816,24 +872,24 @@ export function buildLogisticsFreightCompare(input: {
   };
 }
 
-export async function fetchInvoiceForLogisticsBooking(
-  booking: LogisticsBooking,
-  options: { isOps: boolean },
+async function fetchInvoiceDetailById(
+  invoiceId: string,
+  customerId: string,
+  isOps: boolean,
 ): Promise<DealerInvoiceDetail | null> {
-  const invoiceId = booking.invoiceId?.trim();
-  if (!invoiceId) return null;
-  const customerId = booking.dealer.zohoCustomerId?.trim();
+  const id = invoiceId.trim();
+  if (!id) return null;
   try {
-    if (options.isOps && customerId) {
-      return await fetchAdminInvoiceDetail(customerId, invoiceId);
+    if (isOps && customerId) {
+      return await fetchAdminInvoiceDetail(customerId, id);
     }
-    return await fetchDealerInvoiceDetail(invoiceId, {
+    return await fetchDealerInvoiceDetail(id, {
       customerId: customerId || undefined,
     });
   } catch {
-    if (options.isOps && customerId) {
+    if (isOps && customerId) {
       try {
-        return await fetchDealerInvoiceDetail(invoiceId, { customerId });
+        return await fetchDealerInvoiceDetail(id, { customerId });
       } catch {
         return null;
       }
@@ -842,24 +898,59 @@ export async function fetchInvoiceForLogisticsBooking(
   }
 }
 
+export async function fetchInvoiceForLogisticsBooking(
+  booking: LogisticsBooking,
+  options: { isOps: boolean },
+): Promise<DealerInvoiceDetail | null> {
+  const invoiceId = booking.invoiceId?.trim();
+  if (!invoiceId) return null;
+  return fetchInvoiceDetailById(
+    invoiceId,
+    booking.dealer.zohoCustomerId?.trim() || '',
+    options.isOps,
+  );
+}
+
+export async function fetchInvoicesForLogisticsBooking(
+  booking: LogisticsBooking,
+  options: { isOps: boolean },
+): Promise<DealerInvoiceDetail[]> {
+  const customerId = booking.dealer.zohoCustomerId?.trim() || '';
+  const ids = linkedInvoiceIdsForBooking(booking);
+  if (!ids.length) return [];
+  const rows = await Promise.all(
+    ids.map(id => fetchInvoiceDetailById(id, customerId, options.isOps)),
+  );
+  return rows.filter((row): row is DealerInvoiceDetail => Boolean(row));
+}
+
 /** Load invoice + rate cards and build the compare model for one booking. */
 export async function loadLogisticsFreightCompare(
   booking: LogisticsBooking,
   options: { isOps: boolean; rates?: LogisticsCourierRates | null },
 ): Promise<LogisticsFreightCompare> {
-  const invoiceId = booking.invoiceId?.trim() || '';
-  const [invoice, rates, gatcReport] = await Promise.all([
-    fetchInvoiceForLogisticsBooking(booking, { isOps: options.isOps }),
+  const invoiceIds = linkedInvoiceIdsForBooking(booking);
+  const [invoices, rates, gatcReports] = await Promise.all([
+    fetchInvoicesForLogisticsBooking(booking, { isOps: options.isOps }),
     options.rates
       ? Promise.resolve(options.rates)
       : loadLogisticsCourierRates().catch(() => null),
-    invoiceId ? fetchGatcReportForInvoice(invoiceId) : Promise.resolve(null),
+    Promise.all(invoiceIds.map(id => fetchGatcReportForInvoice(id).catch(() => null))),
   ]);
+  const primaryId = booking.invoiceId?.trim() || '';
+  const invoice = invoices.find(row => row.id === primaryId) ?? invoices[0] ?? null;
+  const gatcLinesByInvoiceId = new Map<string, GatcReportLineItem[]>();
+  invoiceIds.forEach((id, index) => {
+    const lines = gatcReports[index]?.lineItems;
+    if (lines?.length) gatcLinesByInvoiceId.set(id, lines);
+  });
   return buildLogisticsFreightCompare({
     booking,
     invoice,
+    invoices,
     rates,
-    gatcLines: gatcReport?.lineItems ?? [],
+    gatcLines: (invoice && gatcLinesByInvoiceId.get(invoice.id)) || [],
+    gatcLinesByInvoiceId,
   });
 }
 

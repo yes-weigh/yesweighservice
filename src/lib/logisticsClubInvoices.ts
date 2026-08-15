@@ -115,6 +115,22 @@ export function normalizeDraftClubbedInvoices(
   }];
 }
 
+/** How many invoices share this LR. >1 means a clubbed booking. */
+export function clubbedInvoiceCount(booking: {
+  invoiceId?: string | null;
+  invoiceIds?: readonly string[] | null;
+  invoices?: ReadonlyArray<{ invoiceId?: string | null }> | null;
+}): number {
+  const ids = [
+    ...(booking.invoiceIds ?? []),
+    ...(booking.invoices ?? []).map(row => row.invoiceId),
+    booking.invoiceId,
+  ]
+    .map(id => String(id ?? '').trim())
+    .filter(Boolean);
+  return new Set(ids).size;
+}
+
 export function persistClubbedInvoiceFields(
   draft: Pick<LogisticsBookingDraft, 'invoiceId' | 'invoiceNumber' | 'invoiceValueInr' | 'clubbedInvoices'>,
 ): {
