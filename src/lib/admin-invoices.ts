@@ -684,9 +684,7 @@ export async function fetchAdminInvoicesPageResult(options: {
   }, listCollection);
   const rows = snap.docs.map(mapAdminInvoiceDoc);
   return {
-    rows: listCollection === 'invoiceSummaries'
-      ? rows
-      : await overlayFreightSkuFromInvoiceDocs(rows),
+    rows: await overlayFreightSkuFromInvoiceDocs(rows),
     lastDoc: snap.docs[snap.docs.length - 1] ?? null,
     hasMore: snap.size >= pageSize,
   };
@@ -754,7 +752,7 @@ export async function fetchAllAdminInvoicesInRange(options: {
 
   const sliced = truncated ? rows.slice(0, maxRows) : rows;
   if (listCollection === 'invoiceSummaries') {
-    return { rows: sliced, truncated };
+    return { rows: await overlayFreightSkuFromInvoiceDocs(sliced), truncated };
   }
   const withPickup = !cachedSummariesIncludeCustomerPickup
     ? await overlayCustomerPickupFromInvoiceDocs(sliced)
@@ -2009,9 +2007,7 @@ export async function fetchAdminInvoicesForCustomers(options: {
 
   merged.sort((a, b) => compareInvoiceSortKey(a, b, sort));
 
-  return listCollection === 'invoiceSummaries'
-    ? merged
-    : overlayFreightSkuFromInvoiceDocs(merged);
+  return overlayFreightSkuFromInvoiceDocs(merged);
 }
 
 export interface AdminCustomerLocation {

@@ -533,6 +533,51 @@ export async function backfillInvoiceSummaryListFields({ onProgress } = {}) {
   return { locationPatched, logisticsPatched };
 }
 
+/**
+ * Copy freightSku from hot invoices onto invoiceSummaries so to-dispatch
+ * tiles can show the courier logo without reading line items.
+ */
+export async function backfillInvoiceSummaryFreightSkus({ onProgress } = {}) {
+  const db = getFirestore();
+  let scanned = 0;
+  let patched = 0;
+  let batch = db.batch();
+  let batchOps = 0;
+
+  const flush = async () => {
+    if (!batchOps) return;
+    await batch.commit();
+    batch = db.batch();
+    batchOps = 0;
+  };
+
+  const customersSnap = await db.collection('zohoCustomers').select().get();
+  for (const customer of customersSnap.docs) {
+    const invoicesSnap = await customer.ref.collection('invoices')
+      .select('freightSku', 'lineItems')
+      .get();
+    for (const invoice of invoicesSnap.docs) {
+      scanned += 1;
+      const data = invoice.data() ?? {};
+      const freightSku = data.freightSku
+        ? String(data.freightSku).trim().toUpperCase() || null
+        : freightSkuFromInvoiceLines(data.lineItems);
+      if (!freightSku) continue;
+      batch.set(invoiceSummaryRef(customer.id, invoice.id), {
+        freightSku,
+        updatedAt: FieldValue.serverTimestamp(),
+      }, { merge: true });
+      batchOps += 1;
+      patched += 1;
+      if (batchOps >= 400) await flush();
+    }
+    onProgress?.({ customerId: customer.id, scanned, patched });
+  }
+
+  await flush();
+  return { scanned, patched };
+}
+
 export async function deleteInvoiceSummary(customerId, invoiceId) {
   await invoiceSummaryRef(customerId, invoiceId).delete().catch(() => {});
 }
