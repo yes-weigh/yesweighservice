@@ -1,9 +1,11 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { useOutletContext } from 'react-router-dom';
-import { Plus, Trash2 } from 'lucide-react';
+import { Package, Plus, Trash2 } from 'lucide-react';
 import { DecimalAmountInput } from '../../components/DecimalAmountInput';
 import { QuantityStepper } from '../../components/QuantityStepper';
+import { CategoryThumbnail } from '../../components/catalog/CategoryThumbnail';
 import { InvoiceCategoryBadge } from '../../components/invoices/InvoiceCategoryVisual';
+import { DocumentLineItemSpec } from '../../components/invoices/DocumentLineItemSpec';
 import { InvoiceDocumentBody } from '../../components/invoices/InvoiceDocumentBody';
 import { SoDetailCatalogAddSheet } from '../../components/salesOrders/SoDetailCatalogAddSheet';
 import type { DraftEditLine } from '../../components/salesOrders/SalesOrderDraftLineEditor';
@@ -78,24 +80,12 @@ function fromDraftLines(lines: DraftEditLine[]): EditLine[] {
     }));
 }
 
-function detailsFingerprint(input: {
-  date: string;
-  deliveryDate: string;
-  referenceNumber: string;
-  notes: string;
-  lines: EditLine[];
-}): string {
-  return JSON.stringify({
-    date: input.date,
-    deliveryDate: input.deliveryDate,
-    referenceNumber: input.referenceNumber,
-    notes: input.notes,
-    lines: input.lines.map(line => ({
-      productId: line.productId,
-      quantity: line.quantity,
-      rate: line.rate,
-    })),
-  });
+function linesFingerprint(lines: EditLine[]): string {
+  return JSON.stringify(lines.map(line => ({
+    productId: line.productId,
+    quantity: line.quantity,
+    rate: line.rate,
+  })));
 }
 
 export const AdminPurchaseOrderDocumentPage: React.FC = () => {
@@ -105,10 +95,6 @@ export const AdminPurchaseOrderDocumentPage: React.FC = () => {
     && Boolean(purchaseOrder)
     && !LOCKED_STATUSES.has(String(purchaseOrder?.status ?? '').toLowerCase());
 
-  const [date, setDate] = useState('');
-  const [deliveryDate, setDeliveryDate] = useState('');
-  const [referenceNumber, setReferenceNumber] = useState('');
-  const [notes, setNotes] = useState('');
   const [lines, setLines] = useState<EditLine[]>([]);
   const [baseline, setBaseline] = useState('');
   const [saving, setSaving] = useState(false);
@@ -119,25 +105,14 @@ export const AdminPurchaseOrderDocumentPage: React.FC = () => {
   useEffect(() => {
     if (!purchaseOrder) return;
     const nextLines = linesFromPurchaseOrder(purchaseOrder);
-    const next = {
-      date: purchaseOrder.date ?? '',
-      deliveryDate: purchaseOrder.deliveryDate ?? '',
-      referenceNumber: purchaseOrder.referenceNumber ?? '',
-      notes: purchaseOrder.notes ?? '',
-      lines: nextLines,
-    };
-    setDate(next.date);
-    setDeliveryDate(next.deliveryDate);
-    setReferenceNumber(next.referenceNumber);
-    setNotes(next.notes);
     setLines(nextLines);
-    setBaseline(detailsFingerprint(next));
+    setBaseline(linesFingerprint(nextLines));
     setSaveError('');
   }, [purchaseOrder]);
 
   const dirty = useMemo(
-    () => detailsFingerprint({ date, deliveryDate, referenceNumber, notes, lines }) !== baseline,
-    [date, deliveryDate, referenceNumber, notes, lines, baseline],
+    () => linesFingerprint(lines) !== baseline,
+    [lines, baseline],
   );
 
   const previewItems: DealerInvoiceLineItem[] = useMemo(
@@ -166,12 +141,7 @@ export const AdminPurchaseOrderDocumentPage: React.FC = () => {
   const currency = purchaseOrder.currencyCode || 'INR';
 
   const resetFromPo = () => {
-    const nextLines = linesFromPurchaseOrder(purchaseOrder);
-    setDate(purchaseOrder.date ?? '');
-    setDeliveryDate(purchaseOrder.deliveryDate ?? '');
-    setReferenceNumber(purchaseOrder.referenceNumber ?? '');
-    setNotes(purchaseOrder.notes ?? '');
-    setLines(nextLines);
+    setLines(linesFromPurchaseOrder(purchaseOrder));
     setSaveError('');
   };
 
@@ -188,10 +158,10 @@ export const AdminPurchaseOrderDocumentPage: React.FC = () => {
       const next = await updateAdminPurchaseOrder({
         purchaseOrderId,
         vendorId: purchaseOrder.vendorId,
-        date: date || purchaseOrder.date,
-        deliveryDate: deliveryDate || null,
-        referenceNumber: referenceNumber.trim() || null,
-        notes: notes.trim() || null,
+        date: purchaseOrder.date,
+        deliveryDate: purchaseOrder.deliveryDate,
+        referenceNumber: purchaseOrder.referenceNumber,
+        notes: purchaseOrder.notes,
         lines: payloadLines.map(line => ({
           productId: line.productId,
           quantity: line.quantity,
@@ -217,31 +187,11 @@ export const AdminPurchaseOrderDocumentPage: React.FC = () => {
           </div>
           <div>
             <div className="text-muted text-sm">Date</div>
-            {canEdit ? (
-              <input
-                type="date"
-                className="input-field"
-                value={date}
-                onChange={e => setDate(e.target.value)}
-                disabled={saving}
-                aria-label="Purchase order date"
-              />
-            ) : (
-              <strong>{formatInvoiceDate(purchaseOrder.date)}</strong>
-            )}
+            <strong>{formatInvoiceDate(purchaseOrder.date)}</strong>
           </div>
           <div>
             <div className="text-muted text-sm">Delivery</div>
-            {canEdit ? (
-              <input
-                type="date"
-                className="input-field"
-                value={deliveryDate}
-                onChange={e => setDeliveryDate(e.target.value)}
-                disabled={saving}
-                aria-label="Delivery date"
-              />
-            ) : purchaseOrder.deliveryDate ? (
+            {purchaseOrder.deliveryDate ? (
               <strong>{formatInvoiceDate(purchaseOrder.deliveryDate)}</strong>
             ) : (
               <span className="text-muted">—</span>
@@ -260,47 +210,18 @@ export const AdminPurchaseOrderDocumentPage: React.FC = () => {
             )}
           </div>
         </div>
-        {canEdit ? (
-          <div className="create-po-page__detail-fields">
-            <label>
-              <span className="text-muted text-sm">Reference</span>
-              <input
-                type="text"
-                className="input-field"
-                value={referenceNumber}
-                onChange={e => setReferenceNumber(e.target.value)}
-                disabled={saving}
-                placeholder="Reference #"
-              />
-            </label>
-            <label>
-              <span className="text-muted text-sm">Notes</span>
-              <textarea
-                className="input-field"
-                rows={2}
-                value={notes}
-                onChange={e => setNotes(e.target.value)}
-                disabled={saving}
-                placeholder="Notes"
-              />
-            </label>
-          </div>
-        ) : (
-          <>
-            {purchaseOrder.referenceNumber && (
-              <p className="text-muted text-sm mt-3 mb-0">Ref {purchaseOrder.referenceNumber}</p>
-            )}
-            {purchaseOrder.notes && (
-              <p className="text-muted text-sm mt-2 mb-0">{purchaseOrder.notes}</p>
-            )}
-          </>
+        {purchaseOrder.referenceNumber && (
+          <p className="text-muted text-sm mt-3 mb-0">Ref {purchaseOrder.referenceNumber}</p>
+        )}
+        {purchaseOrder.notes && (
+          <p className="text-muted text-sm mt-2 mb-0">{purchaseOrder.notes}</p>
         )}
       </section>
 
       {canEdit ? (
-        <section className="invoice-detail-items panel glass">
+        <section className="panel glass staff-create-so-page__section">
           <div className="staff-create-so-page__section-head">
-            <h3 className="invoice-detail-items__title" style={{ margin: 0 }}>Items</h3>
+            <h2>Items</h2>
             <button
               type="button"
               className="btn btn-secondary btn-sm"
@@ -315,56 +236,66 @@ export const AdminPurchaseOrderDocumentPage: React.FC = () => {
             </button>
           </div>
           {lines.length === 0 ? (
-            <p className="text-muted text-sm">No items. Add from catalog.</p>
+            <div className="staff-create-so-page__cart-empty">
+              <Package size={36} aria-hidden />
+              <p>No items. Add from catalog.</p>
+            </div>
           ) : (
             <ul className="staff-create-so-page__cart-list">
               {lines.map(line => (
                 <li key={line.lineId} className="staff-create-so-page__cart-item">
-                  <div className="staff-create-so-page__cart-info">
-                    <strong>{line.name}</strong>
-                    {line.sku ? <p className="text-muted text-sm">{line.sku}</p> : null}
-                    <div className="so-line-inline__row" style={{ marginTop: '0.45rem' }}>
-                      <label className="so-line-inline__rate">
-                        <span className="text-muted text-sm">Rate</span>
-                        <DecimalAmountInput
-                          className="input-field so-line-inline__rate-input"
-                          value={line.rate}
-                          min={0}
-                          decimals={2}
-                          disabled={saving}
-                          onChange={next => {
-                            if (next == null) return;
-                            setLines(prev => prev.map(row => (
-                              row.lineId === line.lineId
-                                ? { ...row, rate: Math.round(next * 100) / 100 }
-                                : row
-                            )));
-                          }}
-                          aria-label={`Rate for ${line.name}`}
-                        />
-                      </label>
-                      <QuantityStepper
-                        value={line.quantity}
+                  <div className="staff-create-so-page__cart-media">
+                    {line.imageUrl ? (
+                      <CategoryThumbnail src={line.imageUrl} knockout={false} />
+                    ) : (
+                      <Package size={24} aria-hidden />
+                    )}
+                  </div>
+                  <DocumentLineItemSpec
+                    className="staff-create-so-page__cart-info"
+                    name={line.name}
+                    sku={line.sku}
+                  >
+                    <label className="staff-create-so-page__rate">
+                      <span className="text-muted text-sm">Rate</span>
+                      <DecimalAmountInput
+                        className="input-field"
+                        value={line.rate}
+                        min={0}
+                        decimals={2}
                         disabled={saving}
-                        onChange={qty => {
+                        onChange={next => {
+                          if (next == null) return;
                           setLines(prev => prev.map(row => (
-                            row.lineId === line.lineId ? { ...row, quantity: qty } : row
+                            row.lineId === line.lineId
+                              ? { ...row, rate: Math.round(next * 100) / 100 }
+                              : row
                           )));
                         }}
-                        aria-label={`Quantity for ${line.name}`}
+                        aria-label={`Rate for ${line.name}`}
                       />
-                    </div>
-                  </div>
-                  <div className="staff-create-so-page__cart-actions">
+                    </label>
                     <strong>{formatCurrency(line.rate * line.quantity, currency)}</strong>
+                  </DocumentLineItemSpec>
+                  <div className="staff-create-so-page__cart-actions">
+                    <QuantityStepper
+                      value={line.quantity}
+                      disabled={saving}
+                      onChange={qty => {
+                        setLines(prev => prev.map(row => (
+                          row.lineId === line.lineId ? { ...row, quantity: qty } : row
+                        )));
+                      }}
+                      aria-label={`Quantity for ${line.name}`}
+                    />
                     <button
                       type="button"
-                      className="btn btn-secondary btn-sm"
+                      className="btn btn-ghost btn-sm"
                       disabled={saving || lines.length <= 1}
                       onClick={() => setLines(prev => prev.filter(row => row.lineId !== line.lineId))}
                       aria-label={`Remove ${line.name}`}
                     >
-                      <Trash2 size={14} aria-hidden />
+                      <Trash2 size={16} aria-hidden />
                     </button>
                   </div>
                 </li>

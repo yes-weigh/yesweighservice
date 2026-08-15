@@ -9,13 +9,16 @@ import {
   orderBy,
   query,
   startAfter,
+  updateDoc,
   where,
   type DocumentData,
   type QueryConstraint,
   type QueryDocumentSnapshot,
 } from 'firebase/firestore';
 import { getFunctions, httpsCallable } from 'firebase/functions';
-import { db, app } from '../firebase';
+import { deleteObject, getDownloadURL, ref, uploadBytes } from 'firebase/storage';
+import { auth, db, app, storage } from '../firebase';
+import { formatStorageUploadError } from './storageErrors';
 import { enrichInvoiceDetailImages } from './invoiceLineItemImages';
 import {
   getInvoicePeriodBounds,
@@ -119,6 +122,14 @@ export interface AdminFirestorePurchaseOrder {
   categoryAmounts: Partial<Record<InvoiceCategory, number>>;
 }
 
+export interface PurchaseOrderBl {
+  containerNumber: string;
+  storagePath: string;
+  fileName: string;
+  contentType: string;
+  uploadedAt: string | null;
+}
+
 export interface AdminPurchaseOrderDetail {
   id: string;
   purchaseOrderNumber: string;
@@ -138,6 +149,7 @@ export interface AdminPurchaseOrderDetail {
   taxTotal: number;
   notes: string | null;
   lineItems: DealerInvoiceLineItem[];
+  bl: PurchaseOrderBl | null;
 }
 
 export interface AdminPurchaseOrdersPageResult {
@@ -601,6 +613,22 @@ export function mapAdminPurchaseOrderDetail(
     lineItems: Array.isArray(data.lineItems)
       ? data.lineItems.map(item => mapLineItem(item as Record<string, unknown>))
       : [],
+    bl: parsePurchaseOrderBl(data),
+  };
+}
+
+export function parsePurchaseOrderBl(data: DocumentData): PurchaseOrderBl | null {
+  const storagePath = typeof data.blStoragePath === 'string' ? data.blStoragePath.trim() : '';
+  const containerNumber = typeof data.blContainerNumber === 'string'
+    ? data.blContainerNumber.trim()
+    : '';
+  if (!storagePath && !containerNumber) return null;
+  return {
+    containerNumber,
+    storagePath,
+    fileName: typeof data.blFileName === 'string' ? data.blFileName.trim() : '',
+    contentType: typeof data.blContentType === 'string' ? data.blContentType.trim() : '',
+    uploadedAt: typeof data.blUploadedAt === 'string' ? data.blUploadedAt : null,
   };
 }
 
@@ -676,4 +704,123 @@ export async function downloadPurchaseOrderDocument(
   } catch (err) {
     throw new Error(invoiceErrorMessage(err));
   }
+}
+
+const MAX_BL_BYTES = 16 * 1024 * 1024;
+
+function blExtension(file: File): 'pdf' | 'jpg' | 'png' {
+  const fromName = file.name.split('.').pop()?.toLowerCase() ?? '';
+  if (fromName === 'pdf' || file.type === 'application/pdf') return 'pdf';
+  if (fromName === 'png' || file.type === 'image/png') return 'png';
+  return 'jpg';
+}
+
+function blContentTypeForExt(ext: 'pdf' | 'jpg' | 'png'): string {
+  if (ext === 'pdf') return 'application/pdf';
+  if (ext === 'png') return 'image/png';
+  return 'image/jpeg';
+}
+
+function isAllowedBlFile(file: File): boolean {
+  const type = file.type.toLowerCase();
+  if (
+    type === 'application/pdf'
+    || type === 'image/jpeg'
+    || type === 'image/jpg'
+    || type === 'image/png'
+  ) {
+    return true;
+  }
+  return /\.(pdf|jpe?g|png)$/i.test(file.name);
+}
+
+export function purchaseOrderBlStoragePath(purchaseOrderId: string, ext: string): string {
+  const safeId = purchaseOrderId.replace(/[^\w\-]+/g, '-').slice(0, 80) || 'po';
+  const safeExt = ext.replace(/[^\w]+/g, '').slice(0, 8) || 'bin';
+  return `purchaseOrderBl/${safeId}/bl.${safeExt}`;
+}
+
+export function purchaseOrderHasBl(bl?: PurchaseOrderBl | null): boolean {
+  return Boolean(bl?.storagePath);
+}
+
+export async function savePurchaseOrderBl(input: {
+  purchaseOrderId: string;
+  containerNumber: string;
+  file?: File | null;
+  existing?: PurchaseOrderBl | null;
+}): Promise<PurchaseOrderBl> {
+  const containerNumber = input.containerNumber.trim();
+  if (!containerNumber) {
+    throw new Error('Enter the container number.');
+  }
+  if (!input.file && !input.existing?.storagePath) {
+    throw new Error('Upload a PDF or JPG of the bill of lading.');
+  }
+
+  let storagePath = input.existing?.storagePath ?? '';
+  let fileName = input.existing?.fileName ?? '';
+  let contentType = input.existing?.contentType ?? '';
+
+  if (input.file) {
+    if (input.file.size > MAX_BL_BYTES) {
+      throw new Error('File must be under 16 MB.');
+    }
+    if (!isAllowedBlFile(input.file)) {
+      throw new Error('Upload a PDF or JPG.');
+    }
+    const ext = blExtension(input.file);
+    const nextPath = purchaseOrderBlStoragePath(input.purchaseOrderId, ext);
+    try {
+      await uploadBytes(ref(storage, nextPath), input.file, {
+        contentType: input.file.type || blContentTypeForExt(ext),
+      });
+    } catch (err) {
+      throw new Error(formatStorageUploadError(err, 'Could not upload bill of lading.'));
+    }
+    if (input.existing?.storagePath && input.existing.storagePath !== nextPath) {
+      try {
+        await deleteObject(ref(storage, input.existing.storagePath));
+      } catch {
+        // ignore leftover file
+      }
+    }
+    storagePath = nextPath;
+    fileName = input.file.name;
+    contentType = input.file.type || blContentTypeForExt(ext);
+  }
+
+  const uploadedAt = new Date().toISOString();
+  await updateDoc(doc(db, 'purchaseOrders', input.purchaseOrderId), {
+    blContainerNumber: containerNumber,
+    blStoragePath: storagePath,
+    blFileName: fileName,
+    blContentType: contentType,
+    blUploadedAt: uploadedAt,
+    blUploadedBy: auth.currentUser?.uid ?? null,
+  });
+
+  return {
+    containerNumber,
+    storagePath,
+    fileName,
+    contentType,
+    uploadedAt,
+  };
+}
+
+export async function fetchPurchaseOrderBlPreview(storagePath: string): Promise<{
+  url: string;
+  bytes: Uint8Array | null;
+  isPdf: boolean;
+}> {
+  const url = await getDownloadURL(ref(storage, storagePath));
+  const isPdf = storagePath.toLowerCase().endsWith('.pdf')
+    || storagePath.toLowerCase().includes('.pdf?');
+  if (!isPdf) return { url, bytes: null, isPdf: false };
+  const res = await fetch(url);
+  if (!res.ok) {
+    throw new Error('Could not open the bill of lading.');
+  }
+  return { url, bytes: new Uint8Array(await res.arrayBuffer()), isPdf: true };
 }

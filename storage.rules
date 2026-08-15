@@ -23,6 +23,26 @@ service firebase.storage {
       return signedIn() && userExists() && (role() == 'super_admin' || role() == 'admin');
     }
 
+    function isFullSuperAdmin() {
+      return isSuperAdmin() && (
+        !userDoc().keys().hasAny(['superAdminAccess'])
+        || userDoc().superAdminAccess != 'view_only'
+      );
+    }
+
+    function validPurchaseOrderBlMedia() {
+      return request.resource.size < 16 * 1024 * 1024
+        && (
+          request.resource.contentType == null
+          || request.resource.contentType == ''
+          || request.resource.contentType == 'application/pdf'
+          || request.resource.contentType == 'application/octet-stream'
+          || request.resource.contentType == 'image/jpeg'
+          || request.resource.contentType == 'image/jpg'
+          || request.resource.contentType == 'image/png'
+        );
+    }
+
     function isStaff() {
       return signedIn() && userExists() && role() == 'staff';
     }
@@ -154,6 +174,13 @@ service firebase.storage {
 
     match /purchaseorders/{allPaths=**} {
       allow read, write: if false;
+    }
+
+    // Client-uploaded bill of lading (PDF / JPG) linked to a purchase order.
+    match /purchaseOrderBl/{poId}/{fileName} {
+      allow read: if isSuperAdmin();
+      allow create, update: if isFullSuperAdmin() && validPurchaseOrderBlMedia();
+      allow delete: if isFullSuperAdmin();
     }
 
     match /salesorders/{allPaths=**} {

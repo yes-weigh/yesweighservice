@@ -19062,6 +19062,16 @@ body:has(.confirm-inline-bar) .confirm-inline-bar {
   margin: 0;
 }
 
+.po-bl-dialog__fields {
+  display: grid;
+  gap: 0.75rem;
+  padding: 0 0.15rem 0.35rem;
+}
+
+.po-bl-dialog__preview {
+  min-height: 12rem;
+}
+
 .freight-partner-picker {
   display: flex;
   flex-direction: column;
