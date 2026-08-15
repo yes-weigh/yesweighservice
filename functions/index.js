@@ -104,6 +104,7 @@ import {
   backfillInvoiceSummaryCustomerPickups,
   backfillInvoiceSummaryListFields,
   backfillInvoiceSummaryVariantCounts,
+  backfillInvoiceSummaryListStatus,
   syncInvoiceSummariesFromLogisticsBooking,
 } from './lib/invoice-stats.js';
 import { backfillSalesOrderStats } from './lib/sales-order-stats.js';
@@ -2718,6 +2719,24 @@ export const backfillInvoiceSummaryListFieldsFn = onCall(
     } catch (err) {
       console.error('backfillInvoiceSummaryListFields failed:', err);
       throw new HttpsError('internal', err?.message ?? 'Invoice summary list-field backfill failed.');
+    }
+  },
+);
+
+/** Write listStatus onto invoiceSummaries and rebuild status rollups. */
+export const backfillInvoiceSummaryListStatusFn = onCall(
+  {
+    region: 'asia-south1',
+    timeoutSeconds: 540,
+    memory: '1GiB',
+  },
+  async request => {
+    await requireActiveUser(request.auth?.uid, SUPER_ADMIN_ROLES);
+    try {
+      return await backfillInvoiceSummaryListStatus();
+    } catch (err) {
+      console.error('backfillInvoiceSummaryListStatus failed:', err);
+      throw new HttpsError('internal', err?.message ?? 'Invoice summary listStatus backfill failed.');
     }
   },
 );

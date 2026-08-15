@@ -88,6 +88,8 @@ export interface AdminFirestoreInvoice {
   itemQuantity: number | null;
   /** Distinct product/spare lines, excluding freight. */
   itemVariantCount?: number | null;
+  /** Denormalized list badge: to_dispatch, in_transit, delivered, customer_pickup, … */
+  listStatus?: string | null;
   invoiceCategory: InvoiceCategory | null;
   categories: InvoiceCategory[];
   categoryAmounts: Partial<Record<InvoiceCategory, number>>;
@@ -245,6 +247,7 @@ export function mapAdminInvoiceDoc(
     syncedAt: timestampToIso(data.syncedAt),
     itemQuantity,
     itemVariantCount,
+    listStatus: data.listStatus ? String(data.listStatus) : null,
     invoiceCategory: parseInvoiceCategory(data.invoiceCategory),
     categories: normalizeInvoiceCategories(data.categories),
     categoryAmounts: normalizeInvoiceCategoryAmounts(data.categoryAmounts),
@@ -295,6 +298,13 @@ export function adminInvoiceLogisticsBooking(
   } as LogisticsBooking;
 }
 
+function listStatusQueryValues(filterStatus?: string | null): string[] | null {
+  const key = String(filterStatus ?? '').trim();
+  if (!key || key === 'all' || key === 'support') return null;
+  if (key === 'delivered') return ['delivered', 'customer_pickup'];
+  return [key];
+}
+
 export type AdminInvoiceListQuery = {
   sort?: AdminInvoiceSort;
   pageSize?: number;
@@ -309,6 +319,8 @@ export type AdminInvoiceListQuery = {
    * Empty array → no results. Omit / null → org-wide (super admin).
    */
   salespersonIds?: string[] | null;
+  /** Chip key: to_dispatch, in_transit, delivered, returned, void. */
+  listFilterStatus?: string | null;
 };
 
 const ADMIN_INVOICES_PAGE_SIZE = 300;
@@ -327,7 +339,7 @@ export async function resolveAdminInvoiceListCollection(): Promise<AdminInvoiceL
   try {
     const snap = await getDoc(doc(db, 'invoiceStats', 'config'));
     const source = snap.exists() ? String(snap.data()?.listSource ?? '') : '';
-    cachedListCollection = source === 'summaries' ? 'invoiceSummaries' : 'invoices';
+    cachedListCollection = source === 'invoices' ? 'invoices' : 'invoiceSummaries';
     cachedSummariesIncludeCustomerPickup = snap.exists()
       && snap.data()?.summariesIncludeCustomerPickup === true;
   } catch {
@@ -359,6 +371,13 @@ export function buildAdminInvoicesQuery(options: AdminInvoiceListQuery & {
 
   if (category && category !== 'all') {
     constraints.push(where('categories', 'array-contains', category));
+  }
+
+  const listStatusValues = listStatusQueryValues(options.listFilterStatus);
+  if (listStatusValues?.length === 1) {
+    constraints.push(where('listStatus', '==', listStatusValues[0]));
+  } else if (listStatusValues && listStatusValues.length > 1) {
+    constraints.push(where('listStatus', 'in', listStatusValues));
   }
 
   // Date inequalities must share orderBy('date'); client re-sorts by syncedAt if needed.
@@ -647,6 +666,7 @@ export async function fetchAdminInvoicesPageResult(options: {
   dateStart?: string | null;
   dateEnd?: string | null;
   salespersonIds?: string[] | null;
+  listFilterStatus?: string | null;
 }): Promise<{
   rows: AdminFirestoreInvoice[];
   lastDoc: QueryDocumentSnapshot<DocumentData> | null;
@@ -678,22 +698,39 @@ export async function fetchAdminInvoicesPageResult(options: {
   }
 
   const pageSize = options.pageSize ?? ADMIN_LIST_PAGE_SIZE;
-  const listCollection = await resolveAdminInvoiceListCollection();
-  const snap = await getAdminInvoicesQuerySnap({
-    sort: options.sort ?? 'date',
-    pageSize,
-    cursor: options.cursor ?? null,
-    category: options.category ?? 'all',
-    dateStart: options.dateStart,
-    dateEnd: options.dateEnd,
-    salespersonIds: options.salespersonIds,
-  }, listCollection);
-  const rows = snap.docs.map(mapAdminInvoiceDoc);
-  return {
-    rows: await overlayInvoiceLineDerivedFields(rows),
-    lastDoc: snap.docs[snap.docs.length - 1] ?? null,
-    hasMore: snap.size >= pageSize,
-  };
+  const listCollection = 'invoiceSummaries';
+  try {
+    const snap = await getAdminInvoicesQuerySnap({
+      sort: options.sort ?? 'date',
+      pageSize,
+      cursor: options.cursor ?? null,
+      category: options.category ?? 'all',
+      dateStart: options.dateStart,
+      dateEnd: options.dateEnd,
+      salespersonIds: options.salespersonIds,
+      listFilterStatus: options.listFilterStatus,
+    }, listCollection);
+    const rows = snap.docs.map(mapAdminInvoiceDoc);
+    return {
+      rows,
+      lastDoc: snap.docs[snap.docs.length - 1] ?? null,
+      hasMore: snap.size >= pageSize,
+    };
+  } catch (err) {
+    if (!isFirestoreIndexError(err)) throw err;
+    const { rows: all } = await fetchAllAdminInvoicesInRange({
+      sort: options.sort,
+      category: options.category,
+      dateStart: options.dateStart,
+      dateEnd: options.dateEnd,
+      salespersonIds: options.salespersonIds,
+    });
+    const values = listStatusQueryValues(options.listFilterStatus);
+    const filtered = values?.length
+      ? all.filter(row => values.includes(String(row.listStatus ?? '')))
+      : all;
+    return { rows: filtered, lastDoc: null, hasMore: false };
+  }
 }
 
 /**
@@ -1544,7 +1581,33 @@ export type AdminInvoiceStatsKpi = {
   totalAmount: number;
   categoryCounts: AdminInvoiceCategoryCounts;
   source: 'rollup' | 'query';
+  byFilterStatus?: Record<string, number>;
+  byCategoryAndFilterStatus?: Record<string, Record<string, number>>;
 };
+
+export function invoiceChipStatusCounts(
+  kpi: Pick<AdminInvoiceStatsKpi, 'byFilterStatus' | 'byCategoryAndFilterStatus'>,
+  category: InvoiceCategory | 'all',
+): Record<string, number> {
+  if (category === 'all') return { ...(kpi.byFilterStatus ?? {}) };
+  return { ...(kpi.byCategoryAndFilterStatus?.[category] ?? {}) };
+}
+
+export function invoiceChipCategoryCounts(
+  kpi: Pick<AdminInvoiceStatsKpi, 'categoryCounts' | 'byCategoryAndFilterStatus'>,
+  listFilterStatus: string,
+): AdminInvoiceCategoryCounts {
+  if (!listFilterStatus || listFilterStatus === 'all' || listFilterStatus === 'support') {
+    return kpi.categoryCounts;
+  }
+  const byCat = kpi.byCategoryAndFilterStatus ?? {};
+  const next = emptyCategoryCounts();
+  for (const key of ['product', 'spare', 'software_key', 'service', 'gatc'] as const) {
+    next[key] = Number(byCat[key]?.[listFilterStatus] ?? 0);
+    next.all += next[key];
+  }
+  return next;
+}
 
 function emptyCategoryCounts(): AdminInvoiceCategoryCounts {
   return {
@@ -1774,6 +1837,10 @@ export async function loadAdminInvoiceKpis(options: {
             service: Number(byCategory.service ?? 0),
             gatc: portalStamping.count,
           };
+          const byFilterStatus = { ...((data.byFilterStatus ?? {}) as Record<string, number>) };
+          const byCategoryAndFilterStatus = {
+            ...((data.byCategoryAndFilterStatus ?? {}) as Record<string, Record<string, number>>),
+          };
           const categoryAmount = category === 'all'
             ? Number(data.amount ?? 0)
             : Number(amountByCategory[category] ?? 0);
@@ -1790,6 +1857,8 @@ export async function loadAdminInvoiceKpis(options: {
             totalAmount: documentAmount,
             categoryCounts,
             source: 'rollup',
+            byFilterStatus,
+            byCategoryAndFilterStatus,
           }, {
             dateStart,
             dateEnd,
@@ -1812,6 +1881,8 @@ export async function loadAdminInvoiceKpis(options: {
           const documentAmountByCategory: Record<string, number> = {
             product: 0, spare: 0, software_key: 0, service: 0, gatc: 0,
           };
+          const byFilterStatus: Record<string, number> = {};
+          const byCategoryAndFilterStatus: Record<string, Record<string, number>> = {};
           let any = false;
           for (const snap of snaps) {
             if (!snap.exists()) continue;
@@ -1826,6 +1897,19 @@ export async function loadAdminInvoiceKpis(options: {
               categoryCounts[key] += Number(byCategory[key] ?? 0);
               amountByCategory[key] += Number(amounts[key] ?? 0);
               documentAmountByCategory[key] += Number(documentAmounts[key] ?? 0);
+            }
+            const monthFilter = (data.byFilterStatus ?? {}) as Record<string, number>;
+            for (const [status, count] of Object.entries(monthFilter)) {
+              byFilterStatus[status] = (byFilterStatus[status] ?? 0) + Number(count ?? 0);
+            }
+            const monthCatFilter = (data.byCategoryAndFilterStatus ?? {}) as Record<string, Record<string, number>>;
+            for (const [cat, statuses] of Object.entries(monthCatFilter)) {
+              if (!byCategoryAndFilterStatus[cat]) byCategoryAndFilterStatus[cat] = {};
+              for (const [status, count] of Object.entries(statuses ?? {})) {
+                byCategoryAndFilterStatus[cat][status] = (
+                  byCategoryAndFilterStatus[cat][status] ?? 0
+                ) + Number(count ?? 0);
+              }
             }
           }
           if (any) {
@@ -1843,6 +1927,8 @@ export async function loadAdminInvoiceKpis(options: {
               totalAmount: documentAmount,
               categoryCounts,
               source: 'rollup',
+              byFilterStatus,
+              byCategoryAndFilterStatus,
             }, {
               dateStart,
               dateEnd,

@@ -3,7 +3,7 @@
  */
 import { getFirestore } from 'firebase-admin/firestore';
 import { invoicesCollection } from './invoice-sync.js';
-import { invoiceSummaryRef } from './invoice-stats.js';
+import { patchInvoiceSummaryListFields } from './invoice-stats.js';
 
 function normalizeManualDelivery(raw) {
   if (!raw || typeof raw !== 'object') return null;
@@ -45,7 +45,7 @@ async function writeManualDeliveryDocs(customerId, invoiceId, manualDelivery) {
     manualDeliveredAt: manualDelivery.markedAt,
   };
   await invoicesCollection(customerId).doc(invoiceId).set(payload, { merge: true });
-  await invoiceSummaryRef(customerId, invoiceId).set(payload, { merge: true });
+  await patchInvoiceSummaryListFields(customerId, invoiceId, payload);
 }
 
 /**

@@ -5,6 +5,10 @@
 
 import { getFirestore, FieldValue } from 'firebase-admin/firestore';
 import { freightSkuFromInvoiceLines, isFreightOrderLine } from './freight-lines.js';
+import {
+  invoiceListFilterStatusFromDoc,
+  invoiceListStatusFromDoc,
+} from './invoice-list-status.js';
 
 export const INVOICE_STATS_COLLECTION = 'invoiceStats';
 export const INVOICE_MONTH_STATS_COLLECTION = 'invoiceMonthStats';
@@ -157,6 +161,10 @@ export function buildInvoiceSummaryFields(invoiceDoc, customerId, invoiceId) {
   const district = locationFieldForSummary(invoiceDoc.district);
   const billingState = locationFieldForSummary(invoiceDoc.billingState);
   const logistics = logisticsForSummary(invoiceDoc.logistics, invoiceDoc.logistics?.bookingId);
+  const listStatus = invoiceListStatusFromDoc({
+    ...invoiceDoc,
+    logistics: logistics || invoiceDoc.logistics || null,
+  });
   return {
     id: String(invoiceId),
     customerId: String(customerId),
@@ -178,6 +186,7 @@ export function buildInvoiceSummaryFields(invoiceDoc, customerId, invoiceId) {
     categories,
     categoryAmounts,
     itemQuantity,
+    listStatus,
     ...(itemVariantCount != null && Number.isFinite(itemVariantCount) ? { itemVariantCount } : {}),
     amountExclGst: amount,
     freightSku: invoiceDoc.freightSku
@@ -308,21 +317,41 @@ export async function syncInvoiceSummariesFromLogisticsBooking(bookingId, after,
     if (!customerId) continue;
     const ref = invoiceSummaryRef(customerId, invoiceId);
     if (logistics) {
+      const snap = await ref.get();
+      const existing = snap.exists ? (snap.data() ?? {}) : {};
+      const prevListStatus = existing.listStatus
+        ? String(existing.listStatus)
+        : (snap.exists ? invoiceListStatusFromDoc(existing) : null);
+      const listStatus = invoiceListStatusFromDoc({ ...existing, logistics });
       await ref.set({
         logistics,
+        listStatus,
         updatedAt: FieldValue.serverTimestamp(),
       }, { merge: true });
+      if (snap.exists && prevListStatus !== listStatus) {
+        await applyListStatusRollupShift({ ...existing, logistics }, prevListStatus, listStatus);
+      }
       patched += 1;
       continue;
     }
     const snap = await ref.get();
     if (!snap.exists) continue;
-    const storedId = String(snap.data()?.logistics?.bookingId ?? '').trim();
+    const existing = snap.data() ?? {};
+    const storedId = String(existing.logistics?.bookingId ?? '').trim();
     if (storedId && storedId !== String(bookingId)) continue;
+    const prevListStatus = existing.listStatus
+      ? String(existing.listStatus)
+      : invoiceListStatusFromDoc(existing);
+    const withoutLogistics = { ...existing, logistics: null };
+    const listStatus = invoiceListStatusFromDoc(withoutLogistics);
     await ref.set({
       logistics: FieldValue.delete(),
+      listStatus,
       updatedAt: FieldValue.serverTimestamp(),
     }, { merge: true });
+    if (prevListStatus !== listStatus) {
+      await applyListStatusRollupShift(withoutLogistics, prevListStatus, listStatus);
+    }
     patched += 1;
   }
   return { patched };
@@ -357,6 +386,10 @@ export async function applyInvoiceStatsDelta(invoiceLike, op) {
   const categoryAmounts = categoryAmountsFromInvoiceLike(invoiceLike, amount);
   const monthKey = invoiceMonthKey(invoiceLike.date);
   const customerId = String(invoiceLike?.customerId ?? '').trim();
+  const listStatus = invoiceLike?.listStatus
+    ? String(invoiceLike.listStatus)
+    : invoiceListStatusFromDoc(invoiceLike);
+  const filterStatus = invoiceListFilterStatusFromDoc(listStatus);
 
   const db = getFirestore();
   const batch = db.batch();
@@ -373,6 +406,15 @@ export async function applyInvoiceStatsDelta(invoiceLike, op) {
     if (categoryAmount) {
       updates[`amountByCategory.${category}`] = FieldValue.increment(sign * categoryAmount);
     }
+    if (filterStatus) {
+      updates[`byCategoryAndFilterStatus.${category}.${filterStatus}`] = FieldValue.increment(countDelta);
+    }
+  }
+  if (listStatus) {
+    updates[`byStatus.${listStatus}`] = FieldValue.increment(countDelta);
+  }
+  if (filterStatus) {
+    updates[`byFilterStatus.${filterStatus}`] = FieldValue.increment(countDelta);
   }
   batch.set(orgRef, updates, { merge: true });
 
@@ -419,12 +461,71 @@ export async function applyInvoiceStatsDelta(invoiceLike, op) {
   await batch.commit();
 }
 
+/** Move an invoice between list statuses without touching amount/count totals. */
+export async function applyListStatusRollupShift(invoiceLike, prevListStatus, nextListStatus) {
+  const prev = String(prevListStatus ?? '').trim();
+  const next = String(nextListStatus ?? '').trim();
+  if (!prev && !next) return;
+  if (prev === next) return;
+  const categories = categoriesFromInvoiceLike(invoiceLike);
+  const monthKey = invoiceMonthKey(invoiceLike.date);
+  const prevFilter = invoiceListFilterStatusFromDoc(prev);
+  const nextFilter = invoiceListFilterStatusFromDoc(next);
+  const db = getFirestore();
+  const batch = db.batch();
+  const updates = { updatedAt: FieldValue.serverTimestamp() };
+  if (prev) updates[`byStatus.${prev}`] = FieldValue.increment(-1);
+  if (next) updates[`byStatus.${next}`] = FieldValue.increment(1);
+  if (prevFilter) updates[`byFilterStatus.${prevFilter}`] = FieldValue.increment(-1);
+  if (nextFilter) updates[`byFilterStatus.${nextFilter}`] = FieldValue.increment(1);
+  for (const category of categories) {
+    if (prevFilter) {
+      updates[`byCategoryAndFilterStatus.${category}.${prevFilter}`] = FieldValue.increment(-1);
+    }
+    if (nextFilter) {
+      updates[`byCategoryAndFilterStatus.${category}.${nextFilter}`] = FieldValue.increment(1);
+    }
+  }
+  batch.set(db.doc(`${INVOICE_STATS_COLLECTION}/org`), updates, { merge: true });
+  if (monthKey) {
+    batch.set(db.doc(`${INVOICE_MONTH_STATS_COLLECTION}/${monthKey}`), updates, { merge: true });
+  }
+  await batch.commit();
+}
+
 /**
  * Reconcile stats when an invoice changes category/amount/date.
  */
 export async function reconcileInvoiceStats(before, after) {
   if (before) await applyInvoiceStatsDelta(before, 'remove');
   if (after) await applyInvoiceStatsDelta(after, 'add');
+}
+
+/**
+ * Dual-write slim summary + org/month status rollups.
+ * Zoho (and CSV) callers must go through here so list chips stay correct
+ * when amount/date/category change without wiping In Transit / pickup.
+ */
+export async function writeInvoiceSummaryAndReconcile(customerId, invoiceId, afterDoc, beforeDoc = null) {
+  const { fields, prevListStatus } = await upsertInvoiceSummary(customerId, invoiceId, afterDoc);
+  await reconcileInvoiceStats(
+    beforeDoc
+      ? {
+        ...beforeDoc,
+        customerId: beforeDoc.customerId ?? customerId,
+        listStatus: prevListStatus ?? fields.listStatus,
+      }
+      : null,
+    {
+      ...afterDoc,
+      ...fields,
+      customerId,
+      listStatus: fields.listStatus,
+      categories: fields.categories,
+      date: fields.date,
+    },
+  );
+  return fields;
 }
 
 export function invoiceSummaryRef(customerId, invoiceId) {
@@ -436,12 +537,52 @@ export function invoiceSummaryRef(customerId, invoiceId) {
 }
 
 export async function upsertInvoiceSummary(customerId, invoiceId, invoiceDoc) {
-  const fields = buildInvoiceSummaryFields(invoiceDoc, customerId, invoiceId);
+  const ref = invoiceSummaryRef(customerId, invoiceId);
+  const existingSnap = await ref.get();
+  const existing = existingSnap.exists ? (existingSnap.data() ?? {}) : {};
+  const prevListStatus = existing.listStatus
+    ? String(existing.listStatus)
+    : (existingSnap.exists ? invoiceListStatusFromDoc(existing) : null);
+  const merged = {
+    ...invoiceDoc,
+    logistics: invoiceDoc.logistics ?? existing.logistics ?? null,
+    district: invoiceDoc.district ?? existing.district ?? null,
+    billingState: invoiceDoc.billingState ?? existing.billingState ?? null,
+    customerPickup: invoiceDoc.customerPickup ?? existing.customerPickup ?? null,
+    customerPickupMarkedAt: invoiceDoc.customerPickupMarkedAt
+      ?? existing.customerPickupMarkedAt
+      ?? null,
+    manualDelivery: invoiceDoc.manualDelivery ?? existing.manualDelivery ?? null,
+    manualDeliveredAt: invoiceDoc.manualDeliveredAt ?? existing.manualDeliveredAt ?? null,
+    ewayBill: invoiceDoc.ewayBill ?? existing.ewayBill ?? null,
+  };
+  const fields = buildInvoiceSummaryFields(merged, customerId, invoiceId);
   if (!fields.district && !fields.billingState) {
     Object.assign(fields, await customerLocationForSummary(customerId));
   }
-  await invoiceSummaryRef(customerId, invoiceId).set(fields, { merge: true });
-  return fields;
+  await ref.set(fields, { merge: true });
+  return { fields, prevListStatus };
+}
+
+/** Patch summary fields and keep listStatus + month/org status rollups in sync. */
+export async function patchInvoiceSummaryListFields(customerId, invoiceId, extraFields = {}) {
+  const ref = invoiceSummaryRef(customerId, invoiceId);
+  const snap = await ref.get();
+  const existing = snap.exists ? (snap.data() ?? {}) : {};
+  const prevListStatus = existing.listStatus
+    ? String(existing.listStatus)
+    : (snap.exists ? invoiceListStatusFromDoc(existing) : null);
+  const merged = { ...existing, ...extraFields };
+  const listStatus = invoiceListStatusFromDoc(merged);
+  await ref.set({
+    ...extraFields,
+    listStatus,
+    updatedAt: FieldValue.serverTimestamp(),
+  }, { merge: true });
+  if (snap.exists && prevListStatus !== listStatus) {
+    await applyListStatusRollupShift(merged, prevListStatus, listStatus);
+  }
+  return listStatus;
 }
 
 /**
@@ -652,6 +793,94 @@ export async function backfillInvoiceSummaryVariantCounts({ onProgress } = {}) {
 
   await flush();
   return { scanned, patched };
+}
+
+function emptyStatusMaps() {
+  return {
+    byStatus: {},
+    byFilterStatus: {},
+    byCategoryAndFilterStatus: {},
+  };
+}
+
+function addStatusMaps(target, summary) {
+  const listStatus = String(summary.listStatus ?? '').trim();
+  if (!listStatus) return;
+  const filterStatus = invoiceListFilterStatusFromDoc(listStatus);
+  target.byStatus[listStatus] = (target.byStatus[listStatus] ?? 0) + 1;
+  if (!filterStatus) return;
+  target.byFilterStatus[filterStatus] = (target.byFilterStatus[filterStatus] ?? 0) + 1;
+  for (const category of parseInvoiceCategoryKeys(summary.categories)) {
+    if (!target.byCategoryAndFilterStatus[category]) {
+      target.byCategoryAndFilterStatus[category] = {};
+    }
+    const bucket = target.byCategoryAndFilterStatus[category];
+    bucket[filterStatus] = (bucket[filterStatus] ?? 0) + 1;
+  }
+}
+
+/**
+ * Write listStatus onto invoiceSummaries and rebuild org/month status rollups
+ * so the admin list can page by To dispatch without scanning the month.
+ */
+export async function backfillInvoiceSummaryListStatus({ onProgress } = {}) {
+  const db = getFirestore();
+  let scanned = 0;
+  let patched = 0;
+  let batch = db.batch();
+  let batchOps = 0;
+  const orgMaps = emptyStatusMaps();
+  const monthMaps = new Map();
+
+  const flush = async () => {
+    if (!batchOps) return;
+    await batch.commit();
+    batch = db.batch();
+    batchOps = 0;
+  };
+
+  const customersSnap = await db.collection('zohoCustomers').select().get();
+  for (const customer of customersSnap.docs) {
+    const summariesSnap = await customer.ref.collection(INVOICE_SUMMARIES_SUBCOLLECTION).get();
+    for (const summary of summariesSnap.docs) {
+      scanned += 1;
+      const data = summary.data() ?? {};
+      const listStatus = invoiceListStatusFromDoc(data);
+      const next = { ...data, listStatus };
+      addStatusMaps(orgMaps, next);
+      const monthKey = invoiceMonthKey(data.date);
+      if (monthKey) {
+        const maps = monthMaps.get(monthKey) ?? emptyStatusMaps();
+        addStatusMaps(maps, next);
+        monthMaps.set(monthKey, maps);
+      }
+      if (data.listStatus === listStatus) continue;
+      batch.set(summary.ref, {
+        listStatus,
+        updatedAt: FieldValue.serverTimestamp(),
+      }, { merge: true });
+      batchOps += 1;
+      patched += 1;
+      if (batchOps >= 400) await flush();
+    }
+    onProgress?.({ customerId: customer.id, scanned, patched });
+  }
+
+  await flush();
+
+  const stamp = { updatedAt: FieldValue.serverTimestamp() };
+  await db.doc(`${INVOICE_STATS_COLLECTION}/org`).set({
+    ...orgMaps,
+    ...stamp,
+  }, { merge: true });
+  for (const [monthKey, maps] of monthMaps) {
+    await db.doc(`${INVOICE_MONTH_STATS_COLLECTION}/${monthKey}`).set({
+      ...maps,
+      ...stamp,
+    }, { merge: true });
+  }
+
+  return { scanned, patched, months: monthMaps.size };
 }
 
 export async function deleteInvoiceSummary(customerId, invoiceId) {

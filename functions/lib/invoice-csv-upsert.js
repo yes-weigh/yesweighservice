@@ -5,6 +5,7 @@ import {
   parseInvoiceCategory,
 } from './invoice-category.js';
 import { freightSkuFromInvoiceLines } from './freight-lines.js';
+import { writeInvoiceSummaryAndReconcile } from './invoice-stats.js';
 
 const CUSTOMERS_COLLECTION = 'zohoCustomers';
 const INVOICES_SUBCOLLECTION = 'invoices';
@@ -254,6 +255,28 @@ async function upsertOneInvoice(input) {
     customerId,
     updatedAt: FieldValue.serverTimestamp(),
   }, { merge: true });
+
+  try {
+    const afterDoc = {
+      ...existing,
+      ...doc,
+      customerId,
+      logistics: existing.logistics ?? null,
+      customerPickup: existing.customerPickup ?? null,
+      customerPickupMarkedAt: existing.customerPickupMarkedAt ?? null,
+      manualDelivery: existing.manualDelivery ?? null,
+      manualDeliveredAt: existing.manualDeliveredAt ?? null,
+      ewayBill: existing.ewayBill ?? null,
+    };
+    await writeInvoiceSummaryAndReconcile(
+      customerId,
+      invoiceId,
+      afterDoc,
+      exists ? { ...existing, customerId } : null,
+    );
+  } catch (err) {
+    console.warn(`Invoice summary/rollup update failed for CSV ${invoiceId}:`, err?.message ?? err);
+  }
 
   return {
     status: exists ? 'updated' : 'created',

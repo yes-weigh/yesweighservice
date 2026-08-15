@@ -26,7 +26,7 @@ import {
   deleteInvoiceSummary,
   reconcileInvoiceStats,
   sumInvoiceItemQuantity,
-  upsertInvoiceSummary,
+  writeInvoiceSummaryAndReconcile,
 } from './invoice-stats.js';
 import { markInvoiceAsSent } from './zoho-sales-orders.js';
 import { freightSkuFromInvoiceLines } from './freight-lines.js';
@@ -627,6 +627,26 @@ export async function upsertInvoiceFromRaw(accessToken, orgId, invoiceRaw, optio
     if (existing.salesOrderPdfStoragePath) doc.salesOrderPdfStoragePath = existing.salesOrderPdfStoragePath;
   }
 
+  // Zoho payloads never carry YesWeigh fulfillment — keep booking/pickup/e-way.
+  if (existing) {
+    if (doc.logistics == null && existing.logistics) doc.logistics = existing.logistics;
+    if (doc.customerPickup == null && existing.customerPickup) {
+      doc.customerPickup = existing.customerPickup;
+    }
+    if (doc.customerPickupMarkedAt == null && existing.customerPickupMarkedAt) {
+      doc.customerPickupMarkedAt = existing.customerPickupMarkedAt;
+    }
+    if (doc.manualDelivery == null && existing.manualDelivery) {
+      doc.manualDelivery = existing.manualDelivery;
+    }
+    if (doc.manualDeliveredAt == null && existing.manualDeliveredAt) {
+      doc.manualDeliveredAt = existing.manualDeliveredAt;
+    }
+    if (doc.ewayBill == null && existing.ewayBill) doc.ewayBill = existing.ewayBill;
+    if (doc.district == null && existing.district) doc.district = existing.district;
+    if (doc.billingState == null && existing.billingState) doc.billingState = existing.billingState;
+  }
+
   await invoicesCollection(customerId).doc(invoiceId).set(doc, { merge: true });
   await invoiceIndexRef(invoiceId).set({ customerId, updatedAt: FieldValue.serverTimestamp() });
 
@@ -653,6 +673,7 @@ export async function upsertInvoiceFromRaw(accessToken, orgId, invoiceRaw, optio
       total: doc.total,
       subtotal: doc.subtotal,
       taxTotal: doc.taxTotal,
+      logistics: doc.logistics ?? existing?.logistics ?? null,
       customerPickup: doc.customerPickup ?? existing?.customerPickup ?? null,
       customerPickupMarkedAt: doc.customerPickupMarkedAt
         ?? existing?.customerPickupMarkedAt
@@ -668,8 +689,18 @@ export async function upsertInvoiceFromRaw(accessToken, orgId, invoiceRaw, optio
     const beforeSnap = existing
       ? { ...existing, customerId: existing.customerId ?? customerId }
       : null;
-    await upsertInvoiceSummary(customerId, invoiceId, afterSnap);
-    await reconcileInvoiceStats(beforeSnap, afterSnap);
+    const fields = await writeInvoiceSummaryAndReconcile(
+      customerId,
+      invoiceId,
+      afterSnap,
+      beforeSnap,
+    );
+    if (fields?.listStatus) {
+      await invoicesCollection(customerId).doc(invoiceId).set({
+        listStatus: fields.listStatus,
+        ...(fields.logistics ? { logistics: fields.logistics } : {}),
+      }, { merge: true });
+    }
   } catch (err) {
     console.warn(`Invoice stats/summary update failed for ${invoiceId}:`, err?.message ?? err);
   }
@@ -699,9 +730,23 @@ export async function deleteInvoiceFromFirestore(customerId, invoiceId) {
   const paths = [data.pdfStoragePath, data.salesOrderPdfStoragePath].filter(Boolean);
   await ref.delete();
   await invoiceIndexRef(invoiceId).delete().catch(() => {});
+  let summaryListStatus = data.listStatus ?? null;
+  try {
+    const { invoiceSummaryRef } = await import('./invoice-stats.js');
+    const summarySnap = await invoiceSummaryRef(customerId, invoiceId).get();
+    if (summarySnap.exists) {
+      summaryListStatus = summarySnap.data()?.listStatus ?? summaryListStatus;
+    }
+  } catch {
+    // keep hot-invoice status
+  }
   await deleteInvoiceSummary(customerId, invoiceId);
   try {
-    await reconcileInvoiceStats({ ...data, customerId: data.customerId ?? customerId }, null);
+    await reconcileInvoiceStats({
+      ...data,
+      customerId: data.customerId ?? customerId,
+      listStatus: summaryListStatus,
+    }, null);
   } catch (err) {
     console.warn(`Invoice stats remove failed for ${invoiceId}:`, err?.message ?? err);
   }

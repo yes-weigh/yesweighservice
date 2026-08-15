@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import type { DocumentData, QueryDocumentSnapshot } from 'firebase/firestore';
 import { createPortal } from 'react-dom';
 import { useLocation, useNavigate, useSearchParams } from 'react-router-dom';
 import {
@@ -30,8 +31,11 @@ import {
   fetchAdminDealerLifetimeAggregates,
   fetchAdminInvoicesForCustomers,
   fetchAdminPortalStampingInvoices,
+  fetchAdminInvoicesPageResult,
   fetchAllAdminInvoicesInRange,
   filterAdminInvoices,
+  invoiceChipCategoryCounts,
+  invoiceChipStatusCounts,
   overlayPortalStampingOnInvoices,
   loadAdminInvoiceKpis,
   searchAdminInvoicesAutocomplete,
@@ -39,6 +43,7 @@ import {
   type AdminFirestoreInvoice,
   type AdminInvoiceCategoryCounts,
   type AdminInvoiceSort,
+  type AdminInvoiceStatsKpi,
 } from '../../lib/admin-invoices';
 import { formatCurrency } from '../../lib/catalog';
 import { fetchDealerById } from '../../lib/dealers';
@@ -51,13 +56,9 @@ import {
   invoiceCategoryLabel,
   isGatcFeeOnlyInvoice,
 } from '../../lib/invoices';
-import {
-  invoiceAllowsLogisticsFulfillment,
-  invoiceListFilterStatusKey,
-} from '../../lib/invoiceListStatus';
+import { invoiceListFilterStatusKey } from '../../lib/invoiceListStatus';
 import { readRememberedInvoiceCustomerPickupIds } from '../../lib/invoiceCustomerPickup';
 import { readRememberedInvoiceManualDeliveryIds } from '../../lib/invoiceManualDelivery';
-import { findLogisticsBookingsForInvoices } from '../../lib/logisticsBookings';
 import { isInternalOpsUser } from '../../lib/staffAccess';
 import { useDealerStaffById } from '../../lib/useDealerStaffById';
 import { useRevealScrollbarOnScroll } from '../../lib/useRevealScrollbarOnScroll';
@@ -373,6 +374,7 @@ export const AdminInvoicesPage: React.FC = () => {
   const [searchHits, setSearchHits] = useState<AdminFirestoreInvoice[]>([]);
   const [debouncedSearch, setDebouncedSearch] = useState('');
   const searchWrapRef = useRef<HTMLDivElement>(null);
+  const pageCursorStack = useRef<Array<QueryDocumentSnapshot<DocumentData> | null>>([null]);
   const [searchMenuRect, setSearchMenuRect] = useState<DOMRect | null>(null);
   const [sort, setSort] = useState<AdminInvoiceSort>(DEFAULT_SORT);
   const [rangePreset, setRangePreset] = useState<SalesRangePreset>(DEFAULT_RANGE);
@@ -383,6 +385,7 @@ export const AdminInvoicesPage: React.FC = () => {
   const [filterOpen, setFilterOpen] = useState(false);
   const [page, setPage] = useState(1);
   const [selectedDealers, setSelectedDealers] = useState<DealerFilterSelection[]>([]);
+  const [listKpi, setListKpi] = useState<AdminInvoiceStatsKpi | null>(null);
   const [categoryCounts, setCategoryCounts] = useState<AdminInvoiceCategoryCounts>(EMPTY_CATEGORY_COUNTS);
   const [kpiCategoryAmount, setKpiCategoryAmount] = useState(0);
   const [kpiDocumentAmount, setKpiDocumentAmount] = useState(0);
@@ -479,6 +482,7 @@ export const AdminInvoicesPage: React.FC = () => {
     })
       .then(kpi => {
         if (cancelled) return;
+        setListKpi(kpi);
         setCategoryCounts(kpi.categoryCounts);
         setKpiCategoryAmount(kpi.categoryAmount);
         setKpiDocumentAmount(kpi.documentAmount);
@@ -524,6 +528,7 @@ export const AdminInvoicesPage: React.FC = () => {
   }, [category, dateStart, dateEnd, salespersonIds, salespersonScopeKey, dealerScoped]);
 
   useEffect(() => {
+    if (statusFilter !== 'support') return;
     let cancelled = false;
     void fetchSupportLinkedInvoiceRefs()
       .then(refs => {
@@ -537,7 +542,7 @@ export const AdminInvoicesPage: React.FC = () => {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [statusFilter]);
 
   // Org-wide: full date window, then status → category on the client.
   useEffect(() => {
@@ -588,31 +593,59 @@ export const AdminInvoicesPage: React.FC = () => {
       };
     }
 
-    // Full date window so status chips always have counts. Status is applied
-    // first on the client, then category — switching Product/Spares must not
-    // refetch or drop to a single page. Stamping overlay is applied after
-    // first paint so the slim summary list is not blocked on GATC hydrations.
-    void fetchAllAdminInvoicesInRange({
+    if (category === 'gatc' || statusFilter === 'support' || !orgWide) {
+      void fetchAllAdminInvoicesInRange({
+        sort,
+        category: category === 'gatc' ? 'gatc' : 'all',
+        dateStart,
+        dateEnd,
+        salespersonIds,
+      })
+        .then(({ rows: next }) => {
+          if (cancelled) return;
+          setRows(next);
+          setHasMore(false);
+          setLoading(false);
+          if (category !== 'gatc') return;
+          void fetchAdminPortalStampingInvoices({
+            sort,
+            dateStart,
+            dateEnd,
+            salespersonIds,
+          }).then(portal => {
+            if (cancelled) return;
+            setRows(overlayPortalStampingOnInvoices(next, portal.rows, sort));
+          });
+        })
+        .catch(err => {
+          if (!cancelled) {
+            setError(err instanceof Error ? err.message : 'Could not load invoices.');
+            setRows([]);
+            setLoading(false);
+          }
+        });
+      return () => {
+        cancelled = true;
+      };
+    }
+
+    const cursor = pageCursorStack.current[page - 1] ?? null;
+    void fetchAdminInvoicesPageResult({
       sort,
-      category: 'all',
+      pageSize: LIST_PAGE_SIZE,
+      cursor,
+      category,
+      listFilterStatus: statusFilter,
       dateStart,
       dateEnd,
       salespersonIds,
     })
-      .then(({ rows: next }) => {
+      .then(({ rows: next, lastDoc, hasMore: more }) => {
         if (cancelled) return;
         setRows(next);
-        setHasMore(false);
+        setHasMore(more);
+        if (lastDoc) pageCursorStack.current[page] = lastDoc;
         setLoading(false);
-        void fetchAdminPortalStampingInvoices({
-          sort,
-          dateStart,
-          dateEnd,
-          salespersonIds,
-        }).then(portal => {
-          if (cancelled) return;
-          setRows(overlayPortalStampingOnInvoices(next, portal.rows, sort));
-        });
       })
       .catch(err => {
         if (!cancelled) {
@@ -634,10 +667,15 @@ export const AdminInvoicesPage: React.FC = () => {
     salespersonScopeKey,
     useAggregate,
     useLifetimeDealerRollups,
+    category,
+    statusFilter,
+    page,
+    orgWide,
   ]);
 
   // Reset cursor stack when filters change (search is autocomplete-only — does not reload list).
   useEffect(() => {
+    pageCursorStack.current = [null];
     setPage(1);
   }, [rangePreset, category, statusFilter, sort, selectedCustomerKey, useAggregate, salespersonScopeKey]);
 
@@ -739,6 +777,7 @@ export const AdminInvoicesPage: React.FC = () => {
         if (cancelled) return;
         applyDealerRows(allRows);
         setLoading(false);
+        if (category !== 'gatc') return;
         void fetchAdminPortalStampingInvoices({
           customerIds: selectedCustomerIds,
           dateStart,
@@ -767,7 +806,14 @@ export const AdminInvoicesPage: React.FC = () => {
     dateEnd,
     sort,
     selectedCustomerIds,
+    category,
   ]);
+
+  const serverPaged = orgWide
+    && !dealerScoped
+    && !useAggregate
+    && category !== 'gatc'
+    && statusFilter !== 'support';
 
   const listRows = useMemo(
     () => {
@@ -783,21 +829,26 @@ export const AdminInvoicesPage: React.FC = () => {
   );
 
   const statusFiltered = useMemo(
-    () => applyInvoiceListStatusFilter(
-      listRows,
-      statusFilter,
-      logisticsByInvoiceId,
-      supportLinks,
-    ),
-    [listRows, statusFilter, logisticsByInvoiceId, supportLinks],
+    () => (serverPaged
+      ? listRows
+      : applyInvoiceListStatusFilter(
+        listRows,
+        statusFilter,
+        logisticsByInvoiceId,
+        supportLinks,
+      )),
+    [serverPaged, listRows, statusFilter, logisticsByInvoiceId, supportLinks],
   );
 
   const filtered = useMemo(
-    () => filterAdminInvoices(statusFiltered, '', category),
-    [statusFiltered, category],
+    () => (serverPaged ? listRows : filterAdminInvoices(statusFiltered, '', category)),
+    [serverPaged, listRows, statusFiltered, category],
   );
 
   const statusCounts = useMemo(() => {
+    if (serverPaged && listKpi) {
+      return invoiceChipStatusCounts(listKpi, category);
+    }
     const counts: Record<string, number> = {};
     for (const row of listRows) {
       const key = invoiceListFilterStatusKey(row, logisticsByInvoiceId.get(row.id));
@@ -806,11 +857,13 @@ export const AdminInvoicesPage: React.FC = () => {
     }
     counts.support = listRows.filter(row => invoiceMatchesSupportLinks(row, supportLinks)).length;
     return counts;
-  }, [listRows, logisticsByInvoiceId, supportLinks]);
+  }, [serverPaged, listKpi, category, listRows, logisticsByInvoiceId, supportLinks]);
 
   const categoryChipCounts = useMemo(
-    () => countInvoiceRowsByCategory(statusFiltered),
-    [statusFiltered],
+    () => (serverPaged && listKpi
+      ? invoiceChipCategoryCounts(listKpi, statusFilter)
+      : countInvoiceRowsByCategory(statusFiltered)),
+    [serverPaged, listKpi, statusFilter, statusFiltered],
   );
 
   const displayRows = useMemo(
@@ -822,21 +875,27 @@ export const AdminInvoicesPage: React.FC = () => {
     [useAggregate, useLifetimeDealerRollups, filtered, sort],
   );
 
-  // Client-side pagination for aggregate / dealer-scoped / portal stamping / status dumps.
-  const clientPaged = !useLifetimeDealerRollups;
-  const statusCountsComplete = clientPaged;
-  const totalCount = clientPaged
-    ? displayRows.length
-    : (category === 'all' ? categoryCounts.all : categoryCounts[category as InvoiceCategory]);
+  // Client-side pagination for aggregate / dealer-scoped / stamping / support.
+  const clientPaged = !serverPaged && !useLifetimeDealerRollups;
+  const statusCountsComplete = serverPaged || clientPaged;
+  const filteredChipCount = statusFilter === 'all' || statusFilter === 'support'
+    ? invoicePageCategoryCount(category, categoryChipCounts)
+    : Number(statusCounts[statusFilter] ?? 0);
+  const totalCount = serverPaged
+    ? filteredChipCount
+    : clientPaged
+      ? displayRows.length
+      : (category === 'all' ? categoryCounts.all : categoryCounts[category as InvoiceCategory]);
   const totalPages = clientPaged
     ? Math.max(1, Math.ceil(displayRows.length / LIST_PAGE_SIZE))
     : Math.max(1, Math.ceil(totalCount / LIST_PAGE_SIZE) || 1);
 
   const pageRows = useMemo(() => {
+    if (serverPaged) return displayRows;
     if (!clientPaged) return displayRows;
     const start = (page - 1) * LIST_PAGE_SIZE;
     return displayRows.slice(start, start + LIST_PAGE_SIZE);
-  }, [displayRows, page, clientPaged]);
+  }, [displayRows, page, clientPaged, serverPaged]);
 
   const logisticsInvoiceIdsKey = useMemo(() => {
     const source = listRows;
@@ -884,34 +943,12 @@ export const AdminInvoicesPage: React.FC = () => {
 
   useEffect(() => {
     const seeded = new Map<string, LogisticsBooking>();
-    const missing: string[] = [];
     for (const invoice of listRows) {
       if ((invoice.aggregateInvoiceCount ?? 0) > 1) continue;
       const fromSummary = adminInvoiceLogisticsBooking(invoice);
-      if (fromSummary) {
-        seeded.set(invoice.id, fromSummary);
-        continue;
-      }
-      if (invoiceAllowsLogisticsFulfillment(invoice)) missing.push(invoice.id);
+      if (fromSummary) seeded.set(invoice.id, fromSummary);
     }
     setLogisticsByInvoiceId(seeded);
-    if (!missing.length) return;
-
-    let cancelled = false;
-    void findLogisticsBookingsForInvoices(missing)
-      .then(map => {
-        if (cancelled) return;
-        setLogisticsByInvoiceId(prev => {
-          const next = new Map(prev);
-          for (const [id, booking] of map) next.set(id, booking);
-          return next;
-        });
-      })
-      .catch(() => undefined);
-
-    return () => {
-      cancelled = true;
-    };
   }, [logisticsInvoiceIdsKey, listRows]);
 
   const openInvoice = useCallback((invoice: AdminFirestoreInvoice) => {
@@ -1175,7 +1212,9 @@ export const AdminInvoicesPage: React.FC = () => {
           <InvoiceStatusFilterBlocks
             value={statusFilter}
             counts={statusCounts}
-            allCount={listRows.length}
+            allCount={serverPaged
+              ? invoicePageCategoryCount(category, categoryChipCounts)
+              : listRows.length}
             countsComplete={statusCountsComplete}
             loading={loading}
             onChange={setStatusFilter}

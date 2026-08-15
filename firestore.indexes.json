@@ -602,6 +602,46 @@
       ]
     },
     {
+      "collectionGroup": "invoiceSummaries",
+      "queryScope": "COLLECTION_GROUP",
+      "fields": [
+        { "fieldPath": "listStatus", "order": "ASCENDING" },
+        { "fieldPath": "date", "order": "DESCENDING" },
+        { "fieldPath": "invoiceNumber", "order": "DESCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "invoiceSummaries",
+      "queryScope": "COLLECTION_GROUP",
+      "fields": [
+        { "fieldPath": "categories", "arrayConfig": "CONTAINS" },
+        { "fieldPath": "listStatus", "order": "ASCENDING" },
+        { "fieldPath": "date", "order": "DESCENDING" },
+        { "fieldPath": "invoiceNumber", "order": "DESCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "invoiceSummaries",
+      "queryScope": "COLLECTION_GROUP",
+      "fields": [
+        { "fieldPath": "salespersonId", "order": "ASCENDING" },
+        { "fieldPath": "listStatus", "order": "ASCENDING" },
+        { "fieldPath": "date", "order": "DESCENDING" },
+        { "fieldPath": "invoiceNumber", "order": "DESCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "invoiceSummaries",
+      "queryScope": "COLLECTION_GROUP",
+      "fields": [
+        { "fieldPath": "salespersonId", "order": "ASCENDING" },
+        { "fieldPath": "categories", "arrayConfig": "CONTAINS" },
+        { "fieldPath": "listStatus", "order": "ASCENDING" },
+        { "fieldPath": "date", "order": "DESCENDING" },
+        { "fieldPath": "invoiceNumber", "order": "DESCENDING" }
+      ]
+    },
+    {
       "collectionGroup": "purchaseOrders",
       "queryScope": "COLLECTION",
       "fields": [

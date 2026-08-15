@@ -3,7 +3,7 @@
  */
 import { getFirestore } from 'firebase-admin/firestore';
 import { invoicesCollection } from './invoice-sync.js';
-import { invoiceSummaryRef } from './invoice-stats.js';
+import { patchInvoiceSummaryListFields } from './invoice-stats.js';
 import {
   ensureInvoiceEwayBillForCustomerPickup,
   isEwayBillRequired,
@@ -47,7 +47,7 @@ async function writeCustomerPickupDocs(customerId, invoiceId, customerPickup) {
     customerPickupMarkedAt: customerPickup.markedAt,
   };
   await invoicesCollection(customerId).doc(invoiceId).set(payload, { merge: true });
-  await invoiceSummaryRef(customerId, invoiceId).set(payload, { merge: true });
+  await patchInvoiceSummaryListFields(customerId, invoiceId, payload);
 }
 
 /**
