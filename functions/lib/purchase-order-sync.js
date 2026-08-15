@@ -1053,6 +1053,57 @@ export async function importPurchaseOrdersByNumber(secrets, orgId, purchaseOrder
   return results;
 }
 
+export async function createPurchaseOrderInZoho(secrets, orgId, input = {}) {
+  const vendorId = String(input.vendorId ?? '').trim();
+  if (!vendorId) throw new Error('vendorId is required.');
+  const date = String(input.date ?? '').trim().slice(0, 10);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) {
+    throw new Error('A valid purchase order date is required.');
+  }
+  const referenceNumber = String(input.referenceNumber ?? input.piNumber ?? '').trim();
+  if (!referenceNumber) throw new Error('PI number is required.');
+
+  const lines = Array.isArray(input.lines) ? input.lines : [];
+  const lineItems = lines
+    .map(line => ({
+      item_id: String(line.productId ?? line.itemId ?? '').trim(),
+      name: line.name ? String(line.name) : undefined,
+      quantity: Number(line.quantity) || 0,
+      rate: Number(line.rate) || 0,
+    }))
+    .filter(line => line.item_id && line.quantity > 0);
+  if (!lineItems.length) {
+    throw new Error('Purchase order must have at least one item.');
+  }
+
+  const accessToken = await getAccessToken(secrets);
+  const organizationId = await resolveOrganizationId(accessToken, orgId);
+  const body = {
+    vendor_id: vendorId,
+    date,
+    reference_number: referenceNumber,
+    line_items: lineItems,
+  };
+  const payload = await zohoJsonRequest(
+    accessToken,
+    organizationId,
+    '/purchaseorders',
+    { method: 'POST', body },
+  );
+  const created = payload?.purchaseorder;
+  const id = String(created?.purchaseorder_id ?? '').trim();
+  if (!id) {
+    throw new Error(payload?.message || 'Zoho did not return a purchase order id.');
+  }
+  await upsertPurchaseOrderFromRaw(created);
+  return {
+    id,
+    purchaseOrderNumber: created.purchaseorder_number
+      ? String(created.purchaseorder_number)
+      : '',
+  };
+}
+
 const PO_LOCKED_STATUSES = new Set(['cancelled', 'canceled', 'billed', 'closed', 'void']);
 
 export async function updatePurchaseOrderInZoho(secrets, orgId, purchaseOrderId, patch = {}) {

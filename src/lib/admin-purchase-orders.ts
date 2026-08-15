@@ -662,6 +662,39 @@ export async function fetchAdminPurchaseOrderDetail(
   };
 }
 
+export async function createAdminPurchaseOrder(input: {
+  vendorId: string;
+  date: string;
+  referenceNumber: string;
+  lines: Array<{
+    productId: string;
+    quantity: number;
+    rate: number;
+    name?: string;
+  }>;
+}): Promise<{ id: string; purchaseOrderNumber: string }> {
+  const callable = httpsCallable<
+    typeof input,
+    { id?: string; purchaseOrderNumber?: string }
+  >(functions, 'createPurchaseOrder', { timeout: 120_000 });
+  try {
+    const result = await callable({
+      vendorId: input.vendorId,
+      date: input.date,
+      referenceNumber: input.referenceNumber,
+      lines: input.lines,
+    });
+    const id = String(result.data?.id ?? '').trim();
+    if (!id) throw new Error('Zoho did not return a purchase order id.');
+    return {
+      id,
+      purchaseOrderNumber: String(result.data?.purchaseOrderNumber ?? ''),
+    };
+  } catch (err) {
+    throw new Error(invoiceErrorMessage(err));
+  }
+}
+
 export async function updateAdminPurchaseOrder(input: {
   purchaseOrderId: string;
   vendorId?: string | null;

@@ -5,6 +5,7 @@ import {
   ArrowRight,
   Check,
   ChevronRight,
+  FileText,
   MapPin,
   Package,
   RefreshCw,
@@ -34,6 +35,10 @@ import {
 } from '../../lib/catalog';
 import { canViewCatalogStock } from '../../lib/dealerAccess';
 import {
+  createAdminPurchaseOrder,
+} from '../../lib/admin-purchase-orders';
+import { invoiceErrorMessage } from '../../lib/invoices';
+import {
   loadLatestPurchaseCostsByItemId,
   type PurchaseItemCost,
   type PurchaseItemCostSet,
@@ -49,7 +54,7 @@ import {
 import type { CatalogCategory, CatalogProduct } from '../../types/catalog';
 
 const LIST_PATH = '/super-admin/purchase-orders';
-const STEPS = ['vendor', 'catalog', 'preview'] as const;
+const STEPS = ['vendor', 'pi', 'catalog', 'preview'] as const;
 type WizardStep = (typeof STEPS)[number];
 
 function progressClass(stepIndex: number, index: number): string {
@@ -64,6 +69,26 @@ function vendorLocation(vendor: ZohoVendorOption): string | null {
 
 function lastPurchaseCost(set: PurchaseItemCostSet | undefined): PurchaseItemCost | null {
   return set?.latest ?? null;
+}
+
+function todayYmd(): string {
+  const now = new Date();
+  const month = String(now.getMonth() + 1).padStart(2, '0');
+  const day = String(now.getDate()).padStart(2, '0');
+  return `${now.getFullYear()}-${month}-${day}`;
+}
+
+function lineRateForVendor(
+  item: { productId: string; rate: number },
+  costs: Map<string, PurchaseItemCostSet>,
+  vendorCurrency?: string | null,
+): number {
+  const set = costs.get(item.productId);
+  const code = String(vendorCurrency ?? '').toUpperCase();
+  if (code === 'USD' && set?.highestUsd) return set.highestUsd.amount;
+  if (code === 'INR' && set?.highestInr) return set.highestInr.amount;
+  if (set?.latest && (!code || set.latest.currencyCode === code)) return set.latest.amount;
+  return Math.round(Number(item.rate ?? 0) * 100) / 100;
 }
 
 const CreatePurchaseOrderWizard: React.FC = () => {
@@ -82,6 +107,9 @@ const CreatePurchaseOrderWizard: React.FC = () => {
   const [vendorsLoading, setVendorsLoading] = useState(false);
   const [vendorsFetching, setVendorsFetching] = useState(false);
   const [selectedVendor, setSelectedVendor] = useState<ZohoVendorOption | null>(null);
+  const [piNumber, setPiNumber] = useState('');
+  const [poDate, setPoDate] = useState(todayYmd);
+  const [creating, setCreating] = useState(false);
 
   const [catalogProducts, setCatalogProducts] = useState<CatalogProduct[]>([]);
   const [catalogCategories, setCatalogCategories] = useState<CatalogCategory[]>([]);
@@ -98,6 +126,7 @@ const CreatePurchaseOrderWizard: React.FC = () => {
   const showStockQuantity = canViewCatalogStock(user);
   const stepIndex = STEPS.indexOf(step);
   const vendorReady = Boolean(selectedVendor);
+  const piReady = Boolean(piNumber.trim() && poDate);
 
   useCatalogPageHeader({
     title: 'New purchase order',
@@ -121,6 +150,10 @@ const CreatePurchaseOrderWizard: React.FC = () => {
       return;
     }
     if (step === 'catalog') {
+      setStep('pi');
+      return;
+    }
+    if (step === 'pi') {
       setStep('vendor');
       return;
     }
@@ -291,19 +324,79 @@ const CreatePurchaseOrderWizard: React.FC = () => {
     };
   }, [step, items.length]);
 
+  const goToPi = () => {
+    if (!selectedVendor) {
+      setError('Select a vendor.');
+      return;
+    }
+    setError('');
+    setStep('pi');
+  };
+
   const goToCatalog = () => {
     if (!selectedVendor) {
       setError('Select a vendor.');
+      setStep('vendor');
+      return;
+    }
+    if (!piNumber.trim()) {
+      setError('Enter the PI number.');
+      return;
+    }
+    if (!poDate) {
+      setError('Enter the purchase order date.');
       return;
     }
     setError('');
     setStep('catalog');
   };
 
+  const createPo = async () => {
+    if (!selectedVendor) {
+      setError('Select a vendor first.');
+      setStep('vendor');
+      return;
+    }
+    if (!piNumber.trim() || !poDate) {
+      setError('Enter the PI number and date.');
+      setStep('pi');
+      return;
+    }
+    if (!items.length) {
+      setError('Add at least one item from the catalog.');
+      return;
+    }
+    setCreating(true);
+    setError('');
+    try {
+      const created = await createAdminPurchaseOrder({
+        vendorId: selectedVendor.id,
+        date: poDate,
+        referenceNumber: piNumber.trim(),
+        lines: items.map(item => ({
+          productId: item.productId,
+          quantity: item.quantity,
+          rate: lineRateForVendor(item, poCosts, selectedVendor.currencyCode),
+          name: item.name,
+        })),
+      });
+      navigate(`${LIST_PATH}/${created.id}`, { replace: true });
+    } catch (err) {
+      setError(invoiceErrorMessage(err));
+    } finally {
+      setCreating(false);
+    }
+  };
+
   const goToPreview = () => {
     if (!selectedVendor) {
       setError('Select a vendor first.');
       setStep('vendor');
+      return;
+    }
+    if (!piReady) {
+      setError('Enter the PI number and date.');
+      setStep('pi');
       return;
     }
     if (!items.length) {
@@ -321,8 +414,14 @@ const CreatePurchaseOrderWizard: React.FC = () => {
       setStep('vendor');
       return;
     }
-    if (target === 'catalog') {
+    if (target === 'pi') {
       if (!vendorReady) return;
+      setError('');
+      setStep('pi');
+      return;
+    }
+    if (target === 'catalog') {
+      if (!vendorReady || !piReady) return;
       setError('');
       setStep('catalog');
       return;
@@ -346,15 +445,23 @@ const CreatePurchaseOrderWizard: React.FC = () => {
   }, [items, poCosts]);
 
   return (
-    <div className={`page-content fade-in staff-create-so-page staff-create-so-page--${step === 'vendor' ? 'dealer' : step}`}>
+    <div className={`page-content fade-in staff-create-so-page staff-create-so-page--${step === 'vendor' || step === 'pi' ? 'dealer' : step}`}>
       <nav className="staff-create-so-page__stepper" aria-label="Create purchase order progress">
         {STEPS.map((id, index) => {
-          const label = id === 'vendor' ? 'Vendor' : id === 'catalog' ? 'Items' : 'Review';
+          const label = id === 'vendor'
+            ? 'Vendor'
+            : id === 'pi'
+              ? 'PI'
+              : id === 'catalog'
+                ? 'Items'
+                : 'Review';
           const clickable = id === 'vendor'
             ? step !== 'vendor'
-            : id === 'catalog'
-              ? vendorReady && step !== 'catalog'
-              : vendorReady && items.length > 0 && step === 'catalog';
+            : id === 'pi'
+              ? vendorReady && step !== 'pi'
+              : id === 'catalog'
+                ? vendorReady && piReady && step !== 'catalog'
+                : vendorReady && piReady && items.length > 0 && step !== 'preview';
           const stateClass = progressClass(stepIndex, index);
           return (
             <React.Fragment key={id}>
@@ -405,7 +512,7 @@ const CreatePurchaseOrderWizard: React.FC = () => {
               </span>
               <div className="staff-create-so-page__dealer-hero-copy">
                 <h2>Select vendor</h2>
-                <p>Search Zoho vendors, then continue to the catalog.</p>
+                <p>Search Zoho vendors, then enter the PI details.</p>
               </div>
               <span className="staff-create-so-page__dealer-hero-art" aria-hidden>
                 <Package size={24} />
@@ -538,6 +645,77 @@ const CreatePurchaseOrderWizard: React.FC = () => {
               type="button"
               className="btn btn-primary staff-create-so-page__dealer-continue-btn"
               disabled={!vendorReady}
+              onClick={goToPi}
+            >
+              Continue to PI
+              <ArrowRight size={16} aria-hidden />
+            </button>
+          </div>
+        </>
+      ) : null}
+
+      {step === 'pi' ? (
+        <>
+          <section className="staff-create-so-page__dealer-stage">
+            <header className="staff-create-so-page__dealer-hero">
+              <span className="staff-create-so-page__dealer-hero-icon" aria-hidden>
+                <FileText size={22} />
+              </span>
+              <div className="staff-create-so-page__dealer-hero-copy">
+                <h2>PI details</h2>
+                <p>Enter the proforma invoice number and purchase order date.</p>
+              </div>
+            </header>
+
+            <div className="staff-create-so-page__dealer-panel panel glass">
+              {selectedVendor ? (
+                <div className="staff-create-so-page__dealer-selected">
+                  <div>
+                    <strong>{selectedVendor.name}</strong>
+                    {vendorLocation(selectedVendor) ? (
+                      <p className="text-muted text-sm">{vendorLocation(selectedVendor)}</p>
+                    ) : null}
+                  </div>
+                  <button
+                    type="button"
+                    className="btn btn-secondary btn-sm"
+                    onClick={() => setStep('vendor')}
+                  >
+                    Change
+                  </button>
+                </div>
+              ) : null}
+              <div className="create-po-page__detail-fields">
+                <label>
+                  <span className="text-muted text-sm">PI number</span>
+                  <input
+                    type="text"
+                    className="input-field"
+                    value={piNumber}
+                    onChange={e => setPiNumber(e.target.value)}
+                    placeholder="Proforma invoice #"
+                    autoComplete="off"
+                  />
+                </label>
+                <label>
+                  <span className="text-muted text-sm">Date</span>
+                  <input
+                    type="date"
+                    className="input-field"
+                    value={poDate}
+                    onChange={e => setPoDate(e.target.value)}
+                    aria-label="Purchase order date"
+                  />
+                </label>
+              </div>
+            </div>
+          </section>
+
+          <div className="staff-create-so-page__dealer-continue staff-create-so-page__dealer-continue--sticky">
+            <button
+              type="button"
+              className="btn btn-primary staff-create-so-page__dealer-continue-btn"
+              disabled={!piReady}
               onClick={goToCatalog}
             >
               Continue to Catalog
@@ -663,6 +841,8 @@ const CreatePurchaseOrderWizard: React.FC = () => {
                 {selectedVendor.currencyCode ? (
                   <p className="text-muted text-sm">Currency {selectedVendor.currencyCode}</p>
                 ) : null}
+                <p className="text-muted text-sm">PI {piNumber.trim() || '—'}</p>
+                <p className="text-muted text-sm">Date {poDate || '—'}</p>
               </div>
             ) : null}
           </section>
@@ -745,6 +925,17 @@ const CreatePurchaseOrderWizard: React.FC = () => {
               </div>
             ) : null}
           </section>
+
+          <div className="staff-create-so-page__dealer-continue staff-create-so-page__dealer-continue--sticky">
+            <button
+              type="button"
+              className="btn btn-primary staff-create-so-page__dealer-continue-btn"
+              disabled={creating || !items.length || !vendorReady || !piReady}
+              onClick={() => { void createPo(); }}
+            >
+              {creating ? 'Creating in Zoho…' : 'Create purchase order'}
+            </button>
+          </div>
         </>
       ) : null}
     </div>

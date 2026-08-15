@@ -128,6 +128,7 @@ import {
   ensurePurchaseOrderPdf,
   handleZohoPurchaseOrderWebhook,
   updatePurchaseOrderInZoho,
+  createPurchaseOrderInZoho,
 } from './lib/purchase-order-sync.js';
 import {
   searchZohoVendors as searchZohoVendorContacts,
@@ -3253,6 +3254,42 @@ export const searchZohoVendors = onCall(
     } catch (err) {
       console.error('searchZohoVendors failed:', err);
       throw new HttpsError('internal', err?.message ?? 'Could not search vendors.');
+    }
+  },
+);
+
+/** Create a Zoho purchase order, then mirror to Firestore — full-access super admin. */
+export const createPurchaseOrder = onCall(
+  {
+    region: 'asia-south1',
+    secrets: [zohoClientId, zohoClientSecret, zohoRefreshToken],
+    timeoutSeconds: 120,
+    memory: '512MiB',
+  },
+  async request => {
+    await requireActiveUser(request.auth?.uid, SUPER_ADMIN_ROLES);
+    const vendorId = String(request.data?.vendorId ?? '').trim();
+    if (!vendorId) {
+      throw new HttpsError('invalid-argument', 'vendorId is required.');
+    }
+    const lines = Array.isArray(request.data?.lines) ? request.data.lines : [];
+    if (!lines.length) {
+      throw new HttpsError('invalid-argument', 'At least one line item is required.');
+    }
+    try {
+      return await createPurchaseOrderInZoho(
+        zohoSecrets(),
+        zohoOrganizationId.value(),
+        {
+          vendorId,
+          date: request.data?.date,
+          referenceNumber: request.data?.referenceNumber ?? request.data?.piNumber,
+          lines,
+        },
+      );
+    } catch (err) {
+      console.error('createPurchaseOrder failed:', err);
+      throw new HttpsError('internal', err?.message ?? 'Could not create purchase order.');
     }
   },
 );
