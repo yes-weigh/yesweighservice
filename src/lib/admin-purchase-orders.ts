@@ -307,7 +307,7 @@ export async function countAdminPurchaseOrders(
   } catch (err) {
     if (!isFirestoreIndexError(err)) throw err;
     const { rows } = await fetchAllAdminPurchaseOrdersInRange({
-      sort,
+      sort: options.sort ?? 'date',
       category,
       dateStart,
       dateEnd,

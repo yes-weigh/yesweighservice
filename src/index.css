@@ -19029,6 +19029,27 @@ body:has(.confirm-inline-bar) .confirm-inline-bar {
   }
 }
 
+.create-po-page__last-cost {
+  margin: 0.2rem 0 0.45rem;
+}
+
+.create-po-page__totals {
+  margin-top: 0.85rem;
+  padding-top: 0.75rem;
+  border-top: 1px solid rgba(148, 163, 184, 0.18);
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+
+.create-po-page__totals p {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 1rem;
+  margin: 0;
+}
+
 .freight-partner-picker {
   display: flex;
   flex-direction: column;
@@ -31594,6 +31615,18 @@ body:has(.confirm-inline-bar) .confirm-inline-bar {
 
 .invoices-header-tools .catalog-header-filter-btn {
   flex-shrink: 0;
+}
+
+.create-po-header-btn {
+  background: var(--accent-primary);
+  border-color: var(--accent-primary);
+  color: #111;
+}
+
+.create-po-header-btn:hover {
+  background: var(--accent-primary-hover, #e06e14);
+  border-color: var(--accent-primary-hover, #e06e14);
+  color: #111;
 }
 
 .admin-invoices-mobile-search.invoices-header-tools {

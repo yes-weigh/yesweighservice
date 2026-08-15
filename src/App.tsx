@@ -34,6 +34,7 @@ import { AdminInvoiceDetailLayout } from './pages/admin/AdminInvoiceDetailLayout
 import { AdminInvoiceDocumentPage } from './pages/admin/AdminInvoiceDocumentPage';
 import { AdminInvoicePdfViewerPage } from './pages/admin/AdminInvoicePdfViewerPage';
 import { AdminPurchaseOrdersPage } from './pages/admin/AdminPurchaseOrdersPage';
+import { AdminCreatePurchaseOrderPage } from './pages/admin/AdminCreatePurchaseOrderPage';
 import { AdminPurchaseOrderDetailLayout } from './pages/admin/AdminPurchaseOrderDetailLayout';
 import { AdminPurchaseOrderDocumentPage } from './pages/admin/AdminPurchaseOrderDocumentPage';
 import { AdminPurchaseOrderPdfViewerPage } from './pages/admin/AdminPurchaseOrderPdfViewerPage';
@@ -315,6 +316,7 @@ const App: React.FC = () => (
               <Route path="orders/:orderId" element={<OpsOrderDetailRedirect />} />
               <Route element={<SuperAdminPurchaseOrderRoute />}>
                 <Route path="purchase-orders" element={<AdminPurchaseOrdersPage />} />
+                <Route path="purchase-orders/new" element={<AdminCreatePurchaseOrderPage />} />
                 <Route path="purchase-orders/sync" element={<Navigate to="/super-admin/purchase-orders" replace />} />
                 <Route path="purchase-orders/:purchaseOrderId" element={<AdminPurchaseOrderDetailLayout />}>
                   <Route index element={<AdminPurchaseOrderDocumentPage />} />

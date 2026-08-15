@@ -128,6 +128,7 @@ import {
   ensurePurchaseOrderPdf,
   handleZohoPurchaseOrderWebhook,
 } from './lib/purchase-order-sync.js';
+import { searchZohoVendors as searchZohoVendorContacts } from './lib/zoho-vendors.js';
 import {
   syncOrgGoodsReceiptsToFirestore,
   reclassifyGoodsReceiptCategoriesFromCatalog,
@@ -3197,6 +3198,33 @@ export const reclassifyPurchaseOrderCategoriesFromCatalogFn = onCall(
     } catch (err) {
       console.error('reclassifyPurchaseOrderCategoriesFromCatalog failed:', err);
       throw new HttpsError('internal', err?.message ?? 'Purchase order category reclassify failed.');
+    }
+  },
+);
+
+/** Live Zoho vendor autocomplete for PO create — full-access super admin. */
+export const searchZohoVendors = onCall(
+  {
+    region: 'asia-south1',
+    secrets: [zohoClientId, zohoClientSecret, zohoRefreshToken],
+    timeoutSeconds: 30,
+    memory: '256MiB',
+  },
+  async request => {
+    await requireActiveUser(request.auth?.uid, SUPER_ADMIN_ROLES);
+    try {
+      return await searchZohoVendorContacts(
+        zohoSecrets(),
+        zohoOrganizationId.value(),
+        {
+          query: String(request.data?.query ?? ''),
+          page: request.data?.page,
+          perPage: request.data?.perPage,
+        },
+      );
+    } catch (err) {
+      console.error('searchZohoVendors failed:', err);
+      throw new HttpsError('internal', err?.message ?? 'Could not search vendors.');
     }
   },
 );

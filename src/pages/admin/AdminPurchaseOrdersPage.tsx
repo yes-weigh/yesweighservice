@@ -6,11 +6,14 @@ import {
   AlertCircle,
   FileText,
   IndianRupee,
+  Plus,
   Search,
   ShoppingBag,
   SlidersHorizontal,
   X,
 } from 'lucide-react';
+import { useAuth } from '../../context/AuthContext';
+import { canUpdatePurchaseOrders } from '../../lib/staffAccess';
 import { FetchingLoader } from '../../components/FetchingLoader';
 import { AdminPurchaseOrderDocCard } from '../../components/admin/AdminPurchaseOrderDocCard';
 import { useCatalogPageHeader, usePageHeaderSlot } from '../../context/PageHeaderContext';
@@ -209,6 +212,8 @@ function PurchaseOrderFilterSheet({
 
 export const AdminPurchaseOrdersPage: React.FC = () => {
   const navigate = useNavigate();
+  const { user } = useAuth();
+  const canCreatePo = canUpdatePurchaseOrders(user);
   const basePath = '/super-admin';
   const scrollRef = useRevealScrollbarOnScroll();
   const pageStartCursors = useRef<Array<QueryDocumentSnapshot<DocumentData> | null>>([null]);
@@ -386,6 +391,17 @@ export const AdminPurchaseOrdersPage: React.FC = () => {
             </button>
           )}
         </div>
+        {canCreatePo ? (
+          <button
+            type="button"
+            className="catalog-header-filter-btn create-po-header-btn"
+            onClick={() => navigate(`${basePath}/purchase-orders/new`)}
+            aria-label="Create purchase order"
+            title="Create purchase order"
+          >
+            <Plus size={20} strokeWidth={2.25} />
+          </button>
+        ) : null}
         <button
           type="button"
           className={[
@@ -403,7 +419,7 @@ export const AdminPurchaseOrdersPage: React.FC = () => {
         </button>
       </div>
     ),
-    [search, filterOpen, hasActiveFilters],
+    [search, filterOpen, hasActiveFilters, canCreatePo, navigate, basePath],
   );
 
   useCatalogPageHeader({ mobileCompactHeader: true }, true);
