@@ -74,7 +74,7 @@ export const InvoicePdfViewerPage: React.FC = () => {
   }, [invoiceId, useNativeViewer]);
 
   const sharePdf = async () => {
-    if (!document || sharing) return;
+    if (!document || !invoice || sharing) return;
     setSharing(true);
     setShareError('');
     const label = invoice.invoiceNumber?.trim() || invoiceId;
