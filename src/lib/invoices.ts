@@ -1082,9 +1082,46 @@ export function sumInvoiceProductQuantity(lineItems: DealerInvoiceLineItem[]): n
   }, 0);
 }
 
+/** Distinct product/spare lines on an invoice, excluding freight and GATC fee lines. */
+export function countInvoiceItemVariants(
+  lineItems: Array<{
+    name?: string | null;
+    sku?: string | null;
+    hsn?: string | null;
+    itemId?: string | null;
+    id?: string | null;
+    productId?: string | null;
+  }> | null | undefined,
+): number | null {
+  if (!Array.isArray(lineItems) || lineItems.length === 0) return null;
+  const keys = new Set<string>();
+  let unnamed = 0;
+  for (const item of lineItems) {
+    const name = String(item?.name ?? '');
+    if (isQuantityExcludedInvoiceLineItem({
+      name,
+      sku: item?.sku ?? null,
+      hsn: item?.hsn,
+    })) continue;
+    const key = String(item?.sku ?? '').trim().toLowerCase()
+      || String(item?.itemId ?? item?.productId ?? item?.id ?? '').trim()
+      || name.trim().toLowerCase();
+    if (key) keys.add(key);
+    else unnamed += 1;
+  }
+  return keys.size + unnamed;
+}
+
 export function formatInvoiceItemQuantity(quantity: number | null): string {
   if (quantity === null) return '—';
   return quantity.toLocaleString('en-IN');
+}
+
+export function formatInvoiceQtyVariants(
+  quantity: number | null,
+  variantCount: number | null,
+): string {
+  return `${formatInvoiceItemQuantity(quantity)} / ${formatInvoiceItemQuantity(variantCount)}`;
 }
 
 export function parseInvoiceCategory(value: unknown): InvoiceCategory | null {

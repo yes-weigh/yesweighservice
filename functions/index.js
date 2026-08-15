@@ -103,6 +103,7 @@ import {
   backfillInvoiceStatsAndSummaries,
   backfillInvoiceSummaryCustomerPickups,
   backfillInvoiceSummaryListFields,
+  backfillInvoiceSummaryVariantCounts,
   syncInvoiceSummariesFromLogisticsBooking,
 } from './lib/invoice-stats.js';
 import { backfillSalesOrderStats } from './lib/sales-order-stats.js';
@@ -2717,6 +2718,24 @@ export const backfillInvoiceSummaryListFieldsFn = onCall(
     } catch (err) {
       console.error('backfillInvoiceSummaryListFields failed:', err);
       throw new HttpsError('internal', err?.message ?? 'Invoice summary list-field backfill failed.');
+    }
+  },
+);
+
+/** Copy itemVariantCount from hot invoices onto invoiceSummaries (admin list source). */
+export const backfillInvoiceSummaryVariantCountsFn = onCall(
+  {
+    region: 'asia-south1',
+    timeoutSeconds: 540,
+    memory: '1GiB',
+  },
+  async request => {
+    await requireActiveUser(request.auth?.uid, SUPER_ADMIN_ROLES);
+    try {
+      return await backfillInvoiceSummaryVariantCounts();
+    } catch (err) {
+      console.error('backfillInvoiceSummaryVariantCounts failed:', err);
+      throw new HttpsError('internal', err?.message ?? 'Invoice summary variant-count backfill failed.');
     }
   },
 );

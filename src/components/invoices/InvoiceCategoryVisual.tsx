@@ -8,6 +8,11 @@ import {
 import type { OrderSegment } from '../../lib/salesOrderSegments';
 import type { InvoiceCategory } from '../../types/invoices';
 import { invoiceTileLeadVisual } from '../../lib/invoiceTileLead';
+import { FitSingleLine } from './FitSingleLine';
+import {
+  logisticsPartnerImage,
+  logisticsPartnerLabel,
+} from '../../constants/logisticsPartners';
 import type { LogisticsBooking } from '../../types/logistics-dispatch';
 
 const INVOICE_CATEGORIES = new Set<InvoiceCategory>([
@@ -92,6 +97,41 @@ export function InvoiceTileLeadIcon({
     );
   }
   return <InvoiceCategoryIcon category={lead.category} />;
+}
+
+export function InvoiceTileLeadWithLabel({
+  invoice,
+  booking,
+  layout = 'column',
+}: {
+  invoice: Parameters<typeof invoiceTileLeadVisual>[0];
+  booking?: Pick<LogisticsBooking, 'partnerId'> | null;
+  layout?: 'column' | 'row';
+}) {
+  const lead = invoiceTileLeadVisual(invoice, booking);
+  const pickupImage = logisticsPartnerImage('personal_collection');
+  const pickupLabel = logisticsPartnerLabel('personal_collection');
+  const label = lead.kind === 'partner' ? lead.label : pickupLabel;
+  return (
+    <span className={`invoice-doc-card__lead invoice-doc-card__lead--${layout}`}>
+      {lead.kind === 'partner' ? (
+        <InvoiceTileLeadIcon invoice={invoice} booking={booking} />
+      ) : pickupImage ? (
+        <span
+          className="invoices-mobile-row__icon invoices-mobile-row__icon--partner"
+          title={pickupLabel}
+          aria-label={pickupLabel}
+        >
+          <img src={pickupImage} alt="" />
+        </span>
+      ) : (
+        <InvoiceTileLeadIcon invoice={invoice} booking={booking} />
+      )}
+      {label ? (
+        <FitSingleLine className="invoice-doc-card__lead-label">{label}</FitSingleLine>
+      ) : null}
+    </span>
+  );
 }
 
 export function SalesOrderTileLeadIcon({

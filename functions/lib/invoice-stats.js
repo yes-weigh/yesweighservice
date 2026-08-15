@@ -4,7 +4,7 @@
  */
 
 import { getFirestore, FieldValue } from 'firebase-admin/firestore';
-import { freightSkuFromInvoiceLines } from './freight-lines.js';
+import { freightSkuFromInvoiceLines, isFreightOrderLine } from './freight-lines.js';
 
 export const INVOICE_STATS_COLLECTION = 'invoiceStats';
 export const INVOICE_MONTH_STATS_COLLECTION = 'invoiceMonthStats';
@@ -108,10 +108,40 @@ export function sumInvoiceItemQuantity(lineItems) {
   return any ? sum : null;
 }
 
+function isExcludedVariantLine(item) {
+  if (isFreightOrderLine(item)) return true;
+  const name = String(item?.name ?? '').toLowerCase();
+  if (name.includes('freight') || name.includes('stamping') || name.includes('gatc fee')) return true;
+  const sku = String(item?.sku ?? '').trim().toLowerCase();
+  if (sku.includes('freight') || sku.includes('stamping') || /^grv\d/.test(sku)) return true;
+  const hsn = String(item?.hsn ?? '').replace(/\s+/g, '');
+  return hsn === '996812' || hsn === '998346' || hsn === '79061190';
+}
+
+/** Distinct product/spare lines, excluding freight and GATC fee lines. */
+export function countInvoiceItemVariants(lineItems) {
+  if (!Array.isArray(lineItems) || !lineItems.length) return null;
+  const keys = new Set();
+  let unnamed = 0;
+  for (const item of lineItems) {
+    if (isExcludedVariantLine(item)) continue;
+    const sku = String(item?.sku ?? '').trim().toLowerCase();
+    const itemId = String(item?.itemId ?? item?.productId ?? item?.id ?? '').trim();
+    const name = String(item?.name ?? '').trim().toLowerCase();
+    const key = sku || itemId || name;
+    if (key) keys.add(key);
+    else unnamed += 1;
+  }
+  return keys.size + unnamed;
+}
+
 export function buildInvoiceSummaryFields(invoiceDoc, customerId, invoiceId) {
   const itemQuantity = invoiceDoc.itemQuantity != null
     ? Number(invoiceDoc.itemQuantity)
     : sumInvoiceItemQuantity(invoiceDoc.lineItems);
+  const itemVariantCount = invoiceDoc.itemVariantCount != null
+    ? Number(invoiceDoc.itemVariantCount)
+    : countInvoiceItemVariants(invoiceDoc.lineItems);
   const amount = amountExclGst(invoiceDoc);
   const categories = categoriesFromInvoiceLike(invoiceDoc);
   const categoryAmounts = categoryAmountsFromInvoiceLike(invoiceDoc, amount);
@@ -148,6 +178,7 @@ export function buildInvoiceSummaryFields(invoiceDoc, customerId, invoiceId) {
     categories,
     categoryAmounts,
     itemQuantity,
+    ...(itemVariantCount != null && Number.isFinite(itemVariantCount) ? { itemVariantCount } : {}),
     amountExclGst: amount,
     freightSku: invoiceDoc.freightSku
       ? String(invoiceDoc.freightSku).trim().toUpperCase() || null
@@ -565,6 +596,51 @@ export async function backfillInvoiceSummaryFreightSkus({ onProgress } = {}) {
       if (!freightSku) continue;
       batch.set(invoiceSummaryRef(customer.id, invoice.id), {
         freightSku,
+        updatedAt: FieldValue.serverTimestamp(),
+      }, { merge: true });
+      batchOps += 1;
+      patched += 1;
+      if (batchOps >= 400) await flush();
+    }
+    onProgress?.({ customerId: customer.id, scanned, patched });
+  }
+
+  await flush();
+  return { scanned, patched };
+}
+
+/**
+ * Copy itemVariantCount from hot invoice line items onto invoiceSummaries
+ * so the list can show Qty / Variants without reading line items.
+ */
+export async function backfillInvoiceSummaryVariantCounts({ onProgress } = {}) {
+  const db = getFirestore();
+  let scanned = 0;
+  let patched = 0;
+  let batch = db.batch();
+  let batchOps = 0;
+
+  const flush = async () => {
+    if (!batchOps) return;
+    await batch.commit();
+    batch = db.batch();
+    batchOps = 0;
+  };
+
+  const customersSnap = await db.collection('zohoCustomers').select().get();
+  for (const customer of customersSnap.docs) {
+    const invoicesSnap = await customer.ref.collection('invoices')
+      .select('itemVariantCount', 'lineItems')
+      .get();
+    for (const invoice of invoicesSnap.docs) {
+      scanned += 1;
+      const data = invoice.data() ?? {};
+      const itemVariantCount = data.itemVariantCount != null
+        ? Number(data.itemVariantCount)
+        : countInvoiceItemVariants(data.lineItems);
+      if (itemVariantCount == null || !Number.isFinite(itemVariantCount)) continue;
+      batch.set(invoiceSummaryRef(customer.id, invoice.id), {
+        itemVariantCount,
         updatedAt: FieldValue.serverTimestamp(),
       }, { merge: true });
       batchOps += 1;

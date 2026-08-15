@@ -37,6 +37,7 @@ import {
   normalizeInvoiceCategoryAmounts,
   parseInvoiceCategory,
   sumInvoiceProductQuantity,
+  countInvoiceItemVariants,
   firstDateTimeValue,
   freightSkuFromInvoiceLines,
 } from './invoices';
@@ -85,6 +86,8 @@ export interface AdminFirestoreInvoice {
   referenceNumber: string | null;
   syncedAt: string | null;
   itemQuantity: number | null;
+  /** Distinct product/spare lines, excluding freight. */
+  itemVariantCount?: number | null;
   invoiceCategory: InvoiceCategory | null;
   categories: InvoiceCategory[];
   categoryAmounts: Partial<Record<InvoiceCategory, number>>;
@@ -211,13 +214,15 @@ export function mapAdminInvoiceDoc(
 ): AdminFirestoreInvoice {
   const data = docSnap.data();
   const customerId = String(data.customerId ?? docSnap.ref.parent.parent?.id ?? '');
+  const mappedLines = Array.isArray(data.lineItems)
+    ? data.lineItems.map(item => mapAdminInvoiceLineItem(item as Record<string, unknown>))
+    : null;
   const itemQuantity = data.itemQuantity != null
     ? Number(data.itemQuantity)
-    : (Array.isArray(data.lineItems)
-      ? sumInvoiceProductQuantity(
-        data.lineItems.map(item => mapAdminInvoiceLineItem(item as Record<string, unknown>)),
-      )
-      : null);
+    : (mappedLines ? sumInvoiceProductQuantity(mappedLines) : null);
+  const itemVariantCount = data.itemVariantCount != null
+    ? Number(data.itemVariantCount)
+    : countInvoiceItemVariants(mappedLines);
   return {
     id: docSnap.id,
     customerId,
@@ -239,6 +244,7 @@ export function mapAdminInvoiceDoc(
     referenceNumber: data.referenceNumber ? String(data.referenceNumber) : null,
     syncedAt: timestampToIso(data.syncedAt),
     itemQuantity,
+    itemVariantCount,
     invoiceCategory: parseInvoiceCategory(data.invoiceCategory),
     categories: normalizeInvoiceCategories(data.categories),
     categoryAmounts: normalizeInvoiceCategoryAmounts(data.categoryAmounts),
@@ -448,7 +454,7 @@ export async function fetchAdminInvoicesPage(
     dateEnd,
     salespersonIds,
   }, listCollection);
-  return overlayFreightSkuFromInvoiceDocs(snap.docs.map(mapAdminInvoiceDoc));
+  return overlayInvoiceLineDerivedFields(snap.docs.map(mapAdminInvoiceDoc));
 }
 
 /**
@@ -684,7 +690,7 @@ export async function fetchAdminInvoicesPageResult(options: {
   }, listCollection);
   const rows = snap.docs.map(mapAdminInvoiceDoc);
   return {
-    rows: await overlayFreightSkuFromInvoiceDocs(rows),
+    rows: await overlayInvoiceLineDerivedFields(rows),
     lastDoc: snap.docs[snap.docs.length - 1] ?? null,
     hasMore: snap.size >= pageSize,
   };
@@ -752,13 +758,13 @@ export async function fetchAllAdminInvoicesInRange(options: {
 
   const sliced = truncated ? rows.slice(0, maxRows) : rows;
   if (listCollection === 'invoiceSummaries') {
-    return { rows: await overlayFreightSkuFromInvoiceDocs(sliced), truncated };
+    return { rows: await overlayInvoiceLineDerivedFields(sliced), truncated };
   }
   const withPickup = !cachedSummariesIncludeCustomerPickup
     ? await overlayCustomerPickupFromInvoiceDocs(sliced)
     : sliced;
   const withEway = await overlayEwayBillFromInvoiceDocs(withPickup);
-  const withFreight = await overlayFreightSkuFromInvoiceDocs(withEway);
+  const withFreight = await overlayInvoiceLineDerivedFields(withEway);
 
   return { rows: withFreight, truncated };
 }
@@ -839,20 +845,22 @@ function invoiceListRowNeedsEwayOverlay(row: AdminFirestoreInvoice): boolean {
   );
 }
 
-/** Summaries omit freightSku until dual-write; pull it from the hot invoice for partner tiles. */
+/** Summaries omit freightSku / variant counts until dual-write; pull from the hot invoice. */
 const FREIGHT_SKU_OVERLAY_MAX = 300;
 
-async function overlayFreightSkuFromInvoiceDocs(
+async function overlayInvoiceLineDerivedFields(
   rows: AdminFirestoreInvoice[],
 ): Promise<AdminFirestoreInvoice[]> {
-  const targets = rows.filter(row => (
-    invoiceAllowsLogisticsFulfillment(row)
-    && !String(row.freightSku ?? '').trim()
-    && Boolean(row.customerId)
-  )).slice(0, FREIGHT_SKU_OVERLAY_MAX);
+  const targets = rows.filter(row => {
+    if (!row.customerId) return false;
+    const missingVariants = row.itemVariantCount == null;
+    const missingFreight = invoiceAllowsLogisticsFulfillment(row)
+      && !String(row.freightSku ?? '').trim();
+    return missingVariants || missingFreight;
+  }).slice(0, FREIGHT_SKU_OVERLAY_MAX);
   if (!targets.length) return rows;
 
-  const skuById = new Map<string, string>();
+  const overlayById = new Map<string, { freightSku?: string; itemVariantCount?: number }>();
   for (let i = 0; i < targets.length; i += 8) {
     const batch = targets.slice(i, i + 8);
     const snaps = await Promise.all(
@@ -861,19 +869,26 @@ async function overlayFreightSkuFromInvoiceDocs(
     snaps.forEach((snap, index) => {
       if (!snap.exists()) return;
       const data = snap.data() ?? {};
-      const sku = String(data.freightSku ?? '').trim().toUpperCase()
-        || freightSkuFromInvoiceLines(
-          Array.isArray(data.lineItems) ? data.lineItems : null,
-        );
-      if (sku) skuById.set(batch[index].id, sku);
+      const lines = Array.isArray(data.lineItems) ? data.lineItems : null;
+      const freightSku = String(data.freightSku ?? '').trim().toUpperCase()
+        || freightSkuFromInvoiceLines(lines);
+      const itemVariantCount = data.itemVariantCount != null
+        ? Number(data.itemVariantCount)
+        : countInvoiceItemVariants(lines);
+      const patch: { freightSku?: string; itemVariantCount?: number } = {};
+      if (freightSku) patch.freightSku = freightSku;
+      if (itemVariantCount != null && Number.isFinite(itemVariantCount)) {
+        patch.itemVariantCount = itemVariantCount;
+      }
+      if (Object.keys(patch).length) overlayById.set(batch[index].id, patch);
     });
   }
 
-  if (!skuById.size) return rows;
+  if (!overlayById.size) return rows;
   return rows.map(row => {
-    const freightSku = skuById.get(row.id);
-    if (!freightSku) return row;
-    return { ...row, freightSku };
+    const patch = overlayById.get(row.id);
+    if (!patch) return row;
+    return { ...row, ...patch };
   });
 }
 
@@ -1046,7 +1061,7 @@ async function prefixQueryAdminInvoices(
       limit(rowLimit),
     ),
   );
-  return overlayFreightSkuFromInvoiceDocs(snap.docs.map(mapAdminInvoiceDoc));
+  return overlayInvoiceLineDerivedFields(snap.docs.map(mapAdminInvoiceDoc));
 }
 
 /**
@@ -1210,6 +1225,8 @@ export function aggregateAdminInvoicesByDealer(
     let total = 0;
     let balance = 0;
     let itemQuantity = 0;
+    let itemVariantCount = 0;
+    let hasItemVariantCount = false;
     let subtotalSum = 0;
     let taxTotalSum = 0;
     let hasSubtotal = false;
@@ -1220,6 +1237,10 @@ export function aggregateAdminInvoicesByDealer(
       total += Number(inv.total ?? 0);
       balance += Number(inv.balance ?? 0);
       if (inv.itemQuantity != null) itemQuantity += inv.itemQuantity;
+      if (inv.itemVariantCount != null) {
+        itemVariantCount += inv.itemVariantCount;
+        hasItemVariantCount = true;
+      }
       if (inv.subtotal != null) {
         subtotalSum += inv.subtotal;
         hasSubtotal = true;
@@ -1249,6 +1270,7 @@ export function aggregateAdminInvoicesByDealer(
       referenceNumber: count === 1 ? latest.referenceNumber : null,
       syncedAt: latest.syncedAt,
       itemQuantity: invoices.some(inv => inv.itemQuantity != null) ? itemQuantity : null,
+      itemVariantCount: hasItemVariantCount ? itemVariantCount : null,
       invoiceCategory: categories.size === 1 ? [...categories][0]! : null,
       aggregateInvoiceCount: count,
     });
@@ -1493,6 +1515,7 @@ export function mapAdminDealerStatsDoc(
     referenceNumber: null,
     syncedAt: timestampToIso(data.latestSyncedAt),
     itemQuantity: data.itemQuantity != null ? Number(data.itemQuantity) : null,
+    itemVariantCount: data.itemVariantCount != null ? Number(data.itemVariantCount) : null,
     invoiceCategory: categories.length === 1 ? categories[0]! : null,
     categories,
     categoryAmounts: amountByCategory,
@@ -2007,7 +2030,7 @@ export async function fetchAdminInvoicesForCustomers(options: {
 
   merged.sort((a, b) => compareInvoiceSortKey(a, b, sort));
 
-  return overlayFreightSkuFromInvoiceDocs(merged);
+  return overlayInvoiceLineDerivedFields(merged);
 }
 
 export interface AdminCustomerLocation {

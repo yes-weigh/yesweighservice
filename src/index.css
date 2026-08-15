@@ -31894,6 +31894,346 @@ body:has(.confirm-inline-bar) .confirm-inline-bar {
   color: #fff;
 }
 
+.invoice-doc-card-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.55rem;
+  padding: 0.1rem 0 0.35rem;
+}
+
+.invoice-doc-card {
+  display: block;
+  width: 100%;
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0.7rem 0 0;
+  border: 1px solid rgba(148, 163, 184, 0.12);
+  border-radius: 0.85rem;
+  background: #0b1018;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  position: relative;
+  overflow: hidden;
+}
+
+.invoice-doc-card::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 0.7rem;
+  bottom: 0.7rem;
+  width: 3px;
+  border-radius: 999px;
+  background: #64748b;
+}
+
+.invoice-doc-card--delivered::before {
+  background: #34d399;
+}
+
+.invoice-doc-card--transit::before {
+  background: #60a5fa;
+}
+
+.invoice-doc-card--dispatch::before {
+  background: #fbbf24;
+}
+
+.invoice-doc-card--void::before {
+  background: #f472b6;
+}
+
+.invoice-doc-card--returned::before {
+  background: #f87171;
+}
+
+.invoice-doc-card:hover {
+  border-color: rgba(148, 163, 184, 0.2);
+  background: #0e141e;
+}
+
+.invoice-doc-card:focus-visible {
+  outline: 2px solid rgba(59, 130, 246, 0.85);
+  outline-offset: 2px;
+}
+
+.invoice-doc-card__main {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.invoice-doc-card__icon {
+  flex-shrink: 0;
+  color: #60a5fa;
+}
+
+.invoice-doc-card__head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.5rem;
+  min-width: 0;
+  padding: 0 0.8rem 0.62rem 1.25rem;
+}
+
+.invoice-doc-card__dealer {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.4rem;
+  min-width: 0;
+  flex: 1 1 auto;
+}
+
+.invoice-doc-card__dealer-copy {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.02rem;
+}
+
+.invoice-doc-card__title {
+  display: block;
+  width: 100%;
+  min-width: 0;
+  font-size: 0.8125rem;
+  font-weight: 800;
+  letter-spacing: 0.02em;
+  line-height: 1.15;
+  text-transform: uppercase;
+  color: #fff;
+  white-space: nowrap;
+  overflow: hidden;
+}
+
+.invoice-doc-card__meta-item {
+  display: flex;
+  align-items: center;
+  gap: 0.2rem;
+  min-width: 0;
+  font-size: 0.6875rem;
+  font-weight: 600;
+  color: #94a3b8;
+  white-space: nowrap;
+}
+
+.invoice-doc-card__meta-text {
+  min-width: 0;
+  flex: 1 1 auto;
+  white-space: nowrap;
+  overflow: hidden;
+}
+
+.invoice-doc-card__meta-item svg {
+  flex-shrink: 0;
+  color: #94a3b8;
+}
+
+.invoice-doc-card__head-end {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.28rem;
+  flex-shrink: 0;
+  padding-top: 0.05rem;
+}
+
+.invoice-doc-card__amount {
+  min-width: 0;
+  font-size: 0.8125rem;
+  font-weight: 800;
+  letter-spacing: -0.02em;
+  color: #fff;
+  white-space: nowrap;
+  overflow: hidden;
+}
+
+.invoice-doc-card__chevron {
+  color: #94a3b8;
+  opacity: 0.75;
+}
+
+.invoice-doc-card__grid {
+  display: flex;
+  flex-direction: column;
+}
+
+.invoice-doc-card__row {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  position: relative;
+  padding: 0 0.75rem 0 1.2rem;
+}
+
+.invoice-doc-card__row::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 1.2rem;
+  right: 0.75rem;
+  height: 1px;
+  background: rgba(148, 163, 184, 0.16);
+}
+
+.invoice-doc-card__field {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 0.22rem;
+  min-width: 0;
+  padding: 0.85rem 1rem 0.85rem 1rem;
+}
+
+.invoice-doc-card__field:first-child {
+  padding-left: 0.2rem;
+}
+
+.invoice-doc-card__field:last-child {
+  padding-right: 0.15rem;
+}
+
+.invoice-doc-card__field:not(:last-child)::after {
+  content: '';
+  position: absolute;
+  top: 1.15rem;
+  bottom: 1.15rem;
+  right: 0;
+  width: 1px;
+  background: rgba(148, 163, 184, 0.16);
+}
+
+.invoice-doc-card__field-head {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.28rem;
+  min-width: 0;
+}
+
+.invoice-doc-card__field-label {
+  font-size: 0.5625rem;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: #94a3b8;
+  line-height: 1.15;
+}
+
+.invoice-doc-card__field-value {
+  display: block;
+  width: 100%;
+  min-width: 0;
+  font-size: 0.75rem;
+  font-weight: 700;
+  line-height: 1.2;
+  color: #fff;
+  overflow: hidden;
+  white-space: nowrap;
+}
+
+.invoice-doc-card__field-value .list-tile-kam {
+  font-size: inherit;
+  font-weight: inherit;
+  color: #fbbf24;
+}
+
+.invoice-doc-card__lead {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  min-width: 0;
+}
+
+.invoice-doc-card__lead--column {
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.12rem;
+}
+
+.invoice-doc-card__lead--row {
+  flex-direction: row;
+  align-items: center;
+}
+
+.invoice-doc-card__lead-label {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: block;
+  font-size: 0.6875rem;
+  font-weight: 800;
+  letter-spacing: 0.01em;
+  text-transform: uppercase;
+  color: #fff;
+  line-height: 1.15;
+  white-space: nowrap;
+  overflow: hidden;
+}
+
+.invoice-doc-card__field .invoices-mobile-row__icon {
+  width: 1.55rem;
+  height: 1.55rem;
+}
+
+.invoice-doc-card__field--status {
+  justify-content: center;
+  align-items: center;
+}
+
+.invoice-doc-card__field--status .invoices-status {
+  gap: 0.28rem;
+  padding: 0.28rem 0.65rem;
+  font-size: 0.6875rem;
+}
+
+.invoice-doc-card__eway--mandatory {
+  color: #f87171;
+}
+
+.invoice-doc-card__eway--optional {
+  color: #fbbf24;
+}
+
+.invoice-doc-card__eway--number {
+  color: #4ade80;
+}
+
+@media (max-width: 520px) {
+  .invoice-doc-card__head {
+    padding: 0 0.65rem 0.55rem 1.1rem;
+  }
+
+  .invoice-doc-card__row {
+    padding: 0 0.6rem 0 1.05rem;
+  }
+
+  .invoice-doc-card__row::before {
+    left: 1.05rem;
+    right: 0.6rem;
+  }
+
+  .invoice-doc-card__field {
+    padding: 0.75rem 0.85rem 0.75rem 0.85rem;
+  }
+
+  .invoice-doc-card__field:first-child {
+    padding-left: 0.15rem;
+  }
+
+  .invoice-doc-card__field:last-child {
+    padding-right: 0.1rem;
+  }
+
+  .invoice-doc-card__field:not(:last-child)::after {
+    top: 1rem;
+    bottom: 1rem;
+  }
+
+  .invoice-doc-card__title,
+  .invoice-doc-card__amount {
+    font-size: 0.75rem;
+  }
+}
+
 .invoices-mobile-list {
   display: none;
   flex-direction: column;

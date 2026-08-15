@@ -3,7 +3,6 @@ import { createPortal } from 'react-dom';
 import { useLocation, useNavigate, useSearchParams } from 'react-router-dom';
 import {
   AlertCircle,
-  ChevronRight,
   FileText,
   IndianRupee,
   LayoutGrid,
@@ -15,16 +14,12 @@ import {
 import { useAuth } from '../../context/AuthContext';
 import { salespersonScopeForUser } from '../../lib/salespersonScope';
 import { FetchingLoader } from '../../components/FetchingLoader';
-import { ListTileKam } from '../../components/list/ListTileKam';
+import { AdminInvoiceDocCard } from '../../components/invoices/AdminInvoiceDocCard';
 import {
   DealerMultiFilterPicker,
   type DealerFilterSelection,
 } from '../../components/dealers/DealerMultiFilterPicker';
-import {
-  InvoiceCategoryBadgeList,
-  InvoiceCategoryIcon,
-  InvoiceTileLeadIcon,
-} from '../../components/invoices/InvoiceCategoryVisual';
+import { InvoiceCategoryIcon } from '../../components/invoices/InvoiceCategoryVisual';
 import { InvoiceStatusFilterBlocks } from '../../components/invoices/InvoiceStatusFilterBlocks';
 import { useCatalogPageHeader, usePageHeaderSlot } from '../../context/PageHeaderContext';
 import {
@@ -38,7 +33,6 @@ import {
   fetchAllAdminInvoicesInRange,
   filterAdminInvoices,
   overlayPortalStampingOnInvoices,
-  formatAdminCustomerLocation,
   loadAdminInvoiceKpis,
   searchAdminInvoicesAutocomplete,
   toInvoiceDateKey,
@@ -50,7 +44,6 @@ import { formatCurrency } from '../../lib/catalog';
 import { fetchDealerById } from '../../lib/dealers';
 import {
   formatInvoiceDateTime,
-  formatInvoiceItemQuantity,
   formatKpiPeriodRange,
   getInvoicePeriodBounds,
   invoiceAmountExclGst,
@@ -61,17 +54,12 @@ import {
 import {
   invoiceAllowsLogisticsFulfillment,
   invoiceListFilterStatusKey,
-  invoiceListStatusKey,
-  invoiceListStatusLabel,
 } from '../../lib/invoiceListStatus';
 import { readRememberedInvoiceCustomerPickupIds } from '../../lib/invoiceCustomerPickup';
 import { readRememberedInvoiceManualDeliveryIds } from '../../lib/invoiceManualDelivery';
 import { findLogisticsBookingsForInvoices } from '../../lib/logisticsBookings';
-import { invoiceListEwayChip, type EwayBillListChip } from '../../constants/ewayBill';
-import { resolveDealerKamName } from '../../lib/dealerKamDisplay';
 import { isInternalOpsUser } from '../../lib/staffAccess';
 import { useDealerStaffById } from '../../lib/useDealerStaffById';
-import { preventMouseFocusScroll } from '../../lib/preventMouseFocusScroll';
 import { useRevealScrollbarOnScroll } from '../../lib/useRevealScrollbarOnScroll';
 import type { LogisticsBooking } from '../../types/logistics-dispatch';
 import {
@@ -167,45 +155,6 @@ function applyInvoiceListStatusFilter(
   ));
 }
 
-function invoiceStatusClass(status: string): string {
-  const key = status.toLowerCase().replace(/\s+/g, '_');
-  return `invoices-status invoices-status--${key}`;
-}
-
-/** Prefer logistics status past Booked; customer pickup; otherwise payment / to-dispatch. */
-function invoiceRowStatusDisplay(
-  invoice: Pick<AdminFirestoreInvoice, 'status' | 'customerPickup' | 'categories' | 'invoiceCategory'>,
-  booking: LogisticsBooking | undefined,
-): { label: string; className: string } {
-  const key = invoiceListStatusKey(invoice, booking);
-  const tone = key === 'customer_pickup' || key === 'delivered'
-    ? 'delivered'
-    : key === 'in_transit' || key === 'to_dispatch'
-      ? 'sent'
-      : key === 'cancelled' || key === 'void'
-        ? 'void'
-        : key === 'returned'
-          ? 'overdue'
-          : key;
-  return {
-    label: invoiceListStatusLabel(key),
-    className: invoiceStatusClass(tone),
-  };
-}
-
-function InvoiceListEwayChip({ chip }: { chip: EwayBillListChip | null }) {
-  if (!chip) return null;
-  return (
-    <span
-      className={[
-        'logistics-shipment__eway',
-        chip.tone === 'done' ? 'is-done' : chip.tone === 'cancelled' ? 'is-cancelled' : 'is-missing',
-      ].join(' ')}
-    >
-      {chip.label}
-    </span>
-  );
-}
 
 function AdminFilterSheet({
   open,
@@ -1312,213 +1261,19 @@ export const AdminInvoicesPage: React.FC = () => {
               </div>
             </div>
           )}
-        <div className="panel glass invoices-table-panel admin-invoices-table-panel">
-          <div className="invoices-table-wrap invoices-table-wrap--desktop">
-            <table className="invoices-table">
-              <thead>
-                <tr>
-                  <th>Invoice</th>
-                  <th>Customer</th>
-                  <th>Date</th>
-                  <th className="invoices-table__num">Qty</th>
-                  <th className="invoices-table__num">{category === 'gatc' ? 'GATC fees' : 'Total'}</th>
-                  <th>Category</th>
-                  <th>Status</th>
-                </tr>
-              </thead>
-              <tbody>
-                {pageRows.map(invoice => {
-                  const locationLabel = formatAdminCustomerLocation(
-                    customerLocations.get(invoice.customerId),
-                  );
-                  const categoryLabel = invoiceCategoryLabel(invoice.invoiceCategory);
-                  const isAggregateRow = (invoice.aggregateInvoiceCount ?? 0) > 1;
-                  const rowStatus = isAggregateRow
-                    ? null
-                    : invoiceRowStatusDisplay(
-                      invoice,
-                      logisticsByInvoiceId.get(invoice.id),
-                    );
-                  const ewayChip = isAggregateRow
-                    ? null
-                    : invoiceListEwayChip(invoice, logisticsByInvoiceId.get(invoice.id));
-                  return (
-                    <tr
-                      key={`${invoice.customerId}-${invoice.id}`}
-                      className="invoices-table__row--clickable"
-                      onClick={() => openRow(invoice)}
-                      onMouseDown={preventMouseFocusScroll}
-                      onKeyDown={e => {
-                        if (e.key === 'Enter' || e.key === ' ') {
-                          e.preventDefault();
-                          openRow(invoice);
-                        }
-                      }}
-                      role="button"
-                      tabIndex={0}
-                      aria-label={
-                        isAggregateRow
-                          ? `View invoices for ${invoice.customerName ?? 'dealer'}`
-                          : `View invoice ${invoice.invoiceNumber || invoice.id}`
-                      }
-                    >
-                      <td>
-                        <strong>{invoice.invoiceNumber || invoice.id}</strong>
-                        {isAggregateRow ? (
-                          <div className="invoices-table__ref text-muted text-sm">
-                            {invoice.customerName ?? 'Dealer total'}
-                          </div>
-                        ) : invoice.referenceNumber ? (
-                          <div className="invoices-table__ref text-muted text-sm">
-                            Order {invoice.referenceNumber}
-                          </div>
-                        ) : null}
-                      </td>
-                      <td>
-                        <div>{invoice.customerName ?? '—'}</div>
-                        {showKam ? (
-                          <ListTileKam
-                            name={resolveDealerKamName({
-                              zohoCustomerId: invoice.customerId,
-                              documentSalespersonName: invoice.salespersonName,
-                              dealerStaffById,
-                            })}
-                          />
-                        ) : null}
-                        {locationLabel && (
-                          <div className="invoices-table__ref text-muted text-sm">{locationLabel}</div>
-                        )}
-                      </td>
-                      <td>{formatInvoiceDateTime(invoice.date, invoice.createdTime)}</td>
-                      <td className="invoices-table__num">{formatInvoiceItemQuantity(invoice.itemQuantity)}</td>
-                      <td className="invoices-table__num">
-                        {formatCurrency(
-                          category === 'all'
-                            ? invoiceAmountExclGst(invoice)
-                            : invoiceCategoryAmount(invoice, category),
-                        )}
-                      </td>
-                      <td>
-                        {categoryLabel ? (
-                          <span className="unified-so-order-cell__badges">
-                            <InvoiceCategoryBadgeList
-                              categories={invoice.categories}
-                              invoiceCategory={invoice.invoiceCategory}
-                            />
-                          </span>
-                        ) : (
-                          <span className="text-muted">{isAggregateRow ? 'Mixed' : '—'}</span>
-                        )}
-                      </td>
-                      <td>
-                        {isAggregateRow || !rowStatus ? (
-                          <span className="text-muted text-sm">
-                            {invoice.aggregateInvoiceCount} invoices
-                          </span>
-                        ) : (
-                          <span className="invoices-table__status-stack">
-                            <span className={rowStatus.className}>{rowStatus.label}</span>
-                            <InvoiceListEwayChip chip={ewayChip} />
-                          </span>
-                        )}
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
-
-          <div className="invoices-mobile-list admin-invoices-mobile-list">
-            <div className="invoices-mobile-list__head" aria-hidden>
-              <span>Invoice</span>
-              <span>Amount</span>
-            </div>
-            {pageRows.map(invoice => {
-              const locationLabel = formatAdminCustomerLocation(
-                customerLocations.get(invoice.customerId),
-              );
-              const isAggregateRow = (invoice.aggregateInvoiceCount ?? 0) > 1;
-              const rowStatus = isAggregateRow
-                ? null
-                : invoiceRowStatusDisplay(
-                  invoice,
-                  logisticsByInvoiceId.get(invoice.id),
-                );
-              const ewayChip = isAggregateRow
-                ? null
-                : invoiceListEwayChip(invoice, logisticsByInvoiceId.get(invoice.id));
-              return (
-                <button
-                  key={`${invoice.customerId}-${invoice.id}`}
-                  type="button"
-                  className="invoices-mobile-row"
-                  onMouseDown={preventMouseFocusScroll}
-                  onClick={() => openRow(invoice)}
-                  aria-label={
-                    isAggregateRow
-                      ? `View invoices for ${invoice.customerName ?? 'dealer'}`
-                      : `View invoice ${invoice.invoiceNumber || invoice.id}`
-                  }
-                >
-                  <span className="invoices-mobile-row__lead">
-                    <InvoiceTileLeadIcon
-                      invoice={invoice}
-                      booking={logisticsByInvoiceId.get(invoice.id)}
-                    />
-                    <InvoiceListEwayChip chip={ewayChip} />
-                  </span>
-                  <span className="invoices-mobile-row__body">
-                    <span className="invoices-mobile-row__invoice">
-                      <span className="invoices-mobile-row__title">
-                        <strong>
-                          {isAggregateRow
-                            ? (invoice.customerName ?? 'Dealer')
-                            : (invoice.invoiceNumber || invoice.id)}
-                        </strong>
-                      </span>
-                      <span className="invoices-mobile-row__so">
-                        {isAggregateRow
-                          ? `${invoice.aggregateInvoiceCount} invoices`
-                          : (invoice.customerName ?? locationLabel ?? '—')}
-                      </span>
-                      {showKam ? (
-                        <ListTileKam
-                          name={resolveDealerKamName({
-                            zohoCustomerId: invoice.customerId,
-                            documentSalespersonName: invoice.salespersonName,
-                            dealerStaffById,
-                          })}
-                        />
-                      ) : null}
-                      <span className="invoices-mobile-row__meta">
-                        {formatInvoiceDateTime(invoice.date, invoice.createdTime)}
-                        {' • '}
-                        Qty {formatInvoiceItemQuantity(invoice.itemQuantity)}
-                      </span>
-                    </span>
-                    <span className="invoices-mobile-row__amount">
-                      <strong>
-                        {formatCurrency(
-                          category === 'all'
-                            ? invoiceAmountExclGst(invoice)
-                            : invoiceCategoryAmount(invoice, category),
-                        )}
-                      </strong>
-                      {isAggregateRow || !rowStatus ? (
-                        <span className="text-muted text-sm">Aggregated</span>
-                      ) : (
-                        <span className={rowStatus.className}>{rowStatus.label}</span>
-                      )}
-                    </span>
-                  </span>
-                  <span className="invoices-mobile-row__chevron" aria-hidden>
-                    <ChevronRight size={18} />
-                  </span>
-                </button>
-              );
-            })}
-          </div>
+        <div className="invoice-doc-card-list">
+          {pageRows.map(invoice => (
+            <AdminInvoiceDocCard
+              key={`${invoice.customerId}-${invoice.id}`}
+              invoice={invoice}
+              booking={logisticsByInvoiceId.get(invoice.id)}
+              location={customerLocations.get(invoice.customerId)}
+              category={category}
+              showKam={showKam}
+              dealerStaffById={dealerStaffById}
+              onOpen={openRow}
+            />
+          ))}
         </div>
           {(totalPages > 1 || hasMore || page > 1) && (
             <footer className="invoices-pagination invoices-pagination--sticky">
