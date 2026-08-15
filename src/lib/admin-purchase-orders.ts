@@ -42,6 +42,14 @@ export type AdminPurchaseOrderSort = 'syncedAt' | 'date';
 
 /** Portal list shows Zoho draft POs only. */
 export const PORTAL_PURCHASE_ORDER_STATUS = 'draft';
+/** Keep / show POs on or after this FY start. Older docs are deleted. */
+export const PURCHASE_ORDER_KEEP_AFTER_DATE = '2026-04-01';
+
+export function clampPurchaseOrderDateStart(dateStart?: string | null): string {
+  const start = String(dateStart ?? '').trim();
+  if (!start || start < PURCHASE_ORDER_KEEP_AFTER_DATE) return PURCHASE_ORDER_KEEP_AFTER_DATE;
+  return start;
+}
 
 export type AdminPurchaseOrderListQuery = {
   sort?: AdminPurchaseOrderSort;
@@ -180,10 +188,9 @@ export function toPurchaseOrderDateKey(value: Date): string {
 }
 
 export function buildAdminPurchaseOrdersQuery(options: AdminPurchaseOrderListQuery) {
-  const sort = options.sort ?? 'date';
   const pageSize = Math.max(1, Math.min(Number(options.pageSize ?? 25) || 25, 100));
   const category = options.category ?? 'all';
-  const dateStart = options.dateStart?.trim() || null;
+  const dateStart = clampPurchaseOrderDateStart(options.dateStart);
   const dateEnd = options.dateEnd?.trim() || null;
   const status = String(options.status ?? PORTAL_PURCHASE_ORDER_STATUS).trim().toLowerCase();
   const constraints: QueryConstraint[] = [];
@@ -195,14 +202,9 @@ export function buildAdminPurchaseOrdersQuery(options: AdminPurchaseOrderListQue
     constraints.push(where('purchaseOrderCategory', '==', category));
   }
 
-  if (dateStart || dateEnd) {
-    if (dateStart) constraints.push(where('date', '>=', dateStart));
-    if (dateEnd) constraints.push(where('date', '<=', dateEnd));
-    constraints.push(orderBy('date', 'desc'));
-  } else {
-    const field = sort === 'syncedAt' ? 'syncedAt' : 'date';
-    constraints.push(orderBy(field, 'desc'));
-  }
+  constraints.push(where('date', '>=', dateStart));
+  if (dateEnd) constraints.push(where('date', '<=', dateEnd));
+  constraints.push(orderBy('date', 'desc'));
 
   if (options.cursor) constraints.push(startAfter(options.cursor));
   constraints.push(limit(pageSize));
@@ -285,9 +287,8 @@ export async function fetchAdminPurchaseOrdersPage(
 export async function countAdminPurchaseOrders(
   options: Omit<AdminPurchaseOrderListQuery, 'pageSize' | 'cursor'>,
 ): Promise<number> {
-  const sort = options.sort ?? 'date';
   const category = options.category ?? 'all';
-  const dateStart = options.dateStart?.trim() || null;
+  const dateStart = clampPurchaseOrderDateStart(options.dateStart);
   const dateEnd = options.dateEnd?.trim() || null;
   const status = String(options.status ?? PORTAL_PURCHASE_ORDER_STATUS).trim().toLowerCase();
   const constraints: QueryConstraint[] = [];
@@ -296,15 +297,9 @@ export async function countAdminPurchaseOrders(
   if (category && category !== 'all') {
     constraints.push(where('purchaseOrderCategory', '==', category));
   }
-  if (dateStart || dateEnd) {
-    if (dateStart) constraints.push(where('date', '>=', dateStart));
-    if (dateEnd) constraints.push(where('date', '<=', dateEnd));
-    constraints.push(orderBy('date', 'desc'));
-  } else if (sort === 'syncedAt') {
-    constraints.push(orderBy('syncedAt', 'desc'));
-  } else {
-    constraints.push(orderBy('date', 'desc'));
-  }
+  constraints.push(where('date', '>=', dateStart));
+  if (dateEnd) constraints.push(where('date', '<=', dateEnd));
+  constraints.push(orderBy('date', 'desc'));
 
   try {
     const snap = await getCountFromServer(query(collection(db, 'purchaseOrders'), ...constraints));
@@ -406,7 +401,10 @@ export function filterAdminPurchaseOrders(
   searchText: string,
   category: InvoiceCategory | 'all' = 'all',
 ): AdminFirestorePurchaseOrder[] {
-  let next = rows.filter(row => row.status === PORTAL_PURCHASE_ORDER_STATUS);
+  let next = rows.filter(row => (
+    row.status === PORTAL_PURCHASE_ORDER_STATUS
+    && String(row.date ?? '').trim().slice(0, 10) >= PURCHASE_ORDER_KEEP_AFTER_DATE
+  ));
   if (category && category !== 'all') {
     next = next.filter(row => {
       const primary = row.purchaseOrderCategory

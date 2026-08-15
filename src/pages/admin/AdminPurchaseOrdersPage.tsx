@@ -33,6 +33,10 @@ import { useRevealScrollbarOnScroll } from '../../lib/useRevealScrollbarOnScroll
 import type { SalesRangePreset } from '../../types/invoices';
 import { SALES_RANGE_OPTIONS } from '../../types/invoices';
 
+const PO_RANGE_OPTIONS = SALES_RANGE_OPTIONS.filter(
+  option => option.value !== 'lifetime' && option.value !== 'previous_financial_year',
+);
+
 const LIST_PAGE_SIZE = 25;
 const SEARCH_FETCH_SIZE = 100;
 const DEFAULT_RANGE: SalesRangePreset = 'financial_year';
@@ -131,7 +135,7 @@ function PurchaseOrderFilterSheet({
             <div className="catalog-spares-multi-filters__group">
               <span className="catalog-spares-multi-filters__label">Date range</span>
               <div className="catalog-spares-multi-filters__options" role="radiogroup" aria-label="Date range">
-                {SALES_RANGE_OPTIONS.map(option => {
+                {PO_RANGE_OPTIONS.map(option => {
                   const id = `po-range-${String(option.value)}`;
                   return (
                     <label key={String(option.value)} className="catalog-spares-multi-filters__option" htmlFor={id}>

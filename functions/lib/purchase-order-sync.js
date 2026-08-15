@@ -22,6 +22,8 @@ import { extractWebhookEvent } from './invoice-sync.js';
 
 const COLLECTION = 'purchaseOrders';
 const META_DOC = 'purchaseOrderMeta/orgSync';
+/** Do not store or re-sync POs dated before this FY start. */
+export const PURCHASE_ORDER_KEEP_AFTER_DATE = '2026-04-01';
 /** Same pacing knobs as org-invoice-sync. */
 const ORG_SYNC_CONCURRENCY = 2;
 const ORG_SYNC_MAX_LIST_PAGES = 150;
@@ -30,7 +32,11 @@ const LIST_PAGE_DELAY_MS = 400;
 const DETAIL_PULL_DELAY_MS = 250;
 const RATE_LIMIT_RETRIES = 6;
 const RATE_LIMIT_BASE_MS = 30_000;
-const LIST_SORT = { sortColumn: 'date', sortOrder: 'D' };
+const LIST_SORT = {
+  sortColumn: 'date',
+  sortOrder: 'D',
+  dateStart: PURCHASE_ORDER_KEEP_AFTER_DATE,
+};
 /** Nightly scheduled sync stops before consuming this share of the daily Zoho quota. */
 export const SCHEDULED_API_QUOTA_RESERVE_RATIO = 0.30;
 
@@ -150,6 +156,7 @@ async function fetchPurchaseOrdersListPage(accessToken, orgId, page, options = {
   url.searchParams.set('per_page', '200');
   url.searchParams.set('sort_column', options.sortColumn ?? 'last_modified_time');
   url.searchParams.set('sort_order', options.sortOrder ?? 'D');
+  url.searchParams.set('date_start', options.dateStart ?? PURCHASE_ORDER_KEEP_AFTER_DATE);
 
   const res = await fetch(url.toString(), { headers: authHeaders(accessToken, orgId) });
   await recordZohoApiResponse(res, { operation: `purchaseorders/list?page=${page}`, source: 'purchase-order-sync' });
@@ -242,9 +249,22 @@ function mapPurchaseOrder(raw) {
   };
 }
 
+function purchaseOrderDateKept(dateValue) {
+  const date = String(dateValue ?? '').trim().slice(0, 10);
+  return Boolean(date && date >= PURCHASE_ORDER_KEEP_AFTER_DATE);
+}
+
+function purchaseOrderListDate(summary) {
+  return String(summary?.date ?? '').trim().slice(0, 10);
+}
+
 async function upsertPurchaseOrderFromRaw(raw, options = {}) {
   const mapped = mapPurchaseOrder(raw);
   if (!mapped.id) throw new Error('Missing purchaseorder_id.');
+  if (!purchaseOrderDateKept(mapped.date)) {
+    await deletePurchaseOrderFromFirestore(mapped.id);
+    return { id: mapped.id, purchaseOrderCategory: null, skipped: true };
+  }
 
   const catalog = await loadCatalogMeta(mapped.lineItems.map(line => line.itemId).filter(Boolean));
   const categoryBreakdown = classifyInvoiceCategoryBreakdown(mapped.lineItems, catalog);
@@ -385,6 +405,7 @@ export async function countOrgPurchaseOrdersInRange(secrets, orgId) {
   await writeOrgSyncMeta({
     totalInRange,
     pulledCount,
+    keepAfterDate: PURCHASE_ORDER_KEEP_AFTER_DATE,
     totalCountedAt: now,
     status: priorMeta.status === 'running'
       ? 'running'
@@ -419,6 +440,18 @@ export async function syncOrgPurchaseOrdersToFirestore(secrets, orgId, options =
 
   let page = Number(priorMeta.checkpointPage ?? 1);
   let index = Number(priorMeta.checkpointIndex ?? 0);
+  if (String(priorMeta.keepAfterDate ?? '') !== PURCHASE_ORDER_KEEP_AFTER_DATE) {
+    console.log(
+      `Org PO sync date window is now ${PURCHASE_ORDER_KEEP_AFTER_DATE}; restarting from page 1.`,
+    );
+    page = 1;
+    index = 0;
+    await writeOrgSyncMeta({
+      keepAfterDate: PURCHASE_ORDER_KEEP_AFTER_DATE,
+      checkpointPage: 1,
+      checkpointIndex: 0,
+    });
+  }
   const baselinePulled = Number(priorMeta.pulledCount ?? 0);
   let pulledCount = baselinePulled;
   const totalInRange = priorMeta.totalInRange ?? null;
@@ -497,6 +530,10 @@ export async function syncOrgPurchaseOrdersToFirestore(secrets, orgId, options =
       if (!poId) {
         return { synced: 0, unchanged: 0, failed: 0, skipped: 1, newlyPulled: 0, rateLimited: false };
       }
+      const listDate = purchaseOrderListDate(summary);
+      if (listDate && !purchaseOrderDateKept(listDate)) {
+        return { synced: 0, unchanged: 0, failed: 0, skipped: 1, newlyPulled: 0, rateLimited: false };
+      }
 
       const existingSnap = await poCollection().doc(poId).get();
       const existing = existingSnap.exists ? existingSnap.data() : null;
@@ -554,7 +591,17 @@ export async function syncOrgPurchaseOrdersToFirestore(secrets, orgId, options =
       }
 
       const slice = list.purchaseOrders.slice(index);
-      const results = await mapConcurrent(slice, ORG_SYNC_CONCURRENCY, processSummary);
+      const toProcess = [];
+      let reachedOldCutoff = false;
+      for (const summary of slice) {
+        const listDate = purchaseOrderListDate(summary);
+        if (listDate && !purchaseOrderDateKept(listDate)) {
+          reachedOldCutoff = true;
+          break;
+        }
+        toProcess.push(summary);
+      }
+      const results = await mapConcurrent(toProcess, ORG_SYNC_CONCURRENCY, processSummary);
       for (let i = 0; i < results.length; i += 1) {
         const result = results[i];
         if (result.stopQuota) {
@@ -586,7 +633,7 @@ export async function syncOrgPurchaseOrdersToFirestore(secrets, orgId, options =
       }
 
       index = 0;
-      if (!list.hasMore) {
+      if (reachedOldCutoff || !list.hasMore) {
         completed = true;
         page = 1;
         break;
@@ -615,6 +662,7 @@ export async function syncOrgPurchaseOrdersToFirestore(secrets, orgId, options =
 
     await writeOrgSyncMeta({
       status,
+      keepAfterDate: PURCHASE_ORDER_KEEP_AFTER_DATE,
       totalInRange: totalInRange ?? priorMeta.totalInRange ?? null,
       pulledCount,
       checkpointPage: completed ? 1 : page,
@@ -837,10 +885,57 @@ export function extractPurchaseOrderIdFromWebhook(body, query = {}) {
   return null;
 }
 
+export function extractPurchaseOrderDateFromWebhook(body, query = {}) {
+  const normalized = normalizeWebhookBody(body);
+  const candidates = [
+    query.date,
+    normalized.date,
+    normalized.purchaseorder?.date,
+    normalized.purchase_order?.date,
+    normalized.data?.date,
+    normalized.payload?.date,
+  ];
+  for (const value of candidates) {
+    const date = String(value ?? '').trim().slice(0, 10);
+    if (/^\d{4}-\d{2}-\d{2}$/.test(date)) return date;
+  }
+  return null;
+}
+
 export async function deletePurchaseOrderFromFirestore(purchaseOrderId) {
   const id = String(purchaseOrderId ?? '').trim();
   if (!id) return;
   await poCollection().doc(id).delete().catch(() => {});
+  try {
+    await storageBucket().file(pdfPath(id)).delete({ ignoreNotFound: true });
+  } catch {
+    // ignore missing / storage errors
+  }
+}
+
+export async function deletePurchaseOrdersBeforeKeepDate({ onProgress, dryRun = false } = {}) {
+  let scanned = 0;
+  let deleted = 0;
+  let last = null;
+  // eslint-disable-next-line no-constant-condition
+  while (true) {
+    let q = poCollection().orderBy('__name__').limit(200);
+    if (last) q = q.startAfter(last);
+    const snap = await q.get();
+    if (!snap.docs.length) break;
+    for (const docSnap of snap.docs) {
+      scanned += 1;
+      const date = String(docSnap.data()?.date ?? '').trim().slice(0, 10);
+      if (purchaseOrderDateKept(date)) continue;
+      if (!dryRun) {
+        await deletePurchaseOrderFromFirestore(docSnap.id);
+      }
+      deleted += 1;
+      onProgress?.({ scanned, deleted, id: docSnap.id, date: date || null, dryRun });
+    }
+    last = snap.docs[snap.docs.length - 1];
+  }
+  return { scanned, deleted, keepAfterDate: PURCHASE_ORDER_KEEP_AFTER_DATE, dryRun };
 }
 
 /** Pull one PO from Zoho into Firestore (webhook / single refresh). */
@@ -871,11 +966,24 @@ export async function handleZohoPurchaseOrderWebhook(secrets, orgId, req) {
     return { ok: true, status: 200, action: 'deleted', purchaseOrderId };
   }
 
+  const payloadDate = extractPurchaseOrderDateFromWebhook(body, req.query ?? {});
+  if (payloadDate && !purchaseOrderDateKept(payloadDate)) {
+    await deletePurchaseOrderFromFirestore(purchaseOrderId);
+    return {
+      ok: true,
+      status: 200,
+      action: 'skipped',
+      purchaseOrderId,
+      date: payloadDate,
+      keepAfterDate: PURCHASE_ORDER_KEEP_AFTER_DATE,
+    };
+  }
+
   const result = await mirrorPurchaseOrderFromZoho(secrets, orgId, purchaseOrderId);
   return {
     ok: true,
     status: 200,
-    action: 'synced',
+    action: result?.skipped ? 'skipped' : 'synced',
     purchaseOrderId,
     result,
   };

@@ -7,6 +7,7 @@ import {
   query,
   setDoc,
   startAfter,
+  where,
   type DocumentData,
   type QueryConstraint,
   type QueryDocumentSnapshot,
@@ -14,6 +15,7 @@ import {
 } from 'firebase/firestore';
 import { db } from '../firebase';
 import { SPARE_PRICING_LIVE_SAVE_MS } from '../constants/sparePricing';
+import { PURCHASE_ORDER_KEEP_AFTER_DATE } from './admin-purchase-orders';
 
 export const SPARE_PURCHASE_COSTS_COLLECTION = 'sparePurchaseCosts';
 export { SPARE_PRICING_LIVE_SAVE_MS as SPARE_PURCHASE_COST_LIVE_SAVE_MS };
@@ -129,6 +131,7 @@ export async function loadLatestPurchaseCostsByItemId(): Promise<Map<string, Pur
   // eslint-disable-next-line no-constant-condition
   while (true) {
     const constraints: QueryConstraint[] = [
+      where('date', '>=', PURCHASE_ORDER_KEEP_AFTER_DATE),
       orderBy('date', 'desc'),
       ...(cursor ? [startAfter(cursor)] : []),
       limit(PO_PAGE_SIZE),
