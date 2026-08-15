@@ -65,10 +65,6 @@ export { toSalesOrderDateKey as toInvoiceDateKey };
 
 export type AdminInvoiceSort = 'syncedAt' | 'date' | 'oldest' | 'latest';
 
-export function adminInvoiceSortDirection(sort?: AdminInvoiceSort | null): 'asc' | 'desc' {
-  return sort === 'oldest' ? 'asc' : 'desc';
-}
-
 export interface AdminFirestoreInvoice {
   id: string;
   customerId: string;
@@ -362,7 +358,6 @@ export function buildAdminInvoicesQuery(options: AdminInvoiceListQuery & {
   listCollection?: AdminInvoiceListCollection;
 }) {
   const sort = options.sort ?? 'oldest';
-  const dateDir = adminInvoiceSortDirection(sort);
   const pageSize = Math.max(1, Math.min(Number(options.pageSize ?? ADMIN_LIST_PAGE_SIZE) || ADMIN_LIST_PAGE_SIZE, 500));
   const category = options.category ?? 'all';
   const dateStart = options.dateStart?.trim() || null;
@@ -385,18 +380,17 @@ export function buildAdminInvoicesQuery(options: AdminInvoiceListQuery & {
     constraints.push(where('listStatus', 'in', listStatusValues));
   }
 
-  // Date inequalities must share orderBy('date'); reverse both fields so
-  // existing DESC composite indexes also serve oldest-first (ASC).
+  // Date inequalities must share orderBy('date'). Composites are DESC-only;
+  // oldest-first is applied after the fetch (ASC needs a separate index).
   if (dateStart || dateEnd) {
     if (dateStart) constraints.push(where('date', '>=', dateStart));
     if (dateEnd) constraints.push(where('date', '<=', dateEnd));
-    constraints.push(orderBy('date', dateDir));
-    constraints.push(orderBy('invoiceNumber', dateDir));
+    constraints.push(orderBy('date', 'desc'));
+    constraints.push(orderBy('invoiceNumber', 'desc'));
   } else {
     const field = sort === 'syncedAt' ? 'syncedAt' : 'date';
-    const fieldDir = field === 'syncedAt' ? 'desc' : dateDir;
-    constraints.push(orderBy(field, fieldDir));
-    constraints.push(orderBy('invoiceNumber', dateDir));
+    constraints.push(orderBy(field, 'desc'));
+    constraints.push(orderBy('invoiceNumber', 'desc'));
   }
 
   if (options.cursor) constraints.push(startAfter(options.cursor));
@@ -723,11 +717,25 @@ export async function fetchAdminInvoicesPageResult(options: {
     listFilterStatus: options.listFilterStatus,
   };
 
+  const requestedSort = options.sort ?? 'oldest';
   try {
-    const snap = await getDocs(buildAdminInvoicesQuery({ ...queryOptions, listCollection }));
-    if (snap.size > 0 || !listStatusQueryValues(options.listFilterStatus) || options.cursor) {
+    const snap = await getDocs(buildAdminInvoicesQuery({
+      ...queryOptions,
+      sort: 'latest',
+      listCollection,
+    }));
+    const rows = snap.docs.map(mapAdminInvoiceDoc);
+    const completeFirstPage = !options.cursor && snap.size < pageSize;
+    if (requestedSort === 'oldest' && completeFirstPage) {
       return {
-        rows: snap.docs.map(mapAdminInvoiceDoc),
+        rows: [...rows].sort((a, b) => compareInvoiceSortKey(a, b, 'oldest')),
+        lastDoc: null,
+        hasMore: false,
+      };
+    }
+    if (requestedSort !== 'oldest' && (snap.size > 0 || !listStatusQueryValues(options.listFilterStatus) || options.cursor)) {
+      return {
+        rows,
         lastDoc: snap.docs[snap.docs.length - 1] ?? null,
         hasMore: snap.size >= pageSize,
       };
@@ -736,10 +744,9 @@ export async function fetchAdminInvoicesPageResult(options: {
     if (!isFirestoreIndexError(err)) throw err;
   }
 
-  // listStatus composite index missing/building, or first page came back empty
-  // while rollups already have rows — load the date window and filter here.
+  // Oldest across multiple pages, or listStatus index miss — load the window.
   const { rows: all } = await fetchAllAdminInvoicesInRange({
-    sort: options.sort,
+    sort: 'latest',
     category: options.category,
     dateStart: options.dateStart,
     dateEnd: options.dateEnd,
@@ -750,7 +757,10 @@ export async function fetchAdminInvoicesPageResult(options: {
   const filtered = values?.length
     ? all.filter(row => values.includes(String(row.listStatus ?? '')))
     : all;
-  return { rows: filtered, lastDoc: null, hasMore: false };
+  const ordered = requestedSort === 'oldest'
+    ? [...filtered].sort((a, b) => compareInvoiceSortKey(a, b, 'oldest'))
+    : filtered;
+  return { rows: ordered, lastDoc: null, hasMore: false };
 }
 
 /**
@@ -1241,7 +1251,7 @@ export function buildAdminSalesEntries(rows: AdminFirestoreInvoice[]): InvoiceSa
     .map(row => ({ date: row.date!, total: invoiceAmountExclGst(row) }));
 }
 
-function compareInvoiceSortKey(
+export function compareInvoiceSortKey(
   a: AdminFirestoreInvoice,
   b: AdminFirestoreInvoice,
   sort: AdminInvoiceSort,
@@ -2076,13 +2086,12 @@ export async function fetchAdminInvoicesForCustomers(options: {
       if (dateStart) constraints.push(where('date', '>=', dateStart));
       if (dateEnd) constraints.push(where('date', '<=', dateEnd));
       if (ordered) {
-        const dateDir = adminInvoiceSortDirection(sort);
         if (dateStart || dateEnd || sort !== 'syncedAt') {
-          constraints.push(orderBy('date', dateDir));
+          constraints.push(orderBy('date', 'desc'));
         } else {
           constraints.push(orderBy('syncedAt', 'desc'));
         }
-        constraints.push(orderBy('invoiceNumber', dateDir));
+        constraints.push(orderBy('invoiceNumber', 'desc'));
         if (pageCursor) constraints.push(startAfter(pageCursor));
         constraints.push(limit(pageSize));
       }

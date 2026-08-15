@@ -46,10 +46,6 @@ const functions = getFunctions(app, 'asia-south1');
 
 export type AdminSalesOrderSort = 'syncedAt' | 'date' | 'oldest' | 'latest';
 
-export function adminSalesOrderSortDirection(sort?: AdminSalesOrderSort | null): 'asc' | 'desc' {
-  return sort === 'oldest' ? 'asc' : 'desc';
-}
-
 export type AdminSalesOrderListQuery = {
   sort?: AdminSalesOrderSort;
   pageSize?: number;
@@ -272,7 +268,6 @@ export function toSalesOrderDateKey(value: Date): string {
 
 export function buildAdminSalesOrdersQuery(options: AdminSalesOrderListQuery) {
   const sort = options.sort ?? 'oldest';
-  const dateDir = adminSalesOrderSortDirection(sort);
   const pageSize = Math.max(1, Math.min(Number(options.pageSize ?? 25) || 25, 100));
   const category = options.category ?? 'all';
   const dateStart = options.dateStart?.trim() || null;
@@ -301,14 +296,14 @@ export function buildAdminSalesOrdersQuery(options: AdminSalesOrderListQuery) {
     constraints.push(where('yesOneStage', 'in', yesOneStages));
   }
 
-  // Date range forces orderBy('date') so inequality + orderBy stay on the same field.
+  // Date range forces orderBy('date'). Indexes are DESC; oldest is client-side.
   if (dateStart || dateEnd) {
     if (dateStart) constraints.push(where('date', '>=', dateStart));
     if (dateEnd) constraints.push(where('date', '<=', dateEnd));
-    constraints.push(orderBy('date', dateDir));
+    constraints.push(orderBy('date', 'desc'));
   } else {
     const field = sort === 'syncedAt' ? 'syncedAt' : 'date';
-    constraints.push(orderBy(field, field === 'syncedAt' ? 'desc' : dateDir));
+    constraints.push(orderBy(field, 'desc'));
   }
 
   if (options.cursor) constraints.push(startAfter(options.cursor));

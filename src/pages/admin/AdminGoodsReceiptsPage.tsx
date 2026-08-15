@@ -4,19 +4,16 @@ import { useLocation, useNavigate } from 'react-router-dom';
 import type { DocumentData, QueryDocumentSnapshot } from 'firebase/firestore';
 import {
   AlertCircle,
-  Building2,
-  ChevronRight,
   FileText,
   CalendarClock,
   LayoutGrid,
   PackageCheck,
   Search,
   SlidersHorizontal,
-  Truck,
-  Warehouse,
   X,
 } from 'lucide-react';
 import { FetchingLoader } from '../../components/FetchingLoader';
+import { GoodsReceiptDocCard } from '../../components/admin/GoodsReceiptDocCard';
 import { useCatalogPageHeader, usePageHeaderSlot } from '../../context/PageHeaderContext';
 import {
   countAdminGoodsReceiptsByLocation,
@@ -25,9 +22,6 @@ import {
   fetchAllAdminGoodsReceiptsInRange,
   fetchAdminGoodsReceiptsPageDetailed,
   filterAdminGoodsReceipts,
-  goodsReceiptLocationLabel,
-  goodsReceiptStatusClass,
-  goodsReceiptStatusLabel,
   toGoodsReceiptDateKey,
   type AdminFirestoreGoodsReceipt,
   type AdminGoodsReceiptLocationCounts,
@@ -36,13 +30,10 @@ import {
   type GoodsReceiptShipmentFilter,
 } from '../../lib/admin-goods-receipts';
 import {
-  formatInvoiceDateTime,
-  formatInvoiceItemQuantity,
   getInvoicePeriodBounds,
   invoiceErrorMessage,
 } from '../../lib/invoices';
 import { useRevealScrollbarOnScroll } from '../../lib/useRevealScrollbarOnScroll';
-import { preventMouseFocusScroll } from '../../lib/preventMouseFocusScroll';
 import type { SalesRangePreset } from '../../types/invoices';
 import { SALES_RANGE_OPTIONS } from '../../types/invoices';
 
@@ -58,8 +49,8 @@ const LOCATION_BLOCKS: Array<{ value: GoodsReceiptLocationFilter; label: string 
   { value: 'cochin', label: 'Cochin' },
 ];
 
-const SHIPMENT_BLOCKS: Array<{ value: Exclude<GoodsReceiptShipmentFilter, 'all'>; label: string }> = [
-  { value: 'in_transit', label: 'In transit' },
+const SHIPMENT_BLOCKS: Array<{ value: GoodsReceiptShipmentFilter; label: string }> = [
+  { value: 'all', label: 'All' },
   { value: 'scheduled', label: 'Scheduled' },
   { value: 'received', label: 'Received' },
 ];
@@ -75,42 +66,45 @@ const SORT_OPTIONS: Array<{ value: AdminGoodsReceiptSort; label: string }> = [
   { value: 'syncedAt', label: 'Most recently updated' },
 ];
 
-function LocationBlockIcon({ value }: { value: GoodsReceiptLocationFilter }) {
-  if (value === 'head_office') return <Building2 size={18} strokeWidth={2.2} />;
-  if (value === 'cochin') return <Warehouse size={18} strokeWidth={2.2} />;
-  return <LayoutGrid size={18} strokeWidth={2.2} />;
-}
-
-function ShipmentBlockIcon({ value }: { value: Exclude<GoodsReceiptShipmentFilter, 'all'> }) {
+function ShipmentBlockIcon({ value }: { value: GoodsReceiptShipmentFilter }) {
   if (value === 'received') return <PackageCheck size={16} strokeWidth={2.2} />;
-  if (value === 'in_transit') return <Truck size={16} strokeWidth={2.2} />;
-  return <CalendarClock size={16} strokeWidth={2.2} />;
+  if (value === 'scheduled') return <CalendarClock size={16} strokeWidth={2.2} />;
+  return <LayoutGrid size={16} strokeWidth={2.2} />;
 }
 
 function GoodsReceiptFilterSheet({
   open,
   rangePreset,
   sort,
+  location,
+  locationCounts,
+  countsLoading,
   onClose,
   onApply,
 }: {
   open: boolean;
   rangePreset: SalesRangePreset;
   sort: AdminGoodsReceiptSort;
+  location: GoodsReceiptLocationFilter;
+  locationCounts: AdminGoodsReceiptLocationCounts;
+  countsLoading: boolean;
   onClose: () => void;
   onApply: (next: {
     rangePreset: SalesRangePreset;
     sort: AdminGoodsReceiptSort;
+    location: GoodsReceiptLocationFilter;
   }) => void;
 }) {
   const [draftRange, setDraftRange] = useState(rangePreset);
   const [draftSort, setDraftSort] = useState(sort);
+  const [draftLocation, setDraftLocation] = useState(location);
 
   useEffect(() => {
     if (!open) return;
     setDraftRange(rangePreset);
     setDraftSort(sort);
-  }, [open, rangePreset, sort]);
+    setDraftLocation(location);
+  }, [open, rangePreset, sort, location]);
 
   useEffect(() => {
     if (!open) return;
@@ -123,7 +117,8 @@ function GoodsReceiptFilterSheet({
 
   if (!open) return null;
 
-  const draftDirty = draftRange !== DEFAULT_RANGE || draftSort !== DEFAULT_SORT;
+  const draftDirty =
+    draftRange !== DEFAULT_RANGE || draftSort !== DEFAULT_SORT || draftLocation !== DEFAULT_LOCATION;
 
   return createPortal(
     <>
@@ -155,6 +150,35 @@ function GoodsReceiptFilterSheet({
           </div>
 
           <div className="catalog-spares-multi-filters__body">
+            <div className="catalog-spares-multi-filters__group">
+              <span className="catalog-spares-multi-filters__label">Location</span>
+              <div className="catalog-spares-multi-filters__options" role="radiogroup" aria-label="Location">
+                {LOCATION_BLOCKS.map(option => {
+                  const id = `gr-location-${option.value}`;
+                  return (
+                    <label key={option.value} className="catalog-spares-multi-filters__option" htmlFor={id}>
+                      <input
+                        id={id}
+                        type="radio"
+                        className="catalog-spares-multi-filters__checkbox"
+                        name="gr-location"
+                        checked={draftLocation === option.value}
+                        onChange={() => setDraftLocation(option.value)}
+                      />
+                      <span className="catalog-spares-multi-filters__option-label">{option.label}</span>
+                      <span
+                        className={`catalog-spares-multi-filters__option-count${
+                          draftLocation === option.value ? ' is-active' : ''
+                        }`}
+                      >
+                        {countsLoading ? '…' : locationCounts[option.value].toLocaleString('en-IN')}
+                      </span>
+                    </label>
+                  );
+                })}
+              </div>
+            </div>
+
             <div className="catalog-spares-multi-filters__group">
               <span className="catalog-spares-multi-filters__label">Date range</span>
               <div className="catalog-spares-multi-filters__options" role="radiogroup" aria-label="Date range">
@@ -205,7 +229,7 @@ function GoodsReceiptFilterSheet({
               type="button"
               className="catalog-spares-multi-filters__apply"
               onClick={() => {
-                onApply({ rangePreset: draftRange, sort: draftSort });
+                onApply({ rangePreset: draftRange, sort: draftSort, location: draftLocation });
                 onClose();
               }}
             >
@@ -218,6 +242,7 @@ function GoodsReceiptFilterSheet({
               onClick={() => {
                 setDraftRange(DEFAULT_RANGE);
                 setDraftSort(DEFAULT_SORT);
+                setDraftLocation(DEFAULT_LOCATION);
               }}
             >
               Clear
@@ -384,7 +409,8 @@ export const AdminGoodsReceiptsPage: React.FC = () => {
     navigate(`${basePath}/goods-receipts/${po.id}`);
   };
 
-  const hasActiveFilters = rangePreset !== DEFAULT_RANGE || sort !== DEFAULT_SORT;
+  const hasActiveFilters =
+    rangePreset !== DEFAULT_RANGE || sort !== DEFAULT_SORT || location !== DEFAULT_LOCATION;
 
   const headerTools = useMemo(
     () => (
@@ -435,30 +461,6 @@ export const AdminGoodsReceiptsPage: React.FC = () => {
   return (
     <div className="page-content fade-in admin-invoices-page invoices-page">
       <section className="invoices-summary" aria-label="Goods receipt filters">
-        <div className="unified-so-category-blocks unified-so-category-blocks--goods-receipt" role="tablist" aria-label="Bill location">
-          {LOCATION_BLOCKS.map(item => {
-            const active = location === item.value;
-            const count = locationCounts[item.value];
-            return (
-              <button
-                key={item.value}
-                type="button"
-                role="tab"
-                aria-selected={active}
-                className={`unified-so-category-block${active ? ' is-active' : ''}`}
-                onClick={() => setLocationFilter(item.value)}
-              >
-                <span className="unified-so-category-block__icon" aria-hidden>
-                  <LocationBlockIcon value={item.value} />
-                </span>
-                <span className="unified-so-category-block__label">{item.label}</span>
-                <span className="unified-so-category-block__count">
-                  {countsLoading ? '…' : count.toLocaleString('en-IN')}
-                </span>
-              </button>
-            );
-          })}
-        </div>
         <div
           className="unified-so-stage-blocks unified-so-stage-blocks--goods-receipt"
           role="tablist"
@@ -476,7 +478,7 @@ export const AdminGoodsReceiptsPage: React.FC = () => {
                 className={`unified-so-category-block unified-so-stage-block unified-so-stage-block--${item.value}${
                   active ? ' is-active' : ''
                 }`}
-                onClick={() => setShipmentFilter(active ? 'all' : item.value)}
+                onClick={() => setShipmentFilter(item.value)}
               >
                 <span className="unified-so-category-block__icon" aria-hidden>
                   <span className={`unified-so-stage-block__icon unified-so-stage-block__icon--${item.value}`}>
@@ -538,104 +540,14 @@ export const AdminGoodsReceiptsPage: React.FC = () => {
                 </div>
               </div>
             )}
-            <div className="panel glass invoices-table-panel admin-invoices-table-panel">
-              <div className="invoices-table-wrap invoices-table-wrap--desktop">
-                <table className="invoices-table">
-                  <thead>
-                    <tr>
-                      <th>Bill number</th>
-                      <th>Vendor</th>
-                      <th>Location</th>
-                      <th>Date</th>
-                      <th className="invoices-table__num">Qty</th>
-                      <th>Status</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {pageRows.map(po => (
-                        <tr
-                          key={po.id}
-                          className="invoices-table__row--clickable"
-                          onClick={() => openGr(po)}
-                          onMouseDown={preventMouseFocusScroll}
-                          onKeyDown={e => {
-                            if (e.key === 'Enter' || e.key === ' ') {
-                              e.preventDefault();
-                              openGr(po);
-                            }
-                          }}
-                          role="button"
-                          tabIndex={0}
-                          aria-label={`View goods receipt ${po.billNumber || po.id}`}
-                        >
-                          <td>
-                            <strong>{po.billNumber || po.id}</strong>
-                            {po.referenceNumber && (
-                              <div className="invoices-table__ref text-muted text-sm">
-                                Ref {po.referenceNumber}
-                              </div>
-                            )}
-                          </td>
-                          <td>{po.vendorName ?? '—'}</td>
-                          <td>{goodsReceiptLocationLabel(po.inventorySite)}</td>
-                          <td>{formatInvoiceDateTime(po.date, po.createdTime)}</td>
-                          <td className="invoices-table__num">{formatInvoiceItemQuantity(po.itemQuantity)}</td>
-                          <td>
-                            <span className={goodsReceiptStatusClass(po.status)}>
-                              {goodsReceiptStatusLabel(po.status)}
-                            </span>
-                          </td>
-                        </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-
-              <div className="invoices-mobile-list admin-invoices-mobile-list">
-                <div className="invoices-mobile-list__head" aria-hidden>
-                  <span>Bill number</span>
-                  <span>Qty</span>
-                </div>
-                {pageRows.map(po => (
-                  <button
-                    key={po.id}
-                    type="button"
-                    className="invoices-mobile-row invoices-mobile-row--po-stack"
-                    onClick={() => openGr(po)}
-                    onMouseDown={preventMouseFocusScroll}
-                    aria-label={`View goods receipt ${po.billNumber || po.id}`}
-                  >
-                    <span className="invoices-mobile-row__body">
-                      <span className="invoices-mobile-row__invoice">
-                        <strong className="invoices-mobile-row__company">
-                          {po.vendorName ?? '—'}
-                        </strong>
-                        <span className="invoices-mobile-row__pair invoices-mobile-row__pair--mid">
-                          <span className="invoices-mobile-row__date">
-                            {formatInvoiceDateTime(po.date, po.createdTime)}
-                            {' · '}
-                            {goodsReceiptLocationLabel(po.inventorySite)}
-                          </span>
-                          <span className={goodsReceiptStatusClass(po.status)}>
-                            {goodsReceiptStatusLabel(po.status)}
-                          </span>
-                        </span>
-                        <span className="invoices-mobile-row__pair">
-                          <span className="invoices-mobile-row__po-num">
-                            {po.billNumber || po.id}
-                          </span>
-                          <strong className="invoices-mobile-row__amount-value">
-                            Qty {formatInvoiceItemQuantity(po.itemQuantity)}
-                          </strong>
-                        </span>
-                      </span>
-                    </span>
-                    <span className="invoices-mobile-row__chevron" aria-hidden>
-                      <ChevronRight size={18} />
-                    </span>
-                  </button>
-                ))}
-              </div>
+            <div className="invoice-doc-card-list">
+              {pageRows.map(po => (
+                <GoodsReceiptDocCard
+                  key={po.id}
+                  goodsReceipt={po}
+                  onOpen={openGr}
+                />
+              ))}
             </div>
             {totalPages > 1 && (
               <footer className="invoices-pagination invoices-pagination--sticky">
@@ -673,10 +585,14 @@ export const AdminGoodsReceiptsPage: React.FC = () => {
         open={filterOpen}
         rangePreset={rangePreset}
         sort={sort}
+        location={location}
+        locationCounts={locationCounts}
+        countsLoading={countsLoading}
         onClose={() => setFilterOpen(false)}
         onApply={next => {
           setRangePreset(next.rangePreset);
           setSort(next.sort);
+          setLocationFilter(next.location);
         }}
       />
     </div>

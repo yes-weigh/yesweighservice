@@ -249,21 +249,6 @@ export const AdminGoodsReceiptDocumentPage: React.FC = () => {
     return false;
   }, [goodsReceipt, lineDrafts, hiddenLineIds]);
 
-  const unposted = useMemo(() => {
-    if (!goodsReceipt) return false;
-    const postedLines = goodsReceipt.receiveCheck?.postedLines ?? {};
-    for (const line of goodsReceipt.lineItems) {
-      if (!line.id || hiddenLineIds.has(line.id)) continue;
-      const draft = lineDrafts[line.id] ?? { locations: [newLocationDraft()] };
-      const parsed = parseDraftLocations(draft);
-      if (!parsed.ok) return true;
-      const posted = receiveLineLocations(postedLines[line.id]);
-      if (parsed.empty && posted.length === 0) continue;
-      if (!locationsEqual(parsed.locations, posted)) return true;
-    }
-    return false;
-  }, [goodsReceipt, lineDrafts, hiddenLineIds]);
-
   const missingPackageLines = useMemo(() => {
     if (!goodsReceipt) return [] as Array<{ lineId: string; name: string; productId: string }>;
     const missing: Array<{ lineId: string; name: string; productId: string }> = [];
@@ -850,7 +835,7 @@ export const AdminGoodsReceiptDocumentPage: React.FC = () => {
         )}
       </section>
 
-      {canMarkReceived && (
+      {canMarkReceived && !alreadyReceived && !isReceivedBillStatus(goodsReceipt.status) && (
         <div className="goods-receipt-detail__actions">
           {saveError && (
             <div className="products-inline-error panel glass goods-receipt-detail__actions-error" role="alert">
@@ -891,7 +876,7 @@ export const AdminGoodsReceiptDocumentPage: React.FC = () => {
               <button
                 type="button"
                 className="btn btn-primary"
-                disabled={saving || !packageDataReady || (alreadyReceived && !dirty && !unposted)}
+                disabled={saving || !packageDataReady}
                 onClick={openGoodsReceivedDialog}
               >
                 <PackageCheck size={16} aria-hidden />
