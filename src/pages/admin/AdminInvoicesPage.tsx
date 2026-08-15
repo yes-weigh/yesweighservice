@@ -1213,7 +1213,7 @@ export const AdminInvoicesPage: React.FC = () => {
             value={statusFilter}
             counts={statusCounts}
             allCount={serverPaged
-              ? invoicePageCategoryCount(category, categoryChipCounts)
+              ? invoicePageCategoryCount(category, categoryCounts)
               : listRows.length}
             countsComplete={statusCountsComplete}
             loading={loading}

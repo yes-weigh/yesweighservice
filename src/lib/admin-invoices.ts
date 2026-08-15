@@ -399,7 +399,7 @@ export function buildAdminInvoicesQuery(options: AdminInvoiceListQuery & {
 
 function isFirestoreIndexError(err: unknown): boolean {
   const msg = err instanceof Error ? err.message : String(err ?? '');
-  return /requires an index|COLLECTION_GROUP|COLLECTION_DESC|COLLECTION_ASC/i.test(msg);
+  return /requires an index|currently building|COLLECTION_GROUP|COLLECTION_DESC|COLLECTION_ASC/i.test(msg);
 }
 
 type AdminInvoicesQueryOptions = AdminInvoiceListQuery & {
@@ -413,7 +413,13 @@ async function getAdminInvoicesQuerySnap(
   try {
     return await getDocs(buildAdminInvoicesQuery({ ...options, listCollection }));
   } catch (err) {
-    if (listCollection === 'invoiceSummaries' && isFirestoreIndexError(err)) {
+    // Hot invoices do not have listStatus — falling back there returns an
+    // empty snapshot and hides rows the rollups already counted.
+    if (
+      listCollection === 'invoiceSummaries'
+      && !options.listFilterStatus
+      && isFirestoreIndexError(err)
+    ) {
       return getDocs(buildAdminInvoicesQuery({ ...options, listCollection: 'invoices' }));
     }
     throw err;
@@ -699,38 +705,45 @@ export async function fetchAdminInvoicesPageResult(options: {
 
   const pageSize = options.pageSize ?? ADMIN_LIST_PAGE_SIZE;
   const listCollection = 'invoiceSummaries';
+  const queryOptions = {
+    sort: options.sort ?? 'date' as const,
+    pageSize,
+    cursor: options.cursor ?? null,
+    category: options.category ?? 'all' as const,
+    dateStart: options.dateStart,
+    dateEnd: options.dateEnd,
+    salespersonIds: options.salespersonIds,
+    listFilterStatus: options.listFilterStatus,
+  };
+
   try {
-    const snap = await getAdminInvoicesQuerySnap({
-      sort: options.sort ?? 'date',
-      pageSize,
-      cursor: options.cursor ?? null,
-      category: options.category ?? 'all',
-      dateStart: options.dateStart,
-      dateEnd: options.dateEnd,
-      salespersonIds: options.salespersonIds,
-      listFilterStatus: options.listFilterStatus,
-    }, listCollection);
-    const rows = snap.docs.map(mapAdminInvoiceDoc);
-    return {
-      rows,
-      lastDoc: snap.docs[snap.docs.length - 1] ?? null,
-      hasMore: snap.size >= pageSize,
-    };
+    const snap = await getDocs(buildAdminInvoicesQuery({ ...queryOptions, listCollection }));
+    if (snap.size > 0 || !listStatusQueryValues(options.listFilterStatus) || options.cursor) {
+      return {
+        rows: snap.docs.map(mapAdminInvoiceDoc),
+        lastDoc: snap.docs[snap.docs.length - 1] ?? null,
+        hasMore: snap.size >= pageSize,
+      };
+    }
   } catch (err) {
     if (!isFirestoreIndexError(err)) throw err;
-    const { rows: all } = await fetchAllAdminInvoicesInRange({
-      sort: options.sort,
-      category: options.category,
-      dateStart: options.dateStart,
-      dateEnd: options.dateEnd,
-      salespersonIds: options.salespersonIds,
-    });
-    const values = listStatusQueryValues(options.listFilterStatus);
-    const filtered = values?.length
-      ? all.filter(row => values.includes(String(row.listStatus ?? '')))
-      : all;
-    return { rows: filtered, lastDoc: null, hasMore: false };
   }
+
+  // listStatus composite index missing/building, or first page came back empty
+  // while rollups already have rows — load the date window and filter here.
+  const { rows: all } = await fetchAllAdminInvoicesInRange({
+    sort: options.sort,
+    category: options.category,
+    dateStart: options.dateStart,
+    dateEnd: options.dateEnd,
+    salespersonIds: options.salespersonIds,
+    listCollection: 'invoiceSummaries',
+  });
+  const values = listStatusQueryValues(options.listFilterStatus);
+  const filtered = values?.length
+    ? all.filter(row => values.includes(String(row.listStatus ?? '')))
+    : all;
+  return { rows: filtered, lastDoc: null, hasMore: false };
 }
 
 /**
@@ -744,6 +757,7 @@ export async function fetchAllAdminInvoicesInRange(options: {
   dateEnd?: string | null;
   salespersonIds?: string[] | null;
   maxRows?: number;
+  listCollection?: AdminInvoiceListCollection;
 }): Promise<{ rows: AdminFirestoreInvoice[]; truncated: boolean }> {
   if (
     options.salespersonIds != null
@@ -765,7 +779,7 @@ export async function fetchAllAdminInvoicesInRange(options: {
   }
 
   const maxRows = options.maxRows ?? ADMIN_AGGREGATE_MAX_ROWS;
-  const listCollection = await resolveAdminInvoiceListCollection();
+  const listCollection = options.listCollection ?? await resolveAdminInvoiceListCollection();
   const rows: AdminFirestoreInvoice[] = [];
   let cursor: QueryDocumentSnapshot<DocumentData> | null = null;
   let truncated = false;
