@@ -759,6 +759,7 @@ export async function recordCatalogProductAudit(
     ? null
     : clampInboundQty(options.cochinInboundQty);
   const sourceGoodsReceiptId = String(options.sourceGoodsReceiptId ?? '').trim() || null;
+  const inboundAlreadyInZoho = options.inboundAlreadyInZoho === true;
   const auditedAt = resolveAuditedAt(options.auditedAt, options.allowBackdate === true);
 
   const db = getFirestore();
@@ -841,8 +842,13 @@ export async function recordCatalogProductAudit(
     const priorDiff = priorAtT && Number.isFinite(Number(priorAtT.baselineDifference))
       ? Number(priorAtT.baselineDifference)
       : 0;
-    pendingZohoInbound = Math.max(0, Number(cochinInboundQty) || 0);
-    baselineDifference = priorDiff + pendingZohoInbound;
+    if (inboundAlreadyInZoho) {
+      pendingZohoInbound = 0;
+      baselineDifference = priorDiff;
+    } else {
+      pendingZohoInbound = Math.max(0, Number(cochinInboundQty) || 0);
+      baselineDifference = priorDiff + pendingZohoInbound;
+    }
     physicalQty = zohoQtyAtAudit + baselineDifference;
   } else if (
     PHYSICAL_TRIGGERS.has(trigger)
