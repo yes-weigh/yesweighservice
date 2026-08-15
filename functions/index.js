@@ -129,7 +129,10 @@ import {
   handleZohoPurchaseOrderWebhook,
   updatePurchaseOrderInZoho,
 } from './lib/purchase-order-sync.js';
-import { searchZohoVendors as searchZohoVendorContacts } from './lib/zoho-vendors.js';
+import {
+  searchZohoVendors as searchZohoVendorContacts,
+  syncZohoVendorsToFirestore,
+} from './lib/zoho-vendors.js';
 import {
   syncOrgGoodsReceiptsToFirestore,
   reclassifyGoodsReceiptCategoriesFromCatalog,
@@ -3199,6 +3202,29 @@ export const reclassifyPurchaseOrderCategoriesFromCatalogFn = onCall(
     } catch (err) {
       console.error('reclassifyPurchaseOrderCategoriesFromCatalog failed:', err);
       throw new HttpsError('internal', err?.message ?? 'Purchase order category reclassify failed.');
+    }
+  },
+);
+
+/** Pull every Zoho vendor into Firestore — full-access super admin. */
+export const syncZohoVendors = onCall(
+  {
+    region: 'asia-south1',
+    secrets: [zohoClientId, zohoClientSecret, zohoRefreshToken],
+    timeoutSeconds: 180,
+    memory: '512MiB',
+  },
+  async request => {
+    await requireActiveUser(request.auth?.uid, SUPER_ADMIN_ROLES);
+    try {
+      return await syncZohoVendorsToFirestore(
+        zohoSecrets(),
+        zohoOrganizationId.value(),
+        { source: 'callable' },
+      );
+    } catch (err) {
+      console.error('syncZohoVendors failed:', err);
+      throw new HttpsError('internal', err?.message ?? 'Could not sync vendors.');
     }
   },
 );

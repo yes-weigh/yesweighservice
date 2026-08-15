@@ -14,6 +14,7 @@ import { InvoiceCategoryIcon } from '../invoices/InvoiceCategoryVisual';
 import { FitSingleLine } from '../invoices/FitSingleLine';
 import { formatCurrency } from '../../lib/catalog';
 import type { AdminFirestorePurchaseOrder } from '../../lib/admin-purchase-orders';
+import { vendorPlaceLabel, type ZohoVendorOption } from '../../lib/zoho-vendors';
 import {
   formatInvoiceDateTime,
   formatInvoiceItemQuantity,
@@ -59,9 +60,11 @@ function CardField({
 
 export function AdminPurchaseOrderDocCard({
   purchaseOrder,
+  vendor,
   onOpen,
 }: {
   purchaseOrder: AdminFirestorePurchaseOrder;
+  vendor?: ZohoVendorOption | null;
   onOpen: (purchaseOrder: AdminFirestorePurchaseOrder) => void;
 }) {
   const category = purchaseOrder.purchaseOrderCategory
@@ -69,9 +72,12 @@ export function AdminPurchaseOrderDocCard({
     ?? null;
   const categoryLabel = invoiceCategoryLabel(category);
   const accent = poCardAccent(purchaseOrder.status);
-  const locationLabel = [purchaseOrder.vendorState, purchaseOrder.vendorCountry]
-    .filter(Boolean)
-    .join(', ') || '—';
+  const locationLabel = [
+    purchaseOrder.vendorState || vendor?.state,
+    purchaseOrder.vendorCountry || vendor?.country,
+  ].filter(Boolean).join(', ')
+    || vendorPlaceLabel(vendor)
+    || '—';
 
   return (
     <button

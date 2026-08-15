@@ -27,6 +27,7 @@ import {
   type AdminPurchaseOrderSort,
 } from '../../lib/admin-purchase-orders';
 import { formatCurrency } from '../../lib/catalog';
+import { loadZohoVendorDirectory, type ZohoVendorOption } from '../../lib/zoho-vendors';
 import {
   formatKpiPeriodRange,
   getInvoicePeriodBounds,
@@ -231,6 +232,7 @@ export const AdminPurchaseOrdersPage: React.FC = () => {
   const [rangePreset, setRangePreset] = useState<SalesRangePreset>(DEFAULT_RANGE);
   const [filterOpen, setFilterOpen] = useState(false);
   const [page, setPage] = useState(1);
+  const [vendorsById, setVendorsById] = useState<Map<string, ZohoVendorOption>>(new Map());
 
   const bounds = getInvoicePeriodBounds(rangePreset);
   const dateStart = bounds?.start ? toPurchaseOrderDateKey(bounds.start) : null;
@@ -242,6 +244,20 @@ export const AdminPurchaseOrdersPage: React.FC = () => {
     pageStartCursors.current = [null];
     setPageCursorVersion(v => v + 1);
   }, [search, rangePreset, sort]);
+
+  useEffect(() => {
+    let cancelled = false;
+    void loadZohoVendorDirectory()
+      .then(map => {
+        if (!cancelled) setVendorsById(map);
+      })
+      .catch(() => {
+        if (!cancelled) setVendorsById(new Map());
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -534,6 +550,7 @@ export const AdminPurchaseOrdersPage: React.FC = () => {
                 <AdminPurchaseOrderDocCard
                   key={po.id}
                   purchaseOrder={po}
+                  vendor={vendorsById.get(po.vendorId) ?? null}
                   onOpen={openPo}
                 />
               ))}

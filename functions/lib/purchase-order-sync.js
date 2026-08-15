@@ -581,7 +581,7 @@ export async function syncOrgPurchaseOrdersToFirestore(secrets, orgId, options =
 
       const existingSnap = await poCollection().doc(poId).get();
       const existing = existingSnap.exists ? existingSnap.data() : null;
-      if (detailStillValid(existing, summary)) {
+      if (!options.force && detailStillValid(existing, summary)) {
         return { synced: 1, unchanged: 1, failed: 0, skipped: 0, newlyPulled: 0, rateLimited: false };
       }
 

@@ -7,6 +7,7 @@ import {
   ChevronRight,
   MapPin,
   Package,
+  RefreshCw,
   Search,
   ShoppingCart,
   Store,
@@ -38,7 +39,13 @@ import {
   type PurchaseItemCostSet,
 } from '../../lib/sparePurchaseCosts';
 import { canUpdatePurchaseOrders } from '../../lib/staffAccess';
-import { listAllZohoVendors, type ZohoVendorOption } from '../../lib/zoho-vendors';
+import {
+  fetchZohoVendorsLive,
+  loadZohoVendors,
+  syncZohoVendorsFromZoho,
+  vendorPlaceLabel,
+  type ZohoVendorOption,
+} from '../../lib/zoho-vendors';
 import type { CatalogCategory, CatalogProduct } from '../../types/catalog';
 
 const LIST_PATH = '/super-admin/purchase-orders';
@@ -52,8 +59,7 @@ function progressClass(stepIndex: number, index: number): string {
 }
 
 function vendorLocation(vendor: ZohoVendorOption): string | null {
-  const parts = [vendor.city, vendor.state].filter(Boolean);
-  return parts.length ? parts.join(', ') : null;
+  return vendorPlaceLabel(vendor);
 }
 
 function lastPurchaseCost(set: PurchaseItemCostSet | undefined): PurchaseItemCost | null {
@@ -74,6 +80,7 @@ const CreatePurchaseOrderWizard: React.FC = () => {
   const [vendorQuery, setVendorQuery] = useState('');
   const [vendors, setVendors] = useState<ZohoVendorOption[]>([]);
   const [vendorsLoading, setVendorsLoading] = useState(false);
+  const [vendorsFetching, setVendorsFetching] = useState(false);
   const [selectedVendor, setSelectedVendor] = useState<ZohoVendorOption | null>(null);
 
   const [catalogProducts, setCatalogProducts] = useState<CatalogProduct[]>([]);
@@ -122,14 +129,26 @@ const CreatePurchaseOrderWizard: React.FC = () => {
 
   goBackRef.current = goBack;
 
+  const reloadVendors = useCallback(async () => {
+    try {
+      const rows = await loadZohoVendors();
+      if (rows.length) {
+        setVendors(rows.filter(row => row.status === 'active' || !row.status));
+        return;
+      }
+    } catch {
+      // Firestore rules may not be live yet — fall back to one Zoho list call.
+    }
+    const live = await fetchZohoVendorsLive();
+    setVendors(live.filter(row => row.status === 'active' || !row.status));
+  }, []);
+
   useEffect(() => {
     let cancelled = false;
     setVendorsLoading(true);
-    void listAllZohoVendors()
-      .then(rows => {
-        if (cancelled) return;
-        setVendors(rows);
-        setError('');
+    void reloadVendors()
+      .then(() => {
+        if (!cancelled) setError('');
       })
       .catch(err => {
         if (cancelled) return;
@@ -142,7 +161,25 @@ const CreatePurchaseOrderWizard: React.FC = () => {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [reloadVendors]);
+
+  const fetchVendorsFromZoho = async () => {
+    setVendorsFetching(true);
+    setError('');
+    try {
+      try {
+        await syncZohoVendorsFromZoho();
+        await reloadVendors();
+      } catch {
+        const live = await fetchZohoVendorsLive();
+        setVendors(live.filter(row => row.status === 'active' || !row.status));
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Could not fetch vendors from Zoho.');
+    } finally {
+      setVendorsFetching(false);
+    }
+  };
 
   const filteredVendors = useMemo(() => {
     const q = vendorQuery.trim().toLowerCase();
@@ -156,6 +193,7 @@ const CreatePurchaseOrderWizard: React.FC = () => {
         vendor.gstNo,
         vendor.city,
         vendor.state,
+        vendor.country,
       ]
         .filter(Boolean)
         .join(' ')
@@ -377,7 +415,7 @@ const CreatePurchaseOrderWizard: React.FC = () => {
             <div className="staff-create-so-page__dealer-panel panel glass">
               <h3 className="staff-create-so-page__dealer-panel-title">Vendor</h3>
               <p className="text-muted text-sm staff-create-so-page__dealer-panel-hint">
-                All active Zoho vendors. Type to filter by name, phone, or GST.
+                Vendors stored in Firestore. Fetch from Zoho when you need a fresh list.
               </p>
               {selectedVendor ? (
                 <div className="staff-create-so-page__dealer-selected">
@@ -409,19 +447,30 @@ const CreatePurchaseOrderWizard: React.FC = () => {
                 </div>
               ) : (
                 <div className="staff-create-so-page__dealer-search">
-                  <div className="catalog-search staff-create-so-page__dealer-search-input">
-                    <Search size={15} aria-hidden />
-                    <input
-                      type="search"
-                      placeholder="Search vendor by name…"
-                      value={vendorQuery}
-                      onChange={e => setVendorQuery(e.target.value)}
-                      aria-label="Search vendors"
-                      autoComplete="off"
-                    />
+                  <div className="create-po-page__vendor-search-row">
+                    <div className="catalog-search staff-create-so-page__dealer-search-input">
+                      <Search size={15} aria-hidden />
+                      <input
+                        type="search"
+                        placeholder="Search vendor by name…"
+                        value={vendorQuery}
+                        onChange={e => setVendorQuery(e.target.value)}
+                        aria-label="Search vendors"
+                        autoComplete="off"
+                      />
+                    </div>
+                    <button
+                      type="button"
+                      className="btn btn-secondary btn-sm create-po-page__vendor-fetch"
+                      disabled={vendorsFetching || vendorsLoading}
+                      onClick={() => { void fetchVendorsFromZoho(); }}
+                    >
+                      <RefreshCw size={14} aria-hidden className={vendorsFetching ? 'is-spinning' : ''} />
+                      {vendorsFetching ? 'Fetching…' : 'Fetch'}
+                    </button>
                   </div>
                   {vendorsLoading && vendors.length === 0 ? (
-                    <p className="text-muted text-sm">Loading all Zoho vendors…</p>
+                    <p className="text-muted text-sm">Loading vendors…</p>
                   ) : filteredVendors.length > 0 ? (
                     <ul className="staff-create-so-page__dealer-list" role="listbox">
                       {filteredVendors.map(vendor => {
@@ -463,14 +512,20 @@ const CreatePurchaseOrderWizard: React.FC = () => {
                       No vendors match “{vendorQuery.trim()}”.
                     </p>
                   ) : (
-                    <p className="text-muted text-sm">No active vendors found.</p>
+                    <p className="text-muted text-sm">
+                      {vendors.length === 0
+                        ? 'No vendors in Firestore yet. Tap Fetch to pull them from Zoho.'
+                        : 'No active vendors found.'}
+                    </p>
                   )}
                   <p className="staff-create-so-page__dealer-loaded">
                     <Users size={14} aria-hidden />
                     <span>
-                      {vendorsLoading && vendors.length === 0
-                        ? 'Loading vendors…'
-                        : `${vendors.length.toLocaleString('en-IN')} vendors loaded`}
+                      {vendorsFetching
+                        ? 'Fetching vendors from Zoho…'
+                        : vendorsLoading && vendors.length === 0
+                          ? 'Loading vendors…'
+                          : `${vendors.length.toLocaleString('en-IN')} vendors loaded`}
                     </span>
                   </p>
                 </div>

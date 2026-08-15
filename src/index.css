@@ -18344,6 +18344,28 @@ body:has(.confirm-inline-bar) .confirm-inline-bar {
   width: 100%;
 }
 
+.create-po-page__vendor-search-row {
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
+}
+
+.create-po-page__vendor-search-row .staff-create-so-page__dealer-search-input {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.create-po-page__vendor-fetch {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  flex-shrink: 0;
+}
+
+.create-po-page__vendor-fetch .is-spinning {
+  animation: spin 0.8s linear infinite;
+}
+
 .staff-create-so-page__dealer-loaded {
   display: inline-flex;
   align-items: center;

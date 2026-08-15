@@ -400,6 +400,16 @@ service cloud.firestore {
       allow write: if isFullSuperAdmin();
     }
 
+    match /zohoVendors/{vendorId} {
+      allow read: if isSuperAdmin();
+      allow write: if false;
+    }
+
+    match /zohoVendorMeta/{docId} {
+      allow read: if isSuperAdmin();
+      allow write: if false;
+    }
+
     match /purchaseOrderMeta/{docId} {
       allow read, write: if false;
     }
