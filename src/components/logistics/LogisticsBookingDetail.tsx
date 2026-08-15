@@ -104,7 +104,7 @@ import {
   downloadDealerInvoiceDocument,
   invoiceDocumentToBlob,
 } from '../../lib/invoices';
-import { ensureInvoiceEwayBill, cancelInvoiceEwayBill, pushDelhiveryLrEwayBills, type InvoiceEwayBillResult } from '../../lib/invoiceEwayBill';
+import { ensureInvoiceEwayBill, cancelInvoiceEwayBill, pushDelhiveryLrEwayBills, syncDelhiveryLrEwayStatus, type DelhiveryPartnerEwayStatus, type InvoiceEwayBillResult } from '../../lib/invoiceEwayBill';
 import {
   bookingNeedsEwayBill,
   clubbedEwayBillRequiredLabel,
@@ -112,6 +112,7 @@ import {
   type EwayBillCancelReason,
 } from '../../constants/ewayBill';
 import { EwayBillCancelDialog } from './EwayBillCancelDialog';
+import { EwayBillPushPartnerDialog } from './EwayBillPushPartnerDialog';
 import { EwayBillGenerateDialog, EwayClubbedBillsDialog, type EwayClubbedBillRow } from './EwayBillGenerateDialog';
 import { ewayBillDocumentDateLabel } from './EwayBillGeneratePreview';
 import { deliveryPartnerTabForLogisticsPartner } from '../../constants/deliveryPartnerTabs';
@@ -371,7 +372,10 @@ export const LogisticsBookingDetail: React.FC<LogisticsBookingDetailProps> = ({
   const [ewayClubbedOpen, setEwayClubbedOpen] = useState(false);
   const [ewayClubbedRows, setEwayClubbedRows] = useState<EwayClubbedBillRow[]>([]);
   const [partnerEwayPushing, setPartnerEwayPushing] = useState(false);
+  const [partnerEwayChecking, setPartnerEwayChecking] = useState(false);
+  const [partnerEwayOpen, setPartnerEwayOpen] = useState(false);
   const [partnerEwayError, setPartnerEwayError] = useState('');
+  const [partnerEwayStatus, setPartnerEwayStatus] = useState<DelhiveryPartnerEwayStatus | null>(null);
   const [cancellingDelhivery, setCancellingDelhivery] = useState(false);
   const [cancelDelhiveryError, setCancelDelhiveryError] = useState('');
   const [requestingPickup, setRequestingPickup] = useState(false);
@@ -770,8 +774,35 @@ export const LogisticsBookingDetail: React.FC<LogisticsBookingDetailProps> = ({
     showEwayBillFromResult,
   ]);
 
-  const handlePushEwayToPartner = useCallback(async () => {
+  const refreshBookingAfterPartnerEway = useCallback(async () => {
+    if (!booking.id) return;
+    const fresh = await fetchLogisticsBooking(booking.id);
+    if (fresh) onUpdate(fresh);
+  }, [booking.id, onUpdate]);
+
+  const handleCheckPartnerEwayStatus = useCallback(async () => {
     if (!isDelhivery || !booking.id) return;
+    setPartnerEwayChecking(true);
+    setPartnerEwayError('');
+    try {
+      const status = await syncDelhiveryLrEwayStatus({
+        bookingId: booking.id,
+        invoiceId: booking.invoiceId,
+      });
+      setPartnerEwayStatus(status);
+      if (status.onPartner) await refreshBookingAfterPartnerEway();
+    } catch (err) {
+      setPartnerEwayStatus(null);
+      setPartnerEwayError(
+        err instanceof Error ? err.message : 'Could not read e-way status from Delhivery.',
+      );
+    } finally {
+      setPartnerEwayChecking(false);
+    }
+  }, [booking.id, booking.invoiceId, isDelhivery, refreshBookingAfterPartnerEway]);
+
+  const handlePushEwayToPartner = useCallback(async () => {
+    if (!isDelhivery || !booking.id || partnerEwayStatus?.onPartner) return;
     setPartnerEwayPushing(true);
     setPartnerEwayError('');
     try {
@@ -779,8 +810,14 @@ export const LogisticsBookingDetail: React.FC<LogisticsBookingDetailProps> = ({
         bookingId: booking.id,
         invoiceId: booking.invoiceId,
       });
-      const fresh = await fetchLogisticsBooking(booking.id);
-      if (fresh) onUpdate(fresh);
+      setPartnerEwayStatus({
+        onPartner: true,
+        lrn: ewayLrNumber || null,
+        expected: partnerEwayStatus?.expected || [],
+        partnerEwaybills: partnerEwayStatus?.expected || [],
+        missing: [],
+      });
+      await refreshBookingAfterPartnerEway();
     } catch (err) {
       setPartnerEwayError(
         err instanceof Error ? err.message : 'Could not push e-way bills to Delhivery.',
@@ -788,7 +825,14 @@ export const LogisticsBookingDetail: React.FC<LogisticsBookingDetailProps> = ({
     } finally {
       setPartnerEwayPushing(false);
     }
-  }, [booking.id, booking.invoiceId, isDelhivery, onUpdate]);
+  }, [
+    booking.id,
+    booking.invoiceId,
+    ewayLrNumber,
+    isDelhivery,
+    partnerEwayStatus,
+    refreshBookingAfterPartnerEway,
+  ]);
 
   const sharedDocCards = useMemo((): LogisticsDocCard[] => {
     const cards: LogisticsDocCard[] = [];
@@ -1707,7 +1751,7 @@ export const LogisticsBookingDetail: React.FC<LogisticsBookingDetailProps> = ({
                 : (doc.note
                   ? doc.note
                   : (!doc.enabled && doc.disabledReason ? doc.disabledReason : null)));
-            return (
+            const card = (
               <button
                 key={doc.id}
                 type="button"
@@ -1730,6 +1774,36 @@ export const LogisticsBookingDetail: React.FC<LogisticsBookingDetailProps> = ({
                 ) : null}
               </button>
             );
+            if (doc.kind === 'eway_bill' && isDelhivery && ewayRequired) {
+              return (
+                <div key={doc.id} className="logistics-booking__eway-stack">
+                  {card}
+                  {partnerEwayUpdated ? (
+                    <p className="logistics-booking__push-logistics is-done">
+                      Updated to logistics
+                    </p>
+                  ) : ewayGenerated ? (
+                    <button
+                      type="button"
+                      className="logistics-booking__push-logistics"
+                      onClick={() => {
+                        setPartnerEwayError('');
+                        setPartnerEwayStatus(null);
+                        setPartnerEwayOpen(true);
+                      }}
+                      disabled={!ewayLrNumber}
+                    >
+                      Push to logistics
+                    </button>
+                  ) : (
+                    <p className="logistics-booking__push-logistics is-muted">
+                      Generate e-way first
+                    </p>
+                  )}
+                </div>
+              );
+            }
+            return card;
           })}
 
           {booking.supportRequestId && booking.supportRequestNumber ? (
@@ -1752,32 +1826,10 @@ export const LogisticsBookingDetail: React.FC<LogisticsBookingDetailProps> = ({
         {delhiveryDocsError ? (
           <p className="logistics-booking__docs-error" role="alert">{delhiveryDocsError}</p>
         ) : null}
-        {isDelhivery && ewayRequired ? (
-          <div className="logistics-booking__partner-eway">
-            {partnerEwayUpdated ? (
-              <p className="logistics-booking__partner-eway-ok">
-                E-way bills updated to partner
-              </p>
-            ) : ewayGenerated ? (
-              <button
-                type="button"
-                className="btn btn-secondary btn-sm"
-                onClick={() => { void handlePushEwayToPartner(); }}
-                disabled={partnerEwayPushing || !ewayLrNumber}
-              >
-                {partnerEwayPushing ? 'Pushing to partner…' : 'Push to partner'}
-              </button>
-            ) : (
-              <p className="text-muted text-sm">
-                Generate e-way bills first, then push them to Delhivery.
-              </p>
-            )}
-            {partnerEwayError || (!partnerEwayUpdated && booking.delhiveryEwaySync?.error) ? (
-              <p className="logistics-booking__docs-error" role="alert">
-                {partnerEwayError || booking.delhiveryEwaySync?.error}
-              </p>
-            ) : null}
-          </div>
+        {isDelhivery && ewayRequired && (partnerEwayError || (!partnerEwayUpdated && booking.delhiveryEwaySync?.error)) ? (
+          <p className="logistics-booking__docs-error" role="alert">
+            {partnerEwayError || booking.delhiveryEwaySync?.error}
+          </p>
         ) : null}
         {isOps && shippingLabelBlocked && (
           <div className="logistics-booking__slip-blocked" role="status">
@@ -2798,6 +2850,23 @@ export const LogisticsBookingDetail: React.FC<LogisticsBookingDetailProps> = ({
           }
         />
       )}
+
+      {partnerEwayOpen ? (
+        <EwayBillPushPartnerDialog
+          checking={partnerEwayChecking}
+          pushing={partnerEwayPushing}
+          error={partnerEwayError}
+          status={partnerEwayStatus}
+          onClose={() => {
+            if (partnerEwayChecking || partnerEwayPushing) return;
+            setPartnerEwayOpen(false);
+            setPartnerEwayError('');
+            setPartnerEwayStatus(null);
+          }}
+          onCheckStatus={handleCheckPartnerEwayStatus}
+          onPush={handlePushEwayToPartner}
+        />
+      ) : null}
 
       {ewayGenerateOpen ? (
         <EwayBillGenerateDialog

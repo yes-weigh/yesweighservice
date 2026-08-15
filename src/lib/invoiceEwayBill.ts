@@ -49,6 +49,32 @@ export async function ensureInvoiceEwayBill(input: {
   }
 }
 
+export type DelhiveryPartnerEwayStatus = {
+  onPartner: boolean;
+  lrn: string | null;
+  waybill?: string | null;
+  expected: string[];
+  partnerEwaybills: string[];
+  missing: string[];
+};
+
+export async function syncDelhiveryLrEwayStatus(input: {
+  bookingId?: string | null;
+  invoiceId?: string | null;
+}): Promise<DelhiveryPartnerEwayStatus> {
+  try {
+    const fn = httpsCallable<typeof input, DelhiveryPartnerEwayStatus>(
+      functions,
+      'syncDelhiveryLrEwayStatusFn',
+      { timeout: 60_000 },
+    );
+    const result = await fn(input);
+    return result.data;
+  } catch (err) {
+    throw callableError(err, 'Could not read e-way status from Delhivery.');
+  }
+}
+
 export async function pushDelhiveryLrEwayBills(input: {
   bookingId?: string | null;
   invoiceId?: string | null;

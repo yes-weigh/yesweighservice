@@ -201,6 +201,8 @@ export interface LogisticsDelhiveryEwaySync {
   error?: string | null;
   invoices?: Array<{ inv_number: string; ewaybill: string }>;
   syncedAt: string;
+  /** `partner_status` = already on Delhivery (portal/track); `push` = our PUT. */
+  source?: 'partner_status' | 'push' | null;
 }
 
 /** Official Delhivery documents cached in Storage (paths + metadata only). */

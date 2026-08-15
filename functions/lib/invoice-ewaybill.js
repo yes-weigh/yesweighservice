@@ -21,6 +21,7 @@ import {
   resolveEwayShippingContext,
 } from './eway-shipping-context.js';
 import { updateDelhiveryB2bLrInvoices } from './delhivery-b2b-manifest.js';
+import { fetchDelhiveryPartnerEwayBills } from './delhivery-track.js';
 
 export const EWAY_BILL_THRESHOLD_INR = 50_000;
 const PICKUP_PARTNER_ID = 'personal_collection';
@@ -886,6 +887,71 @@ export async function ensureInvoiceEwayBillForCustomerPickup(secrets, orgId, inp
  * Manual / retry push of generated e-way bills onto the Delhivery LR.
  * Throws when the booking is not ready or Delhivery rejects the update.
  */
+/**
+ * Read Delhivery track and mark the booking synced when e-way bills are already
+ * on the partner (portal update or earlier push). Does not PUT /lrn/update.
+ */
+export async function syncDelhiveryEwayStatusFromPartner(db, input = {}) {
+  const bookingId = String(input.bookingId ?? '').trim() || null;
+  const invoiceId = String(input.invoiceId ?? '').trim() || null;
+  const booking = await resolveDelhiveryBookingForEway(db, bookingId, invoiceId);
+  if (!booking || String(booking.partnerId || '') !== 'delhivery') {
+    throw new Error('Delhivery booking not found for this invoice.');
+  }
+
+  const rows = bookingInvoiceRowsForDelhivery(booking);
+  const expected = rows
+    .map((row) => String(row.ewayBillNumber || '').replace(/\D/g, ''))
+    .filter((value) => value.length >= 10);
+  if (!expected.length) {
+    throw new Error('Generate e-way bills first, then check partner status.');
+  }
+
+  const lrn = normalizeDelhiveryLrn(booking.consignmentNo);
+  const masterAwb = String(
+    booking.trackingNo || booking.masterAwb || booking.courierTrack?.masterAwb || '',
+  ).replace(/\D/g, '');
+  const partner = await fetchDelhiveryPartnerEwayBills(db, { lrn, masterAwb });
+  if (!partner.ok) {
+    throw new Error(partner.error || 'Could not read e-way status from Delhivery.');
+  }
+
+  const partnerSet = new Set(partner.ewaybills);
+  const missing = expected.filter((value) => !partnerSet.has(value));
+  const onPartner = missing.length === 0;
+
+  if (onPartner) {
+    const invoices = rows
+      .map((row) => ({
+        invoiceNumber: String(row.invoiceNumber || '').trim(),
+        invoiceValueInr: Number(row.valueInr) || 0,
+        ewaybill: String(row.ewayBillNumber || '').trim(),
+      }))
+      .filter((row) => row.invoiceNumber);
+    await writeDelhiveryEwaySync(db, booking.id, {
+      ok: true,
+      lrn: lrn || null,
+      fingerprint: delhiveryEwayFingerprint(invoices),
+      jobId: null,
+      error: null,
+      source: 'partner_status',
+      invoices: invoices.map((row) => ({
+        inv_number: row.invoiceNumber,
+        ewaybill: row.ewaybill,
+      })),
+    });
+  }
+
+  return {
+    onPartner,
+    lrn: lrn || null,
+    waybill: partner.waybill,
+    expected,
+    partnerEwaybills: partner.ewaybills,
+    missing,
+  };
+}
+
 export async function pushEwayBillsToDelhiveryLr(db, input = {}) {
   const bookingId = String(input.bookingId ?? '').trim() || null;
   const invoiceId = String(input.invoiceId ?? '').trim() || null;

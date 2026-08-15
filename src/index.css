@@ -22567,6 +22567,60 @@ body:has(.confirm-inline-bar) .confirm-inline-bar {
   font-size: 0.8125rem;
 }
 
+.logistics-booking__eway-stack {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 0.4rem;
+  flex: 0 0 auto;
+  width: 5.25rem;
+}
+
+.logistics-booking__eway-stack .invoice-detail-top__card {
+  width: 100%;
+  min-width: 0;
+}
+
+.logistics-booking__push-logistics {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0.42rem 0.28rem;
+  border-radius: 10px;
+  border: 1.5px solid rgba(168, 85, 247, 0.85);
+  background: rgba(168, 85, 247, 0.12);
+  color: #c084fc;
+  font: inherit;
+  font-size: 0.625rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  line-height: 1.2;
+  text-align: center;
+  cursor: pointer;
+}
+
+.logistics-booking__push-logistics:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.logistics-booking__push-logistics.is-done {
+  border-color: rgba(168, 85, 247, 0.5);
+  background: rgba(168, 85, 247, 0.1);
+  cursor: default;
+}
+
+.logistics-booking__push-logistics.is-muted {
+  border-color: rgba(168, 85, 247, 0.28);
+  background: transparent;
+  color: #94a3b8;
+  cursor: default;
+  font-weight: 600;
+}
+
 .logistics-booking__partner-eway {
   display: flex;
   flex-wrap: wrap;
@@ -22584,6 +22638,21 @@ body:has(.confirm-inline-bar) .confirm-inline-bar {
 
 .logistics-booking__eway-cancel {
   margin-top: 0.55rem;
+}
+
+.logistics-eway-partner {
+  width: min(100%, 480px);
+}
+
+.logistics-eway-partner__body {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  padding: 0 1.25rem 1rem;
+}
+
+.logistics-eway-partner .dealers-modal__actions {
+  flex-wrap: wrap;
 }
 
 .logistics-eway-cancel {
@@ -25717,6 +25786,7 @@ body:has(.confirm-inline-bar) .confirm-inline-bar {
 
 .logistics-booking__doc-row.invoice-detail-top__actions {
   display: flex;
+  align-items: flex-start;
   grid-template-columns: unset;
 }
 

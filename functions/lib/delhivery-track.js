@@ -408,6 +408,104 @@ export function uniqueDelhiveryTrackIds(...values) {
 }
 
 /**
+ * E-way bill numbers from a Delhivery Express / B2B track payload.
+ * Portal updates show up as Shipment.Ewaybill: ["5620…"].
+ * @param {unknown} json
+ * @returns {string[]}
+ */
+export function collectDelhiveryEwayBillNumbers(json) {
+  /** @type {string[]} */
+  const numbers = [];
+  const seen = new Set();
+  const add = (raw) => {
+    const id = String(raw ?? '').replace(/\D/g, '');
+    if (id.length >= 10 && !seen.has(id)) {
+      seen.add(id);
+      numbers.push(id);
+    }
+  };
+  const visit = (value, key, depth) => {
+    if (value == null || depth > 8) return;
+    if (/ewaybill/i.test(String(key || ''))) {
+      if (Array.isArray(value)) value.forEach(add);
+      else if (value && typeof value === 'object') visit(value, '', depth + 1);
+      else add(value);
+      return;
+    }
+    if (Array.isArray(value)) {
+      value.forEach((item) => visit(item, '', depth + 1));
+      return;
+    }
+    if (typeof value === 'object') {
+      for (const [childKey, child] of Object.entries(value)) {
+        visit(child, childKey, depth + 1);
+      }
+    }
+  };
+  visit(json, '', 0);
+  return numbers;
+}
+
+/**
+ * Read e-way bills already stored on the Delhivery shipment (API or portal).
+ * Express packages/json on the Master AWB is the reliable source.
+ * @param {FirebaseFirestore.Firestore} db
+ * @param {{ lrn?: string | null, masterAwb?: string | null }} [ids]
+ */
+export async function fetchDelhiveryPartnerEwayBills(db, ids = {}) {
+  const candidates = [ids.masterAwb, ids.lrn]
+    .map((value) => normalizeDelhiveryLrn(value))
+    .filter(Boolean)
+    .sort((a, b) => Number(isDelhiveryB2bLrn(a)) - Number(isDelhiveryB2bLrn(b)));
+  if (!candidates.length) {
+    return { ok: false, waybill: null, ewaybills: [], error: 'A Delhivery AWB or LRN is required.' };
+  }
+
+  const auth = await getValidDelhiveryJwt(db);
+  /** @type {string | null} */
+  let lastError = null;
+  for (const id of candidates) {
+    const url = `${EXPRESS_PACKAGES_URL}?waybill=${encodeURIComponent(id)}`;
+    const res = await fetch(url, {
+      method: 'GET',
+      headers: {
+        Authorization: `Bearer ${auth.jwt}`,
+        Accept: 'application/json',
+      },
+    });
+    const text = await res.text();
+    let json = null;
+    try {
+      json = text ? JSON.parse(text) : null;
+    } catch {
+      json = null;
+    }
+    if (
+      !res.ok
+      || json?.Success === false
+      || json?.success === false
+    ) {
+      lastError = String(
+        json?.Error || json?.error?.message || json?.message || text || `Track failed (${res.status})`,
+      );
+      continue;
+    }
+    return {
+      ok: true,
+      waybill: id,
+      ewaybills: collectDelhiveryEwayBillNumbers(json),
+      error: null,
+    };
+  }
+  return {
+    ok: false,
+    waybill: candidates[0] || null,
+    ewaybills: [],
+    error: lastError || 'Could not read e-way status from Delhivery.',
+  };
+}
+
+/**
  * Express packages/json track (Master AWB / waybill). Uses B2B JWT as Bearer.
  * @param {FirebaseFirestore.Firestore} db
  * @param {string} waybill

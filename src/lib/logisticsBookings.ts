@@ -219,6 +219,9 @@ function mapDelhiveryEwaySync(raw: unknown): import('../types/logistics-dispatch
     error: typeof data.error === 'string' ? data.error : null,
     invoices,
     syncedAt: syncedAt || new Date(0).toISOString(),
+    source: data.source === 'partner_status' || data.source === 'push'
+      ? data.source
+      : null,
   };
 }
 
