@@ -15,7 +15,7 @@ import { FetchingLoader } from '../../components/FetchingLoader';
 import { AdminPurchaseOrderDocCard } from '../../components/admin/AdminPurchaseOrderDocCard';
 import { useCatalogPageHeader, usePageHeaderSlot } from '../../context/PageHeaderContext';
 import {
-  countAdminPurchaseOrdersByCategory,
+  countAdminPurchaseOrders,
   fetchAdminPurchaseOrdersPageDetailed,
   fetchAllAdminPurchaseOrdersInRange,
   filterAdminPurchaseOrders,
@@ -237,10 +237,10 @@ export const AdminPurchaseOrdersPage: React.FC = () => {
   useEffect(() => {
     let cancelled = false;
     setCountsLoading(true);
-    void countAdminPurchaseOrdersByCategory({ dateStart, dateEnd })
-      .then(counts => {
+    void countAdminPurchaseOrders({ dateStart, dateEnd })
+      .then(count => {
         if (cancelled) return;
-        setTotalCount(counts.all);
+        setTotalCount(count);
       })
       .catch(err => {
         if (!cancelled) setError(invoiceErrorMessage(err));
@@ -414,7 +414,7 @@ export const AdminPurchaseOrdersPage: React.FC = () => {
               <ShoppingBag size={16} strokeWidth={2.4} />
             </span>
             <div className="invoices-summary__kpi-body">
-              <span className="invoices-summary__kpi-label">Total POs</span>
+              <span className="invoices-summary__kpi-label">Draft POs</span>
               <strong className="invoices-summary__kpi-value">
                 {busy ? '…' : summary.count.toLocaleString('en-IN')}
               </strong>

@@ -227,7 +227,7 @@ function mapPurchaseOrder(raw) {
     date: raw.date ? String(raw.date) : null,
     createdTime: raw.created_time ? String(raw.created_time) : (raw.createdTime ? String(raw.createdTime) : null),
     deliveryDate: raw.delivery_date ? String(raw.delivery_date) : null,
-    status: String(raw.status ?? 'draft'),
+    status: String(raw.status ?? 'draft').trim().toLowerCase(),
     total: Number(raw.total ?? 0),
     balance: Number(raw.balance ?? raw.total ?? 0),
     referenceNumber: raw.reference_number ? String(raw.reference_number) : null,

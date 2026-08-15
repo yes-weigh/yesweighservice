@@ -40,6 +40,9 @@ const ADMIN_PO_AGGREGATE_MAX_ROWS = 2500;
 
 export type AdminPurchaseOrderSort = 'syncedAt' | 'date';
 
+/** Portal list shows Zoho draft POs only. */
+export const PORTAL_PURCHASE_ORDER_STATUS = 'draft';
+
 export type AdminPurchaseOrderListQuery = {
   sort?: AdminPurchaseOrderSort;
   pageSize?: number;
@@ -49,6 +52,8 @@ export type AdminPurchaseOrderListQuery = {
   dateStart?: string | null;
   /** Inclusive YYYY-MM-DD */
   dateEnd?: string | null;
+  /** Zoho status. Portal defaults to draft. */
+  status?: string | null;
 };
 
 export interface AdminFirestorePurchaseOrder {
@@ -151,7 +156,7 @@ export function mapAdminPurchaseOrderDoc(
       timestampToIso(data.zohoLastModified),
     ),
     deliveryDate: data.deliveryDate ? String(data.deliveryDate) : null,
-    status: String(data.status ?? 'draft'),
+    status: String(data.status ?? 'draft').trim().toLowerCase(),
     total: Number(data.total ?? 0),
     balance: Number(data.balance ?? 0),
     currencyCode: data.currencyCode ? String(data.currencyCode).toUpperCase() : 'INR',
@@ -180,7 +185,10 @@ export function buildAdminPurchaseOrdersQuery(options: AdminPurchaseOrderListQue
   const category = options.category ?? 'all';
   const dateStart = options.dateStart?.trim() || null;
   const dateEnd = options.dateEnd?.trim() || null;
+  const status = String(options.status ?? PORTAL_PURCHASE_ORDER_STATUS).trim().toLowerCase();
   const constraints: QueryConstraint[] = [];
+
+  if (status) constraints.push(where('status', '==', status));
 
   if (category && category !== 'all') {
     // Primary (high-value) category only — mixed POs with product + spare stay under product.
@@ -231,15 +239,34 @@ export function subscribeAdminPurchaseOrders(
   );
 }
 
+function isFirestoreIndexError(err: unknown): boolean {
+  const msg = err instanceof Error ? err.message : String(err ?? '');
+  return /requires an index|currently building/i.test(msg);
+}
+
 export async function fetchAdminPurchaseOrdersPageDetailed(
   options: AdminPurchaseOrderListQuery,
 ): Promise<AdminPurchaseOrdersPageResult> {
-  const snap = await getDocs(buildAdminPurchaseOrdersQuery(options));
-  return {
-    rows: snap.docs.map(mapAdminPurchaseOrderDoc),
-    docs: snap.docs,
-    lastDoc: snap.docs.length ? snap.docs[snap.docs.length - 1] : null,
-  };
+  try {
+    const snap = await getDocs(buildAdminPurchaseOrdersQuery(options));
+    return {
+      rows: snap.docs.map(mapAdminPurchaseOrderDoc),
+      docs: snap.docs,
+      lastDoc: snap.docs.length ? snap.docs[snap.docs.length - 1] : null,
+    };
+  } catch (err) {
+    if (!isFirestoreIndexError(err)) throw err;
+    const snap = await getDocs(buildAdminPurchaseOrdersQuery({ ...options, status: '' }));
+    const wanted = String(options.status ?? PORTAL_PURCHASE_ORDER_STATUS).trim().toLowerCase();
+    const rows = snap.docs
+      .map(mapAdminPurchaseOrderDoc)
+      .filter(row => !wanted || row.status === wanted);
+    return {
+      rows,
+      docs: snap.docs,
+      lastDoc: snap.docs.length ? snap.docs[snap.docs.length - 1] : null,
+    };
+  }
 }
 
 export async function fetchAdminPurchaseOrdersPage(
@@ -262,8 +289,10 @@ export async function countAdminPurchaseOrders(
   const category = options.category ?? 'all';
   const dateStart = options.dateStart?.trim() || null;
   const dateEnd = options.dateEnd?.trim() || null;
+  const status = String(options.status ?? PORTAL_PURCHASE_ORDER_STATUS).trim().toLowerCase();
   const constraints: QueryConstraint[] = [];
 
+  if (status) constraints.push(where('status', '==', status));
   if (category && category !== 'all') {
     constraints.push(where('purchaseOrderCategory', '==', category));
   }
@@ -277,8 +306,20 @@ export async function countAdminPurchaseOrders(
     constraints.push(orderBy('date', 'desc'));
   }
 
-  const snap = await getCountFromServer(query(collection(db, 'purchaseOrders'), ...constraints));
-  return snap.data().count;
+  try {
+    const snap = await getCountFromServer(query(collection(db, 'purchaseOrders'), ...constraints));
+    return snap.data().count;
+  } catch (err) {
+    if (!isFirestoreIndexError(err)) throw err;
+    const { rows } = await fetchAllAdminPurchaseOrdersInRange({
+      sort,
+      category,
+      dateStart,
+      dateEnd,
+      status: status || PORTAL_PURCHASE_ORDER_STATUS,
+    });
+    return rows.length;
+  }
 }
 
 export async function countAdminPurchaseOrdersByCategory(options: {
@@ -328,6 +369,7 @@ export async function fetchAllAdminPurchaseOrdersInRange(options: {
   category?: InvoiceCategory | 'all';
   dateStart?: string | null;
   dateEnd?: string | null;
+  status?: string | null;
   maxRows?: number;
 }): Promise<{ rows: AdminFirestorePurchaseOrder[]; truncated: boolean }> {
   const maxRows = options.maxRows ?? ADMIN_PO_AGGREGATE_MAX_ROWS;
@@ -344,6 +386,7 @@ export async function fetchAllAdminPurchaseOrdersInRange(options: {
       category: options.category ?? 'all',
       dateStart: options.dateStart,
       dateEnd: options.dateEnd,
+      status: options.status ?? PORTAL_PURCHASE_ORDER_STATUS,
     });
     if (!result.rows.length) break;
     rows.push(...result.rows);
@@ -363,7 +406,7 @@ export function filterAdminPurchaseOrders(
   searchText: string,
   category: InvoiceCategory | 'all' = 'all',
 ): AdminFirestorePurchaseOrder[] {
-  let next = rows;
+  let next = rows.filter(row => row.status === PORTAL_PURCHASE_ORDER_STATUS);
   if (category && category !== 'all') {
     next = next.filter(row => {
       const primary = row.purchaseOrderCategory
@@ -430,7 +473,7 @@ export function mapAdminPurchaseOrderDetail(
     purchaseOrderNumber: String(data.purchaseOrderNumber ?? ''),
     date: data.date ? String(data.date) : null,
     deliveryDate: data.deliveryDate ? String(data.deliveryDate) : null,
-    status: String(data.status ?? 'draft'),
+    status: String(data.status ?? 'draft').trim().toLowerCase(),
     total: Number(data.total ?? 0),
     balance: Number(data.balance ?? 0),
     referenceNumber: data.referenceNumber ? String(data.referenceNumber) : null,
