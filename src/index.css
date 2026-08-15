@@ -32196,6 +32196,37 @@ body:has(.confirm-inline-bar) .confirm-inline-bar {
   padding-top: 0.05rem;
 }
 
+.invoice-doc-card__head--stacked {
+  flex-direction: column;
+  align-items: stretch;
+  gap: 0.28rem;
+}
+
+.invoice-doc-card__head--stacked .invoice-doc-card__dealer {
+  width: 100%;
+}
+
+.invoice-doc-card__head--stacked .invoice-doc-card__title {
+  flex: 1 1 auto;
+}
+
+.invoice-doc-card__subhead {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  min-width: 0;
+  padding-left: 1.4rem;
+}
+
+.invoice-doc-card__subhead .invoice-doc-card__meta-item {
+  flex: 1 1 auto;
+}
+
+.invoice-doc-card__subhead .invoice-doc-card__head-end {
+  padding-top: 0;
+}
+
 .invoice-doc-card__amount {
   min-width: 0;
   font-size: 0.8125rem;

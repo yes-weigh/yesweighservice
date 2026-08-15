@@ -5,9 +5,10 @@ import {
   ChevronRight,
   ClipboardList,
   FileText,
+  MapPin,
   Package,
+  Ship,
   Store,
-  Truck,
 } from 'lucide-react';
 import { InvoiceCategoryIcon } from '../invoices/InvoiceCategoryVisual';
 import { FitSingleLine } from '../invoices/FitSingleLine';
@@ -68,38 +69,37 @@ export function AdminPurchaseOrderDocCard({
     ?? null;
   const categoryLabel = invoiceCategoryLabel(category);
   const accent = poCardAccent(purchaseOrder.status);
+  const locationLabel = [purchaseOrder.vendorState, purchaseOrder.vendorCountry]
+    .filter(Boolean)
+    .join(', ') || '—';
 
   return (
     <button
       type="button"
-      className={`invoice-doc-card invoice-doc-card--${accent}`}
+      className={`invoice-doc-card invoice-doc-card--purchase-order invoice-doc-card--${accent}`}
       onMouseDown={preventMouseFocusScroll}
       onClick={() => onOpen(purchaseOrder)}
       aria-label={`View purchase order ${purchaseOrder.purchaseOrderNumber || purchaseOrder.id}`}
     >
       <span className="invoice-doc-card__main">
-        <span className="invoice-doc-card__head">
+        <span className="invoice-doc-card__head invoice-doc-card__head--stacked">
           <span className="invoice-doc-card__dealer">
             <Store size={18} strokeWidth={2.1} className="invoice-doc-card__icon" aria-hidden />
-            <span className="invoice-doc-card__dealer-copy">
-              <FitSingleLine className="invoice-doc-card__title">
-                {purchaseOrder.vendorName ?? '—'}
-              </FitSingleLine>
-              {purchaseOrder.deliveryDate ? (
-                <span className="invoice-doc-card__meta-item">
-                  <Calendar size={11} strokeWidth={2.2} aria-hidden />
-                  <FitSingleLine className="invoice-doc-card__meta-text">
-                    Delivery {formatInvoiceDateTime(purchaseOrder.deliveryDate)}
-                  </FitSingleLine>
-                </span>
-              ) : null}
-            </span>
-          </span>
-          <span className="invoice-doc-card__head-end">
-            <FitSingleLine className="invoice-doc-card__amount">
-              {formatCurrency(purchaseOrder.total, purchaseOrder.currencyCode)}
+            <FitSingleLine className="invoice-doc-card__title">
+              {purchaseOrder.vendorName ?? '—'}
             </FitSingleLine>
-            <ChevronRight size={18} className="invoice-doc-card__chevron" aria-hidden />
+          </span>
+          <span className="invoice-doc-card__subhead">
+            <span className="invoice-doc-card__meta-item">
+              <MapPin size={11} strokeWidth={2.2} aria-hidden />
+              <FitSingleLine className="invoice-doc-card__meta-text">{locationLabel}</FitSingleLine>
+            </span>
+            <span className="invoice-doc-card__head-end">
+              <FitSingleLine className="invoice-doc-card__amount">
+                {formatCurrency(purchaseOrder.total, purchaseOrder.currencyCode)}
+              </FitSingleLine>
+              <ChevronRight size={18} className="invoice-doc-card__chevron" aria-hidden />
+            </span>
           </span>
         </span>
 
@@ -129,7 +129,7 @@ export function AdminPurchaseOrderDocCard({
             </CardField>
             <span className="invoice-doc-card__field invoice-doc-card__field--status">
               <span className={poStatusClass(purchaseOrder.status)}>
-                <Truck size={12} strokeWidth={2.2} aria-hidden />
+                <Ship size={12} strokeWidth={2.2} aria-hidden />
                 {invoiceStatusLabel(purchaseOrder.status)}
               </span>
             </span>

@@ -205,6 +205,8 @@ function buildSearchBlob(doc) {
   return [
     doc.purchaseOrderNumber,
     doc.vendorName,
+    doc.vendorState,
+    doc.vendorCountry,
     doc.vendorId,
     doc.referenceNumber,
     doc.status,
@@ -233,10 +235,31 @@ async function loadCatalogMeta(itemIds) {
   return map;
 }
 
+function pickVendorAddressFromPurchaseOrder(raw) {
+  const billing = raw?.billing_address && typeof raw.billing_address === 'object'
+    ? raw.billing_address
+    : null;
+  const shipping = raw?.delivery_address && typeof raw.delivery_address === 'object'
+    ? raw.delivery_address
+    : (raw?.shipping_address && typeof raw.shipping_address === 'object'
+      ? raw.shipping_address
+      : null);
+  const addr = billing || shipping || null;
+  const clean = (value) => {
+    const s = value != null ? String(value).trim() : '';
+    return s || null;
+  };
+  return {
+    vendorState: clean(addr?.state ?? addr?.province ?? raw?.source_of_supply),
+    vendorCountry: clean(addr?.country),
+  };
+}
+
 function mapPurchaseOrder(raw) {
   const lineItems = Array.isArray(raw.line_items)
     ? raw.line_items.map(mapLineItem)
     : [];
+  const vendorAddress = pickVendorAddressFromPurchaseOrder(raw);
   return {
     id: String(raw.purchaseorder_id ?? ''),
     purchaseOrderNumber: String(raw.purchaseorder_number ?? ''),
@@ -250,6 +273,8 @@ function mapPurchaseOrder(raw) {
     currencyCode: String(raw.currency_code ?? 'INR'),
     vendorId: raw.vendor_id != null ? String(raw.vendor_id) : '',
     vendorName: raw.vendor_name ? String(raw.vendor_name) : null,
+    vendorState: vendorAddress.vendorState,
+    vendorCountry: vendorAddress.vendorCountry,
     subtotal: Number(raw.sub_total ?? raw.subtotal ?? 0),
     taxTotal: Number(raw.tax_total ?? 0),
     notes: raw.notes ? String(raw.notes) : null,

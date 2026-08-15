@@ -107,6 +107,8 @@ export interface AdminFirestorePurchaseOrder {
   purchaseOrderNumber: string;
   vendorId: string;
   vendorName: string | null;
+  vendorState: string | null;
+  vendorCountry: string | null;
   date: string | null;
   createdTime?: string | null;
   deliveryDate: string | null;
@@ -204,6 +206,8 @@ export function mapAdminPurchaseOrderDoc(
     purchaseOrderNumber: String(data.purchaseOrderNumber ?? ''),
     vendorId: String(data.vendorId ?? ''),
     vendorName: data.vendorName ? String(data.vendorName) : null,
+    vendorState: data.vendorState ? String(data.vendorState) : null,
+    vendorCountry: data.vendorCountry ? String(data.vendorCountry) : null,
     date: data.date ? String(data.date) : null,
     createdTime: firstDateTimeValue(
       timestampToIso(data.createdTime),
@@ -544,6 +548,8 @@ export function filterAdminPurchaseOrders(
     const haystack = [
       row.purchaseOrderNumber,
       row.vendorName,
+      row.vendorState,
+      row.vendorCountry,
       row.vendorId,
       row.referenceNumber,
       row.id,
