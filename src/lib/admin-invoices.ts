@@ -63,7 +63,11 @@ import type { LogisticsBooking } from '../types/logistics-dispatch';
 
 export { toSalesOrderDateKey as toInvoiceDateKey };
 
-export type AdminInvoiceSort = 'syncedAt' | 'date';
+export type AdminInvoiceSort = 'syncedAt' | 'date' | 'oldest' | 'latest';
+
+export function adminInvoiceSortDirection(sort?: AdminInvoiceSort | null): 'asc' | 'desc' {
+  return sort === 'oldest' ? 'asc' : 'desc';
+}
 
 export interface AdminFirestoreInvoice {
   id: string;
@@ -357,7 +361,8 @@ export function clearAdminInvoiceListCollectionCache(): void {
 export function buildAdminInvoicesQuery(options: AdminInvoiceListQuery & {
   listCollection?: AdminInvoiceListCollection;
 }) {
-  const sort = options.sort ?? 'date';
+  const sort = options.sort ?? 'oldest';
+  const dateDir = adminInvoiceSortDirection(sort);
   const pageSize = Math.max(1, Math.min(Number(options.pageSize ?? ADMIN_LIST_PAGE_SIZE) || ADMIN_LIST_PAGE_SIZE, 500));
   const category = options.category ?? 'all';
   const dateStart = options.dateStart?.trim() || null;
@@ -380,16 +385,18 @@ export function buildAdminInvoicesQuery(options: AdminInvoiceListQuery & {
     constraints.push(where('listStatus', 'in', listStatusValues));
   }
 
-  // Date inequalities must share orderBy('date'); client re-sorts by syncedAt if needed.
+  // Date inequalities must share orderBy('date'); reverse both fields so
+  // existing DESC composite indexes also serve oldest-first (ASC).
   if (dateStart || dateEnd) {
     if (dateStart) constraints.push(where('date', '>=', dateStart));
     if (dateEnd) constraints.push(where('date', '<=', dateEnd));
-    constraints.push(orderBy('date', 'desc'));
-    constraints.push(orderBy('invoiceNumber', 'desc'));
+    constraints.push(orderBy('date', dateDir));
+    constraints.push(orderBy('invoiceNumber', dateDir));
   } else {
     const field = sort === 'syncedAt' ? 'syncedAt' : 'date';
-    constraints.push(orderBy(field, 'desc'));
-    constraints.push(orderBy('invoiceNumber', 'desc'));
+    const fieldDir = field === 'syncedAt' ? 'desc' : dateDir;
+    constraints.push(orderBy(field, fieldDir));
+    constraints.push(orderBy('invoiceNumber', dateDir));
   }
 
   if (options.cursor) constraints.push(startAfter(options.cursor));
@@ -1250,9 +1257,10 @@ function compareInvoiceSortKey(
   const bTs = b.date ? parseInvoiceDay(b.date) : NaN;
   const aSafe = Number.isNaN(aTs) ? 0 : aTs;
   const bSafe = Number.isNaN(bTs) ? 0 : bTs;
-  const diff = bSafe - aSafe;
+  const oldest = sort === 'oldest';
+  const diff = oldest ? aSafe - bSafe : bSafe - aSafe;
   if (diff !== 0) return diff;
-  return compareInvoiceNumberDesc(a, b);
+  return oldest ? -compareInvoiceNumberDesc(a, b) : compareInvoiceNumberDesc(a, b);
 }
 
 /** Club invoices into one row per dealer (sums amounts / qty; latest date). */
@@ -1270,8 +1278,8 @@ export function aggregateAdminInvoicesByDealer(
 
   const aggregates: AdminFirestoreInvoice[] = [];
   for (const [customerId, invoices] of byCustomer) {
-    const ordered = [...invoices].sort((a, b) => compareInvoiceSortKey(a, b, sort));
-    const latest = ordered[0];
+    const newestFirst = [...invoices].sort((a, b) => compareInvoiceSortKey(a, b, 'latest'));
+    const latest = newestFirst[0];
 
     let total = 0;
     let balance = 0;
@@ -2068,12 +2076,13 @@ export async function fetchAdminInvoicesForCustomers(options: {
       if (dateStart) constraints.push(where('date', '>=', dateStart));
       if (dateEnd) constraints.push(where('date', '<=', dateEnd));
       if (ordered) {
+        const dateDir = adminInvoiceSortDirection(sort);
         if (dateStart || dateEnd || sort !== 'syncedAt') {
-          constraints.push(orderBy('date', 'desc'));
+          constraints.push(orderBy('date', dateDir));
         } else {
           constraints.push(orderBy('syncedAt', 'desc'));
         }
-        constraints.push(orderBy('invoiceNumber', 'desc'));
+        constraints.push(orderBy('invoiceNumber', dateDir));
         if (pageCursor) constraints.push(startAfter(pageCursor));
         constraints.push(limit(pageSize));
       }

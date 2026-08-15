@@ -86,7 +86,7 @@ const LIST_PAGE_SIZE = 25;
 const SEARCH_FETCH_SIZE = 100;
 
 const DEFAULT_RANGE: SalesRangePreset = 'financial_year';
-const DEFAULT_SORT: AdminSalesOrderSort = 'date';
+const DEFAULT_SORT: AdminSalesOrderSort = 'oldest';
 const DEFAULT_CATEGORY: InvoiceCategory | 'all' = 'all';
 const DEFAULT_STAGE: YesOneStageFilter | 'all' = 'payment_submitted';
 
@@ -100,8 +100,8 @@ const EMPTY_CATEGORY_COUNTS: AdminSalesOrderCategoryCounts = {
 };
 
 const SORT_OPTIONS: Array<{ value: AdminSalesOrderSort; label: string }> = [
-  { value: 'date', label: 'Date' },
-  { value: 'syncedAt', label: 'Most recently updated' },
+  { value: 'oldest', label: 'Oldest first' },
+  { value: 'latest', label: 'Latest first' },
 ];
 
 function UnifiedFilterSheet({
@@ -217,7 +217,7 @@ function UnifiedFilterSheet({
             </div>
 
             <div className="catalog-spares-multi-filters__group">
-              <span className="catalog-spares-multi-filters__label">Sort by</span>
+              <span className="catalog-spares-multi-filters__label">Sorting</span>
               <div className="catalog-spares-multi-filters__options" role="radiogroup" aria-label="Sort by">
                 {SORT_OPTIONS.map(option => {
                   const id = `unified-so-sort-${option.value}`;
@@ -784,17 +784,12 @@ export const AdminUnifiedSalesOrdersPage: React.FC = () => {
         period: undefined,
       });
     }
-    // Pin actionable YesOne stages to the top (not completed/invoiced),
-    // then highest SO number within each group.
-    const sealPriority = (kind: typeof rows[number]['sealKind']) => {
-      if (kind === 'under_review') return 0;
-      if (kind === 'awaiting_payment') return 1;
-      return 2;
-    };
+    const oldest = sort === 'oldest';
     return [...rows].sort((a, b) => {
-      const bySeal = sealPriority(a.sealKind) - sealPriority(b.sealKind);
-      if (bySeal) return bySeal;
-      return compareSalesOrderNumberDesc(a.primaryNumber, b.primaryNumber);
+      const byDate = oldest ? a.sortAt - b.sortAt : b.sortAt - a.sortAt;
+      if (byDate) return byDate;
+      const byNumber = compareSalesOrderNumberDesc(a.primaryNumber, b.primaryNumber);
+      return oldest ? -byNumber : byNumber;
     });
   }, [
     zohoOrders,

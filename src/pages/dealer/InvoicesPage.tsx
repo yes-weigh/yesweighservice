@@ -85,7 +85,7 @@ const EMPTY_CATEGORY_COUNTS: DealerInvoiceCategoryCounts = {
   gatc: 0,
 };
 const DEFAULT_SORT_FIELD: InvoiceSortField = 'date';
-const DEFAULT_SORT_DIR: 'asc' | 'desc' = 'desc';
+const DEFAULT_SORT_DIR: 'asc' | 'desc' = 'asc';
 const DEFAULT_CATEGORY: InvoiceCategory | 'all' = 'all';
 
 const SORT_OPTIONS: Array<{ value: InvoiceSortField; label: string }> = [
@@ -239,6 +239,31 @@ function InvoiceFilterSheet({
                         name="invoice-date-range"
                         checked={checked}
                         onChange={() => setDraftRange(option.value)}
+                      />
+                      <span className="catalog-spares-multi-filters__option-label">{option.label}</span>
+                    </label>
+                  );
+                })}
+              </div>
+            </div>
+
+            <div className="catalog-spares-multi-filters__group">
+              <span className="catalog-spares-multi-filters__label">Sorting</span>
+              <div className="catalog-spares-multi-filters__options" role="radiogroup" aria-label="Sorting">
+                {([
+                  { value: 'asc' as const, label: 'Oldest first' },
+                  { value: 'desc' as const, label: 'Latest first' },
+                ]).map(option => {
+                  const id = `invoice-sort-dir-${option.value}`;
+                  return (
+                    <label key={option.value} className="catalog-spares-multi-filters__option" htmlFor={id}>
+                      <input
+                        id={id}
+                        type="radio"
+                        className="catalog-spares-multi-filters__checkbox"
+                        name="invoice-sort-dir"
+                        checked={draftSortDir === option.value}
+                        onChange={() => setDraftSortDir(option.value)}
                       />
                       <span className="catalog-spares-multi-filters__option-label">{option.label}</span>
                     </label>

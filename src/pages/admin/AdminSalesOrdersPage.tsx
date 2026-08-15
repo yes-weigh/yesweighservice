@@ -42,12 +42,12 @@ import { INVOICE_CATEGORY_FILTER_OPTIONS, SALES_RANGE_OPTIONS } from '../../type
 const PAGE_SIZE = 500;
 const LIST_PAGE_SIZE = 25;
 const DEFAULT_RANGE: SalesRangePreset = 'current_month';
-const DEFAULT_SORT: AdminSalesOrderSort = 'date';
+const DEFAULT_SORT: AdminSalesOrderSort = 'oldest';
 const DEFAULT_CATEGORY: InvoiceCategory | 'all' = 'all';
 
 const SORT_OPTIONS: Array<{ value: AdminSalesOrderSort; label: string }> = [
-  { value: 'date', label: 'SO date' },
-  { value: 'syncedAt', label: 'Most recently updated' },
+  { value: 'oldest', label: 'Oldest first' },
+  { value: 'latest', label: 'Latest first' },
 ];
 
 function poStatusClass(status: string): string {
@@ -177,8 +177,8 @@ function SalesOrderFilterSheet({
             </div>
 
             <div className="catalog-spares-multi-filters__group">
-              <span className="catalog-spares-multi-filters__label">Sort by</span>
-              <div className="catalog-spares-multi-filters__options" role="radiogroup" aria-label="Sort by">
+              <span className="catalog-spares-multi-filters__label">Sorting</span>
+              <div className="catalog-spares-multi-filters__options" role="radiogroup" aria-label="Sorting">
                 {SORT_OPTIONS.map(option => {
                   const checked = draftSort === option.value;
                   const id = `admin-po-sort-${option.value}`;

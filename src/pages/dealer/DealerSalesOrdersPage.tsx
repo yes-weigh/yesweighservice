@@ -23,6 +23,7 @@ import { useAuth } from '../../context/AuthContext';
 import { useCatalogPageHeader, usePageHeaderSlot } from '../../context/PageHeaderContext';
 import type {
   AdminFirestoreSalesOrder,
+  AdminSalesOrderSort,
 } from '../../lib/admin-sales-orders';
 import { toSalesOrderDateKey } from '../../lib/admin-sales-orders';
 import { formatCurrency } from '../../lib/catalog';
@@ -42,6 +43,7 @@ import {
 import { useRevealScrollbarOnScroll } from '../../lib/useRevealScrollbarOnScroll';
 import { preventMouseFocusScroll } from '../../lib/preventMouseFocusScroll';
 import {
+  compareSalesOrderNumberDesc,
   countYesOneStages,
   filterUnifiedSalesOrders,
   mergeUnifiedSalesOrders,
@@ -55,24 +57,33 @@ import type { YesOneStageFilter } from '../../lib/salesOrderWorkflow';
 const LIST_PAGE_SIZE = 25;
 const DEFAULT_RANGE: SalesRangePreset = 'financial_year';
 const DEFAULT_CATEGORY: InvoiceCategory | 'all' = 'all';
+const DEFAULT_SORT: AdminSalesOrderSort = 'oldest';
+const SORT_OPTIONS: Array<{ value: AdminSalesOrderSort; label: string }> = [
+  { value: 'oldest', label: 'Oldest first' },
+  { value: 'latest', label: 'Latest first' },
+];
 
 function DealerFilterSheet({
   open,
   rangePreset,
+  sort,
   onClose,
   onApply,
 }: {
   open: boolean;
   rangePreset: SalesRangePreset;
+  sort: AdminSalesOrderSort;
   onClose: () => void;
-  onApply: (next: { rangePreset: SalesRangePreset }) => void;
+  onApply: (next: { rangePreset: SalesRangePreset; sort: AdminSalesOrderSort }) => void;
 }) {
   const [draftRange, setDraftRange] = useState(rangePreset);
+  const [draftSort, setDraftSort] = useState(sort);
 
   useEffect(() => {
     if (!open) return;
     setDraftRange(rangePreset);
-  }, [open, rangePreset]);
+    setDraftSort(sort);
+  }, [open, rangePreset, sort]);
 
   useEffect(() => {
     if (!open) return;
@@ -85,7 +96,7 @@ function DealerFilterSheet({
 
   if (!open) return null;
 
-  const draftDirty = draftRange !== DEFAULT_RANGE;
+  const draftDirty = draftRange !== DEFAULT_RANGE || draftSort !== DEFAULT_SORT;
 
   return createPortal(
     <>
@@ -136,6 +147,28 @@ function DealerFilterSheet({
                 })}
               </div>
             </div>
+
+            <div className="catalog-spares-multi-filters__group">
+              <span className="catalog-spares-multi-filters__label">Sorting</span>
+              <div className="catalog-spares-multi-filters__options" role="radiogroup" aria-label="Sorting">
+                {SORT_OPTIONS.map(option => {
+                  const id = `dealer-so-sort-${option.value}`;
+                  return (
+                    <label key={option.value} className="catalog-spares-multi-filters__option" htmlFor={id}>
+                      <input
+                        id={id}
+                        type="radio"
+                        className="catalog-spares-multi-filters__checkbox"
+                        name="dealer-so-sort"
+                        checked={draftSort === option.value}
+                        onChange={() => setDraftSort(option.value)}
+                      />
+                      <span className="catalog-spares-multi-filters__option-label">{option.label}</span>
+                    </label>
+                  );
+                })}
+              </div>
+            </div>
           </div>
 
           <div className="catalog-spares-multi-filters__footer">
@@ -143,7 +176,7 @@ function DealerFilterSheet({
               type="button"
               className="catalog-spares-multi-filters__apply"
               onClick={() => {
-                onApply({ rangePreset: draftRange });
+                onApply({ rangePreset: draftRange, sort: draftSort });
                 onClose();
               }}
             >
@@ -153,7 +186,10 @@ function DealerFilterSheet({
               type="button"
               className="catalog-spares-multi-filters__clear-btn"
               disabled={!draftDirty}
-              onClick={() => setDraftRange(DEFAULT_RANGE)}
+              onClick={() => {
+                setDraftRange(DEFAULT_RANGE);
+                setDraftSort(DEFAULT_SORT);
+              }}
             >
               Clear
             </button>
@@ -187,6 +223,7 @@ export const DealerSalesOrdersPage: React.FC = () => {
   const [stageFilter, setStageFilter] = useState<YesOneStageFilter | 'all'>(
     restored?.stageFilter ?? 'all',
   );
+  const [sort, setSort] = useState<AdminSalesOrderSort>(restored?.sort ?? DEFAULT_SORT);
   const [filterOpen, setFilterOpen] = useState(false);
   const [page, setPage] = useState(() => restored?.page ?? 1);
   const [highlightedOrderId, setHighlightedOrderId] = useState<string | null>(
@@ -241,17 +278,25 @@ export const DealerSalesOrdersPage: React.FC = () => {
   );
 
   const filtered = useMemo(() => {
-    if (stageFilter === 'all') return baseFiltered;
-    return filterUnifiedSalesOrders(baseFiltered, { yesOneStage: stageFilter });
-  }, [baseFiltered, stageFilter]);
+    const staged = stageFilter === 'all'
+      ? baseFiltered
+      : filterUnifiedSalesOrders(baseFiltered, { yesOneStage: stageFilter });
+    const oldest = sort === 'oldest';
+    return [...staged].sort((a, b) => {
+      const byDate = oldest ? a.sortAt - b.sortAt : b.sortAt - a.sortAt;
+      if (byDate) return byDate;
+      const byNumber = compareSalesOrderNumberDesc(a.primaryNumber, b.primaryNumber);
+      return oldest ? -byNumber : byNumber;
+    });
+  }, [baseFiltered, stageFilter, sort]);
 
   useEffect(() => {
-    const currentKey = `${search}\0${rangePreset}\0${stageFilter}`;
+    const currentKey = `${search}\0${rangePreset}\0${stageFilter}\0${sort}`;
     const prev = prevFilterKeyRef.current;
     prevFilterKeyRef.current = currentKey;
     if (prev === null || prev === currentKey) return;
     setPage(1);
-  }, [search, rangePreset, stageFilter]);
+  }, [search, rangePreset, stageFilter, sort]);
 
   const totalPages = Math.max(1, Math.ceil(filtered.length / LIST_PAGE_SIZE));
   const pageRows = useMemo(() => {
@@ -297,7 +342,9 @@ export const DealerSalesOrdersPage: React.FC = () => {
     });
   }, [loading, pageRows, listKey]);
 
-  const hasActiveFilters = rangePreset !== DEFAULT_RANGE || stageFilter !== 'all';
+  const hasActiveFilters = rangePreset !== DEFAULT_RANGE
+    || stageFilter !== 'all'
+    || sort !== DEFAULT_SORT;
 
   const openRow = (row: UnifiedSalesOrderRow) => {
     rememberSalesOrderListReturn(listKey, {
@@ -305,7 +352,7 @@ export const DealerSalesOrdersPage: React.FC = () => {
       stageFilter,
       category: 'all',
       rangePreset,
-      sort: 'date',
+      sort,
       dealers: [],
       aggregate: false,
       page,
@@ -575,9 +622,11 @@ export const DealerSalesOrdersPage: React.FC = () => {
       <DealerFilterSheet
         open={filterOpen}
         rangePreset={rangePreset}
+        sort={sort}
         onClose={() => setFilterOpen(false)}
         onApply={next => {
           setRangePreset(next.rangePreset);
+          setSort(next.sort);
         }}
       />
     </div>

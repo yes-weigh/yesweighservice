@@ -73,7 +73,7 @@ import type { InvoiceCategory, SalesRangePreset } from '../../types/invoices';
 
 const LIST_PAGE_SIZE = 25;
 const DEFAULT_RANGE: SalesRangePreset = 'current_month';
-const DEFAULT_SORT: AdminInvoiceSort = 'date';
+const DEFAULT_SORT: AdminInvoiceSort = 'oldest';
 const DEFAULT_CATEGORY: InvoiceCategory | 'all' = 'product';
 const DEFAULT_STATUS = 'to_dispatch';
 
@@ -96,8 +96,8 @@ const EMPTY_CATEGORY_COUNTS: AdminInvoiceCategoryCounts = {
 };
 
 const SORT_OPTIONS: Array<{ value: AdminInvoiceSort; label: string }> = [
-  { value: 'date', label: 'Invoice date' },
-  { value: 'syncedAt', label: 'Most recently updated' },
+  { value: 'oldest', label: 'Oldest first' },
+  { value: 'latest', label: 'Latest first' },
 ];
 
 function invoicePageCategoryCount(
@@ -294,7 +294,7 @@ function AdminFilterSheet({
             </div>
 
             <div className="catalog-spares-multi-filters__group">
-              <span className="catalog-spares-multi-filters__label">Sort by</span>
+              <span className="catalog-spares-multi-filters__label">Sorting</span>
               <div className="catalog-spares-multi-filters__options" role="radiogroup" aria-label="Sort by">
                 {SORT_OPTIONS.map(option => {
                   const checked = draftSort === option.value;

@@ -44,7 +44,11 @@ import type {
 
 const functions = getFunctions(app, 'asia-south1');
 
-export type AdminSalesOrderSort = 'syncedAt' | 'date';
+export type AdminSalesOrderSort = 'syncedAt' | 'date' | 'oldest' | 'latest';
+
+export function adminSalesOrderSortDirection(sort?: AdminSalesOrderSort | null): 'asc' | 'desc' {
+  return sort === 'oldest' ? 'asc' : 'desc';
+}
 
 export type AdminSalesOrderListQuery = {
   sort?: AdminSalesOrderSort;
@@ -267,7 +271,8 @@ export function toSalesOrderDateKey(value: Date): string {
 }
 
 export function buildAdminSalesOrdersQuery(options: AdminSalesOrderListQuery) {
-  const sort = options.sort ?? 'date';
+  const sort = options.sort ?? 'oldest';
+  const dateDir = adminSalesOrderSortDirection(sort);
   const pageSize = Math.max(1, Math.min(Number(options.pageSize ?? 25) || 25, 100));
   const category = options.category ?? 'all';
   const dateStart = options.dateStart?.trim() || null;
@@ -300,10 +305,10 @@ export function buildAdminSalesOrdersQuery(options: AdminSalesOrderListQuery) {
   if (dateStart || dateEnd) {
     if (dateStart) constraints.push(where('date', '>=', dateStart));
     if (dateEnd) constraints.push(where('date', '<=', dateEnd));
-    constraints.push(orderBy('date', 'desc'));
+    constraints.push(orderBy('date', dateDir));
   } else {
     const field = sort === 'syncedAt' ? 'syncedAt' : 'date';
-    constraints.push(orderBy(field, 'desc'));
+    constraints.push(orderBy(field, field === 'syncedAt' ? 'desc' : dateDir));
   }
 
   if (options.cursor) constraints.push(startAfter(options.cursor));
@@ -583,9 +588,13 @@ function compareSalesOrderSortKey(
     if (bySynced) return bySynced;
     return compareSalesOrderNumberDesc(a.salesOrderNumber, b.salesOrderNumber);
   }
-  const byDate = String(b.date ?? '').localeCompare(String(a.date ?? ''));
+  const oldest = sort === 'oldest';
+  const byDate = oldest
+    ? String(a.date ?? '').localeCompare(String(b.date ?? ''))
+    : String(b.date ?? '').localeCompare(String(a.date ?? ''));
   if (byDate) return byDate;
-  return compareSalesOrderNumberDesc(a.salesOrderNumber, b.salesOrderNumber);
+  const byNumber = compareSalesOrderNumberDesc(a.salesOrderNumber, b.salesOrderNumber);
+  return oldest ? -byNumber : byNumber;
 }
 
 /** Club sales orders into one row per dealer (sums amounts / qty; latest date). */
@@ -603,8 +612,8 @@ export function aggregateAdminSalesOrdersByDealer(
 
   const aggregates: AdminFirestoreSalesOrder[] = [];
   for (const [customerId, orders] of byCustomer) {
-    const ordered = [...orders].sort((a, b) => compareSalesOrderSortKey(a, b, sort));
-    const latest = ordered[0];
+    const newestFirst = [...orders].sort((a, b) => compareSalesOrderSortKey(a, b, 'latest'));
+    const latest = newestFirst[0];
     let total = 0;
     let balance = 0;
     let itemQuantity = 0;

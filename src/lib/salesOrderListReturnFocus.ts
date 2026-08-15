@@ -122,7 +122,9 @@ export function peekSalesOrderListReturn(
       stageFilter: parseStageFilter(parsed.stageFilter),
       category: parseCategoryFilter(parsed.category),
       rangePreset: parseRangePreset(parsed.rangePreset),
-      sort: parsed.sort === 'syncedAt' ? 'syncedAt' : 'date',
+      sort: parsed.sort === 'oldest' || parsed.sort === 'latest' || parsed.sort === 'syncedAt'
+        ? parsed.sort
+        : 'oldest',
       dealers: parseDealers(parsed.dealers),
       aggregate: Boolean(parsed.aggregate),
       page,
