@@ -26,13 +26,7 @@ function mapVendor(raw) {
   };
 }
 
-export async function searchZohoVendors(secrets, orgId, options = {}) {
-  const accessToken = await getAccessToken(secrets);
-  const organizationId = await resolveOrganizationId(accessToken, orgId);
-  const query = String(options.query ?? '').trim();
-  const page = Math.max(1, Number(options.page) || 1);
-  const perPage = Math.max(1, Math.min(Number(options.perPage) || 25, 50));
-
+async function fetchVendorPage(accessToken, organizationId, page, perPage, query) {
   const url = new URL(`${ZOHO_API_BASE}/contacts`);
   url.searchParams.set('organization_id', organizationId);
   url.searchParams.set('contact_type', 'vendor');
@@ -50,12 +44,33 @@ export async function searchZohoVendors(secrets, orgId, options = {}) {
     throw err;
   }
 
-  const vendors = (payload?.contacts ?? [])
-    .map(mapVendor)
-    .filter(row => row.id && row.name);
-
   return {
-    vendors,
+    vendors: (payload?.contacts ?? []).map(mapVendor).filter(row => row.id && row.name),
     hasMore: Boolean(payload?.page_context?.has_more_page),
   };
+}
+
+export async function searchZohoVendors(secrets, orgId, options = {}) {
+  const accessToken = await getAccessToken(secrets);
+  const organizationId = await resolveOrganizationId(accessToken, orgId);
+  const query = String(options.query ?? '').trim();
+  const loadAll = options.all !== false && !query;
+  const startPage = Math.max(1, Number(options.page) || 1);
+  const perPage = Math.max(1, Math.min(Number(options.perPage) || 200, 200));
+
+  if (!loadAll) {
+    return fetchVendorPage(accessToken, organizationId, startPage, perPage, query);
+  }
+
+  const vendors = [];
+  let page = 1;
+  let hasMore = true;
+  while (hasMore && page <= 25) {
+    const list = await fetchVendorPage(accessToken, organizationId, page, perPage, '');
+    vendors.push(...list.vendors);
+    hasMore = list.hasMore;
+    page += 1;
+  }
+
+  return { vendors, hasMore: false };
 }

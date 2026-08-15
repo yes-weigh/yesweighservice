@@ -24,6 +24,8 @@ const COLLECTION = 'purchaseOrders';
 const META_DOC = 'purchaseOrderMeta/orgSync';
 /** Do not store or re-sync POs dated before this FY start. */
 export const PURCHASE_ORDER_KEEP_AFTER_DATE = '2026-04-01';
+/** Older POs that must still be mirrored and shown. */
+export const PURCHASE_ORDER_KEEP_NUMBERS = ['PO-00279', 'PO-00283'];
 /** Same pacing knobs as org-invoice-sync. */
 const ORG_SYNC_CONCURRENCY = 2;
 const ORG_SYNC_MAX_LIST_PAGES = 150;
@@ -249,9 +251,18 @@ function mapPurchaseOrder(raw) {
   };
 }
 
+function purchaseOrderNumberKept(purchaseOrderNumber) {
+  const number = String(purchaseOrderNumber ?? '').trim().toUpperCase();
+  return PURCHASE_ORDER_KEEP_NUMBERS.includes(number);
+}
+
 function purchaseOrderDateKept(dateValue) {
   const date = String(dateValue ?? '').trim().slice(0, 10);
   return Boolean(date && date >= PURCHASE_ORDER_KEEP_AFTER_DATE);
+}
+
+function purchaseOrderShouldKeep(dateValue, purchaseOrderNumber) {
+  return purchaseOrderNumberKept(purchaseOrderNumber) || purchaseOrderDateKept(dateValue);
 }
 
 function purchaseOrderListDate(summary) {
@@ -261,7 +272,7 @@ function purchaseOrderListDate(summary) {
 async function upsertPurchaseOrderFromRaw(raw, options = {}) {
   const mapped = mapPurchaseOrder(raw);
   if (!mapped.id) throw new Error('Missing purchaseorder_id.');
-  if (!purchaseOrderDateKept(mapped.date)) {
+  if (!purchaseOrderShouldKeep(mapped.date, mapped.purchaseOrderNumber)) {
     await deletePurchaseOrderFromFirestore(mapped.id);
     return { id: mapped.id, purchaseOrderCategory: null, skipped: true };
   }
@@ -531,7 +542,7 @@ export async function syncOrgPurchaseOrdersToFirestore(secrets, orgId, options =
         return { synced: 0, unchanged: 0, failed: 0, skipped: 1, newlyPulled: 0, rateLimited: false };
       }
       const listDate = purchaseOrderListDate(summary);
-      if (listDate && !purchaseOrderDateKept(listDate)) {
+      if (listDate && !purchaseOrderShouldKeep(listDate, summary.purchaseorder_number)) {
         return { synced: 0, unchanged: 0, failed: 0, skipped: 1, newlyPulled: 0, rateLimited: false };
       }
 
@@ -885,6 +896,25 @@ export function extractPurchaseOrderIdFromWebhook(body, query = {}) {
   return null;
 }
 
+export function extractPurchaseOrderNumberFromWebhook(body, query = {}) {
+  const normalized = normalizeWebhookBody(body);
+  const candidates = [
+    query.purchaseorder_number,
+    query.purchaseOrderNumber,
+    normalized.purchaseorder_number,
+    normalized.purchaseOrderNumber,
+    normalized.purchaseorder?.purchaseorder_number,
+    normalized.purchase_order?.purchaseorder_number,
+    normalized.data?.purchaseorder_number,
+    normalized.payload?.purchaseorder_number,
+  ];
+  for (const value of candidates) {
+    const number = String(value ?? '').trim();
+    if (number) return number;
+  }
+  return null;
+}
+
 export function extractPurchaseOrderDateFromWebhook(body, query = {}) {
   const normalized = normalizeWebhookBody(body);
   const candidates = [
@@ -925,8 +955,9 @@ export async function deletePurchaseOrdersBeforeKeepDate({ onProgress, dryRun = 
     if (!snap.docs.length) break;
     for (const docSnap of snap.docs) {
       scanned += 1;
-      const date = String(docSnap.data()?.date ?? '').trim().slice(0, 10);
-      if (purchaseOrderDateKept(date)) continue;
+      const data = docSnap.data() ?? {};
+      const date = String(data.date ?? '').trim().slice(0, 10);
+      if (purchaseOrderShouldKeep(date, data.purchaseOrderNumber)) continue;
       if (!dryRun) {
         await deletePurchaseOrderFromFirestore(docSnap.id);
       }
@@ -936,6 +967,57 @@ export async function deletePurchaseOrdersBeforeKeepDate({ onProgress, dryRun = 
     last = snap.docs[snap.docs.length - 1];
   }
   return { scanned, deleted, keepAfterDate: PURCHASE_ORDER_KEEP_AFTER_DATE, dryRun };
+}
+
+async function findPurchaseOrderIdByNumber(accessToken, orgId, purchaseOrderNumber) {
+  const wanted = String(purchaseOrderNumber ?? '').trim().toUpperCase();
+  if (!wanted) return null;
+  const url = new URL(`${ZOHO_API_BASE}/purchaseorders`);
+  url.searchParams.set('organization_id', orgId);
+  url.searchParams.set('search_text', wanted);
+  url.searchParams.set('per_page', '25');
+  const res = await fetch(url.toString(), { headers: authHeaders(accessToken, orgId) });
+  await recordZohoApiResponse(res, { operation: 'purchaseorders/search', source: 'purchase-order-sync' });
+  const payload = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    const err = classifyZohoHttpError(res.status, payload);
+    await recordZohoApiFailure(err, { operation: 'purchaseorders/search', source: 'purchase-order-sync' });
+    throw err;
+  }
+  const rows = payload?.purchaseorders ?? [];
+  const match = rows.find(row => String(row.purchaseorder_number ?? '').trim().toUpperCase() === wanted)
+    ?? rows[0];
+  return match?.purchaseorder_id ? String(match.purchaseorder_id) : null;
+}
+
+export async function importPurchaseOrdersByNumber(secrets, orgId, purchaseOrderNumbers) {
+  const accessToken = await getAccessToken(secrets);
+  const organizationId = await resolveOrganizationId(accessToken, orgId);
+  const results = [];
+  for (const rawNumber of purchaseOrderNumbers) {
+    const number = String(rawNumber ?? '').trim();
+    if (!number) continue;
+    const id = await findPurchaseOrderIdByNumber(accessToken, organizationId, number);
+    if (!id) {
+      results.push({ number, ok: false, message: 'Not found in Zoho.' });
+      continue;
+    }
+    const raw = await fetchPurchaseOrderRaw(accessToken, organizationId, id);
+    if (!raw) {
+      results.push({ number, id, ok: false, message: 'Detail missing in Zoho.' });
+      continue;
+    }
+    const upserted = await upsertPurchaseOrderFromRaw(raw);
+    results.push({
+      number,
+      id,
+      ok: !upserted.skipped,
+      skipped: Boolean(upserted.skipped),
+      date: raw.date ?? null,
+      status: raw.status ?? null,
+    });
+  }
+  return results;
 }
 
 /** Pull one PO from Zoho into Firestore (webhook / single refresh). */
@@ -967,7 +1049,8 @@ export async function handleZohoPurchaseOrderWebhook(secrets, orgId, req) {
   }
 
   const payloadDate = extractPurchaseOrderDateFromWebhook(body, req.query ?? {});
-  if (payloadDate && !purchaseOrderDateKept(payloadDate)) {
+  const payloadNumber = extractPurchaseOrderNumberFromWebhook(body, req.query ?? {});
+  if (payloadDate && !purchaseOrderShouldKeep(payloadDate, payloadNumber)) {
     await deletePurchaseOrderFromFirestore(purchaseOrderId);
     return {
       ok: true,

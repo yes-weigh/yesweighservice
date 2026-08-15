@@ -3207,7 +3207,7 @@ export const searchZohoVendors = onCall(
   {
     region: 'asia-south1',
     secrets: [zohoClientId, zohoClientSecret, zohoRefreshToken],
-    timeoutSeconds: 30,
+    timeoutSeconds: 60,
     memory: '256MiB',
   },
   async request => {
@@ -3220,6 +3220,7 @@ export const searchZohoVendors = onCall(
           query: String(request.data?.query ?? ''),
           page: request.data?.page,
           perPage: request.data?.perPage,
+          all: request.data?.all !== false,
         },
       );
     } catch (err) {

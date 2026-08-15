@@ -18,19 +18,37 @@ export type ZohoVendorOption = {
   address: string | null;
 };
 
-export async function searchZohoVendors(query: string, page = 1): Promise<ZohoVendorOption[]> {
+export async function searchZohoVendors(query = '', page = 1): Promise<ZohoVendorOption[]> {
   const callable = httpsCallable<
-    { query?: string; page?: number; perPage?: number },
+    { query?: string; page?: number; perPage?: number; all?: boolean },
     { vendors?: ZohoVendorOption[] }
-  >(functions, 'searchZohoVendors', { timeout: 30_000 });
+  >(functions, 'searchZohoVendors', { timeout: 60_000 });
   try {
+    const needle = query.trim();
     const result = await callable({
-      query: query.trim(),
+      query: needle,
       page,
-      perPage: 25,
+      perPage: 50,
+      all: false,
     });
     return Array.isArray(result.data?.vendors) ? result.data.vendors : [];
   } catch (err) {
     throw new Error(invoiceErrorMessage(err));
   }
+}
+
+/** Load every active Zoho vendor (pages until Zoho has no more). */
+export async function listAllZohoVendors(): Promise<ZohoVendorOption[]> {
+  const seen = new Set<string>();
+  const all: ZohoVendorOption[] = [];
+  for (let page = 1; page <= 40; page += 1) {
+    const rows = await searchZohoVendors('', page);
+    for (const row of rows) {
+      if (!row.id || seen.has(row.id)) continue;
+      seen.add(row.id);
+      all.push(row);
+    }
+    if (rows.length < 50) break;
+  }
+  return all;
 }

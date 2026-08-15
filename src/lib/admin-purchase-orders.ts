@@ -44,6 +44,22 @@ export type AdminPurchaseOrderSort = 'syncedAt' | 'date';
 export const PORTAL_PURCHASE_ORDER_STATUS = 'draft';
 /** Keep / show POs on or after this FY start. Older docs are deleted. */
 export const PURCHASE_ORDER_KEEP_AFTER_DATE = '2026-04-01';
+/** Older POs that must still appear in the portal. */
+export const PURCHASE_ORDER_KEEP_NUMBERS = ['PO-00279', 'PO-00283'] as const;
+
+export function isKeptPurchaseOrderNumber(value?: string | null): boolean {
+  return PURCHASE_ORDER_KEEP_NUMBERS.includes(
+    String(value ?? '').trim().toUpperCase() as (typeof PURCHASE_ORDER_KEEP_NUMBERS)[number],
+  );
+}
+
+export function purchaseOrderVisibleInPortal(row: {
+  date?: string | null;
+  purchaseOrderNumber?: string | null;
+}): boolean {
+  if (isKeptPurchaseOrderNumber(row.purchaseOrderNumber)) return true;
+  return String(row.date ?? '').trim().slice(0, 10) >= PURCHASE_ORDER_KEEP_AFTER_DATE;
+}
 
 export function clampPurchaseOrderDateStart(dateStart?: string | null): string {
   const start = String(dateStart ?? '').trim();
@@ -246,13 +262,55 @@ function isFirestoreIndexError(err: unknown): boolean {
   return /requires an index|currently building/i.test(msg);
 }
 
+function sortPurchaseOrdersByDateDesc(rows: AdminFirestorePurchaseOrder[]): AdminFirestorePurchaseOrder[] {
+  return [...rows].sort((a, b) => String(b.date ?? '').localeCompare(String(a.date ?? '')));
+}
+
+export async function fetchKeptPurchaseOrders(): Promise<AdminFirestorePurchaseOrder[]> {
+  if (!PURCHASE_ORDER_KEEP_NUMBERS.length) return [];
+  const snap = await getDocs(
+    query(
+      collection(db, 'purchaseOrders'),
+      where('purchaseOrderNumber', 'in', [...PURCHASE_ORDER_KEEP_NUMBERS]),
+    ),
+  );
+  return snap.docs.map(mapAdminPurchaseOrderDoc);
+}
+
+function mergeKeptPurchaseOrders(
+  rows: AdminFirestorePurchaseOrder[],
+  kept: AdminFirestorePurchaseOrder[],
+  options: { status?: string | null; category?: InvoiceCategory | 'all' } = {},
+): AdminFirestorePurchaseOrder[] {
+  const wanted = String(options.status ?? PORTAL_PURCHASE_ORDER_STATUS).trim().toLowerCase();
+  const category = options.category ?? 'all';
+  const extra = kept.filter(row => {
+    if (wanted && row.status !== wanted) return false;
+    if (category && category !== 'all') {
+      const primary = row.purchaseOrderCategory
+        ?? (row.categories.length ? row.categories[0] : null);
+      if (primary !== category) return false;
+    }
+    return !rows.some(existing => existing.id === row.id);
+  });
+  if (!extra.length) return rows;
+  return sortPurchaseOrdersByDateDesc([...rows, ...extra]);
+}
+
 export async function fetchAdminPurchaseOrdersPageDetailed(
   options: AdminPurchaseOrderListQuery,
 ): Promise<AdminPurchaseOrdersPageResult> {
+  const mergeKept = !options.cursor;
+  const kept = mergeKept ? await fetchKeptPurchaseOrders() : [];
   try {
     const snap = await getDocs(buildAdminPurchaseOrdersQuery(options));
+    const rows = mergeKeptPurchaseOrders(
+      snap.docs.map(mapAdminPurchaseOrderDoc),
+      kept,
+      { status: options.status, category: options.category },
+    );
     return {
-      rows: snap.docs.map(mapAdminPurchaseOrderDoc),
+      rows,
       docs: snap.docs,
       lastDoc: snap.docs.length ? snap.docs[snap.docs.length - 1] : null,
     };
@@ -260,9 +318,13 @@ export async function fetchAdminPurchaseOrdersPageDetailed(
     if (!isFirestoreIndexError(err)) throw err;
     const snap = await getDocs(buildAdminPurchaseOrdersQuery({ ...options, status: '' }));
     const wanted = String(options.status ?? PORTAL_PURCHASE_ORDER_STATUS).trim().toLowerCase();
-    const rows = snap.docs
-      .map(mapAdminPurchaseOrderDoc)
-      .filter(row => !wanted || row.status === wanted);
+    const rows = mergeKeptPurchaseOrders(
+      snap.docs
+        .map(mapAdminPurchaseOrderDoc)
+        .filter(row => !wanted || row.status === wanted),
+      kept,
+      { status: options.status, category: options.category },
+    );
     return {
       rows,
       docs: snap.docs,
@@ -303,7 +365,19 @@ export async function countAdminPurchaseOrders(
 
   try {
     const snap = await getCountFromServer(query(collection(db, 'purchaseOrders'), ...constraints));
-    return snap.data().count;
+    const kept = await fetchKeptPurchaseOrders();
+    const extra = kept.filter(row => {
+      if (status && row.status !== status) return false;
+      if (category && category !== 'all') {
+        const primary = row.purchaseOrderCategory
+          ?? (row.categories.length ? row.categories[0] : null);
+        if (primary !== category) return false;
+      }
+      const date = String(row.date ?? '').trim().slice(0, 10);
+      if (date && date >= dateStart && (!dateEnd || date <= dateEnd)) return false;
+      return true;
+    }).length;
+    return snap.data().count + extra;
   } catch (err) {
     if (!isFirestoreIndexError(err)) throw err;
     const { rows } = await fetchAllAdminPurchaseOrdersInRange({
@@ -403,7 +477,7 @@ export function filterAdminPurchaseOrders(
 ): AdminFirestorePurchaseOrder[] {
   let next = rows.filter(row => (
     row.status === PORTAL_PURCHASE_ORDER_STATUS
-    && String(row.date ?? '').trim().slice(0, 10) >= PURCHASE_ORDER_KEEP_AFTER_DATE
+    && purchaseOrderVisibleInPortal(row)
   ));
   if (category && category !== 'all') {
     next = next.filter(row => {

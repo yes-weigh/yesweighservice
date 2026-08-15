@@ -11,6 +11,7 @@ import {
   ShoppingCart,
   Store,
   Trash2,
+  Users,
 } from 'lucide-react';
 import { CatalogBrowse } from '../../components/catalog/CatalogBrowse';
 import { CatalogCategoryChips } from '../../components/catalog/CatalogCategoryChips';
@@ -37,7 +38,7 @@ import {
   type PurchaseItemCostSet,
 } from '../../lib/sparePurchaseCosts';
 import { canUpdatePurchaseOrders } from '../../lib/staffAccess';
-import { searchZohoVendors, type ZohoVendorOption } from '../../lib/zoho-vendors';
+import { listAllZohoVendors, type ZohoVendorOption } from '../../lib/zoho-vendors';
 import type { CatalogCategory, CatalogProduct } from '../../types/catalog';
 
 const LIST_PATH = '/super-admin/purchase-orders';
@@ -66,7 +67,6 @@ const CreatePurchaseOrderWizard: React.FC = () => {
   const { registerCartTarget, cartBump } = useCartFly();
   const cartBtnRef = useRef<HTMLButtonElement>(null);
   const goBackRef = useRef<() => void>(() => navigate(LIST_PATH));
-  const searchSeq = useRef(0);
 
   const [step, setStep] = useState<WizardStep>('vendor');
   const [error, setError] = useState('');
@@ -123,35 +123,46 @@ const CreatePurchaseOrderWizard: React.FC = () => {
   goBackRef.current = goBack;
 
   useEffect(() => {
-    if (selectedVendor) return;
-    const q = vendorQuery.trim();
-    if (q.length > 0 && q.length < 2) {
-      setVendors([]);
-      setVendorsLoading(false);
-      return;
-    }
+    let cancelled = false;
+    setVendorsLoading(true);
+    void listAllZohoVendors()
+      .then(rows => {
+        if (cancelled) return;
+        setVendors(rows);
+        setError('');
+      })
+      .catch(err => {
+        if (cancelled) return;
+        setVendors([]);
+        setError(err instanceof Error ? err.message : 'Could not load vendors.');
+      })
+      .finally(() => {
+        if (!cancelled) setVendorsLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
-    const seq = ++searchSeq.current;
-    const timer = window.setTimeout(() => {
-      setVendorsLoading(true);
-      void searchZohoVendors(q)
-        .then(rows => {
-          if (searchSeq.current !== seq) return;
-          setVendors(rows);
-          setError('');
-        })
-        .catch(err => {
-          if (searchSeq.current !== seq) return;
-          setVendors([]);
-          setError(err instanceof Error ? err.message : 'Could not search vendors.');
-        })
-        .finally(() => {
-          if (searchSeq.current === seq) setVendorsLoading(false);
-        });
-    }, q ? 280 : 0);
-
-    return () => window.clearTimeout(timer);
-  }, [vendorQuery, selectedVendor]);
+  const filteredVendors = useMemo(() => {
+    const q = vendorQuery.trim().toLowerCase();
+    if (!q) return vendors;
+    return vendors.filter(vendor => {
+      const haystack = [
+        vendor.name,
+        vendor.companyName,
+        vendor.phone,
+        vendor.email,
+        vendor.gstNo,
+        vendor.city,
+        vendor.state,
+      ]
+        .filter(Boolean)
+        .join(' ')
+        .toLowerCase();
+      return haystack.includes(q);
+    });
+  }, [vendors, vendorQuery]);
 
   const shopProducts = useMemo(
     () => excludeHiddenCatalogProducts(catalogProducts, catalogCategories),
@@ -366,7 +377,7 @@ const CreatePurchaseOrderWizard: React.FC = () => {
             <div className="staff-create-so-page__dealer-panel panel glass">
               <h3 className="staff-create-so-page__dealer-panel-title">Vendor</h3>
               <p className="text-muted text-sm staff-create-so-page__dealer-panel-hint">
-                Type a name to search Zoho, or pick from the first page of active vendors.
+                All active Zoho vendors. Type to filter by name, phone, or GST.
               </p>
               {selectedVendor ? (
                 <div className="staff-create-so-page__dealer-selected">
@@ -410,10 +421,10 @@ const CreatePurchaseOrderWizard: React.FC = () => {
                     />
                   </div>
                   {vendorsLoading && vendors.length === 0 ? (
-                    <p className="text-muted text-sm">Searching Zoho vendors…</p>
-                  ) : vendors.length > 0 ? (
+                    <p className="text-muted text-sm">Loading all Zoho vendors…</p>
+                  ) : filteredVendors.length > 0 ? (
                     <ul className="staff-create-so-page__dealer-list" role="listbox">
-                      {vendors.map(vendor => {
+                      {filteredVendors.map(vendor => {
                         const location = vendorLocation(vendor);
                         const meta = [vendor.currencyCode, vendor.phone].filter(Boolean).join(' • ');
                         return (
@@ -447,17 +458,21 @@ const CreatePurchaseOrderWizard: React.FC = () => {
                         );
                       })}
                     </ul>
-                  ) : vendorQuery.trim().length >= 2 ? (
+                  ) : vendorQuery.trim() ? (
                     <p className="text-muted text-sm">
-                      {vendorsLoading ? 'Searching…' : `No vendors match “${vendorQuery.trim()}”.`}
+                      No vendors match “{vendorQuery.trim()}”.
                     </p>
                   ) : (
-                    <p className="text-muted text-sm">
-                      {vendorsLoading
-                        ? 'Loading vendors from Zoho…'
-                        : 'Type at least 2 characters to search, or wait for the first vendors to load.'}
-                    </p>
+                    <p className="text-muted text-sm">No active vendors found.</p>
                   )}
+                  <p className="staff-create-so-page__dealer-loaded">
+                    <Users size={14} aria-hidden />
+                    <span>
+                      {vendorsLoading && vendors.length === 0
+                        ? 'Loading vendors…'
+                        : `${vendors.length.toLocaleString('en-IN')} vendors loaded`}
+                    </span>
+                  </p>
                 </div>
               )}
             </div>
