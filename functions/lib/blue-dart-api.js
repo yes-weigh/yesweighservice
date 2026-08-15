@@ -7,6 +7,7 @@
  * Credentials live in appSettings/blueDartSecrets (Admin SDK only).
  * Public connection metadata lives on appSettings/logisticsSettings.blueDart.
  * Cached JWT lives in appSettings/blueDartAuth.
+ * Profile.Api_type is S (Shipping) or T (Tracking) — not sandbox vs production.
  */
 
 import { randomUUID } from 'node:crypto';
@@ -250,13 +251,14 @@ function licenseFor(env, kind, secrets) {
   return secrets.shippingLicenseKey;
 }
 
-function apiTypeFor(env) {
-  return env === 'sandbox' ? 'S' : 'P';
+/** Profile.Api_type is Shipping (S) vs Tracking (T), not sandbox vs production. */
+function apiTypeFor(kind = 'shipping') {
+  return kind === 'tracking' ? 'T' : 'S';
 }
 
 function profilePayload(env, secrets, kind = 'shipping') {
   return {
-    Api_type: apiTypeFor(env),
+    Api_type: apiTypeFor(kind),
     LicenceKey: licenseFor(env, kind, secrets),
     LoginID: secrets.loginId,
     Version: '1.3',
@@ -408,19 +410,29 @@ export async function blueDartFetch(db, path, options = {}) {
   return { ok: res.ok, status: res.status, json, text, auth };
 }
 
+function firstStatusInfo(statusRows) {
+  if (!Array.isArray(statusRows) || !statusRows[0]) return '';
+  const row = statusRows[0];
+  return String(row.StatusInformation || row.StatusCode || '').trim();
+}
+
 function blueDartErrorMessage(json, text, status, fallback) {
   const errList = json?.['error-response'];
   if (Array.isArray(errList) && errList[0]) {
     const first = errList[0];
-    const msg = first.msg || first.StatusInformation || first.message;
-    if (msg) return String(msg);
+    const msg = first.ErrorMessage
+      || first.msg
+      || first.StatusInformation
+      || first.message
+      || firstStatusInfo(first.Status);
+    if (msg && String(msg).toLowerCase() !== 'bad request') return String(msg);
   }
   const result = json?.GenerateWayBillResult || json?.WayBillGenerationStatus;
-  const statusRows = result?.Status;
-  if (Array.isArray(statusRows) && statusRows[0]?.StatusInformation) {
-    return String(statusRows[0].StatusInformation);
-  }
-  return String(json?.title || json?.message || text || `${fallback} (${status})`);
+  const fromResult = firstStatusInfo(result?.Status);
+  if (fromResult) return fromResult;
+  const title = String(json?.title || json?.message || '').trim();
+  if (title && title.toLowerCase() !== 'bad request') return title;
+  return String(text || `${fallback} (${status})`);
 }
 
 /**
