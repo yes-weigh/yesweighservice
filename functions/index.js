@@ -102,6 +102,8 @@ import {
   archiveOldInvoices,
   backfillInvoiceStatsAndSummaries,
   backfillInvoiceSummaryCustomerPickups,
+  backfillInvoiceSummaryListFields,
+  syncInvoiceSummariesFromLogisticsBooking,
 } from './lib/invoice-stats.js';
 import { backfillSalesOrderStats } from './lib/sales-order-stats.js';
 import {
@@ -2701,6 +2703,24 @@ export const backfillInvoiceStatsAndSummariesFn = onCall(
   },
 );
 
+/** Copy dealer location + logistics status onto invoiceSummaries (admin list source). */
+export const backfillInvoiceSummaryListFieldsFn = onCall(
+  {
+    region: 'asia-south1',
+    timeoutSeconds: 540,
+    memory: '1GiB',
+  },
+  async request => {
+    await requireActiveUser(request.auth?.uid, SUPER_ADMIN_ROLES);
+    try {
+      return await backfillInvoiceSummaryListFields();
+    } catch (err) {
+      console.error('backfillInvoiceSummaryListFields failed:', err);
+      throw new HttpsError('internal', err?.message ?? 'Invoice summary list-field backfill failed.');
+    }
+  },
+);
+
 /** Copy customerPickup from invoices onto invoiceSummaries (admin list source). */
 export const backfillInvoiceSummaryCustomerPickupsFn = onCall(
   {
@@ -4766,6 +4786,33 @@ export const fillStCourierDeliveryOfficeOnCreate = onDocumentCreated(
  * When a Delhivery booking is confirmed, gets an LRN, or is marked delivered:
  * prefetch waybill + shipping labels (and POD/COD after delivery) into Storage.
  */
+/**
+ * Keep invoiceSummaries.logistics in sync so the admin invoice list
+ * can filter To dispatch / In transit / Delivered without joining bookings.
+ */
+export const syncInvoiceSummaryLogisticsOnBookingWrite = onDocumentWritten(
+  {
+    document: 'logisticsBookings/{bookingId}',
+    region: 'asia-south1',
+    timeoutSeconds: 60,
+    memory: '256MiB',
+  },
+  async event => {
+    const bookingId = event.params.bookingId;
+    const after = event.data?.after?.exists ? (event.data.after.data() || {}) : null;
+    const before = event.data?.before?.exists ? (event.data.before.data() || {}) : null;
+    try {
+      await syncInvoiceSummariesFromLogisticsBooking(bookingId, after, before);
+    } catch (err) {
+      console.warn(
+        'syncInvoiceSummaryLogisticsOnBookingWrite failed',
+        bookingId,
+        err?.message || err,
+      );
+    }
+  },
+);
+
 export const prefetchDelhiveryDocumentsOnBookingWrite = onDocumentWritten(
   {
     document: 'logisticsBookings/{bookingId}',

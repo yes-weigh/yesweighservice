@@ -58,6 +58,7 @@ import type {
   InvoiceSalesEntry,
   KpiPeriod,
 } from '../types/invoices';
+import type { LogisticsBooking } from '../types/logistics-dispatch';
 
 export { toSalesOrderDateKey as toInvoiceDateKey };
 
@@ -100,6 +101,18 @@ export interface AdminFirestoreInvoice {
     requiredBecause?: 'invoice_total' | 'clubbed_lr' | null;
     status?: string | null;
     ewaybillNumber?: string | null;
+  } | null;
+  /** Denormalized from zohoCustomers for the list location line. */
+  district?: string | null;
+  billingState?: string | null;
+  /** Denormalized from logisticsBookings for status chips / partner tiles. */
+  logistics?: {
+    bookingId?: string | null;
+    status?: string | null;
+    wizardStep?: string | null;
+    consignmentNo?: string | null;
+    trackingNo?: string | null;
+    partnerId?: string | null;
   } | null;
 }
 
@@ -239,7 +252,41 @@ export function mapAdminInvoiceDoc(
     manualDelivery: mapInvoiceManualDelivery(data.manualDelivery, data.manualDeliveredAt),
     manualDeliveredAt: pickupMarkedAt(data.manualDeliveredAt),
     ewayBill: mapInvoiceListEwayBill(data.ewayBill),
+    district: data.district ? String(data.district) : null,
+    billingState: data.billingState ? String(data.billingState) : null,
+    logistics: mapInvoiceListLogistics(data.logistics),
   };
+}
+
+function mapInvoiceListLogistics(raw: unknown): AdminFirestoreInvoice['logistics'] {
+  if (!raw || typeof raw !== 'object') return null;
+  const data = raw as Record<string, unknown>;
+  const status = String(data.status ?? '').trim().toLowerCase();
+  if (!status || status === 'cancelled') return null;
+  return {
+    bookingId: data.bookingId ? String(data.bookingId) : null,
+    status,
+    wizardStep: data.wizardStep ? String(data.wizardStep) : null,
+    consignmentNo: data.consignmentNo ? String(data.consignmentNo) : null,
+    trackingNo: data.trackingNo ? String(data.trackingNo) : null,
+    partnerId: data.partnerId ? String(data.partnerId) : null,
+  };
+}
+
+/** Build the slim booking the list status / e-way / partner tiles already consume. */
+export function adminInvoiceLogisticsBooking(
+  invoice: Pick<AdminFirestoreInvoice, 'id' | 'logistics'>,
+): LogisticsBooking | null {
+  const logistics = invoice.logistics;
+  if (!logistics?.status) return null;
+  return {
+    id: logistics.bookingId || `summary-${invoice.id}`,
+    status: logistics.status,
+    wizardStep: logistics.wizardStep ?? null,
+    consignmentNo: logistics.consignmentNo ?? '',
+    trackingNo: logistics.trackingNo ?? '',
+    partnerId: logistics.partnerId ?? 'delhivery',
+  } as LogisticsBooking;
 }
 
 export type AdminInvoiceListQuery = {
@@ -635,8 +682,11 @@ export async function fetchAdminInvoicesPageResult(options: {
     dateEnd: options.dateEnd,
     salespersonIds: options.salespersonIds,
   }, listCollection);
+  const rows = snap.docs.map(mapAdminInvoiceDoc);
   return {
-    rows: await overlayFreightSkuFromInvoiceDocs(snap.docs.map(mapAdminInvoiceDoc)),
+    rows: listCollection === 'invoiceSummaries'
+      ? rows
+      : await overlayFreightSkuFromInvoiceDocs(rows),
     lastDoc: snap.docs[snap.docs.length - 1] ?? null,
     hasMore: snap.size >= pageSize,
   };
@@ -703,12 +753,13 @@ export async function fetchAllAdminInvoicesInRange(options: {
   rows.sort((a, b) => compareInvoiceSortKey(a, b, sort));
 
   const sliced = truncated ? rows.slice(0, maxRows) : rows;
-  const withPickup = listCollection === 'invoiceSummaries' && !cachedSummariesIncludeCustomerPickup
+  if (listCollection === 'invoiceSummaries') {
+    return { rows: sliced, truncated };
+  }
+  const withPickup = !cachedSummariesIncludeCustomerPickup
     ? await overlayCustomerPickupFromInvoiceDocs(sliced)
     : sliced;
-  const withEway = listCollection === 'invoiceSummaries'
-    ? await overlayEwayBillFromInvoiceDocs(withPickup)
-    : withPickup;
+  const withEway = await overlayEwayBillFromInvoiceDocs(withPickup);
   const withFreight = await overlayFreightSkuFromInvoiceDocs(withEway);
 
   return { rows: withFreight, truncated };
@@ -853,6 +904,22 @@ async function overlayEwayBillFromInvoiceDocs(
     const ewayBill = ewayById.get(row.id);
     if (!ewayBill) return row;
     return { ...row, ewayBill };
+  });
+}
+
+let listFieldsBackfillRequested = false;
+
+export function requestInvoiceSummaryListFieldsBackfill() {
+  if (listFieldsBackfillRequested) return;
+  listFieldsBackfillRequested = true;
+  try {
+    if (sessionStorage.getItem('yesone.invoiceSummaryListFieldsBackfill') === '1') return;
+    sessionStorage.setItem('yesone.invoiceSummaryListFieldsBackfill', '1');
+  } catch {
+    // continue
+  }
+  void runInvoiceSummaryListFieldsBackfill().catch(() => {
+    // Callable not deployed yet — list still falls back to booking / customer reads.
   });
 }
 
@@ -1367,6 +1434,25 @@ export async function runInvoiceStatsBackfill(): Promise<{
   return result.data;
 }
 
+/** Copy dealer location + logistics onto invoiceSummaries (list source). */
+export async function runInvoiceSummaryListFieldsBackfill(): Promise<{
+  locationPatched: number;
+  logisticsPatched: number;
+}> {
+  const functions = getFunctions(app, 'asia-south1');
+  const callable = httpsCallable<
+    Record<string, never>,
+    { locationPatched: number; logisticsPatched: number }
+  >(
+    functions,
+    'backfillInvoiceSummaryListFieldsFn',
+    { timeout: 540_000 },
+  );
+  const result = await callable({});
+  clearAdminInvoiceListCollectionCache();
+  return result.data;
+}
+
 /** Copy customerPickup from invoice docs onto invoiceSummaries (list source). */
 export async function runInvoiceCustomerPickupSummaryBackfill(): Promise<{
   scanned: number;
@@ -1625,12 +1711,15 @@ export async function loadAdminInvoiceKpis(options: {
   const dateEnd = options.dateEnd?.trim() || null;
   const scoped = options.salespersonIds != null;
 
-  // Stamping KPIs always come from portal gatcReports (Billwise), not HSN rollups.
-  const portalStamping = await loadPortalStampingKpiOverride({
-    dateStart,
-    dateEnd,
-    salespersonIds: options.salespersonIds,
-  });
+  // Stamping KPIs come from portal gatcReports (Billwise). Skip that join
+  // unless the Stamping tab is active — it hydrates every report invoice.
+  const portalStamping = category === 'gatc'
+    ? await loadPortalStampingKpiOverride({
+      dateStart,
+      dateEnd,
+      salespersonIds: options.salespersonIds,
+    })
+    : { count: 0, feeTotal: 0 };
 
   if (category === 'gatc') {
     return {
@@ -1844,6 +1933,7 @@ export async function fetchAdminInvoicesForCustomers(options: {
   const dateEnd = options.dateEnd?.trim() || null;
   const sort = options.sort ?? 'date';
   const pageSize = 100;
+  const listCollection = await resolveAdminInvoiceListCollection();
 
   const perCustomer = await Promise.all(ids.map(async customerId => {
     const rows: AdminFirestoreInvoice[] = [];
@@ -1876,7 +1966,7 @@ export async function fetchAdminInvoicesForCustomers(options: {
         const constraints = buildConstraints(true, cursor);
         if (constraints === 'empty') return [];
         const snap = await getDocs(
-          query(collection(db, 'zohoCustomers', customerId, 'invoices'), ...constraints),
+          query(collection(db, 'zohoCustomers', customerId, listCollection), ...constraints),
         );
         if (snap.empty) break;
         rows.push(...snap.docs.map(mapAdminInvoiceDoc));
@@ -1891,7 +1981,7 @@ export async function fetchAdminInvoicesForCustomers(options: {
       const constraints = buildConstraints(false, null);
       if (constraints === 'empty') return [];
       const snap = await getDocs(
-        query(collection(db, 'zohoCustomers', customerId, 'invoices'), ...constraints),
+        query(collection(db, 'zohoCustomers', customerId, listCollection), ...constraints),
       );
       rows.push(...snap.docs.map(mapAdminInvoiceDoc));
       rows.sort((a, b) => compareInvoiceSortKey(a, b, sort));
@@ -1919,7 +2009,9 @@ export async function fetchAdminInvoicesForCustomers(options: {
 
   merged.sort((a, b) => compareInvoiceSortKey(a, b, sort));
 
-  return overlayFreightSkuFromInvoiceDocs(merged);
+  return listCollection === 'invoiceSummaries'
+    ? merged
+    : overlayFreightSkuFromInvoiceDocs(merged);
 }
 
 export interface AdminCustomerLocation {

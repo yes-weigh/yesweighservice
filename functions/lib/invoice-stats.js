@@ -124,6 +124,9 @@ export function buildInvoiceSummaryFields(invoiceDoc, customerId, invoiceId) {
     ? String(invoiceDoc.manualDeliveredAt).trim() || null
     : (manualDelivery?.markedAt ?? null);
   const ewayBill = ewayBillForSummary(invoiceDoc.ewayBill);
+  const district = locationFieldForSummary(invoiceDoc.district);
+  const billingState = locationFieldForSummary(invoiceDoc.billingState);
+  const logistics = logisticsForSummary(invoiceDoc.logistics, invoiceDoc.logistics?.bookingId);
   return {
     id: String(invoiceId),
     customerId: String(customerId),
@@ -154,6 +157,9 @@ export function buildInvoiceSummaryFields(invoiceDoc, customerId, invoiceId) {
     manualDelivery,
     manualDeliveredAt,
     ...(ewayBill ? { ewayBill } : {}),
+    ...(district ? { district } : {}),
+    ...(billingState ? { billingState } : {}),
+    ...(logistics ? { logistics } : {}),
     syncedAt: invoiceDoc.syncedAt ?? FieldValue.serverTimestamp(),
     updatedAt: FieldValue.serverTimestamp(),
   };
@@ -200,6 +206,95 @@ function pickupMarkedAtForSummary(value) {
     return Number.isNaN(date.getTime()) ? null : date.toISOString();
   }
   return null;
+}
+
+function locationFieldForSummary(value) {
+  const text = String(value ?? '').trim();
+  return text || null;
+}
+
+function bookingInvoiceIds(booking) {
+  if (!booking || typeof booking !== 'object') return [];
+  const ids = [
+    ...(Array.isArray(booking.invoiceIds) ? booking.invoiceIds : []),
+    ...(Array.isArray(booking.invoices) ? booking.invoices.map(row => row?.invoiceId) : []),
+    booking.invoiceId,
+  ];
+  return [...new Set(ids.map(id => String(id ?? '').trim()).filter(Boolean))];
+}
+
+/** Slim logistics snapshot for admin list status / partner tiles. */
+export function logisticsForSummary(booking, bookingId) {
+  if (!booking || typeof booking !== 'object') return null;
+  const status = String(booking.status ?? '').trim().toLowerCase();
+  if (!status || status === 'cancelled') return null;
+  const consignmentNo = String(booking.consignmentNo ?? '').trim();
+  const trackingNo = String(booking.trackingNo ?? '').trim();
+  return {
+    bookingId: String(bookingId || booking.id || booking.bookingId || '').trim() || null,
+    status,
+    wizardStep: booking.wizardStep ? String(booking.wizardStep) : null,
+    consignmentNo: consignmentNo || null,
+    trackingNo: trackingNo || null,
+    partnerId: booking.partnerId ? String(booking.partnerId) : null,
+  };
+}
+
+async function customerIdForInvoice(invoiceId, fallbackCustomerId) {
+  const fallback = String(fallbackCustomerId ?? '').trim();
+  if (fallback) return fallback;
+  const snap = await getFirestore().collection('invoiceIndex').doc(String(invoiceId)).get();
+  return snap.exists ? String(snap.data()?.customerId ?? '').trim() : '';
+}
+
+async function customerLocationForSummary(customerId) {
+  const id = String(customerId ?? '').trim();
+  if (!id) return {};
+  const snap = await getFirestore().collection('zohoCustomers').doc(id).get();
+  if (!snap.exists) return {};
+  const data = snap.data() ?? {};
+  const district = locationFieldForSummary(data.district);
+  const billingState = locationFieldForSummary(data.billingState);
+  return {
+    ...(district ? { district } : {}),
+    ...(billingState ? { billingState } : {}),
+  };
+}
+
+/**
+ * Mirror booking status onto invoiceSummaries so the admin list does not
+ * join logisticsBookings for every row.
+ */
+export async function syncInvoiceSummariesFromLogisticsBooking(bookingId, after, before = null) {
+  const invoiceIds = bookingInvoiceIds(after || before || {});
+  if (!invoiceIds.length) return { patched: 0 };
+  const fallbackCustomerId = String((after || before)?.zohoCustomerId ?? '').trim();
+  const logistics = logisticsForSummary(after, bookingId);
+  let patched = 0;
+
+  for (const invoiceId of invoiceIds) {
+    const customerId = await customerIdForInvoice(invoiceId, fallbackCustomerId);
+    if (!customerId) continue;
+    const ref = invoiceSummaryRef(customerId, invoiceId);
+    if (logistics) {
+      await ref.set({
+        logistics,
+        updatedAt: FieldValue.serverTimestamp(),
+      }, { merge: true });
+      patched += 1;
+      continue;
+    }
+    const snap = await ref.get();
+    if (!snap.exists) continue;
+    const storedId = String(snap.data()?.logistics?.bookingId ?? '').trim();
+    if (storedId && storedId !== String(bookingId)) continue;
+    await ref.set({
+      logistics: FieldValue.delete(),
+      updatedAt: FieldValue.serverTimestamp(),
+    }, { merge: true });
+    patched += 1;
+  }
+  return { patched };
 }
 
 function statsDocRef(pathParts) {
@@ -311,6 +406,9 @@ export function invoiceSummaryRef(customerId, invoiceId) {
 
 export async function upsertInvoiceSummary(customerId, invoiceId, invoiceDoc) {
   const fields = buildInvoiceSummaryFields(invoiceDoc, customerId, invoiceId);
+  if (!fields.district && !fields.billingState) {
+    Object.assign(fields, await customerLocationForSummary(customerId));
+  }
   await invoiceSummaryRef(customerId, invoiceId).set(fields, { merge: true });
   return fields;
 }
@@ -374,6 +472,67 @@ export async function backfillInvoiceSummaryCustomerPickups({ onProgress } = {})
   return { scanned, patched };
 }
 
+/**
+ * Copy dealer location + logistics status onto invoiceSummaries so the
+ * admin list can render without extra customer / booking reads.
+ */
+export async function backfillInvoiceSummaryListFields({ onProgress } = {}) {
+  const db = getFirestore();
+  let locationPatched = 0;
+  let logisticsPatched = 0;
+  let batch = db.batch();
+  let batchOps = 0;
+
+  const flush = async () => {
+    if (!batchOps) return;
+    await batch.commit();
+    batch = db.batch();
+    batchOps = 0;
+  };
+
+  const customersSnap = await db.collection('zohoCustomers')
+    .select('district', 'billingState')
+    .get();
+  for (const customer of customersSnap.docs) {
+    const data = customer.data() ?? {};
+    const district = locationFieldForSummary(data.district);
+    const billingState = locationFieldForSummary(data.billingState);
+    if (!district && !billingState) continue;
+    const summariesSnap = await customer.ref.collection(INVOICE_SUMMARIES_SUBCOLLECTION)
+      .select('district', 'billingState')
+      .get();
+    for (const summary of summariesSnap.docs) {
+      const current = summary.data() ?? {};
+      if (locationFieldForSummary(current.district) && locationFieldForSummary(current.billingState)) {
+        continue;
+      }
+      batch.set(summary.ref, {
+        ...(district ? { district } : {}),
+        ...(billingState ? { billingState } : {}),
+        updatedAt: FieldValue.serverTimestamp(),
+      }, { merge: true });
+      batchOps += 1;
+      locationPatched += 1;
+      if (batchOps >= 400) await flush();
+    }
+    onProgress?.({ customerId: customer.id, locationPatched, logisticsPatched });
+  }
+  await flush();
+
+  const bookingsSnap = await db.collection('logisticsBookings').get();
+  for (const booking of bookingsSnap.docs) {
+    const result = await syncInvoiceSummariesFromLogisticsBooking(booking.id, booking.data() ?? {});
+    logisticsPatched += result.patched;
+    onProgress?.({ bookingId: booking.id, locationPatched, logisticsPatched });
+  }
+
+  await db.doc(`${INVOICE_STATS_COLLECTION}/config`).set({
+    summariesIncludeListFields: true,
+    updatedAt: FieldValue.serverTimestamp(),
+  }, { merge: true });
+  return { locationPatched, logisticsPatched };
+}
+
 export async function deleteInvoiceSummary(customerId, invoiceId) {
   await invoiceSummaryRef(customerId, invoiceId).delete().catch(() => {});
 }
@@ -396,7 +555,9 @@ export async function setInvoiceListSource(listSource) {
  */
 export async function backfillInvoiceStatsAndSummaries({ onProgress } = {}) {
   const db = getFirestore();
-  const customersSnap = await db.collection('zohoCustomers').select().get();
+  const customersSnap = await db.collection('zohoCustomers')
+    .select('district', 'billingState')
+    .get();
   let invoiceCount = 0;
   let summaryCount = 0;
   let dealerDocs = 0;
@@ -505,9 +666,14 @@ export async function backfillInvoiceStatsAndSummaries({ onProgress } = {}) {
       dealerAcc.set(customerId, emptyDealerRollup(customerId));
     }
 
+    const customerData = customerDoc.data() ?? {};
     for (const invDoc of invSnap.docs) {
       const data = invDoc.data() ?? {};
-      const summary = buildInvoiceSummaryFields(data, customerId, invDoc.id);
+      const summary = buildInvoiceSummaryFields({
+        ...data,
+        district: data.district || customerData.district,
+        billingState: data.billingState || customerData.billingState,
+      }, customerId, invDoc.id);
       // Persist derived hot-path fields on the fat doc for list/filter maps.
       batch.set(invDoc.ref, {
         itemQuantity: summary.itemQuantity,
@@ -602,6 +768,11 @@ export async function backfillInvoiceStatsAndSummaries({ onProgress } = {}) {
   if (dealerBatchOps) await dealerBatch.commit();
 
   await setInvoiceListSource('summaries');
+  await db.doc(`${INVOICE_STATS_COLLECTION}/config`).set({
+    summariesIncludeCustomerPickup: true,
+    summariesIncludeListFields: true,
+    updatedAt: FieldValue.serverTimestamp(),
+  }, { merge: true });
 
   return {
     invoiceCount,

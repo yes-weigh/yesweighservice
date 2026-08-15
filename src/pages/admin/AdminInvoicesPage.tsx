@@ -28,6 +28,7 @@ import {
 import { InvoiceStatusFilterBlocks } from '../../components/invoices/InvoiceStatusFilterBlocks';
 import { useCatalogPageHeader, usePageHeaderSlot } from '../../context/PageHeaderContext';
 import {
+  adminInvoiceLogisticsBooking,
   aggregateAdminInvoicesByDealer,
   countInvoiceRowsByCategory,
   fetchAdminCustomerLocations,
@@ -58,6 +59,7 @@ import {
   isGatcFeeOnlyInvoice,
 } from '../../lib/invoices';
 import {
+  invoiceAllowsLogisticsFulfillment,
   invoiceListFilterStatusKey,
   invoiceListStatusKey,
   invoiceListStatusLabel,
@@ -599,24 +601,13 @@ export const AdminInvoicesPage: React.FC = () => {
     if (useAggregate) {
       const load = useLifetimeDealerRollups
         ? fetchAdminDealerLifetimeAggregates().then(next => ({ rows: next, truncated: false }))
-        : Promise.all([
-          fetchAllAdminInvoicesInRange({
-            sort,
-            category: 'all',
-            dateStart,
-            dateEnd,
-            salespersonIds,
-          }),
-          fetchAdminPortalStampingInvoices({
-            sort,
-            dateStart,
-            dateEnd,
-            salespersonIds,
-          }),
-        ]).then(([{ rows: next, truncated }, portal]) => ({
-          rows: overlayPortalStampingOnInvoices(next, portal.rows, sort),
-          truncated,
-        }));
+        : fetchAllAdminInvoicesInRange({
+          sort,
+          category: 'all',
+          dateStart,
+          dateEnd,
+          salespersonIds,
+        });
 
       void load
         .then(({ rows: next, truncated: wasTruncated }) => {
@@ -624,15 +615,24 @@ export const AdminInvoicesPage: React.FC = () => {
           setRows(next);
           setTruncated(wasTruncated);
           setHasMore(false);
+          setLoading(false);
+          if (useLifetimeDealerRollups) return;
+          void fetchAdminPortalStampingInvoices({
+            sort,
+            dateStart,
+            dateEnd,
+            salespersonIds,
+          }).then(portal => {
+            if (cancelled) return;
+            setRows(overlayPortalStampingOnInvoices(next, portal.rows, sort));
+          });
         })
         .catch(err => {
           if (!cancelled) {
             setError(err instanceof Error ? err.message : 'Could not load invoices.');
             setRows([]);
+            setLoading(false);
           }
-        })
-        .finally(() => {
-          if (!cancelled) setLoading(false);
         });
       return () => {
         cancelled = true;
@@ -641,35 +641,36 @@ export const AdminInvoicesPage: React.FC = () => {
 
     // Full date window so status chips always have counts. Status is applied
     // first on the client, then category — switching Product/Spares must not
-    // refetch or drop to a single page. Stamping amounts come from GATC Billwise.
-    void Promise.all([
-      fetchAllAdminInvoicesInRange({
-        sort,
-        category: 'all',
-        dateStart,
-        dateEnd,
-        salespersonIds,
-      }),
-      fetchAdminPortalStampingInvoices({
-        sort,
-        dateStart,
-        dateEnd,
-        salespersonIds,
-      }),
-    ])
-      .then(([{ rows: next }, portal]) => {
+    // refetch or drop to a single page. Stamping overlay is applied after
+    // first paint so the slim summary list is not blocked on GATC hydrations.
+    void fetchAllAdminInvoicesInRange({
+      sort,
+      category: 'all',
+      dateStart,
+      dateEnd,
+      salespersonIds,
+    })
+      .then(({ rows: next }) => {
         if (cancelled) return;
-        setRows(overlayPortalStampingOnInvoices(next, portal.rows, sort));
+        setRows(next);
         setHasMore(false);
+        setLoading(false);
+        void fetchAdminPortalStampingInvoices({
+          sort,
+          dateStart,
+          dateEnd,
+          salespersonIds,
+        }).then(portal => {
+          if (cancelled) return;
+          setRows(overlayPortalStampingOnInvoices(next, portal.rows, sort));
+        });
       })
       .catch(err => {
         if (!cancelled) {
           setError(err instanceof Error ? err.message : 'Could not load invoices.');
           setRows([]);
+          setLoading(false);
         }
-      })
-      .finally(() => {
-        if (!cancelled) setLoading(false);
       });
     return () => {
       cancelled = true;
@@ -761,48 +762,51 @@ export const AdminInvoicesPage: React.FC = () => {
     setLoading(true);
     setError('');
     setTruncated(false);
-    void Promise.all([
-      fetchAdminInvoicesForCustomers({
-        customerIds: selectedCustomerIds,
-        dateStart,
-        dateEnd,
-        category: 'all',
-        sort,
-        // Dealer drill-down: any ops staff may see that dealer's full invoice history.
-        salespersonIds: null,
-      }),
-      fetchAdminPortalStampingInvoices({
-        customerIds: selectedCustomerIds,
-        dateStart,
-        dateEnd,
-        sort,
-        salespersonIds: null,
-      }),
-    ])
-      .then(([allRows, portal]) => {
+    const applyDealerRows = (merged: AdminFirestoreInvoice[]) => {
+      const commerce = merged.filter(row => !isGatcFeeOnlyInvoice(row));
+      const counts = countInvoiceRowsByCategory(merged);
+      setCategoryCounts(counts);
+      setKpiCount(commerce.length);
+      setKpiDocumentAmount(commerce.reduce((sum, row) => sum + invoiceAmountExclGst(row), 0));
+      setRows(merged);
+      setKpiCategoryAmount(
+        category === 'all'
+          ? commerce.reduce((sum, row) => sum + invoiceAmountExclGst(row), 0)
+          : merged.reduce((sum, row) => sum + invoiceCategoryAmount(row, category), 0),
+      );
+      setHasMore(false);
+    };
+
+    void fetchAdminInvoicesForCustomers({
+      customerIds: selectedCustomerIds,
+      dateStart,
+      dateEnd,
+      category: 'all',
+      sort,
+      // Dealer drill-down: any ops staff may see that dealer's full invoice history.
+      salespersonIds: null,
+    })
+      .then(allRows => {
         if (cancelled) return;
-        const merged = overlayPortalStampingOnInvoices(allRows, portal.rows, sort);
-        const commerce = merged.filter(row => !isGatcFeeOnlyInvoice(row));
-        const counts = countInvoiceRowsByCategory(merged);
-        setCategoryCounts(counts);
-        setKpiCount(commerce.length);
-        setKpiDocumentAmount(commerce.reduce((sum, row) => sum + invoiceAmountExclGst(row), 0));
-        setRows(merged);
-        setKpiCategoryAmount(
-          category === 'all'
-            ? commerce.reduce((sum, row) => sum + invoiceAmountExclGst(row), 0)
-            : merged.reduce((sum, row) => sum + invoiceCategoryAmount(row, category), 0),
-        );
-        setHasMore(false);
+        applyDealerRows(allRows);
+        setLoading(false);
+        void fetchAdminPortalStampingInvoices({
+          customerIds: selectedCustomerIds,
+          dateStart,
+          dateEnd,
+          sort,
+          salespersonIds: null,
+        }).then(portal => {
+          if (cancelled) return;
+          applyDealerRows(overlayPortalStampingOnInvoices(allRows, portal.rows, sort));
+        });
       })
       .catch(err => {
         if (!cancelled) {
           setError(err instanceof Error ? err.message : 'Could not load invoices.');
           setRows([]);
+          setLoading(false);
         }
-      })
-      .finally(() => {
-        if (!cancelled) setLoading(false);
       });
     return () => {
       cancelled = true;
@@ -898,15 +902,30 @@ export const AdminInvoicesPage: React.FC = () => {
   }, [page, totalPages]);
 
   useEffect(() => {
-    const customerIds = pageRows.map(invoice => invoice.customerId);
-    if (!customerIds.length) {
-      setCustomerLocations(new Map());
-      return;
+    const seeded = new Map<string, { district: string | null; state: string | null }>();
+    const missing: string[] = [];
+    for (const invoice of pageRows) {
+      if (!invoice.customerId || seeded.has(invoice.customerId)) continue;
+      if (invoice.district || invoice.billingState) {
+        seeded.set(invoice.customerId, {
+          district: invoice.district ?? null,
+          state: invoice.billingState ?? null,
+        });
+        continue;
+      }
+      missing.push(invoice.customerId);
     }
+    setCustomerLocations(seeded);
+    if (!missing.length) return;
 
     let cancelled = false;
-    void fetchAdminCustomerLocations(customerIds).then(map => {
-      if (!cancelled) setCustomerLocations(map);
+    void fetchAdminCustomerLocations(missing).then(map => {
+      if (cancelled) return;
+      setCustomerLocations(prev => {
+        const next = new Map(prev);
+        for (const [id, location] of map) next.set(id, location);
+        return next;
+      });
     });
 
     return () => {
@@ -915,25 +934,36 @@ export const AdminInvoicesPage: React.FC = () => {
   }, [pageRows]);
 
   useEffect(() => {
-    const invoiceIds = logisticsInvoiceIdsKey.split(',').filter(Boolean);
-    if (!invoiceIds.length) {
-      setLogisticsByInvoiceId(new Map());
-      return;
+    const seeded = new Map<string, LogisticsBooking>();
+    const missing: string[] = [];
+    for (const invoice of listRows) {
+      if ((invoice.aggregateInvoiceCount ?? 0) > 1) continue;
+      const fromSummary = adminInvoiceLogisticsBooking(invoice);
+      if (fromSummary) {
+        seeded.set(invoice.id, fromSummary);
+        continue;
+      }
+      if (invoiceAllowsLogisticsFulfillment(invoice)) missing.push(invoice.id);
     }
+    setLogisticsByInvoiceId(seeded);
+    if (!missing.length) return;
 
     let cancelled = false;
-    void findLogisticsBookingsForInvoices(invoiceIds)
+    void findLogisticsBookingsForInvoices(missing)
       .then(map => {
-        if (!cancelled) setLogisticsByInvoiceId(map);
+        if (cancelled) return;
+        setLogisticsByInvoiceId(prev => {
+          const next = new Map(prev);
+          for (const [id, booking] of map) next.set(id, booking);
+          return next;
+        });
       })
-      .catch(() => {
-        if (!cancelled) setLogisticsByInvoiceId(new Map());
-      });
+      .catch(() => undefined);
 
     return () => {
       cancelled = true;
     };
-  }, [logisticsInvoiceIdsKey]);
+  }, [logisticsInvoiceIdsKey, listRows]);
 
   const openInvoice = useCallback((invoice: AdminFirestoreInvoice) => {
     navigate(`${basePath}/invoices/${invoice.customerId}/${invoice.id}/invoice`);
