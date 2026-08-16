@@ -14,6 +14,7 @@ import { randomUUID } from 'node:crypto';
 import { FieldValue } from 'firebase-admin/firestore';
 import { getStorage } from 'firebase-admin/storage';
 import { PDFDocument } from 'pdf-lib';
+import { blueDartPickupPinForSite } from './blue-dart-pickup-sites.js';
 
 export const BLUE_DART_SECRETS_DOC = 'appSettings/blueDartSecrets';
 export const BLUE_DART_AUTH_DOC = 'appSettings/blueDartAuth';
@@ -453,7 +454,7 @@ export async function testBlueDartConnection(db) {
   try {
     const session = await loginBlueDart(db);
     const secrets = await loadSecrets(db);
-    const pin = secrets.customerPincode || '682001';
+    const pin = secrets.customerPincode || blueDartPickupPinForSite('cochin') || '683104';
     const finder = await blueDartFetch(db, '/finder/v1/GetServicesforPincode', {
       method: 'POST',
       body: {
@@ -709,6 +710,176 @@ export async function readBlueDartWaybillPdf(db, storagePath) {
   };
 }
 
+function pinFromText(raw) {
+  const match = /\b(\d{6})\b/.exec(String(raw || ''));
+  return match?.[1] || '';
+}
+
+async function loadSiteShipFrom(db, site) {
+  const snap = await db.doc(LOGISTICS_SETTINGS_DOC).get();
+  const data = snap.exists ? (snap.data() || {}) : {};
+  const key = String(site || '').trim() || 'cochin';
+  const address = String(data.fromAddresses?.[key] || '').trim();
+  const contact = data.fromSiteContacts?.[key] && typeof data.fromSiteContacts[key] === 'object'
+    ? data.fromSiteContacts[key]
+    : {};
+  return {
+    address,
+    phone: String(contact.phone || '').trim(),
+    gstin: String(contact.gstin || '').trim(),
+  };
+}
+
+async function resolveBlueDartShipFromOrigin(db, secrets, input = {}) {
+  const sitePin = pin6(blueDartPickupPinForSite(input.shipFromSite) || input.pincode);
+  const accountPin = pin6(secrets.customerPincode);
+  const pin = sitePin || accountPin;
+  const accountArea = String(secrets.originArea || '').trim().toUpperCase();
+  let area = accountArea;
+  if (sitePin) {
+    try {
+      const looked = await lookupBlueDartPincodes(db, [sitePin]);
+      const row = looked.results?.[0];
+      const found = String(row?.areaCode || '').trim().toUpperCase();
+      // This customer can only register pickup in the contracted origin (COK).
+      if (row?.ok && found && found === accountArea) area = found;
+    } catch {
+      // Keep account area if Finder is down.
+    }
+  }
+  return { pin, area, usedSitePin: Boolean(sitePin) };
+}
+
+export async function registerBlueDartPickupAtAddress(db, input = {}) {
+  const secrets = await loadSecrets(db);
+  const config = await loadBlueDartPublicConfig(db);
+  const pin = pin6(input.pincode);
+  const area = String(input.area || secrets.originArea || '').trim().toUpperCase();
+  const addr = splitAddressLines(input.address);
+  const phone = mobile10(input.phone);
+  const pickupDt = input.pickupMs ? new Date(input.pickupMs) : nextPickupIst();
+  const awb = String(input.awb || '').replace(/\D/g, '');
+  const body = {
+    Request: {
+      ...(awb ? { AWBNo: [awb] } : {}),
+      AreaCode: area,
+      CISDDN: false,
+      ContactPersonName: String(input.contactName || secrets.customerName || 'YESWEIGH').slice(0, 30),
+      CustomerAddress1: addr[0],
+      CustomerAddress2: addr[1],
+      CustomerAddress3: addr[2],
+      CustomerCode: secrets.customerCode,
+      CustomerName: String(secrets.customerName || 'YESWEIGH').slice(0, 30),
+      CustomerPincode: pin,
+      CustomerTelephoneNumber: phone,
+      DoxNDox: '1',
+      EmailID: '',
+      IsForcePickup: true,
+      IsReversePickup: false,
+      MobileTelNo: phone,
+      NumberofPieces: Math.max(1, Number(input.pieceCount) || 1),
+      OfficeCloseTime: '18:00',
+      PackType: '',
+      ProductCode: String(input.productCode || 'E'),
+      ReferenceNo: String(input.referenceNo || '').slice(0, 20),
+      Remarks: String(input.remarks || 'Warehouse pickup').slice(0, 30),
+      RouteCode: '99',
+      ShipmentPickupDate: `/Date(${pickupDt.getTime()})/`,
+      ShipmentPickupTime: '1600',
+      VolumeWeight: Number(input.weightKg) || 0.5,
+      WeightofShipment: Number(input.weightKg) || 0.5,
+      isToPayShipper: false,
+    },
+    Profile: profilePayload(config.env, secrets, 'shipping'),
+  };
+  const paths = ['/pickup/v1/RegisterPickup', '/pickup/v1RegisterPickup'];
+  let res = await blueDartFetch(db, paths[0], { method: 'POST', body });
+  if (!res.ok || /index was outside|not found|404/i.test(String(res.text || ''))) {
+    res = await blueDartFetch(db, paths[1], { method: 'POST', body });
+  }
+  const row = res.json?.RegisterPickupResult
+    || res.json?.PickupRegistrationResponse
+    || res.json;
+  const token = String(row?.TokenNumber || row?.tokenNumber || '').trim();
+  const failed = Boolean(row?.IsError) || !res.ok;
+  if (failed && !token) {
+    throw new Error(blueDartErrorMessage(
+      res.json,
+      res.text,
+      res.status,
+      'Blue Dart pickup registration failed',
+    ));
+  }
+  return {
+    ok: !failed || Boolean(token),
+    tokenNumber: token || null,
+    raw: row,
+  };
+}
+
+export async function cancelBlueDartPickup(db, input = {}) {
+  const secrets = await loadSecrets(db);
+  const config = await loadBlueDartPublicConfig(db);
+  const token = String(input.tokenNumber || '').trim();
+  if (!token) throw new Error('Pickup token is required to cancel.');
+  const pickupMs = Number(input.pickupMs) || Date.now();
+  const body = {
+    Request: {
+      TokenNo: /^\d+$/.test(token) ? Number(token) : token,
+      PickupRegistrationDate: `/Date(${pickupMs})/`,
+      Remarks: String(input.remarks || 'YesWeigh cancel').slice(0, 60),
+    },
+    Profile: profilePayload(config.env, secrets, 'shipping'),
+  };
+  let res = await blueDartFetch(db, '/pickup/v1/CancelPickup', {
+    method: 'POST',
+    body,
+  });
+  if (!res.ok || /not found|404/i.test(String(res.text || ''))) {
+    res = await blueDartFetch(db, '/pickup/v1CancelPickup', {
+      method: 'POST',
+      body,
+    });
+  }
+  const row = res.json?.CancelPickupResult || res.json?.CancelPickupResponseEntity || res.json;
+  const failed = Boolean(row?.IsError) || !res.ok;
+  if (failed) {
+    throw new Error(blueDartErrorMessage(
+      res.json,
+      res.text,
+      res.status,
+      'Blue Dart pickup cancel failed',
+    ));
+  }
+  return { ok: true, raw: row };
+}
+
+export async function cancelBlueDartWaybill(db, awb) {
+  const number = String(awb || '').replace(/\D/g, '');
+  if (!number) throw new Error('AWB is required to cancel.');
+  const secrets = await loadSecrets(db);
+  const config = await loadBlueDartPublicConfig(db);
+  const body = {
+    Request: { AWBNo: number },
+    Profile: profilePayload(config.env, secrets, 'shipping'),
+  };
+  const res = await blueDartFetch(db, '/waybill/v1/CancelWaybill', {
+    method: 'POST',
+    body,
+  });
+  const row = res.json?.CancelWaybillResult || res.json;
+  const failed = Boolean(row?.IsError) || !res.ok;
+  if (failed) {
+    throw new Error(blueDartErrorMessage(
+      res.json,
+      res.text,
+      res.status,
+      'Blue Dart cancel waybill failed',
+    ));
+  }
+  return { ok: true, awb: number };
+}
+
 /**
  * @param {FirebaseFirestore.Firestore} db
  * @param {{
@@ -740,10 +911,6 @@ export async function bookBlueDartShipment(db, input = {}) {
   if (!consigneeMobile) {
     throw new Error('Consignee phone is required for Blue Dart booking.');
   }
-  const shipperPin = pin6(secrets.customerPincode) || pin6(input.returnAddress?.pincode);
-  if (!shipperPin) {
-    throw new Error('Ship-from pincode is missing. Set Customer pincode in Blue Dart API settings.');
-  }
   if (!secrets.customerCode || !secrets.originArea) {
     throw new Error('Blue Dart CustomerCode / OriginArea missing. Save them in Logistics Settings.');
   }
@@ -752,8 +919,23 @@ export async function bookBlueDartShipment(db, input = {}) {
   const returnSrc = input.returnAddress && typeof input.returnAddress === 'object'
     ? input.returnAddress
     : {};
-  const retAddr = splitAddressLines(returnSrc.address || consignee.address);
-  const shipperPhone = mobile10(returnSrc.phone) || consigneeMobile;
+  const siteShipFrom = await loadSiteShipFrom(db, input.shipFromSite);
+  const pickupAddress = String(returnSrc.address || siteShipFrom.address || '').trim();
+  const retAddr = splitAddressLines(pickupAddress || consignee.address);
+  const shipperPhone = mobile10(returnSrc.phone)
+    || mobile10(siteShipFrom.phone)
+    || consigneeMobile;
+  const origin = await resolveBlueDartShipFromOrigin(db, secrets, {
+    shipFromSite: input.shipFromSite,
+    pincode: returnSrc.pincode || pinFromText(pickupAddress),
+  });
+  if (input.originArea) {
+    origin.area = String(input.originArea).trim().toUpperCase();
+  }
+  const shipperPin = origin.pin;
+  if (!shipperPin) {
+    throw new Error('Ship-from pincode is missing. Set it on the site address or Blue Dart API settings.');
+  }
   const dims = boxes
     .map(box => ({
       Length: Number(box.lengthCm) || 0,
@@ -817,7 +999,7 @@ export async function bookBlueDartShipment(db, input = {}) {
         DeclaredValue: declaredValue,
         Dimensions: dims,
         ECCN: '',
-        PDFOutputNotRequired: false,
+        PDFOutputNotRequired: input.pdfOutputNotRequired === true,
         PackType: '',
         PickupDate: `/Date(${pickupMs})/`,
         PickupTime: '1600',
@@ -846,7 +1028,7 @@ export async function bookBlueDartShipment(db, input = {}) {
         CustomerPincode: shipperPin,
         CustomerTelephone: '',
         IsToPayCustomer: fod,
-        OriginArea: secrets.originArea,
+        OriginArea: origin.area,
         Sender: 'YESWEIGH',
         VendorCode: '',
       },
@@ -860,7 +1042,21 @@ export async function bookBlueDartShipment(db, input = {}) {
   });
 
   let result = res.json?.GenerateWayBillResult || res.json;
-  const isError = Boolean(result?.IsError) || !res.ok;
+  let isError = Boolean(result?.IsError) || !res.ok;
+  const firstError = blueDartErrorMessage(res.json, res.text, res.status, '');
+  const originRejected = /invalid\s*area|sc\s*not\s*in\s*region|pincode|outbound service is not available|not authorized to register pickup/i.test(firstError);
+  const accountPin = pin6(secrets.customerPincode);
+  if (isError && originRejected && accountPin && accountPin !== shipperPin) {
+    payload.Request.Shipper.OriginArea = secrets.originArea;
+    payload.Request.Shipper.CustomerPincode = accountPin;
+    payload.Request.Returnadds.ReturnPincode = accountPin;
+    res = await blueDartFetch(db, '/waybill/v1/GenerateWayBill', {
+      method: 'POST',
+      body: payload,
+    });
+    result = res.json?.GenerateWayBillResult || res.json;
+    isError = Boolean(result?.IsError) || !res.ok;
+  }
   if (isError && registerPickup) {
     payload.Request.Services.RegisterPickup = false;
     res = await blueDartFetch(db, '/waybill/v1/GenerateWayBill', {
@@ -901,6 +1097,11 @@ export async function bookBlueDartShipment(db, input = {}) {
     };
   }
 
+  const acceptedPin = pin6(payload.Request.Shipper.CustomerPincode) || shipperPin;
+  const pickupMessage = payload.Request.Services.RegisterPickup
+    ? `Pickup requested at ${acceptedPin}`
+    : 'Not registered';
+
   return {
     ok: true,
     awb,
@@ -912,6 +1113,11 @@ export async function bookBlueDartShipment(db, input = {}) {
     pickupRegistered: Boolean(payload.Request.Services.RegisterPickup),
     pickupDate: `${pickupDt.getUTCFullYear()}-${String(pickupDt.getUTCMonth() + 1).padStart(2, '0')}-${String(pickupDt.getUTCDate()).padStart(2, '0')}`,
     pickupTime: '1600',
+    pickupAddress: pickupAddress || null,
+    pickupPin: acceptedPin,
+    originArea: payload.Request.Shipper.OriginArea || origin.area,
+    pickupToken: null,
+    pickupMessage,
     documents,
   };
 }

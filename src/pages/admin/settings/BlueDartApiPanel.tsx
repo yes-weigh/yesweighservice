@@ -15,8 +15,10 @@ import {
   saveBlueDartCredentials,
   testBlueDartConnection,
 } from '../../../lib/blueDartApi';
+import { blueDartPickupPinEntries } from '../../../constants/blueDartPickup';
 import type { BlueDartApiEnv, BlueDartPublicConfig } from '../../../types/blue-dart-api';
 import { emptyBlueDartPublicConfig } from '../../../types/blue-dart-api';
+import { STAFF_LOGISTICS_SITE_LABELS } from '../../../types/staff-logistics';
 
 type Props = {
   onError: (message: string) => void;
@@ -285,7 +287,7 @@ export const BlueDartApiPanel: React.FC<Props> = ({ onError }) => {
           />
         </label>
         <label className="settings-courier-rates__field settings-courier-rates__field--plain">
-          <span>Origin pincode</span>
+          <span>Account fallback pincode</span>
           <input
             type="text"
             value={customerPincode}
@@ -297,6 +299,22 @@ export const BlueDartApiPanel: React.FC<Props> = ({ onError }) => {
           />
         </label>
       </div>
+
+      <div className="settings-courier-rates__inline-fields" style={{ marginTop: 12 }}>
+        {blueDartPickupPinEntries().map(({ site, pin }) => (
+          <label
+            key={site}
+            className="settings-courier-rates__field settings-courier-rates__field--plain"
+          >
+            <span>Blue Dart pickup · {STAFF_LOGISTICS_SITE_LABELS[site]}</span>
+            <input type="text" value={pin} readOnly disabled />
+          </label>
+        ))}
+      </div>
+      <p className="text-muted text-sm" style={{ marginTop: 6 }}>
+        Site bookings use these Blue Dart pickup pincodes (Cochin 683104, Head Office 682019).
+        Account fallback is only used if a site pin is missing.
+      </p>
 
       <label className="settings-courier-rates__field settings-courier-rates__field--plain" style={{ marginTop: 12 }}>
         <span>Customer name</span>

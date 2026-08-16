@@ -2,10 +2,9 @@ import React, { useCallback, useEffect, useLayoutEffect, useRef, useState } from
 import { MapPin, Save } from 'lucide-react';
 import { useAuth } from '../../../context/AuthContext';
 import {
-  lookupBlueDartPincodes,
-  type BlueDartPincodeLookup,
-} from '../../../lib/blueDartApi';
-import { pinFromText } from '../../../lib/delhiveryQuote';
+  BLUE_DART_PICKUP_PIN_BY_SITE,
+  withBlueDartPickupPins,
+} from '../../../constants/blueDartPickup';
 import { syncLogisticsShipFromAddressesToAllBookings } from '../../../lib/logisticsBookings';
 import type { DeliveryPartnerTransporters } from '../../../constants/deliveryPartnerTabs';
 import {
@@ -73,13 +72,6 @@ export const LogisticsSettingsTab: React.FC = () => {
   const [error, setError] = useState('');
   const [busyKey, setBusyKey] = useState<string | null>(null);
   const [shipFromSyncNote, setShipFromSyncNote] = useState('');
-  const [blueDartAccount, setBlueDartAccount] = useState<{
-    originArea: string;
-    customerPincode: string;
-  } | null>(null);
-  const [blueDartByPin, setBlueDartByPin] = useState<Record<string, BlueDartPincodeLookup>>({});
-  const [blueDartLookupError, setBlueDartLookupError] = useState('');
-  const [blueDartLookingUp, setBlueDartLookingUp] = useState(false);
   const addressRefs = useRef<Partial<Record<StaffLogisticsSite, HTMLTextAreaElement | null>>>({});
   const didAutoSyncShipFromRef = useRef(false);
 
@@ -88,8 +80,15 @@ export const LogisticsSettingsTab: React.FC = () => {
     setError('');
     try {
       const settings = await loadLogisticsSettings();
-      setFromAddresses(settings.fromAddresses);
-      setDraftFromAddresses(settings.fromAddresses);
+      const fromAddressesNext = withBlueDartPickupPins(settings.fromAddresses);
+      const pinRewritten = STAFF_LOGISTICS_SITES.some(
+        site => fromAddressesNext[site] !== settings.fromAddresses[site],
+      );
+      if (pinRewritten) {
+        await saveLogisticsFromAddresses(fromAddressesNext, user?.uid ?? null);
+      }
+      setFromAddresses(fromAddressesNext);
+      setDraftFromAddresses(fromAddressesNext);
       setFromSiteContacts(settings.fromSiteContacts);
       setDraftFromSiteContacts(settings.fromSiteContacts);
       setDeliveryRules(settings.deliveryRules);
@@ -98,11 +97,11 @@ export const LogisticsSettingsTab: React.FC = () => {
       setSpareBoxDefinitions(settings.spareBoxDefinitions);
 
       const hasAddress = STAFF_LOGISTICS_SITES.some(
-        site => Boolean(settings.fromAddresses[site]?.trim()),
+        site => Boolean(fromAddressesNext[site]?.trim()),
       );
       if (hasAddress && !didAutoSyncShipFromRef.current) {
         didAutoSyncShipFromRef.current = true;
-        const result = await syncLogisticsShipFromAddressesToAllBookings(settings.fromAddresses);
+        const result = await syncLogisticsShipFromAddressesToAllBookings(fromAddressesNext);
         if (result.updated > 0) {
           setShipFromSyncNote(
             `Applied ship-from addresses to ${result.updated} of ${result.scanned} bookings.`,
@@ -114,7 +113,7 @@ export const LogisticsSettingsTab: React.FC = () => {
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [user?.uid]);
 
   useEffect(() => {
     void loadAll();
@@ -136,44 +135,15 @@ export const LogisticsSettingsTab: React.FC = () => {
   ));
   const sitesDirty = fromAddressesDirty || fromSiteContactsDirty;
 
-  const refreshBlueDartPins = useCallback(async (addresses: Record<StaffLogisticsSite, string>) => {
-    const pins = STAFF_LOGISTICS_SITES
-      .map(site => pinFromText(addresses[site]))
-      .filter(Boolean);
-    if (!pins.length) {
-      setBlueDartByPin({});
-      return;
-    }
-    setBlueDartLookingUp(true);
-    setBlueDartLookupError('');
-    try {
-      const result = await lookupBlueDartPincodes(pins);
-      setBlueDartAccount(result.account);
-      const next: Record<string, BlueDartPincodeLookup> = {};
-      for (const row of result.results) next[row.pin] = row;
-      setBlueDartByPin(next);
-    } catch (err) {
-      setBlueDartLookupError(
-        err instanceof Error ? err.message : 'Could not look up Blue Dart locations.',
-      );
-    } finally {
-      setBlueDartLookingUp(false);
-    }
-  }, []);
-
-  useEffect(() => {
-    if (subTab !== 'sites' || loading) return;
-    void refreshBlueDartPins(fromAddresses);
-  }, [fromAddresses, loading, refreshBlueDartPins, subTab]);
-
   const handleSaveSites = async () => {
     setBusyKey('sites');
     setError('');
     try {
       const tasks: Promise<unknown>[] = [];
       if (fromAddressesDirty) {
+        const addressesToSave = withBlueDartPickupPins(draftFromAddresses);
         tasks.push(
-          saveLogisticsFromAddresses(draftFromAddresses, user?.uid ?? null).then(async saved => {
+          saveLogisticsFromAddresses(addressesToSave, user?.uid ?? null).then(async saved => {
             setFromAddresses(saved);
             setDraftFromAddresses(saved);
             const result = await syncLogisticsShipFromAddressesToAllBookings(saved);
@@ -194,7 +164,6 @@ export const LogisticsSettingsTab: React.FC = () => {
         );
       }
       await Promise.all(tasks);
-      await refreshBlueDartPins(draftFromAddresses);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Could not save logistics sites.');
     } finally {
@@ -247,7 +216,8 @@ export const LogisticsSettingsTab: React.FC = () => {
               <p className="text-muted text-sm">
                 Ship-from address, phone, and GSTIN for courier docs. Address save also applies to
                 existing bookings. Empty phone/GSTIN fall back to firm defaults
-                ({FIRM_PHONE} / {FIRM_GSTIN}).
+                ({FIRM_PHONE} / {FIRM_GSTIN}). Blue Dart pickup uses the official pin on each
+                card (Cochin 683104, Head Office 682019).
               </p>
             </div>
             <button
@@ -265,30 +235,10 @@ export const LogisticsSettingsTab: React.FC = () => {
               {shipFromSyncNote}
             </p>
           )}
-          {blueDartLookingUp ? (
-            <p className="text-muted text-sm">Checking Blue Dart area codes for these pins…</p>
-          ) : null}
-          {blueDartLookupError ? (
-            <p className="text-muted text-sm">{blueDartLookupError}</p>
-          ) : null}
-          {blueDartAccount?.originArea ? (
-            <p className="text-muted text-sm">
-              Blue Dart account origin {blueDartAccount.originArea}
-              {blueDartAccount.customerPincode ? ` · ${blueDartAccount.customerPincode}` : ''}
-              . Finder shows the network area for each site pin — not a list of registered warehouses.
-            </p>
-          ) : null}
 
           <div className="settings-logistics__from-grid">
             {STAFF_LOGISTICS_SITES.map(site => {
-              const pin = pinFromText(draftFromAddresses[site] || fromAddresses[site]);
-              const finder = pin ? blueDartByPin[pin] : undefined;
-              const matchesAccount = Boolean(
-                finder?.ok
-                && finder.areaCode
-                && blueDartAccount?.originArea
-                && finder.areaCode === blueDartAccount.originArea,
-              );
+              const bdPin = BLUE_DART_PICKUP_PIN_BY_SITE[site];
               return (
               <div key={site} className="settings-logistics__site-card">
                 <div className="settings-logistics__site-card-head">
@@ -296,29 +246,11 @@ export const LogisticsSettingsTab: React.FC = () => {
                     <MapPin size={16} aria-hidden />
                     <strong>{STAFF_LOGISTICS_SITE_LABELS[site]}</strong>
                   </div>
-                  {pin ? (
-                    <div className="settings-logistics__site-card-meta">
-                      <span className="settings-logistics__site-staff-chip">
-                        PIN {pin}
-                      </span>
-                      {finder?.ok && finder.areaCode ? (
-                        <span className={[
-                          'settings-logistics__site-staff-chip',
-                          matchesAccount
-                            ? 'settings-logistics__bd-chip--match'
-                            : 'settings-logistics__bd-chip--warn',
-                        ].join(' ')}>
-                          BD {finder.areaCode}
-                          {finder.serviceCenterCode ? ` · ${finder.serviceCenterCode}` : ''}
-                          {finder.description ? ` · ${finder.description}` : ''}
-                        </span>
-                      ) : finder && !finder.ok ? (
-                        <span className="settings-logistics__site-staff-chip settings-logistics__bd-chip--warn">
-                          {finder.error || 'Blue Dart lookup failed'}
-                        </span>
-                      ) : null}
-                    </div>
-                  ) : null}
+                  <div className="settings-logistics__site-card-meta">
+                    <span className="settings-logistics__site-staff-chip settings-logistics__bd-chip--match">
+                      Blue Dart pickup {bdPin}
+                    </span>
+                  </div>
                 </div>
                 <label className="settings-logistics__site-card-address">
                   <span className="settings-logistics__site-card-address-label">Ship-from address</span>

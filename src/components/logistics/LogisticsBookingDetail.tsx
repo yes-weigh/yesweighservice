@@ -2599,9 +2599,20 @@ export const LogisticsBookingDetail: React.FC<LogisticsBookingDetailProps> = ({
                   {booking.blueDartPickup?.registered
                     ? (
                       <>
-                        Registered with waybill
+                        {booking.blueDartPickup.tokenNumber
+                          ? `Token ${booking.blueDartPickup.tokenNumber}`
+                          : 'Requested'}
+                        {booking.blueDartPickup.pickupPin
+                          ? ` · ${booking.blueDartPickup.pickupPin}`
+                          : ''}
+                        {booking.blueDartPickup.originArea
+                          ? ` · ${booking.blueDartPickup.originArea}`
+                          : ''}
                         {booking.blueDartPickup.pickupDate
                           ? ` · ${formatLogisticsDateTimeLabel(booking.blueDartPickup.pickupDate)}`
+                          : ''}
+                        {booking.blueDartPickup.pickupAddress
+                          ? ` · ${booking.blueDartPickup.pickupAddress}`
                           : ''}
                       </>
                     )

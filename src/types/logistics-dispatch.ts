@@ -200,6 +200,10 @@ export interface LogisticsBlueDartPickup {
   registered: boolean;
   pickupDate?: string | null;
   pickupTime?: string | null;
+  pickupAddress?: string | null;
+  pickupPin?: string | null;
+  originArea?: string | null;
+  tokenNumber?: string | null;
   message?: string | null;
   requestedAt: string;
 }

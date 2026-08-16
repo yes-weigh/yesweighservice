@@ -19084,6 +19084,161 @@ body:has(.confirm-inline-bar) .confirm-inline-bar {
   margin: 0;
 }
 
+.po-edit-lines {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.po-edit-line {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  padding: 0.85rem;
+  border-radius: 12px;
+  border: 1px solid rgba(148, 163, 184, 0.22);
+  background: rgba(15, 23, 42, 0.28);
+}
+
+.po-edit-line__head {
+  display: grid;
+  grid-template-columns: 3.25rem minmax(0, 1fr) auto;
+  gap: 0.7rem;
+  align-items: start;
+}
+
+.po-edit-line__media {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 3.25rem;
+  height: 3.25rem;
+  border-radius: 8px;
+  overflow: hidden;
+  background: rgba(15, 23, 42, 0.45);
+  color: var(--text-muted);
+}
+
+.po-edit-line__media img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+
+.po-edit-line__spec {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.2rem;
+}
+
+.po-edit-line__spec .invoice-detail-item__name {
+  display: block;
+  font-size: 0.95rem;
+  line-height: 1.3;
+}
+
+.po-edit-line__spec .invoice-detail-item__sku {
+  display: block;
+  font-size: 0.75rem;
+  letter-spacing: 0.02em;
+}
+
+.po-edit-line__remove {
+  margin: -0.2rem -0.25rem 0 0;
+  color: var(--text-muted);
+}
+
+.po-edit-line__fields {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.85rem 1rem;
+  padding-top: 0.7rem;
+  border-top: 1px solid rgba(148, 163, 184, 0.14);
+}
+
+.po-edit-line__field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+  min-width: 0;
+}
+
+.po-edit-line__field > .text-muted {
+  line-height: 1.2;
+}
+
+.po-edit-line__rate {
+  display: inline-flex;
+  align-items: center;
+  width: 6.75rem;
+  height: 2.15rem;
+  border: 1px solid var(--border-glass);
+  border-radius: 10px;
+  background: rgba(0, 0, 0, 0.25);
+}
+
+.po-edit-line__rate:focus-within {
+  border-color: var(--accent-primary);
+  box-shadow: 0 0 0 3px rgba(245, 130, 32, 0.22);
+}
+
+.po-edit-line__currency {
+  flex-shrink: 0;
+  padding: 0 0.15rem 0 0.55rem;
+  color: var(--text-muted);
+  font-size: 0.875rem;
+  font-weight: 700;
+}
+
+.po-edit-line__rate .input-field {
+  width: 100%;
+  min-width: 0;
+  height: 100%;
+  padding: 0 0.5rem 0 0.2rem;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+  font-size: 0.875rem;
+}
+
+.po-edit-line__rate .input-field:focus {
+  box-shadow: none;
+}
+
+.po-edit-line__fields .quantity-stepper {
+  height: 2.15rem;
+}
+
+.po-edit-line__fields .quantity-stepper__btn {
+  width: 2.15rem;
+  height: 2.15rem;
+  border: 1px solid rgba(148, 163, 184, 0.18);
+  border-radius: 8px;
+  background: rgba(148, 163, 184, 0.12);
+  color: inherit;
+}
+
+.po-edit-line__total {
+  margin-left: auto;
+  align-items: flex-end;
+  text-align: right;
+}
+
+.po-edit-line__total strong {
+  display: inline-flex;
+  align-items: center;
+  height: 2.15rem;
+  font-size: 1rem;
+  line-height: 1;
+  white-space: nowrap;
+}
+
 .po-bl-dialog__fields {
   display: grid;
   gap: 0.75rem;

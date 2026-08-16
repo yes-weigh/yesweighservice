@@ -101,6 +101,7 @@ import {
 } from '../../lib/logisticsPhotoVault';
 import { bookDelhiveryShipment } from '../../lib/delhiveryB2b';
 import { bookBlueDartShipment } from '../../lib/blueDartApi';
+import { blueDartPickupPinForSite } from '../../constants/blueDartPickup';
 import { pinFromText } from '../../lib/delhiveryQuote';
 import { fetchAdminInvoiceDetail } from '../../lib/admin-invoices';
 import { resolveInvoiceFreightBillingMode } from '../../lib/logisticsPrefill';
@@ -1331,7 +1332,8 @@ export const BookCourierFlow: React.FC<BookCourierFlowProps> = ({
       const consigneeGstin = normalizeGstinForCourier(draftRef.current.customerGstin);
       const deliveryPlace = cityStateFromAddress(address);
       const shipFromPlace = cityStateFromAddress(fromAddress);
-      const shipFromPin = pincodeFromAddress(fromAddress) || pin;
+      const shipFromPin = blueDartPickupPinForSite(draftRef.current.shipFromSite)
+        || pincodeFromAddress(fromAddress);
       const invoiceId = draftRef.current.invoiceId?.trim() || '';
       const customerId = draftRef.current.zohoCustomerId?.trim() || '';
       const fromInvoice = draftRef.current.source === 'invoice' || Boolean(invoiceId);
@@ -1406,9 +1408,14 @@ export const BookCourierFlow: React.FC<BookCourierFlowProps> = ({
           registered: result.pickupRegistered === true,
           pickupDate: result.pickupDate ?? null,
           pickupTime: result.pickupTime ?? null,
-          message: result.pickupRegistered
-            ? 'Registered with waybill'
-            : 'Not registered',
+          pickupAddress: result.pickupAddress ?? fromAddress ?? null,
+          pickupPin: result.pickupPin ?? shipFromPin ?? null,
+          originArea: result.originArea ?? null,
+          tokenNumber: result.pickupToken ?? null,
+          message: result.pickupMessage
+            || (result.pickupRegistered
+              ? `Pickup requested at ${result.pickupPin || shipFromPin || 'site address'}`
+              : 'Not registered'),
           requestedAt: new Date().toISOString(),
         },
       }));
@@ -2498,6 +2505,11 @@ export const BookCourierFlow: React.FC<BookCourierFlowProps> = ({
                 >
                   <span className="book-courier__site-trigger-copy">
                     <strong>{STAFF_LOGISTICS_SITE_LABELS[draft.shipFromSite]}</strong>
+                    {isBlueDart && blueDartPickupPinForSite(draft.shipFromSite) ? (
+                      <span className="book-courier__site-trigger-address">
+                        Blue Dart pickup {blueDartPickupPinForSite(draft.shipFromSite)}
+                      </span>
+                    ) : null}
                     {(fromAddresses[draft.shipFromSite] ?? '').trim() ? (
                       <span className="book-courier__site-trigger-address">
                         {fromAddresses[draft.shipFromSite].trim()}
@@ -2542,6 +2554,11 @@ export const BookCourierFlow: React.FC<BookCourierFlowProps> = ({
                             <strong>{STAFF_LOGISTICS_SITE_LABELS[site]}</strong>
                             {selected ? <Check size={14} strokeWidth={2.5} aria-hidden /> : null}
                           </span>
+                          {isBlueDart && blueDartPickupPinForSite(site) ? (
+                            <span className="book-courier__site-option-address">
+                              Blue Dart pickup {blueDartPickupPinForSite(site)}
+                            </span>
+                          ) : null}
                           {address ? (
                             <span className="book-courier__site-option-address">{address}</span>
                           ) : (

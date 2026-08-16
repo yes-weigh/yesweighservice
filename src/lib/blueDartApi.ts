@@ -141,6 +141,11 @@ export type BlueDartBookResult = {
   pickupRegistered?: boolean;
   pickupDate?: string | null;
   pickupTime?: string | null;
+  pickupAddress?: string | null;
+  pickupPin?: string | null;
+  originArea?: string | null;
+  pickupToken?: string | null;
+  pickupMessage?: string | null;
   documents?: {
     awb: string;
     waybill?: {

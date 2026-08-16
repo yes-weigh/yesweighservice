@@ -200,11 +200,15 @@ export function groupPickupsToday(
           kind: 'requested',
           partnerId: booking.partnerId,
           partnerLabel: logisticsPartnerLabel(booking.partnerId),
-          pickupId: booking.consignmentNo || null,
+          pickupId: booking.blueDartPickup?.tokenNumber || booking.consignmentNo || null,
           pickupDate: booking.blueDartPickup?.pickupDate || today,
           pickupTime: booking.blueDartPickup?.pickupTime || null,
-          locationName: null,
-          message: booking.blueDartPickup?.message || 'Registered with waybill',
+          locationName: booking.blueDartPickup?.pickupPin
+            || booking.blueDartPickup?.originArea
+            || null,
+          message: booking.blueDartPickup?.message
+            || booking.blueDartPickup?.pickupAddress
+            || 'Registered with waybill',
           shipFromSite: booking.shipFromSite,
           canRequest: false,
         }, booking);

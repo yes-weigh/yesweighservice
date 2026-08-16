@@ -80,6 +80,19 @@ function fromDraftLines(lines: DraftEditLine[]): EditLine[] {
     }));
 }
 
+function currencySymbol(code: string): string {
+  const currency = String(code || 'INR').trim().toUpperCase() || 'INR';
+  try {
+    return new Intl.NumberFormat('en-US', {
+      style: 'currency',
+      currency,
+      currencyDisplay: 'narrowSymbol',
+    }).formatToParts(0).find(part => part.type === 'currency')?.value ?? currency;
+  } catch {
+    return currency;
+  }
+}
+
 function linesFingerprint(lines: EditLine[]): string {
   return JSON.stringify(lines.map(line => ({
     productId: line.productId,
@@ -241,62 +254,74 @@ export const AdminPurchaseOrderDocumentPage: React.FC = () => {
               <p>No items. Add from catalog.</p>
             </div>
           ) : (
-            <ul className="staff-create-so-page__cart-list">
+            <ul className="po-edit-lines">
               {lines.map(line => (
-                <li key={line.lineId} className="staff-create-so-page__cart-item">
-                  <div className="staff-create-so-page__cart-media">
-                    {line.imageUrl ? (
-                      <CategoryThumbnail src={line.imageUrl} knockout={false} />
-                    ) : (
-                      <Package size={24} aria-hidden />
-                    )}
-                  </div>
-                  <DocumentLineItemSpec
-                    className="staff-create-so-page__cart-info"
-                    name={line.name}
-                    sku={line.sku}
-                  >
-                    <label className="staff-create-so-page__rate">
-                      <span className="text-muted text-sm">Rate</span>
-                      <DecimalAmountInput
-                        className="input-field"
-                        value={line.rate}
-                        min={0}
-                        decimals={2}
-                        disabled={saving}
-                        onChange={next => {
-                          if (next == null) return;
-                          setLines(prev => prev.map(row => (
-                            row.lineId === line.lineId
-                              ? { ...row, rate: Math.round(next * 100) / 100 }
-                              : row
-                          )));
-                        }}
-                        aria-label={`Rate for ${line.name}`}
-                      />
-                    </label>
-                    <strong>{formatCurrency(line.rate * line.quantity, currency)}</strong>
-                  </DocumentLineItemSpec>
-                  <div className="staff-create-so-page__cart-actions">
-                    <QuantityStepper
-                      value={line.quantity}
-                      disabled={saving}
-                      onChange={qty => {
-                        setLines(prev => prev.map(row => (
-                          row.lineId === line.lineId ? { ...row, quantity: qty } : row
-                        )));
-                      }}
-                      aria-label={`Quantity for ${line.name}`}
+                <li key={line.lineId} className="po-edit-line">
+                  <div className="po-edit-line__head">
+                    <div className="po-edit-line__media">
+                      {line.imageUrl ? (
+                        <CategoryThumbnail src={line.imageUrl} knockout={false} />
+                      ) : (
+                        <Package size={24} aria-hidden />
+                      )}
+                    </div>
+                    <DocumentLineItemSpec
+                      className="po-edit-line__spec"
+                      name={line.name}
+                      sku={line.sku}
                     />
                     <button
                       type="button"
-                      className="btn btn-ghost btn-sm"
+                      className="btn btn-ghost btn-sm po-edit-line__remove"
                       disabled={saving || lines.length <= 1}
                       onClick={() => setLines(prev => prev.filter(row => row.lineId !== line.lineId))}
                       aria-label={`Remove ${line.name}`}
                     >
                       <Trash2 size={16} aria-hidden />
                     </button>
+                  </div>
+                  <div className="po-edit-line__fields">
+                    <label className="po-edit-line__field">
+                      <span className="text-muted text-sm">Rate</span>
+                      <span className="po-edit-line__rate">
+                        <span className="po-edit-line__currency" aria-hidden="true">
+                          {currencySymbol(currency)}
+                        </span>
+                        <DecimalAmountInput
+                          className="input-field"
+                          value={line.rate}
+                          min={0}
+                          decimals={2}
+                          disabled={saving}
+                          onChange={next => {
+                            if (next == null) return;
+                            setLines(prev => prev.map(row => (
+                              row.lineId === line.lineId
+                                ? { ...row, rate: Math.round(next * 100) / 100 }
+                                : row
+                            )));
+                          }}
+                          aria-label={`Rate for ${line.name} in ${currency}`}
+                        />
+                      </span>
+                    </label>
+                    <div className="po-edit-line__field">
+                      <span className="text-muted text-sm">Qty</span>
+                      <QuantityStepper
+                        value={line.quantity}
+                        disabled={saving}
+                        onChange={qty => {
+                          setLines(prev => prev.map(row => (
+                            row.lineId === line.lineId ? { ...row, quantity: qty } : row
+                          )));
+                        }}
+                        aria-label={`Quantity for ${line.name}`}
+                      />
+                    </div>
+                    <div className="po-edit-line__field po-edit-line__total">
+                      <span className="text-muted text-sm">Total</span>
+                      <strong>{formatCurrency(line.rate * line.quantity, currency)}</strong>
+                    </div>
                   </div>
                 </li>
               ))}
