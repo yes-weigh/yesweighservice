@@ -330,8 +330,11 @@ function mapBlueDartDocuments(
       ? {
         storagePath,
         contentType: typeof waybillRaw?.contentType === 'string' ? waybillRaw.contentType : 'application/pdf',
-        fileName: typeof waybillRaw?.fileName === 'string' ? waybillRaw.fileName : `${awb}-waybill.pdf`,
+        fileName: typeof waybillRaw?.fileName === 'string' ? waybillRaw.fileName : `${awb}-100x150.pdf`,
         cachedAt: typeof waybillRaw?.cachedAt === 'string' ? waybillRaw.cachedAt : '',
+        ...(typeof waybillRaw?.labelSize === 'string' && waybillRaw.labelSize.trim()
+          ? { labelSize: waybillRaw.labelSize.trim() }
+          : {}),
       }
       : null,
   };

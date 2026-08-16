@@ -13,6 +13,7 @@
 import { randomUUID } from 'node:crypto';
 import { FieldValue } from 'firebase-admin/firestore';
 import { getStorage } from 'firebase-admin/storage';
+import { PDFDocument } from 'pdf-lib';
 
 export const BLUE_DART_SECRETS_DOC = 'appSettings/blueDartSecrets';
 export const BLUE_DART_AUTH_DOC = 'appSettings/blueDartAuth';
@@ -29,6 +30,16 @@ export const BLUE_DART_PRODUCT_CODES = Object.freeze({
   bluedart_surface: 'E',
   bluedart_domestic: 'D',
 });
+
+/**
+ * PrinterLableSize is a numeric enum (string names 500 the API).
+ * 0 A4S single, 1 A4T multi-copy, 2 55×30, 3 89×60.
+ */
+export const BLUE_DART_PRINTER_LABEL_A4S = 0;
+
+/** Logistics thermal stock — official A4S is shrink-to-fit, no crop. */
+export const BLUE_DART_LABEL_WIDTH_MM = 100;
+export const BLUE_DART_LABEL_HEIGHT_MM = 150;
 
 const JWT_SKEW_MS = 60_000;
 const JWT_FALLBACK_TTL_MS = 25 * 60 * 1000;
@@ -566,8 +577,36 @@ function pdfFromPrintContent(raw) {
   return null;
 }
 
+/**
+ * Shrink official A4S onto 100×150 mm (uniform scale, centered). No crop or redraw.
+ * @param {Buffer} pdfBuffer
+ */
+export async function fitBlueDartWaybillToLabel(pdfBuffer) {
+  const src = await PDFDocument.load(pdfBuffer);
+  const srcPage = src.getPage(0);
+  const { width, height } = srcPage.getSize();
+  const labelW = BLUE_DART_LABEL_WIDTH_MM / 25.4 * 72;
+  const labelH = BLUE_DART_LABEL_HEIGHT_MM / 25.4 * 72;
+  if (Math.abs(width - labelW) < 2 && Math.abs(height - labelH) < 2) {
+    return Buffer.from(pdfBuffer);
+  }
+  const scale = Math.min(labelW / width, labelH / height);
+  const dw = width * scale;
+  const dh = height * scale;
+  const out = await PDFDocument.create();
+  const embedded = await out.embedPage(srcPage);
+  const page = out.addPage([labelW, labelH]);
+  page.drawPage(embedded, {
+    x: (labelW - dw) / 2,
+    y: (labelH - dh) / 2,
+    width: dw,
+    height: dh,
+  });
+  return Buffer.from(await out.save());
+}
+
 async function saveWaybillPdf(awb, buffer) {
-  const fileName = `${awb}-waybill.pdf`;
+  const fileName = `${awb}-100x150.pdf`;
   const storagePath = `logistics/bluedart-awb/${awb}/${fileName}`;
   const bucket = getStorage().bucket();
   const file = bucket.file(storagePath);
@@ -720,6 +759,7 @@ export async function bookBlueDartShipment(db, input = {}) {
         RegisterPickup: registerPickup,
         SpecialInstruction: '',
         SubProductCode: '',
+        PrinterLableSize: BLUE_DART_PRINTER_LABEL_A4S,
         itemdtl: [],
         noOfDCGiven: 0,
       },
@@ -773,15 +813,22 @@ export async function bookBlueDartShipment(db, input = {}) {
     ));
   }
 
-  const pdf = pdfFromPrintContent(result.AWBPrintContent);
+  const officialPdf = pdfFromPrintContent(result.AWBPrintContent);
   let documents = null;
-  if (pdf && pdf.length > 100) {
-    const saved = await saveWaybillPdf(awb, pdf);
+  if (officialPdf && officialPdf.length > 100) {
+    let labelPdf = officialPdf;
+    try {
+      labelPdf = await fitBlueDartWaybillToLabel(officialPdf);
+    } catch {
+      labelPdf = officialPdf;
+    }
+    const saved = await saveWaybillPdf(awb, labelPdf);
     documents = {
       awb,
       waybill: {
         ...saved,
         cachedAt: new Date().toISOString(),
+        labelSize: '100x150',
       },
     };
   }
@@ -822,6 +869,42 @@ function shipmentFromTrackJson(json) {
   return list[0] || shipment || data || {};
 }
 
+function xmlTag(xml, name) {
+  const match = new RegExp(`<${name}>([\\s\\S]*?)</${name}>`, 'i').exec(xml);
+  return match ? String(match[1] || '').trim() : '';
+}
+
+function parseBlueDartTrackXml(xml) {
+  const error = /<Error>([^<]+)<\/Error>/i.exec(xml);
+  if (error) return { error: error[1].trim() };
+  const ship = /<Shipment\b([^>]*)>([\s\S]*?)<\/Shipment>/i.exec(xml);
+  if (!ship) return { error: 'No shipment data.' };
+  const attrs = ship[1] || '';
+  const body = ship[2] || '';
+  const awb = /WaybillNo="([^"]*)"/i.exec(attrs)?.[1]
+    || xmlTag(body, 'WaybillNo');
+  const scans = [];
+  const scanRe = /<ScanDetail>([\s\S]*?)<\/ScanDetail>/gi;
+  let row;
+  while ((row = scanRe.exec(body))) {
+    scans.push({
+      Scan: xmlTag(row[1], 'Scan'),
+      ScanDate: xmlTag(row[1], 'ScanDate'),
+      ScanTime: xmlTag(row[1], 'ScanTime'),
+      ScannedLocation: xmlTag(row[1], 'ScannedLocation'),
+    });
+  }
+  return {
+    awb: String(awb || '').replace(/\D/g, ''),
+    status: xmlTag(body, 'Status'),
+    statusType: xmlTag(body, 'StatusType'),
+    origin: xmlTag(body, 'Origin'),
+    destination: xmlTag(body, 'Destination'),
+    productType: xmlTag(body, 'ProductType') || xmlTag(body, 'Service'),
+    scans,
+  };
+}
+
 /**
  * @param {FirebaseFirestore.Firestore} db
  * @param {string} awb
@@ -846,23 +929,32 @@ export async function fetchBlueDartTrack(db, awb) {
   }
   const config = await loadBlueDartPublicConfig(db);
   const secrets = await loadSecrets(db);
-  const res = await blueDartFetch(db, '/tracking/v1/shipment', {
-    method: 'POST',
-    body: {
-      Scan: '1',
-      RefNo: '',
-      AWBNo: id,
-      profile: profilePayload(config.env, secrets, 'tracking'),
-    },
+  const license = licenseFor(config.env, 'tracking', secrets);
+  const query = new URLSearchParams({
+    handler: 'tnt',
+    action: 'custawbquery',
+    loginid: secrets.loginId,
+    awb: 'awb',
+    numbers: id,
+    format: 'xml',
+    lickey: license,
+    verno: '1.3',
+    scan: '1',
+  });
+  const res = await blueDartFetch(db, `/tracking/v1?${query.toString()}`, {
+    method: 'GET',
   });
   const fetchedAt = new Date().toISOString();
   const sourceUrl = `https://www.bluedart.com/web/guest/trackdartplus?trackFor=0&trackNo=${id}`;
-  const xmlError = /<Error>([^<]+)<\/Error>/i.exec(res.text || '');
-  if (xmlError) {
+  const looksXml = /<ShipmentData|<Shipment\b|<Error>/i.test(res.text || '');
+  const parsedXml = looksXml
+    ? parseBlueDartTrackXml(res.text || '')
+    : { error: '', awb: '', status: '', statusType: '', origin: '', destination: '', productType: '', scans: [] };
+  if (looksXml && parsedXml.error && !parsedXml.awb) {
     return {
       awb: id,
       ok: false,
-      error: xmlError[1].trim(),
+      error: parsedXml.error,
       status: null,
       origin: null,
       destination: null,
@@ -874,7 +966,7 @@ export async function fetchBlueDartTrack(db, awb) {
       fetchedAt,
     };
   }
-  if (!res.ok) {
+  if (!res.ok && !parsedXml.awb && !parsedXml.status) {
     return {
       awb: id,
       ok: false,
@@ -890,10 +982,22 @@ export async function fetchBlueDartTrack(db, awb) {
       fetchedAt,
     };
   }
-  const shipment = shipmentFromTrackJson(res.json);
+
+  let shipment = parsedXml.awb || parsedXml.status
+    ? {
+      AWBNo: parsedXml.awb,
+      Status: parsedXml.status,
+      StatusType: parsedXml.statusType,
+      Origin: parsedXml.origin,
+      Destination: parsedXml.destination,
+      ProductType: parsedXml.productType,
+      Scans: { ScanDetail: parsedXml.scans },
+    }
+    : shipmentFromTrackJson(res.json);
   const scansRaw = shipment?.Scans?.ScanDetail
     || shipment?.ScanDetail
     || shipment?.Scans
+    || parsedXml.scans
     || [];
   const history = asArray(scansRaw).map(scanToHistory).filter(row => row.activity || row.location);
   const status = String(
@@ -902,18 +1006,26 @@ export async function fetchBlueDartTrack(db, awb) {
     || history[0]?.activity
     || '',
   ).trim() || null;
+  const notFound = /no information|incorrect waybill/i.test(status || '')
+    || String(shipment?.StatusType || parsedXml.statusType || '') === 'NF';
   const deliveredAt = String(shipment?.DeliveryDate || shipment?.DeliveredDate || '').trim() || (
     /\bdelivered\b/i.test(status || '') ? fetchedAt : null
   );
   return {
-    awb: String(shipment?.AWBNo || id).replace(/\D/g, '') || id,
-    ok: true,
-    error: null,
-    status,
-    statusType: shipment?.StatusType != null ? String(shipment.StatusType) : null,
-    origin: shipment?.Origin != null ? String(shipment.Origin) : null,
-    destination: shipment?.Destination != null ? String(shipment.Destination) : null,
-    consignmentType: shipment?.ProductType != null ? String(shipment.ProductType) : null,
+    awb: String(shipment?.AWBNo || parsedXml.awb || id).replace(/\D/g, '') || id,
+    ok: !notFound,
+    error: notFound ? (status || 'No tracking information yet.') : null,
+    status: notFound ? (status || 'No tracking information yet.') : status,
+    statusType: shipment?.StatusType != null
+      ? String(shipment.StatusType)
+      : (parsedXml.statusType || null),
+    origin: shipment?.Origin != null ? String(shipment.Origin) : (parsedXml.origin || null),
+    destination: shipment?.Destination != null
+      ? String(shipment.Destination)
+      : (parsedXml.destination || null),
+    consignmentType: shipment?.ProductType != null
+      ? String(shipment.ProductType)
+      : (parsedXml.productType || null),
     bookedAt: shipment?.NewWaybillDate || shipment?.BookingDate || null,
     deliveredAt,
     history,

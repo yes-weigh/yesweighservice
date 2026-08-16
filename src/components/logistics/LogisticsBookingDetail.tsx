@@ -21,6 +21,12 @@ import { useAuth } from '../../context/AuthContext';
 import { useConfirm } from '../../context/ConfirmContext';
 import { cancelDelhiveryShipment, createDelhiveryPickupRequest } from '../../lib/delhiveryB2b';
 import { getBlueDartWaybill } from '../../lib/blueDartApi';
+import {
+  BLUE_DART_LABEL_HEIGHT_MM,
+  BLUE_DART_LABEL_WIDTH_MM,
+  fitBlueDartWaybillToLabelPdf,
+  renderBlueDartWaybillLabelPng,
+} from '../../lib/blueDartLabel';
 import { LOGISTICS_PARTNERS, isBlueDartLogisticsPartnerId } from '../../constants/logisticsPartners';
 import { logisticsPartnerLabel } from '../../constants/logisticsPartners';
 import { formatCurrency } from '../../lib/catalog';
@@ -200,7 +206,7 @@ function logisticsDocCardMeta(kind: string): {
     return {
       tone: 'label',
       title: 'Shipping label',
-      subtitle: 'View or download shipping label',
+      subtitle: 'View or print 100×150 mm shipping label',
       Icon: Barcode,
     };
   }
@@ -944,9 +950,9 @@ export const LogisticsBookingDetail: React.FC<LogisticsBookingDetailProps> = ({
       const hasAwb = Boolean((booking.consignmentNo || '').replace(/\D/g, ''));
       return [
         {
-          id: 'bluedart_waybill',
-          kind: 'bluedart_waybill',
-          label: 'Waybill',
+          id: 'bluedart_shipping_label',
+          kind: 'shipping_label',
+          label: `Shipping label · ${BLUE_DART_LABEL_WIDTH_MM}×${BLUE_DART_LABEL_HEIGHT_MM} mm`,
           enabled: hasAwb && Boolean(booking.blueDartDocuments?.waybill?.storagePath),
           disabledReason: hasAwb
             ? (booking.blueDartDocuments?.waybill?.storagePath
@@ -992,14 +998,50 @@ export const LogisticsBookingDetail: React.FC<LogisticsBookingDetailProps> = ({
     [logisticsDocCards],
   );
 
+  const openBlueDartShippingLabel = useCallback(async () => {
+    setDelhiveryDocOpening('bluedart_shipping_label');
+    setDelhiveryDocsError('');
+    try {
+      const pdf = await getBlueDartWaybill({
+        bookingId: booking.id,
+        storagePath: booking.blueDartDocuments?.waybill?.storagePath,
+      });
+      const raw = base64ToUint8Array(pdf.contentBase64);
+      const fitted = await fitBlueDartWaybillToLabelPdf(raw);
+      const png = await renderBlueDartWaybillLabelPng(fitted);
+      const imageUrl = URL.createObjectURL(png);
+      delhiveryDocObjectUrlsRef.current = [imageUrl];
+      const awb = (booking.consignmentNo || pdf.fileName || 'waybill').replace(/\D/g, '') || 'waybill';
+      setDelhiveryDocDialog({
+        title: `Shipping label ${awb}`,
+        contentType: 'application/pdf',
+        pdfBytes: fitted,
+        imageUrls: [imageUrl],
+        fileName: `${awb}-100x150.pdf`,
+        layout: 'shipping_label',
+        downloadBlob: new Blob([Uint8Array.from(fitted)], { type: 'application/pdf' }),
+      });
+    } catch (err) {
+      setDelhiveryDocsError(
+        err instanceof Error ? err.message : 'Could not open Blue Dart shipping label.',
+      );
+    } finally {
+      setDelhiveryDocOpening(null);
+    }
+  }, [booking.blueDartDocuments?.waybill?.storagePath, booking.consignmentNo, booking.id]);
+
   const openShippingLabel = useCallback(() => {
+    if (isBlueDart) {
+      void openBlueDartShippingLabel();
+      return;
+    }
     if (shippingLabelGate.message) {
       window.alert(shippingLabelGate.message);
       return;
     }
     setShippingLabelBooking(booking);
     setShippingLabelOpen(true);
-  }, [booking, shippingLabelGate.message]);
+  }, [booking, isBlueDart, openBlueDartShippingLabel, shippingLabelGate.message]);
 
   const markDocumentGenerated = useCallback(async (document: LogisticsDocumentType) => {
     if (!user || !isOps) return;
@@ -1233,32 +1275,8 @@ export const LogisticsBookingDetail: React.FC<LogisticsBookingDetailProps> = ({
       void openEwayBillDocument();
       return;
     }
-    if (card.kind === 'bluedart_waybill') {
-      void (async () => {
-        setDelhiveryDocOpening(card.id);
-        setDelhiveryDocsError('');
-        try {
-          const pdf = await getBlueDartWaybill({
-            bookingId: booking.id,
-            storagePath: booking.blueDartDocuments?.waybill?.storagePath,
-          });
-          const bytes = base64ToUint8Array(pdf.contentBase64);
-          const blob = new Blob([Uint8Array.from(bytes)], { type: pdf.contentType || 'application/pdf' });
-          setDelhiveryDocDialog({
-            title: `Waybill ${booking.consignmentNo}`,
-            contentType: pdf.contentType || 'application/pdf',
-            pdfBytes: bytes,
-            fileName: pdf.fileName || `${booking.consignmentNo}-waybill.pdf`,
-            downloadBlob: blob,
-          });
-        } catch (err) {
-          setDelhiveryDocsError(
-            err instanceof Error ? err.message : 'Could not open Blue Dart waybill.',
-          );
-        } finally {
-          setDelhiveryDocOpening(null);
-        }
-      })();
+    if (card.kind === 'bluedart_waybill' || (card.kind === 'shipping_label' && isBlueDart)) {
+      void openBlueDartShippingLabel();
       return;
     }
     if (card.kind === 'shipping_label' && !isDelhivery) {
@@ -1275,7 +1293,9 @@ export const LogisticsBookingDetail: React.FC<LogisticsBookingDetailProps> = ({
     booking.blueDartDocuments?.waybill?.storagePath,
     booking.consignmentNo,
     booking.id,
+    isBlueDart,
     isDelhivery,
+    openBlueDartShippingLabel,
     openDelhiveryDocument,
     openEwayBillDocument,
     openLinkedInvoiceDocument,
@@ -1517,13 +1537,14 @@ export const LogisticsBookingDetail: React.FC<LogisticsBookingDetailProps> = ({
       const updated = await updateLogisticsBookingShipFrom(booking, invoiceBranch.site, user);
       onUpdate(updated);
       setShippingLabelBooking(updated);
-      setShippingLabelOpen(true);
+      if (isBlueDart) void openBlueDartShippingLabel();
+      else setShippingLabelOpen(true);
     } catch (err) {
       window.alert(err instanceof Error ? err.message : 'Could not update ship-from.');
     } finally {
       setUpdatingShipFrom(false);
     }
-  }, [booking, invoiceBranch, isOps, onUpdate, user]);
+  }, [booking, invoiceBranch, isBlueDart, isOps, onUpdate, openBlueDartShippingLabel, user]);
 
   /** Pull Sites address onto this booking (settings save does not update existing shipments). */
   const handleApplyShipFromFromSites = useCallback(async (opts?: { openLabel?: boolean }) => {
@@ -1544,8 +1565,11 @@ export const LogisticsBookingDetail: React.FC<LogisticsBookingDetailProps> = ({
       onUpdate(updated);
       setShippingLabelBooking(updated);
       if (opts?.openLabel) {
-        const gate = shippingLabelAddressGate(updated);
-        if (!gate.message) setShippingLabelOpen(true);
+        if (isBlueDart) void openBlueDartShippingLabel();
+        else {
+          const gate = shippingLabelAddressGate(updated);
+          if (!gate.message) setShippingLabelOpen(true);
+        }
       }
       return true;
     } catch (err) {
@@ -1554,7 +1578,7 @@ export const LogisticsBookingDetail: React.FC<LogisticsBookingDetailProps> = ({
     } finally {
       setUpdatingShipFrom(false);
     }
-  }, [booking, isOps, onUpdate, user]);
+  }, [booking, isBlueDart, isOps, onUpdate, openBlueDartShippingLabel, user]);
 
   const shipFromAutoAppliedRef = useRef<string | null>(null);
   useEffect(() => {

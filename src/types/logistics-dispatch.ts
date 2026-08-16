@@ -255,6 +255,8 @@ export interface LogisticsBlueDartDocumentsCache {
     contentType: string;
     fileName: string;
     cachedAt: string;
+    /** Official A4S shrink-to-fit on 100×150 mm stock. */
+    labelSize?: '100x150' | string;
   } | null;
 }
 

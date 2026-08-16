@@ -108,6 +108,7 @@ export type BlueDartBookResult = {
       fileName: string;
       contentType: string;
       cachedAt: string;
+      labelSize?: string;
     };
   } | null;
 };
