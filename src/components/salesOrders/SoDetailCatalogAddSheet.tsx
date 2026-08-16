@@ -216,7 +216,7 @@ const SoDetailCatalogAddBody: React.FC<{
 
   const apply = () => {
     const allowed = items.filter(item => {
-      if (seedProductIds.has(item.productId)) return true;
+      if (allowAllProducts || seedProductIds.has(item.productId)) return true;
       const catalog = catalogById.get(item.productId);
       return productMatchesSalesOrderBucket(
         catalog ?? {
