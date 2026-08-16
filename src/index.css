@@ -882,6 +882,11 @@ html::-webkit-scrollbar {
   min-width: 0;
 }
 
+.sidebar:not(.sidebar--nav-top) > .nav-menu > .nav-item {
+  flex: 1 1 0;
+  max-height: none;
+}
+
 .nav-icon {
   position: relative;
   display: inline-flex;
@@ -8981,13 +8986,19 @@ body:has(.confirm-inline-bar) .confirm-inline-bar {
     width: max-content;
     max-width: 88vw;
     align-items: stretch;
+    inset: 0 auto auto 0;
+    height: auto;
+    max-height: 100dvh;
+    padding-bottom: env(safe-area-inset-bottom, 0px);
   }
 
   .sidebar.mobile-open { transform: translateX(0); }
 
   .sidebar--mobile .sidebar-header {
-    height: 2.75rem;
-    padding: 0 0.45rem;
+    height: auto;
+    min-height: 0;
+    padding: 0.2rem 0.3rem 0;
+    border-bottom: none;
     flex-shrink: 0;
   }
 
@@ -9003,12 +9014,12 @@ body:has(.confirm-inline-bar) .confirm-inline-bar {
   .sidebar--mobile .nav-menu {
     --nav-item-min-h: 1.7rem;
     --nav-item-max-h: 2.15rem;
-    flex: 1;
+    flex: 1 1 auto;
     min-height: 0;
     overflow-x: hidden;
     overflow-y: auto;
     overscroll-behavior: contain;
-    padding: 0.3rem 0.5rem;
+    padding: 0.15rem 0.5rem 0.25rem;
     display: flex;
     flex-direction: column;
     align-items: stretch;
@@ -9047,7 +9058,7 @@ body:has(.confirm-inline-bar) .confirm-inline-bar {
   }
 
   .sidebar--mobile .sidebar-profile {
-    padding: 0.5rem 0.75rem 0.85rem;
+    padding: 0.25rem 0.5rem 0.45rem;
   }
 
   .main-content,
