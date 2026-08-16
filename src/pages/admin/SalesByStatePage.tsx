@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom';
 import { Building2, IndianRupee, MapPinned, Users } from 'lucide-react';
 import { IndiaSalesMap } from '../../components/dashboard/IndiaSalesMap';
+import { KeralaSalesMap } from '../../components/dashboard/KeralaSalesMap';
 import {
   SalesMapPeriodSelect,
   type SalesMapPeriod,
@@ -16,13 +17,20 @@ import {
 } from '../../lib/dashboardPeriod';
 import { dealerErrorMessage } from '../../lib/dealers';
 import { getInvoicePeriodBounds, toDateInputValue } from '../../lib/invoices';
-import { formatCompactInr, loadSalesByState, type StateSalesRow } from '../../lib/salesByState';
+import { KERALA_STATE } from '../../lib/keralaDistricts';
+import {
+  formatCompactInr,
+  loadSalesByState,
+  type DistrictSalesRow,
+  type StateSalesRow,
+} from '../../lib/salesByState';
 
 const BASE = '/super-admin';
 
 type NavState = {
   period?: DashboardPeriodPreset;
   customRange?: { start: string; end: string };
+  mapLevel?: 'india' | 'kerala';
 };
 
 function periodFromDashboard(period?: DashboardPeriodPreset): SalesMapPeriod {
@@ -59,10 +67,15 @@ export const SalesByStatePage: React.FC = () => {
     navState.customRange ?? defaultDashboardCustomRange(),
   );
   const [rows, setRows] = useState<StateSalesRow[]>([]);
+  const [keralaDistricts, setKeralaDistricts] = useState<DistrictSalesRow[]>([]);
   const [truncated, setTruncated] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [selectedState, setSelectedState] = useState<string | null>(null);
+  const [mapLevel, setMapLevel] = useState<'india' | 'kerala'>(navState.mapLevel ?? 'india');
+  const [selectedState, setSelectedState] = useState<string | null>(KERALA_STATE);
+  const [selectedDistrict, setSelectedDistrict] = useState<string | null>(null);
+  const [focusKey, setFocusKey] = useState(0);
+  const showingKerala = mapLevel === 'kerala';
 
   const periodBounds = useMemo(
     () => resolveSalesMapBounds(opsPeriod, customRange),
@@ -73,10 +86,20 @@ export const SalesByStatePage: React.FC = () => {
     [periodBounds.end, periodBounds.start],
   );
 
+  const goIndia = useCallback(() => {
+    setMapLevel('india');
+    setSelectedState(KERALA_STATE);
+    setFocusKey(key => key + 1);
+  }, []);
+
+  const goDashboard = useCallback(() => {
+    navigate(BASE);
+  }, [navigate]);
+
   useCatalogPageHeader({
-    title: 'Sales by state',
+    title: showingKerala ? 'Kerala districts' : 'Sales by state',
     showBack: true,
-    onBack: () => navigate(BASE),
+    onBack: showingKerala ? goIndia : goDashboard,
   }, true);
 
   const periodFilter = useMemo(
@@ -100,12 +123,31 @@ export const SalesByStatePage: React.FC = () => {
   );
   useTopBarAction(periodFilter);
 
-  const goDashboard = useCallback(() => {
-    navigate(BASE);
-  }, [navigate]);
+  const openKeralaDistricts = useCallback((districts = keralaDistricts) => {
+    const leader = districts.find(row => row.sales > 0)?.district ?? districts[0]?.district ?? null;
+    setMapLevel('kerala');
+    setSelectedState(KERALA_STATE);
+    setSelectedDistrict(leader);
+    setFocusKey(key => key + 1);
+  }, [keralaDistricts]);
+
+  const selectSalesLeader = useCallback(() => {
+    if (showingKerala) {
+      openKeralaDistricts();
+      return;
+    }
+    const leader = rows.find(row => row.sales > 0)?.state ?? rows[0]?.state ?? null;
+    if (leader === KERALA_STATE) {
+      openKeralaDistricts();
+      return;
+    }
+    setSelectedState(leader);
+    setFocusKey(key => key + 1);
+  }, [openKeralaDistricts, rows, showingKerala]);
 
   useHorizontalSwipe(pageRef, {
-    onSwipeLeft: goDashboard,
+    onSwipeLeft: showingKerala ? goIndia : goDashboard,
+    onSwipeRight: selectSalesLeader,
     enabled: true,
   });
 
@@ -121,8 +163,21 @@ export const SalesByStatePage: React.FC = () => {
         });
         if (cancelled) return;
         setRows(result.rows);
+        setKeralaDistricts(result.keralaDistricts);
         setTruncated(result.truncated);
-        setSelectedState(result.rows[0]?.state ?? null);
+        const leader = result.rows.find(row => row.sales > 0)?.state ?? result.rows[0]?.state ?? null;
+        setSelectedState(leader ?? KERALA_STATE);
+        if (navState.mapLevel === 'kerala' && (!leader || leader === KERALA_STATE)) {
+          const districtLeader =
+            result.keralaDistricts.find(row => row.sales > 0)?.district
+            ?? result.keralaDistricts[0]?.district
+            ?? null;
+          setMapLevel('kerala');
+          setSelectedDistrict(districtLeader);
+        } else {
+          setMapLevel('india');
+        }
+        setFocusKey(key => key + 1);
       } catch (err) {
         if (!cancelled) {
           setError(err instanceof Error ? err.message : dealerErrorMessage(err));
@@ -138,11 +193,33 @@ export const SalesByStatePage: React.FC = () => {
   }, [periodBounds.end, periodBounds.start]);
 
   const statesWithSales = useMemo(() => rows.filter(row => row.sales > 0), [rows]);
-  const totalSales = useMemo(() => rows.reduce((sum, row) => sum + row.sales, 0), [rows]);
-  const activeDealers = useMemo(
-    () => rows.reduce((sum, row) => sum + row.activeDealers, 0),
-    [rows],
+  const districtsWithSales = useMemo(
+    () => keralaDistricts.filter(row => row.sales > 0),
+    [keralaDistricts],
   );
+  const rankedRows = showingKerala ? districtsWithSales : statesWithSales;
+  const totalSales = useMemo(
+    () => (showingKerala
+      ? keralaDistricts.reduce((sum, row) => sum + row.sales, 0)
+      : rows.reduce((sum, row) => sum + row.sales, 0)),
+    [keralaDistricts, rows, showingKerala],
+  );
+  const activeDealers = useMemo(
+    () => (showingKerala
+      ? keralaDistricts.reduce((sum, row) => sum + row.activeDealers, 0)
+      : rows.reduce((sum, row) => sum + row.activeDealers, 0)),
+    [keralaDistricts, rows, showingKerala],
+  );
+
+  const selectState = useCallback((state: string) => {
+    setSelectedState(state);
+    if (state === KERALA_STATE) {
+      openKeralaDistricts();
+      return;
+    }
+    setMapLevel('india');
+    setFocusKey(key => key + 1);
+  }, [openKeralaDistricts]);
 
   return (
     <div ref={pageRef} className="page-content fade-in sales-map-page">
@@ -168,8 +245,10 @@ export const SalesByStatePage: React.FC = () => {
         <article className="sales-map-kpi sales-map-kpi--purple">
           <span className="sales-map-kpi__icon"><Building2 size={18} /></span>
           <div>
-            <span className="sales-map-kpi__label">States with sales</span>
-            <strong>{loading ? '…' : String(rows.filter(r => r.sales > 0).length)}</strong>
+            <span className="sales-map-kpi__label">
+              {showingKerala ? 'Districts with sales' : 'States with sales'}
+            </span>
+            <strong>{loading ? '…' : String(rankedRows.length)}</strong>
           </div>
         </article>
       </section>
@@ -177,15 +256,23 @@ export const SalesByStatePage: React.FC = () => {
       <section className="sales-map__panel">
         <h3 className="dealer-dash__section-title">
           <MapPinned size={18} />
-          Sales performance by state
+          {showingKerala ? 'Sales performance by district' : 'Sales performance by state'}
         </h3>
         {loading ? (
           <p className="dealer-dash__empty-note">Loading map…</p>
+        ) : showingKerala ? (
+          <KeralaSalesMap
+            rows={keralaDistricts}
+            selectedDistrict={selectedDistrict}
+            focusKey={focusKey}
+            onSelect={setSelectedDistrict}
+          />
         ) : (
           <IndiaSalesMap
             rows={rows}
             selectedState={selectedState}
-            onSelect={setSelectedState}
+            focusKey={focusKey}
+            onSelect={selectState}
           />
         )}
         {truncated && (
@@ -197,24 +284,33 @@ export const SalesByStatePage: React.FC = () => {
 
       <section className="sales-map__panel">
         <div className="sales-map__table-head">
-          <h3 className="dealer-dash__section-title">All states with sales</h3>
+          <h3 className="dealer-dash__section-title">
+            {showingKerala ? 'All districts by sales' : 'All states with sales'}
+          </h3>
         </div>
         {loading ? (
-          <p className="dealer-dash__empty-note">Loading states…</p>
-        ) : statesWithSales.length ? (
+          <p className="dealer-dash__empty-note">
+            {showingKerala ? 'Loading districts…' : 'Loading states…'}
+          </p>
+        ) : rankedRows.length ? (
           <ol className="sales-map__rank-list">
-            {statesWithSales.map((row, index) => {
+            {rankedRows.map((row, index) => {
+              const name = 'district' in row ? row.district : row.state;
+              const selected = showingKerala ? selectedDistrict === name : selectedState === name;
               const tone = index === 0 ? 'gold' : index === 1 ? 'silver' : index === 2 ? 'bronze' : 'slate';
               return (
-                <li key={row.state}>
+                <li key={name}>
                   <button
                     type="button"
-                    className={`sales-map__rank-row sales-map__rank-row--${tone}${selectedState === row.state ? ' is-active' : ''}`}
-                    onClick={() => setSelectedState(row.state)}
+                    className={`sales-map__rank-row sales-map__rank-row--${tone}${selected ? ' is-active' : ''}`}
+                    onClick={() => {
+                      if (showingKerala) setSelectedDistrict(name);
+                      else selectState(name);
+                    }}
                   >
                     <span className={`sales-map__rank sales-map__rank--${tone}`}>{index + 1}</span>
                     <span className="sales-map__rank-main">
-                      <strong>{row.state}</strong>
+                      <strong>{name}</strong>
                       <span>{row.activeDealers} active dealers</span>
                       <span className="sales-map__bar" aria-hidden>
                         <span style={{ width: `${Math.max(6, row.share * 100)}%` }} />

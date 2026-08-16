@@ -21065,24 +21065,6 @@ body:has(.confirm-inline-bar) .confirm-inline-bar {
   .dealer-dash__mini-stats { grid-area: mini; }
 }
 
-.sales-map-swipe-hint {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: 0.4rem;
-  width: 100%;
-  margin: 0 0 0.15rem;
-  padding: 0.55rem 0.75rem;
-  border: 1px solid rgba(245, 130, 32, 0.35);
-  border-radius: 999px;
-  background: rgba(245, 130, 32, 0.12);
-  color: #fdba74;
-  font: inherit;
-  font-size: 0.8125rem;
-  font-weight: 700;
-  cursor: pointer;
-}
-
 .sales-map-page {
   display: flex;
   flex-direction: column;
@@ -21212,6 +21194,43 @@ body:has(.confirm-inline-bar) .confirm-inline-bar {
   height: auto;
   max-height: min(68vh, 34rem);
   touch-action: manipulation;
+}
+
+.sales-map__stage--kerala {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.55rem;
+  width: min(100%, 24rem);
+}
+
+.sales-map__svg--kerala {
+  flex: 1 1 auto;
+  min-width: 0;
+  max-height: min(74vh, 40rem);
+}
+
+.sales-map__stage--kerala .sales-map__hover-card {
+  position: relative;
+  right: auto;
+  bottom: auto;
+  flex: 0 0 7.4rem;
+}
+
+.sales-map__district-label {
+  fill: #ffffff;
+  font-size: 8.2px;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  pointer-events: none;
+  paint-order: stroke;
+  stroke: rgba(15, 23, 42, 0.28);
+  stroke-width: 0.6px;
+}
+
+.sales-map__district-label.is-hot {
+  fill: #0f172a;
+  stroke: rgba(255, 255, 255, 0.55);
 }
 
 .sales-map__state {
@@ -21528,9 +21547,18 @@ body:has(.confirm-inline-bar) .confirm-inline-bar {
     width: min(100%, 22rem);
   }
 
+  .sales-map__stage--kerala {
+    width: min(100%, 22rem);
+    gap: 0.4rem;
+  }
+
   .sales-map__hover-card {
     width: 7.1rem;
     padding: 0.28rem 0.36rem 0.3rem;
+  }
+
+  .sales-map__stage--kerala .sales-map__hover-card {
+    flex-basis: 7.1rem;
   }
 }
 

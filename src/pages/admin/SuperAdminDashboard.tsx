@@ -12,7 +12,6 @@ import {
   FileText,
   IndianRupee,
   LifeBuoy,
-  MapPinned,
   Package,
   Shield,
   PackagePlus,
@@ -149,7 +148,6 @@ function buildActivities(
 export const SuperAdminDashboard: React.FC = () => {
   const navigate = useNavigate();
   const pageRef = useRef<HTMLDivElement>(null);
-  const [isMobile, setIsMobile] = useState(() => window.innerWidth <= 768);
   const [dealerStats, setDealerStats] = useState<DealerStats | null>(null);
   const [invoices, setInvoices] = useState<AdminFirestoreInvoice[]>([]);
   const [supportRequests, setSupportRequests] = useState<DealerSupportRequest[]>([]);
@@ -160,12 +158,6 @@ export const SuperAdminDashboard: React.FC = () => {
   const [opsPeriod, setOpsPeriod] = useState<DashboardPeriodPreset>('month');
   const [customRange, setCustomRange] = useState(defaultDashboardCustomRange);
   const [opsCounts, setOpsCounts] = useState(EMPTY_OPS_COUNTS);
-
-  useEffect(() => {
-    const onResize = () => setIsMobile(window.innerWidth <= 768);
-    window.addEventListener('resize', onResize);
-    return () => window.removeEventListener('resize', onResize);
-  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -279,13 +271,13 @@ export const SuperAdminDashboard: React.FC = () => {
 
   const openSalesMap = useCallback(() => {
     navigate(`${BASE}/sales-by-state`, {
-      state: { period: opsPeriod, customRange },
+      state: { period: opsPeriod, customRange, mapLevel: 'india' },
     });
   }, [customRange, navigate, opsPeriod]);
 
   useHorizontalSwipe(pageRef, {
     onSwipeRight: openSalesMap,
-    enabled: isMobile,
+    enabled: true,
   });
 
   const periodKpis = [
@@ -437,18 +429,6 @@ export const SuperAdminDashboard: React.FC = () => {
         </p>
       )}
 
-      {isMobile && (
-        <button
-          type="button"
-          className="sales-map-swipe-hint"
-          onClick={openSalesMap}
-        >
-          <MapPinned size={16} />
-          Swipe right for sales by state
-          <ChevronRight size={16} />
-        </button>
-      )}
-
       <section className="dealer-dash__kpis-layout" aria-label="Key metrics">
         <DashboardPeriodFilter
           preset={opsPeriod}
@@ -529,7 +509,7 @@ export const SuperAdminDashboard: React.FC = () => {
         </div>
       </section>
 
-      <section className="dealer-dash__chart-panel">
+      <section className="dealer-dash__chart-panel" data-no-swipe>
         <div className="dealer-dash__chart-head">
           <div>
             <h3 className="dealer-dash__section-title">

@@ -2,6 +2,12 @@ import { fetchAllAdminInvoicesInRange, type AdminFirestoreInvoice } from './admi
 import { ensureDealersCached } from './dealer-cache';
 import { invoiceAmountExclGst, toDateInputValue } from './invoices';
 import { canonicalIndiaState, UNSPECIFIED_STATE } from './indiaStates';
+import {
+  canonicalKeralaDistrict,
+  KERALA_DISTRICT_NAMES,
+  KERALA_STATE,
+  UNSPECIFIED_DISTRICT,
+} from './keralaDistricts';
 
 export type StateSalesRow = {
   state: string;
@@ -13,9 +19,20 @@ export type StateSalesRow = {
   share: number;
 };
 
+export type DistrictSalesRow = {
+  district: string;
+  sales: number;
+  invoiceCount: number;
+  dealers: number;
+  activeDealers: number;
+  inactiveDealers: number;
+  share: number;
+};
+
 type DealerForState = {
   id: string;
   billingState?: string | null;
+  district?: string | null;
   portalUserId?: string | null;
 };
 
@@ -102,10 +119,90 @@ export function aggregateSalesByState(
   return mapped.sort((a, b) => b.sales - a.sales || a.state.localeCompare(b.state));
 }
 
+function dealerByLookup(dealers: DealerForState[]): Map<string, DealerForState> {
+  const byId = new Map<string, DealerForState>();
+  for (const dealer of dealers) {
+    byId.set(dealer.id, dealer);
+    const portalId = dealer.portalUserId?.trim();
+    if (portalId) byId.set(portalId, dealer);
+  }
+  return byId;
+}
+
+function resolveKeralaDistrict(
+  invoice: AdminFirestoreInvoice,
+  dealersById: Map<string, DealerForState>,
+): string {
+  const fromInvoice = canonicalKeralaDistrict(invoice.district);
+  if (fromInvoice !== UNSPECIFIED_DISTRICT) return fromInvoice;
+  const dealer = dealersById.get(String(invoice.customerId ?? '').trim());
+  return canonicalKeralaDistrict(dealer?.district);
+}
+
+export function aggregateSalesByKeralaDistrict(
+  invoices: AdminFirestoreInvoice[],
+  dealers: DealerForState[],
+  recentIds: Set<string>,
+): DistrictSalesRow[] {
+  const byDistrict = new Map<string, DistrictSalesRow>();
+  const dealersById = dealerByLookup(dealers);
+
+  const row = (district: string): DistrictSalesRow => {
+    let next = byDistrict.get(district);
+    if (!next) {
+      next = {
+        district,
+        sales: 0,
+        invoiceCount: 0,
+        dealers: 0,
+        activeDealers: 0,
+        inactiveDealers: 0,
+        share: 0,
+      };
+      byDistrict.set(district, next);
+    }
+    return next;
+  };
+
+  for (const name of KERALA_DISTRICT_NAMES) row(name);
+
+  for (const inv of invoices) {
+    if (canonicalIndiaState(inv.billingState) !== KERALA_STATE) continue;
+    const district = resolveKeralaDistrict(inv, dealersById);
+    if (district === UNSPECIFIED_DISTRICT) continue;
+    const rec = row(district);
+    rec.sales += invoiceAmountExclGst(inv);
+    rec.invoiceCount += 1;
+  }
+
+  for (const dealer of dealers) {
+    if (canonicalIndiaState(dealer.billingState) !== KERALA_STATE) continue;
+    const district = canonicalKeralaDistrict(dealer.district);
+    if (district === UNSPECIFIED_DISTRICT) continue;
+    const rec = row(district);
+    rec.dealers += 1;
+    if (dealerHasRecentSales(dealer, recentIds)) rec.activeDealers += 1;
+  }
+
+  const mapped = [...byDistrict.values()];
+  const totalSales = mapped.reduce((sum, r) => sum + r.sales, 0);
+  for (const rec of mapped) {
+    rec.inactiveDealers = rec.dealers - rec.activeDealers;
+    rec.share = totalSales > 0 ? rec.sales / totalSales : 0;
+  }
+
+  return mapped.sort((a, b) => b.sales - a.sales || a.district.localeCompare(b.district));
+}
+
 export async function loadSalesByState(options: {
   dateStart: string;
   dateEnd: string;
-}): Promise<{ rows: StateSalesRow[]; truncated: boolean; totalSales: number }> {
+}): Promise<{
+  rows: StateSalesRow[];
+  keralaDistricts: DistrictSalesRow[];
+  truncated: boolean;
+  totalSales: number;
+}> {
   const period = { start: options.dateStart, end: options.dateEnd };
   const sixMonths = lastSixMonthsRange();
   const periodCoversSix = rangeCovers(period, sixMonths);
@@ -138,6 +235,7 @@ export async function loadSalesByState(options: {
     }),
   );
   const rows = aggregateSalesByState(periodResult.rows, dealers, recentIds);
+  const keralaDistricts = aggregateSalesByKeralaDistrict(periodResult.rows, dealers, recentIds);
   const totalSales = rows.reduce((sum, r) => sum + r.sales, 0);
-  return { rows, truncated: periodResult.truncated, totalSales };
+  return { rows, keralaDistricts, truncated: periodResult.truncated, totalSales };
 }

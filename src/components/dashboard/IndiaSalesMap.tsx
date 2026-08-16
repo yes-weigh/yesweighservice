@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { INDIA_MAP_VIEWBOX, INDIA_STATE_PATHS } from '../../data/indiaStatePaths';
 import { formatCompactInr, type StateSalesRow } from '../../lib/salesByState';
 
@@ -27,13 +27,19 @@ function formatRank(rank: number | null): string {
 export function IndiaSalesMap({
   rows,
   selectedState,
+  focusKey = 0,
   onSelect,
 }: {
   rows: StateSalesRow[];
   selectedState: string | null;
+  focusKey?: number;
   onSelect: (state: string) => void;
 }) {
   const [hover, setHover] = useState<string | null>(null);
+
+  useEffect(() => {
+    setHover(null);
+  }, [selectedState, focusKey]);
   const byName = useMemo(() => new Map(rows.map(row => [row.state, row])), [rows]);
   const maxSales = useMemo(
     () => rows.reduce((max, row) => Math.max(max, row.sales), 0),
