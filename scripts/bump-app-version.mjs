@@ -1,10 +1,11 @@
 /**
  * Bump the user-facing app version in src/app-version.json.
  * Format: MAJOR.MINOR (display as vMAJOR.MINOR).
+ * Minor goes 0–9, then major increments and minor resets (7.9 → 8.0).
  * This file is the single source of truth for local and deploy builds.
  *
- *   node scripts/bump-app-version.mjs          # bump MINOR by 1
- *   node scripts/bump-app-version.mjs --set 5.0
+ *   node scripts/bump-app-version.mjs          # 7.0 → 7.1, …, 7.9 → 8.0
+ *   node scripts/bump-app-version.mjs --set 7.0
  */
 import fs from 'node:fs';
 import path from 'node:path';
@@ -40,7 +41,13 @@ if (setValue) {
   nextVersion = formatVersion(parsed.major, parsed.minor);
 } else {
   const parsed = parseVersion(current.version);
-  nextVersion = formatVersion(parsed.major, parsed.minor + 1);
+  let { major, minor } = parsed;
+  minor += 1;
+  if (minor > 9) {
+    major += 1;
+    minor = 0;
+  }
+  nextVersion = formatVersion(major, minor);
 }
 
 const next = { version: nextVersion };
