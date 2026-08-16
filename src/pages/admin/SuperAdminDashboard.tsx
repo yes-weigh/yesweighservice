@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   Ban,
@@ -12,6 +12,7 @@ import {
   FileText,
   IndianRupee,
   LifeBuoy,
+  MapPinned,
   Package,
   Shield,
   PackagePlus,
@@ -27,6 +28,7 @@ import {
 import { collection, getDocs } from 'firebase/firestore';
 import { DashboardPeriodFilter } from '../../components/dashboard/DashboardPeriodFilter';
 import { SalesChart } from '../../components/dashboard/SalesChart';
+import { useHorizontalSwipe } from '../../hooks/useHorizontalSwipe';
 import {
   buildAdminDailySales,
   countAdminInvoicesByStatus,
@@ -146,6 +148,8 @@ function buildActivities(
 
 export const SuperAdminDashboard: React.FC = () => {
   const navigate = useNavigate();
+  const pageRef = useRef<HTMLDivElement>(null);
+  const [isMobile, setIsMobile] = useState(() => window.innerWidth <= 768);
   const [dealerStats, setDealerStats] = useState<DealerStats | null>(null);
   const [invoices, setInvoices] = useState<AdminFirestoreInvoice[]>([]);
   const [supportRequests, setSupportRequests] = useState<DealerSupportRequest[]>([]);
@@ -156,6 +160,12 @@ export const SuperAdminDashboard: React.FC = () => {
   const [opsPeriod, setOpsPeriod] = useState<DashboardPeriodPreset>('month');
   const [customRange, setCustomRange] = useState(defaultDashboardCustomRange);
   const [opsCounts, setOpsCounts] = useState(EMPTY_OPS_COUNTS);
+
+  useEffect(() => {
+    const onResize = () => setIsMobile(window.innerWidth <= 768);
+    window.addEventListener('resize', onResize);
+    return () => window.removeEventListener('resize', onResize);
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -266,6 +276,17 @@ export const SuperAdminDashboard: React.FC = () => {
 
   const outstanding = useMemo(() => sumAdminOutstanding(invoices), [invoices]);
   const overdueCount = useMemo(() => countAdminInvoicesByStatus(invoices, 'overdue'), [invoices]);
+
+  const openSalesMap = useCallback(() => {
+    navigate(`${BASE}/sales-by-state`, {
+      state: { period: opsPeriod, customRange },
+    });
+  }, [customRange, navigate, opsPeriod]);
+
+  useHorizontalSwipe(pageRef, {
+    onSwipeRight: openSalesMap,
+    enabled: isMobile,
+  });
 
   const periodKpis = [
     {
@@ -409,11 +430,23 @@ export const SuperAdminDashboard: React.FC = () => {
   ];
 
   return (
-    <div className="page-content fade-in dealer-dashboard">
+    <div ref={pageRef} className="page-content fade-in dealer-dashboard">
       {error && (
         <p className="dealer-dash__error" role="alert">
           {error}
         </p>
+      )}
+
+      {isMobile && (
+        <button
+          type="button"
+          className="sales-map-swipe-hint"
+          onClick={openSalesMap}
+        >
+          <MapPinned size={16} />
+          Swipe right for sales by state
+          <ChevronRight size={16} />
+        </button>
       )}
 
       <section className="dealer-dash__kpis-layout" aria-label="Key metrics">

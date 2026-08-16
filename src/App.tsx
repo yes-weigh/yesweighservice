@@ -10,6 +10,7 @@ import { ProtectedRoute } from './components/ProtectedRoute';
 import { Login } from './pages/Login';
 import { DealerLogin } from './pages/DealerLogin';
 import { SuperAdminDashboard } from './pages/admin/SuperAdminDashboard';
+import { SalesByStatePage } from './pages/admin/SalesByStatePage';
 import { StaffDashboard } from './pages/staff/StaffDashboard';
 import { HrLayout } from './pages/hr/HrLayout';
 import { HrStaffListPage } from './pages/hr/HrStaffListPage';
@@ -286,6 +287,7 @@ const App: React.FC = () => (
           <Route element={<ProtectedRoute allowedRoles={['super_admin']} />}>
             <Route path="/super-admin" element={<Layout />}>
               <Route index element={<SuperAdminDashboard />} />
+              <Route path="sales-by-state" element={<SalesByStatePage />} />
               {catalogRoutes}
               <Route path="staff" element={<Navigate to="/super-admin/settings/hr/staff" replace />} />
               <Route path="super-admins" element={<Navigate to="/super-admin/settings/hr/super-admins" replace />} />
