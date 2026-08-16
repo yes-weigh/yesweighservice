@@ -968,17 +968,38 @@ function supportDayBoundIso(dateKey: string, endOfDay: boolean): string {
 export async function countOpsSupportRequestsInRange(
   dateStart: string,
   dateEnd: string,
+  options?: { types?: readonly SupportRequestType[] },
 ): Promise<number> {
   const start = supportDayBoundIso(dateStart, false);
   const end = supportDayBoundIso(dateEnd, true);
-  const snap = await getCountFromServer(
-    query(
-      collection(db, 'dealerSupportRequests'),
+  const types = options?.types?.filter(Boolean) ?? [];
+
+  const countCreatedAtRange = async (type?: SupportRequestType): Promise<number> => {
+    const constraints = [
       where('createdAt', '>=', start),
       where('createdAt', '<=', end),
-    ),
-  );
-  return snap.data().count;
+    ];
+    if (type) constraints.unshift(where('type', '==', type));
+    const snap = await getCountFromServer(
+      query(collection(db, 'dealerSupportRequests'), ...constraints),
+    );
+    return snap.data().count;
+  };
+
+  try {
+    if (!types.length) return await countCreatedAtRange();
+    const counts = await Promise.all(types.map(type => countCreatedAtRange(type)));
+    return counts.reduce((sum, count) => sum + count, 0);
+  } catch {
+    const rows = await fetchOpsSupportRequests();
+    const wanted = new Set(types);
+    return rows.filter(request => {
+      if (wanted.size && !wanted.has(request.type)) return false;
+      const created = String(request.createdAt ?? '').slice(0, 10);
+      if (created && (created < dateStart || created > dateEnd)) return false;
+      return true;
+    }).length;
+  }
 }
 
 export async function fetchOpsSupportRequests(): Promise<DealerSupportRequest[]> {

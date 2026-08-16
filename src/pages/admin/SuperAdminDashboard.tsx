@@ -5,19 +5,19 @@ import {
   Bell,
   Briefcase,
   Building2,
-  CheckCircle2,
   ChevronRight,
   ClipboardList,
   Clock,
+  AlertTriangle,
   FileText,
   IndianRupee,
   LifeBuoy,
   Package,
+  Shield,
   PackagePlus,
   Plus,
   RefreshCw,
   ShieldCheck,
-  ShoppingCart,
   TrendingUp,
   Truck,
   UserCheck,
@@ -34,6 +34,7 @@ import {
   loadAdminInvoiceKpis,
   sumAdminOutstanding,
 } from '../../lib/admin-invoices';
+import { countAdminPurchaseOrders } from '../../lib/admin-purchase-orders';
 import { countAdminSalesOrdersByYesOneStages } from '../../lib/admin-sales-orders';
 import {
   defaultDashboardCustomRange,
@@ -43,11 +44,7 @@ import {
 } from '../../lib/dashboardPeriod';
 import { dealerErrorMessage, fetchDealerStats } from '../../lib/dealers';
 import { countOpsSupportRequestsInRange, fetchOpsSupportRequests } from '../../lib/dealerSupport';
-import {
-  countActionableSupportRequests,
-  countOpenSupportRequests,
-} from '../../lib/supportRequestDisplay';
-import { supportDisplayLabel, isSupportOpen } from '../../lib/supportStatus';
+import { supportDisplayLabel } from '../../lib/supportStatus';
 import { db } from '../../firebase';
 import { formatCurrency } from '../../lib/catalog';
 import {
@@ -68,8 +65,9 @@ const EMPTY_OPS_COUNTS = {
   pendingApproval: 0,
   toDispatch: 0,
   inTransit: 0,
-  delivered: 0,
-  support: 0,
+  warrantySupport: 0,
+  openSupport: 0,
+  purchaseOrders: 0,
 };
 
 interface ActivityItem {
@@ -210,7 +208,7 @@ export const SuperAdminDashboard: React.FC = () => {
     const loadOps = async () => {
       setOpsLoading(true);
       try {
-        const [stages, invoiceKpi, supportCount] = await Promise.all([
+        const [stages, invoiceKpi, warrantySupport, openSupport, purchaseOrders] = await Promise.all([
           countAdminSalesOrdersByYesOneStages({
             dateStart: periodBounds.start,
             dateEnd: periodBounds.end,
@@ -220,7 +218,17 @@ export const SuperAdminDashboard: React.FC = () => {
             dateEnd: periodBounds.end,
             category: 'all',
           }),
-          countOpsSupportRequestsInRange(periodBounds.start, periodBounds.end),
+          countOpsSupportRequestsInRange(periodBounds.start, periodBounds.end, {
+            types: ['service', 'return', 'chat'],
+          }),
+          countOpsSupportRequestsInRange(periodBounds.start, periodBounds.end, {
+            types: ['complaint'],
+          }),
+          countAdminPurchaseOrders({
+            dateStart: periodBounds.start,
+            dateEnd: periodBounds.end,
+            status: '',
+          }),
         ]);
         if (cancelled) return;
         const invoiceStatuses = invoiceKpi.byFilterStatus ?? {};
@@ -230,8 +238,9 @@ export const SuperAdminDashboard: React.FC = () => {
           pendingApproval: stages.payment_submitted,
           toDispatch: invoiceStatuses.to_dispatch ?? 0,
           inTransit: invoiceStatuses.in_transit ?? 0,
-          delivered: invoiceStatuses.delivered ?? 0,
-          support: supportCount,
+          warrantySupport,
+          openSupport,
+          purchaseOrders,
         });
       } catch (err) {
         if (!cancelled) {
@@ -250,23 +259,6 @@ export const SuperAdminDashboard: React.FC = () => {
 
   const dailySales = useMemo(() => buildAdminDailySales(invoices, 30), [invoices]);
 
-  const openSupport = useMemo(
-    () => countOpenSupportRequests(supportRequests),
-    [supportRequests],
-  );
-
-  const actionableSupport = useMemo(
-    () => countActionableSupportRequests(supportRequests),
-    [supportRequests],
-  );
-
-  const openReturnOrders = useMemo(
-    () => supportRequests.filter(
-      r => isSupportOpen(r) && r.type === 'return',
-    ).length,
-    [supportRequests],
-  );
-
   const activities = useMemo(
     () => buildActivities(invoices, supportRequests),
     [invoices, supportRequests],
@@ -276,22 +268,6 @@ export const SuperAdminDashboard: React.FC = () => {
   const overdueCount = useMemo(() => countAdminInvoicesByStatus(invoices, 'overdue'), [invoices]);
 
   const periodKpis = [
-    {
-      id: 'new-orders',
-      label: 'New orders',
-      value: opsLoading ? '…' : String(opsCounts.newOrders),
-      path: `${BASE}/sales-orders`,
-      tone: 'blue' as const,
-      icon: <PackagePlus size={22} strokeWidth={2.5} />,
-    },
-    {
-      id: 'pending-approval',
-      label: 'Pending approval',
-      value: opsLoading ? '…' : String(opsCounts.pendingApproval),
-      path: `${BASE}/sales-orders`,
-      tone: 'orange' as const,
-      icon: <Clock size={22} strokeWidth={2.5} />,
-    },
     {
       id: 'to-dispatch',
       label: 'To dispatch',
@@ -309,47 +285,44 @@ export const SuperAdminDashboard: React.FC = () => {
       icon: <Package size={22} strokeWidth={2.5} />,
     },
     {
-      id: 'delivered',
-      label: 'Delivered',
-      value: opsLoading ? '…' : String(opsCounts.delivered),
-      path: `${BASE}/invoices`,
-      tone: 'green' as const,
-      icon: <CheckCircle2 size={22} strokeWidth={2.5} />,
-    },
-    {
-      id: 'support-period',
-      label: 'Support',
-      value: opsLoading ? '…' : String(opsCounts.support),
-      path: `${BASE}/warranty-support`,
-      tone: 'green' as const,
-      icon: <LifeBuoy size={22} strokeWidth={2.5} />,
-    },
-  ];
-
-  const opsKpis = [
-    {
-      id: 'support',
-      label: 'Warranty & Support',
-      value: loading ? '…' : String(openSupport),
-      path: `${BASE}/warranty-support`,
-      tone: 'green' as const,
-      icon: <LifeBuoy size={22} strokeWidth={2.5} />,
-    },
-    {
-      id: 'support-action',
-      label: 'Needs action',
-      value: loading ? '…' : String(actionableSupport),
-      path: `${BASE}/warranty-support`,
+      id: 'pending-approval',
+      label: 'Pending approval',
+      value: opsLoading ? '…' : String(opsCounts.pendingApproval),
+      path: `${BASE}/sales-orders`,
       tone: 'orange' as const,
+      icon: <Clock size={22} strokeWidth={2.5} />,
+    },
+    {
+      id: 'new-orders',
+      label: 'New orders',
+      value: opsLoading ? '…' : String(opsCounts.newOrders),
+      path: `${BASE}/sales-orders`,
+      tone: 'blue' as const,
+      icon: <PackagePlus size={22} strokeWidth={2.5} />,
+    },
+    {
+      id: 'warranty-support',
+      label: 'Warranty support',
+      value: opsLoading ? '…' : String(opsCounts.warrantySupport),
+      path: `${BASE}/warranty-support`,
+      tone: 'green' as const,
+      icon: <Shield size={22} strokeWidth={2.5} />,
+    },
+    {
+      id: 'logistic-complaint',
+      label: 'Logistic complaint',
+      value: opsLoading ? '…' : String(opsCounts.openSupport),
+      path: `${BASE}/warranty-support`,
+      tone: 'red' as const,
+      icon: <AlertTriangle size={22} strokeWidth={2.5} />,
+    },
+    {
+      id: 'purchase-orders',
+      label: 'Purchase orders',
+      value: opsLoading ? '…' : String(opsCounts.purchaseOrders),
+      path: `${BASE}/purchase-orders`,
+      tone: 'blue' as const,
       icon: <ClipboardList size={22} strokeWidth={2.5} />,
-    },
-    {
-      id: 'returns',
-      label: 'Open replacements',
-      value: loading ? '…' : String(openReturnOrders),
-      path: `${BASE}/warranty-support`,
-      tone: 'orange' as const,
-      icon: <ShoppingCart size={22} strokeWidth={2.5} />,
     },
   ];
 
@@ -466,7 +439,9 @@ export const SuperAdminDashboard: React.FC = () => {
             </div>
             <div className="dealer-dash-kpi__body dealer-dash-kpi__body--featured">
               <span className="dealer-dash-kpi__label">Total Sales</span>
-              <span className="dealer-dash-kpi__period text-muted text-sm">{periodLabel}</span>
+              <span className="dealer-dash-kpi__period text-muted text-sm">
+                excl. GST · {periodLabel}
+              </span>
             </div>
           </div>
           <strong className="dealer-dash-kpi__value dealer-dash-kpi__value--featured">
@@ -483,7 +458,7 @@ export const SuperAdminDashboard: React.FC = () => {
         </div>
 
         <section className="dealer-dash-period-panel" aria-label="Orders and fulfillment">
-          <div className="dealer-dash__kpis-grid">
+          <div className="dealer-dash__kpis-grid dealer-dash__kpis-grid--pairs">
             {periodKpis.map(card => (
               <button
                 key={card.id}
@@ -501,24 +476,6 @@ export const SuperAdminDashboard: React.FC = () => {
             ))}
           </div>
         </section>
-
-        <div className="dealer-dash__kpis-grid">
-          {opsKpis.map(card => (
-            <button
-              key={card.id}
-              type="button"
-              className={`dealer-dash-kpi dealer-dash-kpi--${card.tone}`}
-              onClick={() => navigate(card.path)}
-            >
-              <div className="dealer-dash-kpi__icon">{card.icon}</div>
-              <div className="dealer-dash-kpi__body">
-                <span className="dealer-dash-kpi__label">{card.label}</span>
-                <strong className="dealer-dash-kpi__value">{card.value}</strong>
-              </div>
-              <ChevronRight size={18} className="dealer-dash-kpi__chevron" aria-hidden />
-            </button>
-          ))}
-        </div>
 
         <div className="dealer-dash__kpis-grid dealer-dash__kpis-grid--dealer-stages">
           {secondaryKpis.map(card => (
