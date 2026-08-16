@@ -11,6 +11,12 @@ function fillForShare(sales: number, maxSales: number): string {
   return `rgb(${r}, ${g}, ${b})`;
 }
 
+function districtLabelLines(name: string): string[] {
+  if (name === 'Thiruvananthapuram') return ['Thiruvanan', 'thapuram'];
+  if (name === 'Pathanamthitta') return ['Pathanam', 'thitta'];
+  return [name];
+}
+
 function formatRank(rank: number | null): string {
   if (rank == null) return '—';
   const mod100 = rank % 100;
@@ -103,11 +109,11 @@ export function KeralaSalesMap({
                   y={district.labelY}
                   textAnchor="middle"
                 >
-                  {district.label.map((line, index) => (
+                  {districtLabelLines(district.name).map((line, index) => (
                     <tspan
                       key={line}
                       x={district.labelX}
-                      dy={index === 0 ? 0 : 9}
+                      dy={index === 0 ? 0 : 8.5}
                     >
                       {line}
                     </tspan>

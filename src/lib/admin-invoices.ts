@@ -774,6 +774,8 @@ export async function fetchAllAdminInvoicesInRange(options: {
   dateEnd?: string | null;
   salespersonIds?: string[] | null;
   maxRows?: number;
+  pageSize?: number;
+  skipDerivedOverlays?: boolean;
   listCollection?: AdminInvoiceListCollection;
 }): Promise<{ rows: AdminFirestoreInvoice[]; truncated: boolean }> {
   if (
@@ -796,6 +798,7 @@ export async function fetchAllAdminInvoicesInRange(options: {
   }
 
   const maxRows = options.maxRows ?? ADMIN_AGGREGATE_MAX_ROWS;
+  const pageSize = options.pageSize ?? ADMIN_INVOICES_PAGE_SIZE;
   const listCollection = options.listCollection ?? await resolveAdminInvoiceListCollection();
   const rows: AdminFirestoreInvoice[] = [];
   let cursor: QueryDocumentSnapshot<DocumentData> | null = null;
@@ -805,7 +808,7 @@ export async function fetchAllAdminInvoicesInRange(options: {
   while (true) {
     const pageSnap: QuerySnapshot<DocumentData> = await getAdminInvoicesQuerySnap({
       sort,
-      pageSize: ADMIN_INVOICES_PAGE_SIZE,
+      pageSize,
       cursor,
       category,
       dateStart: options.dateStart,
@@ -819,12 +822,15 @@ export async function fetchAllAdminInvoicesInRange(options: {
       truncated = true;
       break;
     }
-    if (pageSnap.size < ADMIN_INVOICES_PAGE_SIZE) break;
+    if (pageSnap.size < pageSize) break;
   }
 
   rows.sort((a, b) => compareInvoiceSortKey(a, b, sort));
 
   const sliced = truncated ? rows.slice(0, maxRows) : rows;
+  if (options.skipDerivedOverlays) {
+    return { rows: sliced, truncated };
+  }
   if (listCollection === 'invoiceSummaries') {
     return { rows: await overlayInvoiceLineDerivedFields(sliced), truncated };
   }

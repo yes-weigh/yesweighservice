@@ -50,8 +50,11 @@ import { db } from '../../firebase';
 import { formatCurrency } from '../../lib/catalog';
 import {
   formatInvoiceRelativeTime,
+  getInvoicePeriodBounds,
   invoiceStatusLabel,
+  toDateInputValue,
 } from '../../lib/invoices';
+import { prefetchSalesByState } from '../../lib/salesByState';
 import type { FirestoreUserDoc } from '../../types';
 import { normalizeRole } from '../../types';
 import type { DealerStats } from '../../types/dealers';
@@ -275,8 +278,34 @@ export const SuperAdminDashboard: React.FC = () => {
     });
   }, [customRange, navigate, opsPeriod]);
 
+  const [dashDragX, setDashDragX] = useState(0);
+  const [dashDragging, setDashDragging] = useState(false);
+
+  useEffect(() => {
+    const bounds = opsPeriod === 'custom'
+      ? resolveDashboardPeriodBounds('custom', customRange.start, customRange.end)
+      : (() => {
+        const next = getInvoicePeriodBounds(opsPeriod === 'year' ? 'financial_year' : 'current_month');
+        if (!next) return defaultDashboardCustomRange();
+        return { start: toDateInputValue(next.start), end: toDateInputValue(next.end) };
+      })();
+    const timer = window.setTimeout(() => {
+      prefetchSalesByState({ dateStart: bounds.start, dateEnd: bounds.end });
+    }, 160);
+    return () => window.clearTimeout(timer);
+  }, [customRange.end, customRange.start, opsPeriod]);
+
   useHorizontalSwipe(pageRef, {
     onSwipeRight: openSalesMap,
+    onSwipeProgress: (dx) => {
+      if (dx <= 0) return;
+      setDashDragging(true);
+      setDashDragX(dx);
+    },
+    onSwipeEnd: (committed) => {
+      setDashDragging(false);
+      if (committed !== 'right') setDashDragX(0);
+    },
     enabled: true,
   });
 
@@ -422,7 +451,11 @@ export const SuperAdminDashboard: React.FC = () => {
   ];
 
   return (
-    <div ref={pageRef} className="page-content fade-in dealer-dashboard">
+    <div
+      ref={pageRef}
+      className={`page-content fade-in dealer-dashboard${dashDragging ? ' is-swiping' : ''}`}
+      style={dashDragX ? { transform: `translate3d(${dashDragX}px, 0, 0)` } : undefined}
+    >
       {error && (
         <p className="dealer-dash__error" role="alert">
           {error}
