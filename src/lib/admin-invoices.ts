@@ -1622,11 +1622,13 @@ export function invoiceChipStatusCounts(
   category: InvoiceCategory | 'all',
 ): Record<string, number> {
   if (category === 'all') return { ...(kpi.byFilterStatus ?? {}) };
-  return { ...(kpi.byCategoryAndFilterStatus?.[category] ?? {}) };
+  const nested = kpi.byCategoryAndFilterStatus?.[category];
+  if (filterChipMapsHaveCounts(nested)) return { ...nested };
+  return { ...(kpi.byFilterStatus ?? {}) };
 }
 
 export function invoiceChipCategoryCounts(
-  kpi: Pick<AdminInvoiceStatsKpi, 'categoryCounts' | 'byCategoryAndFilterStatus'>,
+  kpi: Pick<AdminInvoiceStatsKpi, 'categoryCounts' | 'byFilterStatus' | 'byCategoryAndFilterStatus'>,
   listFilterStatus: string,
 ): AdminInvoiceCategoryCounts {
   if (!listFilterStatus || listFilterStatus === 'all' || listFilterStatus === 'support') {
@@ -1637,6 +1639,10 @@ export function invoiceChipCategoryCounts(
   for (const key of ['product', 'spare', 'software_key', 'service', 'gatc'] as const) {
     next[key] = Number(byCat[key]?.[listFilterStatus] ?? 0);
     next.all += next[key];
+  }
+  // Nested maps were added later; if they are empty, keep category totals from the rollup.
+  if (next.all <= 0 && !filterChipMapsHaveCounts(kpi.byFilterStatus)) {
+    return kpi.categoryCounts;
   }
   return next;
 }
@@ -1650,6 +1656,10 @@ function emptyCategoryCounts(): AdminInvoiceCategoryCounts {
     service: 0,
     gatc: 0,
   };
+}
+
+function filterChipMapsHaveCounts(byFilterStatus?: Record<string, number>): boolean {
+  return Object.values(byFilterStatus ?? {}).some(count => Number(count) > 0);
 }
 
 /**
@@ -1690,6 +1700,19 @@ async function repairRollupCategoryCounts(
     dateEnd: options.dateEnd,
     salespersonIds: options.salespersonIds,
   });
+  // Live category counts can return 0 when indexes miss; keep rollup totals.
+  if (categoryCounts.all <= 0 && rollup.categoryCounts.all > 0) {
+    if (typeof options.portalGatcCount === 'number') {
+      return {
+        ...rollup,
+        categoryCounts: {
+          ...rollup.categoryCounts,
+          gatc: options.portalGatcCount,
+        },
+      };
+    }
+    return rollup;
+  }
   if (typeof options.portalGatcCount === 'number') {
     categoryCounts.gatc = options.portalGatcCount;
   }
@@ -1783,6 +1806,10 @@ async function withLiveFilterChipMaps(
     salespersonIds?: string[] | null;
   },
 ): Promise<AdminInvoiceStatsKpi> {
+  // invoiceStats / invoiceMonthStats already carry byFilterStatus from 9a34e05.
+  // Live listStatus counts fall back to hot invoices (no listStatus) and overwrite
+  // those rollups with zeros.
+  if (filterChipMapsHaveCounts(kpi.byFilterStatus)) return kpi;
   if (!options.dateStart || !options.dateEnd) return kpi;
   try {
     const live = await countAdminInvoiceFilterChipMaps({
@@ -1790,6 +1817,7 @@ async function withLiveFilterChipMaps(
       dateEnd: options.dateEnd,
       salespersonIds: options.salespersonIds,
     });
+    if (!filterChipMapsHaveCounts(live.byFilterStatus)) return kpi;
     return {
       ...kpi,
       byFilterStatus: live.byFilterStatus,
@@ -2034,8 +2062,9 @@ function listStatusCountValues(status: string): string[] {
 }
 
 /**
- * Live chip counts for the selected date window.
- * Month rollups drift when a booking updates listStatus but the increment fails.
+ * Live chip counts from invoiceSummaries only.
+ * Hot `invoices` docs do not store listStatus — counting them returns zeros
+ * and must not replace invoiceMonthStats / invoiceStats rollups.
  */
 export async function countAdminInvoiceFilterChipMaps(options: {
   dateStart?: string | null;
@@ -2047,7 +2076,6 @@ export async function countAdminInvoiceFilterChipMaps(options: {
 }> {
   const dateStart = options.dateStart?.trim() || null;
   const dateEnd = options.dateEnd?.trim() || null;
-  const listCollection = await resolveAdminInvoiceListCollection();
   const byFilterStatus: Record<string, number> = {};
   const byCategoryAndFilterStatus: Record<string, Record<string, number>> = {};
 
@@ -2067,21 +2095,10 @@ export async function countAdminInvoiceFilterChipMaps(options: {
       if (dateStart) constraints.push(where('date', '>=', dateStart));
       if (dateEnd) constraints.push(where('date', '<=', dateEnd));
       constraints.push(orderBy('date', 'desc'));
-      try {
-        const snap = await getCountFromServer(
-          query(collectionGroup(db, listCollection), ...constraints),
-        );
-        total += snap.data().count;
-      } catch (err) {
-        if (listCollection === 'invoiceSummaries' && isFirestoreIndexError(err)) {
-          const snap = await getCountFromServer(
-            query(collectionGroup(db, 'invoices'), ...constraints),
-          );
-          total += snap.data().count;
-          continue;
-        }
-        throw err;
-      }
+      const snap = await getCountFromServer(
+        query(collectionGroup(db, 'invoiceSummaries'), ...constraints),
+      );
+      total += snap.data().count;
     }
     return total;
   };
@@ -2102,47 +2119,21 @@ export async function countAdminInvoiceFilterChipMaps(options: {
   return { byFilterStatus, byCategoryAndFilterStatus };
 }
 
-/** Live counts for selected invoice list statuses in a date window. */
+/** Status chip counts from invoiceMonthStats / invoiceStats rollups. */
 export async function countAdminInvoiceListStatuses(options: {
   dateStart?: string | null;
   dateEnd?: string | null;
   statuses: readonly string[];
 }): Promise<Record<string, number>> {
-  const dateStart = options.dateStart?.trim() || null;
-  const dateEnd = options.dateEnd?.trim() || null;
-  const listCollection = await resolveAdminInvoiceListCollection();
+  const kpi = await loadAdminInvoiceKpis({
+    dateStart: options.dateStart,
+    dateEnd: options.dateEnd,
+    category: 'all',
+  });
   const counts: Record<string, number> = {};
-
-  const countStatus = async (status: string): Promise<number> => {
-    const values = listStatusCountValues(status);
-    let total = 0;
-    for (const listStatus of values) {
-      const constraints: QueryConstraint[] = [where('listStatus', '==', listStatus)];
-      if (dateStart) constraints.push(where('date', '>=', dateStart));
-      if (dateEnd) constraints.push(where('date', '<=', dateEnd));
-      constraints.push(orderBy('date', 'desc'));
-      try {
-        const snap = await getCountFromServer(
-          query(collectionGroup(db, listCollection), ...constraints),
-        );
-        total += snap.data().count;
-      } catch (err) {
-        if (listCollection === 'invoiceSummaries' && isFirestoreIndexError(err)) {
-          const snap = await getCountFromServer(
-            query(collectionGroup(db, 'invoices'), ...constraints),
-          );
-          total += snap.data().count;
-          continue;
-        }
-        throw err;
-      }
-    }
-    return total;
-  };
-
-  await Promise.all(options.statuses.map(async status => {
-    counts[status] = await countStatus(status);
-  }));
+  for (const status of options.statuses) {
+    counts[status] = Number(kpi.byFilterStatus?.[status] ?? 0);
+  }
   return counts;
 }
 

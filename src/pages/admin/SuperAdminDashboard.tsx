@@ -31,9 +31,9 @@ import { SalesRangeSelect } from '../../components/dashboard/SalesRangeSelect';
 import {
   buildAdminDailySales,
   buildAdminSalesEntries,
-  countAdminInvoiceListStatuses,
   countAdminInvoicesByStatus,
   fetchAdminInvoicesPage,
+  loadAdminInvoiceKpis,
   sumAdminOutstanding,
 } from '../../lib/admin-invoices';
 import { countAdminSalesOrdersByYesOneStages } from '../../lib/admin-sales-orders';
@@ -214,19 +214,20 @@ export const SuperAdminDashboard: React.FC = () => {
     const loadOps = async () => {
       setOpsLoading(true);
       try {
-        const [stages, invoiceStatuses, supportCount] = await Promise.all([
+        const [stages, invoiceKpi, supportCount] = await Promise.all([
           countAdminSalesOrdersByYesOneStages({
             dateStart: periodBounds.start,
             dateEnd: periodBounds.end,
           }),
-          countAdminInvoiceListStatuses({
+          loadAdminInvoiceKpis({
             dateStart: periodBounds.start,
             dateEnd: periodBounds.end,
-            statuses: ['to_dispatch', 'in_transit', 'delivered'],
+            category: 'all',
           }),
           countOpsSupportRequestsInRange(periodBounds.start, periodBounds.end),
         ]);
         if (cancelled) return;
+        const invoiceStatuses = invoiceKpi.byFilterStatus ?? {};
         setOpsCounts({
           newOrders: stages.review,
           pendingApproval: stages.payment_submitted,
