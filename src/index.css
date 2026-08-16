@@ -1290,6 +1290,38 @@ html::-webkit-scrollbar {
   flex-shrink: 0;
 }
 
+.top-bar__version-group {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.top-bar__sync-btn {
+  flex-shrink: 0;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  border: 1px solid var(--accent-primary);
+  border-radius: 999px;
+  background: var(--accent-primary);
+  color: #fff;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+}
+
+.top-bar__sync-btn:hover:not(:disabled) {
+  color: #fff;
+  border-color: var(--accent-primary-hover, #ff9a3d);
+  background: var(--accent-primary-hover, #ff9a3d);
+}
+
+.top-bar__sync-btn:disabled {
+  opacity: 0.7;
+  cursor: wait;
+}
+
 .top-bar__version {
   font-size: 1.05rem;
   font-weight: 800;

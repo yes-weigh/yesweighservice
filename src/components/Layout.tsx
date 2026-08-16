@@ -43,8 +43,10 @@ import {
   Phone,
   ShoppingBag,
   PackageCheck,
+  RefreshCw,
 } from 'lucide-react';
 import { getAppVersionLabel } from '../lib/appVersion';
+import { refreshAppAndData } from '../lib/refreshApp';
 import { PageHeaderProvider, usePageHeader } from '../context/PageHeaderContext';
 
 type NavItem = {
@@ -224,6 +226,7 @@ const LayoutShell: React.FC = () => {
   const [mobileOpen, setMobileOpen] = useState(false);
   const [isMobile, setIsMobile] = useState(window.innerWidth <= 768);
   const [pageRefreshKey, setPageRefreshKey] = useState(0);
+  const [appSyncing, setAppSyncing] = useState(false);
 
   useEffect(() => {
     const onResize = () => setIsMobile(window.innerWidth <= 768);
@@ -635,11 +638,27 @@ const LayoutShell: React.FC = () => {
           {showTrailing && (
           <div className="top-bar__trailing">
             {isDashboardHome ? (
-              <span
-                className="top-bar__version"
-                title="App version. If a feature looks outdated, clear cache and restart the app."
-              >
-                {getAppVersionLabel()}
+              <span className="top-bar__version-group">
+                <button
+                  type="button"
+                  className="top-bar__sync-btn"
+                  onClick={() => {
+                    if (appSyncing) return;
+                    setAppSyncing(true);
+                    void refreshAppAndData().finally(() => setAppSyncing(false));
+                  }}
+                  disabled={appSyncing}
+                  aria-label="Update app and data"
+                  title="Update app and data"
+                >
+                  <RefreshCw size={16} className={appSyncing ? 'spin-icon' : undefined} />
+                </button>
+                <span
+                  className="top-bar__version"
+                  title="App version. If a feature looks outdated, tap sync to update."
+                >
+                  {getAppVersionLabel()}
+                </span>
               </span>
             ) : null}
             {topBarAction}
