@@ -147,6 +147,8 @@ export interface LogisticsBookingDraft {
   masterAwb?: string | null;
   /** Blue Dart waybill PDF cache (set after GenerateWayBill). */
   blueDartDocuments?: LogisticsBlueDartDocumentsCache | null;
+  /** Blue Dart RegisterPickup result from GenerateWayBill. */
+  blueDartPickup?: LogisticsBlueDartPickup | null;
 }
 
 /** Persisted ST Courier track snapshot (from hourly sync / live fetch). */
@@ -188,6 +190,16 @@ export interface LogisticsDelhiveryPickup {
   pickupDate?: string | null;
   pickupTime?: string | null;
   expectedPackageCount?: number | null;
+  message?: string | null;
+  requestedAt: string;
+}
+
+/** Blue Dart first-mile pickup registered with GenerateWayBill. */
+export interface LogisticsBlueDartPickup {
+  ok: boolean;
+  registered: boolean;
+  pickupDate?: string | null;
+  pickupTime?: string | null;
   message?: string | null;
   requestedAt: string;
 }
@@ -366,6 +378,8 @@ export interface LogisticsBooking {
   freightBillingModeSource?: 'booking' | 'api' | 'inferred' | 'manual' | null;
   /** Delhivery first-mile pickup request (auto after Create LR). */
   delhiveryPickup?: LogisticsDelhiveryPickup | null;
+  /** Blue Dart RegisterPickup snapshot from GenerateWayBill. */
+  blueDartPickup?: LogisticsBlueDartPickup | null;
   /** Result of pushing e-way bill numbers onto the Delhivery LR after Zoho generation. */
   delhiveryEwaySync?: LogisticsDelhiveryEwaySync | null;
   /**

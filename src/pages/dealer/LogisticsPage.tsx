@@ -29,6 +29,7 @@ import {
 import { BookCourierFlow } from '../../components/logistics/BookCourierFlow';
 import { CourierPartnerPicker } from '../../components/logistics/CourierPartnerPicker';
 import { LogisticsBookingDetail } from '../../components/logistics/LogisticsBookingDetail';
+import { LogisticsPickupsTodayDialog } from '../../components/logistics/LogisticsPickupsTodayDialog';
 import { LOGISTICS_PARTNERS } from '../../constants/logisticsPartners';
 import { isLogisticsPartnerId } from '../../constants/logisticsPartners';
 import type { LogisticsPartnerId } from '../../constants/logisticsPartners';
@@ -46,6 +47,7 @@ import {
   compareLogisticsBookingsByBookingDateDesc,
   deleteLogisticsBookingPermanently,
   fetchLogisticsBooking,
+  fetchLogisticsBookingsByPickupDate,
   subscribeLogisticsBookings,
   syncLogisticsShipFromAddressesToAllBookings,
   updateLogisticsBookingStatus,
@@ -73,6 +75,11 @@ import {
 } from '../../lib/logisticsPrefill';
 import { formatInvoiceDateTime } from '../../lib/invoices';
 import { formatLogisticsDateTime } from '../../lib/logisticsDateTime';
+import {
+  countPickupsToday,
+  istCalendarDate,
+  mergePickupBookings,
+} from '../../lib/logisticsPickupsToday';
 import type { LogisticsCourierRates } from '../../types/logistics-courier-rates';
 import { staffLogisticsSiteLabel } from '../../types/staff-logistics';
 import { supportDetailPath } from '../../lib/dealerSupport';
@@ -340,6 +347,8 @@ export const LogisticsPage: React.FC = () => {
   const [statusFilter, setStatusFilter] = useState<LogisticsBookingStatus | ''>('');
   const [partnerFilter, setPartnerFilter] = useState<LogisticsPartnerId | ''>('');
   const [supportFilter, setSupportFilter] = useState(false);
+  const [pickupsTodayOpen, setPickupsTodayOpen] = useState(false);
+  const [pickupTodayExtra, setPickupTodayExtra] = useState<LogisticsBooking[]>([]);
   const [freightDiffFilter, setFreightDiffFilter] = useState<FreightDiffFilter>('');
   const [dateRange, setDateRange] = useState(defaultDateRange);
   /** Draft values in the Filters panel — applied only via Apply. */
@@ -438,6 +447,19 @@ export const LogisticsPage: React.FC = () => {
     return unsubscribe;
   }, [user, filters.query]);
 
+  useEffect(() => {
+    if (!user || !isOps) return;
+    let active = true;
+    void fetchLogisticsBookingsByPickupDate(istCalendarDate())
+      .then(rows => {
+        if (active) setPickupTodayExtra(rows);
+      })
+      .catch(() => undefined);
+    return () => {
+      active = false;
+    };
+  }, [user, isOps]);
+
   /** Once per session: push Sites ship-from addresses onto all bookings for ops. */
   useEffect(() => {
     if (!user || !isOps || shipFromSessionSyncStarted) return;
@@ -471,6 +493,14 @@ export const LogisticsPage: React.FC = () => {
   const supportLinkedCount = useMemo(
     () => pipelineBookings.filter(isSupportLinkedLogisticsBooking).length,
     [pipelineBookings],
+  );
+
+  const pickupTodayCounts = useMemo(
+    () => countPickupsToday(
+      mergePickupBookings(bookings, pickupTodayExtra),
+      activePartnerFilter,
+    ),
+    [activePartnerFilter, bookings, pickupTodayExtra],
   );
 
   const scopedBookings = useMemo(() => {
@@ -614,6 +644,14 @@ export const LogisticsPage: React.FC = () => {
 
   const handleUpdateBooking = useCallback((next: LogisticsBooking) => {
     setBookings(prev => prev.map(item => (item.id === next.id ? next : item)));
+    setPickupTodayExtra(prev => mergePickupBookings(prev, [next]));
+  }, []);
+
+  const handleUpdateBookings = useCallback((next: LogisticsBooking[]) => {
+    if (!next.length) return;
+    const byId = new Map(next.map(item => [item.id, item]));
+    setBookings(prev => prev.map(item => byId.get(item.id) ?? item));
+    setPickupTodayExtra(prev => mergePickupBookings(prev, next));
   }, []);
 
   const handlePartnerSelect = useCallback((methodId: string) => {
@@ -1114,25 +1152,54 @@ export const LogisticsPage: React.FC = () => {
                   </div>
                 ) : null}
 
-                <button
-                  type="button"
-                  className={[
-                    'logistics-page__support-filter',
-                    supportFilter ? 'is-active' : '',
-                    supportLinkedCount === 0 ? 'is-empty' : '',
-                  ].filter(Boolean).join(' ')}
-                  onClick={applySupportFilter}
-                  title={`Support-linked shipments (${supportLinkedCount})`}
-                  aria-pressed={supportFilter}
-                  aria-label={`Filter support-linked shipments (${supportLinkedCount})`}
-                  disabled={supportLinkedCount === 0}
-                >
-                  <span className="logistics-page__support-filter-icon" aria-hidden>
-                    <LifeBuoy size={18} strokeWidth={2.1} />
-                    <span className="logistics-page__support-filter-badge">{supportLinkedCount}</span>
-                  </span>
-                  <span className="logistics-page__support-filter-label">Support</span>
-                </button>
+                <div className="logistics-page__corner-actions">
+                  {isOps ? (
+                    <button
+                      type="button"
+                      className={[
+                        'logistics-page__support-filter',
+                        'logistics-page__pickup-filter',
+                        pickupsTodayOpen ? 'is-active' : '',
+                      ].filter(Boolean).join(' ')}
+                      onClick={() => setPickupsTodayOpen(true)}
+                      title={
+                        pickupTodayCounts.pending
+                          ? `Pickup requests today (${pickupTodayCounts.requested} requested, ${pickupTodayCounts.pending} pending)`
+                          : `Pickup requests today (${pickupTodayCounts.requested})`
+                      }
+                      aria-haspopup="dialog"
+                      aria-expanded={pickupsTodayOpen}
+                      aria-label={`Pickup requests today (${pickupTodayCounts.total})`}
+                    >
+                      <span className="logistics-page__support-filter-icon" aria-hidden>
+                        <Truck size={18} strokeWidth={2.1} />
+                        <span className="logistics-page__support-filter-badge">
+                          {pickupTodayCounts.total}
+                        </span>
+                      </span>
+                      <span className="logistics-page__support-filter-label">Pickup today</span>
+                    </button>
+                  ) : null}
+                  <button
+                    type="button"
+                    className={[
+                      'logistics-page__support-filter',
+                      supportFilter ? 'is-active' : '',
+                      supportLinkedCount === 0 ? 'is-empty' : '',
+                    ].filter(Boolean).join(' ')}
+                    onClick={applySupportFilter}
+                    title={`Support-linked shipments (${supportLinkedCount})`}
+                    aria-pressed={supportFilter}
+                    aria-label={`Filter support-linked shipments (${supportLinkedCount})`}
+                    disabled={supportLinkedCount === 0}
+                  >
+                    <span className="logistics-page__support-filter-icon" aria-hidden>
+                      <LifeBuoy size={18} strokeWidth={2.1} />
+                      <span className="logistics-page__support-filter-badge">{supportLinkedCount}</span>
+                    </span>
+                    <span className="logistics-page__support-filter-label">Support</span>
+                  </button>
+                </div>
               </div>
 
               <div className="logistics-page__stats" role="group" aria-label="Shipment summary">
@@ -1530,6 +1597,16 @@ export const LogisticsPage: React.FC = () => {
           onBookingUpdated={handleUpdateBooking}
         />
       )}
+
+      {pickupsTodayOpen ? (
+        <LogisticsPickupsTodayDialog
+          bookings={mergePickupBookings(bookings, pickupTodayExtra)}
+          partnerFilter={activePartnerFilter}
+          onClose={() => setPickupsTodayOpen(false)}
+          onOpenBooking={openBooking}
+          onBookingsUpdated={handleUpdateBookings}
+        />
+      ) : null}
     </div>
   );
 };

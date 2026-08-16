@@ -21089,6 +21089,14 @@ body:has(.confirm-inline-bar) .confirm-inline-bar {
   display: none;
 }
 
+.logistics-page__corner-actions {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: stretch;
+  gap: 0.4rem;
+  margin-left: auto;
+}
+
 .logistics-page__support-filter {
   flex: 0 0 auto;
   display: flex;
@@ -21099,7 +21107,7 @@ body:has(.confirm-inline-bar) .confirm-inline-bar {
   min-width: 4rem;
   min-height: 4.35rem;
   padding: 0.4rem 0.45rem 0.35rem;
-  margin-left: auto;
+  margin-left: 0;
   border: 1.5px solid rgba(167, 139, 250, 0.28);
   border-radius: 10px;
   background: rgba(139, 92, 246, 0.08);
@@ -21177,6 +21185,154 @@ body:has(.confirm-inline-bar) .confirm-inline-bar {
 
 .logistics-page__support-filter:active:not(:disabled) {
   transform: scale(0.97);
+}
+
+.logistics-page__pickup-filter {
+  border-color: rgba(251, 146, 60, 0.32);
+  background: rgba(251, 146, 60, 0.08);
+}
+
+.logistics-page__pickup-filter:hover:not(:disabled) {
+  background: rgba(251, 146, 60, 0.16);
+  border-color: rgba(253, 186, 116, 0.5);
+}
+
+.logistics-page__pickup-filter.is-active {
+  background: rgba(251, 146, 60, 0.2);
+  border-color: rgba(253, 186, 116, 0.72);
+  box-shadow: 0 6px 18px rgba(249, 115, 22, 0.18);
+}
+
+.logistics-page__pickup-filter .logistics-page__support-filter-icon {
+  color: #fdba74;
+}
+
+.logistics-page__pickup-filter.is-active .logistics-page__support-filter-icon {
+  color: #fed7aa;
+}
+
+.logistics-page__pickup-filter .logistics-page__support-filter-badge {
+  background: #f97316;
+  color: #fff7ed;
+}
+
+.logistics-page__pickup-filter .logistics-page__support-filter-label {
+  white-space: normal;
+  max-width: 3.6rem;
+}
+
+.logistics-pickups-today {
+  width: min(100%, 560px);
+}
+
+.logistics-pickups-today__body {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  padding: 0 1.25rem 1rem;
+  max-height: min(70vh, 520px);
+  overflow: auto;
+}
+
+.logistics-pickups-today__groups {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.7rem;
+}
+
+.logistics-pickups-today__group {
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 12px;
+  padding: 0.7rem 0.75rem 0.55rem;
+  background: rgba(15, 23, 42, 0.35);
+}
+
+.logistics-pickups-today__group.is-pending {
+  border-color: rgba(251, 146, 60, 0.28);
+}
+
+.logistics-pickups-today__group-head {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.6rem;
+}
+
+.logistics-pickups-today__logo {
+  flex: 0 0 auto;
+  width: 1.7rem;
+  height: 1.7rem;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+}
+
+.logistics-pickups-today__logo img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+
+.logistics-pickups-today__group-meta {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.12rem;
+}
+
+.logistics-pickups-today__group-meta strong {
+  font-size: 0.8125rem;
+}
+
+.logistics-pickups-today__group-meta span,
+.logistics-pickups-today__group-meta em {
+  font-size: 0.75rem;
+  color: rgba(226, 232, 240, 0.72);
+  font-style: normal;
+}
+
+.logistics-pickups-today__shipments {
+  list-style: none;
+  margin: 0.5rem 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.28rem;
+}
+
+.logistics-pickups-today__shipment {
+  width: 100%;
+  display: flex;
+  align-items: flex-start;
+  gap: 0.45rem;
+  padding: 0.4rem 0.45rem;
+  border: 0;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.04);
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.logistics-pickups-today__shipment:hover {
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.logistics-pickups-today__shipment span {
+  display: flex;
+  flex-direction: column;
+  gap: 0.08rem;
+  min-width: 0;
+}
+
+.logistics-pickups-today__shipment small {
+  color: rgba(226, 232, 240, 0.68);
+  font-size: 0.75rem;
 }
 
 .logistics-page__partner {
@@ -22093,6 +22249,10 @@ body:has(.confirm-inline-bar) .confirm-inline-bar {
 
   .logistics-page__partners {
     gap: 0.35rem;
+  }
+
+  .logistics-page__corner-actions {
+    gap: 0.3rem;
   }
 
   .logistics-page__support-filter {

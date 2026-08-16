@@ -1401,6 +1401,16 @@ export const BookCourierFlow: React.FC<BookCourierFlowProps> = ({
         barcodeRaw: prev.barcodeRaw || awb,
         branch: 'Blue Dart',
         ...(result.documents ? { blueDartDocuments: result.documents } : {}),
+        blueDartPickup: {
+          ok: result.pickupRegistered === true,
+          registered: result.pickupRegistered === true,
+          pickupDate: result.pickupDate ?? null,
+          pickupTime: result.pickupTime ?? null,
+          message: result.pickupRegistered
+            ? 'Registered with waybill'
+            : 'Not registered',
+          requestedAt: new Date().toISOString(),
+        },
       }));
       return true;
     } catch (err) {

@@ -208,6 +208,7 @@ import {
   loadBlueDartPublicConfig,
   saveBlueDartConfig,
   testBlueDartConnection,
+  lookupBlueDartPincodes,
   bookBlueDartShipment,
   fetchBlueDartTrack,
   readBlueDartWaybillPdf,
@@ -223,6 +224,10 @@ import {
   resolveInvoiceFieldsForDelhiveryBook,
 } from './lib/delhivery-b2b-manifest.js';
 import { createDelhiveryPickupRequest } from './lib/delhivery-pickup.js';
+import {
+  listLogisticsPickupsToday,
+  requestDelhiverySitePickup,
+} from './lib/logistics-pickups-today.js';
 import { resolveDelhiveryMasterAwbFromLrn } from './lib/delhivery-b2b-documents.js';
 import { syncDelhiveryWarehouseForSite } from './lib/delhivery-warehouse.js';
 import {
@@ -5357,6 +5362,30 @@ export const testBlueDartConnectionFn = onCall(
   },
 );
 
+/** Location Finder for site / destination pins (area code + hub). */
+export const lookupBlueDartPincodesFn = onCall(
+  {
+    region: 'asia-south1',
+    timeoutSeconds: 60,
+    memory: '256MiB',
+  },
+  async request => {
+    await requireActiveUser(request.auth?.uid, ALLOWED_ROLES, { allowViewOnly: true });
+    try {
+      const pins = Array.isArray(request.data?.pins)
+        ? request.data.pins
+        : [request.data?.pin];
+      return await lookupBlueDartPincodes(getFirestore(), pins);
+    } catch (err) {
+      if (err instanceof HttpsError) throw err;
+      throw new HttpsError(
+        'failed-precondition',
+        err?.message ?? 'Could not look up Blue Dart pincodes.',
+      );
+    }
+  },
+);
+
 /** Create a Blue Dart AWB via GenerateWayBill. */
 export const bookBlueDartShipmentFn = onCall(
   {
@@ -5696,6 +5725,58 @@ export const createDelhiveryPickupRequestFn = onCall(
       throw new HttpsError(
         'failed-precondition',
         err?.message ?? 'Could not create Delhivery pickup request.',
+      );
+    }
+  },
+);
+
+/** List Delhivery / Blue Dart pickup requests for an IST calendar date. */
+export const listLogisticsPickupsTodayFn = onCall(
+  {
+    region: 'asia-south1',
+    timeoutSeconds: 30,
+    memory: '256MiB',
+  },
+  async request => {
+    await requireActiveUser(request.auth?.uid, ALLOWED_ROLES, { allowViewOnly: true });
+    try {
+      return await listLogisticsPickupsToday(getFirestore(), {
+        date: request.data?.date,
+        partnerId: request.data?.partnerId,
+      });
+    } catch (err) {
+      if (err instanceof HttpsError) throw err;
+      throw new HttpsError(
+        'failed-precondition',
+        err?.message ?? 'Could not list today’s pickups.',
+      );
+    }
+  },
+);
+
+/** Create one Delhivery warehouse pickup and stamp it on the selected bookings. */
+export const requestDelhiverySitePickupFn = onCall(
+  {
+    region: 'asia-south1',
+    timeoutSeconds: 60,
+    memory: '256MiB',
+  },
+  async request => {
+    await requireActiveUser(request.auth?.uid, ALLOWED_ROLES);
+    try {
+      return await requestDelhiverySitePickup(getFirestore(), {
+        shipFromSite: request.data?.shipFromSite,
+        pickupLocationName: request.data?.pickupLocationName,
+        expectedPackageCount: request.data?.expectedPackageCount,
+        pickupDate: request.data?.pickupDate,
+        pickupTime: request.data?.pickupTime,
+        bookingIds: request.data?.bookingIds,
+      });
+    } catch (err) {
+      if (err instanceof HttpsError) throw err;
+      throw new HttpsError(
+        'failed-precondition',
+        err?.message ?? 'Could not request Delhivery pickup.',
       );
     }
   },

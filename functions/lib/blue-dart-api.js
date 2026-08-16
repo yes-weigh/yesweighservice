@@ -514,6 +514,74 @@ export async function testBlueDartConnection(db) {
   }
 }
 
+function ynFlag(value) {
+  return String(value || '').trim().toUpperCase() === 'Y';
+}
+
+function firstFinderRow(json) {
+  const root = json?.GetServicesforPincodeResult
+    || json?.ServiceCenterDetails
+    || json?.ServiceCenterDetailsReference
+    || json?.finder
+    || json;
+  if (Array.isArray(root)) return root[0] || null;
+  if (root && typeof root === 'object') return root;
+  return null;
+}
+
+/**
+ * Location Finder for one or more pins (network area/hub — not account warehouses).
+ * @param {FirebaseFirestore.Firestore} db
+ * @param {string[]} pins
+ */
+export async function lookupBlueDartPincodes(db, pins = []) {
+  const unique = [...new Set(
+    (Array.isArray(pins) ? pins : [])
+      .map(pin => String(pin || '').replace(/\D/g, '').slice(0, 6))
+      .filter(pin => pin.length === 6),
+  )].slice(0, 8);
+  if (!unique.length) {
+    throw new Error('Provide at least one 6-digit pincode.');
+  }
+  const secrets = await loadSecrets(db);
+  const config = await loadBlueDartPublicConfig(db);
+  const results = [];
+  for (const pin of unique) {
+    const finder = await blueDartFetch(db, '/finder/v1/GetServicesforPincode', {
+      method: 'POST',
+      body: {
+        pinCode: pin,
+        profile: profilePayload(config.env, secrets, 'shipping'),
+      },
+    });
+    const row = firstFinderRow(finder.json);
+    const error = finder.ok
+      ? String(row?.ErrorMessage || '').trim()
+      : blueDartErrorMessage(finder.json, finder.text, finder.status, 'Finder failed');
+    const isError = Boolean(row?.IsError) || !finder.ok;
+    results.push({
+      pin,
+      ok: !isError,
+      error: isError ? (error || 'Finder failed') : null,
+      description: String(row?.PincodeDescription || row?.PinDescription || '').trim(),
+      areaCode: String(row?.AreaCode || '').trim().toUpperCase(),
+      serviceCenterCode: String(row?.ServiceCenterCode || '').trim().toUpperCase(),
+      airOutbound: ynFlag(row?.ApexOutbound),
+      surfaceOutbound: ynFlag(row?.GroundOutbound),
+      dpOutbound: ynFlag(row?.DomesticPriorityOutbound),
+    });
+  }
+  return {
+    ok: true,
+    account: {
+      originArea: String(secrets.originArea || config.originArea || '').trim().toUpperCase(),
+      customerPincode: String(secrets.customerPincode || config.customerPincode || '').replace(/\D/g, '').slice(0, 6),
+      customerCode: String(secrets.customerCode || config.customerCode || '').trim(),
+    },
+    results,
+  };
+}
+
 function splitAddressLines(address, maxLen = 30) {
   const text = String(address || '').replace(/\s+/g, ' ').trim();
   const lines = ['', '', ''];
@@ -842,6 +910,8 @@ export async function bookBlueDartShipment(db, input = {}) {
     destinationLocation: result.DestinationLocation || null,
     creditReferenceNo: result.CCRCRDREF || cref,
     pickupRegistered: Boolean(payload.Request.Services.RegisterPickup),
+    pickupDate: `${pickupDt.getUTCFullYear()}-${String(pickupDt.getUTCMonth() + 1).padStart(2, '0')}-${String(pickupDt.getUTCDate()).padStart(2, '0')}`,
+    pickupTime: '1600',
     documents,
   };
 }

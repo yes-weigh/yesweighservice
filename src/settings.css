@@ -1743,6 +1743,18 @@
   color: #94a3b8;
 }
 
+.settings-logistics__bd-chip--match {
+  border-color: rgba(52, 211, 153, 0.35);
+  background: rgba(16, 185, 129, 0.12);
+  color: #a7f3d0;
+}
+
+.settings-logistics__bd-chip--warn {
+  border-color: rgba(251, 146, 60, 0.4);
+  background: rgba(249, 115, 22, 0.12);
+  color: #fdba74;
+}
+
 .settings-logistics__default-pill {
   display: inline-flex;
   align-items: center;

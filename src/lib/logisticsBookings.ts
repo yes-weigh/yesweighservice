@@ -17,7 +17,11 @@ import {
 } from 'firebase/firestore';
 import { db } from '../firebase';
 import type { LogisticsPartnerId } from '../constants/logisticsPartners';
-import { isLogisticsPartnerId, logisticsPartnerLabel } from '../constants/logisticsPartners';
+import {
+  isBlueDartLogisticsPartnerId,
+  isLogisticsPartnerId,
+  logisticsPartnerLabel,
+} from '../constants/logisticsPartners';
 import type { User } from '../types';
 import { normalizeRole } from '../types';
 import { isInternalOpsUser } from './staffAccess';
@@ -185,6 +189,26 @@ function mapDelhiveryPickup(raw: unknown): import('../types/logistics-dispatch')
     expectedPackageCount: typeof data.expectedPackageCount === 'number' && Number.isFinite(data.expectedPackageCount)
       ? data.expectedPackageCount
       : null,
+    message: typeof data.message === 'string' ? data.message : null,
+    requestedAt: requestedAt || new Date(0).toISOString(),
+  };
+}
+
+function mapBlueDartPickup(raw: unknown): import('../types/logistics-dispatch').LogisticsBlueDartPickup | null {
+  if (!raw || typeof raw !== 'object') return null;
+  const data = raw as Record<string, unknown>;
+  const requestedAt = typeof data.requestedAt === 'string' && data.requestedAt.trim()
+    ? data.requestedAt.trim()
+    : '';
+  const registered = data.registered === true || data.ok === true;
+  if (!requestedAt && data.ok !== true && data.ok !== false && data.registered !== true) {
+    return null;
+  }
+  return {
+    ok: registered,
+    registered,
+    pickupDate: typeof data.pickupDate === 'string' ? data.pickupDate : null,
+    pickupTime: typeof data.pickupTime === 'string' ? data.pickupTime : null,
     message: typeof data.message === 'string' ? data.message : null,
     requestedAt: requestedAt || new Date(0).toISOString(),
   };
@@ -673,6 +697,7 @@ export function mapLogisticsBookingDoc(id: string, data: DocumentData): Logistic
         : null
     ),
     delhiveryPickup: mapDelhiveryPickup(data.delhiveryPickup),
+    blueDartPickup: mapBlueDartPickup(data.blueDartPickup),
     delhiveryEwaySync: mapDelhiveryEwaySync(data.delhiveryEwaySync),
     delhiveryDocuments: mapDelhiveryDocuments(data.delhiveryDocuments),
     blueDartDocuments: mapBlueDartDocuments(data.blueDartDocuments),
@@ -953,6 +978,12 @@ async function buildBookingPayload(input: PersistLogisticsBookingInput & {
       : (mapBlueDartDocuments(existingData?.blueDartDocuments)
         ? { blueDartDocuments: mapBlueDartDocuments(existingData?.blueDartDocuments) }
         : {})),
+    ...(isBlueDartLogisticsPartnerId(draft.partnerId)
+      ? (() => {
+        const pickup = draft.blueDartPickup || mapBlueDartPickup(existingData?.blueDartPickup);
+        return pickup ? { blueDartPickup: pickup } : {};
+      })()
+      : {}),
     createdAt,
     updatedAt: now,
     createdByUid: existingCreatedByUid || createdBy.uid,
@@ -1540,6 +1571,7 @@ export function bookingToWizardState(booking: LogisticsBooking): {
         }
         : {}),
       ...(booking.blueDartDocuments ? { blueDartDocuments: booking.blueDartDocuments } : {}),
+      ...(booking.blueDartPickup ? { blueDartPickup: booking.blueDartPickup } : {}),
     },
   };
 }
@@ -1886,6 +1918,55 @@ export async function updateLogisticsBookingDelhiveryPickup(
     updatedAt,
   });
   return { ...booking, delhiveryPickup: pickup, updatedAt };
+}
+
+export async function updateLogisticsBookingsDelhiveryPickup(
+  bookings: readonly LogisticsBooking[],
+  pickup: import('../types/logistics-dispatch').LogisticsDelhiveryPickup,
+  user: User,
+): Promise<LogisticsBooking[]> {
+  if (!isInternalOpsUser(user)) {
+    throw new Error('You do not have permission to update Delhivery pickup.');
+  }
+  const targets = bookings.filter(booking => booking.partnerId === 'delhivery');
+  if (!targets.length) return [];
+  const updatedAt = new Date().toISOString();
+  for (let i = 0; i < targets.length; i += FIRESTORE_BATCH_LIMIT) {
+    const chunk = targets.slice(i, i + FIRESTORE_BATCH_LIMIT);
+    const batch = writeBatch(db);
+    for (const booking of chunk) {
+      batch.update(doc(db, COLLECTION, booking.id), {
+        delhiveryPickup: pickup,
+        updatedAt,
+      });
+    }
+    await batch.commit();
+  }
+  return targets.map(booking => ({ ...booking, delhiveryPickup: pickup, updatedAt }));
+}
+
+export async function fetchLogisticsBookingsByPickupDate(
+  date: string,
+): Promise<LogisticsBooking[]> {
+  const ymd = String(date || '').trim();
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(ymd)) return [];
+  const [delhiverySnap, blueDartSnap] = await Promise.all([
+    getDocs(query(
+      collection(db, COLLECTION),
+      where('delhiveryPickup.pickupDate', '==', ymd),
+      limit(150),
+    )),
+    getDocs(query(
+      collection(db, COLLECTION),
+      where('blueDartPickup.pickupDate', '==', ymd),
+      limit(150),
+    )),
+  ]);
+  const byId = new Map<string, LogisticsBooking>();
+  for (const snap of [...delhiverySnap.docs, ...blueDartSnap.docs]) {
+    byId.set(snap.id, mapLogisticsBookingDoc(snap.id, snap.data()));
+  }
+  return [...byId.values()];
 }
 
 /** Correct ship-from site/address from logistics settings (e.g. match invoice branch). */

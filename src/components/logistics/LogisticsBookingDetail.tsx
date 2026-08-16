@@ -2592,6 +2592,25 @@ export const LogisticsBookingDetail: React.FC<LogisticsBookingDetailProps> = ({
             ) : (
               <div><dt>LRN / AWB</dt><dd>{booking.consignmentNo || '—'}</dd></div>
             )}
+            {isBlueDart ? (
+              <div>
+                <dt>Pickup</dt>
+                <dd>
+                  {booking.blueDartPickup?.registered
+                    ? (
+                      <>
+                        Registered with waybill
+                        {booking.blueDartPickup.pickupDate
+                          ? ` · ${formatLogisticsDateTimeLabel(booking.blueDartPickup.pickupDate)}`
+                          : ''}
+                      </>
+                    )
+                    : (booking.blueDartPickup
+                      ? (booking.blueDartPickup.message || 'Not registered')
+                      : 'Registered at booking when GenerateWayBill succeeds')}
+                </dd>
+              </div>
+            ) : null}
             <div><dt>Branch</dt><dd>{booking.branch || '—'}</dd></div>
             <div><dt>Service</dt><dd>{booking.serviceType || '—'}</dd></div>
             <div><dt>Booked on</dt><dd>{formatLogisticsDateTimeLabel(booking.bookingDate)}</dd></div>

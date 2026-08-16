@@ -54,6 +54,44 @@ export async function saveBlueDartCredentials(input: {
   }
 }
 
+export type BlueDartPincodeLookup = {
+  pin: string;
+  ok: boolean;
+  error?: string | null;
+  description?: string;
+  areaCode?: string;
+  serviceCenterCode?: string;
+  airOutbound?: boolean;
+  surfaceOutbound?: boolean;
+  dpOutbound?: boolean;
+};
+
+export async function lookupBlueDartPincodes(pins: string[]): Promise<{
+  ok: boolean;
+  account: {
+    originArea: string;
+    customerPincode: string;
+    customerCode: string;
+  };
+  results: BlueDartPincodeLookup[];
+}> {
+  try {
+    const fn = httpsCallable<{ pins: string[] }, {
+      ok: boolean;
+      account: {
+        originArea: string;
+        customerPincode: string;
+        customerCode: string;
+      };
+      results: BlueDartPincodeLookup[];
+    }>(functions, 'lookupBlueDartPincodesFn', { timeout: 60_000 });
+    const result = await fn({ pins });
+    return result.data;
+  } catch (err) {
+    throw callableError(err, 'Could not look up Blue Dart pincodes.');
+  }
+}
+
 export async function testBlueDartConnection(): Promise<{
   ok: boolean;
   message: string;
@@ -101,6 +139,8 @@ export type BlueDartBookResult = {
   destinationArea?: string | null;
   destinationLocation?: string | null;
   pickupRegistered?: boolean;
+  pickupDate?: string | null;
+  pickupTime?: string | null;
   documents?: {
     awb: string;
     waybill?: {
