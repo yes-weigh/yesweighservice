@@ -27,10 +27,8 @@ import {
 import { collection, getDocs } from 'firebase/firestore';
 import { DashboardPeriodFilter } from '../../components/dashboard/DashboardPeriodFilter';
 import { SalesChart } from '../../components/dashboard/SalesChart';
-import { SalesRangeSelect } from '../../components/dashboard/SalesRangeSelect';
 import {
   buildAdminDailySales,
-  buildAdminSalesEntries,
   countAdminInvoicesByStatus,
   fetchAdminInvoicesPage,
   loadAdminInvoiceKpis,
@@ -53,7 +51,6 @@ import { supportDisplayLabel, isSupportOpen } from '../../lib/supportStatus';
 import { db } from '../../firebase';
 import { formatCurrency } from '../../lib/catalog';
 import {
-  computeSalesForPeriod,
   formatInvoiceRelativeTime,
   invoiceStatusLabel,
 } from '../../lib/invoices';
@@ -62,11 +59,11 @@ import { normalizeRole } from '../../types';
 import type { DealerStats } from '../../types/dealers';
 import type { DealerSupportRequest } from '../../types/dealer-support';
 import type { AdminFirestoreInvoice } from '../../lib/admin-invoices';
-import type { SalesRangePreset } from '../../types/invoices';
 
 const BASE = '/super-admin';
 
 const EMPTY_OPS_COUNTS = {
+  totalSales: 0,
   newOrders: 0,
   pendingApproval: 0,
   toDispatch: 0,
@@ -158,7 +155,6 @@ export const SuperAdminDashboard: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [opsLoading, setOpsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [rangePreset, setRangePreset] = useState<SalesRangePreset>('current_month');
   const [opsPeriod, setOpsPeriod] = useState<DashboardPeriodPreset>('month');
   const [customRange, setCustomRange] = useState(defaultDashboardCustomRange);
   const [opsCounts, setOpsCounts] = useState(EMPTY_OPS_COUNTS);
@@ -229,6 +225,7 @@ export const SuperAdminDashboard: React.FC = () => {
         if (cancelled) return;
         const invoiceStatuses = invoiceKpi.byFilterStatus ?? {};
         setOpsCounts({
+          totalSales: Number(invoiceKpi.totalAmount) || 0,
           newOrders: stages.review,
           pendingApproval: stages.payment_submitted,
           toDispatch: invoiceStatuses.to_dispatch ?? 0,
@@ -251,11 +248,6 @@ export const SuperAdminDashboard: React.FC = () => {
     };
   }, [periodBounds.end, periodBounds.start]);
 
-  const salesEntries = useMemo(() => buildAdminSalesEntries(invoices), [invoices]);
-  const salesSummary = useMemo(
-    () => (salesEntries.length ? computeSalesForPeriod(salesEntries, rangePreset) : null),
-    [salesEntries, rangePreset],
-  );
   const dailySales = useMemo(() => buildAdminDailySales(invoices, 30), [invoices]);
 
   const openSupport = useMemo(
@@ -452,6 +444,21 @@ export const SuperAdminDashboard: React.FC = () => {
       )}
 
       <section className="dealer-dash__kpis-layout" aria-label="Key metrics">
+        <DashboardPeriodFilter
+          preset={opsPeriod}
+          customFrom={customRange.start}
+          customTo={customRange.end}
+          rangeLabel={periodLabel}
+          onPresetChange={next => {
+            setOpsPeriod(next);
+            if (next === 'custom' && (!customRange.start || !customRange.end)) {
+              setCustomRange(defaultDashboardCustomRange());
+            }
+          }}
+          onCustomFromChange={start => setCustomRange(prev => ({ ...prev, start }))}
+          onCustomToChange={end => setCustomRange(prev => ({ ...prev, end }))}
+        />
+
         <div className="dealer-dash-kpi dealer-dash-kpi--blue dealer-dash-kpi--featured">
           <div className="dealer-dash-kpi__featured-main">
             <div className="dealer-dash-kpi__icon dealer-dash-kpi__icon--featured">
@@ -459,11 +466,11 @@ export const SuperAdminDashboard: React.FC = () => {
             </div>
             <div className="dealer-dash-kpi__body dealer-dash-kpi__body--featured">
               <span className="dealer-dash-kpi__label">Total Sales</span>
-              <SalesRangeSelect value={rangePreset} onChange={setRangePreset} />
+              <span className="dealer-dash-kpi__period text-muted text-sm">{periodLabel}</span>
             </div>
           </div>
           <strong className="dealer-dash-kpi__value dealer-dash-kpi__value--featured">
-            {loading ? '…' : salesSummary ? formatCurrency(salesSummary.totalSales) : formatCurrency(0)}
+            {opsLoading ? '…' : formatCurrency(opsCounts.totalSales)}
           </strong>
           <button
             type="button"
@@ -476,20 +483,6 @@ export const SuperAdminDashboard: React.FC = () => {
         </div>
 
         <section className="dealer-dash-period-panel" aria-label="Orders and fulfillment">
-          <DashboardPeriodFilter
-            preset={opsPeriod}
-            customFrom={customRange.start}
-            customTo={customRange.end}
-            rangeLabel={periodLabel}
-            onPresetChange={next => {
-              setOpsPeriod(next);
-              if (next === 'custom' && (!customRange.start || !customRange.end)) {
-                setCustomRange(defaultDashboardCustomRange());
-              }
-            }}
-            onCustomFromChange={start => setCustomRange(prev => ({ ...prev, start }))}
-            onCustomToChange={end => setCustomRange(prev => ({ ...prev, end }))}
-          />
           <div className="dealer-dash__kpis-grid">
             {periodKpis.map(card => (
               <button

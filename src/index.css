@@ -20432,6 +20432,11 @@ body:has(.confirm-inline-bar) .confirm-inline-bar {
   gap: 0.2rem;
 }
 
+.dealer-dash-kpi__period {
+  display: block;
+  font-weight: 600;
+}
+
 .dealer-dash-kpi--featured .dealer-dash-range-select {
   max-width: 10.5rem;
 }
