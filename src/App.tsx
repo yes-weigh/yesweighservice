@@ -56,6 +56,7 @@ import { SettingsProfileTab } from './pages/admin/settings/SettingsProfileTab';
 import { WarehouseLocationsTab } from './pages/admin/settings/WarehouseLocationsTab';
 import { StoreRoomTab } from './pages/admin/settings/StoreRoomTab';
 import { ProductSettingsTab } from './pages/admin/settings/ProductSettingsTab';
+import { SanoftSettingsTab } from './pages/admin/settings/SanoftSettingsTab';
 import { SerialNumberAllotmentTab } from './pages/admin/settings/SerialNumberAllotmentTab';
 import { SkuCorrectionTab } from './pages/admin/settings/SkuCorrectionTab';
 import { LogisticsSettingsTab } from './pages/admin/settings/LogisticsSettingsTab';
@@ -346,6 +347,7 @@ const App: React.FC = () => (
                   element={<Navigate to="/super-admin/reports/audit-report" replace />}
                 />
                 <Route path="product" element={<ProductSettingsTab />} />
+                <Route path="sanoft" element={<SanoftSettingsTab />} />
                 <Route path="serial-numbers" element={<SerialNumberAllotmentTab />} />
                 <Route
                   path="price-levels"

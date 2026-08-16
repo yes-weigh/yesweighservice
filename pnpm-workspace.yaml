@@ -1,0 +1,4 @@
+packages:
+  - '.'
+  - 'plugins/tcp-print'
+  - 'plugins/whatsapp-share'
