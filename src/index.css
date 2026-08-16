@@ -12,8 +12,8 @@
   --accent-primary-hover: #e06f0f;
   --accent-primary-light: #ff9a3c;
   --accent-red: #ef4444;
-  --sidebar-width: 260px;
-  --sidebar-collapsed: 80px;
+  --sidebar-width: 220px;
+  --sidebar-collapsed: 64px;
   --header-height: 72px;
   --products-search-height: 3.35rem;
   --shadow-glass: 0 8px 32px rgba(0, 0, 0, 0.37);
@@ -662,8 +662,8 @@ html::-webkit-scrollbar {
 }
 
 .sidebar {
-  --nav-item-min-h: 1.875rem;
-  --nav-item-max-h: 2.75rem;
+  --nav-item-min-h: 1.75rem;
+  --nav-item-max-h: 2.15rem;
   width: var(--sidebar-width);
   background: rgba(10, 15, 28, 0.85);
   backdrop-filter: var(--blur-glass);
@@ -701,6 +701,12 @@ html::-webkit-scrollbar {
   padding: 0 1rem;
   border-bottom: 1px solid var(--border-glass);
   flex-shrink: 0;
+}
+
+.sidebar-header--compact {
+  height: 2.75rem;
+  justify-content: flex-end;
+  padding: 0 0.45rem;
 }
 
 .logo-area {
@@ -768,17 +774,22 @@ html::-webkit-scrollbar {
 .sidebar.collapsed .logo-text,
 .sidebar.collapsed .nav-label { display: none; }
 
+.nav-icon--whatsapp {
+  display: block;
+  color: #fff;
+}
+
 .nav-menu {
   flex: 1;
   min-height: 0;
   overflow-x: hidden;
   overflow-y: auto;
   overscroll-behavior: contain;
-  padding: 0.5rem 0.75rem;
+  padding: 0.35rem 0.5rem;
   display: flex;
   flex-direction: column;
-  justify-content: space-evenly;
-  gap: 0.125rem;
+  justify-content: flex-start;
+  gap: 0.05rem;
   scrollbar-gutter: stable;
   scrollbar-width: thin;
   scrollbar-color: rgba(148, 163, 184, 0.35) transparent;
@@ -852,11 +863,11 @@ html::-webkit-scrollbar {
 .nav-item {
   display: flex;
   align-items: center;
-  gap: 0.75rem;
-  padding: 0.35rem 0.85rem;
-  min-height: var(--nav-item-min-h, 1.875rem);
-  max-height: var(--nav-item-max-h, 2.75rem);
-  border-radius: 10px;
+  gap: 0.55rem;
+  padding: 0.28rem 0.65rem;
+  min-height: var(--nav-item-min-h, 1.75rem);
+  max-height: var(--nav-item-max-h, 2.15rem);
+  border-radius: 8px;
   border: none;
   background: transparent;
   color: var(--text-muted);
@@ -864,10 +875,10 @@ html::-webkit-scrollbar {
   width: 100%;
   text-align: left;
   font: inherit;
-  font-size: 0.875rem;
+  font-size: 0.8125rem;
   line-height: 1.2;
   transition: var(--transition-smooth);
-  flex: 1 1 0;
+  flex: 0 0 auto;
   min-width: 0;
 }
 
@@ -875,13 +886,13 @@ html::-webkit-scrollbar {
   position: relative;
   display: inline-flex;
   flex-shrink: 0;
-  width: 20px;
-  height: 20px;
+  width: 18px;
+  height: 18px;
 }
 
 .nav-icon svg {
-  width: 20px;
-  height: 20px;
+  width: 18px;
+  height: 18px;
 }
 
 .nav-label {
@@ -904,7 +915,7 @@ html::-webkit-scrollbar {
 .profile-actions,
 .sidebar-profile {
   flex-shrink: 0;
-  padding: 0.5rem 0.75rem 0.75rem;
+  padding: 0.35rem 0.5rem 0.55rem;
   border-top: 1px solid var(--border-glass);
 }
 
@@ -8975,8 +8986,8 @@ body:has(.confirm-inline-bar) .confirm-inline-bar {
   .sidebar.mobile-open { transform: translateX(0); }
 
   .sidebar--mobile .sidebar-header {
-    height: 52px;
-    padding: 0 0.75rem;
+    height: 2.75rem;
+    padding: 0 0.45rem;
     flex-shrink: 0;
   }
 
@@ -8990,27 +9001,27 @@ body:has(.confirm-inline-bar) .confirm-inline-bar {
   }
 
   .sidebar--mobile .nav-menu {
-    --nav-item-min-h: 1.75rem;
-    --nav-item-max-h: 2.75rem;
+    --nav-item-min-h: 1.7rem;
+    --nav-item-max-h: 2.15rem;
     flex: 1;
     min-height: 0;
     overflow-x: hidden;
     overflow-y: auto;
     overscroll-behavior: contain;
-    padding: 0.4rem 0.75rem;
+    padding: 0.3rem 0.5rem;
     display: flex;
     flex-direction: column;
     align-items: stretch;
-    justify-content: space-evenly;
-    gap: 0.1rem;
+    justify-content: flex-start;
+    gap: 0.05rem;
   }
 
   .sidebar--mobile .nav-item {
-    gap: 0.75rem;
+    gap: 0.55rem;
     width: 100%;
-    padding: 0.3rem 0.85rem;
-    border-radius: 10px;
-    font-size: 0.875rem;
+    padding: 0.28rem 0.65rem;
+    border-radius: 8px;
+    font-size: 0.8125rem;
     line-height: 1.2;
     white-space: nowrap;
   }
@@ -9022,13 +9033,13 @@ body:has(.confirm-inline-bar) .confirm-inline-bar {
   .sidebar--mobile .nav-icon {
     display: inline-flex;
     flex-shrink: 0;
-    width: 20px;
-    height: 20px;
+    width: 18px;
+    height: 18px;
   }
 
   .sidebar--mobile .nav-icon svg {
-    width: 20px;
-    height: 20px;
+    width: 18px;
+    height: 18px;
   }
 
   .sidebar--mobile .nav-item.active {

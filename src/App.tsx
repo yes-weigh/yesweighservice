@@ -64,6 +64,7 @@ import { LocalPrintersTab } from './pages/admin/settings/LocalPrintersTab';
 import { AuditCyclesTab } from './pages/admin/settings/AuditCyclesTab';
 import { AuditReportTab } from './pages/admin/settings/AuditReportTab';
 import { GatcReportTab } from './pages/admin/settings/GatcReportTab';
+import { OpsPlaceholderPage } from './pages/admin/OpsPlaceholderPage';
 import { InventoryAuditItemPage } from './pages/admin/InventoryAuditItemPage';
 import { InventoryAuditLinkedGroupPage } from './pages/admin/InventoryAuditLinkedGroupPage';
 import { OpenCatalogPage } from './pages/public/OpenCatalogPage';
@@ -335,6 +336,24 @@ const App: React.FC = () => (
                 <Route path="audit-report" element={<AuditReportTab />} />
                 <Route path="gatc-report" element={<GatcReportTab />} />
               </Route>
+              <Route
+                path="whatsapp"
+                element={(
+                  <OpsPlaceholderPage
+                    title="WhatsApp"
+                    description="WhatsApp tools will appear here."
+                  />
+                )}
+              />
+              <Route
+                path="cloud-call"
+                element={(
+                  <OpsPlaceholderPage
+                    title="Cloud call"
+                    description="Cloud call tools will appear here."
+                  />
+                )}
+              />
               <Route path="settings" element={<SettingsLayout />}>
                 <Route path="profile" element={<SettingsProfileTab />} />
                 {hrNestedRoutes('/super-admin/settings', true)}
