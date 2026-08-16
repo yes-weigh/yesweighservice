@@ -20304,6 +20304,96 @@ body:has(.confirm-inline-bar) .confirm-inline-bar {
   color: var(--text-primary);
 }
 
+.dealer-dash-period-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.dealer-dash-period {
+  display: flex;
+  flex-direction: column;
+  gap: 0.55rem;
+  padding: 0.75rem 0.85rem;
+  border-radius: 12px;
+  border: 1px solid rgba(148, 163, 184, 0.16);
+  background: rgba(15, 23, 42, 0.28);
+}
+
+.dealer-dash-period__row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.55rem 0.75rem;
+}
+
+.dealer-dash-period__label {
+  margin: 0;
+  font-size: 0.75rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  color: var(--text-muted, #94a3b8);
+}
+
+.dealer-dash-period__options {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+}
+
+.dealer-dash-period__option {
+  padding: 0.4rem 0.7rem;
+  border: 1px solid rgba(148, 163, 184, 0.18);
+  border-radius: 8px;
+  background: transparent;
+  color: var(--text-muted, #94a3b8);
+  font-size: 0.8125rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.dealer-dash-period__option:hover {
+  color: #fdba74;
+  border-color: rgba(245, 130, 32, 0.35);
+}
+
+.dealer-dash-period__option.is-active {
+  background: rgba(245, 130, 32, 0.16);
+  border-color: transparent;
+  color: #fdba74;
+}
+
+.dealer-dash-period__custom {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.65rem;
+}
+
+.dealer-dash-period__date {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  min-width: 9.5rem;
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--text-muted, #94a3b8);
+}
+
+.dealer-dash-period__date input {
+  padding: 0.4rem 0.55rem;
+  border-radius: 8px;
+  border: 1px solid rgba(148, 163, 184, 0.22);
+  background: rgba(15, 23, 42, 0.45);
+  color: inherit;
+  font: inherit;
+  font-weight: 600;
+}
+
+.dealer-dash-period__range {
+  margin: 0;
+}
+
 .dealer-dash__kpis-layout {
   display: flex;
   flex-direction: column;

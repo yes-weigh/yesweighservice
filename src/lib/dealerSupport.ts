@@ -3,6 +3,7 @@ import {
   collection,
   deleteDoc,
   doc,
+  getCountFromServer,
   getDoc,
   getDocs,
   limit,
@@ -946,6 +947,38 @@ export async function fetchDealerSupportRequests(user: User): Promise<DealerSupp
 
 function excludeDraftSupportRequests(requests: DealerSupportRequest[]): DealerSupportRequest[] {
   return requests.filter(request => !isSupportDraft(request));
+}
+
+function supportDayBoundIso(dateKey: string, endOfDay: boolean): string {
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(dateKey.trim());
+  if (!match) return dateKey;
+  const date = new Date(
+    Number(match[1]),
+    Number(match[2]) - 1,
+    Number(match[3]),
+    endOfDay ? 23 : 0,
+    endOfDay ? 59 : 0,
+    endOfDay ? 59 : 0,
+    endOfDay ? 999 : 0,
+  );
+  return date.toISOString();
+}
+
+/** Non-draft support tickets created in an inclusive YYYY-MM-DD window. */
+export async function countOpsSupportRequestsInRange(
+  dateStart: string,
+  dateEnd: string,
+): Promise<number> {
+  const start = supportDayBoundIso(dateStart, false);
+  const end = supportDayBoundIso(dateEnd, true);
+  const snap = await getCountFromServer(
+    query(
+      collection(db, 'dealerSupportRequests'),
+      where('createdAt', '>=', start),
+      where('createdAt', '<=', end),
+    ),
+  );
+  return snap.data().count;
 }
 
 export async function fetchOpsSupportRequests(): Promise<DealerSupportRequest[]> {

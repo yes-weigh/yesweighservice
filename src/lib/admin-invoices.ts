@@ -2102,6 +2102,50 @@ export async function countAdminInvoiceFilterChipMaps(options: {
   return { byFilterStatus, byCategoryAndFilterStatus };
 }
 
+/** Live counts for selected invoice list statuses in a date window. */
+export async function countAdminInvoiceListStatuses(options: {
+  dateStart?: string | null;
+  dateEnd?: string | null;
+  statuses: readonly string[];
+}): Promise<Record<string, number>> {
+  const dateStart = options.dateStart?.trim() || null;
+  const dateEnd = options.dateEnd?.trim() || null;
+  const listCollection = await resolveAdminInvoiceListCollection();
+  const counts: Record<string, number> = {};
+
+  const countStatus = async (status: string): Promise<number> => {
+    const values = listStatusCountValues(status);
+    let total = 0;
+    for (const listStatus of values) {
+      const constraints: QueryConstraint[] = [where('listStatus', '==', listStatus)];
+      if (dateStart) constraints.push(where('date', '>=', dateStart));
+      if (dateEnd) constraints.push(where('date', '<=', dateEnd));
+      constraints.push(orderBy('date', 'desc'));
+      try {
+        const snap = await getCountFromServer(
+          query(collectionGroup(db, listCollection), ...constraints),
+        );
+        total += snap.data().count;
+      } catch (err) {
+        if (listCollection === 'invoiceSummaries' && isFirestoreIndexError(err)) {
+          const snap = await getCountFromServer(
+            query(collectionGroup(db, 'invoices'), ...constraints),
+          );
+          total += snap.data().count;
+          continue;
+        }
+        throw err;
+      }
+    }
+    return total;
+  };
+
+  await Promise.all(options.statuses.map(async status => {
+    counts[status] = await countStatus(status);
+  }));
+  return counts;
+}
+
 export async function countAdminInvoicesByCategory(options: {
   dateStart?: string | null;
   dateEnd?: string | null;
