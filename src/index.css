@@ -8986,8 +8986,8 @@ body:has(.confirm-inline-bar) .confirm-inline-bar {
     width: max-content;
     max-width: 88vw;
     align-items: stretch;
-    inset: 0 auto auto 0;
-    height: auto;
+    inset: 0 auto 0 0;
+    height: 100dvh;
     max-height: 100dvh;
     padding-bottom: env(safe-area-inset-bottom, 0px);
   }
@@ -9013,7 +9013,7 @@ body:has(.confirm-inline-bar) .confirm-inline-bar {
 
   .sidebar--mobile .nav-menu {
     --nav-item-min-h: 1.7rem;
-    --nav-item-max-h: 2.15rem;
+    --nav-item-max-h: none;
     flex: 1 1 auto;
     min-height: 0;
     overflow-x: hidden;
