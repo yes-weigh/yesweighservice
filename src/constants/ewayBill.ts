@@ -1,6 +1,9 @@
 /** GST rule: e-way bill required when invoice grand total (incl. GST) exceeds this (INR). */
 export const EWAY_BILL_THRESHOLD_INR = 50_000;
 
+/** Shown when YesOne has the e-way number but Zoho will not return a PDF. */
+export const EWAY_BILL_DOWNLOAD_FROM_ZOHO = 'Download the e-way bill from Zoho.';
+
 /** Invoice grand total including GST (Zoho `total`, or subtotal + tax). */
 export function invoiceTotalInclGst(input: {
   total?: unknown;

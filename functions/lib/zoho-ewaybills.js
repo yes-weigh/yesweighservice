@@ -213,6 +213,28 @@ async function fetchZohoEwayBillRecord(accessToken, orgId, ewaybillId) {
   return payload?.ewaybill ?? null;
 }
 
+/** Pull GST portal details onto a Zoho e-way bill so the 12-digit number is available. */
+export async function syncZohoEwayBillFromGstPortal(accessToken, orgId, ewaybillId) {
+  const id = String(ewaybillId ?? '').trim();
+  if (!id) return null;
+  try {
+    const payload = await zohoJson(accessToken, orgId, `/ewaybills/${encodeURIComponent(id)}/sync`, {
+      method: 'POST',
+    });
+    const fromSync = ewayRecordFromPayload(payload) || payload?.ewaybill || null;
+    if (fromSync && String(fromSync.ewaybill_number ?? fromSync.eway_bill_number ?? '').trim()) {
+      return fromSync;
+    }
+  } catch {
+    // GET still works if sync is not allowed or already current
+  }
+  try {
+    return await fetchZohoEwayBillRecord(accessToken, orgId, id);
+  } catch {
+    return null;
+  }
+}
+
 function resolveEwayDistanceKm(options = {}) {
   const explicit = Number(options.explicitDistance);
   if (Number.isFinite(explicit) && explicit > 0) {
@@ -381,10 +403,13 @@ async function listEwayBillsForInvoice(accessToken, orgId, invoice) {
   const invoiceNumber = String(invoice?.invoice_number ?? '').trim();
   const queries = [];
   if (invoiceId) {
+    queries.push({ entity_type: 'invoice', entity_ids: invoiceId });
+    queries.push({ entity_type: 'invoice', entity_id: invoiceId });
     queries.push({ invoice_id: invoiceId });
     queries.push({ entity_id: invoiceId });
   }
   if (invoiceNumber) {
+    queries.push({ entity_type: 'invoice', reference_number: invoiceNumber });
     queries.push({ reference_number: invoiceNumber });
     queries.push({ invoice_number: invoiceNumber });
   }
@@ -396,7 +421,9 @@ async function listEwayBillsForInvoice(accessToken, orgId, invoice) {
   const belongs = (row) => {
     if (!row || typeof row !== 'object') return false;
     const rowInvoiceId = String(row.invoice_id ?? row.entity_id ?? '').trim();
-    const rowNumber = String(row.invoice_number ?? row.reference_number ?? '').trim();
+    const rowNumber = String(
+      row.invoice_number ?? row.reference_number ?? row.entity_number ?? '',
+    ).trim();
     if (rowInvoiceId) return Boolean(invoiceId) && rowInvoiceId === invoiceId;
     if (rowNumber) return Boolean(invoiceNumber) && rowNumber === invoiceNumber;
     return true;

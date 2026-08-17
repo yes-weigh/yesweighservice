@@ -117,6 +117,7 @@ import {
   clubbedInvoiceTotalInr,
   clubbedNeedsEwayBill,
   preferredInvoiceTotalInclGst,
+  EWAY_BILL_DOWNLOAD_FROM_ZOHO,
   type EwayBillCancelReason,
 } from '../../constants/ewayBill';
 import { EwayBillCancelDialog } from './EwayBillCancelDialog';
@@ -625,7 +626,7 @@ export const LogisticsBookingDetail: React.FC<LogisticsBookingDetailProps> = ({
       return;
     }
     if (!result.contentBase64) {
-      if (result.status === 'generated' && result.ewaybillNumber) {
+      if (result.status === 'generated') {
         setDelhiveryDocsError('');
         return;
       }
@@ -824,6 +825,17 @@ export const LogisticsBookingDetail: React.FC<LogisticsBookingDetailProps> = ({
     setPartnerEwayPushing(true);
     setPartnerEwayError('');
     try {
+      const { rows, failures } = await fetchClubbedEwayBills(true);
+      const withNumber = rows.filter(row => String(row.result?.ewaybillNumber || row.ewaybillNumber || '').trim());
+      if (withNumber[0]?.ewaybillNumber) {
+        setEwayBillNumber(withNumber[0].ewaybillNumber ?? null);
+        setEwayBillStatus(withNumber[0].status ?? 'generated');
+      }
+      if (!withNumber.length) {
+        throw new Error(
+          failures.join(' ') || 'Could not fetch the e-way bill number from Zoho.',
+        );
+      }
       await pushDelhiveryLrEwayBills({
         bookingId: booking.id,
         invoiceId: booking.invoiceId,
@@ -831,8 +843,12 @@ export const LogisticsBookingDetail: React.FC<LogisticsBookingDetailProps> = ({
       setPartnerEwayStatus({
         onPartner: true,
         lrn: ewayLrNumber || null,
-        expected: partnerEwayStatus?.expected || [],
-        partnerEwaybills: partnerEwayStatus?.expected || [],
+        expected: withNumber
+          .map(row => String(row.ewaybillNumber || row.result?.ewaybillNumber || '').trim())
+          .filter(Boolean),
+        partnerEwaybills: withNumber
+          .map(row => String(row.ewaybillNumber || row.result?.ewaybillNumber || '').trim())
+          .filter(Boolean),
         missing: [],
       });
       await refreshBookingAfterPartnerEway();
@@ -847,6 +863,7 @@ export const LogisticsBookingDetail: React.FC<LogisticsBookingDetailProps> = ({
     booking.id,
     booking.invoiceId,
     ewayLrNumber,
+    fetchClubbedEwayBills,
     isDelhivery,
     partnerEwayStatus,
     refreshBookingAfterPartnerEway,
@@ -1859,6 +1876,9 @@ export const LogisticsBookingDetail: React.FC<LogisticsBookingDetailProps> = ({
         {isDelhivery && delhiveryDocsLoading && (
           <p className="text-muted text-sm">Loading Delhivery documents…</p>
         )}
+        {ewayGenerated ? (
+          <p className="logistics-booking__slip-hint">{EWAY_BILL_DOWNLOAD_FROM_ZOHO}</p>
+        ) : null}
         {delhiveryDocsError ? (
           <p className="logistics-booking__docs-error" role="alert">{delhiveryDocsError}</p>
         ) : null}
