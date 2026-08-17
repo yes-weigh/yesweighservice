@@ -8,6 +8,17 @@ import {
   classifyZohoHttpError,
 } from './zoho-api-usage.js';
 import { isSacHsn } from './sac-catalog.js';
+import { isFreightOrderLine } from './freight-lines.js';
+
+function isZohoNotAuthorized(err) {
+  return /not authorized to perform this operation/i.test(String(err?.message ?? ''));
+}
+
+function lineAllowsWarehouse(line) {
+  if (isFreightOrderLine(line)) return false;
+  if (isSacHsn(line.hsn)) return false;
+  return true;
+}
 
 async function zohoJson(accessToken, orgId, path, { method = 'GET', body } = {}) {
   const url = new URL(`${ZOHO_API_BASE}${path}`);
@@ -62,7 +73,7 @@ function lineItemsFromOrder(order, warehouseId = null) {
     unit: String(line.unit || 'pcs'),
     ...(line.description ? { description: String(line.description) } : {}),
     ...(line.hsn ? { hsn_or_sac: String(line.hsn) } : {}),
-    ...(warehouse && !isSacHsn(line.hsn) ? { warehouse_id: warehouse } : {}),
+    ...(warehouse && lineAllowsWarehouse(line) ? { warehouse_id: warehouse } : {}),
   })).filter(line => line.quantity > 0 && line.item_id);
 }
 
@@ -138,6 +149,19 @@ export async function createSalesOrderFromDealerOrder(secrets, configuredOrgId, 
   const payload = await zohoJson(accessToken, orgId, '/salesorders', {
     method: 'POST',
     body,
+  }).catch(async (err) => {
+    const hasWarehouse = body.line_items.some(line => line.warehouse_id);
+    if (!hasWarehouse || !isZohoNotAuthorized(err)) throw err;
+    // Some Zoho items (freight, fees, non-warehoused goods) reject warehouse_id
+    // with "You are not authorized to perform this operation".
+    const retryBody = {
+      ...body,
+      line_items: body.line_items.map(({ warehouse_id: _warehouseId, ...line }) => line),
+    };
+    return zohoJson(accessToken, orgId, '/salesorders', {
+      method: 'POST',
+      body: retryBody,
+    });
   });
 
   const so = payload?.salesorder;
