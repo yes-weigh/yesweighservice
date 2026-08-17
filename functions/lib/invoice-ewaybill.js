@@ -504,12 +504,16 @@ export async function ensureInvoiceEwayBill(secrets, orgId, input) {
       vehicleNumber: pickupVehicle || null,
       db,
     }).catch(async (err) => {
-      const existingRemote = await recoverExistingEwayBillForInvoice(
-        accessToken,
-        organizationId,
-        invoiceId,
-      );
-      if (existingRemote) return existingRemote;
+      try {
+        const existingRemote = await recoverExistingEwayBillForInvoice(
+          accessToken,
+          organizationId,
+          invoiceId,
+        );
+        if (existingRemote) return existingRemote;
+      } catch {
+        // keep the original generate error
+      }
       throw err;
     });
   }
@@ -579,7 +583,7 @@ export async function ensureInvoiceEwayBill(secrets, orgId, input) {
       });
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
-      if (!/already|exist|duplicate/i.test(message)) throw err;
+      if (!/already|exist|duplicate|not authorized/i.test(message)) throw err;
     }
   }
 
@@ -589,15 +593,21 @@ export async function ensureInvoiceEwayBill(secrets, orgId, input) {
   let buffer = pdfStoragePath ? await readPdfFromStorage(pdfStoragePath) : null;
 
   if (!buffer && mapped.pdfPrintAllowed !== false) {
-    const printed = await fetchZohoEwayBillPdf(accessToken, organizationId, mapped.zohoEwaybillId);
-    buffer = printed.buffer;
-    mimeType = printed.mimeType;
-    extension = printed.extension;
-    pdfStoragePath = await uploadPdfToStorage(
-      ewayBillPdfPath(customerId, invoiceId, extension),
-      buffer,
-      mimeType,
-    );
+    try {
+      const printed = await fetchZohoEwayBillPdf(accessToken, organizationId, mapped.zohoEwaybillId);
+      buffer = printed.buffer;
+      mimeType = printed.mimeType;
+      extension = printed.extension;
+      pdfStoragePath = await uploadPdfToStorage(
+        ewayBillPdfPath(customerId, invoiceId, extension),
+        buffer,
+        mimeType,
+      );
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      if (!mapped.ewaybillNumber) throw err;
+      console.warn('Could not download e-way bill PDF from Zoho:', message);
+    }
   }
 
   const saved = await persistEwayBill(customerId, invoiceId, {
@@ -841,12 +851,16 @@ export async function ensureInvoiceEwayBillForCustomerPickup(secrets, orgId, inp
       vehicleNumber,
       db,
     }).catch(async (err) => {
-      const existingRemote = await recoverExistingEwayBillForInvoice(
-        accessToken,
-        organizationId,
-        invoiceId,
-      );
-      if (existingRemote) return existingRemote;
+      try {
+        const existingRemote = await recoverExistingEwayBillForInvoice(
+          accessToken,
+          organizationId,
+          invoiceId,
+        );
+        if (existingRemote) return existingRemote;
+      } catch {
+        // keep the original generate error
+      }
       throw err;
     });
   }
@@ -889,7 +903,7 @@ export async function ensureInvoiceEwayBillForCustomerPickup(secrets, orgId, inp
     });
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
-    if (!/already|exist|duplicate|API access|cancel/i.test(message)) throw err;
+    if (!/already|exist|duplicate|API access|cancel|not authorized/i.test(message)) throw err;
   }
 
   const refreshed = await findZohoEwayBillForInvoice(accessToken, organizationId, invoiceId);
@@ -901,33 +915,40 @@ export async function ensureInvoiceEwayBillForCustomerPickup(secrets, orgId, inp
   let buffer = null;
 
   if (finalMapped.pdfPrintAllowed !== false) {
-    const printed = await fetchZohoEwayBillPdf(accessToken, organizationId, finalMapped.zohoEwaybillId);
-    buffer = printed.buffer;
-    mimeType = printed.mimeType;
-    extension = printed.extension;
-    const printText = mimeType.includes('html') || mimeType.includes('text')
-      ? buffer.toString('utf8')
-      : '';
-    if (/e-?way bill status[\s\S]{0,120}cancell/i.test(printText)) {
-      await persistEwayBill(customerId, invoiceId, {
-        ...finalMapped,
-        required: true,
-        status: 'cancelled',
-        pdfStoragePath: null,
-        partnerId,
-        error: 'GST copy is cancelled.',
-      }, null);
-      throw new Error(
-        'Zoho returned a cancelled e-way bill copy. '
-        + `Generate a new e-way bill in Zoho with vehicle ${vehicleNumber} (Part B), `
-        + 'then tap E way bill here again.',
+    try {
+      const printed = await fetchZohoEwayBillPdf(accessToken, organizationId, finalMapped.zohoEwaybillId);
+      buffer = printed.buffer;
+      mimeType = printed.mimeType;
+      extension = printed.extension;
+      const printText = mimeType.includes('html') || mimeType.includes('text')
+        ? buffer.toString('utf8')
+        : '';
+      if (/e-?way bill status[\s\S]{0,120}cancell/i.test(printText)) {
+        await persistEwayBill(customerId, invoiceId, {
+          ...finalMapped,
+          required: true,
+          status: 'cancelled',
+          pdfStoragePath: null,
+          partnerId,
+          error: 'GST copy is cancelled.',
+        }, null);
+        throw new Error(
+          'Zoho returned a cancelled e-way bill copy. '
+          + `Generate a new e-way bill in Zoho with vehicle ${vehicleNumber} (Part B), `
+          + 'then tap E way bill here again.',
+        );
+      }
+      pdfStoragePath = await uploadPdfToStorage(
+        ewayBillPdfPath(customerId, invoiceId, extension),
+        buffer,
+        mimeType,
       );
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      if (/cancelled e-way bill copy/i.test(message)) throw err;
+      if (!finalMapped.ewaybillNumber) throw err;
+      console.warn('Could not download e-way bill PDF from Zoho:', message);
     }
-    pdfStoragePath = await uploadPdfToStorage(
-      ewayBillPdfPath(customerId, invoiceId, extension),
-      buffer,
-      mimeType,
-    );
   }
 
   const saved = await persistEwayBill(customerId, invoiceId, {

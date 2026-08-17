@@ -125,6 +125,14 @@ function isEwayAlreadyGeneratedError(message) {
   );
 }
 
+function isZohoNotAuthorizedError(message) {
+  return /not authorized to perform this operation/i.test(String(message ?? ''));
+}
+
+function isEwayRecoverableGenerateError(message) {
+  return isEwayAlreadyGeneratedError(message) || isZohoNotAuthorizedError(message);
+}
+
 function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
@@ -140,10 +148,10 @@ export function formatEwayBillPortalError(message) {
       + 'and tap E way bill here again.'
     );
   }
-  if (isEwayAlreadyGeneratedError(text)) {
+  if (isEwayAlreadyGeneratedError(text) || isZohoNotAuthorizedError(text)) {
     return (
-      'GST already has an e-way bill for this invoice (IRN). '
-      + 'Zoho has not listed the number yet — wait a few seconds and tap Generate again, '
+      'GST already has an e-way bill for this invoice, or Zoho blocked a second generate. '
+      + 'Wait a few seconds and tap Generate again to pull the existing number onto this booking, '
       + 'or open the invoice in Zoho Books to confirm the e-way bill.'
     );
   }
@@ -487,35 +495,49 @@ async function pickActiveEwayBillForInvoice(accessToken, orgId, invoice, extra =
   }
   if (best) return best;
 
-  return listed.find(row => isActiveGeneratedRecord(row)) ?? null;
+  const listedActive = listed.find(row => isActiveGeneratedRecord(row));
+  if (listedActive) return listedActive;
+
+  const number = collectEwayBillNumbers(merged)[0] || '';
+  const fallbackId = ids[0] || '';
+  if (!number && !fallbackId) return null;
+  return {
+    ewaybill_id: fallbackId || undefined,
+    ewaybill_number: number || undefined,
+    ewaybill_status: 'generated',
+  };
 }
 
 export async function recoverExistingEwayBillForInvoice(accessToken, orgId, invoiceId) {
-  const invoice = await fetchZohoInvoice(accessToken, orgId, invoiceId);
-  if (!invoice) return null;
+  try {
+    const invoice = await fetchZohoInvoice(accessToken, orgId, invoiceId);
+    if (!invoice) return null;
 
-  let found = await pickActiveEwayBillForInvoice(accessToken, orgId, invoice);
-  if (found) return found;
+    let found = await pickActiveEwayBillForInvoice(accessToken, orgId, invoice);
+    if (found) return found;
 
-  const einvoice = invoiceHasIrn(invoice)
-    ? await fetchZohoEinvoice(accessToken, orgId, invoice)
-    : null;
-  found = await pickActiveEwayBillForInvoice(accessToken, orgId, invoice, einvoice);
-  if (found) return found;
+    const einvoice = invoiceHasIrn(invoice)
+      ? await fetchZohoEinvoice(accessToken, orgId, invoice)
+      : null;
+    found = await pickActiveEwayBillForInvoice(accessToken, orgId, invoice, einvoice);
+    if (found) return found;
 
-  await sleep(800);
-  const refreshed = await fetchZohoInvoice(accessToken, orgId, invoiceId);
-  if (!refreshed) return null;
-  found = await pickActiveEwayBillForInvoice(accessToken, orgId, refreshed);
-  if (found) return found;
-  const refreshedEinvoice = invoiceHasIrn(refreshed)
-    ? await fetchZohoEinvoice(accessToken, orgId, refreshed)
-    : null;
-  return pickActiveEwayBillForInvoice(accessToken, orgId, refreshed, refreshedEinvoice);
+    await sleep(800);
+    const refreshed = await fetchZohoInvoice(accessToken, orgId, invoiceId);
+    if (!refreshed) return null;
+    found = await pickActiveEwayBillForInvoice(accessToken, orgId, refreshed);
+    if (found) return found;
+    const refreshedEinvoice = invoiceHasIrn(refreshed)
+      ? await fetchZohoEinvoice(accessToken, orgId, refreshed)
+      : null;
+    return pickActiveEwayBillForInvoice(accessToken, orgId, refreshed, refreshedEinvoice);
+  } catch {
+    return null;
+  }
 }
 
 async function recoverExistingOrThrow(accessToken, orgId, invoiceId, message) {
-  if (isEwayAlreadyGeneratedError(message)) {
+  if (isEwayRecoverableGenerateError(message)) {
     const recovered = await recoverExistingEwayBillForInvoice(accessToken, orgId, invoiceId);
     if (recovered) return recovered;
   }
@@ -665,6 +687,31 @@ export async function createZohoEwayBillForInvoice(accessToken, orgId, input) {
         );
       }
     }
+    if (
+      isZohoNotAuthorizedError(message)
+      && (body.location_id || body.branch_id || body.dispatch_from_address_id)
+    ) {
+      const {
+        location_id: _locationId,
+        branch_id: _branchId,
+        dispatch_from_address_id: _dispatchId,
+        ...stripped
+      } = body;
+      try {
+        const retried = await zohoJson(accessToken, orgId, '/ewaybills', {
+          method: 'POST',
+          body: stripped,
+        });
+        return retried?.ewaybill ?? null;
+      } catch (retryErr) {
+        return recoverExistingOrThrow(
+          accessToken,
+          orgId,
+          invoiceId,
+          retryErr instanceof Error ? retryErr.message : String(retryErr),
+        );
+      }
+    }
     return recoverExistingOrThrow(accessToken, orgId, invoiceId, message);
   }
 }
@@ -693,17 +740,25 @@ async function createEwayBillFromEinvoice(accessToken, orgId, invoice, body) {
       const message = err instanceof Error ? err.message : String(err);
       lastError = err;
       if (isMissingZohoEndpointError(message)) continue;
-      if (isEwayAlreadyGeneratedError(message)) {
-        const recovered = await findZohoEwayBillForInvoice(accessToken, orgId, invoiceId);
-        if (recovered) return recovered;
+      if (isEwayRecoverableGenerateError(message)) {
+        try {
+          const recovered = await findZohoEwayBillForInvoice(accessToken, orgId, invoiceId);
+          if (recovered) return recovered;
+        } catch {
+          // keep looking
+        }
         const einvoice = await fetchZohoEinvoice(accessToken, orgId, invoice);
         const record = ewayRecordFromPayload(einvoice);
         if (record && isActiveGeneratedRecord(record)) return record;
+        lastError = err;
+        continue;
       }
       throw err;
     }
   }
   if (lastError && !isMissingZohoEndpointError(
+    lastError instanceof Error ? lastError.message : String(lastError),
+  ) && !isEwayRecoverableGenerateError(
     lastError instanceof Error ? lastError.message : String(lastError),
   )) {
     throw lastError;
