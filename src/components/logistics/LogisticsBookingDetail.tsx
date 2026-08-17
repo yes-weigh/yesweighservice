@@ -114,7 +114,9 @@ import { ensureInvoiceEwayBill, cancelInvoiceEwayBill, pushDelhiveryLrEwayBills,
 import {
   bookingNeedsEwayBill,
   clubbedEwayBillRequiredLabel,
+  clubbedInvoiceTotalInr,
   clubbedNeedsEwayBill,
+  preferredInvoiceTotalInclGst,
   type EwayBillCancelReason,
 } from '../../constants/ewayBill';
 import { EwayBillCancelDialog } from './EwayBillCancelDialog';
@@ -437,8 +439,12 @@ export const LogisticsBookingDetail: React.FC<LogisticsBookingDetailProps> = ({
   );
   const hasLinkedInvoice = Boolean(booking.invoiceId?.trim());
   const ewayInvoiceRows = useMemo(() => clubbedInvoiceRowsFromBooking(booking), [booking]);
-  const invoiceTotalForEway = Number(booking.invoiceValueInr ?? 0);
-  const ewayRequired = hasLinkedInvoice && bookingNeedsEwayBill(booking);
+  const invoiceTotalForEway = preferredInvoiceTotalInclGst(
+    clubbedInvoiceTotalInr(booking.invoices ?? []),
+    freightCompare?.invoiceTotalInclGst,
+    booking.invoiceValueInr,
+  ) ?? 0;
+  const ewayRequired = hasLinkedInvoice && bookingNeedsEwayBill(booking, invoiceTotalForEway);
   const ewayClubbed = ewayInvoiceRows.length > 1;
   const ewayCustomerId = booking.dealer.zohoCustomerId?.trim() || '';
   const ewayLrNumber = (delhiveryIds?.lrn || booking.consignmentNo || '').trim();
@@ -575,9 +581,9 @@ export const LogisticsBookingDetail: React.FC<LogisticsBookingDetailProps> = ({
       partnerId: booking.partnerId,
       lrNumber: ewayLrNumber || null,
       bookingId: booking.id,
-      invoiceTotalInr: booking.invoiceValueInr ?? null,
+      invoiceTotalInr: invoiceTotalForEway || null,
       autoGenerate: false,
-      forceRequired: clubbedNeedsEwayBill(booking.invoices ?? booking.invoiceValueInr ?? 0),
+      forceRequired: clubbedNeedsEwayBill(booking.invoices ?? invoiceTotalForEway),
     })
       .then(result => {
         if (cancelled) return;
@@ -603,6 +609,7 @@ export const LogisticsBookingDetail: React.FC<LogisticsBookingDetailProps> = ({
     booking.id,
     booking.invoiceId,
     booking.invoiceValueInr,
+    invoiceTotalForEway,
     booking.partnerId,
     ewayBillStatus,
     ewayRequired,
@@ -659,7 +666,7 @@ export const LogisticsBookingDetail: React.FC<LogisticsBookingDetailProps> = ({
           partnerId: booking.partnerId,
           lrNumber: ewayLrNumber || null,
           bookingId: booking.id,
-          invoiceTotalInr: row.valueInr || booking.invoiceValueInr || null,
+          invoiceTotalInr: preferredInvoiceTotalInclGst(row.valueInr, invoiceTotalForEway) || null,
           autoGenerate,
           forceRequired,
         });
@@ -689,6 +696,7 @@ export const LogisticsBookingDetail: React.FC<LogisticsBookingDetailProps> = ({
   }, [
     booking.id,
     booking.invoiceValueInr,
+    invoiceTotalForEway,
     booking.partnerId,
     ewayCustomerId,
     ewayInvoiceRows,

@@ -17,6 +17,19 @@ export function invoiceTotalInclGst(input: {
   return null;
 }
 
+/** Largest positive invoice total among candidates — skips freight-only amounts when the real invoice is larger. */
+export function preferredInvoiceTotalInclGst(
+  ...candidates: Array<number | null | undefined>
+): number | null {
+  let best: number | null = null;
+  for (const raw of candidates) {
+    const n = Number(raw);
+    if (!Number.isFinite(n) || n <= 0) continue;
+    if (best == null || n > best) best = n;
+  }
+  return best;
+}
+
 export function isEwayBillRequired(invoiceTotalInclGstInr: unknown): boolean {
   const total = Number(invoiceTotalInclGstInr);
   return Number.isFinite(total) && total > EWAY_BILL_THRESHOLD_INR;
@@ -38,8 +51,10 @@ export function resolveEwayBillInvoiceTotal(
 ): number | null {
   const fromInvoice = invoiceTotalInclGst(invoice);
   if (fromInvoice != null) return fromInvoice;
-  const fromBooking = Number(booking.invoiceValueInr);
-  return Number.isFinite(fromBooking) && fromBooking > 0 ? fromBooking : null;
+  return preferredInvoiceTotalInclGst(
+    clubbedInvoiceTotalInr(booking.invoices ?? []),
+    booking.invoiceValueInr,
+  );
 }
 
 export function clubbedInvoiceTotalInr(
@@ -143,8 +158,11 @@ export function bookingNeedsEwayBill(
   if (!bookingLinkedInvoiceIds(booking).length) return false;
   if (booking.invoices?.some(row => row.ewayRequired === true)) return true;
   const clubbed = clubbedInvoiceTotalInr(booking.invoices ?? []);
-  if (clubbed > 0) return isEwayBillRequired(clubbed);
-  const total = invoiceTotalInclGstInr ?? resolveEwayBillInvoiceTotal(booking);
+  const total = preferredInvoiceTotalInclGst(
+    clubbed,
+    invoiceTotalInclGstInr,
+    booking.invoiceValueInr,
+  );
   return isEwayBillRequired(total);
 }
 

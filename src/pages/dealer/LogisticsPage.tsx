@@ -54,7 +54,7 @@ import {
   type LogisticsBookingListFilters,
 } from '../../lib/logisticsBookings';
 import { formatCurrency } from '../../lib/catalog';
-import { ewayBillListChip } from '../../constants/ewayBill';
+import { ewayBillListChip, preferredInvoiceTotalInclGst } from '../../constants/ewayBill';
 import { clubbedInvoiceCount } from '../../lib/logisticsClubInvoices';
 import {
   loadLogisticsFreightCompare,
@@ -1283,7 +1283,10 @@ export const LogisticsPage: React.FC = () => {
                   ) ?? [];
                   const tracked = lastTrackedLabel(booking);
                   const ewayChip = ewayBillListChip(booking, {
-                    invoiceTotalInclGst: freight?.invoiceTotalInclGst ?? null,
+                    invoiceTotalInclGst: preferredInvoiceTotalInclGst(
+                      freight?.invoiceTotalInclGst,
+                      booking.invoiceValueInr,
+                    ),
                   });
                   const staffName = isOps
                     ? bookingStaffName(booking, dealerStaffById, freight?.salespersonName)
@@ -1377,15 +1380,10 @@ export const LogisticsPage: React.FC = () => {
                                   if (!booking.invoiceId?.trim()) return null;
                                   const fromBooking = Number(booking.invoiceValueInr);
                                   const fromFreight = Number(freight?.invoiceTotalInclGst);
-                                  const invoiceValueInr = (
-                                    Number.isFinite(fromBooking) && fromBooking > 0
-                                      ? fromBooking
-                                      : (
-                                        Number.isFinite(fromFreight) && fromFreight > 0
-                                          ? fromFreight
-                                          : 0
-                                      )
-                                  );
+                                  const invoiceValueInr = preferredInvoiceTotalInclGst(
+                                    fromBooking,
+                                    fromFreight,
+                                  ) ?? 0;
                                   if (!(invoiceValueInr > 0) && clubbedCount < 2) return null;
                                   return (
                                     <span className="logistics-shipment__invoice-value">
@@ -1410,13 +1408,13 @@ export const LogisticsPage: React.FC = () => {
                                   ) : (
                                     <>
                                       <span>
-                                        Paid{' '}
+                                        Freight{' '}
                                         {freight.paidFreightInr != null
                                           ? formatCurrency(freight.paidFreightInr)
                                           : '—'}
                                       </span>
                                       <span>
-                                        Actual{' '}
+                                        Actual freight{' '}
                                         {freight.actualFreightInr != null
                                           ? formatCurrency(freight.actualFreightInr)
                                           : '—'}

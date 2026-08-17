@@ -12,6 +12,7 @@ import {
   addZohoEwayBillVehicle,
   fetchZohoEwayBillPdf,
   findZohoEwayBillForInvoice,
+  recoverExistingEwayBillForInvoice,
   mapZohoEwayBillRecord,
   normalizeGstin,
   resolveTransporterForPartner,
@@ -263,7 +264,22 @@ async function maybePushEwayBillsToDelhiveryLr(db, { bookingId = null, invoiceId
   }
 }
 
-async function persistEwayBill(customerId, invoiceId, patch, bookingId = null) {
+function bookingInvoiceRowMatches(row, invoiceId, booking) {
+  if (!row || typeof row !== 'object') return false;
+  if (String(row.invoiceId || '') === String(invoiceId)) return true;
+  const bookingInvoiceId = String(booking?.invoiceId || '').trim();
+  const bookingInvoiceNumber = String(booking?.invoiceNumber || '').trim();
+  const rowNumber = String(row.invoiceNumber || '').trim();
+  return Boolean(
+    bookingInvoiceId
+    && bookingInvoiceId === String(invoiceId)
+    && bookingInvoiceNumber
+    && rowNumber
+    && rowNumber === bookingInvoiceNumber,
+  );
+}
+
+async function persistEwayBill(customerId, invoiceId, patch, bookingId = null, options = {}) {
   const db = getFirestore();
   const normalized = {
     ...patch,
@@ -283,14 +299,22 @@ async function persistEwayBill(customerId, invoiceId, patch, bookingId = null) {
     },
     updatedAt: new Date().toISOString(),
   }, { merge: true }).catch(() => {});
-  if (bookingId) {
-    const bookingRef = db.collection('logisticsBookings').doc(String(bookingId));
+  let resolvedBookingId = bookingId ? String(bookingId) : '';
+  if (
+    !resolvedBookingId
+    && String(normalized.status || '') === 'generated'
+    && String(normalized.ewaybillNumber || '').trim()
+  ) {
+    const found = await resolveDelhiveryBookingForEway(db, null, invoiceId);
+    resolvedBookingId = found?.id ? String(found.id) : '';
+  }
+  if (resolvedBookingId) {
+    const bookingRef = db.collection('logisticsBookings').doc(resolvedBookingId);
     const snap = await bookingRef.get();
     const data = snap.exists ? (snap.data() || {}) : {};
     const invoices = Array.isArray(data.invoices)
       ? data.invoices.map((row) => {
-        if (!row || typeof row !== 'object') return row;
-        if (String(row.invoiceId || '') !== String(invoiceId)) return row;
+        if (!bookingInvoiceRowMatches(row, invoiceId, data)) return row;
         return {
           ...row,
           ewayBillNumber: normalized.ewaybillNumber ?? row.ewayBillNumber ?? null,
@@ -313,11 +337,14 @@ async function persistEwayBill(customerId, invoiceId, patch, bookingId = null) {
     }, { merge: true });
   }
   if (
-    bookingId
-    && String(normalized.status || '') === 'generated'
+    String(normalized.status || '') === 'generated'
     && String(normalized.ewaybillNumber || '').trim()
   ) {
-    await maybePushEwayBillsToDelhiveryLr(db, { bookingId, invoiceId });
+    await maybePushEwayBillsToDelhiveryLr(db, {
+      bookingId: resolvedBookingId || null,
+      invoiceId,
+      force: options.forcePartnerPush === true,
+    });
   }
   return normalized;
 }
@@ -417,7 +444,11 @@ export async function ensureInvoiceEwayBill(secrets, orgId, input) {
       const ext = existing.pdfStoragePath.endsWith('.html') ? 'html' : 'pdf';
       const mimeType = ext === 'html' ? 'text/html' : 'application/pdf';
       if (existing.ewaybillNumber) {
-        await maybePushEwayBillsToDelhiveryLr(db, { bookingId, invoiceId });
+        await maybePushEwayBillsToDelhiveryLr(db, {
+          bookingId,
+          invoiceId,
+          force: autoGenerate,
+        });
       }
       return {
         required: true,
@@ -472,6 +503,14 @@ export async function ensureInvoiceEwayBill(secrets, orgId, input) {
       shipFromSite: shippingContext.shipFromSite,
       vehicleNumber: pickupVehicle || null,
       db,
+    }).catch(async (err) => {
+      const existingRemote = await recoverExistingEwayBillForInvoice(
+        accessToken,
+        organizationId,
+        invoiceId,
+      );
+      if (existingRemote) return existingRemote;
+      throw err;
     });
   }
 
@@ -494,6 +533,22 @@ export async function ensureInvoiceEwayBill(secrets, orgId, input) {
 
   const mapped = mapZohoEwayBillRecord(remote);
   if (!mapped?.zohoEwaybillId) {
+    if (mapped?.ewaybillNumber) {
+      const saved = await persistEwayBill(customerId, invoiceId, {
+        ...mapped,
+        required: true,
+        requiredBecause: forceRequired ? 'clubbed_lr' : 'invoice_total',
+        partnerId: partnerId || existing?.partnerId || null,
+        lrNumber: transporterDocumentNumber || existing?.lrNumber || null,
+        error: null,
+      }, bookingId, { forcePartnerPush: autoGenerate });
+      return {
+        required: true,
+        status: saved.status,
+        ewaybillNumber: saved.ewaybillNumber,
+        message: 'E-way bill already exists in GST. Printable copy will appear after Zoho syncs.',
+      };
+    }
     throw new Error('Zoho returned an invalid e-way bill record.');
   }
 
@@ -555,7 +610,7 @@ export async function ensureInvoiceEwayBill(secrets, orgId, input) {
     ...(pickupVehicle ? { vehicleNumber: pickupVehicle } : {}),
     transporterGstin: mapped.transporterGstin || existing?.transporterGstin || null,
     error: null,
-  }, bookingId);
+  }, bookingId, { forcePartnerPush: autoGenerate });
 
   if (!buffer) {
     return {
@@ -785,11 +840,34 @@ export async function ensureInvoiceEwayBillForCustomerPickup(secrets, orgId, inp
       shipFromSite: shippingContext.shipFromSite,
       vehicleNumber,
       db,
+    }).catch(async (err) => {
+      const existingRemote = await recoverExistingEwayBillForInvoice(
+        accessToken,
+        organizationId,
+        invoiceId,
+      );
+      if (existingRemote) return existingRemote;
+      throw err;
     });
   }
 
   const mapped = mapZohoEwayBillRecord(remote);
   if (!mapped?.zohoEwaybillId) {
+    if (mapped?.ewaybillNumber) {
+      const saved = await persistEwayBill(customerId, invoiceId, {
+        ...mapped,
+        required: true,
+        requiredBecause: 'invoice_total',
+        partnerId,
+        error: null,
+      }, null, { forcePartnerPush: true });
+      return {
+        required: true,
+        status: saved.status,
+        ewaybillNumber: saved.ewaybillNumber,
+        message: 'E-way bill already exists in GST. Open the invoice in Zoho to add vehicle details (Part B).',
+      };
+    }
     throw new Error('Zoho returned an invalid e-way bill record.');
   }
   if (mapped.status === 'cancelled') {
