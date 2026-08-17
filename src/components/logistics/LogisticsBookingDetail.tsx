@@ -620,17 +620,21 @@ export const LogisticsBookingDetail: React.FC<LogisticsBookingDetailProps> = ({
     isOps,
   ]);
 
-  const showEwayBillFromResult = useCallback((result: InvoiceEwayBillResult) => {
+  const showEwayBillFromResult = useCallback((
+    result: InvoiceEwayBillResult,
+    options: { promptGenerate?: boolean } = {},
+  ) => {
     if (!result.required) {
       setDelhiveryDocsError(result.message || 'E-way bill is not required for this invoice.');
       return;
     }
     if (!result.contentBase64) {
-      if (result.status === 'generated') {
-        setDelhiveryDocsError('');
+      if (options.promptGenerate && isOps) {
+        setEwayGenerateError(result.message || '');
+        setEwayGenerateOpen(true);
         return;
       }
-      setDelhiveryDocsError(result.message || 'E-way bill is not ready yet.');
+      setDelhiveryDocsError(result.message || EWAY_BILL_DOWNLOAD_FROM_ZOHO);
       return;
     }
     const bytes = base64ToUint8Array(result.contentBase64);
@@ -762,19 +766,33 @@ export const LogisticsBookingDetail: React.FC<LogisticsBookingDetailProps> = ({
     setDelhiveryDocsError('');
     try {
       const { rows, failures } = await fetchClubbedEwayBills(false);
-      const generated = rows.filter(row => row.result?.status === 'generated');
+      const generated = rows.filter(row => (
+        row.result?.status === 'generated' && Boolean(row.result?.contentBase64)
+      ));
       setEwayClubbedRows(rows);
       setEwayBillStatus(failures.length ? 'missing' : (generated[0]?.status ?? rows[0]?.status ?? null));
-      setEwayBillNumber(generated[0]?.ewaybillNumber ?? null);
+      setEwayBillNumber(generated[0]?.ewaybillNumber ?? rows[0]?.ewaybillNumber ?? null);
       if (ewayClubbed) {
         setEwayClubbedOpen(true);
-      } else if (generated[0]?.result) {
-        showEwayBillFromResult(generated[0].result);
-      } else if (rows[0]?.result) {
+        if (failures.length) setEwayGenerateError(failures.join(' '));
+        return;
+      }
+      if (generated[0]?.result) {
+        showEwayBillFromResult(generated[0].result, { promptGenerate: true });
+        return;
+      }
+      if (isOps) {
+        setEwayGenerateError(failures.join(' '));
+        setEwayGenerateOpen(true);
+        return;
+      }
+      if (rows[0]?.result) {
         showEwayBillFromResult(rows[0].result);
       }
       if (failures.length) {
         setDelhiveryDocsError(failures.join(' '));
+      } else {
+        setDelhiveryDocsError(EWAY_BILL_DOWNLOAD_FROM_ZOHO);
       }
     } catch (err) {
       setDelhiveryDocsError(

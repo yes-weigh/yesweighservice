@@ -389,9 +389,18 @@ function ewayRecordFromPayload(payload) {
   return null;
 }
 
+function isDraftEwayRecord(record) {
+  if (!record || typeof record !== 'object') return false;
+  const status = String(
+    record.ewaybill_status ?? record.eway_bill_status ?? record.status ?? '',
+  ).trim().toLowerCase();
+  return status === 'yet_to_generate' || status === 'not_generated' || status === 'draft';
+}
+
 function isActiveGeneratedRecord(record) {
   if (!record || typeof record !== 'object') return false;
   if (recordLooksCancelled(record)) return false;
+  if (isDraftEwayRecord(record)) return false;
   const number = String(record.ewaybill_number ?? record.eway_bill_number ?? '').trim();
   if (number) return true;
   const status = String(record.ewaybill_status ?? record.eway_bill_status ?? record.status ?? '').toLowerCase();
@@ -405,6 +414,7 @@ async function listEwayBillsForInvoice(accessToken, orgId, invoice) {
   if (invoiceId) {
     queries.push({ entity_type: 'invoice', entity_ids: invoiceId });
     queries.push({ entity_type: 'invoice', entity_id: invoiceId });
+    queries.push({ entity_type: 'invoice', entity_ids: invoiceId, status: 'yet_to_generate' });
     queries.push({ invoice_id: invoiceId });
     queries.push({ entity_id: invoiceId });
   }
@@ -540,13 +550,31 @@ async function pickActiveEwayBillForInvoice(accessToken, orgId, invoice, extra =
   if (listedActive) return listedActive;
 
   const number = collectEwayBillNumbers(merged)[0] || '';
-  const fallbackId = ids[0] || '';
-  if (!number && !fallbackId) return null;
+  if (!number) return null;
   return {
-    ewaybill_id: fallbackId || undefined,
-    ewaybill_number: number || undefined,
+    ewaybill_id: ids[0] || undefined,
+    ewaybill_number: number,
     ewaybill_status: 'generated',
   };
+}
+
+async function findDraftEwayBillId(accessToken, orgId, invoice) {
+  const ids = collectEwayBillIds(invoice);
+  const listed = await listEwayBillsForInvoice(accessToken, orgId, invoice);
+  for (const row of listed) {
+    const listedId = String(row?.ewaybill_id ?? row?.eway_bill_id ?? '').trim();
+    if (listedId && !ids.includes(listedId)) ids.push(listedId);
+  }
+  for (const ewayId of ids) {
+    try {
+      const record = await fetchZohoEwayBillRecord(accessToken, orgId, ewayId);
+      if (record && isDraftEwayRecord(record)) return String(record.ewaybill_id ?? ewayId);
+    } catch {
+      // skip
+    }
+  }
+  const listedDraft = listed.find(row => isDraftEwayRecord(row));
+  return listedDraft?.ewaybill_id ? String(listedDraft.ewaybill_id) : '';
 }
 
 export async function recoverExistingEwayBillForInvoice(accessToken, orgId, invoiceId) {
@@ -678,6 +706,32 @@ export async function createZohoEwayBillForInvoice(accessToken, orgId, input) {
 
   const postEway = async (distanceValue) => {
     const payloadBody = { ...body, distance: distanceValue };
+    const draftId = await findDraftEwayBillId(accessToken, orgId, invoice);
+    if (draftId) {
+      try {
+        const updated = await zohoJson(
+          accessToken,
+          orgId,
+          `/ewaybills/${encodeURIComponent(draftId)}`,
+          {
+            method: 'PUT',
+            query: { action: 'save_generate' },
+            body: payloadBody,
+          },
+        );
+        const record = updated?.ewaybill ?? updated;
+        if (record) return record;
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        if (isEwayRecoverableGenerateError(message)) {
+          const recovered = await recoverExistingEwayBillForInvoice(accessToken, orgId, invoiceId);
+          if (recovered) return recovered;
+          const synced = await syncZohoEwayBillFromGstPortal(accessToken, orgId, draftId);
+          if (synced && isActiveGeneratedRecord(synced)) return synced;
+        }
+        // fall through to create / einvoice generate
+      }
+    }
     if (hasIrn) {
       const fromEinvoice = await createEwayBillFromEinvoice(accessToken, orgId, invoice, {
         transporter_id: String(input.transporterId),
