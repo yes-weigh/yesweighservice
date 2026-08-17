@@ -498,6 +498,9 @@ export async function ensureInvoiceEwayBill(secrets, orgId, input) {
   const organizationId = await resolveOrganizationId(accessToken, orgId);
 
   let remote = await findZohoEwayBillForInvoice(accessToken, organizationId, invoiceId);
+  if (!remote) {
+    remote = await recoverExistingEwayBillForInvoice(accessToken, organizationId, invoiceId);
+  }
   let shippingContext = null;
   if (!remote && autoGenerate) {
     if (!partnerId) {
@@ -582,7 +585,20 @@ export async function ensureInvoiceEwayBill(secrets, orgId, input) {
         message: 'Download the e-way bill from Zoho.',
       };
     }
-    throw new Error('Zoho returned an invalid e-way bill record.');
+    const doc = await persistEwayBill(customerId, invoiceId, {
+      required: true,
+      status: autoGenerate ? 'pending' : 'missing',
+      partnerId: partnerId || existing?.partnerId || null,
+      lrNumber: transporterDocumentNumber || existing?.lrNumber || null,
+    }, bookingId);
+    return {
+      required: true,
+      status: doc.status,
+      ewaybillNumber: null,
+      message: autoGenerate
+        ? 'GST may already have this e-way bill, but Zoho still shows Not Generated. In Zoho Books open Sales → e-Way Bills → Actions → Fetch from Portal, then tap Generate here.'
+        : 'No e-way bill found in Zoho for this invoice.',
+    };
   }
 
   if (autoGenerate && isCustomerPickup && pickupVehicle) {
@@ -864,6 +880,10 @@ export async function ensureInvoiceEwayBillForCustomerPickup(secrets, orgId, inp
 
   let remote = await findZohoEwayBillForInvoice(accessToken, organizationId, invoiceId);
   if (mapZohoEwayBillRecord(remote)?.status === 'cancelled') remote = null;
+  if (!remote) {
+    remote = await recoverExistingEwayBillForInvoice(accessToken, organizationId, invoiceId);
+    if (mapZohoEwayBillRecord(remote)?.status === 'cancelled') remote = null;
+  }
   if (!remote) {
     const { transporterId } = await resolveTransporterForPartner(
       accessToken,
