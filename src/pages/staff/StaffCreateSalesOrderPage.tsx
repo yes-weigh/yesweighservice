@@ -80,7 +80,7 @@ import {
   fetchSpareLinkIndex,
   formatCurrency,
   getCategoriesForProducts,
-  getFinishedGoodsForSpareMapping,
+  getCatalogSparePartsPool,
   isHiddenCatalogCategory,
 } from '../../lib/catalog';
 import { canViewCatalogStock } from '../../lib/dealerAccess';
@@ -706,7 +706,7 @@ export const StaffCreateSalesOrderPage: React.FC = () => {
   const shopProducts = useMemo(() => {
     const visible = excludeHiddenCatalogProducts(catalogProducts, catalogCategories);
     if (spareOnlyCatalog) {
-      return getFinishedGoodsForSpareMapping(visible, catalogCategories);
+      return getCatalogSparePartsPool(visible, catalogCategories);
     }
     return visible.filter(productMatchesActiveSegments);
   }, [
@@ -1618,7 +1618,8 @@ export const StaffCreateSalesOrderPage: React.FC = () => {
         <section className="staff-create-so-page__catalog">
           <div className="staff-create-so-page__catalog-bar panel glass">
             <p className="text-muted text-sm staff-create-so-page__catalog-hint">
-              Tap an item for details & linked spares, or the cart icon to add it
+              Tap an item for details, or the cart icon to add it
+              {spareOnlyCatalog ? ' — all spare parts can be ordered' : ''}
             </p>
             <button
               ref={cartBtnRef}
@@ -1665,17 +1666,17 @@ export const StaffCreateSalesOrderPage: React.FC = () => {
                 dealerView
                 enableCart
                 isCartable={productMatchesActiveSegments}
-                flatBrowse={false}
-                showCategoryGrid={!browseCategoryId}
-                searchPlaceholder="Search products…"
+                flatBrowse={spareOnlyCatalog}
+                showCategoryGrid={!spareOnlyCatalog && !browseCategoryId}
+                searchPlaceholder={spareOnlyCatalog ? 'Search spare parts…' : 'Search products…'}
                 showStockQuantity={showStockQuantity}
-                spareLinkCountByProductId={spareCountByProductId ?? undefined}
+                spareLinkCountByProductId={spareOnlyCatalog ? undefined : (spareCountByProductId ?? undefined)}
                 onProductSelect={setPeekProduct}
                 managePageHeader={false}
                 activeCategoryId={browseCategoryId}
                 onActiveCategoryChange={setBrowseCategoryId}
-                emptyTitle="No catalog items available"
-                emptyHint="Sync the catalog or adjust category filters."
+                emptyTitle={spareOnlyCatalog ? 'No spare parts available' : 'No catalog items available'}
+                emptyHint={spareOnlyCatalog ? 'Sync the catalog or search a different spare name.' : 'Sync the catalog or adjust category filters.'}
               />
             </>
           )}

@@ -172,6 +172,9 @@ export function productMatchesSalesOrderBucket(
   });
   if (segment !== bucket.segment) return false;
 
+  // Spare SOs accept any spare part (not only Head Office stock / linked-to-product).
+  if (segment === 'spare') return true;
+
   const site = bucket.site ?? defaultInventorySiteForSegment(bucket.segment);
   return resolveLineInventorySite(segment, product.warehouses) === site;
 }

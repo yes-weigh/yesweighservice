@@ -165,6 +165,9 @@ export function productMatchesSalesOrderBucket(product, bucket = {}) {
   });
   if (segment !== requiredSegment) return false;
 
+  // Spare SOs accept any spare part (not only Head Office stock / linked-to-product).
+  if (requiredSegment === 'spare') return true;
+
   const requiredSite = parseInventorySite(bucket.site)
     || parseInventorySite(bucket.yesOneInventorySite)
     || defaultInventorySiteForSegment(requiredSegment);

@@ -11,8 +11,8 @@ import {
   excludeHiddenCatalogProducts,
   fetchCatalog,
   fetchSpareLinkIndex,
+  getCatalogSparePartsPool,
   getCategoriesForProducts,
-  getFinishedGoodsForSpareMapping,
   isHiddenCatalogCategory,
 } from '../../lib/catalog';
 import { canViewCatalogStock } from '../../lib/dealerAccess';
@@ -137,13 +137,13 @@ const SoDetailCatalogAddBody: React.FC<{
   );
 
   /**
-   * Spare SO: browse finished goods by category, open product for linked spares.
+   * Spare SO: browse the spare-parts catalog so any spare can be added.
    * Other SO types: browse only cartable bucket items.
    */
   const shopProducts = useMemo(() => {
     const visible = excludeHiddenCatalogProducts(catalogProducts, catalogCategories);
     if (isSpareOrder) {
-      return getFinishedGoodsForSpareMapping(visible, catalogCategories);
+      return getCatalogSparePartsPool(visible, catalogCategories);
     }
     return visible.filter(isCartable);
   }, [catalogProducts, catalogCategories, isSpareOrder, isCartable]);
@@ -249,7 +249,7 @@ const SoDetailCatalogAddBody: React.FC<{
         </button>
         <p className="text-muted text-sm so-detail-catalog-add__hint">
           {isSpareOrder
-            ? `Browse by category, open a product for linked spares — only ${bucketLabel || 'this SO’s'} spares can be added`
+            ? 'Search spare parts and add them to this order'
             : bucketLabel
               ? `Only ${bucketLabel} items can be added to this order`
               : 'Tap an item for details & linked spares, or the cart icon to add it'}
@@ -300,17 +300,17 @@ const SoDetailCatalogAddBody: React.FC<{
               dealerView
               enableCart
               isCartable={isCartable}
-              flatBrowse={false}
-              showCategoryGrid={!browseCategoryId}
-              searchPlaceholder="Search products…"
+              flatBrowse={isSpareOrder}
+              showCategoryGrid={!isSpareOrder && !browseCategoryId}
+              searchPlaceholder={isSpareOrder ? 'Search spare parts…' : 'Search products…'}
               showStockQuantity={showStockQuantity}
-              spareLinkCountByProductId={spareCountByProductId ?? undefined}
+              spareLinkCountByProductId={isSpareOrder ? undefined : (spareCountByProductId ?? undefined)}
               onProductSelect={setPeekProduct}
               managePageHeader={false}
               activeCategoryId={browseCategoryId}
               onActiveCategoryChange={setBrowseCategoryId}
-              emptyTitle="No catalog items available"
-              emptyHint="Sync the catalog or adjust category filters."
+              emptyTitle={isSpareOrder ? 'No spare parts available' : 'No catalog items available'}
+              emptyHint={isSpareOrder ? 'Sync the catalog or search a different spare name.' : 'Sync the catalog or adjust category filters.'}
             />
           </>
         )}
@@ -329,7 +329,7 @@ const SoDetailCatalogAddBody: React.FC<{
           {items.length
             ? `${items.length} line${items.length === 1 ? '' : 's'} selected`
             : isSpareOrder
-              ? 'Open a product and add linked spares'
+              ? 'Add spare parts from the catalog'
               : 'Add items from products'}
         </span>
         <button
