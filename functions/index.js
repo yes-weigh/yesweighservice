@@ -2628,7 +2628,7 @@ export const pushCatalogToMeezanHttp = onRequest(
 
 export const mirrorMeezanCatalogFile = onObjectFinalized(
   {
-    region: 'asia-south1',
+    region: 'us-east1',
     bucket: 'yesweigh-service.firebasestorage.app',
     timeoutSeconds: 120,
     memory: '512MiB',
@@ -2654,7 +2654,7 @@ export const mirrorMeezanCatalogFile = onObjectFinalized(
 
 export const deleteMeezanCatalogFile = onObjectDeleted(
   {
-    region: 'asia-south1',
+    region: 'us-east1',
     bucket: 'yesweigh-service.firebasestorage.app',
     timeoutSeconds: 60,
     memory: '256MiB',
