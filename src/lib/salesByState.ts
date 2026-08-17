@@ -1,0 +1,334 @@
+import { fetchAllAdminInvoicesInRange, type AdminFirestoreInvoice } from './admin-invoices';
+import { ensureDealersCached } from './dealer-cache';
+import { invoiceAmountExclGst, toDateInputValue } from './invoices';
+import { canonicalIndiaState, UNSPECIFIED_STATE } from './indiaStates';
+import {
+  canonicalKeralaDistrict,
+  KERALA_DISTRICT_NAMES,
+  KERALA_STATE,
+  UNSPECIFIED_DISTRICT,
+} from './keralaDistricts';
+
+export type StateSalesRow = {
+  state: string;
+  sales: number;
+  invoiceCount: number;
+  dealers: number;
+  activeDealers: number;
+  inactiveDealers: number;
+  share: number;
+};
+
+export type DistrictSalesRow = {
+  district: string;
+  sales: number;
+  invoiceCount: number;
+  dealers: number;
+  activeDealers: number;
+  inactiveDealers: number;
+  share: number;
+};
+
+type DealerForState = {
+  id: string;
+  billingState?: string | null;
+  district?: string | null;
+  portalUserId?: string | null;
+};
+
+export function formatCompactInr(value: number): string {
+  const abs = Math.abs(value);
+  const sign = value < 0 ? '-' : '';
+  if (abs >= 1e7) return `${sign}₹${(abs / 1e7).toFixed(2)} Cr`;
+  if (abs >= 1e5) return `${sign}₹${(abs / 1e5).toFixed(2)} L`;
+  return `${sign}₹${abs.toLocaleString('en-IN', { maximumFractionDigits: 0 })}`;
+}
+
+export function lastSixMonthsRange(now = new Date()): { start: string; end: string } {
+  const end = new Date(now);
+  const start = new Date(now);
+  start.setMonth(start.getMonth() - 6);
+  return { start: toDateInputValue(start), end: toDateInputValue(end) };
+}
+
+function rangeCovers(outer: { start: string; end: string }, inner: { start: string; end: string }) {
+  return outer.start <= inner.start && outer.end >= inner.end;
+}
+
+function recentCustomerIds(invoices: AdminFirestoreInvoice[]): Set<string> {
+  const ids = new Set<string>();
+  for (const inv of invoices) {
+    const id = String(inv.customerId ?? '').trim();
+    if (id) ids.add(id);
+  }
+  return ids;
+}
+
+function dealerHasRecentSales(dealer: DealerForState, recentIds: Set<string>): boolean {
+  if (recentIds.has(dealer.id)) return true;
+  const portalId = dealer.portalUserId?.trim();
+  return Boolean(portalId && recentIds.has(portalId));
+}
+
+export function aggregateSalesByState(
+  invoices: AdminFirestoreInvoice[],
+  dealers: DealerForState[],
+  recentIds: Set<string>,
+): StateSalesRow[] {
+  const byState = new Map<string, StateSalesRow>();
+
+  const row = (state: string): StateSalesRow => {
+    let next = byState.get(state);
+    if (!next) {
+      next = {
+        state,
+        sales: 0,
+        invoiceCount: 0,
+        dealers: 0,
+        activeDealers: 0,
+        inactiveDealers: 0,
+        share: 0,
+      };
+      byState.set(state, next);
+    }
+    return next;
+  };
+
+  for (const inv of invoices) {
+    const state = canonicalIndiaState(inv.billingState);
+    const rec = row(state);
+    rec.sales += invoiceAmountExclGst(inv);
+    rec.invoiceCount += 1;
+  }
+
+  for (const dealer of dealers) {
+    const state = canonicalIndiaState(dealer.billingState);
+    if (state === UNSPECIFIED_STATE) continue;
+    const rec = row(state);
+    rec.dealers += 1;
+    if (dealerHasRecentSales(dealer, recentIds)) rec.activeDealers += 1;
+  }
+
+  const mapped = [...byState.values()].filter(r => r.state !== UNSPECIFIED_STATE);
+  const totalSales = mapped.reduce((sum, r) => sum + r.sales, 0);
+  for (const rec of mapped) {
+    rec.inactiveDealers = rec.dealers - rec.activeDealers;
+    rec.share = totalSales > 0 ? rec.sales / totalSales : 0;
+  }
+
+  return mapped.sort((a, b) => b.sales - a.sales || a.state.localeCompare(b.state));
+}
+
+function dealerByLookup(dealers: DealerForState[]): Map<string, DealerForState> {
+  const byId = new Map<string, DealerForState>();
+  for (const dealer of dealers) {
+    byId.set(dealer.id, dealer);
+    const portalId = dealer.portalUserId?.trim();
+    if (portalId) byId.set(portalId, dealer);
+  }
+  return byId;
+}
+
+function resolveKeralaDistrict(
+  invoice: AdminFirestoreInvoice,
+  dealersById: Map<string, DealerForState>,
+): string {
+  const fromInvoice = canonicalKeralaDistrict(invoice.district);
+  if (fromInvoice !== UNSPECIFIED_DISTRICT) return fromInvoice;
+  const dealer = dealersById.get(String(invoice.customerId ?? '').trim());
+  return canonicalKeralaDistrict(dealer?.district);
+}
+
+export function aggregateSalesByKeralaDistrict(
+  invoices: AdminFirestoreInvoice[],
+  dealers: DealerForState[],
+  recentIds: Set<string>,
+): DistrictSalesRow[] {
+  const byDistrict = new Map<string, DistrictSalesRow>();
+  const dealersById = dealerByLookup(dealers);
+
+  const row = (district: string): DistrictSalesRow => {
+    let next = byDistrict.get(district);
+    if (!next) {
+      next = {
+        district,
+        sales: 0,
+        invoiceCount: 0,
+        dealers: 0,
+        activeDealers: 0,
+        inactiveDealers: 0,
+        share: 0,
+      };
+      byDistrict.set(district, next);
+    }
+    return next;
+  };
+
+  for (const name of KERALA_DISTRICT_NAMES) row(name);
+
+  for (const inv of invoices) {
+    if (canonicalIndiaState(inv.billingState) !== KERALA_STATE) continue;
+    const district = resolveKeralaDistrict(inv, dealersById);
+    if (district === UNSPECIFIED_DISTRICT) continue;
+    const rec = row(district);
+    rec.sales += invoiceAmountExclGst(inv);
+    rec.invoiceCount += 1;
+  }
+
+  for (const dealer of dealers) {
+    if (canonicalIndiaState(dealer.billingState) !== KERALA_STATE) continue;
+    const district = canonicalKeralaDistrict(dealer.district);
+    if (district === UNSPECIFIED_DISTRICT) continue;
+    const rec = row(district);
+    rec.dealers += 1;
+    if (dealerHasRecentSales(dealer, recentIds)) rec.activeDealers += 1;
+  }
+
+  const mapped = [...byDistrict.values()];
+  const totalSales = mapped.reduce((sum, r) => sum + r.sales, 0);
+  for (const rec of mapped) {
+    rec.inactiveDealers = rec.dealers - rec.activeDealers;
+    rec.share = totalSales > 0 ? rec.sales / totalSales : 0;
+  }
+
+  return mapped.sort((a, b) => b.sales - a.sales || a.district.localeCompare(b.district));
+}
+
+export type SalesMapSnapshot = {
+  rows: StateSalesRow[];
+  keralaDistricts: DistrictSalesRow[];
+  truncated: boolean;
+  totalSales: number;
+};
+
+const SALES_CACHE_VERSION = 'v2';
+const SALES_CACHE_TTL_MS = 2 * 60 * 60 * 1000;
+const SALES_CACHE_FRESH_MS = 3 * 60 * 1000;
+const memorySales = new Map<string, { savedAt: number; data: SalesMapSnapshot }>();
+const inflightSales = new Map<string, Promise<SalesMapSnapshot>>();
+
+function salesCacheKey(dateStart: string, dateEnd: string): string {
+  return `yws.sales-map.${SALES_CACHE_VERSION}:${dateStart}:${dateEnd}`;
+}
+
+function readSalesCache(dateStart: string, dateEnd: string): SalesMapSnapshot | null {
+  const key = salesCacheKey(dateStart, dateEnd);
+  const mem = memorySales.get(key);
+  if (mem && Date.now() - mem.savedAt < SALES_CACHE_TTL_MS) return mem.data;
+  try {
+    const raw = localStorage.getItem(key);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as { savedAt: number; data: SalesMapSnapshot };
+    if (!parsed?.data || typeof parsed.savedAt !== 'number') {
+      localStorage.removeItem(key);
+      return null;
+    }
+    if (Date.now() - parsed.savedAt >= SALES_CACHE_TTL_MS) {
+      localStorage.removeItem(key);
+      return null;
+    }
+    memorySales.set(key, parsed);
+    return parsed.data;
+  } catch {
+    return null;
+  }
+}
+
+function writeSalesCache(dateStart: string, dateEnd: string, data: SalesMapSnapshot): void {
+  const key = salesCacheKey(dateStart, dateEnd);
+  const entry = { savedAt: Date.now(), data };
+  memorySales.set(key, entry);
+  try {
+    localStorage.setItem(key, JSON.stringify(entry));
+  } catch {
+    // Quota or private mode — memory cache still works.
+  }
+}
+
+export function peekSalesByState(options: {
+  dateStart: string;
+  dateEnd: string;
+}): SalesMapSnapshot | null {
+  return readSalesCache(options.dateStart, options.dateEnd);
+}
+
+export function prefetchSalesByState(options: {
+  dateStart: string;
+  dateEnd: string;
+}): void {
+  void loadSalesByState(options).catch(() => undefined);
+}
+
+async function fetchSalesByState(options: {
+  dateStart: string;
+  dateEnd: string;
+}): Promise<SalesMapSnapshot> {
+  const period = { start: options.dateStart, end: options.dateEnd };
+  const sixMonths = lastSixMonthsRange();
+  const periodCoversSix = rangeCovers(period, sixMonths);
+  const mapFetch = {
+    sort: 'date' as const,
+    category: 'all' as const,
+    listCollection: 'invoiceSummaries' as const,
+    skipDerivedOverlays: true,
+    pageSize: 500,
+  };
+
+  const [periodResult, recentResult, dealers] = await Promise.all([
+    fetchAllAdminInvoicesInRange({
+      ...mapFetch,
+      dateStart: options.dateStart,
+      dateEnd: options.dateEnd,
+    }),
+    periodCoversSix
+      ? Promise.resolve(null)
+      : fetchAllAdminInvoicesInRange({
+        ...mapFetch,
+        dateStart: sixMonths.start,
+        dateEnd: sixMonths.end,
+      }),
+    ensureDealersCached(),
+  ]);
+
+  const recentSource = recentResult?.rows ?? periodResult.rows;
+  const recentIds = recentCustomerIds(
+    recentSource.filter(inv => {
+      const day = String(inv.date ?? '').slice(0, 10);
+      return day >= sixMonths.start && day <= sixMonths.end;
+    }),
+  );
+  const rows = aggregateSalesByState(periodResult.rows, dealers, recentIds);
+  const keralaDistricts = aggregateSalesByKeralaDistrict(periodResult.rows, dealers, recentIds);
+  const totalSales = rows.reduce((sum, r) => sum + r.sales, 0);
+  const snapshot = { rows, keralaDistricts, truncated: periodResult.truncated, totalSales };
+  writeSalesCache(options.dateStart, options.dateEnd, snapshot);
+  return snapshot;
+}
+
+export function isSalesCacheFresh(options: {
+  dateStart: string;
+  dateEnd: string;
+}): boolean {
+  readSalesCache(options.dateStart, options.dateEnd);
+  const cached = memorySales.get(salesCacheKey(options.dateStart, options.dateEnd));
+  return Boolean(cached && Date.now() - cached.savedAt < SALES_CACHE_FRESH_MS);
+}
+
+export async function loadSalesByState(options: {
+  dateStart: string;
+  dateEnd: string;
+}): Promise<SalesMapSnapshot> {
+  const key = salesCacheKey(options.dateStart, options.dateEnd);
+  readSalesCache(options.dateStart, options.dateEnd);
+  const cached = memorySales.get(key);
+  if (cached && Date.now() - cached.savedAt < SALES_CACHE_FRESH_MS) {
+    return cached.data;
+  }
+  const pending = inflightSales.get(key);
+  if (pending) return pending;
+  const request = fetchSalesByState(options).finally(() => {
+    inflightSales.delete(key);
+  });
+  inflightSales.set(key, request);
+  return request;
+}

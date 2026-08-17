@@ -10,6 +10,7 @@ import { ProtectedRoute } from './components/ProtectedRoute';
 import { Login } from './pages/Login';
 import { DealerLogin } from './pages/DealerLogin';
 import { SuperAdminDashboard } from './pages/admin/SuperAdminDashboard';
+import { SalesByStatePage } from './pages/admin/SalesByStatePage';
 import { StaffDashboard } from './pages/staff/StaffDashboard';
 import { HrLayout } from './pages/hr/HrLayout';
 import { HrStaffListPage } from './pages/hr/HrStaffListPage';
@@ -64,6 +65,7 @@ import { LocalPrintersTab } from './pages/admin/settings/LocalPrintersTab';
 import { AuditCyclesTab } from './pages/admin/settings/AuditCyclesTab';
 import { AuditReportTab } from './pages/admin/settings/AuditReportTab';
 import { GatcReportTab } from './pages/admin/settings/GatcReportTab';
+import { OpsPlaceholderPage } from './pages/admin/OpsPlaceholderPage';
 import { InventoryAuditItemPage } from './pages/admin/InventoryAuditItemPage';
 import { InventoryAuditLinkedGroupPage } from './pages/admin/InventoryAuditLinkedGroupPage';
 import { OpenCatalogPage } from './pages/public/OpenCatalogPage';
@@ -285,6 +287,7 @@ const App: React.FC = () => (
           <Route element={<ProtectedRoute allowedRoles={['super_admin']} />}>
             <Route path="/super-admin" element={<Layout />}>
               <Route index element={<SuperAdminDashboard />} />
+              <Route path="sales-by-state" element={<SalesByStatePage />} />
               {catalogRoutes}
               <Route path="staff" element={<Navigate to="/super-admin/settings/hr/staff" replace />} />
               <Route path="super-admins" element={<Navigate to="/super-admin/settings/hr/super-admins" replace />} />
@@ -335,6 +338,24 @@ const App: React.FC = () => (
                 <Route path="audit-report" element={<AuditReportTab />} />
                 <Route path="gatc-report" element={<GatcReportTab />} />
               </Route>
+              <Route
+                path="whatsapp"
+                element={(
+                  <OpsPlaceholderPage
+                    title="WhatsApp"
+                    description="WhatsApp tools will appear here."
+                  />
+                )}
+              />
+              <Route
+                path="cloud-call"
+                element={(
+                  <OpsPlaceholderPage
+                    title="Cloud call"
+                    description="Cloud call tools will appear here."
+                  />
+                )}
+              />
               <Route path="settings" element={<SettingsLayout />}>
                 <Route path="profile" element={<SettingsProfileTab />} />
                 {hrNestedRoutes('/super-admin/settings', true)}

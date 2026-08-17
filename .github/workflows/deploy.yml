@@ -13,7 +13,7 @@ concurrency:
   cancel-in-progress: false
 
 permissions:
-  contents: read
+  contents: write
   # Needed to resolve the last successful deploy SHA for functions catch-up.
   actions: read
 
@@ -40,8 +40,37 @@ jobs:
       - name: Install functions dependencies
         run: npm ci --prefix functions
 
-      # App version comes from committed src/app-version.json (same as local).
-      # Bump with: npm run bump:app-version
+      # App version comes from src/app-version.json. Each push to main bumps
+      # 7.0 → 7.1 → … → 7.9 → 8.0 and commits it back with [skip ci].
+      - name: Bump app version
+        id: bump_version
+        if: github.event_name == 'push' && !contains(github.event.head_commit.message, '[skip ci]') && !contains(github.event.head_commit.message, 'bump app version')
+        run: |
+          set -euo pipefail
+          git fetch origin main
+          git show origin/main:src/app-version.json > src/app-version.json
+          node scripts/bump-app-version.mjs
+          VERSION="$(node -p "JSON.parse(require('fs').readFileSync('src/app-version.json','utf8')).version")"
+          echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
+          cp src/app-version.json "${RUNNER_TEMP}/app-version.json"
+
+      - name: Commit app version
+        if: steps.bump_version.outcome == 'success'
+        run: |
+          set -euo pipefail
+          VERSION="${{ steps.bump_version.outputs.version }}"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git fetch origin main
+          git worktree add "${RUNNER_TEMP}/version-main" origin/main
+          cp "${RUNNER_TEMP}/app-version.json" "${RUNNER_TEMP}/version-main/src/app-version.json"
+          git -C "${RUNNER_TEMP}/version-main" add src/app-version.json
+          if git -C "${RUNNER_TEMP}/version-main" diff --cached --quiet; then
+            echo "App version already ${VERSION} on main — nothing to commit."
+          else
+            git -C "${RUNNER_TEMP}/version-main" commit -m "chore: bump app version to ${VERSION} [skip ci]"
+            git -C "${RUNNER_TEMP}/version-main" push origin HEAD:main
+          fi
 
       - name: Build
         run: npm run build

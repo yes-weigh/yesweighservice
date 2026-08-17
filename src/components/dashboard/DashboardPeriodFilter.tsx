@@ -26,7 +26,7 @@ export const DashboardPeriodFilter: React.FC<DashboardPeriodFilterProps> = ({
   <div className="dealer-dash-period">
     <div className="dealer-dash-period__row">
       <p className="dealer-dash-period__label" id="dealer-dash-period-label">
-        Time frame
+        Date range
       </p>
       <div
         className="dealer-dash-period__options"

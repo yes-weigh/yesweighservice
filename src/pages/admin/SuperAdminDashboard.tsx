@@ -1,23 +1,23 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   Ban,
   Bell,
   Briefcase,
   Building2,
-  CheckCircle2,
   ChevronRight,
   ClipboardList,
   Clock,
+  AlertTriangle,
   FileText,
   IndianRupee,
   LifeBuoy,
   Package,
+  Shield,
   PackagePlus,
   Plus,
   RefreshCw,
   ShieldCheck,
-  ShoppingCart,
   TrendingUp,
   Truck,
   UserCheck,
@@ -27,15 +27,15 @@ import {
 import { collection, getDocs } from 'firebase/firestore';
 import { DashboardPeriodFilter } from '../../components/dashboard/DashboardPeriodFilter';
 import { SalesChart } from '../../components/dashboard/SalesChart';
-import { SalesRangeSelect } from '../../components/dashboard/SalesRangeSelect';
+import { useHorizontalSwipe } from '../../hooks/useHorizontalSwipe';
 import {
   buildAdminDailySales,
-  buildAdminSalesEntries,
   countAdminInvoicesByStatus,
   fetchAdminInvoicesPage,
   loadAdminInvoiceKpis,
   sumAdminOutstanding,
 } from '../../lib/admin-invoices';
+import { countAdminPurchaseOrders } from '../../lib/admin-purchase-orders';
 import { countAdminSalesOrdersByYesOneStages } from '../../lib/admin-sales-orders';
 import {
   defaultDashboardCustomRange,
@@ -45,34 +45,33 @@ import {
 } from '../../lib/dashboardPeriod';
 import { dealerErrorMessage, fetchDealerStats } from '../../lib/dealers';
 import { countOpsSupportRequestsInRange, fetchOpsSupportRequests } from '../../lib/dealerSupport';
-import {
-  countActionableSupportRequests,
-  countOpenSupportRequests,
-} from '../../lib/supportRequestDisplay';
-import { supportDisplayLabel, isSupportOpen } from '../../lib/supportStatus';
+import { supportDisplayLabel } from '../../lib/supportStatus';
 import { db } from '../../firebase';
 import { formatCurrency } from '../../lib/catalog';
 import {
-  computeSalesForPeriod,
   formatInvoiceRelativeTime,
+  getInvoicePeriodBounds,
   invoiceStatusLabel,
+  toDateInputValue,
 } from '../../lib/invoices';
+import { prefetchSalesByState } from '../../lib/salesByState';
 import type { FirestoreUserDoc } from '../../types';
 import { normalizeRole } from '../../types';
 import type { DealerStats } from '../../types/dealers';
 import type { DealerSupportRequest } from '../../types/dealer-support';
 import type { AdminFirestoreInvoice } from '../../lib/admin-invoices';
-import type { SalesRangePreset } from '../../types/invoices';
 
 const BASE = '/super-admin';
 
 const EMPTY_OPS_COUNTS = {
+  totalSales: 0,
   newOrders: 0,
   pendingApproval: 0,
   toDispatch: 0,
   inTransit: 0,
-  delivered: 0,
-  support: 0,
+  warrantySupport: 0,
+  openSupport: 0,
+  purchaseOrders: 0,
 };
 
 interface ActivityItem {
@@ -151,6 +150,7 @@ function buildActivities(
 
 export const SuperAdminDashboard: React.FC = () => {
   const navigate = useNavigate();
+  const pageRef = useRef<HTMLDivElement>(null);
   const [dealerStats, setDealerStats] = useState<DealerStats | null>(null);
   const [invoices, setInvoices] = useState<AdminFirestoreInvoice[]>([]);
   const [supportRequests, setSupportRequests] = useState<DealerSupportRequest[]>([]);
@@ -158,7 +158,6 @@ export const SuperAdminDashboard: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [opsLoading, setOpsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [rangePreset, setRangePreset] = useState<SalesRangePreset>('current_month');
   const [opsPeriod, setOpsPeriod] = useState<DashboardPeriodPreset>('month');
   const [customRange, setCustomRange] = useState(defaultDashboardCustomRange);
   const [opsCounts, setOpsCounts] = useState(EMPTY_OPS_COUNTS);
@@ -214,7 +213,7 @@ export const SuperAdminDashboard: React.FC = () => {
     const loadOps = async () => {
       setOpsLoading(true);
       try {
-        const [stages, invoiceKpi, supportCount] = await Promise.all([
+        const [stages, invoiceKpi, warrantySupport, openSupport, purchaseOrders] = await Promise.all([
           countAdminSalesOrdersByYesOneStages({
             dateStart: periodBounds.start,
             dateEnd: periodBounds.end,
@@ -224,17 +223,29 @@ export const SuperAdminDashboard: React.FC = () => {
             dateEnd: periodBounds.end,
             category: 'all',
           }),
-          countOpsSupportRequestsInRange(periodBounds.start, periodBounds.end),
+          countOpsSupportRequestsInRange(periodBounds.start, periodBounds.end, {
+            types: ['service', 'return', 'chat'],
+          }),
+          countOpsSupportRequestsInRange(periodBounds.start, periodBounds.end, {
+            types: ['complaint'],
+          }),
+          countAdminPurchaseOrders({
+            dateStart: periodBounds.start,
+            dateEnd: periodBounds.end,
+            status: '',
+          }),
         ]);
         if (cancelled) return;
         const invoiceStatuses = invoiceKpi.byFilterStatus ?? {};
         setOpsCounts({
+          totalSales: Number(invoiceKpi.totalAmount) || 0,
           newOrders: stages.review,
           pendingApproval: stages.payment_submitted,
           toDispatch: invoiceStatuses.to_dispatch ?? 0,
           inTransit: invoiceStatuses.in_transit ?? 0,
-          delivered: invoiceStatuses.delivered ?? 0,
-          support: supportCount,
+          warrantySupport,
+          openSupport,
+          purchaseOrders,
         });
       } catch (err) {
         if (!cancelled) {
@@ -251,29 +262,7 @@ export const SuperAdminDashboard: React.FC = () => {
     };
   }, [periodBounds.end, periodBounds.start]);
 
-  const salesEntries = useMemo(() => buildAdminSalesEntries(invoices), [invoices]);
-  const salesSummary = useMemo(
-    () => (salesEntries.length ? computeSalesForPeriod(salesEntries, rangePreset) : null),
-    [salesEntries, rangePreset],
-  );
   const dailySales = useMemo(() => buildAdminDailySales(invoices, 30), [invoices]);
-
-  const openSupport = useMemo(
-    () => countOpenSupportRequests(supportRequests),
-    [supportRequests],
-  );
-
-  const actionableSupport = useMemo(
-    () => countActionableSupportRequests(supportRequests),
-    [supportRequests],
-  );
-
-  const openReturnOrders = useMemo(
-    () => supportRequests.filter(
-      r => isSupportOpen(r) && r.type === 'return',
-    ).length,
-    [supportRequests],
-  );
 
   const activities = useMemo(
     () => buildActivities(invoices, supportRequests),
@@ -283,23 +272,44 @@ export const SuperAdminDashboard: React.FC = () => {
   const outstanding = useMemo(() => sumAdminOutstanding(invoices), [invoices]);
   const overdueCount = useMemo(() => countAdminInvoicesByStatus(invoices, 'overdue'), [invoices]);
 
+  const openSalesMap = useCallback((mapLevel: 'india' | 'kerala' = 'india') => {
+    navigate(`${BASE}/sales-by-state`, {
+      state: { period: opsPeriod, customRange, mapLevel },
+    });
+  }, [customRange, navigate, opsPeriod]);
+
+  const [dashDragX, setDashDragX] = useState(0);
+  const [dashDragging, setDashDragging] = useState(false);
+
+  useEffect(() => {
+    const bounds = opsPeriod === 'custom'
+      ? resolveDashboardPeriodBounds('custom', customRange.start, customRange.end)
+      : (() => {
+        const next = getInvoicePeriodBounds(opsPeriod === 'year' ? 'financial_year' : 'current_month');
+        if (!next) return defaultDashboardCustomRange();
+        return { start: toDateInputValue(next.start), end: toDateInputValue(next.end) };
+      })();
+    const timer = window.setTimeout(() => {
+      prefetchSalesByState({ dateStart: bounds.start, dateEnd: bounds.end });
+    }, 160);
+    return () => window.clearTimeout(timer);
+  }, [customRange.end, customRange.start, opsPeriod]);
+
+  useHorizontalSwipe(pageRef, {
+    onSwipeRight: () => openSalesMap('india'),
+    onSwipeLeft: () => openSalesMap('kerala'),
+    onSwipeProgress: (dx) => {
+      setDashDragging(true);
+      setDashDragX(dx);
+    },
+    onSwipeEnd: (committed) => {
+      setDashDragging(false);
+      if (!committed) setDashDragX(0);
+    },
+    enabled: true,
+  });
+
   const periodKpis = [
-    {
-      id: 'new-orders',
-      label: 'New orders',
-      value: opsLoading ? '…' : String(opsCounts.newOrders),
-      path: `${BASE}/sales-orders`,
-      tone: 'blue' as const,
-      icon: <PackagePlus size={22} strokeWidth={2.5} />,
-    },
-    {
-      id: 'pending-approval',
-      label: 'Pending approval',
-      value: opsLoading ? '…' : String(opsCounts.pendingApproval),
-      path: `${BASE}/sales-orders`,
-      tone: 'orange' as const,
-      icon: <Clock size={22} strokeWidth={2.5} />,
-    },
     {
       id: 'to-dispatch',
       label: 'To dispatch',
@@ -317,47 +327,44 @@ export const SuperAdminDashboard: React.FC = () => {
       icon: <Package size={22} strokeWidth={2.5} />,
     },
     {
-      id: 'delivered',
-      label: 'Delivered',
-      value: opsLoading ? '…' : String(opsCounts.delivered),
-      path: `${BASE}/invoices`,
-      tone: 'green' as const,
-      icon: <CheckCircle2 size={22} strokeWidth={2.5} />,
-    },
-    {
-      id: 'support-period',
-      label: 'Support',
-      value: opsLoading ? '…' : String(opsCounts.support),
-      path: `${BASE}/warranty-support`,
-      tone: 'green' as const,
-      icon: <LifeBuoy size={22} strokeWidth={2.5} />,
-    },
-  ];
-
-  const opsKpis = [
-    {
-      id: 'support',
-      label: 'Warranty & Support',
-      value: loading ? '…' : String(openSupport),
-      path: `${BASE}/warranty-support`,
-      tone: 'green' as const,
-      icon: <LifeBuoy size={22} strokeWidth={2.5} />,
-    },
-    {
-      id: 'support-action',
-      label: 'Needs action',
-      value: loading ? '…' : String(actionableSupport),
-      path: `${BASE}/warranty-support`,
+      id: 'pending-approval',
+      label: 'Pending approval',
+      value: opsLoading ? '…' : String(opsCounts.pendingApproval),
+      path: `${BASE}/sales-orders`,
       tone: 'orange' as const,
+      icon: <Clock size={22} strokeWidth={2.5} />,
+    },
+    {
+      id: 'new-orders',
+      label: 'New orders',
+      value: opsLoading ? '…' : String(opsCounts.newOrders),
+      path: `${BASE}/sales-orders`,
+      tone: 'blue' as const,
+      icon: <PackagePlus size={22} strokeWidth={2.5} />,
+    },
+    {
+      id: 'warranty-support',
+      label: 'Warranty support',
+      value: opsLoading ? '…' : String(opsCounts.warrantySupport),
+      path: `${BASE}/warranty-support`,
+      tone: 'green' as const,
+      icon: <Shield size={22} strokeWidth={2.5} />,
+    },
+    {
+      id: 'logistic-complaint',
+      label: 'Logistic complaint',
+      value: opsLoading ? '…' : String(opsCounts.openSupport),
+      path: `${BASE}/warranty-support`,
+      tone: 'red' as const,
+      icon: <AlertTriangle size={22} strokeWidth={2.5} />,
+    },
+    {
+      id: 'purchase-orders',
+      label: 'Purchase orders',
+      value: opsLoading ? '…' : String(opsCounts.purchaseOrders),
+      path: `${BASE}/purchase-orders`,
+      tone: 'blue' as const,
       icon: <ClipboardList size={22} strokeWidth={2.5} />,
-    },
-    {
-      id: 'returns',
-      label: 'Open replacements',
-      value: loading ? '…' : String(openReturnOrders),
-      path: `${BASE}/warranty-support`,
-      tone: 'orange' as const,
-      icon: <ShoppingCart size={22} strokeWidth={2.5} />,
     },
   ];
 
@@ -444,7 +451,11 @@ export const SuperAdminDashboard: React.FC = () => {
   ];
 
   return (
-    <div className="page-content fade-in dealer-dashboard">
+    <div
+      ref={pageRef}
+      className={`page-content fade-in dealer-dashboard${dashDragging ? ' is-swiping' : ''}`}
+      style={dashDragX ? { transform: `translate3d(${dashDragX}px, 0, 0)` } : undefined}
+    >
       {error && (
         <p className="dealer-dash__error" role="alert">
           {error}
@@ -452,6 +463,21 @@ export const SuperAdminDashboard: React.FC = () => {
       )}
 
       <section className="dealer-dash__kpis-layout" aria-label="Key metrics">
+        <DashboardPeriodFilter
+          preset={opsPeriod}
+          customFrom={customRange.start}
+          customTo={customRange.end}
+          rangeLabel={periodLabel}
+          onPresetChange={next => {
+            setOpsPeriod(next);
+            if (next === 'custom' && (!customRange.start || !customRange.end)) {
+              setCustomRange(defaultDashboardCustomRange());
+            }
+          }}
+          onCustomFromChange={start => setCustomRange(prev => ({ ...prev, start }))}
+          onCustomToChange={end => setCustomRange(prev => ({ ...prev, end }))}
+        />
+
         <div className="dealer-dash-kpi dealer-dash-kpi--blue dealer-dash-kpi--featured">
           <div className="dealer-dash-kpi__featured-main">
             <div className="dealer-dash-kpi__icon dealer-dash-kpi__icon--featured">
@@ -459,11 +485,13 @@ export const SuperAdminDashboard: React.FC = () => {
             </div>
             <div className="dealer-dash-kpi__body dealer-dash-kpi__body--featured">
               <span className="dealer-dash-kpi__label">Total Sales</span>
-              <SalesRangeSelect value={rangePreset} onChange={setRangePreset} />
+              <span className="dealer-dash-kpi__period text-muted text-sm">
+                excl. GST · {periodLabel}
+              </span>
             </div>
           </div>
           <strong className="dealer-dash-kpi__value dealer-dash-kpi__value--featured">
-            {loading ? '…' : salesSummary ? formatCurrency(salesSummary.totalSales) : formatCurrency(0)}
+            {opsLoading ? '…' : formatCurrency(opsCounts.totalSales)}
           </strong>
           <button
             type="button"
@@ -476,21 +504,7 @@ export const SuperAdminDashboard: React.FC = () => {
         </div>
 
         <section className="dealer-dash-period-panel" aria-label="Orders and fulfillment">
-          <DashboardPeriodFilter
-            preset={opsPeriod}
-            customFrom={customRange.start}
-            customTo={customRange.end}
-            rangeLabel={periodLabel}
-            onPresetChange={next => {
-              setOpsPeriod(next);
-              if (next === 'custom' && (!customRange.start || !customRange.end)) {
-                setCustomRange(defaultDashboardCustomRange());
-              }
-            }}
-            onCustomFromChange={start => setCustomRange(prev => ({ ...prev, start }))}
-            onCustomToChange={end => setCustomRange(prev => ({ ...prev, end }))}
-          />
-          <div className="dealer-dash__kpis-grid">
+          <div className="dealer-dash__kpis-grid dealer-dash__kpis-grid--pairs">
             {periodKpis.map(card => (
               <button
                 key={card.id}
@@ -508,24 +522,6 @@ export const SuperAdminDashboard: React.FC = () => {
             ))}
           </div>
         </section>
-
-        <div className="dealer-dash__kpis-grid">
-          {opsKpis.map(card => (
-            <button
-              key={card.id}
-              type="button"
-              className={`dealer-dash-kpi dealer-dash-kpi--${card.tone}`}
-              onClick={() => navigate(card.path)}
-            >
-              <div className="dealer-dash-kpi__icon">{card.icon}</div>
-              <div className="dealer-dash-kpi__body">
-                <span className="dealer-dash-kpi__label">{card.label}</span>
-                <strong className="dealer-dash-kpi__value">{card.value}</strong>
-              </div>
-              <ChevronRight size={18} className="dealer-dash-kpi__chevron" aria-hidden />
-            </button>
-          ))}
-        </div>
 
         <div className="dealer-dash__kpis-grid dealer-dash__kpis-grid--dealer-stages">
           {secondaryKpis.map(card => (
@@ -546,7 +542,7 @@ export const SuperAdminDashboard: React.FC = () => {
         </div>
       </section>
 
-      <section className="dealer-dash__chart-panel">
+      <section className="dealer-dash__chart-panel" data-no-swipe>
         <div className="dealer-dash__chart-head">
           <div>
             <h3 className="dealer-dash__section-title">
