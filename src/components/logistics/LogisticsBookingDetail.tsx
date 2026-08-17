@@ -625,6 +625,10 @@ export const LogisticsBookingDetail: React.FC<LogisticsBookingDetailProps> = ({
       return;
     }
     if (!result.contentBase64) {
+      if (result.status === 'generated' && result.ewaybillNumber) {
+        setDelhiveryDocsError('');
+        return;
+      }
       setDelhiveryDocsError(result.message || 'E-way bill is not ready yet.');
       return;
     }

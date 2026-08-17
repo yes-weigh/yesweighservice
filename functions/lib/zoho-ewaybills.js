@@ -129,8 +129,16 @@ function isZohoNotAuthorizedError(message) {
   return /not authorized to perform this operation/i.test(String(message ?? ''));
 }
 
+export function isEwayPdfNotReadyError(message) {
+  return /printed \/ downloaded as PDF|synced e-way bills from e-way bill portal/i.test(
+    String(message ?? ''),
+  );
+}
+
 function isEwayRecoverableGenerateError(message) {
-  return isEwayAlreadyGeneratedError(message) || isZohoNotAuthorizedError(message);
+  return isEwayAlreadyGeneratedError(message)
+    || isZohoNotAuthorizedError(message)
+    || isEwayPdfNotReadyError(message);
 }
 
 function sleep(ms) {
@@ -146,6 +154,12 @@ export function formatEwayBillPortalError(message) {
       + 'In Zoho Inventory open Settings → Taxes → GST / E-Way Bills and save E-Way Bill Portal '
       + 'username and password, then retry. Or generate the e-way bill on the invoice in Zoho '
       + 'and tap E way bill here again.'
+    );
+  }
+  if (isEwayPdfNotReadyError(text)) {
+    return (
+      'Zoho cannot print this e-way bill yet (GST portal has not synced the PDF). '
+      + 'The e-way number can still be saved on the booking and sent to Delhivery.'
     );
   }
   if (isEwayAlreadyGeneratedError(text) || isZohoNotAuthorizedError(text)) {
@@ -802,6 +816,25 @@ export async function fetchZohoEwayBillPdf(accessToken, orgId, ewaybillId) {
   const buffer = Buffer.from(await res.arrayBuffer());
   if (!buffer.length) throw new Error('E-way bill file is empty.');
 
+  if (contentType.includes('json') || buffer.slice(0, 1).toString() === '{') {
+    try {
+      const json = JSON.parse(buffer.toString('utf8'));
+      if (json && typeof json === 'object' && (json.code !== undefined && json.code !== 0 || json.message)) {
+        if (json.code !== undefined && json.code !== 0) {
+          throw new Error(formatZohoApiError(json, 'Could not download e-way bill.'));
+        }
+        const html = json?.print_html || json?.html || json?.data;
+        if (typeof html === 'string' && html.trim()) {
+          return { buffer: Buffer.from(html, 'utf8'), mimeType: 'text/html', extension: 'html' };
+        }
+      }
+    } catch (err) {
+      if (err instanceof Error && /printed \/ downloaded|synced e-way|could not download/i.test(err.message)) {
+        throw err;
+      }
+    }
+  }
+
   if (contentType.includes('pdf') || buffer.slice(0, 4).toString() === '%PDF') {
     return { buffer, mimeType: 'application/pdf', extension: 'pdf' };
   }
@@ -829,6 +862,9 @@ export function mapZohoEwayBillRecord(raw) {
   const number = String(
     raw.ewaybill_number
     ?? raw.eway_bill_number
+    ?? raw.ewb_no
+    ?? raw.EwbNo
+    ?? raw.ewaybill_no
     ?? '',
   ).trim();
   let status = normalizeMappedEwayStatus(raw.ewaybill_status ?? raw.eway_bill_status ?? raw.status);
@@ -840,7 +876,7 @@ export function mapZohoEwayBillRecord(raw) {
     generatedAt: raw.ewaybill_date ? String(raw.ewaybill_date) : null,
     expiryDate: raw.ewaybill_expiry_date ? String(raw.ewaybill_expiry_date) : null,
     transporterGstin: normalizeGstin(raw.transporter_registration_id) || null,
-    pdfPrintAllowed: raw.can_allow_print_ewaybill !== false,
+    pdfPrintAllowed: raw.can_allow_print_ewaybill === true,
   };
 }
 

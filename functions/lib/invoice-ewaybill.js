@@ -14,6 +14,7 @@ import {
   findZohoEwayBillForInvoice,
   recoverExistingEwayBillForInvoice,
   mapZohoEwayBillRecord,
+  isEwayPdfNotReadyError,
   normalizeGstin,
   resolveTransporterForPartner,
 } from './zoho-ewaybills.js';
@@ -262,6 +263,19 @@ async function maybePushEwayBillsToDelhiveryLr(db, { bookingId = null, invoiceId
     }
     return null;
   }
+}
+
+async function mappedWithGstNumber(accessToken, orgId, invoiceId, mapped) {
+  if (mapped?.ewaybillNumber) return mapped;
+  const recovered = await recoverExistingEwayBillForInvoice(accessToken, orgId, invoiceId);
+  const remapped = mapZohoEwayBillRecord(recovered);
+  if (!remapped) return mapped;
+  return {
+    ...mapped,
+    ...remapped,
+    zohoEwaybillId: mapped?.zohoEwaybillId || remapped.zohoEwaybillId,
+    ewaybillNumber: remapped.ewaybillNumber || mapped?.ewaybillNumber || null,
+  };
 }
 
 function bookingInvoiceRowMatches(row, invoiceId, booking) {
@@ -535,7 +549,8 @@ export async function ensureInvoiceEwayBill(secrets, orgId, input) {
     };
   }
 
-  const mapped = mapZohoEwayBillRecord(remote);
+  let mapped = mapZohoEwayBillRecord(remote);
+  mapped = await mappedWithGstNumber(accessToken, organizationId, invoiceId, mapped);
   if (!mapped?.zohoEwaybillId) {
     if (mapped?.ewaybillNumber) {
       const saved = await persistEwayBill(customerId, invoiceId, {
@@ -550,7 +565,7 @@ export async function ensureInvoiceEwayBill(secrets, orgId, input) {
         required: true,
         status: saved.status,
         ewaybillNumber: saved.ewaybillNumber,
-        message: 'E-way bill already exists in GST. Printable copy will appear after Zoho syncs.',
+        message: 'E-way bill already exists in GST. Number saved and sent to Delhivery. Printable copy will appear after Zoho syncs.',
       };
     }
     throw new Error('Zoho returned an invalid e-way bill record.');
@@ -605,8 +620,9 @@ export async function ensureInvoiceEwayBill(secrets, orgId, input) {
       );
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
-      if (!mapped.ewaybillNumber) throw err;
+      if (!isEwayPdfNotReadyError(message) && !mapped.ewaybillNumber) throw err;
       console.warn('Could not download e-way bill PDF from Zoho:', message);
+      mapped = await mappedWithGstNumber(accessToken, organizationId, invoiceId, mapped);
     }
   }
 
@@ -627,7 +643,9 @@ export async function ensureInvoiceEwayBill(secrets, orgId, input) {
       required: true,
       status: saved.status,
       ewaybillNumber: saved.ewaybillNumber,
-      message: 'E-way bill generated in Zoho but printable copy is not available yet.',
+      message: saved.ewaybillNumber
+        ? `E-way bill ${saved.ewaybillNumber} saved and sent to Delhivery. Zoho cannot print the PDF until GST portal syncs.`
+        : 'E-way bill generated in Zoho but printable copy is not available yet.',
     };
   }
 
@@ -946,7 +964,7 @@ export async function ensureInvoiceEwayBillForCustomerPickup(secrets, orgId, inp
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       if (/cancelled e-way bill copy/i.test(message)) throw err;
-      if (!finalMapped.ewaybillNumber) throw err;
+      if (!isEwayPdfNotReadyError(message) && !finalMapped.ewaybillNumber) throw err;
       console.warn('Could not download e-way bill PDF from Zoho:', message);
     }
   }
