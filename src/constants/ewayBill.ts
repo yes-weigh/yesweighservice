@@ -46,7 +46,10 @@ export function ewayBillIsReady(
 }
 
 export function resolveEwayBillInvoiceTotal(
-  booking: { invoiceValueInr?: number | null },
+  booking: {
+    invoiceValueInr?: number | null;
+    invoices?: ReadonlyArray<{ valueInr?: number | null } | null | undefined> | null;
+  },
   invoice?: { total?: unknown; subtotal?: unknown; taxTotal?: unknown } | null,
 ): number | null {
   const fromInvoice = invoiceTotalInclGst(invoice);
