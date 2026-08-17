@@ -87,6 +87,8 @@ jobs:
           ZOHO_ORGANIZATION_ID: ${{ secrets.ZOHO_ORGANIZATION_ID }}
           ZOHO_WEBHOOK_SECRET: ${{ secrets.ZOHO_WEBHOOK_SECRET }}
           YESWEIGH_EMBED_SECRET: ${{ secrets.YESWEIGH_EMBED_SECRET }}
+          MEEZAN_CATALOG_WEBHOOK_URL: ${{ secrets.MEEZAN_CATALOG_WEBHOOK_URL }}
+          MEEZAN_CATALOG_WEBHOOK_SECRET: ${{ secrets.MEEZAN_CATALOG_WEBHOOK_SECRET }}
         run: |
           if [ -z "$ZOHO_ORGANIZATION_ID" ]; then
             echo "::error::Add GitHub Actions secret ZOHO_ORGANIZATION_ID (Zoho Inventory → Settings → Organization Profile → Organization ID)."
@@ -97,6 +99,8 @@ jobs:
             printf 'ZOHO_ORGANIZATION_ID=%s\n' "$ZOHO_ORGANIZATION_ID"
             printf 'ZOHO_WEBHOOK_SECRET=%s\n' "${ZOHO_WEBHOOK_SECRET:-}"
             printf 'YESWEIGH_EMBED_SECRET=%s\n' "${YESWEIGH_EMBED_SECRET:-}"
+            printf 'MEEZAN_CATALOG_WEBHOOK_URL=%s\n' "${MEEZAN_CATALOG_WEBHOOK_URL:-}"
+            printf 'MEEZAN_CATALOG_WEBHOOK_SECRET=%s\n' "${MEEZAN_CATALOG_WEBHOOK_SECRET:-}"
           } > functions/.env.yesweigh-service
 
       - name: Deploy hosting, Firestore, and Storage

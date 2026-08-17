@@ -3,6 +3,7 @@ import { getFirestore } from 'firebase-admin/firestore';
 import { onDocumentCreated, onDocumentWritten } from 'firebase-functions/v2/firestore';
 import { onCall, onRequest, HttpsError } from 'firebase-functions/v2/https';
 import { onSchedule } from 'firebase-functions/v2/scheduler';
+import { onObjectDeleted, onObjectFinalized } from 'firebase-functions/v2/storage';
 import { defineSecret, defineString } from 'firebase-functions/params';
 import { isCatalogSyncWindow } from './lib/business-hours.js';
 import {
@@ -27,6 +28,15 @@ import {
   recordCatalogBinLabelPrint,
   handleZohoItemWebhook,
 } from './lib/catalog-sync.js';
+import {
+  catalogDocsEqual,
+  isMeezanCatalogMirrorConfigured,
+  isMeezanCatalogStoragePath,
+  pushMeezanCatalogDoc,
+  pushMeezanCatalogFile,
+  pushMeezanCatalogSnapshot,
+  sourceUrlForCatalogFile,
+} from './lib/meezan-catalog-mirror.js';
 import {
   mutateCatalogProductDetails,
   mutateCatalogProductOverlays,
@@ -316,6 +326,8 @@ const watiEndpoint = defineSecret('WATI_ENDPOINT');
 const zohoOrganizationId = defineString('ZOHO_ORGANIZATION_ID');
 const zohoWebhookSecret = defineString('ZOHO_WEBHOOK_SECRET', { default: '' });
 const yesweighEmbedSecret = defineString('YESWEIGH_EMBED_SECRET', { default: '' });
+const meezanCatalogWebhookUrl = defineString('MEEZAN_CATALOG_WEBHOOK_URL', { default: '' });
+const meezanCatalogWebhookSecret = defineString('MEEZAN_CATALOG_WEBHOOK_SECRET', { default: '' });
 
 const ALLOWED_ROLES = new Set(['dealer', 'dealer_staff', 'staff', 'super_admin', 'media']);
 const SYNC_ROLES = new Set(['staff', 'super_admin']);
@@ -330,6 +342,44 @@ function zohoSecrets() {
     clientSecret: zohoClientSecret.value(),
     refreshToken: zohoRefreshToken.value(),
   };
+}
+
+function meezanCatalogMirrorConfig() {
+  return {
+    url: meezanCatalogWebhookUrl.value(),
+    secret: meezanCatalogWebhookSecret.value(),
+  };
+}
+
+function onMeezanCatalogDocMirror(document, paramName) {
+  return onDocumentWritten(
+    {
+      document,
+      region: 'asia-south1',
+      timeoutSeconds: 180,
+      memory: '512MiB',
+    },
+    async event => {
+      const { url, secret } = meezanCatalogMirrorConfig();
+      if (!isMeezanCatalogMirrorConfigured(url, secret)) return;
+
+      const id = String(event.params[paramName] ?? '');
+      const collection = document.split('/')[0];
+      if (collection === 'catalogMeta' && id === 'meezanMirror') return;
+      if (collection === 'appSettings' && id !== 'priceLevels' && id !== 'productSettings') return;
+
+      const after = event.data?.after?.exists ? (event.data.after.data() || {}) : null;
+      const before = event.data?.before?.exists ? (event.data.before.data() || {}) : null;
+      if (after != null && catalogDocsEqual(before, after)) return;
+
+      try {
+        await pushMeezanCatalogDoc(url, secret, collection, id, after);
+      } catch (err) {
+        console.error(`Meezan catalog mirror failed ${collection}/${id}:`, err?.message || err);
+        throw err;
+      }
+    },
+  );
 }
 
 async function readUserRole(uid) {
@@ -2500,6 +2550,125 @@ export const zohoItemWebhook = onRequest(
     } catch (err) {
       console.error('Zoho item webhook failed:', err);
       res.status(500).json({ ok: false, message: err?.message ?? 'Webhook processing failed.' });
+    }
+  },
+);
+
+export const mirrorMeezanCatalogProduct = onMeezanCatalogDocMirror('catalogProducts/{productId}', 'productId');
+export const mirrorMeezanCatalogCategory = onMeezanCatalogDocMirror('catalogCategories/{categoryId}', 'categoryId');
+export const mirrorMeezanCatalogMeta = onMeezanCatalogDocMirror('catalogMeta/{docId}', 'docId');
+export const mirrorMeezanCatalogSpareMap = onMeezanCatalogDocMirror('catalogProductSpareMap/{productId}', 'productId');
+export const mirrorMeezanCatalogMedia = onMeezanCatalogDocMirror('catalogProductMedia/{productId}', 'productId');
+export const mirrorMeezanCatalogSupport = onMeezanCatalogDocMirror('catalogProductSupport/{productId}', 'productId');
+export const mirrorMeezanAppSettings = onMeezanCatalogDocMirror('appSettings/{docId}', 'docId');
+
+/** One-shot copy of the catalog collections into Meezan Firestore. */
+export const pushCatalogToMeezan = onCall(
+  {
+    region: 'asia-south1',
+    timeoutSeconds: 540,
+    memory: '1GiB',
+  },
+  async request => {
+    await requireActiveUser(request.auth?.uid, SYNC_ROLES);
+    const { url, secret } = meezanCatalogMirrorConfig();
+    if (!isMeezanCatalogMirrorConfigured(url, secret)) {
+      throw new HttpsError(
+        'failed-precondition',
+        'Set MEEZAN_CATALOG_WEBHOOK_URL and MEEZAN_CATALOG_WEBHOOK_SECRET before pushing the catalog.',
+      );
+    }
+    try {
+      return await pushMeezanCatalogSnapshot(url, secret, {
+        cursor: request.data?.cursor,
+        pushed: request.data?.pushed,
+      });
+    } catch (err) {
+      console.error('pushCatalogToMeezan failed:', err);
+      throw new HttpsError('internal', err?.message ?? 'Could not push catalog to Meezan.');
+    }
+  },
+);
+
+export const pushCatalogToMeezanHttp = onRequest(
+  {
+    region: 'asia-south1',
+    timeoutSeconds: 540,
+    memory: '1GiB',
+    cors: false,
+    invoker: 'public',
+  },
+  async (req, res) => {
+    if (req.method !== 'POST') {
+      res.status(405).send('Method not allowed');
+      return;
+    }
+    const { url, secret } = meezanCatalogMirrorConfig();
+    const provided = String(req.get('x-meezan-catalog-secret') ?? '').trim();
+    if (!secret || !provided || provided !== secret) {
+      res.status(401).json({ ok: false, message: 'Invalid secret.' });
+      return;
+    }
+    if (!isMeezanCatalogMirrorConfigured(url, secret)) {
+      res.status(503).json({ ok: false, message: 'Meezan catalog webhook is not configured.' });
+      return;
+    }
+    try {
+      const result = await pushMeezanCatalogSnapshot(url, secret, {
+        cursor: req.body?.cursor,
+        pushed: req.body?.pushed,
+      });
+      res.status(200).json(result);
+    } catch (err) {
+      console.error('pushCatalogToMeezanHttp failed:', err);
+      res.status(500).json({ ok: false, message: err?.message ?? 'Could not push catalog to Meezan.' });
+    }
+  },
+);
+
+export const mirrorMeezanCatalogFile = onObjectFinalized(
+  {
+    region: 'asia-south1',
+    bucket: 'yesweigh-service.firebasestorage.app',
+    timeoutSeconds: 120,
+    memory: '512MiB',
+  },
+  async event => {
+    const storagePath = String(event.data?.name ?? '').trim();
+    if (!isMeezanCatalogStoragePath(storagePath)) return;
+    const { url, secret } = meezanCatalogMirrorConfig();
+    if (!isMeezanCatalogMirrorConfigured(url, secret)) return;
+    try {
+      const sourceUrl = await sourceUrlForCatalogFile(storagePath);
+      await pushMeezanCatalogFile(url, secret, {
+        storagePath,
+        sourceUrl,
+        contentType: event.data?.contentType,
+      });
+    } catch (err) {
+      console.error(`Meezan catalog file mirror failed ${storagePath}:`, err?.message || err);
+      throw err;
+    }
+  },
+);
+
+export const deleteMeezanCatalogFile = onObjectDeleted(
+  {
+    region: 'asia-south1',
+    bucket: 'yesweigh-service.firebasestorage.app',
+    timeoutSeconds: 60,
+    memory: '256MiB',
+  },
+  async event => {
+    const storagePath = String(event.data?.name ?? '').trim();
+    if (!isMeezanCatalogStoragePath(storagePath)) return;
+    const { url, secret } = meezanCatalogMirrorConfig();
+    if (!isMeezanCatalogMirrorConfigured(url, secret)) return;
+    try {
+      await pushMeezanCatalogFile(url, secret, { storagePath, deleted: true });
+    } catch (err) {
+      console.error(`Meezan catalog file delete failed ${storagePath}:`, err?.message || err);
+      throw err;
     }
   },
 );
