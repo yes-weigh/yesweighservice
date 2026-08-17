@@ -3,7 +3,6 @@ import { getFirestore } from 'firebase-admin/firestore';
 import { onDocumentCreated, onDocumentWritten } from 'firebase-functions/v2/firestore';
 import { onCall, onRequest, HttpsError } from 'firebase-functions/v2/https';
 import { onSchedule } from 'firebase-functions/v2/scheduler';
-import { onObjectDeleted, onObjectFinalized } from 'firebase-functions/v2/storage';
 import { defineSecret, defineString } from 'firebase-functions/params';
 import { isCatalogSyncWindow } from './lib/business-hours.js';
 import {
@@ -31,11 +30,8 @@ import {
 import {
   catalogDocsEqual,
   isMeezanCatalogMirrorConfigured,
-  isMeezanCatalogStoragePath,
   pushMeezanCatalogDoc,
-  pushMeezanCatalogFile,
   pushMeezanCatalogSnapshot,
-  sourceUrlForCatalogFile,
 } from './lib/meezan-catalog-mirror.js';
 import {
   mutateCatalogProductDetails,
@@ -2622,53 +2618,6 @@ export const pushCatalogToMeezanHttp = onRequest(
     } catch (err) {
       console.error('pushCatalogToMeezanHttp failed:', err);
       res.status(500).json({ ok: false, message: err?.message ?? 'Could not push catalog to Meezan.' });
-    }
-  },
-);
-
-export const mirrorMeezanCatalogFile = onObjectFinalized(
-  {
-    region: 'us-east1',
-    bucket: 'yesweigh-service.firebasestorage.app',
-    timeoutSeconds: 120,
-    memory: '512MiB',
-  },
-  async event => {
-    const storagePath = String(event.data?.name ?? '').trim();
-    if (!isMeezanCatalogStoragePath(storagePath)) return;
-    const { url, secret } = meezanCatalogMirrorConfig();
-    if (!isMeezanCatalogMirrorConfigured(url, secret)) return;
-    try {
-      const sourceUrl = await sourceUrlForCatalogFile(storagePath);
-      await pushMeezanCatalogFile(url, secret, {
-        storagePath,
-        sourceUrl,
-        contentType: event.data?.contentType,
-      });
-    } catch (err) {
-      console.error(`Meezan catalog file mirror failed ${storagePath}:`, err?.message || err);
-      throw err;
-    }
-  },
-);
-
-export const deleteMeezanCatalogFile = onObjectDeleted(
-  {
-    region: 'us-east1',
-    bucket: 'yesweigh-service.firebasestorage.app',
-    timeoutSeconds: 60,
-    memory: '256MiB',
-  },
-  async event => {
-    const storagePath = String(event.data?.name ?? '').trim();
-    if (!isMeezanCatalogStoragePath(storagePath)) return;
-    const { url, secret } = meezanCatalogMirrorConfig();
-    if (!isMeezanCatalogMirrorConfigured(url, secret)) return;
-    try {
-      await pushMeezanCatalogFile(url, secret, { storagePath, deleted: true });
-    } catch (err) {
-      console.error(`Meezan catalog file delete failed ${storagePath}:`, err?.message || err);
-      throw err;
     }
   },
 );
