@@ -220,11 +220,18 @@ service cloud.firestore {
 
     match /appSettings/{docId} {
       // Courier API passwords / license keys + cached JWTs are Admin SDK only.
-      allow read: if signedIn()
-        && docId != 'delhiveryB2bSecrets'
-        && docId != 'delhiveryB2bAuth'
-        && docId != 'blueDartSecrets'
-        && docId != 'blueDartAuth';
+      // priceLevels + productSettings are readable without YesWeigh auth so Meezan
+      // can show directors pricing and approval documents.
+      allow read: if (
+          (docId == 'priceLevels' || docId == 'productSettings')
+          || (
+            signedIn()
+            && docId != 'delhiveryB2bSecrets'
+            && docId != 'delhiveryB2bAuth'
+            && docId != 'blueDartSecrets'
+            && docId != 'blueDartAuth'
+          )
+        );
       allow write: if signedIn()
         && docId != 'delhiveryB2bSecrets'
         && docId != 'delhiveryB2bAuth'
@@ -878,12 +885,12 @@ service cloud.firestore {
     }
 
     match /catalogProductMedia/{productId} {
-      allow read: if isActiveUser();
+      allow read: if true;
       allow write: if isActiveUser() && canWriteCatalogMedia();
     }
 
     match /catalogProductSupport/{productId} {
-      allow read: if isActiveUser();
+      allow read: if true;
       allow write: if isActiveUser() && canWriteCatalogMedia();
     }
 
