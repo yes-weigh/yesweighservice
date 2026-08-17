@@ -272,9 +272,9 @@ export const SuperAdminDashboard: React.FC = () => {
   const outstanding = useMemo(() => sumAdminOutstanding(invoices), [invoices]);
   const overdueCount = useMemo(() => countAdminInvoicesByStatus(invoices, 'overdue'), [invoices]);
 
-  const openSalesMap = useCallback(() => {
+  const openSalesMap = useCallback((mapLevel: 'india' | 'kerala' = 'india') => {
     navigate(`${BASE}/sales-by-state`, {
-      state: { period: opsPeriod, customRange, mapLevel: 'india' },
+      state: { period: opsPeriod, customRange, mapLevel },
     });
   }, [customRange, navigate, opsPeriod]);
 
@@ -296,15 +296,15 @@ export const SuperAdminDashboard: React.FC = () => {
   }, [customRange.end, customRange.start, opsPeriod]);
 
   useHorizontalSwipe(pageRef, {
-    onSwipeRight: openSalesMap,
+    onSwipeRight: () => openSalesMap('india'),
+    onSwipeLeft: () => openSalesMap('kerala'),
     onSwipeProgress: (dx) => {
-      if (dx <= 0) return;
       setDashDragging(true);
       setDashDragX(dx);
     },
     onSwipeEnd: (committed) => {
       setDashDragging(false);
-      if (committed !== 'right') setDashDragX(0);
+      if (!committed) setDashDragX(0);
     },
     enabled: true,
   });

@@ -147,15 +147,12 @@ export const SalesByStatePage: React.FC = () => {
   }, [keralaDistricts, setMapView]);
 
   useHorizontalSwipe(pageRef, {
-    onSwipeLeft: showingKerala ? goIndia : goDashboard,
-    onSwipeRight: showingKerala ? undefined : openKeralaDistricts,
+    onSwipeLeft: showingKerala ? goDashboard : openKeralaDistricts,
+    onSwipeRight: showingKerala ? goIndia : goDashboard,
     onSwipeProgress: (dx) => {
       setDragging(true);
-      if (showingKerala) {
-        setDragX(Math.min(28, Math.max(-window.innerWidth, dx)));
-      } else {
-        setDragX(Math.max(-28, Math.min(window.innerWidth, dx)));
-      }
+      const max = window.innerWidth;
+      setDragX(Math.max(-max, Math.min(max, dx)));
     },
     onSwipeEnd: () => {
       setDragging(false);
@@ -327,23 +324,23 @@ export const SalesByStatePage: React.FC = () => {
               <div
                 className={`sales-map__deck${dragging ? ' is-dragging' : ''}`}
                 style={{
-                  transform: `translate3d(calc(${showingKerala ? '0%' : '-50%'} + ${dragX}px), 0, 0)`,
+                  transform: `translate3d(calc(${showingKerala ? '-50%' : '0%'} + ${dragX}px), 0, 0)`,
                 }}
               >
-                <div className="sales-map__pane" aria-hidden={!showingKerala}>
-                  <KeralaSalesMap
-                    rows={keralaDistricts}
-                    selectedDistrict={selectedDistrict}
-                    focusKey={focusKey}
-                    onSelect={setSelectedDistrict}
-                  />
-                </div>
                 <div className="sales-map__pane" aria-hidden={showingKerala}>
                   <IndiaSalesMap
                     rows={rows}
                     selectedState={selectedState}
                     focusKey={focusKey}
                     onSelect={selectState}
+                  />
+                </div>
+                <div className="sales-map__pane" aria-hidden={!showingKerala}>
+                  <KeralaSalesMap
+                    rows={keralaDistricts}
+                    selectedDistrict={selectedDistrict}
+                    focusKey={focusKey}
+                    onSelect={setSelectedDistrict}
                   />
                 </div>
               </div>

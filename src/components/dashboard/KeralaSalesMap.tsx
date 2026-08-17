@@ -3,11 +3,11 @@ import { KERALA_DISTRICT_PATHS, KERALA_MAP_VIEWBOX } from '../../data/keralaDist
 import { formatCompactInr, type DistrictSalesRow } from '../../lib/salesByState';
 
 function fillForShare(sales: number, maxSales: number): string {
-  if (maxSales <= 0 || sales <= 0) return '#1d4ed8';
+  if (maxSales <= 0 || sales <= 0) return '#152238';
   const t = Math.min(1, Math.sqrt(sales / maxSales));
-  const r = Math.round(29 + (96 - 29) * t);
-  const g = Math.round(78 + (165 - 78) * t);
-  const b = Math.round(216 + (250 - 216) * t);
+  const r = Math.round(21 + (59 - 21) * t);
+  const g = Math.round(64 + (130 - 64) * t);
+  const b = Math.round(105 + (246 - 105) * t);
   return `rgb(${r}, ${g}, ${b})`;
 }
 
@@ -96,8 +96,8 @@ export function KeralaSalesMap({
                 <path
                   d={district.d}
                   fill={isHot ? '#f8fafc' : fillForShare(row?.sales ?? 0, maxSales)}
-                  stroke="#ffffff"
-                  strokeWidth={isHot ? 2.4 : 1.35}
+                  stroke={isHot ? '#ffffff' : 'rgba(15, 23, 42, 0.85)'}
+                  strokeWidth={isHot ? 1.85 : 0.45}
                   className={`sales-map__state${isHot ? ' is-hot' : ''}`}
                   onClick={() => onSelect(district.name)}
                   onPointerEnter={() => setHover(district.name)}
