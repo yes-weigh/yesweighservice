@@ -1,6 +1,13 @@
 import { createHmac } from 'node:crypto';
+import { Agent, fetch as undiciFetch } from 'undici';
 import { getFirestore } from 'firebase-admin/firestore';
 import { getStorage } from 'firebase-admin/storage';
+
+const meezanIngestAgent = new Agent({
+  headersTimeout: 520_000,
+  bodyTimeout: 520_000,
+  connectTimeout: 30_000,
+});
 
 export const MEEZAN_MIRROR_COLLECTIONS = [
   'catalogProducts',
@@ -91,13 +98,14 @@ export async function postMeezanCatalogWebhook(url, secret, payload) {
     .update(`${timestamp}.${rawBody}`)
     .digest('hex');
 
-  const response = await fetch(endpoint, {
+  const response = await undiciFetch(endpoint, {
     method: 'POST',
     headers: {
       'content-type': 'application/json',
       'x-meezan-catalog-signature': `t=${timestamp},v1=${signature}`,
     },
     body: rawBody,
+    dispatcher: meezanIngestAgent,
   });
 
   const text = await response.text();
@@ -188,6 +196,7 @@ export async function pushMeezanCatalogSnapshot(url, secret, options = {}) {
           op: 'upsert',
           collection: job.collection,
           copyFiles: true,
+          skipExistingFiles: true,
           docs: chunk,
         });
         pushed += chunk.length;
@@ -203,6 +212,7 @@ export async function pushMeezanCatalogSnapshot(url, secret, options = {}) {
         op: snap.exists ? 'upsert' : 'delete',
         collection: job.collection,
         copyFiles: true,
+        skipExistingFiles: true,
         docs: [{ id: job.id, data: snap.exists ? serializeFirestoreValue(snap.data()) : null }],
       });
       pushed += 1;

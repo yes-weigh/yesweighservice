@@ -352,8 +352,8 @@ function onMeezanCatalogDocMirror(document, paramName) {
     {
       document,
       region: 'asia-south1',
-      timeoutSeconds: 180,
-      memory: '512MiB',
+      timeoutSeconds: 540,
+      memory: '1GiB',
     },
     async event => {
       const { url, secret } = meezanCatalogMirrorConfig();
