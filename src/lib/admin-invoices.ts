@@ -1630,7 +1630,8 @@ export function invoiceChipStatusCounts(
   if (category === 'all') return { ...(kpi.byFilterStatus ?? {}) };
   const nested = kpi.byCategoryAndFilterStatus?.[category];
   if (filterChipMapsHaveCounts(nested)) return { ...nested };
-  return { ...(kpi.byFilterStatus ?? {}) };
+  // Do not fall back to org-wide status totals — those mix other categories into this tab.
+  return {};
 }
 
 export function invoiceChipCategoryCounts(
@@ -1651,6 +1652,46 @@ export function invoiceChipCategoryCounts(
     return kpi.categoryCounts;
   }
   return next;
+}
+
+/**
+ * When the list query returned every matching row, pin the active chips to that
+ * length so rollup drift cannot disagree with the cards on screen.
+ */
+export function alignInvoiceChipCountsToList(
+  statusCounts: Record<string, number>,
+  categoryCounts: AdminInvoiceCategoryCounts,
+  options: {
+    statusFilter: string;
+    category: InvoiceCategory | 'all';
+    listCount: number;
+  },
+): {
+  statusCounts: Record<string, number>;
+  categoryCounts: AdminInvoiceCategoryCounts;
+} {
+  const { statusFilter, category, listCount } = options;
+  let nextStatus = statusCounts;
+  let nextCategory = categoryCounts;
+
+  if (statusFilter !== 'all' && statusFilter !== 'support') {
+    nextStatus = { ...nextStatus, [statusFilter]: listCount };
+  }
+
+  if (category === 'all') {
+    if (statusFilter !== 'all' && statusFilter !== 'support') {
+      nextCategory = { ...nextCategory, all: listCount };
+    }
+    return { statusCounts: nextStatus, categoryCounts: nextCategory };
+  }
+
+  const prev = nextCategory[category];
+  nextCategory = {
+    ...nextCategory,
+    [category]: listCount,
+    all: Math.max(0, nextCategory.all + (listCount - prev)),
+  };
+  return { statusCounts: nextStatus, categoryCounts: nextCategory };
 }
 
 function emptyCategoryCounts(): AdminInvoiceCategoryCounts {
@@ -1804,34 +1845,19 @@ async function sumLiveInvoiceKpiAmounts(options: {
   return { categoryAmount, documentAmount };
 }
 
-async function withLiveFilterChipMaps(
+function applyLiveFilterChipMaps(
   kpi: AdminInvoiceStatsKpi,
-  options: {
-    dateStart?: string | null;
-    dateEnd?: string | null;
-    salespersonIds?: string[] | null;
-  },
-): Promise<AdminInvoiceStatsKpi> {
-  // invoiceStats / invoiceMonthStats already carry byFilterStatus from 9a34e05.
-  // Live listStatus counts fall back to hot invoices (no listStatus) and overwrite
-  // those rollups with zeros.
-  if (filterChipMapsHaveCounts(kpi.byFilterStatus)) return kpi;
-  if (!options.dateStart || !options.dateEnd) return kpi;
-  try {
-    const live = await countAdminInvoiceFilterChipMaps({
-      dateStart: options.dateStart,
-      dateEnd: options.dateEnd,
-      salespersonIds: options.salespersonIds,
-    });
-    if (!filterChipMapsHaveCounts(live.byFilterStatus)) return kpi;
-    return {
-      ...kpi,
-      byFilterStatus: live.byFilterStatus,
-      byCategoryAndFilterStatus: live.byCategoryAndFilterStatus,
-    };
-  } catch {
-    return kpi;
-  }
+  live: {
+    byFilterStatus: Record<string, number>;
+    byCategoryAndFilterStatus: Record<string, Record<string, number>>;
+  } | null,
+): AdminInvoiceStatsKpi {
+  if (!live || !filterChipMapsHaveCounts(live.byFilterStatus)) return kpi;
+  return {
+    ...kpi,
+    byFilterStatus: live.byFilterStatus,
+    byCategoryAndFilterStatus: live.byCategoryAndFilterStatus,
+  };
 }
 
 async function finalizeAdminInvoiceKpi(
@@ -1842,13 +1868,19 @@ async function finalizeAdminInvoiceKpi(
     salespersonIds?: string[] | null;
     category: InvoiceCategory | 'all';
     portalGatcCount?: number;
+    chipMapsPromise?: Promise<{
+      byFilterStatus: Record<string, number>;
+      byCategoryAndFilterStatus: Record<string, Record<string, number>>;
+    } | null>;
   },
 ): Promise<AdminInvoiceStatsKpi> {
+  const chipMapsPromise = options.chipMapsPromise ?? Promise.resolve(null);
   const repaired = await repairRollupCategoryCounts(rollup, options);
   let categoryAmount = pickCategoryKpiAmount(repaired.categoryAmount, repaired.documentAmount);
   let documentAmount = Number(repaired.documentAmount) || 0;
   if (documentAmount <= 0 && categoryAmount > 0) documentAmount = categoryAmount;
 
+  let source: AdminInvoiceStatsKpi['source'] = repaired.source;
   if (categoryAmount <= 0 && repaired.invoiceCount > 0 && options.category !== 'gatc') {
     const live = await sumLiveInvoiceKpiAmounts({
       category: options.category,
@@ -1858,21 +1890,17 @@ async function finalizeAdminInvoiceKpi(
     });
     categoryAmount = pickCategoryKpiAmount(live.categoryAmount, live.documentAmount);
     documentAmount = Number(live.documentAmount) || categoryAmount;
-    return withLiveFilterChipMaps({
-      ...repaired,
-      categoryAmount,
-      documentAmount,
-      totalAmount: documentAmount,
-      source: 'query',
-    }, options);
+    source = 'query';
   }
 
-  return withLiveFilterChipMaps({
+  const liveMaps = await chipMapsPromise;
+  return applyLiveFilterChipMaps({
     ...repaired,
     categoryAmount,
     documentAmount,
     totalAmount: documentAmount,
-  }, options);
+    source,
+  }, liveMaps);
 }
 
 export async function loadAdminInvoiceKpis(options: {
@@ -1885,6 +1913,19 @@ export async function loadAdminInvoiceKpis(options: {
   const dateStart = options.dateStart?.trim() || null;
   const dateEnd = options.dateEnd?.trim() || null;
   const scoped = options.salespersonIds != null;
+
+  // Live listStatus counts run beside rollup reads so chips match the list query.
+  const chipMapsPromise = (
+    category === 'all'
+    && dateStart
+    && dateEnd
+  )
+    ? countAdminInvoiceFilterChipMaps({
+      dateStart,
+      dateEnd,
+      salespersonIds: options.salespersonIds,
+    }).catch(() => null)
+    : Promise.resolve(null);
 
   // Stamping KPIs come from portal gatcReports (Billwise). Skip that join
   // unless the Stamping tab is active — it hydrates every report invoice.
@@ -1956,6 +1997,7 @@ export async function loadAdminInvoiceKpis(options: {
             salespersonIds: options.salespersonIds,
             category,
             portalGatcCount: portalStamping.count,
+            chipMapsPromise,
           });
         }
       } else {
@@ -2026,6 +2068,7 @@ export async function loadAdminInvoiceKpis(options: {
               salespersonIds: options.salespersonIds,
               category,
               portalGatcCount: portalStamping.count,
+              chipMapsPromise,
             });
           }
         }
@@ -2056,6 +2099,7 @@ export async function loadAdminInvoiceKpis(options: {
     salespersonIds: options.salespersonIds,
     category,
     portalGatcCount: portalStamping.count,
+    chipMapsPromise,
   });
 }
 
@@ -2068,9 +2112,8 @@ function listStatusCountValues(status: string): string[] {
 }
 
 /**
- * Live chip counts from invoiceSummaries only.
- * Hot `invoices` docs do not store listStatus — counting them returns zeros
- * and must not replace invoiceMonthStats / invoiceStats rollups.
+ * Live chip counts from invoiceSummaries — same listStatus field the admin list queries.
+ * Prefer these over invoiceMonthStats status maps, which drift when shifts fail to decrement.
  */
 export async function countAdminInvoiceFilterChipMaps(options: {
   dateStart?: string | null;

@@ -166,9 +166,10 @@ export function formatEwayBillPortalError(message) {
   }
   if (isEwayAlreadyGeneratedError(text) || isZohoNotAuthorizedError(text)) {
     return (
-      'GST already has an e-way bill for this invoice, but Zoho still shows Not Generated. '
-      + 'In Zoho Books open Sales → e-Way Bills, find this invoice, then Actions → Fetch from Portal. '
-      + 'When the 12-digit number appears in Zoho, tap Generate here to copy it onto this booking and Delhivery.'
+      'GST already created the e-way bill for this invoice IRN, so Zoho cannot generate it again '
+      + '(Save and Generate will keep failing). YesOne will fetch that GST number and attach it in Zoho. '
+      + 'If this still fails, look up the e-way bill on the GST portal with the IRN, then in Zoho Books '
+      + 'open the invoice → More → Add e-Way Bill Details → Associate e-Way Bill number.'
     );
   }
   return text;
@@ -407,6 +408,19 @@ function decodeSignedEwayNumbers(value, push) {
   }
 }
 
+function gstEwayBillNumber(value) {
+  const digits = String(value ?? '').replace(/\D/g, '');
+  return /^\d{12}$/.test(digits) ? digits : '';
+}
+
+function isoDateFromGst(value) {
+  const text = String(value ?? '').trim();
+  if (/^\d{4}-\d{2}-\d{2}/.test(text)) return text.slice(0, 10);
+  const slash = text.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})/);
+  if (!slash) return '';
+  return `${slash[3]}-${slash[2].padStart(2, '0')}-${slash[1].padStart(2, '0')}`;
+}
+
 function collectEwayBillNumbers(invoice) {
   const numbers = [];
   const push = (value) => {
@@ -538,7 +552,10 @@ async function fetchZohoEinvoice(accessToken, orgId, invoice) {
     ?? '',
   ).trim();
   const paths = [];
-  if (invoiceId) paths.push(`/invoices/${encodeURIComponent(invoiceId)}/einvoice`);
+  if (invoiceId) {
+    paths.push(`/invoices/${encodeURIComponent(invoiceId)}/einvoice`);
+    paths.push(`/invoices/${encodeURIComponent(invoiceId)}/einvoice/ewaybill`);
+  }
   if (einvoiceId) paths.push(`/einvoices/${encodeURIComponent(einvoiceId)}`);
 
   for (const path of paths) {
@@ -659,7 +676,7 @@ async function pickActiveEwayBillForInvoice(accessToken, orgId, invoice, extra =
   const listedActive = listed.find(row => isActiveGeneratedRecord(row));
   if (listedActive) return listedActive;
 
-  const number = collectEwayBillNumbers(merged)[0] || '';
+  const number = collectEwayBillNumbers(merged).map(gstEwayBillNumber).find(Boolean) || '';
   if (!number) return null;
   return {
     ewaybill_id: ids[0] || undefined,
@@ -687,6 +704,83 @@ async function findDraftEwayBillId(accessToken, orgId, invoice) {
   return listedDraft?.ewaybill_id ? String(listedDraft.ewaybill_id) : '';
 }
 
+/** Attach a GST e-way number onto Zoho's draft (same as Associate e-Way Bill number). */
+async function associateGstEwayBillOnZoho(accessToken, orgId, invoice, number, extra = null) {
+  const digits = gstEwayBillNumber(number) || gstEwayBillNumber(recordEwayBillNumber(extra));
+  if (!digits) return null;
+  const invoiceId = String(invoice?.invoice_id ?? '').trim();
+  if (!invoiceId) return null;
+  const date = isoDateFromGst(
+    extra?.ewaybill_date
+    ?? extra?.EwbDt
+    ?? extra?.ewb_dt
+    ?? extra?.eway_bill_date
+    ?? '',
+  );
+  const body = {
+    entity_id: invoiceId,
+    entity_type: 'invoice',
+    ewaybill_number: digits,
+    action: 'manually_generated',
+    ...(date ? { ewaybill_date: date } : {}),
+    ...(invoice.branch_id ? { branch_id: String(invoice.branch_id) } : {}),
+    ...(invoice.location_id ? { location_id: String(invoice.location_id) } : {}),
+  };
+  const draftId = await findDraftEwayBillId(accessToken, orgId, invoice);
+  try {
+    const payload = draftId
+      ? await zohoJson(accessToken, orgId, `/ewaybills/${encodeURIComponent(draftId)}`, {
+        method: 'PUT',
+        query: { action: 'manually_generated' },
+        body,
+      })
+      : await zohoJson(accessToken, orgId, '/ewaybills', {
+        method: 'POST',
+        body,
+      });
+    let record = ewayRecordFromPayload(payload) || payload?.ewaybill || null;
+    const id = String(record?.ewaybill_id ?? draftId ?? '').trim();
+    if (id) {
+      const synced = await syncZohoEwayBillFromGstPortal(accessToken, orgId, id);
+      if (synced && isActiveGeneratedRecord(synced)) return synced;
+    }
+    const attached = gstEwayBillNumber(recordEwayBillNumber(record)) || digits;
+    if (record && (isActiveGeneratedRecord(record) || attached)) {
+      return {
+        ...record,
+        ewaybill_number: attached,
+        ewaybill_status: record.ewaybill_status || 'generated',
+      };
+    }
+    return {
+      ewaybill_id: id || undefined,
+      ewaybill_number: digits,
+      ewaybill_status: 'generated',
+    };
+  } catch (err) {
+    console.warn(
+      'Could not associate GST e-way bill on Zoho:',
+      err instanceof Error ? err.message : err,
+    );
+    return null;
+  }
+}
+
+function firstGstEwayNumber(...sources) {
+  for (const source of sources) {
+    const fromRecord = gstEwayBillNumber(recordEwayBillNumber(source));
+    if (fromRecord) return fromRecord;
+    if (source && typeof source === 'object') {
+      const fromList = collectEwayBillNumbers(source).map(gstEwayBillNumber).find(Boolean);
+      if (fromList) return fromList;
+    } else {
+      const direct = gstEwayBillNumber(source);
+      if (direct) return direct;
+    }
+  }
+  return '';
+}
+
 export async function recoverExistingEwayBillForInvoice(accessToken, orgId, invoiceId) {
   try {
     const id = String(invoiceId ?? '').trim();
@@ -700,15 +794,30 @@ export async function recoverExistingEwayBillForInvoice(accessToken, orgId, invo
     );
 
     let found = await pick(invoice);
-    if (found) return found;
+    if (found && gstEwayBillNumber(recordEwayBillNumber(found)) && found.ewaybill_id && !isDraftEwayRecord(found)) {
+      return found;
+    }
 
     if (invoiceHasIrn(invoice)) {
       const fetched = await fetchZohoEinvoiceFromIrp(accessToken, orgId, invoice);
       invoice = await fetchZohoInvoice(accessToken, orgId, id) || invoice;
       const einvoice = await fetchZohoEinvoice(accessToken, orgId, invoice);
       found = await pick(invoice, einvoice || fetched);
-      if (found) return found;
-      found = await pick(invoice, fetched);
+      const number = firstGstEwayNumber(found, einvoice, fetched, invoice);
+      if (number) {
+        const associated = await associateGstEwayBillOnZoho(
+          accessToken,
+          orgId,
+          invoice,
+          number,
+          einvoice || fetched || found,
+        );
+        if (associated) return associated;
+        return found || {
+          ewaybill_number: number,
+          ewaybill_status: 'generated',
+        };
+      }
       if (found) return found;
     }
 
@@ -884,6 +993,8 @@ export async function createZohoEwayBillForInvoice(accessToken, orgId, input) {
       if (usable) return usable;
       const recovered = await recoverExistingEwayBillForInvoice(accessToken, orgId, invoiceId);
       if (recovered && isActiveGeneratedRecord(recovered)) return recovered;
+      // IRN invoices cannot use Save and Generate — GST already owns the e-way for this IRN.
+      throw new Error('EwayBill is already generated for this IRN');
     }
 
     if (draftId) {

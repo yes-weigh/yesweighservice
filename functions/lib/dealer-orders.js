@@ -55,7 +55,9 @@ import {
   loadWeighingScaleCategoryIdSet,
 } from './weighing-scale-description.js';
 import {
+  findPriceLevelForDealer,
   loadPriceLevelsFromFirestore,
+  priceLevelSkipsOpsReview,
   resolveDealerUnitPrice,
   sumDirectorsClubCartQty,
 } from './price-levels.js';
@@ -297,7 +299,7 @@ function stripInternalLineFields(line) {
 }
 
 /**
- * @returns {{ lines: object[], priceChanges: object[] }}
+ * @returns {{ lines: object[], priceChanges: object[], priceLevel: object|null }}
  */
 async function buildLinesFromInput(rawLines, {
   allowRateOverride = false,
@@ -449,7 +451,13 @@ async function buildLinesFromInput(rawLines, {
       });
     }
   }
-  return { lines, priceChanges };
+  return {
+    lines,
+    priceChanges,
+    priceLevel: priceLevelDealerId
+      ? findPriceLevelForDealer(priceLevels, priceLevelDealerId)
+      : null,
+  };
 }
 
 async function loadDealerProfile(dealerId, zohoCustomerId) {
@@ -518,6 +526,7 @@ async function createSegmentSalesOrders({
   salespersonsBySegment,
   orderNumberBase,
   workflowBase,
+  skipOpsReviewForDealer = false,
   pricedLineMapper = line => line,
 }) {
   const buckets = groupLinesBySegmentAndSite(lines);
@@ -619,7 +628,7 @@ async function createSegmentSalesOrders({
       workflowBase.yesOnePriceChanges,
       segmentLines,
     );
-    const skipOpsReview = segmentSkipsOpsReview(segment);
+    const skipOpsReview = segmentSkipsOpsReview(segment) || skipOpsReviewForDealer;
     const readyForPayment = skipOpsReview || workflowBase.yesOneStage === 'ready_for_payment';
     const workflowExtras = {
       ...workflowBase,
@@ -650,7 +659,9 @@ async function createSegmentSalesOrders({
             || workflowBase.yesOneCreatedByUid
             || null,
           readyForPaymentByName: workflowBase.readyForPaymentByName
-            || (skipOpsReview ? 'Software order' : workflowBase.yesOneCreatedByName)
+            || (segmentSkipsOpsReview(segment)
+              ? 'Software order'
+              : (skipOpsReviewForDealer ? 'Directors price level' : workflowBase.yesOneCreatedByName))
             || null,
         }
         : {}),
@@ -734,7 +745,7 @@ export async function submitDealerOrder(uid, role, payload = {}, secrets, orgId)
     );
   }
   const profile = await loadDealerProfile(dealerId, zohoCustomerId);
-  const { lines: builtLines, priceChanges } = await buildLinesFromInput(payload.lines, {
+  const { lines: builtLines, priceChanges, priceLevel } = await buildLinesFromInput(payload.lines, {
     priceLevelDealerId: zohoCustomerId,
   });
   const at = nowIso();
@@ -860,6 +871,7 @@ export async function submitDealerOrder(uid, role, payload = {}, secrets, orgId)
           ? { yesOneFreightZoneOverrideReason: freightZoneOverrideReason }
           : {}),
       },
+      skipOpsReviewForDealer: priceLevelSkipsOpsReview(priceLevel),
       pricedLineMapper: stripInternalLineFields,
     });
     await reserveFreightDiffAfterCreate(zohoCustomerId, salesOrders, prepared.apply);
@@ -915,7 +927,7 @@ export async function createStaffSalesOrder(uid, role, payload = {}, secrets, or
     : 'review';
 
   const profile = await loadDealerProfile(null, zohoCustomerId);
-  const { lines, priceChanges } = await buildLinesFromInput(payload.lines, {
+  const { lines, priceChanges, priceLevel } = await buildLinesFromInput(payload.lines, {
     allowRateOverride: true,
     priceLevelDealerId: zohoCustomerId,
   });
@@ -1073,6 +1085,7 @@ export async function createStaffSalesOrder(uid, role, payload = {}, secrets, or
       salespersonsBySegment,
       orderNumberBase: orderNumber,
       pricedLineMapper: stripInternalLineFields,
+      skipOpsReviewForDealer: priceLevelSkipsOpsReview(priceLevel),
       workflowBase: {
         yesOneCreatedByStaff: true,
         yesOneCreatedFromCart: false,

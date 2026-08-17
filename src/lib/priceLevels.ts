@@ -47,6 +47,13 @@ export function isDirectorsPriceLevelName(name: string | null | undefined): bool
   return String(name ?? '').trim().toLowerCase() === 'directors';
 }
 
+/** Directors price level skips ops review and opens at Awaiting payment. */
+export function priceLevelSkipsOpsReview(
+  level: Pick<PriceLevel, 'name'> | null | undefined,
+): boolean {
+  return isDirectorsPriceLevelName(level?.name);
+}
+
 export function isDirectorsQtyClubSku(sku: string | null | undefined): boolean {
   const key = normalizePriceLevelSku(sku);
   return Boolean(key) && DIRECTORS_QTY_CLUB_SKU_SET.has(key);

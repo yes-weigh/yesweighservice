@@ -306,7 +306,9 @@ export function parseOrderSegment(value) {
   return null;
 }
 
-/** Software keys skip ops review and open as Awaiting payment. */
+/** Software keys skip ops review and open as Awaiting payment.
+ * Directors price-level dealers skip review as well (see priceLevelSkipsOpsReview).
+ */
 export function segmentSkipsOpsReview(segment) {
   return parseOrderSegment(segment) === 'software';
 }

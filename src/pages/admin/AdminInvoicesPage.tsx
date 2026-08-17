@@ -26,6 +26,7 @@ import { useCatalogPageHeader, usePageHeaderSlot } from '../../context/PageHeade
 import {
   adminInvoiceLogisticsBooking,
   aggregateAdminInvoicesByDealer,
+  alignInvoiceChipCountsToList,
   countInvoiceRowsByCategory,
   fetchAdminCustomerLocations,
   fetchAdminDealerLifetimeAggregates,
@@ -845,9 +846,9 @@ export const AdminInvoicesPage: React.FC = () => {
     [serverPaged, listRows, statusFiltered, category],
   );
 
-  const statusCounts = useMemo(() => {
-    if (serverPaged && listKpi) {
-      return invoiceChipStatusCounts(listKpi, category);
+  const statusCountsFromSource = useMemo(() => {
+    if (serverPaged) {
+      return listKpi ? invoiceChipStatusCounts(listKpi, category) : {};
     }
     const counts: Record<string, number> = {};
     for (const row of listRows) {
@@ -859,11 +860,37 @@ export const AdminInvoicesPage: React.FC = () => {
     return counts;
   }, [serverPaged, listKpi, category, listRows, logisticsByInvoiceId, supportLinks]);
 
-  const categoryChipCounts = useMemo(
-    () => (serverPaged && listKpi
-      ? invoiceChipCategoryCounts(listKpi, statusFilter)
-      : countInvoiceRowsByCategory(statusFiltered)),
+  const categoryChipCountsFromSource = useMemo(
+    () => {
+      if (serverPaged) {
+        return listKpi
+          ? invoiceChipCategoryCounts(listKpi, statusFilter)
+          : EMPTY_CATEGORY_COUNTS;
+      }
+      return countInvoiceRowsByCategory(statusFiltered);
+    },
     [serverPaged, listKpi, statusFilter, statusFiltered],
+  );
+
+  // Full first page: the cards on screen are the whole result — chips must match.
+  const completeServerList = serverPaged && page === 1 && !hasMore && !loading;
+  const chipsLoading = loading || (serverPaged && !listKpi && !completeServerList);
+  const { statusCounts, categoryCounts: categoryChipCounts } = useMemo(
+    () => (completeServerList
+      ? alignInvoiceChipCountsToList(statusCountsFromSource, categoryChipCountsFromSource, {
+        statusFilter,
+        category,
+        listCount: listRows.length,
+      })
+      : { statusCounts: statusCountsFromSource, categoryCounts: categoryChipCountsFromSource }),
+    [
+      completeServerList,
+      statusCountsFromSource,
+      categoryChipCountsFromSource,
+      statusFilter,
+      category,
+      listRows.length,
+    ],
   );
 
   const displayRows = useMemo(
@@ -987,7 +1014,7 @@ export const AdminInvoicesPage: React.FC = () => {
     const useClientSummary = clientPaged;
     const useDocumentAmount = category === 'all';
     return {
-      invoiceCount: useClientSummary
+      invoiceCount: (useClientSummary || completeServerList)
         ? filtered.length
         : (countFromTabs || kpiCount),
       categorySales: useClientSummary
@@ -1006,6 +1033,7 @@ export const AdminInvoicesPage: React.FC = () => {
     category,
     categoryChipCounts,
     clientPaged,
+    completeServerList,
     filtered,
     kpiCount,
     kpiCategoryAmount,
@@ -1161,7 +1189,7 @@ export const AdminInvoicesPage: React.FC = () => {
             <div className="invoices-summary__kpi-body">
               <span className="invoices-summary__kpi-label">Total Invoices</span>
               <strong className="invoices-summary__kpi-value">
-                {loading ? '…' : summary.invoiceCount.toLocaleString('en-IN')}
+                {chipsLoading ? '…' : summary.invoiceCount.toLocaleString('en-IN')}
               </strong>
               <span className="invoices-summary__kpi-sub">
                 {loading ? '—' : dateRange}
@@ -1213,10 +1241,12 @@ export const AdminInvoicesPage: React.FC = () => {
             value={statusFilter}
             counts={statusCounts}
             allCount={serverPaged
-              ? invoicePageCategoryCount(category, categoryCounts)
+              ? (completeServerList && statusFilter === 'all'
+                ? listRows.length
+                : invoicePageCategoryCount(category, categoryCounts))
               : listRows.length}
             countsComplete={statusCountsComplete}
-            loading={loading}
+            loading={chipsLoading}
             onChange={setStatusFilter}
           />
         )}
@@ -1247,7 +1277,7 @@ export const AdminInvoicesPage: React.FC = () => {
                 </span>
                 <span className="unified-so-category-block__label">{item.label}</span>
                 <span className="unified-so-category-block__count">
-                  {loading ? '…' : count.toLocaleString('en-IN')}
+                  {chipsLoading ? '…' : count.toLocaleString('en-IN')}
                 </span>
               </button>
             );

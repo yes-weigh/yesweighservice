@@ -3,7 +3,8 @@
  * Zoho stays Draft until payment is verified → then Confirm + Invoice.
  *
  * yesOneStage: review → ready_for_payment → payment_submitted → completed | void
- * Software-segment SOs skip review and open at ready_for_payment.
+ * Software-segment SOs and Directors price-level dealers skip review
+ * and open at ready_for_payment.
  */
 import { randomUUID } from 'node:crypto';
 import { getFirestore, FieldValue } from 'firebase-admin/firestore';

@@ -56,6 +56,7 @@ export const DealerPriceLevelProvider: React.FC<{ children: React.ReactNode }> =
     const level = dealerId ? findPriceLevelForDealer(levels, dealerId) : null;
     return {
       levels,
+      level,
       dealerId,
       ready,
       restrictedCategoryIds,

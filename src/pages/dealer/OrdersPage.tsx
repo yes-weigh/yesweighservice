@@ -16,10 +16,12 @@ import { MultiSalesOrderSuccess } from '../../components/salesOrders/MultiSalesO
 import { useAuth } from '../../context/AuthContext';
 import { CART_REMARKS_MAX_LENGTH } from '../../context/CartProvider';
 import { useCart } from '../../context/useCart';
+import { useDealerPriceLevels } from '../../hooks/useDealerUnitPrice';
 import { cartLineIsOutOfStock, fetchCatalog, formatCurrency } from '../../lib/catalog';
 import {
   DIRECTORS_QTY_CLUB_LABEL,
   isDirectorsQtyClubSku,
+  priceLevelSkipsOpsReview,
 } from '../../lib/priceLevels';
 import { productHasLinkedGatc } from '../../lib/gatcCart';
 import {
@@ -90,6 +92,8 @@ const DealerCartPage: React.FC = () => {
     updateStamping,
     clearCart,
   } = useCart();
+  const { level: dealerPriceLevel } = useDealerPriceLevels();
+  const skipsOpsReview = priceLevelSkipsOpsReview(dealerPriceLevel);
   const [submitting, setSubmitting] = useState(false);
   const [createdOrders, setCreatedOrders] = useState<SegmentSalesOrderResult[] | null>(null);
   const [addresses, setAddresses] = useState<ShippingAddress[]>([]);
@@ -450,11 +454,17 @@ const DealerCartPage: React.FC = () => {
           <h2 className="orders-page__title">Your cart</h2>
           <p className="text-muted text-sm">
             {itemCount} {itemCount === 1 ? 'item' : 'items'}
-            {segmentPreview.length > 1
-              ? ` · creates ${segmentPreview.length} Zoho Draft sales orders (${segmentPreview.map(b => b.label).join(', ')})`
-              : segmentPreview[0]
-                ? ` · creates a Zoho Draft sales order (${segmentPreview[0].label})`
-                : ' · creates a Zoho Draft sales order'}
+            {skipsOpsReview
+              ? (segmentPreview.length > 1
+                ? ` · creates ${segmentPreview.length} sales orders (${segmentPreview.map(b => b.label).join(', ')})`
+                : segmentPreview[0]
+                  ? ` · creates a sales order (${segmentPreview[0].label})`
+                  : ' · creates a sales order')
+              : (segmentPreview.length > 1
+                ? ` · creates ${segmentPreview.length} Zoho Draft sales orders (${segmentPreview.map(b => b.label).join(', ')})`
+                : segmentPreview[0]
+                  ? ` · creates a Zoho Draft sales order (${segmentPreview[0].label})`
+                  : ' · creates a Zoho Draft sales order')}
           </p>
         </div>
         <div className="orders-page__header-actions">
@@ -643,11 +653,15 @@ const DealerCartPage: React.FC = () => {
             <strong>{formatCurrency(subtotal)}</strong>
           </div>
           <p className="orders-page__summary-note text-muted text-sm">
-            {segmentPreview.length > 1
-              ? `This cart will create ${segmentPreview.length} draft sales orders: ${segmentPreview.map(b => b.label).join(', ')}. Each order type and branch uses its own Zoho salesperson.`
-              : segmentPreview[0]
-                ? `Your order is created in Zoho Inventory as Draft (${segmentPreview[0].label}). After submit, only staff can change items or address.`
-                : 'Your order is created in Zoho Inventory as Draft. After submit, only staff can change items or address.'}
+            {skipsOpsReview
+              ? (segmentPreview.length > 1
+                ? `This cart will create ${segmentPreview.length} sales orders: ${segmentPreview.map(b => b.label).join(', ')}. Directors price level skips review — payment will be due as soon as you submit.`
+                : 'Directors price level skips review. After submit, payment is due (Awaiting payment). Staff can still change items or address until you pay.')
+              : (segmentPreview.length > 1
+                ? `This cart will create ${segmentPreview.length} draft sales orders: ${segmentPreview.map(b => b.label).join(', ')}. Each order type and branch uses its own Zoho salesperson.`
+                : segmentPreview[0]
+                  ? `Your order is created in Zoho Inventory as Draft (${segmentPreview[0].label}). After submit, only staff can change items or address.`
+                  : 'Your order is created in Zoho Inventory as Draft. After submit, only staff can change items or address.')}
           </p>
           <label className="orders-page__remarks">
             <span className="orders-page__remarks-label">Remarks</span>

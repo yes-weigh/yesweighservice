@@ -4,6 +4,8 @@ import type { DealerUnitPrice, PriceLevel } from '../types/priceLevels';
 
 export type DealerPriceLevelContextValue = {
   levels: PriceLevel[];
+  /** Matched price level for this dealer (Directors, Dealers, …). */
+  level: PriceLevel | null;
   /** Zoho customer id used to match priceLevels.dealerIds. */
   dealerId: string | null;
   ready: boolean;

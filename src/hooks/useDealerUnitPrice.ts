@@ -9,6 +9,7 @@ import type { DealerUnitPrice, PriceLevel } from '../types/priceLevels';
  */
 export function useDealerPriceLevels(): {
   levels: PriceLevel[];
+  level: PriceLevel | null;
   dealerId: string | null;
   ready: boolean;
   restrictedCategoryIds: ReadonlySet<string>;
@@ -20,6 +21,7 @@ export function useDealerPriceLevels(): {
   if (!ctx) {
     return {
       levels: [],
+      level: null,
       dealerId: null,
       ready: true,
       restrictedCategoryIds: new Set<string>(),
@@ -28,6 +30,7 @@ export function useDealerPriceLevels(): {
   }
   return {
     levels: ctx.levels,
+    level: ctx.level,
     dealerId: ctx.dealerId,
     ready: ctx.ready,
     restrictedCategoryIds: ctx.restrictedCategoryIds,
