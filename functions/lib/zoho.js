@@ -10,6 +10,18 @@ export const ZOHO_API_BASE = 'https://www.zohoapis.in/inventory/v1';
 const ROOT_CATEGORY_ID = '-1';
 const MRP_MULTIPLIER = Number(process.env.ZOHO_MRP_MULTIPLIER ?? '2.5');
 
+/**
+ * Zoho Inventory treats an empty JSON body (`{}`) as unauthorized on some orgs
+ * (confirm / approve / mark-sent / convert). Omit the body instead.
+ */
+export function hasZohoJsonBody(body) {
+  if (body == null) return false;
+  if (typeof body === 'object' && !Array.isArray(body) && Object.keys(body).length === 0) {
+    return false;
+  }
+  return true;
+}
+
 export function normaliseCategoryId(id) {
   const s = String(id ?? '').trim();
   return s === '' || s === ROOT_CATEGORY_ID ? '' : s;

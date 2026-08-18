@@ -59,12 +59,11 @@ export const AdminSalesOrderDetailLayout: React.FC = () => {
       ? (pathname.startsWith('/dealer-staff') ? '/dealer-staff' : '/dealer')
       : '/super-admin';
   const isDealerView = basePath === '/dealer' || basePath === '/dealer-staff';
-  const canManageZoho = !isDealerView
-    && (user?.role === 'staff' || canSuperAdminWrite(user));
-  const canVerifyPayment = !isDealerView && (
+  const canManageZoho = !isDealerView && (
     canSuperAdminWrite(user)
     || hasStaffPermission(user, 'orders.manage')
   );
+  const canVerifyPayment = canManageZoho;
   const listPath = `${basePath}/sales-orders`;
   const summaryPath = `${listPath}/${salesOrderId}`;
   const isPdfView = pathname.endsWith('/view');
@@ -76,7 +75,7 @@ export const AdminSalesOrderDetailLayout: React.FC = () => {
   const [assignableStaff, setAssignableStaff] = useState<Array<{ uid: string; displayName: string }>>([]);
   const [markInvoicedGuide, setMarkInvoicedGuide] = useState<{ message: string } | null>(null);
   const [kamCardOpen, setKamCardOpen] = useState(false);
-  const showKamOnTitle = !isDealerView && canSuperAdminWrite(user) && !isPdfView;
+  const showKamOnTitle = !isDealerView && canVerifyPayment && !isPdfView;
 
   const handleBack = useCallback(() => {
     if (isPdfView) {

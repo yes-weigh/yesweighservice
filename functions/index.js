@@ -274,6 +274,7 @@ import {
   voidSalesOrderWithWorkflow as voidSalesOrderWithWorkflowRecord,
   deleteDraftSalesOrder as deleteDraftSalesOrderRecord,
 } from './lib/sales-order-workflow.js';
+import { staffUserHasPermission } from './lib/staff-permissions.js';
 import {
   listAddressesForUser as listAddressesForUserRecord,
   addAddressForUser as addAddressForUserRecord,
@@ -422,33 +423,8 @@ async function requireActiveUser(uid, allowedRoles = ALLOWED_ROLES, options = {}
   return role;
 }
 
-const LOGISTICS_DEFAULT_STAFF_PERMS = new Set([
-  'orders.view',
-  'orders.manage',
-  'support.view',
-  'support.return',
-  'invoices.view',
-  'logistics.view',
-  'loyalty.view',
-  'catalog.view',
-]);
-
-const ADMIN_DEFAULT_STAFF_PERMS = new Set(['orders.view', 'orders.manage']);
-
 function staffHasPermissionFromUserData(role, data, permission) {
-  if (role === 'super_admin') return true;
-  if (role !== 'staff') return false;
-  const mode = String(data?.staffAccessMode ?? 'role');
-  const perms = Array.isArray(data?.staffPermissions)
-    ? data.staffPermissions.map(String)
-    : [];
-  if ((mode === 'custom' || mode === 'role') && perms.length > 0) {
-    return perms.includes(permission);
-  }
-  const dept = String(data?.staffDepartment ?? 'admin');
-  if (dept === 'admin') return true;
-  if (dept === 'logistics') return LOGISTICS_DEFAULT_STAFF_PERMS.has(permission);
-  return ADMIN_DEFAULT_STAFF_PERMS.has(permission);
+  return staffUserHasPermission(role, data, permission);
 }
 
 async function requireAdminInvoiceDocumentAccess(uid) {

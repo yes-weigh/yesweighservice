@@ -1,7 +1,7 @@
 /**
  * Zoho Inventory e-Way Bill API (India edition).
  */
-import { getAccessToken, resolveOrganizationId, authHeaders, ZOHO_API_BASE } from './zoho.js';
+import { getAccessToken, resolveOrganizationId, authHeaders, ZOHO_API_BASE, hasZohoJsonBody } from './zoho.js';
 import {
   recordZohoApiResponse,
   recordZohoApiFailure,
@@ -38,14 +38,15 @@ async function zohoJson(accessToken, orgId, path, { method = 'GET', body, query 
     }
   }
 
+  const sendBody = hasZohoJsonBody(body);
   const init = {
     method,
     headers: {
       ...authHeaders(accessToken, orgId),
-      ...(body ? { 'Content-Type': 'application/json' } : {}),
+      ...(sendBody ? { 'Content-Type': 'application/json' } : {}),
     },
   };
-  if (body) init.body = JSON.stringify(body);
+  if (sendBody) init.body = JSON.stringify(body);
 
   let res;
   try {

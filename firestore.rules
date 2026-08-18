@@ -168,9 +168,17 @@ service cloud.firestore {
     }
 
     function staffHasPermission(perm) {
-      return isStaff()
-        && userDoc().staffPermissions is list
-        && perm in userDoc().staffPermissions;
+      let roleId = userDoc().get('staffRoleId', '');
+      let mode = userDoc().get('staffAccessMode', 'role');
+      return isStaff() && (
+        (mode != 'custom' && roleId == 'role-admin')
+        || (mode != 'custom' && roleId == 'role-hr-manager' && (
+          perm == 'hr.view' || perm == 'hr.manage' || perm == 'staff.manage'
+          || perm == 'dealers.view' || perm == 'dealers.edit' || perm == 'tasks.view'
+          || perm == 'catalog.view' || perm == 'invoices.view'
+        ))
+        || (userDoc().staffPermissions is list && perm in userDoc().staffPermissions)
+      );
     }
 
     function staffUsesExplicitPermissions() {
@@ -358,12 +366,18 @@ service cloud.firestore {
     }
 
     function staffHasInvoiceView() {
+      let roleId = userDoc().get('staffRoleId', '');
       return isStaff() && (
-        userDoc().get('staffRoleId', '') == 'role-invoice-access'
+        roleId == 'role-invoice-access'
+        || roleId == 'role-sales'
+        || roleId == 'role-admin'
+        || roleId == 'role-logistics'
+        || roleId == 'role-hr-manager'
         || staffHasPermission('invoices.view')
         || (!staffUsesExplicitPermissions()
             && (userDoc().staffDepartment == 'sales'
-                || userDoc().staffDepartment == 'admin'))
+                || userDoc().staffDepartment == 'admin'
+                || userDoc().staffDepartment == 'logistics'))
       );
     }
 

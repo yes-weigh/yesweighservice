@@ -11,7 +11,14 @@ const functions = getFunctions(app, 'asia-south1');
 export function dealerOrderErrorMessage(err: unknown): string {
   if (err && typeof err === 'object') {
     const message = 'message' in err ? String((err as { message: string }).message) : '';
-    if (message) return message.replace(/^Firebase:\s*/i, '').replace(/\s*\([^)]*\)\s*$/, '');
+    const cleaned = message.replace(/^Firebase:\s*/i, '').replace(/\s*\([^)]*\)\s*$/, '');
+    if (/not authorized to perform this operation/i.test(cleaned)) {
+      return (
+        'Zoho rejected this step (not authorized). This is a Zoho Inventory setting, not your YesOne login. '
+        + 'Try again after the sales order is confirmed. If it still fails, check warehouse and approval settings on the item in Zoho.'
+      );
+    }
+    if (cleaned) return cleaned;
   }
   return 'Something went wrong with this order.';
 }

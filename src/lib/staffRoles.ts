@@ -9,8 +9,9 @@ import {
 } from 'firebase/firestore';
 import { db } from '../firebase';
 import {
-  DEPARTMENT_DEFAULT_PERMISSIONS,
+  HR_MANAGER_PERMISSIONS,
   INVOICE_ACCESS_PERMISSIONS,
+  SYSTEM_STAFF_ROLE_PERMISSIONS,
   type StaffDepartment,
   type StaffPermission,
 } from '../types/staff-access';
@@ -47,44 +48,35 @@ export function buildSystemStaffRoles(): StaffRoleTemplate[] {
       SYSTEM_STAFF_ROLE_IDS.sales,
       'Sales',
       'sales',
-      DEPARTMENT_DEFAULT_PERMISSIONS.sales,
+      SYSTEM_STAFF_ROLE_PERMISSIONS[SYSTEM_STAFF_ROLE_IDS.sales],
       'Dealers, leads, and account relationships',
     ),
     mk(
       SYSTEM_STAFF_ROLE_IDS.service,
       'Service',
       'service',
-      DEPARTMENT_DEFAULT_PERMISSIONS.service,
+      SYSTEM_STAFF_ROLE_PERMISSIONS[SYSTEM_STAFF_ROLE_IDS.service],
       'Repairs, complaints, and warranty support',
     ),
     mk(
       SYSTEM_STAFF_ROLE_IDS.logistics,
       'Logistics',
       'logistics',
-      DEPARTMENT_DEFAULT_PERMISSIONS.logistics,
+      SYSTEM_STAFF_ROLE_PERMISSIONS[SYSTEM_STAFF_ROLE_IDS.logistics],
       'Orders, RMA, and dispatch',
     ),
     mk(
       SYSTEM_STAFF_ROLE_IDS.admin,
       'Admin',
       'admin',
-      DEPARTMENT_DEFAULT_PERMISSIONS.admin,
+      SYSTEM_STAFF_ROLE_PERMISSIONS[SYSTEM_STAFF_ROLE_IDS.admin],
       'Full internal operations access',
     ),
     mk(
       SYSTEM_STAFF_ROLE_IDS.hrManager,
       'HR Manager',
       'admin',
-      [
-        'hr.view',
-        'hr.manage',
-        'staff.manage',
-        'dealers.view',
-        'dealers.edit',
-        'tasks.view',
-        'catalog.view',
-        'invoices.view',
-      ],
+      [...HR_MANAGER_PERMISSIONS],
       'HR directory, staff records, and dealer visibility',
     ),
     mk(
@@ -135,19 +127,21 @@ export async function ensureStaffRolesSeeded(): Promise<void> {
     await batch.commit();
   }
 
-  /** Keep Invoice access system role permissions/description aligned with code. */
-  const invoiceTemplate = templates.find(role => role.id === SYSTEM_STAFF_ROLE_IDS.invoiceAccess);
-  if (invoiceTemplate && existing.has(invoiceTemplate.id)) {
-    const current = snap.docs.find(d => d.id === invoiceTemplate.id)?.data() as StaffRoleDoc | undefined;
-    const nextPerms = [...invoiceTemplate.permissions].sort().join('|');
+  /** Keep system role permissions/description aligned with code (undo HR/trainee drift). */
+  const toUpdate = templates.filter(role => existing.has(role.id));
+  for (const template of toUpdate) {
+    const current = snap.docs.find(d => d.id === template.id)?.data() as StaffRoleDoc | undefined;
+    const nextPerms = [...template.permissions].sort().join('|');
     const curPerms = [...(current?.permissions ?? [])].sort().join('|');
     if (
       nextPerms !== curPerms
-      || (current?.description ?? '') !== invoiceTemplate.description
+      || (current?.description ?? '') !== template.description
+      || current?.department !== template.department
     ) {
-      await updateDoc(doc(db, ROLES_COLLECTION, invoiceTemplate.id), {
-        permissions: invoiceTemplate.permissions,
-        description: invoiceTemplate.description,
+      await updateDoc(doc(db, ROLES_COLLECTION, template.id), {
+        permissions: template.permissions,
+        description: template.description,
+        department: template.department,
         updatedAt: new Date().toISOString(),
       });
     }

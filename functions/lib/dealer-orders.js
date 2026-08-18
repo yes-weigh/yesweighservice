@@ -70,28 +70,13 @@ import {
   mergeKeyForLine,
   resolveGatcFeeForProduct,
 } from './gatc-stamping.js';
+import { staffUserHasPermission } from './staff-permissions.js';
 
 const PRODUCTS = 'catalogProducts';
 const CUSTOMERS = 'zohoCustomers';
 const LEGACY_COLLECTION = 'dealerOrders';
 
 const DEALER_ROLES = new Set(['dealer', 'dealer_staff']);
-
-const LOGISTICS_DEFAULT_PERMS = new Set([
-  'orders.view',
-  'orders.manage',
-  'support.view',
-  'support.return',
-  'invoices.view',
-  'logistics.view',
-  'loyalty.view',
-  'catalog.view',
-]);
-
-const ADMIN_DEFAULT_PERMS = new Set([
-  'orders.view',
-  'orders.manage',
-]);
 
 function nowIso() {
   return new Date().toISOString();
@@ -135,20 +120,9 @@ function isFullSuperAdmin(user) {
 }
 
 function staffHasPermission(user, permission) {
-  if (isFullSuperAdmin(user)) return true;
-  if (user.role === 'super_admin') return false;
-  if (user.role !== 'staff') return false;
-  const mode = String(user.data?.staffAccessMode ?? 'role');
-  const perms = Array.isArray(user.data?.staffPermissions)
-    ? user.data.staffPermissions.map(String)
-    : [];
-  if ((mode === 'custom' || mode === 'role') && perms.length > 0) {
-    return perms.includes(permission);
-  }
-  const dept = String(user.data?.staffDepartment ?? 'admin');
-  if (dept === 'admin') return true;
-  if (dept === 'logistics') return LOGISTICS_DEFAULT_PERMS.has(permission);
-  return ADMIN_DEFAULT_PERMS.has(permission);
+  return staffUserHasPermission(user.role, user.data, permission, {
+    viewOnlySuperAdminDenied: true,
+  });
 }
 
 function requireOrdersManage(user) {

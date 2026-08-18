@@ -60,6 +60,7 @@ import {
 } from './gatc-report.js';
 import { syncSingleInvoiceFromZoho } from './invoice-sync.js';
 import { getAccessToken, resolveOrganizationId } from './zoho.js';
+import { staffUserHasPermission } from './staff-permissions.js';
 import { fetchRawCustomerDetail } from './zoho-customers.js';
 import { extractZohoListFields } from './zoho-contact-fields.js';
 import {
@@ -73,19 +74,6 @@ const PRODUCTS = 'catalogProducts';
 
 const DEALER_ROLES = new Set(['dealer', 'dealer_staff']);
 const OPS_ROLES = new Set(['staff', 'super_admin']);
-
-const LOGISTICS_DEFAULT_PERMS = new Set([
-  'orders.view',
-  'orders.manage',
-  'support.view',
-  'support.return',
-  'invoices.view',
-  'logistics.view',
-  'loyalty.view',
-  'catalog.view',
-]);
-
-const ADMIN_DEFAULT_PERMS = new Set(['orders.view', 'orders.manage']);
 
 const STAGES = new Set([
   'review',
@@ -359,19 +347,7 @@ function displayName(user) {
 }
 
 function staffHasPermission(user, permission) {
-  if (user.role === 'super_admin') return true;
-  if (user.role !== 'staff') return false;
-  const mode = String(user.data?.staffAccessMode ?? 'role');
-  const perms = Array.isArray(user.data?.staffPermissions)
-    ? user.data.staffPermissions.map(String)
-    : [];
-  if ((mode === 'custom' || mode === 'role') && perms.length > 0) {
-    return perms.includes(permission);
-  }
-  const dept = String(user.data?.staffDepartment ?? 'admin');
-  if (dept === 'admin') return true;
-  if (dept === 'logistics') return LOGISTICS_DEFAULT_PERMS.has(permission);
-  return ADMIN_DEFAULT_PERMS.has(permission);
+  return staffUserHasPermission(user.role, user.data, permission);
 }
 
 function requireOrdersManage(user) {

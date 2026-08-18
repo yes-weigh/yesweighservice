@@ -225,3 +225,24 @@ export const INVOICE_ACCESS_PERMISSIONS: StaffPermission[] = [
   'invoices.view',
   'logistics.view',
 ];
+
+export const HR_MANAGER_PERMISSIONS: StaffPermission[] = [
+  'hr.view',
+  'hr.manage',
+  'staff.manage',
+  'dealers.view',
+  'dealers.edit',
+  'tasks.view',
+  'catalog.view',
+  'invoices.view',
+];
+
+/** Code templates for system staff roles. Keys match SYSTEM_STAFF_ROLE_IDS. */
+export const SYSTEM_STAFF_ROLE_PERMISSIONS: Record<string, StaffPermission[]> = {
+  'role-sales': DEPARTMENT_DEFAULT_PERMISSIONS.sales,
+  'role-service': DEPARTMENT_DEFAULT_PERMISSIONS.service,
+  'role-logistics': DEPARTMENT_DEFAULT_PERMISSIONS.logistics,
+  'role-admin': ALL_STAFF_PERMISSIONS,
+  'role-hr-manager': HR_MANAGER_PERMISSIONS,
+  'role-invoice-access': INVOICE_ACCESS_PERMISSIONS,
+};

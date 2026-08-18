@@ -8,11 +8,11 @@ import {
   DEFAULT_STAFF_ACCESS,
   INVOICE_ACCESS_PERMISSIONS,
   STAFF_DEPARTMENT_LABELS,
+  SYSTEM_STAFF_ROLE_PERMISSIONS,
   type StaffAccessProfile,
   type StaffDepartment,
   type StaffPermission,
 } from '../types/staff-access';
-import { SYSTEM_STAFF_ROLE_IDS } from '../types/staff-role';
 
 /** Staff permissions that imply mutation / sync (denied for view-only super admins). */
 const SUPER_ADMIN_WRITE_PERMISSIONS = new Set<StaffPermission>([
@@ -96,13 +96,13 @@ export function resolveStaffPermissions(user: User | null | undefined): StaffPer
   if (user.role !== 'staff') return [];
 
   const profile = readStaffAccessProfile(user);
-  // Invoice access system role: always use the code template so existing users
-  // pick up logistics.view without needing a re-save in HR.
-  if (
-    profile.roleId === SYSTEM_STAFF_ROLE_IDS.invoiceAccess
-    && profile.accessMode !== 'custom'
-  ) {
-    return [...INVOICE_ACCESS_PERMISSIONS];
+  // System roles always use the code template so HR / trainee edits (and stale
+  // snapshots on the user doc) cannot strip orders/invoice access.
+  if (profile.accessMode !== 'custom') {
+    const systemPerms = profile.roleId
+      ? SYSTEM_STAFF_ROLE_PERMISSIONS[profile.roleId]
+      : undefined;
+    if (systemPerms) return [...systemPerms];
   }
   if (
     (profile.accessMode === 'custom' || profile.accessMode === 'role')

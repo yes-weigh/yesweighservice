@@ -1,7 +1,7 @@
 /**
  * Create Zoho Inventory sales orders and invoices from portal dealer orders.
  */
-import { getAccessToken, resolveOrganizationId, authHeaders, ZOHO_API_BASE } from './zoho.js';
+import { getAccessToken, resolveOrganizationId, authHeaders, ZOHO_API_BASE, hasZohoJsonBody } from './zoho.js';
 import {
   recordZohoApiResponse,
   recordZohoApiFailure,
@@ -26,14 +26,15 @@ async function zohoJson(accessToken, orgId, path, { method = 'GET', body } = {})
     url.searchParams.set('organization_id', orgId);
   }
 
+  const sendBody = hasZohoJsonBody(body);
   const init = {
     method,
     headers: {
       ...authHeaders(accessToken, orgId),
-      ...(body ? { 'Content-Type': 'application/json' } : {}),
+      ...(sendBody ? { 'Content-Type': 'application/json' } : {}),
     },
   };
-  if (body) init.body = JSON.stringify(body);
+  if (sendBody) init.body = JSON.stringify(body);
 
   let res;
   try {
@@ -917,17 +918,20 @@ export async function markInvoiceAsSent(secrets, configuredOrgId, invoiceId) {
     if (invoiceAlreadySentMessage(message)) {
       return { invoiceId: id, status: 'sent' };
     }
-    if (!/approv/i.test(message)) throw err;
+    if (!/approv/i.test(message) && !isZohoNotAuthorized(err)) throw err;
     try {
       await zohoJson(
         accessToken,
         orgId,
         `/invoices/${encodeURIComponent(id)}/approve`,
-        { method: 'POST', body: {} },
+        { method: 'POST' },
       );
     } catch (approveErr) {
       const approveMessage = approveErr instanceof Error ? approveErr.message : String(approveErr);
-      if (!/already|approv/i.test(approveMessage)) throw approveErr;
+      if (
+        !/already|approv/i.test(approveMessage)
+        && !isZohoNotAuthorized(approveErr)
+      ) throw approveErr;
     }
     try {
       await postSent();

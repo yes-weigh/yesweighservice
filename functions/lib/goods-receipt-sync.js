@@ -7,7 +7,7 @@
 import { getApp } from 'firebase-admin/app';
 import { getFirestore, FieldValue, Timestamp } from 'firebase-admin/firestore';
 import { getStorage } from 'firebase-admin/storage';
-import { getAccessToken, resolveOrganizationId, authHeaders, ZOHO_API_BASE } from './zoho.js';
+import { getAccessToken, resolveOrganizationId, authHeaders, ZOHO_API_BASE, hasZohoJsonBody } from './zoho.js';
 import {
   recordZohoApiResponse,
   recordZohoApiFailure,
@@ -82,14 +82,15 @@ async function zohoJsonRequest(accessToken, orgId, path, { method = 'GET', body 
   if (!url.searchParams.has('organization_id')) {
     url.searchParams.set('organization_id', orgId);
   }
+  const sendBody = hasZohoJsonBody(body);
   const init = {
     method,
     headers: {
       ...authHeaders(accessToken, orgId),
-      ...(body !== undefined ? { 'Content-Type': 'application/json' } : {}),
+      ...(sendBody ? { 'Content-Type': 'application/json' } : {}),
     },
   };
-  if (body !== undefined) init.body = JSON.stringify(body);
+  if (sendBody) init.body = JSON.stringify(body);
   const res = await fetch(url.toString(), init);
   await recordZohoApiResponse(res, { operation: path, source: 'goods-receipt-sync' });
   const text = await res.text();
