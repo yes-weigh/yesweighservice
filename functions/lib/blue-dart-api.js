@@ -674,8 +674,9 @@ export async function fitBlueDartWaybillToLabel(pdfBuffer) {
   return Buffer.from(await out.save());
 }
 
-async function saveWaybillPdf(awb, buffer) {
-  const fileName = `${awb}-100x150.pdf`;
+async function saveWaybillPdf(awb, buffer, kind = '100x150') {
+  const suffix = kind === 'a4s' ? 'a4' : '100x150';
+  const fileName = `${awb}-${suffix}.pdf`;
   const storagePath = `logistics/bluedart-awb/${awb}/${fileName}`;
   const bucket = getStorage().bucket();
   const file = bucket.file(storagePath);
@@ -1080,19 +1081,26 @@ export async function bookBlueDartShipment(db, input = {}) {
   const officialPdf = pdfFromPrintContent(result.AWBPrintContent);
   let documents = null;
   if (officialPdf && officialPdf.length > 100) {
+    const cachedAt = new Date().toISOString();
+    const savedA4 = await saveWaybillPdf(awb, officialPdf, 'a4s');
     let labelPdf = officialPdf;
     try {
       labelPdf = await fitBlueDartWaybillToLabel(officialPdf);
     } catch {
       labelPdf = officialPdf;
     }
-    const saved = await saveWaybillPdf(awb, labelPdf);
+    const savedLabel = await saveWaybillPdf(awb, labelPdf, '100x150');
     documents = {
       awb,
       waybill: {
-        ...saved,
-        cachedAt: new Date().toISOString(),
+        ...savedLabel,
+        cachedAt,
         labelSize: '100x150',
+      },
+      awbA4: {
+        ...savedA4,
+        cachedAt,
+        labelSize: 'a4s',
       },
     };
   }

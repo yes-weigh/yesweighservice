@@ -263,17 +263,22 @@ export interface LogisticsDelhiveryDocumentsCache {
   } | null;
 }
 
+export type LogisticsBlueDartDocFile = {
+  storagePath: string;
+  contentType: string;
+  fileName: string;
+  cachedAt: string;
+  /** Official A4S, or A4S shrink-to-fit on 100×150 mm stock. */
+  labelSize?: 'a4s' | '100x150' | string;
+};
+
 /** Official Blue Dart waybill cached in Storage after GenerateWayBill. */
 export interface LogisticsBlueDartDocumentsCache {
   awb: string;
-  waybill?: {
-    storagePath: string;
-    contentType: string;
-    fileName: string;
-    cachedAt: string;
-    /** Official A4S shrink-to-fit on 100×150 mm stock. */
-    labelSize?: '100x150' | string;
-  } | null;
+  /** 100×150 mm thermal shipping label. */
+  waybill?: LogisticsBlueDartDocFile | null;
+  /** Official A4S waybill (PrinterLableSize 0). */
+  awbA4?: LogisticsBlueDartDocFile | null;
 }
 
 /** Delhivery freight-breakup snapshot (after weight captured). */

@@ -187,7 +187,7 @@ function clubbedInvoiceRowsFromBooking(booking: {
 }
 
 function logisticsTopCardTone(kind: string): 'green' | 'blue' | 'orange' | 'purple' {
-  if (kind === 'lr_copy' || kind === 'courier_slip') return 'green';
+  if (kind === 'lr_copy' || kind === 'courier_slip' || kind === 'bluedart_waybill') return 'green';
   if (kind === 'shipping_label') return 'blue';
   if (kind === 'invoice') return 'orange';
   if (kind === 'eway_bill') return 'purple';
@@ -204,7 +204,7 @@ function logisticsDocCardMeta(kind: string): {
     return {
       tone: 'slip',
       title: 'AWB',
-      subtitle: 'View or download AWB',
+      subtitle: 'View or download A4 AWB',
       Icon: FileText,
     };
   }
@@ -1063,14 +1063,27 @@ export const LogisticsBookingDetail: React.FC<LogisticsBookingDetailProps> = ({
     if (isDelhivery) return delhiveryDocCards;
     if (isBlueDart) {
       const hasAwb = Boolean((booking.consignmentNo || '').replace(/\D/g, ''));
+      const hasA4 = Boolean(booking.blueDartDocuments?.awbA4?.storagePath);
+      const hasLabel = Boolean(booking.blueDartDocuments?.waybill?.storagePath);
       return [
+        {
+          id: 'bluedart_waybill',
+          kind: 'bluedart_waybill',
+          label: 'AWB',
+          enabled: hasAwb && hasA4,
+          disabledReason: hasAwb
+            ? (hasA4
+              ? null
+              : 'A4 AWB is saved when Blue Dart books the shipment. This booking only has the 100×150 mm label.')
+            : 'Create a Blue Dart AWB first.',
+        },
         {
           id: 'bluedart_shipping_label',
           kind: 'shipping_label',
           label: `Shipping label · ${BLUE_DART_LABEL_WIDTH_MM}×${BLUE_DART_LABEL_HEIGHT_MM} mm`,
-          enabled: hasAwb && Boolean(booking.blueDartDocuments?.waybill?.storagePath),
+          enabled: hasAwb && hasLabel,
           disabledReason: hasAwb
-            ? (booking.blueDartDocuments?.waybill?.storagePath
+            ? (hasLabel
               ? null
               : 'Waybill PDF was not returned by Blue Dart.')
             : 'Create a Blue Dart AWB first.',
@@ -1112,6 +1125,33 @@ export const LogisticsBookingDetail: React.FC<LogisticsBookingDetailProps> = ({
     ),
     [logisticsDocCards],
   );
+
+  const openBlueDartAwbA4 = useCallback(async () => {
+    setDelhiveryDocOpening('bluedart_waybill');
+    setDelhiveryDocsError('');
+    try {
+      const pdf = await getBlueDartWaybill({
+        bookingId: booking.id,
+        storagePath: booking.blueDartDocuments?.awbA4?.storagePath,
+        variant: 'a4',
+      });
+      const bytes = base64ToUint8Array(pdf.contentBase64);
+      const awb = (booking.consignmentNo || pdf.fileName || 'waybill').replace(/\D/g, '') || 'waybill';
+      setDelhiveryDocDialog({
+        title: `AWB ${awb}`,
+        contentType: pdf.contentType || 'application/pdf',
+        pdfBytes: bytes,
+        fileName: pdf.fileName || `${awb}-a4.pdf`,
+        downloadBlob: new Blob([Uint8Array.from(bytes)], { type: pdf.contentType || 'application/pdf' }),
+      });
+    } catch (err) {
+      setDelhiveryDocsError(
+        err instanceof Error ? err.message : 'Could not open Blue Dart A4 AWB.',
+      );
+    } finally {
+      setDelhiveryDocOpening(null);
+    }
+  }, [booking.blueDartDocuments?.awbA4?.storagePath, booking.consignmentNo, booking.id]);
 
   const openBlueDartShippingLabel = useCallback(async () => {
     setDelhiveryDocOpening('bluedart_shipping_label');
@@ -1390,7 +1430,11 @@ export const LogisticsBookingDetail: React.FC<LogisticsBookingDetailProps> = ({
       void openEwayBillDocument();
       return;
     }
-    if (card.kind === 'bluedart_waybill' || (card.kind === 'shipping_label' && isBlueDart)) {
+    if (card.kind === 'bluedart_waybill') {
+      void openBlueDartAwbA4();
+      return;
+    }
+    if (card.kind === 'shipping_label' && isBlueDart) {
       void openBlueDartShippingLabel();
       return;
     }
@@ -1405,11 +1449,13 @@ export const LogisticsBookingDetail: React.FC<LogisticsBookingDetailProps> = ({
       urls: card.urls,
     });
   }, [
+    booking.blueDartDocuments?.awbA4?.storagePath,
     booking.blueDartDocuments?.waybill?.storagePath,
     booking.consignmentNo,
     booking.id,
     isBlueDart,
     isDelhivery,
+    openBlueDartAwbA4,
     openBlueDartShippingLabel,
     openDelhiveryDocument,
     openEwayBillDocument,

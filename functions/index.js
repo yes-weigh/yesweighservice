@@ -5630,7 +5630,10 @@ export const getBlueDartWaybillFn = onCall(
       if (!storagePath && bookingId) {
         const snap = await getFirestore().collection('logisticsBookings').doc(bookingId).get();
         const docs = snap.exists ? snap.data()?.blueDartDocuments : null;
-        storagePath = String(docs?.waybill?.storagePath || '').trim();
+        const variant = String(request.data?.variant ?? '').trim().toLowerCase();
+        storagePath = variant === 'a4'
+          ? String(docs?.awbA4?.storagePath || docs?.waybill?.storagePath || '').trim()
+          : String(docs?.waybill?.storagePath || '').trim();
       }
       return await readBlueDartWaybillPdf(getFirestore(), storagePath);
     } catch (err) {

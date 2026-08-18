@@ -155,6 +155,13 @@ export type BlueDartBookResult = {
       cachedAt: string;
       labelSize?: string;
     };
+    awbA4?: {
+      storagePath: string;
+      fileName: string;
+      contentType: string;
+      cachedAt: string;
+      labelSize?: string;
+    };
   } | null;
 };
 
@@ -188,6 +195,7 @@ export async function bookBlueDartShipment(input: {
 export async function getBlueDartWaybill(input: {
   bookingId?: string;
   storagePath?: string;
+  variant?: 'a4' | 'label';
 }): Promise<{ contentBase64: string; contentType: string; fileName: string }> {
   try {
     const fn = httpsCallable<typeof input, {

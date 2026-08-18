@@ -344,6 +344,25 @@ function mapDelhiveryDocuments(
   };
 }
 
+function mapBlueDartDocFile(
+  raw: unknown,
+  fallbackFileName: string,
+): import('../types/logistics-dispatch').LogisticsBlueDartDocFile | null {
+  if (!raw || typeof raw !== 'object') return null;
+  const data = raw as Record<string, unknown>;
+  const storagePath = typeof data.storagePath === 'string' ? data.storagePath.trim() : '';
+  if (!storagePath) return null;
+  return {
+    storagePath,
+    contentType: typeof data.contentType === 'string' ? data.contentType : 'application/pdf',
+    fileName: typeof data.fileName === 'string' ? data.fileName : fallbackFileName,
+    cachedAt: typeof data.cachedAt === 'string' ? data.cachedAt : '',
+    ...(typeof data.labelSize === 'string' && data.labelSize.trim()
+      ? { labelSize: data.labelSize.trim() }
+      : {}),
+  };
+}
+
 function mapBlueDartDocuments(
   raw: unknown,
 ): import('../types/logistics-dispatch').LogisticsBlueDartDocumentsCache | null {
@@ -351,23 +370,10 @@ function mapBlueDartDocuments(
   const data = raw as Record<string, unknown>;
   const awb = String(data.awb ?? '').replace(/\D/g, '').trim();
   if (!awb) return null;
-  const waybillRaw = data.waybill && typeof data.waybill === 'object'
-    ? data.waybill as Record<string, unknown>
-    : null;
-  const storagePath = typeof waybillRaw?.storagePath === 'string' ? waybillRaw.storagePath.trim() : '';
   return {
     awb,
-    waybill: storagePath
-      ? {
-        storagePath,
-        contentType: typeof waybillRaw?.contentType === 'string' ? waybillRaw.contentType : 'application/pdf',
-        fileName: typeof waybillRaw?.fileName === 'string' ? waybillRaw.fileName : `${awb}-100x150.pdf`,
-        cachedAt: typeof waybillRaw?.cachedAt === 'string' ? waybillRaw.cachedAt : '',
-        ...(typeof waybillRaw?.labelSize === 'string' && waybillRaw.labelSize.trim()
-          ? { labelSize: waybillRaw.labelSize.trim() }
-          : {}),
-      }
-      : null,
+    waybill: mapBlueDartDocFile(data.waybill, `${awb}-100x150.pdf`),
+    awbA4: mapBlueDartDocFile(data.awbA4, `${awb}-a4.pdf`),
   };
 }
 
