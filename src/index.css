@@ -28293,6 +28293,40 @@ body:has(.confirm-inline-bar) .confirm-inline-bar {
   align-self: center;
 }
 
+.logistics-booking__rebook-bluedart {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.65rem;
+  margin: 0 0 0.65rem;
+  padding: 0.45rem 0.55rem;
+  border-radius: 12px;
+  border: 1px solid rgba(255, 213, 0, 0.35);
+  background: rgba(15, 23, 42, 0.35);
+}
+
+.logistics-booking__rebook-bluedart-logo {
+  width: 3.15rem;
+  height: 3.15rem;
+  object-fit: cover;
+  flex-shrink: 0;
+  border-radius: 10px;
+  background: #ffd500;
+}
+
+.logistics-booking__rebook-bluedart-error {
+  flex: 1 1 100%;
+  margin: 0;
+  color: #fecaca;
+  font-size: 0.8rem;
+  font-weight: 650;
+}
+
+.logistics-booking__rebook-bluedart .btn {
+  flex-shrink: 0;
+  margin-left: auto;
+}
+
 .book-courier__site-trigger.is-locked {
   opacity: 0.95;
   cursor: default;

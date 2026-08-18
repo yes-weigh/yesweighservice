@@ -48,6 +48,7 @@ import {
   bookingSummaryLines,
   chargeableWeight,
   canChangeLogisticsBookingPartner,
+  canRebookCancelledBookingViaBlueDart,
   isIncompleteLogisticsBooking,
   missingFinalPackagePhoto,
   shipmentModeLabel,
@@ -58,6 +59,7 @@ import {
   fetchLogisticsBooking,
   generateLogisticsDocument,
   hydrateLogisticsBookingPhotos,
+  rebookCancelledBookingViaBlueDartDomestic,
   resolveLogisticsComplaint,
   updateLogisticsBookingDelhiveryIds,
   updateLogisticsBookingDelhiveryPickup,
@@ -404,6 +406,8 @@ export const LogisticsBookingDetail: React.FC<LogisticsBookingDetailProps> = ({
   const [resolvingComplaint, setResolvingComplaint] = useState(false);
   const [resolveComplaintError, setResolveComplaintError] = useState('');
   const [changePartnerOpen, setChangePartnerOpen] = useState(false);
+  const [rebookingBlueDart, setRebookingBlueDart] = useState(false);
+  const [rebookBlueDartError, setRebookBlueDartError] = useState('');
   const [delhiveryDocs, setDelhiveryDocs] = useState<DelhiveryBookingDocument[]>([]);
   const [delhiveryDocsLoading, setDelhiveryDocsLoading] = useState(false);
   const [delhiveryDocsError, setDelhiveryDocsError] = useState('');
@@ -1900,6 +1904,9 @@ export const LogisticsBookingDetail: React.FC<LogisticsBookingDetailProps> = ({
   const showOpsChangePartner = Boolean(
     isOps && user && canChangeLogisticsBookingPartner(booking),
   );
+  const showRebookBlueDart = Boolean(
+    isOps && user && canRebookCancelledBookingViaBlueDart(booking),
+  );
   const showOpsReturn = isOps
     && booking.status !== 'delivered'
     && booking.status !== 'cancelled'
@@ -1941,8 +1948,34 @@ export const LogisticsBookingDetail: React.FC<LogisticsBookingDetailProps> = ({
       setResolvingComplaint(false);
     }
   }, [booking, onUpdate, user]);
+  const handleRebookBlueDartDomestic = useCallback(async () => {
+    if (!user) return;
+    const ok = await confirm({
+      title: 'Book Blue Dart Domestic Priority?',
+      message: 'This cancelled shipment will be booked on Blue Dart Domestic Priority from Head Office, using these box sizes/weights, invoice number, and consignee pin.',
+      confirmLabel: 'Book Blue Dart',
+    });
+    if (!ok) return;
+    setRebookingBlueDart(true);
+    setRebookBlueDartError('');
+    try {
+      const next = await rebookCancelledBookingViaBlueDartDomestic(booking, user);
+      onUpdate(next);
+    } catch (err) {
+      setRebookBlueDartError(
+        err instanceof Error ? err.message : 'Could not book Blue Dart Domestic Priority.',
+      );
+    } finally {
+      setRebookingBlueDart(false);
+    }
+  }, [booking, confirm, onUpdate, user]);
   const showBottomOps = Boolean(
-    user || showOpsCancel || showOpsChangePartner || showOpsReturn || showOpsDelete,
+    user
+    || showOpsCancel
+    || showOpsChangePartner
+    || showRebookBlueDart
+    || showOpsReturn
+    || showOpsDelete,
   );
   const articleRef = useRef<HTMLElement>(null);
   const stickyTopRef = useRef<HTMLDivElement>(null);
@@ -2143,6 +2176,31 @@ export const LogisticsBookingDetail: React.FC<LogisticsBookingDetailProps> = ({
             return card;
           })}
 
+          {showRebookBlueDart ? (
+            <button
+              type="button"
+              className={[
+                'invoice-detail-top__card',
+                'invoice-detail-top__card--bluedart',
+                rebookingBlueDart ? 'is-disabled' : 'is-active',
+              ].filter(Boolean).join(' ')}
+              onClick={() => void handleRebookBlueDartDomestic()}
+              disabled={rebookingBlueDart}
+              title="Book Blue Dart Domestic Priority"
+              aria-label="Book Blue Dart Domestic Priority"
+            >
+              <span className="invoice-detail-top__card-icon" aria-hidden>
+                <img
+                  src="/logistics/bluedart-domestic-priority.webp"
+                  alt=""
+                  className="invoice-detail-top__bluedart-logo"
+                  draggable={false}
+                />
+              </span>
+              <span className="invoice-detail-top__card-label">Book DP</span>
+            </button>
+          ) : null}
+
           {booking.supportRequestId && booking.supportRequestNumber ? (
             <Link
               to={`${basePath}/warranty-support/${booking.supportRequestId}`}
@@ -2156,6 +2214,9 @@ export const LogisticsBookingDetail: React.FC<LogisticsBookingDetailProps> = ({
             </Link>
           ) : null}
         </div>
+        {rebookBlueDartError ? (
+          <p className="logistics-booking__docs-error" role="alert">{rebookBlueDartError}</p>
+        ) : null}
 
         {isDelhivery && delhiveryDocsLoading && (
           <p className="text-muted text-sm">Loading Delhivery documents…</p>
@@ -2207,6 +2268,30 @@ export const LogisticsBookingDetail: React.FC<LogisticsBookingDetailProps> = ({
           </p>
         )}
       </div>
+
+      {showRebookBlueDart && (
+        <div className="logistics-booking__rebook-bluedart" role="region" aria-label="Book Blue Dart Domestic Priority">
+          <img
+            src="/logistics/bluedart-domestic-priority.webp"
+            alt="Blue Dart Domestic Priority"
+            className="logistics-booking__rebook-bluedart-logo"
+          />
+          <button
+            type="button"
+            className="btn btn-primary btn-sm"
+            disabled={rebookingBlueDart}
+            onClick={() => void handleRebookBlueDartDomestic()}
+            aria-label="Book Blue Dart Domestic Priority"
+          >
+            {rebookingBlueDart ? 'Booking…' : 'Book Blue Dart DP'}
+          </button>
+          {rebookBlueDartError ? (
+            <p className="logistics-booking__rebook-bluedart-error" role="alert">
+              {rebookBlueDartError}
+            </p>
+          ) : null}
+        </div>
+      )}
 
       <div
         ref={sectionBarRef}
@@ -3158,6 +3243,17 @@ export const LogisticsBookingDetail: React.FC<LogisticsBookingDetailProps> = ({
             >
               <ArrowRightLeft size={14} aria-hidden />
               Change courier
+            </button>
+          ) : null}
+          {showRebookBlueDart ? (
+            <button
+              type="button"
+              className="btn btn-primary btn-sm"
+              disabled={rebookingBlueDart}
+              onClick={() => void handleRebookBlueDartDomestic()}
+            >
+              <Truck size={14} aria-hidden />
+              {rebookingBlueDart ? 'Booking…' : 'Book Blue Dart DP'}
             </button>
           ) : null}
           {showOpsReturn ? (

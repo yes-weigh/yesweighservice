@@ -28,14 +28,18 @@ import type { User } from '../types';
 import { normalizeRole } from '../types';
 import { isInternalOpsUser } from './staffAccess';
 import {
+  extractPhoneFromText,
   isPlaceholderLogisticsAddress,
+  phoneDigitsForCourier,
   resolveDeliveryAddress,
   resolveDraftDeliveryAddress,
+  resolveReceiverPhoneFromSnapshot,
   zohoDealerToSnapshot,
 } from './logisticsDealers';
 import {
   CHANGEABLE_LOGISTICS_PARTNER_IDS,
   canChangeLogisticsBookingPartner,
+  canRebookCancelledBookingViaBlueDart,
   computeVolumetricWeight,
   consignmentChargeableWeightKg,
   draftBoxesHaveRequiredPhotos,
@@ -57,6 +61,10 @@ import {
 } from './logisticsPhotos';
 import { loadLogisticsSettings } from './logisticsSettings';
 import { resolvePersistShipFromSite } from './logisticsShipFrom';
+import { bookBlueDartShipment } from './blueDartApi';
+import { blueDartPickupPinForSite } from '../constants/blueDartPickup';
+import { FIRM_GSTIN, FIRM_PHONE } from '../constants/brand';
+import { extractCityState, extractDestinationCity } from './shippingLabel';
 import {
   extractIndianPincode,
   fetchStCourierDeliveryOffice,
@@ -84,7 +92,11 @@ import type {
   ShipmentBoxPhoto,
 } from '../types/logistics-dispatch';
 import { persistClubbedInvoiceFields } from './logisticsClubInvoices';
-import { isStaffLogisticsSite, type StaffLogisticsSite } from '../types/staff-logistics';
+import {
+  isStaffLogisticsSite,
+  STAFF_LOGISTICS_SITE_LABELS,
+  type StaffLogisticsSite,
+} from '../types/staff-logistics';
 
 const COLLECTION = 'logisticsBookings';
 const FIRESTORE_BATCH_LIMIT = 450;
@@ -2264,6 +2276,204 @@ export async function changeLogisticsBookingPartner(
     courierDeliveryOffice: courierDeliveryOffice ?? undefined,
     updatedAt,
   };
+}
+
+function cityStateFromAddress(address: string): { city?: string; state?: string } {
+  const pair = extractCityState(address);
+  if (pair) {
+    const [city, state] = pair.split(',').map(part => part.trim());
+    if (city && state) return { city, state };
+    if (city) return { city };
+  }
+  const city = extractDestinationCity(address);
+  return city && city !== '—' ? { city } : {};
+}
+
+/**
+ * Rebook a cancelled shipment on Blue Dart Domestic Priority using the
+ * existing boxes (LBH + weight), invoice number/date, Head Office pickup,
+ * and consignee pin from this booking.
+ */
+export async function rebookCancelledBookingViaBlueDartDomestic(
+  booking: LogisticsBooking,
+  user: User,
+): Promise<LogisticsBooking> {
+  if (!isInternalOpsUser(user)) {
+    throw new Error('You do not have permission to book Blue Dart.');
+  }
+  if (!canRebookCancelledBookingViaBlueDart(booking)) {
+    throw new Error('Only a cancelled shipment can be rebooked on Blue Dart Domestic Priority.');
+  }
+  if (!booking.boxes.length) {
+    throw new Error('This booking has no boxes. Add box size and weight first.');
+  }
+  const missingDims = booking.boxes.some(box =>
+    !(Number(box.lengthCm) > 0 && Number(box.widthCm) > 0 && Number(box.heightCm) > 0),
+  );
+  if (missingDims) {
+    throw new Error('Each box needs length, breadth, and height (cm) before Blue Dart booking.');
+  }
+  const hasWeight = booking.boxes.some(box => Number(box.weightKg) > 0);
+  if (!hasWeight) {
+    throw new Error('Enter box weight before Blue Dart booking.');
+  }
+
+  const destPin = extractIndianPincode(booking.deliveryAddress)
+    || extractIndianPincode(booking.dealer.shippingAddress)
+    || extractIndianPincode(booking.dealer.billingAddress);
+  if (!destPin || destPin.length !== 6) {
+    throw new Error('Consignee pincode is missing on the delivery address.');
+  }
+
+  const consigneePhone = phoneDigitsForCourier(resolveReceiverPhoneFromSnapshot(booking.dealer))
+    || phoneDigitsForCourier(booking.dealer.mobile)
+    || phoneDigitsForCourier(extractPhoneFromText(booking.deliveryAddress));
+  if (!consigneePhone) {
+    throw new Error('Consignee phone is required before creating a Blue Dart AWB.');
+  }
+
+  const settings = await loadLogisticsSettings();
+  const shipFromSite: StaffLogisticsSite = 'head_office';
+  const fromAddress = (settings.fromAddresses[shipFromSite] ?? '').trim()
+    || booking.shipFromAddress.trim();
+  if (!fromAddress || isPlaceholderLogisticsAddress(fromAddress)) {
+    throw new Error('Head Office ship-from address is missing. Set it in Logistics Settings → Sites.');
+  }
+  const siteContact = settings.fromSiteContacts[shipFromSite];
+  const shipperPhone = phoneDigitsForCourier(siteContact?.phone) || phoneDigitsForCourier(FIRM_PHONE);
+  if (!shipperPhone) {
+    throw new Error('Ship-from phone is missing. Set it in Logistics Settings → Sites.');
+  }
+  const shipperGstin = String(siteContact?.gstin || FIRM_GSTIN).trim().toUpperCase() || undefined;
+  const shipFromPin = blueDartPickupPinForSite(shipFromSite)
+    || extractIndianPincode(fromAddress)
+    || '';
+  const deliveryPlace = cityStateFromAddress(booking.deliveryAddress);
+  const shipFromPlace = cityStateFromAddress(fromAddress);
+  const partnerId: LogisticsPartnerId = 'bluedart_domestic';
+  const invoiceNumber = booking.invoiceNumber?.trim() || '';
+  const invoiceValueInr = Number(booking.invoiceValueInr) > 0
+    ? Number(booking.invoiceValueInr)
+    : 0;
+  const orderId = (
+    invoiceNumber
+    || booking.bookingDate?.trim()
+    || `YW-${Date.now()}`
+  );
+
+  const result = await bookBlueDartShipment({
+    partnerId,
+    shipFromSite,
+    orderId,
+    consignee: {
+      name: booking.dealer.name,
+      phone: consigneePhone,
+      address: booking.deliveryAddress,
+      city: booking.dealer.destinationCity?.trim() || deliveryPlace.city,
+      state: deliveryPlace.state,
+      pincode: destPin,
+    },
+    returnAddress: {
+      name: STAFF_LOGISTICS_SITE_LABELS[shipFromSite],
+      phone: shipperPhone,
+      address: fromAddress,
+      city: shipFromPlace.city,
+      state: shipFromPlace.state,
+      pincode: shipFromPin,
+    },
+    boxes: booking.boxes.map(box => ({
+      lengthCm: Number(box.lengthCm) || undefined,
+      widthCm: Number(box.widthCm) || undefined,
+      heightCm: Number(box.heightCm) || undefined,
+      weightKg: Number(box.weightKg) || undefined,
+      quantity: 1,
+    })),
+    invoiceId: booking.invoiceId,
+    zohoCustomerId: booking.dealer.zohoCustomerId,
+    invoiceNumber: invoiceNumber || null,
+    invoiceValueInr: invoiceValueInr || null,
+    sellerGstin: shipperGstin,
+    freightBillingMode: booking.freightBillingMode === 'fod' ? 'fod' : 'btc',
+  });
+
+  const awb = String(result.awb || '').replace(/\D/g, '').trim();
+  if (!awb) throw new Error('Blue Dart did not return an AWB.');
+
+  const boxes = booking.boxes.map(box => ({
+    ...box,
+    volumetricWeightKg: computeVolumetricWeight(
+      box.lengthCm,
+      box.widthCm,
+      box.heightCm,
+      partnerId,
+    ),
+  }));
+  const actualWeightKg = boxes.reduce((total, box) => total + box.weightKg, 0);
+  const volumetricWeightKg = boxes.reduce((total, box) => total + box.volumetricWeightKg, 0);
+  const chargeableWeightKg = consignmentChargeableWeightKg(boxes, partnerId);
+  const updatedAt = new Date().toISOString();
+  const pickup = {
+    ok: result.pickupRegistered === true,
+    registered: result.pickupRegistered === true,
+    pickupDate: result.pickupDate ?? null,
+    pickupTime: result.pickupTime ?? null,
+    pickupAddress: result.pickupAddress ?? fromAddress,
+    pickupPin: result.pickupPin ?? shipFromPin,
+    originArea: result.originArea ?? null,
+    destinationArea: result.destinationArea ?? null,
+    destinationLocation: result.destinationLocation ?? null,
+    tokenNumber: result.pickupToken ?? null,
+    message: result.pickupMessage
+      || (result.pickupRegistered
+        ? `Pickup requested at ${result.pickupPin || shipFromPin || 'Head Office'}`
+        : 'Not registered'),
+    requestedAt: new Date().toISOString(),
+  };
+
+  const patch: Record<string, unknown> = {
+    partnerId,
+    consignmentNo: awb,
+    trackingNo: awb,
+    branch: 'Blue Dart',
+    serviceType: 'Domestic Priority',
+    shipFromSite,
+    shipFromAddress: fromAddress,
+    status: 'label_generated',
+    wizardStep: null,
+    boxes: boxes.map(box => ({
+      id: box.id,
+      lengthCm: box.lengthCm,
+      widthCm: box.widthCm,
+      heightCm: box.heightCm,
+      weightKg: box.weightKg,
+      volumetricWeightKg: box.volumetricWeightKg,
+      photos: firestoreBoxPhotos(box.photos),
+    })),
+    actualWeightKg,
+    volumetricWeightKg,
+    chargeableWeightKg,
+    courierSlipGenerated: false,
+    shippingLabelGenerated: false,
+    labelGenerated: false,
+    courierTrack: deleteField(),
+    trackFetchedAt: deleteField(),
+    courierFreight: deleteField(),
+    actualFreightInr: deleteField(),
+    freightFetchedAt: deleteField(),
+    delhiveryPickup: deleteField(),
+    delhiveryDocuments: deleteField(),
+    courierDeliveryOffice: deleteField(),
+    blueDartPickup: pickup,
+    updatedAt,
+  };
+  if (result.documents) {
+    patch.blueDartDocuments = result.documents;
+  }
+
+  await updateDoc(doc(db, COLLECTION, booking.id), patch);
+  const next = await fetchLogisticsBooking(booking.id);
+  if (!next) throw new Error('Blue Dart AWB was created but the booking could not be reloaded.');
+  return next;
 }
 
 export async function returnLogisticsBooking(

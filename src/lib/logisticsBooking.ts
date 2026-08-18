@@ -55,6 +55,32 @@ export function canChangeLogisticsBookingPartner(
   return CHANGEABLE_LOGISTICS_PARTNER_IDS.includes(booking.partnerId);
 }
 
+const CANCELLED_TRACK_RE = /\bcancel+l?ed\b/i;
+
+/** Booking status or courier track that means this shipment was cancelled. */
+export function logisticsBookingLooksCancelled(
+  booking: Pick<LogisticsBooking, 'status'> & {
+    courierTrack?: { status?: string | null; statusType?: string | null } | null;
+  },
+): boolean {
+  if (booking.status === 'cancelled') return true;
+  if (String(booking.courierTrack?.statusType || '').toUpperCase() === 'CN') return true;
+  return CANCELLED_TRACK_RE.test(String(booking.courierTrack?.status || ''));
+}
+
+/** Cancelled Trackon / ST / Delhivery bookings can be rebooked on Blue Dart DP. */
+export function canRebookCancelledBookingViaBlueDart(
+  booking: Pick<LogisticsBooking, 'status' | 'partnerId'> & {
+    courierTrack?: { status?: string | null; statusType?: string | null } | null;
+  },
+): boolean {
+  if (booking.status === 'delivered' || booking.status === 'returned') return false;
+  if (booking.partnerId === 'bluedart_domestic' && booking.status !== 'cancelled') {
+    return false;
+  }
+  return logisticsBookingLooksCancelled(booking);
+}
+
 export const LOGISTICS_BOOKING_STATUSES: ReadonlyArray<{
   id: LogisticsBookingStatus;
   label: string;
