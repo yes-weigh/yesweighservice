@@ -155,6 +155,69 @@ async function stripServiceWarehousesOnSalesOrder(accessToken, orgId, so) {
   return payload?.salesorder || so;
 }
 
+async function ensureServiceWarehousesStripped(accessToken, orgId, so) {
+  if (!so?.salesorder_id || !salesOrderHasServiceWarehouse(so)) return so;
+  const soId = String(so.salesorder_id);
+
+  try {
+    const stripped = await stripServiceWarehousesOnSalesOrder(accessToken, orgId, so);
+    if (!salesOrderHasServiceWarehouse(stripped)) return stripped;
+  } catch (err) {
+    console.warn(
+      `Could not strip service warehouses on SO ${soId}:`,
+      err?.message || err,
+    );
+  }
+
+  try {
+    await zohoJson(accessToken, orgId, `/salesorders/${soId}/status/draft`, {
+      method: 'POST',
+      body: {},
+    });
+  } catch (err) {
+    const message = String(err?.message || '');
+    if (!isZohoNotAuthorized(err) && !/already|draft|cannot|pending/i.test(message)) {
+      console.warn(`Could not reopen SO ${soId} as draft:`, message);
+    }
+  }
+
+  const reloadedPayload = await zohoJson(accessToken, orgId, `/salesorders/${soId}`);
+  let current = reloadedPayload?.salesorder || so;
+  try {
+    current = await stripServiceWarehousesOnSalesOrder(accessToken, orgId, current);
+  } catch (err) {
+    console.warn(
+      `Could not strip service warehouses after draft on SO ${soId}:`,
+      err?.message || err,
+    );
+  }
+
+  const status = zohoStatusKey(current.status);
+  if (!['open', 'confirmed', 'invoiced', 'closed'].includes(status)) {
+    await confirmSalesOrderRequest(accessToken, orgId, soId);
+    const confirmed = await zohoJson(accessToken, orgId, `/salesorders/${soId}`);
+    return confirmed?.salesorder || current;
+  }
+  return current;
+}
+
+function invoiceLineItemsFromSalesOrder(so, { linkServiceLines = true } = {}) {
+  const items = Array.isArray(so?.line_items) ? so.line_items : [];
+  return items.map(item => {
+    const line = {
+      item_id: item.item_id,
+      name: item.name,
+      rate: item.rate,
+      quantity: item.quantity,
+      unit: item.unit || 'pcs',
+    };
+    if (item.line_item_id && (linkServiceLines || zohoLineAllowsWarehouse(item))) {
+      line.salesorder_item_id = item.line_item_id;
+    }
+    return line;
+  }).filter(line => line.item_id && Number(line.quantity) > 0);
+}
+
 async function confirmSalesOrderRequest(accessToken, orgId, soId) {
   try {
     await zohoJson(accessToken, orgId, `/salesorders/${soId}/status/confirmed`, {
@@ -681,7 +744,7 @@ export async function createInvoiceFromSalesOrder(secrets, configuredOrgId, {
   if (already) return already;
 
   try {
-    so = await stripServiceWarehousesOnSalesOrder(accessToken, orgId, so);
+    so = await ensureServiceWarehousesStripped(accessToken, orgId, so);
   } catch (err) {
     console.warn(
       `Could not strip service warehouses before invoice for SO ${soId}:`,
@@ -754,16 +817,9 @@ export async function createInvoiceFromSalesOrder(secrets, configuredOrgId, {
     }
   }
 
-  const lineItems = (Array.isArray(so.line_items) ? so.line_items : []).map(item => ({
-    item_id: item.item_id,
-    name: item.name,
-    rate: item.rate,
-    quantity: item.quantity,
-    unit: item.unit || 'pcs',
-    salesorder_item_id: item.line_item_id,
-  })).filter(line => line.item_id && Number(line.quantity) > 0);
-
-  if (!lineItems.length) {
+  const linkedLineItems = invoiceLineItemsFromSalesOrder(so, { linkServiceLines: true });
+  const goodsLinkedLineItems = invoiceLineItemsFromSalesOrder(so, { linkServiceLines: false });
+  if (!linkedLineItems.length) {
     throw new Error('Sales order has no line items to invoice.');
   }
 
@@ -771,15 +827,16 @@ export async function createInvoiceFromSalesOrder(secrets, configuredOrgId, {
     customer_id: String(customerId || so.customer_id || ''),
     reference_number: String(referenceNumber || so.reference_number || ''),
     date: new Date().toISOString().slice(0, 10),
-    line_items: lineItems,
     salesorder_id: soId,
   };
   const effectiveSp = spId || (so.salesperson_id != null ? String(so.salesperson_id).trim() : '');
 
   const attempts = [
-    { ...baseBody, ...shippingFields, ...(effectiveSp ? { salesperson_id: effectiveSp } : {}) },
-    { ...baseBody, ...shippingFields },
-    baseBody,
+    { ...baseBody, line_items: linkedLineItems, ...shippingFields, ...(effectiveSp ? { salesperson_id: effectiveSp } : {}) },
+    { ...baseBody, line_items: linkedLineItems, ...shippingFields },
+    { ...baseBody, line_items: linkedLineItems },
+    { ...baseBody, line_items: goodsLinkedLineItems, ...shippingFields, ...(effectiveSp ? { salesperson_id: effectiveSp } : {}) },
+    { ...baseBody, line_items: goodsLinkedLineItems },
   ];
 
   let lastErr = null;
