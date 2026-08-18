@@ -10,6 +10,7 @@ import { useCatalogPageHeader } from '../../context/PageHeaderContext';
 import {
   associateKotakPayoutWithPurchaseOrder,
   fetchAdminPurchaseOrderDetail,
+  formatPurchaseOrderVendorPiTotal,
   purchaseOrderHasBl,
   purchaseOrderHasVendorPi,
   purchaseOrderVendorPiIsPdf,
@@ -171,9 +172,13 @@ export const AdminPurchaseOrderDetailLayout: React.FC = () => {
                   ].filter(Boolean).join(' ')}
                   onClick={openPi}
                   aria-label="Upload vendor proforma invoice"
-                  title={purchaseOrder.vendorPi?.fileName
-                    ? `Vendor PI · ${purchaseOrder.vendorPi.fileName}`
-                    : 'Upload vendor PI (Excel or PDF)'}
+                  title={
+                    formatPurchaseOrderVendorPiTotal(purchaseOrder.vendorPi)
+                      ? `Vendor PI · ${formatPurchaseOrderVendorPiTotal(purchaseOrder.vendorPi)}`
+                      : purchaseOrder.vendorPi?.fileName
+                        ? `Vendor PI · ${purchaseOrder.vendorPi.fileName}`
+                        : 'Upload vendor PI (Excel or PDF)'
+                  }
                 >
                   <span className="invoice-detail-top__card-icon">
                     <FileText size={28} strokeWidth={1.75} aria-hidden />
@@ -181,7 +186,8 @@ export const AdminPurchaseOrderDetailLayout: React.FC = () => {
                   <span className="invoice-detail-top__card-label">PI</span>
                   {purchaseOrderHasVendorPi(purchaseOrder.vendorPi) ? (
                     <span className="invoice-detail-top__card-meta">
-                      {purchaseOrderVendorPiIsPdf(purchaseOrder.vendorPi) ? 'PDF' : 'Excel'}
+                      {formatPurchaseOrderVendorPiTotal(purchaseOrder.vendorPi)
+                        || (purchaseOrderVendorPiIsPdf(purchaseOrder.vendorPi) ? 'PDF' : 'Excel')}
                     </span>
                   ) : null}
                 </button>
@@ -241,6 +247,9 @@ export const AdminPurchaseOrderDetailLayout: React.FC = () => {
               onSaved={vendorPi => {
                 setPurchaseOrder({ ...purchaseOrder, vendorPi });
                 setPiOpen(false);
+              }}
+              onPiUpdated={vendorPi => {
+                setPurchaseOrder(prev => (prev ? { ...prev, vendorPi } : prev));
               }}
             />
             <PurchaseOrderBlDialog

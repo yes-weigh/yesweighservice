@@ -19,6 +19,7 @@ import { getFunctions, httpsCallable } from 'firebase/functions';
 import { deleteObject, getDownloadURL, ref, uploadBytes } from 'firebase/storage';
 import { auth, db, app, storage } from '../firebase';
 import { formatStorageUploadError } from './storageErrors';
+import { parseVendorPiExcelFile } from './vendorPiExcel';
 import { enrichInvoiceDetailImages } from './invoiceLineItemImages';
 import {
   getInvoicePeriodBounds,
@@ -138,6 +139,10 @@ export interface PurchaseOrderVendorPi {
   fileName: string;
   contentType: string;
   uploadedAt: string | null;
+  totalAmount: number | null;
+  currencyCode: string | null;
+  /** Vendor PI document date from the spreadsheet (YYYY-MM-DD). */
+  piDate: string | null;
 }
 
 export interface PurchaseOrderKotakPayout {
@@ -696,11 +701,17 @@ export function parsePurchaseOrderBl(data: DocumentData): PurchaseOrderBl | null
 export function parsePurchaseOrderVendorPi(data: DocumentData): PurchaseOrderVendorPi | null {
   const storagePath = typeof data.piStoragePath === 'string' ? data.piStoragePath.trim() : '';
   if (!storagePath) return null;
+  const totalAmount = Number(data.piTotalAmount);
   return {
     storagePath,
     fileName: typeof data.piFileName === 'string' ? data.piFileName.trim() : '',
     contentType: typeof data.piContentType === 'string' ? data.piContentType.trim() : '',
     uploadedAt: typeof data.piUploadedAt === 'string' ? data.piUploadedAt : null,
+    totalAmount: Number.isFinite(totalAmount) && totalAmount > 0 ? totalAmount : null,
+    currencyCode: typeof data.piCurrencyCode === 'string' && data.piCurrencyCode.trim()
+      ? data.piCurrencyCode.trim().toUpperCase()
+      : null,
+    piDate: parseYmd(data.piDate),
   };
 }
 
@@ -1048,6 +1059,22 @@ export function purchaseOrderVendorPiIsPdf(pi?: PurchaseOrderVendorPi | null): b
   return /\.pdf$/i.test(pi.storagePath) || /\.pdf$/i.test(pi.fileName);
 }
 
+export function formatPurchaseOrderVendorPiTotal(
+  pi?: PurchaseOrderVendorPi | null,
+): string | null {
+  if (pi?.totalAmount == null || !(pi.totalAmount > 0)) return null;
+  const code = (pi.currencyCode || 'USD').toUpperCase();
+  try {
+    return new Intl.NumberFormat('en-IN', {
+      style: 'currency',
+      currency: code,
+      maximumFractionDigits: 2,
+    }).format(pi.totalAmount);
+  } catch {
+    return `${code} ${pi.totalAmount.toFixed(2)}`;
+  }
+}
+
 export async function savePurchaseOrderVendorPi(input: {
   purchaseOrderId: string;
   file?: File | null;
@@ -1090,6 +1117,26 @@ export async function savePurchaseOrderVendorPi(input: {
     contentType = uploadType;
   }
 
+  let totalAmount = input.existing?.totalAmount ?? null;
+  let currencyCode = input.existing?.currencyCode ?? null;
+  let piDate = input.existing?.piDate ?? null;
+  if (input.file && piExtension(input.file) !== 'pdf') {
+    try {
+      const parsed = await parseVendorPiExcelFile(input.file);
+      totalAmount = parsed.totalAmount;
+      currencyCode = parsed.currencyCode;
+      piDate = parsed.piDate;
+    } catch {
+      totalAmount = null;
+      currencyCode = null;
+      piDate = null;
+    }
+  } else if (input.file && piExtension(input.file) === 'pdf') {
+    totalAmount = null;
+    currencyCode = null;
+    piDate = null;
+  }
+
   const uploadedAt = new Date().toISOString();
   await updateDoc(doc(db, 'purchaseOrders', input.purchaseOrderId), {
     piStoragePath: storagePath,
@@ -1097,6 +1144,9 @@ export async function savePurchaseOrderVendorPi(input: {
     piContentType: contentType,
     piUploadedAt: uploadedAt,
     piUploadedBy: auth.currentUser?.uid ?? null,
+    piTotalAmount: totalAmount,
+    piCurrencyCode: currencyCode,
+    piDate,
   });
 
   return {
@@ -1104,6 +1154,42 @@ export async function savePurchaseOrderVendorPi(input: {
     fileName,
     contentType,
     uploadedAt,
+    totalAmount,
+    currencyCode,
+    piDate,
+  };
+}
+
+export async function persistPurchaseOrderVendorPiTotal(input: {
+  purchaseOrderId: string;
+  existing: PurchaseOrderVendorPi;
+  totalAmount?: number | null;
+  currencyCode?: string | null;
+  piDate?: string | null;
+}): Promise<PurchaseOrderVendorPi> {
+  const nextAmount = input.totalAmount != null && Number(input.totalAmount) > 0
+    ? Number(input.totalAmount)
+    : input.existing.totalAmount;
+  const nextCurrency = input.currencyCode?.trim().toUpperCase()
+    || input.existing.currencyCode;
+  const nextPiDate = parseYmd(input.piDate) || input.existing.piDate;
+  if (
+    nextAmount === input.existing.totalAmount
+    && (nextCurrency || null) === (input.existing.currencyCode || null)
+    && (nextPiDate || null) === (input.existing.piDate || null)
+  ) {
+    return input.existing;
+  }
+  await updateDoc(doc(db, 'purchaseOrders', input.purchaseOrderId), {
+    piTotalAmount: nextAmount,
+    piCurrencyCode: nextCurrency,
+    piDate: nextPiDate,
+  });
+  return {
+    ...input.existing,
+    totalAmount: nextAmount,
+    currencyCode: nextCurrency,
+    piDate: nextPiDate,
   };
 }
 
@@ -1115,12 +1201,11 @@ export async function fetchPurchaseOrderVendorPiPreview(storagePath: string): Pr
   const url = await getDownloadURL(ref(storage, storagePath));
   const isPdf = storagePath.toLowerCase().endsWith('.pdf')
     || storagePath.toLowerCase().includes('.pdf?');
-  if (!isPdf) return { url, bytes: null, isPdf: false };
   const res = await fetch(url);
   if (!res.ok) {
     throw new Error('Could not open the vendor PI.');
   }
-  return { url, bytes: new Uint8Array(await res.arrayBuffer()), isPdf: true };
+  return { url, bytes: new Uint8Array(await res.arrayBuffer()), isPdf };
 }
 
 export async function associateKotakPayoutWithPurchaseOrder(input: {

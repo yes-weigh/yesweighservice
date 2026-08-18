@@ -152,15 +152,6 @@ const SKIPPED_LOG_ACTIONS = new Set(['kotak_payout_associated', 'kotak_payout_pa
 
 function buildPoTrackingEvents(purchaseOrder: AdminPurchaseOrderDetail): PoTrackEvent[] {
   const events: PoTrackEvent[] = [];
-  const poDate = purchaseOrder.tracking.poDate || purchaseOrder.date;
-  if (poDate) {
-    events.push({
-      key: 'po',
-      title: 'Purchase order',
-      location: purchaseOrder.vendorName?.trim() || null,
-      at: poDate,
-    });
-  }
 
   const payout = purchaseOrder.kotakPayout;
   const paymentAt = payout?.associatedAt || payout?.date || purchaseOrder.tracking.paymentDate;
@@ -188,7 +179,7 @@ function buildPoTrackingEvents(purchaseOrder: AdminPurchaseOrderDetail): PoTrack
       key: 'pi',
       title: 'Vendor PI',
       location: purchaseOrder.vendorPi?.fileName || null,
-      at: purchaseOrder.vendorPi?.uploadedAt || null,
+      at: purchaseOrder.vendorPi?.piDate || purchaseOrder.vendorPi?.uploadedAt || null,
     });
   }
 

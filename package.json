@@ -55,7 +55,8 @@
     "react-dom": "^19.2.6",
     "react-router-dom": "^7.15.1",
     "tcp-print": "file:plugins/tcp-print",
-    "whatsapp-share": "file:plugins/whatsapp-share"
+    "whatsapp-share": "file:plugins/whatsapp-share",
+    "xlsx": "^0.18.5"
   },
   "devDependencies": {
     "@capacitor/cli": "^8.4.1",

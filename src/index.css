@@ -19519,6 +19519,7 @@ body:has(.confirm-inline-bar) .confirm-inline-bar {
 
 .po-bl-dialog__preview {
   min-height: 12rem;
+  flex: 1;
 }
 
 .po-pi-dialog__excel {
@@ -19529,6 +19530,169 @@ body:has(.confirm-inline-bar) .confirm-inline-bar {
   padding: 0.25rem 0;
 }
 
+.po-pi-excel {
+  background: #217346;
+}
+
+.po-pi-excel .courier-slip-pdf__toolbar {
+  background: #217346;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.18);
+}
+
+.po-pi-excel .courier-slip-pdf__viewport {
+  background: #e6e6e6;
+}
+
+.po-pi-excel__stage {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+  min-width: 100%;
+}
+
+.po-pi-excel__table {
+  width: 100%;
+  border-collapse: collapse;
+  background: #fff;
+  color: #111;
+  font-family: Calibri, 'Segoe UI', Arial, sans-serif;
+  font-size: 0.8125rem;
+  line-height: 1.35;
+  table-layout: auto;
+}
+
+.po-pi-excel__corner,
+.po-pi-excel__col-head,
+.po-pi-excel__row-head {
+  position: sticky;
+  background: #f2f2f2;
+  color: #444;
+  font-size: 0.68rem;
+  font-weight: 700;
+  text-align: center;
+  border: 1px solid #c6c6c6;
+  z-index: 2;
+}
+
+.po-pi-excel__col-head {
+  top: 0;
+  z-index: 3;
+}
+
+.po-pi-excel__row-head {
+  left: 0;
+  width: 2.1rem;
+  min-width: 2.1rem;
+  z-index: 3;
+}
+
+.po-pi-excel__corner {
+  top: 0;
+  left: 0;
+  z-index: 4;
+  width: 2.1rem;
+}
+
+.po-pi-excel__table td {
+  border: 1px solid #d0d7de;
+  padding: 0.28rem 0.4rem;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  vertical-align: top;
+  background: #fff;
+  user-select: text;
+  cursor: text;
+}
+
+.po-pi-excel__table td:nth-child(2) {
+  min-width: 16rem;
+}
+
+.po-pi-excel__table td.is-numeric {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.po-pi-excel__table td.is-selected {
+  outline: 2px solid #217346;
+  outline-offset: -2px;
+  background: #e8f5e9;
+}
+
+.po-pi-excel .courier-slip-pdf__zoom-btn {
+  color: #fff;
+  border-color: rgba(255, 255, 255, 0.28);
+  background: rgba(255, 255, 255, 0.12);
+}
+
+.po-pi-excel .courier-slip-pdf__zoom-label {
+  color: #d1fae5;
+}
+
+.po-pi-excel__formula {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  flex-shrink: 0;
+  min-height: 2rem;
+  padding: 0.2rem 0.45rem;
+  background: #fff;
+  border-bottom: 1px solid #c6c6c6;
+  color: #111;
+  font-size: 0.8rem;
+}
+
+.po-pi-excel__formula-fx {
+  flex-shrink: 0;
+  font-weight: 700;
+  font-style: italic;
+  color: #217346;
+}
+
+.po-pi-excel__formula-ref {
+  flex-shrink: 0;
+  min-width: 2.4rem;
+  padding: 0.1rem 0.3rem;
+  border: 1px solid #c6c6c6;
+  background: #f8f8f8;
+  font-weight: 700;
+  font-size: 0.72rem;
+  text-align: center;
+}
+
+.po-pi-excel__formula-value {
+  min-width: 0;
+  flex: 1;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.po-pi-excel__tabs {
+  display: flex;
+  align-items: flex-end;
+  flex-shrink: 0;
+  min-height: 2rem;
+  padding: 0 0.4rem;
+  background: #217346;
+}
+
+.po-pi-excel__tab {
+  display: inline-flex;
+  align-items: center;
+  min-height: 1.65rem;
+  padding: 0.15rem 0.85rem;
+  border-radius: 4px 4px 0 0;
+  background: #fff;
+  color: #217346;
+  font-size: 0.72rem;
+  font-weight: 700;
+}
+
+.courier-slip-view-dialog.po-pi-dialog {
+  width: min(100%, 72rem);
+}
+
 .po-tracking__head {
   margin-bottom: 0.85rem;
 }
@@ -19536,6 +19700,11 @@ body:has(.confirm-inline-bar) .confirm-inline-bar {
 .po-tracking__head h2 {
   margin: 0;
   font-size: 1rem;
+}
+
+.po-tracking .logistics-booking__track-timeline-at {
+  font-weight: 700;
+  color: #e2e8f0;
 }
 
 .freight-partner-picker {

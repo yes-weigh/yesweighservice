@@ -1,17 +1,19 @@
-import React, { useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { Download, X } from 'lucide-react';
+import { X } from 'lucide-react';
+import { ZoomableExcelPreview } from './ZoomableExcelPreview';
 import { ZoomablePdfPreview } from '../logistics/ZoomablePdfPreview';
 import { FetchingLoader } from '../FetchingLoader';
 import {
   fetchPurchaseOrderVendorPiPreview,
+  persistPurchaseOrderVendorPiTotal,
   purchaseOrderHasVendorPi,
-  purchaseOrderVendorPiIsPdf,
   savePurchaseOrderVendorPi,
   type AdminPurchaseOrderDetail,
   type PurchaseOrderVendorPi,
 } from '../../lib/admin-purchase-orders';
 import { invoiceErrorMessage } from '../../lib/invoices';
+import type { VendorPiExcelTotal } from '../../lib/vendorPiExcel';
 
 type Props = {
   open: boolean;
@@ -19,6 +21,7 @@ type Props = {
   canEdit: boolean;
   onClose: () => void;
   onSaved: (vendorPi: PurchaseOrderVendorPi) => void;
+  onPiUpdated?: (vendorPi: PurchaseOrderVendorPi) => void;
 };
 
 export const PurchaseOrderPiDialog: React.FC<Props> = ({
@@ -27,12 +30,14 @@ export const PurchaseOrderPiDialog: React.FC<Props> = ({
   canEdit,
   onClose,
   onSaved,
+  onPiUpdated,
 }) => {
   const existing = purchaseOrder.vendorPi;
   const hasFile = purchaseOrderHasVendorPi(existing);
   const [file, setFile] = useState<File | null>(null);
-  const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [pdfBytes, setPdfBytes] = useState<Uint8Array | null>(null);
+  const [excelBytes, setExcelBytes] = useState<Uint8Array | null>(null);
+  const [pendingExcelBytes, setPendingExcelBytes] = useState<Uint8Array | null>(null);
   const [loadingPreview, setLoadingPreview] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
@@ -40,14 +45,15 @@ export const PurchaseOrderPiDialog: React.FC<Props> = ({
   useEffect(() => {
     if (!open) return;
     setFile(null);
+    setPendingExcelBytes(null);
     setError('');
     setSaving(false);
   }, [open, existing?.storagePath]);
 
   useEffect(() => {
     if (!open || !existing?.storagePath) {
-      setPreviewUrl(null);
       setPdfBytes(null);
+      setExcelBytes(null);
       setLoadingPreview(false);
       return;
     }
@@ -57,13 +63,18 @@ export const PurchaseOrderPiDialog: React.FC<Props> = ({
     void fetchPurchaseOrderVendorPiPreview(existing.storagePath)
       .then(preview => {
         if (cancelled) return;
-        setPreviewUrl(preview.url);
-        setPdfBytes(preview.bytes);
+        if (preview.isPdf) {
+          setPdfBytes(preview.bytes);
+          setExcelBytes(null);
+        } else {
+          setPdfBytes(null);
+          setExcelBytes(preview.bytes);
+        }
       })
       .catch(err => {
         if (cancelled) return;
-        setPreviewUrl(null);
         setPdfBytes(null);
+        setExcelBytes(null);
         setError(invoiceErrorMessage(err));
       })
       .finally(() => {
@@ -73,6 +84,25 @@ export const PurchaseOrderPiDialog: React.FC<Props> = ({
       cancelled = true;
     };
   }, [open, existing?.storagePath]);
+
+  useEffect(() => {
+    if (!open || !file) {
+      setPendingExcelBytes(null);
+      return;
+    }
+    const pendingIsPdf = file.type === 'application/pdf' || /\.pdf$/i.test(file.name);
+    if (pendingIsPdf) {
+      setPendingExcelBytes(null);
+      return;
+    }
+    let cancelled = false;
+    void file.arrayBuffer().then(buffer => {
+      if (!cancelled) setPendingExcelBytes(new Uint8Array(buffer));
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [open, file]);
 
   useEffect(() => {
     if (!open) return;
@@ -88,12 +118,38 @@ export const PurchaseOrderPiDialog: React.FC<Props> = ({
     };
   }, [open, onClose, saving]);
 
+  const handleTotalDetected = useCallback((total: VendorPiExcelTotal) => {
+    if (!existing || file) return;
+    const next = {
+      ...existing,
+      totalAmount: total.amount >= 1000 ? total.amount : existing.totalAmount,
+      currencyCode: total.currencyCode || existing.currencyCode,
+      piDate: total.piDate || existing.piDate,
+    };
+    if (
+      next.totalAmount !== existing.totalAmount
+      || next.currencyCode !== existing.currencyCode
+      || next.piDate !== existing.piDate
+    ) {
+      onPiUpdated?.(next);
+    }
+    if (!canEdit) return;
+    void persistPurchaseOrderVendorPiTotal({
+      purchaseOrderId: purchaseOrder.id,
+      existing,
+      totalAmount: next.totalAmount,
+      currencyCode: next.currencyCode,
+      piDate: next.piDate,
+    }).catch(() => undefined);
+  }, [canEdit, existing, file, onPiUpdated, purchaseOrder.id]);
+
   if (!open) return null;
 
   const pendingIsPdf = Boolean(file && (file.type === 'application/pdf' || /\.pdf$/i.test(file.name)));
   const pendingIsExcel = Boolean(file && !pendingIsPdf);
   const showPdf = !file && Boolean(pdfBytes);
-  const showExcel = !file && Boolean(previewUrl) && !purchaseOrderVendorPiIsPdf(existing);
+  const showExcel = Boolean(pendingExcelBytes) || (!file && Boolean(excelBytes));
+  const excelPreviewBytes = pendingExcelBytes || excelBytes;
 
   const save = async () => {
     if (!canEdit) return;
@@ -119,7 +175,7 @@ export const PurchaseOrderPiDialog: React.FC<Props> = ({
       onClick={() => { if (!saving) onClose(); }}
     >
       <div
-        className="dealers-modal panel glass courier-slip-view-dialog po-bl-dialog"
+        className="dealers-modal panel glass courier-slip-view-dialog po-bl-dialog po-pi-dialog"
         onClick={event => event.stopPropagation()}
         role="dialog"
         aria-modal="true"
@@ -165,21 +221,11 @@ export const PurchaseOrderPiDialog: React.FC<Props> = ({
             <FetchingLoader label="Loading vendor PI…" />
           ) : showPdf && pdfBytes ? (
             <ZoomablePdfPreview data={pdfBytes} />
-          ) : showExcel && previewUrl ? (
-            <div className="po-pi-dialog__excel">
-              <p className="text-muted text-sm mb-0">
-                {existing?.fileName || 'Vendor PI spreadsheet'}
-              </p>
-              <a
-                className="btn btn-secondary btn-sm"
-                href={previewUrl}
-                target="_blank"
-                rel="noreferrer"
-              >
-                <Download size={16} aria-hidden />
-                Download Excel
-              </a>
-            </div>
+          ) : showExcel && excelPreviewBytes ? (
+            <ZoomableExcelPreview
+              data={excelPreviewBytes}
+              onTotalDetected={handleTotalDetected}
+            />
           ) : pendingIsPdf || pendingIsExcel ? (
             <p className="text-muted text-sm courier-slip-view-dialog__status">
               {file?.name} selected. Save to store it on this purchase order.
