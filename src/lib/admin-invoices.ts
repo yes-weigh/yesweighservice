@@ -1623,6 +1623,21 @@ export type AdminInvoiceStatsKpi = {
   byCategoryAndFilterStatus?: Record<string, Record<string, number>>;
 };
 
+export const INVOICE_STATUS_PARTITION_KEYS = [
+  'to_dispatch',
+  'in_transit',
+  'delivered',
+  'returned',
+  'void',
+] as const;
+
+export function sumInvoiceStatusPartitionCounts(counts: Record<string, number>): number {
+  return INVOICE_STATUS_PARTITION_KEYS.reduce(
+    (sum, key) => sum + Number(counts[key] ?? 0),
+    0,
+  );
+}
+
 export function invoiceChipStatusCounts(
   kpi: Pick<AdminInvoiceStatsKpi, 'byFilterStatus' | 'byCategoryAndFilterStatus'>,
   category: InvoiceCategory | 'all',
@@ -1647,10 +1662,7 @@ export function invoiceChipCategoryCounts(
     next[key] = Number(byCat[key]?.[listFilterStatus] ?? 0);
     next.all += next[key];
   }
-  // Nested maps were added later; if they are empty, keep category totals from the rollup.
-  if (next.all <= 0 && !filterChipMapsHaveCounts(kpi.byFilterStatus)) {
-    return kpi.categoryCounts;
-  }
+  // Never fall back to all-status category totals while a status chip is selected.
   return next;
 }
 
@@ -1852,7 +1864,7 @@ function applyLiveFilterChipMaps(
     byCategoryAndFilterStatus: Record<string, Record<string, number>>;
   } | null,
 ): AdminInvoiceStatsKpi {
-  if (!live || !filterChipMapsHaveCounts(live.byFilterStatus)) return kpi;
+  if (!live) return kpi;
   return {
     ...kpi,
     byFilterStatus: live.byFilterStatus,
@@ -1924,7 +1936,10 @@ export async function loadAdminInvoiceKpis(options: {
       dateStart,
       dateEnd,
       salespersonIds: options.salespersonIds,
-    }).catch(() => null)
+    }).catch(() => ({
+      byFilterStatus: {} as Record<string, number>,
+      byCategoryAndFilterStatus: {} as Record<string, Record<string, number>>,
+    }))
     : Promise.resolve(null);
 
   // Stamping KPIs come from portal gatcReports (Billwise). Skip that join
@@ -2103,7 +2118,7 @@ export async function loadAdminInvoiceKpis(options: {
   });
 }
 
-const FILTER_CHIP_STATUSES = ['to_dispatch', 'in_transit', 'delivered', 'returned', 'void'] as const;
+const FILTER_CHIP_STATUSES = INVOICE_STATUS_PARTITION_KEYS;
 const FILTER_CHIP_CATEGORIES = ['product', 'spare', 'software_key', 'service'] as const;
 
 function listStatusCountValues(status: string): string[] {
@@ -2135,19 +2150,23 @@ export async function countAdminInvoiceFilterChipMaps(options: {
     const values = listStatusCountValues(status);
     let total = 0;
     for (const listStatus of values) {
-      const constraints: QueryConstraint[] = [];
-      if (appendSalespersonIdConstraint(constraints, options.salespersonIds) === 'empty') {
-        return 0;
+      try {
+        const constraints: QueryConstraint[] = [];
+        if (appendSalespersonIdConstraint(constraints, options.salespersonIds) === 'empty') {
+          return 0;
+        }
+        if (category) constraints.push(where('categories', 'array-contains', category));
+        constraints.push(where('listStatus', '==', listStatus));
+        if (dateStart) constraints.push(where('date', '>=', dateStart));
+        if (dateEnd) constraints.push(where('date', '<=', dateEnd));
+        if (dateStart || dateEnd) constraints.push(orderBy('date', 'desc'));
+        const snap = await getCountFromServer(
+          query(collectionGroup(db, 'invoiceSummaries'), ...constraints),
+        );
+        total += snap.data().count;
+      } catch {
+        // One missing index must not discard the rest of the chip row.
       }
-      if (category) constraints.push(where('categories', 'array-contains', category));
-      constraints.push(where('listStatus', '==', listStatus));
-      if (dateStart) constraints.push(where('date', '>=', dateStart));
-      if (dateEnd) constraints.push(where('date', '<=', dateEnd));
-      constraints.push(orderBy('date', 'desc'));
-      const snap = await getCountFromServer(
-        query(collectionGroup(db, 'invoiceSummaries'), ...constraints),
-      );
-      total += snap.data().count;
     }
     return total;
   };
@@ -2156,11 +2175,16 @@ export async function countAdminInvoiceFilterChipMaps(options: {
   for (const status of FILTER_CHIP_STATUSES) {
     jobs.push(countOnce(status, null).then(count => {
       byFilterStatus[status] = count;
+    }).catch(() => {
+      byFilterStatus[status] = byFilterStatus[status] ?? 0;
     }));
     for (const category of FILTER_CHIP_CATEGORIES) {
       jobs.push(countOnce(status, category).then(count => {
         if (!byCategoryAndFilterStatus[category]) byCategoryAndFilterStatus[category] = {};
         byCategoryAndFilterStatus[category][status] = count;
+      }).catch(() => {
+        if (!byCategoryAndFilterStatus[category]) byCategoryAndFilterStatus[category] = {};
+        byCategoryAndFilterStatus[category][status] = byCategoryAndFilterStatus[category][status] ?? 0;
       }));
     }
   }

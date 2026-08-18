@@ -49,6 +49,27 @@ export async function ensureInvoiceEwayBill(input: {
   }
 }
 
+export async function associateInvoiceEwayBillNumber(input: {
+  customerId: string;
+  invoiceId: string;
+  partnerId?: string | null;
+  lrNumber?: string | null;
+  bookingId?: string | null;
+  ewayBillNumber: string;
+}): Promise<InvoiceEwayBillResult> {
+  try {
+    const fn = httpsCallable<typeof input, InvoiceEwayBillResult>(
+      functions,
+      'associateInvoiceEwayBillNumberFn',
+      { timeout: 180_000 },
+    );
+    const result = await fn(input);
+    return result.data;
+  } catch (err) {
+    throw callableError(err, 'Could not associate e-way bill number.');
+  }
+}
+
 export type DelhiveryPartnerEwayStatus = {
   onPartner: boolean;
   lrn: string | null;

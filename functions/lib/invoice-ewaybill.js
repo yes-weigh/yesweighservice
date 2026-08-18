@@ -15,6 +15,7 @@ import {
   recoverExistingEwayBillForInvoice,
   syncZohoEwayBillFromGstPortal,
   mapZohoEwayBillRecord,
+  associateGstEwayBillOnZoho,
   isEwayPdfNotReadyError,
   normalizeGstin,
   resolveTransporterForPartner,
@@ -1029,6 +1030,62 @@ export async function ensureInvoiceEwayBillForCustomerPickup(secrets, orgId, inp
     filename: `${invoice.invoiceNumber || invoiceId}-ewaybill.${extension}`,
     mimeType,
     cached: false,
+  };
+}
+
+/**
+ * Manually associate an existing GST e-way bill number onto Zoho's e-way draft,
+ * then save it in YesOne and push to Delhivery (same end result as auto generation).
+ */
+export async function associateInvoiceEwayBillNumber(secrets, orgId, input) {
+  const customerId = String(input.customerId ?? '').trim();
+  const invoiceId = String(input.invoiceId ?? '').trim();
+  const bookingId = String(input.bookingId ?? '').trim() || null;
+  const partnerId = String(input.partnerId ?? '').trim();
+  const lrNumber = String(input.lrNumber ?? '').trim();
+  const rawNumber = String(input.ewayBillNumber ?? '').trim();
+
+  const digits = rawNumber.replace(/\D/g, '');
+  if (!customerId || !invoiceId) {
+    throw new Error('Customer id and invoice id are required.');
+  }
+  if (!digits || !/^\d{12}$/.test(digits)) {
+    throw new Error('Enter a valid 12-digit GST e-way bill number.');
+  }
+
+  const invoice = await loadInvoiceMirror(customerId, invoiceId);
+  if (!invoice) {
+    throw new Error('Invoice not found in portal. Sync invoices from Zoho first.');
+  }
+
+  const accessToken = await getAccessToken(secrets);
+  const organizationId = await resolveOrganizationId(accessToken, orgId);
+
+  // 1) Attach/associate on Zoho (so the number exists on the GST portal record too).
+  await associateGstEwayBillOnZoho(
+    accessToken,
+    organizationId,
+    invoice,
+    digits,
+    null,
+  );
+
+  // 2) Persist in YesOne and push to Delhivery.
+  const saved = await persistEwayBill(customerId, invoiceId, {
+    required: true,
+    status: 'generated',
+    requiredBecause: 'invoice_total',
+    partnerId: partnerId || invoice?.ewayBill?.partnerId || invoice?.partnerId || null,
+    lrNumber: lrNumber || invoice?.ewayBill?.lrNumber || invoice?.lrNumber || null,
+    ewaybillNumber: digits,
+    error: null,
+  }, bookingId, { forcePartnerPush: true });
+
+  return {
+    required: true,
+    status: saved.status || 'generated',
+    ewaybillNumber: saved.ewaybillNumber || digits,
+    message: 'E-way bill number associated and pushed to Delhivery.',
   };
 }
 

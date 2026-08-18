@@ -1,4 +1,4 @@
-import React, { useEffect } from 'react';
+import React, { useEffect, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { X } from 'lucide-react';
 import {
@@ -27,6 +27,10 @@ type Props = {
   error?: string;
   onClose: () => void;
   onConfirm: () => void | Promise<void>;
+  manualAssociateEnabled?: boolean;
+  manualAssociateBusy?: boolean;
+  manualAssociateError?: string;
+  onManualAssociate?: (input: { ewayBillNumber: string }) => void | Promise<void>;
 };
 
 export const EwayBillGenerateDialog: React.FC<Props> = ({
@@ -37,7 +41,12 @@ export const EwayBillGenerateDialog: React.FC<Props> = ({
   error = '',
   onClose,
   onConfirm,
+  manualAssociateEnabled = false,
+  manualAssociateBusy = false,
+  manualAssociateError = '',
+  onManualAssociate,
 }) => {
+  const [manualEwayBillNumber, setManualEwayBillNumber] = useState('');
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
       if (event.key === 'Escape' && !busy) onClose();
@@ -74,6 +83,28 @@ export const EwayBillGenerateDialog: React.FC<Props> = ({
 
         <div className="logistics-eway-generate__body">
           <EwayBillGeneratePreviewBody preview={preview} error={error} intro={intro} />
+          {manualAssociateEnabled && onManualAssociate ? (
+            <div className="logistics-eway-generate__manual">
+              <p className="book-courier__hint text-muted text-sm" role="note">
+                Enter the GST e-way bill number manually and tap <strong>Associate &amp; push</strong>.
+              </p>
+              <label className="settings-courier-rates__field settings-courier-rates__field--plain">
+                <span>GST e-way bill number (12 digits)</span>
+                <input
+                  type="text"
+                  inputMode="numeric"
+                  maxLength={20}
+                  disabled={manualAssociateBusy}
+                  placeholder="e.g. 123456789012"
+                  value={manualEwayBillNumber}
+                  onChange={event => setManualEwayBillNumber(event.target.value)}
+                />
+              </label>
+              {manualAssociateError ? (
+                <p className="logistics-booking__docs-error" role="alert">{manualAssociateError}</p>
+              ) : null}
+            </div>
+          ) : null}
         </div>
 
         <div className="dealers-modal__actions">
@@ -85,6 +116,18 @@ export const EwayBillGenerateDialog: React.FC<Props> = ({
           >
             Not now
           </button>
+          {manualAssociateEnabled && onManualAssociate ? (
+            <button
+              type="button"
+              className="btn btn-secondary"
+              disabled={busy || manualAssociateBusy || !manualEwayBillNumber.trim()}
+              onClick={() => {
+                void onManualAssociate({ ewayBillNumber: manualEwayBillNumber.trim() });
+              }}
+            >
+              {manualAssociateBusy ? 'Associating…' : 'Associate & push'}
+            </button>
+          ) : null}
           <button
             type="button"
             className="btn btn-primary"

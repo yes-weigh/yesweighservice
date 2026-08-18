@@ -110,7 +110,7 @@ import {
   downloadDealerInvoiceDocument,
   invoiceDocumentToBlob,
 } from '../../lib/invoices';
-import { ensureInvoiceEwayBill, cancelInvoiceEwayBill, pushDelhiveryLrEwayBills, syncDelhiveryLrEwayStatus, type DelhiveryPartnerEwayStatus, type InvoiceEwayBillResult } from '../../lib/invoiceEwayBill';
+import { ensureInvoiceEwayBill, cancelInvoiceEwayBill, pushDelhiveryLrEwayBills, syncDelhiveryLrEwayStatus, associateInvoiceEwayBillNumber, type DelhiveryPartnerEwayStatus, type InvoiceEwayBillResult } from '../../lib/invoiceEwayBill';
 import {
   bookingNeedsEwayBill,
   clubbedEwayBillRequiredLabel,
@@ -374,6 +374,8 @@ export const LogisticsBookingDetail: React.FC<LogisticsBookingDetailProps> = ({
   const [ewayEnsuring, setEwayEnsuring] = useState(false);
   const [ewayGenerateOpen, setEwayGenerateOpen] = useState(false);
   const [ewayGenerateError, setEwayGenerateError] = useState('');
+  const [manualEwayAssociateBusy, setManualEwayAssociateBusy] = useState(false);
+  const [manualEwayAssociateError, setManualEwayAssociateError] = useState('');
   const [ewayTransporterName, setEwayTransporterName] = useState<string | null>(null);
   const [ewayCancelOpen, setEwayCancelOpen] = useState(false);
   const [ewayCancelling, setEwayCancelling] = useState(false);
@@ -816,6 +818,68 @@ export const LogisticsBookingDetail: React.FC<LogisticsBookingDetailProps> = ({
     const fresh = await fetchLogisticsBooking(booking.id);
     if (fresh) onUpdate(fresh);
   }, [booking.id, onUpdate]);
+
+  const handleManualAssociateEwayBillNumber = useCallback(async ({
+    ewayBillNumber,
+  }: {
+    ewayBillNumber: string;
+  }) => {
+    if (!isOps) {
+      setManualEwayAssociateError('Manual association is allowed only for internal ops.');
+      return;
+    }
+    if (ewayClubbed) {
+      setManualEwayAssociateError(
+        'Manual association is available for single-invoice e-way bills only.',
+      );
+      return;
+    }
+    if (!ewayCustomerId || !booking.invoiceId) {
+      setManualEwayAssociateError('Missing invoice context.');
+      return;
+    }
+
+    const digits = ewayBillNumber.replace(/\D/g, '');
+    if (!digits || digits.length !== 12) {
+      setManualEwayAssociateError('Enter a valid 12-digit GST e-way bill number.');
+      return;
+    }
+
+    setManualEwayAssociateBusy(true);
+    setManualEwayAssociateError('');
+    try {
+      await associateInvoiceEwayBillNumber({
+        customerId: ewayCustomerId,
+        invoiceId: booking.invoiceId.trim(),
+        partnerId: booking.partnerId,
+        lrNumber: ewayLrNumber || null,
+        bookingId: booking.id,
+        ewayBillNumber: digits,
+      });
+
+      // Ensure UI and next steps pick up the saved + pushed e-way.
+      setEwayBillStatus('generated');
+      setEwayBillNumber(digits);
+      setEwayGenerateOpen(false);
+      setEwayGenerateError('');
+      await refreshBookingAfterPartnerEway();
+    } catch (err) {
+      setManualEwayAssociateError(
+        err instanceof Error ? err.message : 'Could not associate e-way bill number.',
+      );
+    } finally {
+      setManualEwayAssociateBusy(false);
+    }
+  }, [
+    booking.id,
+    booking.invoiceId,
+    booking.partnerId,
+    ewayCustomerId,
+    ewayLrNumber,
+    ewayClubbed,
+    isOps,
+    refreshBookingAfterPartnerEway,
+  ]);
 
   const handleCheckPartnerEwayStatus = useCallback(async () => {
     if (!isDelhivery || !booking.id) return;
@@ -2979,11 +3043,20 @@ export const LogisticsBookingDetail: React.FC<LogisticsBookingDetailProps> = ({
           confirmLabel={ewayClubbed ? `Generate ${ewayInvoiceRows.length} e-way bills` : undefined}
           busy={ewayEnsuring}
           error={ewayGenerateError}
+          manualAssociateEnabled={
+            isOps
+            && !ewayClubbed
+            && /GST already created the e-way bill|associate e-way bill number/i.test(ewayGenerateError)
+          }
+          manualAssociateBusy={manualEwayAssociateBusy}
+          manualAssociateError={manualEwayAssociateError}
+          onManualAssociate={handleManualAssociateEwayBillNumber}
           onClose={() => {
             if (ewayEnsuring) return;
             ewayGenerateDismissedRef.current = `${booking.id}:${booking.invoiceId}`;
             setEwayGenerateOpen(false);
             setEwayGenerateError('');
+            setManualEwayAssociateError('');
           }}
           onConfirm={handleConfirmGenerateEwayBill}
         />

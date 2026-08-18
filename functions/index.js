@@ -90,7 +90,7 @@ import {
   verifyZohoWebhookSignature,
   handleZohoInvoiceWebhook,
 } from './lib/invoice-sync.js';
-import { ensureInvoiceEwayBill, cancelInvoiceEwayBill, pushEwayBillsToDelhiveryLr, syncDelhiveryEwayStatusFromPartner } from './lib/invoice-ewaybill.js';
+import { ensureInvoiceEwayBill, cancelInvoiceEwayBill, pushEwayBillsToDelhiveryLr, syncDelhiveryEwayStatusFromPartner, associateInvoiceEwayBillNumber } from './lib/invoice-ewaybill.js';
 import {
   markInvoiceCustomerPickup,
   updateCustomerPickupEwayPartB,
@@ -2110,6 +2110,46 @@ export const ensureInvoiceEwayBillFn = onCall(
         ? 'failed-precondition'
         : 'internal';
       throw new HttpsError(code, message);
+    }
+  },
+);
+
+/** Associate an existing GST e-way bill number onto Zoho, then push to Delhivery. */
+export const associateInvoiceEwayBillNumberFn = onCall(
+  {
+    region: 'asia-south1',
+    secrets: [zohoClientId, zohoClientSecret, zohoRefreshToken],
+    timeoutSeconds: 180,
+    memory: '512MiB',
+  },
+  async request => {
+    await requireActiveUser(request.auth?.uid, ALLOWED_ROLES, { allowViewOnly: true });
+    const customerId = String(request.data?.customerId ?? '').trim();
+    const invoiceId = String(request.data?.invoiceId ?? '').trim();
+    const partnerId = String(request.data?.partnerId ?? '').trim();
+    const lrNumber = String(request.data?.lrNumber ?? '').trim();
+    const bookingId = String(request.data?.bookingId ?? '').trim();
+    const ewayBillNumber = String(request.data?.ewayBillNumber ?? '').trim();
+
+    if (!customerId || !invoiceId) {
+      throw new HttpsError('invalid-argument', 'Customer id and invoice id are required.');
+    }
+    if (!ewayBillNumber) {
+      throw new HttpsError('invalid-argument', 'E-way bill number is required.');
+    }
+
+    try {
+      return await associateInvoiceEwayBillNumber(zohoSecrets(), zohoOrganizationId.value(), {
+        customerId,
+        invoiceId,
+        partnerId: partnerId || null,
+        lrNumber: lrNumber || null,
+        bookingId: bookingId || null,
+        ewayBillNumber,
+      });
+    } catch (err) {
+      if (err instanceof HttpsError) throw err;
+      throw new HttpsError('internal', err?.message ?? 'Could not associate e-way bill number.');
     }
   },
 );

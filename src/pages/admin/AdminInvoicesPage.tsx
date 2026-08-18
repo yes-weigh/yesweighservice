@@ -38,6 +38,7 @@ import {
   invoiceChipCategoryCounts,
   invoiceChipStatusCounts,
   overlayPortalStampingOnInvoices,
+  sumInvoiceStatusPartitionCounts,
   loadAdminInvoiceKpis,
   searchAdminInvoicesAutocomplete,
   toInvoiceDateKey,
@@ -1010,13 +1011,12 @@ export const AdminInvoicesPage: React.FC = () => {
 
   const summary = useMemo(() => {
     const boundsForRange = getInvoicePeriodBounds(rangePreset);
-    const countFromTabs = invoicePageCategoryCount(category, categoryChipCounts);
     const useClientSummary = clientPaged;
     const useDocumentAmount = category === 'all';
     return {
       invoiceCount: (useClientSummary || completeServerList)
         ? filtered.length
-        : (countFromTabs || kpiCount),
+        : (filteredChipCount || kpiCount),
       categorySales: useClientSummary
         ? (useDocumentAmount
           ? filtered.reduce((sum, row) => sum + invoiceAmountExclGst(row), 0)
@@ -1031,10 +1031,10 @@ export const AdminInvoicesPage: React.FC = () => {
   }, [
     rangePreset,
     category,
-    categoryChipCounts,
     clientPaged,
     completeServerList,
     filtered,
+    filteredChipCount,
     kpiCount,
     kpiCategoryAmount,
     kpiDocumentAmount,
@@ -1243,7 +1243,7 @@ export const AdminInvoicesPage: React.FC = () => {
             allCount={serverPaged
               ? (completeServerList && statusFilter === 'all'
                 ? listRows.length
-                : invoicePageCategoryCount(category, categoryCounts))
+                : sumInvoiceStatusPartitionCounts(statusCounts))
               : listRows.length}
             countsComplete={statusCountsComplete}
             loading={chipsLoading}

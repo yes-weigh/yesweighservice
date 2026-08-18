@@ -705,7 +705,7 @@ async function findDraftEwayBillId(accessToken, orgId, invoice) {
 }
 
 /** Attach a GST e-way number onto Zoho's draft (same as Associate e-Way Bill number). */
-async function associateGstEwayBillOnZoho(accessToken, orgId, invoice, number, extra = null) {
+export async function associateGstEwayBillOnZoho(accessToken, orgId, invoice, number, extra = null) {
   const digits = gstEwayBillNumber(number) || gstEwayBillNumber(recordEwayBillNumber(extra));
   if (!digits) return null;
   const invoiceId = String(invoice?.invoice_id ?? '').trim();
