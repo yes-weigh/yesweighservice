@@ -7,8 +7,10 @@ const functions = getFunctions(app, 'asia-south1');
 export interface KotakBankFeed {
   transactionId: string;
   date: string | null;
+  postedTime?: string | null;
   amount: number;
   debitOrCredit: string | null;
+  transactionType?: string | null;
   payee: string | null;
   description: string | null;
   referenceNumber: string | null;

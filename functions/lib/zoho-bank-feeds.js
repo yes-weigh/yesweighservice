@@ -94,6 +94,25 @@ async function zohoBankJsonWithFallback(accessToken, orgId, path, options = {}) 
   }
 }
 
+function pickPostedTime(raw) {
+  const candidates = [
+    raw?.time,
+    raw?.transaction_time,
+    raw?.entry_time,
+    raw?.posted_time,
+    raw?.date,
+  ];
+  for (const candidate of candidates) {
+    if (candidate == null) continue;
+    const value = String(candidate).trim();
+    if (!value) continue;
+    if (/T\d{2}:\d{2}/.test(value) || /\s\d{1,2}:\d{2}/.test(value) || /^\d{1,2}:\d{2}/.test(value)) {
+      return value;
+    }
+  }
+  return null;
+}
+
 function mapFeed(raw, account) {
   const transactionId = String(raw?.transaction_id ?? raw?.imported_transaction_id ?? '').trim();
   const amount = Number(raw?.amount ?? 0);
@@ -101,8 +120,12 @@ function mapFeed(raw, account) {
   return {
     transactionId,
     date: raw?.date ? String(raw.date) : null,
+    postedTime: pickPostedTime(raw),
     amount: Number.isFinite(amount) ? amount : 0,
     debitOrCredit,
+    transactionType: raw?.transaction_type != null
+      ? String(raw.transaction_type).trim().toLowerCase()
+      : null,
     payee: raw?.payee != null ? String(raw.payee) : null,
     description: raw?.description != null ? String(raw.description) : null,
     referenceNumber: raw?.reference_number != null ? String(raw.reference_number) : null,

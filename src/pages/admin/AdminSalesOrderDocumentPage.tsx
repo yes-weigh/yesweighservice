@@ -146,6 +146,8 @@ export const AdminSalesOrderDocumentPage: React.FC = () => {
   const [fetchingBankFeeds, setFetchingBankFeeds] = useState(false);
   const [bankFeeds, setBankFeeds] = useState<KotakBankFeed[] | null>(null);
   const [bankFeedsFetchedAt, setBankFeedsFetchedAt] = useState<string | null>(null);
+  const [selectedKotakFeed, setSelectedKotakFeed] = useState<KotakBankFeed | null>(null);
+  const bankFeedFetchGen = useRef(0);
   const shareCaptureRef = useRef<HTMLDivElement>(null);
   const soDetailRef = useRef<HTMLDivElement>(null);
   const warmShotRef = useRef<{ key: string; shot: PreparedScreenshot } | null>(null);
@@ -754,15 +756,21 @@ export const AdminSalesOrderDocumentPage: React.FC = () => {
 
   const handleFetchBankFeeds = async () => {
     if (fetchingBankFeeds) return;
+    const gen = ++bankFeedFetchGen.current;
+    setBankFeeds([]);
+    setBankFeedsFetchedAt(null);
     setFetchingBankFeeds(true);
     try {
       const result = await fetchKotakBankFeeds();
+      if (gen !== bankFeedFetchGen.current) return;
       setBankFeeds(result.feeds || []);
       setBankFeedsFetchedAt(result.fetchedAt || null);
     } catch (err) {
+      if (gen !== bankFeedFetchGen.current) return;
+      setBankFeeds(null);
       window.alert(err instanceof Error ? err.message : 'Could not fetch Kotak bank feeds.');
     } finally {
-      setFetchingBankFeeds(false);
+      if (gen === bankFeedFetchGen.current) setFetchingBankFeeds(false);
     }
   };
 
@@ -1485,6 +1493,18 @@ export const AdminSalesOrderDocumentPage: React.FC = () => {
             {fetchingBankFeeds ? 'Fetching…' : 'Fetch Bank'}
           </button>
         ) : null}
+        {selectedKotakFeed ? (
+          <p className="so-detail__selected-bank-feed mb-0">
+            Selected pay-in:{' '}
+            <strong>
+              {formatCurrency(selectedKotakFeed.amount, salesOrder?.currencyCode)}
+            </strong>
+            {' · '}
+            {selectedKotakFeed.payee?.trim() || 'Kotak'}
+            {' · Ref '}
+            {selectedKotakFeed.referenceNumber?.trim() || selectedKotakFeed.transactionId}
+          </p>
+        ) : null}
         {showWorkflowActions && workflowActions && (
           <>
           {workflowActions.canReady && (
@@ -1669,12 +1689,23 @@ export const AdminSalesOrderDocumentPage: React.FC = () => {
         />
       ) : null}
 
-      {bankFeeds ? (
+      {(fetchingBankFeeds || bankFeeds) ? (
         <KotakBankFeedsSheet
-          feeds={bankFeeds}
+          feeds={bankFeeds || []}
           fetchedAt={bankFeedsFetchedAt}
+          loading={fetchingBankFeeds}
           matchAmount={salesOrder?.paymentAmount ?? salesOrder?.total ?? null}
-          onClose={() => setBankFeeds(null)}
+          onSelect={(feed) => {
+            setSelectedKotakFeed(feed);
+            const ref = feed.referenceNumber?.trim() || feed.transactionId;
+            const line = `Bank pay-in ${formatCurrency(feed.amount, salesOrder?.currencyCode)} · Ref ${ref}`;
+            setPaymentNotes((current) => (current.trim() ? current : line));
+          }}
+          onClose={() => {
+            bankFeedFetchGen.current += 1;
+            setBankFeeds(null);
+            setFetchingBankFeeds(false);
+          }}
         />
       ) : null}
 

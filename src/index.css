@@ -48634,54 +48634,228 @@ button.invoice-detail-top__card {
 
 .kotak-feeds-sheet {
   z-index: 92;
+  align-items: flex-start;
+  padding-top: max(0.75rem, env(safe-area-inset-top, 0px));
 }
 
 .kotak-feeds-sheet__modal {
-  width: min(100%, 28rem);
-  max-height: min(82vh, 36rem);
+  position: relative;
+  width: min(100%, 34rem);
+  max-height: calc(100dvh - 1.5rem);
   display: flex;
   flex-direction: column;
+  overflow: hidden;
+  padding: 0.75rem 0.85rem 0.85rem;
+}
+
+.kotak-feeds-sheet__close {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: 2.1rem;
+  height: 2.1rem;
+  padding: 0;
+  border: none;
+  border-radius: 999px;
+  background: #f58220;
+  color: #111;
+  cursor: pointer;
+}
+
+.kotak-feeds-sheet__close:hover {
+  background: #ff9a3d;
+}
+
+.kotak-feeds-sheet__head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.75rem;
+  flex-shrink: 0;
+  margin-bottom: 0.35rem;
+}
+
+.kotak-feeds-sheet__head-copy {
+  min-width: 0;
 }
 
 .kotak-feeds-sheet__modal h2 {
   display: inline-flex;
   align-items: center;
   gap: 0.4rem;
+  margin: 0 0 0.2rem;
+}
+
+.kotak-feeds-sheet__cols {
+  display: grid;
+  grid-template-columns: 4.1rem minmax(0, 1fr) 6.4rem;
+  gap: 0.65rem;
+  padding: 0.35rem 0.15rem 0.5rem;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.12);
+  font-size: 0.68rem;
+  font-weight: 750;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+.kotak-feeds-sheet__cols span:last-child {
+  text-align: right;
 }
 
 .kotak-feeds-sheet__list {
   list-style: none;
   margin: 0;
   padding: 0;
+  flex: 1;
+  min-height: 0;
   overflow: auto;
-  display: grid;
-  gap: 0.45rem;
 }
 
 .kotak-feeds-sheet__row {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 0.75rem;
-  padding: 0.65rem 0.7rem;
-  border-radius: 10px;
-  background: rgba(255, 255, 255, 0.04);
-  border: 1px solid rgba(255, 255, 255, 0.08);
-}
-
-.kotak-feeds-sheet__row div {
   display: grid;
-  gap: 0.15rem;
-  min-width: 0;
+  grid-template-columns: 4.1rem minmax(0, 1fr) 6.4rem;
+  gap: 0.65rem;
+  align-items: center;
+  width: 100%;
+  margin: 0;
+  padding: 0.7rem 0.1rem;
+  border: none;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
 }
 
 .kotak-feeds-sheet__row--match {
-  border-color: rgba(34, 197, 94, 0.45);
   background: rgba(22, 163, 74, 0.12);
+  margin: 0 -0.35rem;
+  padding-left: 0.45rem;
+  padding-right: 0.45rem;
+  border-radius: 8px;
+  border-bottom-color: transparent;
 }
 
-.kotak-feeds-sheet__credit {
-  color: #86efac;
+.kotak-feeds-sheet__row--selected {
+  background: rgba(245, 130, 32, 0.2);
+  margin: 0 -0.35rem;
+  padding-left: 0.45rem;
+  padding-right: 0.45rem;
+  border-radius: 8px;
+  outline: 2px solid #f58220;
+  outline-offset: -2px;
+  border-bottom-color: transparent;
+}
+
+.kotak-feeds-sheet__date {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  min-height: 3.15rem;
+  padding: 0.28rem 0.18rem;
+  border-radius: 6px;
+  background: #1f2937;
+  color: #fff;
+  font-size: 0.62rem;
+  font-weight: 800;
+  line-height: 1.15;
+  text-align: center;
+}
+
+.kotak-feeds-sheet__time {
+  margin-top: 0.12rem;
+  color: #fdba74;
+  font-size: 0.56rem;
+  font-weight: 700;
+  letter-spacing: 0;
+  text-transform: lowercase;
+}
+
+.kotak-feeds-sheet__details {
+  display: grid;
+  gap: 0.12rem;
+  min-width: 0;
+}
+
+.kotak-feeds-sheet__details strong {
+  font-size: 0.82rem;
+  font-weight: 750;
+  line-height: 1.25;
+}
+
+.kotak-feeds-sheet__details span {
+  font-size: 0.72rem;
+  color: var(--text-secondary);
+  line-height: 1.3;
+  overflow-wrap: anywhere;
+}
+
+.kotak-feeds-sheet__ref {
+  color: var(--text-muted) !important;
+  font-size: 0.68rem !important;
+}
+
+.kotak-feeds-sheet__amount-wrap {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 0.28rem;
+}
+
+.kotak-feeds-sheet__amount {
+  text-align: right;
+  color: #3b82f6;
+  font-size: 0.92rem;
+  font-weight: 800;
+  letter-spacing: -0.02em;
+  line-height: 1.2;
+}
+
+.kotak-feeds-sheet__tick {
+  flex-shrink: 0;
+  color: #f58220;
+}
+
+.kotak-feeds-sheet__loading,
+.kotak-feeds-sheet__empty {
+  margin: 1.1rem 0 0.4rem;
+  text-align: center;
+  color: var(--text-muted);
+  font-size: 0.85rem;
+}
+
+.kotak-feeds-sheet__footer {
+  display: flex;
+  justify-content: flex-end;
+  flex-shrink: 0;
+  margin-top: 0.65rem;
+  padding-top: 0.7rem;
+  border-top: 1px solid rgba(255, 255, 255, 0.12);
+}
+
+.kotak-feeds-sheet__select {
+  min-width: 7.5rem;
+}
+
+.so-detail__selected-bank-feed {
+  flex: 1 0 100%;
+  width: 100%;
+  margin: 0.35rem 0 0;
+  padding: 0.45rem 0.6rem;
+  border-radius: 8px;
+  background: rgba(245, 130, 32, 0.14);
+  color: var(--text-secondary);
+  font-size: 0.78rem;
+  line-height: 1.35;
+}
+
+.so-detail__selected-bank-feed strong {
+  color: var(--text);
 }
 
 .so-detail__actions .so-detail__delete-btn {
