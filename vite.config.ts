@@ -26,7 +26,7 @@ export default defineConfig({
         display: 'standalone',
         orientation: 'portrait-primary',
         scope: '/',
-        start_url: '/',
+        start_url: '/signup',
         categories: ['business', 'productivity'],
         icons: [
           {
@@ -59,6 +59,8 @@ export default defineConfig({
         navigateFallback: '/index.html',
         navigateFallbackAllowlist: [
           /^\/$/,
+          /^\/signup$/,
+          /^\/dealer-login$/,
           /^\/login$/,
           /^\/oc$/,
           /^\/dealer(\/.*)?$/,

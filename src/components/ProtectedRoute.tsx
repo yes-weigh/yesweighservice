@@ -8,7 +8,7 @@ interface ProtectedRouteProps {
   loginPath?: string;
 }
 
-export const ProtectedRoute: React.FC<ProtectedRouteProps> = ({ allowedRoles, loginPath = '/login' }) => {
+export const ProtectedRoute: React.FC<ProtectedRouteProps> = ({ allowedRoles, loginPath = '/signup' }) => {
   const { user, loading } = useAuth();
 
   if (loading) {

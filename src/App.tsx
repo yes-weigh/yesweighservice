@@ -268,6 +268,8 @@ const App: React.FC = () => (
     <ConfirmProvider>
       <Router>
         <Routes>
+          <Route path="/" element={<Navigate to="/signup" replace />} />
+          <Route path="/signup" element={<DealerLogin />} />
           <Route path="/login" element={<Login />} />
           {/* Legacy bookmark — warehouse staff use main /login and are routed by role. */}
           <Route path="/warehouse-login" element={<Navigate to="/login" replace />} />
@@ -275,7 +277,6 @@ const App: React.FC = () => (
           <Route path="/oc" element={<OpenCatalogPage />} />
           <Route path="/oc/:productId" element={<ProductDetailPage />} />
           <Route path="/s/salary/:token" element={<HrSalaryPublicSharePage />} />
-          <Route path="/" element={<Navigate to="/login" replace />} />
           <Route path="/admin/*" element={<Navigate to="/super-admin" replace />} />
           <Route path="/director-staff/*" element={<LegacyPathRedirect from="/director-staff" to="/dealer-staff" />} />
           <Route path="/director/*" element={<LegacyPathRedirect from="/director" to="/dealer" />} />
@@ -284,7 +285,7 @@ const App: React.FC = () => (
           <Route path="/staff/directors/*" element={<Navigate to="/staff/dealers" replace />} />
           <Route path="/staff/director-staff/*" element={<Navigate to="/staff/dealers" replace />} />
 
-          <Route element={<ProtectedRoute allowedRoles={['super_admin']} />}>
+          <Route element={<ProtectedRoute allowedRoles={['super_admin']} loginPath="/login" />}>
             <Route path="/super-admin" element={<Layout />}>
               <Route index element={<SuperAdminDashboard />} />
               <Route path="sales-by-state" element={<SalesByStatePage />} />
@@ -382,7 +383,7 @@ const App: React.FC = () => (
             </Route>
           </Route>
 
-          <Route element={<ProtectedRoute allowedRoles={['staff']} />}>
+          <Route element={<ProtectedRoute allowedRoles={['staff']} loginPath="/login" />}>
             <Route path="/staff" element={<Layout />}>
               <Route index element={<StaffDashboard />} />
               <Route path="tasks" element={<DealerMenuPages.Tasks />} />
@@ -417,7 +418,7 @@ const App: React.FC = () => (
             </Route>
           </Route>
 
-          <Route element={<ProtectedRoute allowedRoles={['media']} />}>
+          <Route element={<ProtectedRoute allowedRoles={['media']} loginPath="/login" />}>
             <Route path="/media" element={<Layout />}>
               <Route index element={<MediaHomePage />} />
               {catalogRoutes}
@@ -431,7 +432,7 @@ const App: React.FC = () => (
             </Route>
           </Route>
 
-          <Route element={<ProtectedRoute allowedRoles={['warehouse']} />}>
+          <Route element={<ProtectedRoute allowedRoles={['warehouse']} loginPath="/login" />}>
             <Route path="/warehouse" element={<WarehouseLayout />}>
               <Route index element={<WarehouseHomePage />} />
               <Route path="*" element={<Navigate to="/warehouse" replace />} />
@@ -467,6 +468,8 @@ const App: React.FC = () => (
               <Route path="profile" element={<ProfilePage />} />
             </Route>
           </Route>
+
+          <Route path="*" element={<Navigate to="/signup" replace />} />
         </Routes>
       </Router>
     </ConfirmProvider>

@@ -6,7 +6,7 @@ const config: CapacitorConfig = {
   webDir: 'dist',
   server: {
     // Thin shell: APK loads the live PWA so hosting deploys update staff without a new APK.
-    url: 'https://service.yesweigh.in',
+    url: 'https://service.yesweigh.in/signup',
     cleartext: true,
     androidScheme: 'https',
   },

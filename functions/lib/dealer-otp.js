@@ -97,6 +97,7 @@ export async function lookupDealerForLogin(phone10) {
       multiple: false,
       dealerId: dealer.dealerId,
       displayName: dealer.displayName,
+      companyName: dealer.companyName ?? null,
       hasPortalAccount: dealer.hasPortalAccount,
     };
   }

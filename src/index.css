@@ -114,6 +114,91 @@ html::-webkit-scrollbar {
   color: #fff;
 }
 
+.login-hero.login-hero--flow {
+  overflow: auto;
+  max-height: none;
+  min-height: 100dvh;
+  align-items: stretch;
+  padding-top: 1.25rem;
+  padding-bottom: 1.5rem;
+}
+
+.login-hero--flow .login-hero__inner {
+  min-height: calc(100dvh - 2.75rem);
+  justify-content: flex-start;
+}
+
+.login-hero__dock {
+  width: 100%;
+  margin-top: auto;
+  padding-top: 1.75rem;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+.login-hero .dealer-login-info,
+.login-hero .dealer-login-panel,
+.login-hero .dealer-login-picker__option {
+  background: var(--login-input-bg);
+  border-color: var(--login-border);
+  color: #e8eef5;
+}
+
+.login-hero .dealer-login-back {
+  color: var(--login-muted);
+}
+
+.login-hero__form > .login-hero__forgot {
+  display: block;
+  width: 100%;
+  margin-top: 0.65rem;
+  text-align: center;
+}
+
+.dealer-login-registered {
+  width: 100%;
+  margin: 0 auto;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.85rem;
+  text-align: center;
+}
+
+.dealer-login-registered__label {
+  margin: 0;
+  font-size: 0.85rem;
+  font-weight: 500;
+  color: var(--login-muted);
+}
+
+.dealer-login-registered__name {
+  margin: 0;
+  width: 80%;
+  max-width: 80%;
+}
+
+.dealer-login-registered__name-text {
+  display: block;
+  width: 100%;
+  font-size: 1.2rem;
+  font-weight: 700;
+  line-height: 1.2;
+  color: #fff;
+  letter-spacing: -0.02em;
+  white-space: nowrap;
+  overflow: hidden;
+}
+
+.dealer-login-registered .login-hero__submit {
+  margin-top: 0;
+}
+
+.dealer-login-registered__forgot {
+  margin-top: 0.15rem;
+}
+
 .login-hero__inner {
   width: min(100%, 440px);
   max-height: 100%;
@@ -210,6 +295,13 @@ html::-webkit-scrollbar {
   width: 100%;
 }
 
+.login-hero--flow .login-hero__form-wrap {
+  flex: 1 1 auto;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+}
+
 .login-hero__signin-title {
   margin: 0 0 0.7rem;
   text-align: center;
@@ -228,6 +320,70 @@ html::-webkit-scrollbar {
 
 .login-hero__form {
   text-align: left;
+}
+
+.login-hero__form--signup-phone {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+.login-hero__form--signup-phone .form-group {
+  width: 80%;
+}
+
+.login-hero__form--signup-phone .login-hero__submit {
+  width: 50%;
+}
+
+.login-hero__form--set-password {
+  gap: 0.55rem;
+}
+
+.login-hero__form--set-password .form-group {
+  margin-bottom: 0;
+}
+
+.login-hero__form--set-password .login-hero__submit {
+  margin-top: 0.15rem;
+  min-height: 38px;
+  padding: 0.4rem 0.9rem;
+  font-size: 0.88rem;
+}
+
+.dealer-login-setpw-head {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  width: 80%;
+  margin-bottom: 0.1rem;
+  text-align: left;
+  color: var(--login-orange);
+}
+
+.dealer-login-setpw-copy {
+  min-width: 0;
+  flex: 1;
+}
+
+.dealer-login-setpw-head strong {
+  display: block;
+  font-size: 0.95rem;
+  font-weight: 700;
+  color: #fff;
+  letter-spacing: -0.02em;
+  line-height: 1.2;
+}
+
+.dealer-login-setpw-name {
+  display: block;
+  width: 100%;
+  margin-top: 0.12rem;
+  font-size: 0.75rem;
+  font-weight: 500;
+  color: var(--login-muted);
+  white-space: nowrap;
+  overflow: hidden;
 }
 
 .login-dev-quick {
@@ -355,6 +511,17 @@ html::-webkit-scrollbar {
 
 .login-hero__forgot:hover {
   color: #a8d0f5;
+}
+
+button.login-hero__forgot {
+  display: inline;
+  padding: 0;
+  border: none;
+  background: none;
+  font: inherit;
+  font-size: inherit;
+  font-weight: inherit;
+  cursor: pointer;
 }
 
 .login-hero__submit {

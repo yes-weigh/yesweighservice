@@ -1,8 +1,13 @@
 import React, { useEffect, useState } from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
-import { ArrowLeft, KeyRound, Lock, Phone, Send, ShieldCheck } from 'lucide-react';
+import { ArrowLeft, KeyRound, Lock, Phone, ShieldCheck } from 'lucide-react';
+import {
+  LoginHeroFeatures,
+  LoginHeroHelp,
+  LoginHeroTrust,
+} from '../components/auth/LoginHeroChrome';
+import { FitSingleLine } from '../components/invoices/FitSingleLine';
 import { Logo } from '../components/Logo';
-import { TAGLINE } from '../constants/brand';
 import { useAuth } from '../context/AuthContext';
 import { landingPathForRole } from '../types';
 import { isValidPhone, normalizePhone } from '../lib/loginAuth';
@@ -17,7 +22,7 @@ import {
   type DealerOtpPurpose,
 } from '../lib/dealerLogin';
 
-type Step = 'phone' | 'select' | 'otp' | 'password';
+type Step = 'phone' | 'select' | 'otp' | 'password' | 'registered';
 
 export const DealerLogin: React.FC = () => {
   const { user, loading, login } = useAuth();
@@ -59,13 +64,14 @@ export const DealerLogin: React.FC = () => {
     setSetupToken('');
   };
 
-  const applyDealerSelection = (dealer: DealerLookupOption) => {
+  const applyDealerSelection = (dealer: DealerLookupOption): Step => {
     setSelectedDealerId(dealer.dealerId);
     setDealerInfo({
       found: true,
       multiple: false,
       dealerId: dealer.dealerId,
       displayName: dealer.displayName,
+      companyName: dealer.companyName ?? null,
       hasPortalAccount: dealer.hasPortalAccount,
     });
 
@@ -73,18 +79,36 @@ export const DealerLogin: React.FC = () => {
       if (!dealer.hasPortalAccount) {
         setInfo('This dealer has no portal account yet. Activate the portal first.');
         setStep('phone');
-        return;
+        return 'phone';
       }
       setStep('otp');
-      return;
+      return 'otp';
     }
 
     if (dealer.hasPortalAccount) {
-      setInfo('You already have a portal account. Sign in with your phone number and password.');
-      setStep('phone');
-      return;
+      setStep('registered');
+      return 'registered';
     }
     setStep('otp');
+    return 'otp';
+  };
+
+  const sendOtpForDealer = async (dealerId: string, otpPurpose: DealerOtpPurpose) => {
+    setError('');
+    setInfo('');
+    if (!dealerId) {
+      setError('Select which dealer account to use.');
+      return;
+    }
+    setSubmitting(true);
+    try {
+      await sendDealerLoginOtp(normalizedPhone, dealerId, otpPurpose);
+      setInfo('OTP sent to your WhatsApp number.');
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Could not send OTP.');
+    } finally {
+      setSubmitting(false);
+    }
   };
 
   const handlePhoneContinue = async (e: React.FormEvent) => {
@@ -92,7 +116,7 @@ export const DealerLogin: React.FC = () => {
     setError('');
     setInfo('');
     if (!isValidPhone(normalizedPhone)) {
-      setError('Enter a valid 10-digit mobile number.');
+      setError('Enter a 10-digit WhatsApp number.');
       return;
     }
 
@@ -100,7 +124,7 @@ export const DealerLogin: React.FC = () => {
     try {
       const result = await lookupDealerByPhone(normalizedPhone);
       if (!result.found) {
-        setError('No dealer account matches this phone number.');
+        setError('This number is not in our records.');
         return;
       }
 
@@ -111,6 +135,7 @@ export const DealerLogin: React.FC = () => {
               dealerId: result.dealerId,
               displayName: result.displayName ?? 'Dealer',
               hasPortalAccount: Boolean(result.hasPortalAccount),
+              companyName: result.companyName ?? null,
             }]
           : [];
 
@@ -136,27 +161,13 @@ export const DealerLogin: React.FC = () => {
         setError('Dealer lookup failed. Try again.');
         return;
       }
-      applyDealerSelection(only);
+      const next = applyDealerSelection(only);
+      if (next === 'otp') {
+        await sendOtpForDealer(only.dealerId, isReset ? 'reset' : purpose);
+        return;
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Lookup failed.');
-    } finally {
-      setSubmitting(false);
-    }
-  };
-
-  const handleSendOtp = async () => {
-    setError('');
-    setInfo('');
-    if (!selectedDealerId) {
-      setError('Select which dealer account to use.');
-      return;
-    }
-    setSubmitting(true);
-    try {
-      await sendDealerLoginOtp(normalizedPhone, selectedDealerId, purpose);
-      setInfo('OTP sent to your WhatsApp number.');
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Could not send OTP.');
     } finally {
       setSubmitting(false);
     }
@@ -219,14 +230,29 @@ export const DealerLogin: React.FC = () => {
     }
   };
 
-  const startResetMode = () => {
+  const handleRegisteredSignIn = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setError('');
+    if (!password.trim()) {
+      setError('Enter your password.');
+      return;
+    }
+
+    setSubmitting(true);
+    try {
+      await login(normalizedPhone, password);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Sign in failed.');
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const startResetFromRegistered = () => {
     setPurpose('reset');
-    setStep('phone');
-    setDealerInfo(null);
-    setDealerOptions([]);
-    setSelectedDealerId('');
     resetTransient();
-    setInfo('Enter your registered mobile number to reset your password via WhatsApp OTP.');
+    setStep('otp');
+    void sendOtpForDealer(selectedDealerId, 'reset');
   };
 
   const startSignupMode = () => {
@@ -240,34 +266,30 @@ export const DealerLogin: React.FC = () => {
 
   if (loading) {
     return (
-      <div className="login-container">
+      <div className="login-hero">
         <div className="loader-ring" />
       </div>
     );
   }
 
   return (
-    <div className="login-container">
-      <div className="login-box glass">
-        <div className="login-header">
-          <div className="login-brand">
-            <Logo size="lg" />
-            <h2>{isReset ? 'Reset password' : 'Dealer Login'}</h2>
-            <p className="brand-tagline">{TAGLINE}</p>
-          </div>
-          <p>
-            {isReset
-              ? 'Verify your phone on WhatsApp, then choose a new password'
-              : 'Verify your phone to activate your dealer portal'}
-          </p>
-        </div>
+    <div className="login-hero login-hero--flow">
+      <div className="login-hero__inner">
+        <header className="login-hero__brand">
+          <Logo size="md" className="login-hero__logo" />
+          <h1 className="login-hero__welcome">Welcome to YesOne</h1>
+          <p className="login-hero__tagline">One platform. Unlimited possibilities.</p>
+        </header>
 
+        <LoginHeroFeatures />
+
+        <div className="login-hero__form-wrap">
         {step !== 'phone' && (
           <button
             type="button"
             className="btn btn-secondary btn-sm dealer-login-back"
             onClick={() => {
-              if (step === 'select') {
+              if (step === 'select' || step === 'registered') {
                 setStep('phone');
               } else {
                 setStep(dealerOptions.length > 1 ? 'select' : 'phone');
@@ -275,7 +297,7 @@ export const DealerLogin: React.FC = () => {
               resetTransient();
             }}
           >
-            <ArrowLeft size={16} /> {step === 'select' ? 'Change phone number' : 'Back'}
+            <ArrowLeft size={16} /> Change number
           </button>
         )}
 
@@ -283,17 +305,17 @@ export const DealerLogin: React.FC = () => {
         {info && <div className="dealer-login-info">{info}</div>}
 
         {step === 'phone' && (
-          <form onSubmit={e => void handlePhoneContinue(e)} className="login-form">
+          <form onSubmit={e => void handlePhoneContinue(e)} className="login-hero__form login-hero__form--signup-phone">
             <div className="form-group">
-              <label htmlFor="dealer-phone">Mobile number</label>
               <div className="input-icon-wrap">
                 <Phone size={18} className="input-icon" />
                 <input
                   id="dealer-phone"
                   type="tel"
                   inputMode="numeric"
-                  className="input-field input-with-icon"
-                  placeholder="10-digit mobile number"
+                  className="input-field input-with-icon login-hero__input"
+                  placeholder="WhatsApp number"
+                  aria-label="WhatsApp number"
                   value={phone}
                   onChange={e => setPhone(e.target.value.replace(/\D/g, '').slice(0, 10))}
                   required
@@ -305,39 +327,59 @@ export const DealerLogin: React.FC = () => {
                   data-form-type="other"
                 />
               </div>
-              <p className="text-muted text-sm login-id-hint">
-                Use the phone number registered with your Interweighing dealer account
-              </p>
             </div>
 
-            <button type="submit" className="btn btn-primary w-full mt-2" disabled={submitting}>
-              {submitting ? <span className="spinner-inline" /> : <>Continue</>}
+            <button type="submit" className="login-hero__submit" disabled={submitting}>
+              {submitting ? <span className="spinner-inline login-hero__spinner" /> : <>Continue</>}
             </button>
           </form>
         )}
 
-        {step === 'phone' && !isReset && dealerInfo?.found && dealerInfo.hasPortalAccount && (
-          <div className="dealer-login-panel">
-            <p className="text-sm">
-              Welcome back{dealerInfo.displayName ? `, ${dealerInfo.displayName}` : ''}.
+        {step === 'registered' && dealerInfo?.found && (
+          <form
+            onSubmit={e => void handleRegisteredSignIn(e)}
+            className="login-hero__form login-hero__form--signup-phone dealer-login-registered"
+          >
+            <p className="dealer-login-registered__label">This number is already registered</p>
+            <p className="dealer-login-registered__name">
+              <FitSingleLine className="dealer-login-registered__name-text" minPx={12}>
+                {dealerInfo.companyName || dealerInfo.displayName}
+              </FitSingleLine>
             </p>
-            <Link to="/login" className="btn btn-primary w-full mt-2">
-              Go to sign in
-            </Link>
+            <div className="form-group">
+              <div className="input-icon-wrap">
+                <Lock size={18} className="input-icon" />
+                <input
+                  id="dealer-signin-password"
+                  type="password"
+                  className="input-field input-with-icon login-hero__input"
+                  placeholder="Password"
+                  aria-label="Password"
+                  value={password}
+                  onChange={e => setPassword(e.target.value)}
+                  required
+                  autoFocus
+                  autoComplete="current-password"
+                />
+              </div>
+            </div>
+            <button type="submit" className="login-hero__submit" disabled={submitting}>
+              {submitting ? <span className="spinner-inline login-hero__spinner" /> : <>Sign in</>}
+            </button>
             <button
               type="button"
-              className="btn btn-secondary w-full mt-2"
-              onClick={startResetMode}
+              className="login-hero__forgot dealer-login-registered__forgot"
+              onClick={startResetFromRegistered}
             >
-              Forgot password?
+              Forgot password
             </button>
-          </div>
+          </form>
         )}
 
         {step === 'select' && dealerOptions.length > 0 && (
           <div className="login-form">
             <p className="text-muted text-sm dealer-login-select-intro">
-              Multiple dealer accounts use this phone number. Select yours to continue.
+              This number has more than one company. Tap yours.
             </p>
             <ul className="dealer-login-picker" role="listbox" aria-label="Dealer accounts">
               {dealerOptions.map(dealer => {
@@ -348,7 +390,12 @@ export const DealerLogin: React.FC = () => {
                       type="button"
                       role="option"
                       className="dealer-login-picker__option"
-                      onClick={() => applyDealerSelection(dealer)}
+                      onClick={() => {
+                        const next = applyDealerSelection(dealer);
+                        if (next === 'otp') {
+                          void sendOtpForDealer(dealer.dealerId, isReset ? 'reset' : purpose);
+                        }
+                      }}
                       disabled={submitting}
                     >
                       <div className="dealer-login-picker__body">
@@ -366,8 +413,8 @@ export const DealerLogin: React.FC = () => {
                         {isReset
                           ? 'Reset password'
                           : dealer.hasPortalAccount
-                            ? 'Portal active'
-                            : 'Activate portal'}
+                            ? 'Sign in'
+                            : 'New'}
                       </span>
                     </button>
                   </li>
@@ -387,16 +434,7 @@ export const DealerLogin: React.FC = () => {
               </div>
             </div>
 
-            <button
-              type="button"
-              className="btn btn-secondary w-full mt-2"
-              onClick={() => void handleSendOtp()}
-              disabled={submitting}
-            >
-              {submitting ? <span className="spinner-inline" /> : <><Send size={18} /> Send OTP</>}
-            </button>
-
-            <form onSubmit={e => void handleVerifyOtp(e)} className="mt-3">
+            <form onSubmit={e => void handleVerifyOtp(e)} className="login-hero__form mt-3">
               <div className="form-group">
                 <label htmlFor="dealer-otp">WhatsApp OTP</label>
                 <div className="input-icon-wrap">
@@ -405,103 +443,122 @@ export const DealerLogin: React.FC = () => {
                     id="dealer-otp"
                     type="text"
                     inputMode="numeric"
-                    className="input-field input-with-icon"
-                    placeholder="6-digit code"
+                    className="input-field input-with-icon login-hero__input"
+                    placeholder={submitting ? 'Sending OTP…' : '6-digit code'}
                     value={otp}
                     onChange={e => setOtp(e.target.value.replace(/\D/g, '').slice(0, 6))}
                     maxLength={6}
+                    autoFocus
                   />
                 </div>
               </div>
-              <button type="submit" className="btn btn-primary w-full mt-2" disabled={submitting}>
-                {submitting ? <span className="spinner-inline" /> : <>Verify OTP</>}
+              <button type="submit" className="login-hero__submit" disabled={submitting}>
+                {submitting ? <span className="spinner-inline login-hero__spinner" /> : <>Verify OTP</>}
+              </button>
+              <button
+                type="button"
+                className="login-hero__forgot"
+                onClick={() => void sendOtpForDealer(selectedDealerId, purpose)}
+                disabled={submitting}
+              >
+                Resend OTP
               </button>
             </form>
           </div>
         )}
 
         {step === 'password' && (
-          <form onSubmit={e => void handleSetPassword(e)} className="login-form">
-            <div className="dealer-login-panel">
-              <Lock size={18} />
-              <div>
+          <form
+            onSubmit={e => void handleSetPassword(e)}
+            className="login-hero__form login-hero__form--signup-phone login-hero__form--set-password"
+          >
+            <div className="dealer-login-setpw-head">
+              <Lock size={16} strokeWidth={1.85} aria-hidden />
+              <div className="dealer-login-setpw-copy">
                 <strong>{isReset ? 'Choose a new password' : 'Set your password'}</strong>
-                <p className="text-muted text-sm">{displayName || dealerInfo?.displayName}</p>
+                <FitSingleLine className="dealer-login-setpw-name" minPx={11}>
+                  {displayName || dealerInfo?.displayName}
+                </FitSingleLine>
               </div>
             </div>
 
             <div className="form-group">
-              <label htmlFor="dealer-password">Password</label>
-              <input
-                id="dealer-password"
-                type="password"
-                className="input-field"
-                name="yw-dealer-password"
-                value={password}
-                onChange={e => setPassword(e.target.value)}
-                required
-                autoFocus
-                autoComplete="new-password"
-                data-1p-ignore
-                data-lpignore="true"
-                data-bwignore="true"
-                data-form-type="other"
-              />
+              <div className="input-icon-wrap">
+                <Lock size={18} className="input-icon" />
+                <input
+                  id="dealer-password"
+                  type="password"
+                  className="input-field input-with-icon login-hero__input"
+                  name="yw-dealer-password"
+                  placeholder="Password"
+                  aria-label="Password"
+                  value={password}
+                  onChange={e => setPassword(e.target.value)}
+                  required
+                  autoFocus
+                  autoComplete="new-password"
+                  data-1p-ignore
+                  data-lpignore="true"
+                  data-bwignore="true"
+                  data-form-type="other"
+                />
+              </div>
             </div>
 
             <div className="form-group">
-              <label htmlFor="dealer-password-confirm">Confirm password</label>
-              <input
-                id="dealer-password-confirm"
-                type="password"
-                className="input-field"
-                name="yw-dealer-password-confirm"
-                value={confirmPassword}
-                onChange={e => setConfirmPassword(e.target.value)}
-                required
-                autoComplete="new-password"
-                data-1p-ignore
-                data-lpignore="true"
-                data-bwignore="true"
-                data-form-type="other"
-              />
+              <div className="input-icon-wrap">
+                <Lock size={18} className="input-icon" />
+                <input
+                  id="dealer-password-confirm"
+                  type="password"
+                  className="input-field input-with-icon login-hero__input"
+                  name="yw-dealer-password-confirm"
+                  placeholder="Confirm password"
+                  aria-label="Confirm password"
+                  value={confirmPassword}
+                  onChange={e => setConfirmPassword(e.target.value)}
+                  required
+                  autoComplete="new-password"
+                  data-1p-ignore
+                  data-lpignore="true"
+                  data-bwignore="true"
+                  data-form-type="other"
+                />
+              </div>
             </div>
 
-            <button type="submit" className="btn btn-primary w-full mt-2" disabled={submitting}>
+            <button type="submit" className="login-hero__submit" disabled={submitting}>
               {submitting
-                ? <span className="spinner-inline" />
-                : (isReset ? <>Save password & sign in</> : <>Create account & sign in</>)}
+                ? <span className="spinner-inline login-hero__spinner" />
+                : (isReset ? <>Save & sign in</> : <>Create account</>)}
             </button>
           </form>
         )}
-
-        <div className="login-footer">
-          {isReset ? (
-            <p className="text-muted text-sm">
-              Remembered it? <Link to="/login">Sign in</Link>
-              {' · '}
-              <button type="button" className="link-button" onClick={startSignupMode}>
-                Activate new portal
-              </button>
-            </p>
-          ) : (
-            <p className="text-muted text-sm">
-              Forgot password?{' '}
-              <button type="button" className="link-button" onClick={startResetMode}>
-                Reset via WhatsApp
-              </button>
-            </p>
-          )}
-          <p className="text-muted text-sm">
-            Staff or admin? <Link to="/login">Sign in here</Link>
-          </p>
         </div>
-      </div>
 
-      <div className="bg-shapes">
-        <div className="shape shape-1" />
-        <div className="shape shape-2" />
-        <div className="shape shape-3" />
+        <div className="login-hero__dock">
+          {step === 'phone' && (
+            <>
+              <div className="login-hero__bottom-bar">
+                <span className="login-hero__bottom-title">Already user</span>
+                <Link to="/login" className="login-hero__bottom-link">
+                  Sign in
+                </Link>
+              </div>
+              {isReset ? (
+                <p className="login-hero__hint">
+                  New here?{' '}
+                  <button type="button" className="login-hero__forgot" onClick={startSignupMode}>
+                    Create account
+                  </button>
+                </p>
+              ) : null}
+            </>
+          )}
+
+          <LoginHeroHelp />
+          <LoginHeroTrust />
+        </div>
       </div>
     </div>
   );

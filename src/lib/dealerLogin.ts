@@ -21,6 +21,7 @@ export type DealerLookupResult = {
   dealers?: DealerLookupOption[];
   dealerId?: string;
   displayName?: string;
+  companyName?: string | null;
   hasPortalAccount?: boolean;
 };
 
