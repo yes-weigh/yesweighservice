@@ -201,6 +201,21 @@ async function ensureServiceWarehousesStripped(accessToken, orgId, so) {
   return current;
 }
 
+function goodsWarehouseId(so, item) {
+  if (!zohoLineAllowsWarehouse(item)) return null;
+  const fromLine = item?.warehouse_id != null ? String(item.warehouse_id).trim() : '';
+  if (fromLine) return fromLine;
+  const fromSo = so?.warehouse_id != null ? String(so.warehouse_id).trim() : '';
+  if (fromSo) return fromSo;
+  const items = Array.isArray(so?.line_items) ? so.line_items : [];
+  const sibling = items.find(row =>
+    zohoLineAllowsWarehouse(row)
+    && row?.warehouse_id != null
+    && String(row.warehouse_id).trim(),
+  );
+  return sibling?.warehouse_id != null ? String(sibling.warehouse_id).trim() : null;
+}
+
 function invoiceLineItemsFromSalesOrder(so, { linkServiceLines = true } = {}) {
   const items = Array.isArray(so?.line_items) ? so.line_items : [];
   return items.map(item => {
@@ -211,9 +226,14 @@ function invoiceLineItemsFromSalesOrder(so, { linkServiceLines = true } = {}) {
       quantity: item.quantity,
       unit: item.unit || 'pcs',
     };
+    if (item.description) line.description = item.description;
+    if (item.hsn_or_sac) line.hsn_or_sac = item.hsn_or_sac;
+    if (item.tax_id) line.tax_id = item.tax_id;
     if (item.line_item_id && (linkServiceLines || zohoLineAllowsWarehouse(item))) {
       line.salesorder_item_id = item.line_item_id;
     }
+    const warehouseId = goodsWarehouseId(so, item);
+    if (warehouseId) line.warehouse_id = warehouseId;
     return line;
   }).filter(line => line.item_id && Number(line.quantity) > 0);
 }
@@ -831,12 +851,15 @@ export async function createInvoiceFromSalesOrder(secrets, configuredOrgId, {
   };
   const effectiveSp = spId || (so.salesperson_id != null ? String(so.salesperson_id).trim() : '');
 
+  const { salesorder_id: _soLink, ...unlinkedBase } = baseBody;
   const attempts = [
     { ...baseBody, line_items: linkedLineItems, ...shippingFields, ...(effectiveSp ? { salesperson_id: effectiveSp } : {}) },
     { ...baseBody, line_items: linkedLineItems, ...shippingFields },
     { ...baseBody, line_items: linkedLineItems },
     { ...baseBody, line_items: goodsLinkedLineItems, ...shippingFields, ...(effectiveSp ? { salesperson_id: effectiveSp } : {}) },
     { ...baseBody, line_items: goodsLinkedLineItems },
+    { ...unlinkedBase, line_items: linkedLineItems, ...shippingFields },
+    { ...unlinkedBase, line_items: linkedLineItems },
   ];
 
   let lastErr = null;
