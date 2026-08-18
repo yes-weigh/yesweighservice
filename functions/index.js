@@ -271,6 +271,7 @@ import {
   uploadSalesOrderPaymentScreenshot as uploadSalesOrderPaymentScreenshotRecord,
   submitSalesOrderPayment as submitSalesOrderPaymentRecord,
   verifySalesOrderPayment as verifySalesOrderPaymentRecord,
+  reserveKotakFeedForSalesOrder as reserveKotakFeedForSalesOrderRecord,
   applySalesOrderSalespersonFromDealer as applySalesOrderSalespersonFromDealerRecord,
   applySalesOrderSalespersonFromStaff as applySalesOrderSalespersonFromStaffRecord,
   backfillOpenSalesOrdersSalespersonForCustomer as backfillOpenSalesOrdersSalespersonForCustomerRecord,
@@ -2788,6 +2789,24 @@ export const fetchKotakBankFeedsFn = onCall(
     } catch (err) {
       if (err instanceof HttpsError) throw err;
       throw new HttpsError('internal', err?.message ?? 'Could not fetch Kotak bank feeds.');
+    }
+  },
+);
+
+export const reserveKotakFeedForSalesOrder = onCall(
+  {
+    region: 'asia-south1',
+    timeoutSeconds: 60,
+    memory: '256MiB',
+  },
+  async request => {
+    const uid = request.auth?.uid;
+    const role = await requireActiveUser(uid, new Set(['staff', 'super_admin']));
+    try {
+      return await reserveKotakFeedForSalesOrderRecord(uid, role, request.data ?? {});
+    } catch (err) {
+      if (err instanceof HttpsError) throw err;
+      throw new HttpsError('internal', err?.message ?? 'Could not reserve this bank pay-in.');
     }
   },
 );

@@ -181,6 +181,21 @@ export interface AdminSalesOrderDetail {
   readyForPaymentByName?: string | null;
   zohoInvoiceId?: string | null;
   zohoInvoiceNumber?: string | null;
+  reservedKotakFeed?: {
+    transactionId: string;
+    date?: string | null;
+    postedTime?: string | null;
+    amount?: number;
+    payee?: string | null;
+    description?: string | null;
+    referenceNumber?: string | null;
+    accountId?: string | null;
+    importedTransactionId?: string | null;
+    reservedAt?: string | null;
+    appliedInvoiceId?: string | null;
+    appliedAt?: string | null;
+    applyError?: string | null;
+  } | null;
   yesOneSyncError?: string | null;
   manuallyMarkedInvoicedAt?: string | null;
 }
@@ -946,6 +961,45 @@ export function mapAdminSalesOrderDetail(
     readyForPaymentByName: data.readyForPaymentByName ? String(data.readyForPaymentByName) : null,
     zohoInvoiceId: data.zohoInvoiceId ? String(data.zohoInvoiceId) : null,
     zohoInvoiceNumber: data.zohoInvoiceNumber ? String(data.zohoInvoiceNumber) : null,
+    reservedKotakFeed: data.reservedKotakFeed && typeof data.reservedKotakFeed === 'object'
+      ? {
+        transactionId: String((data.reservedKotakFeed as { transactionId?: string }).transactionId ?? ''),
+        date: (data.reservedKotakFeed as { date?: string | null }).date
+          ? String((data.reservedKotakFeed as { date?: string | null }).date)
+          : null,
+        postedTime: (data.reservedKotakFeed as { postedTime?: string | null }).postedTime
+          ? String((data.reservedKotakFeed as { postedTime?: string | null }).postedTime)
+          : null,
+        amount: Number((data.reservedKotakFeed as { amount?: number }).amount ?? 0),
+        payee: (data.reservedKotakFeed as { payee?: string | null }).payee
+          ? String((data.reservedKotakFeed as { payee?: string | null }).payee)
+          : null,
+        description: (data.reservedKotakFeed as { description?: string | null }).description
+          ? String((data.reservedKotakFeed as { description?: string | null }).description)
+          : null,
+        referenceNumber: (data.reservedKotakFeed as { referenceNumber?: string | null }).referenceNumber
+          ? String((data.reservedKotakFeed as { referenceNumber?: string | null }).referenceNumber)
+          : null,
+        accountId: (data.reservedKotakFeed as { accountId?: string | null }).accountId
+          ? String((data.reservedKotakFeed as { accountId?: string | null }).accountId)
+          : null,
+        importedTransactionId: (data.reservedKotakFeed as { importedTransactionId?: string | null }).importedTransactionId
+          ? String((data.reservedKotakFeed as { importedTransactionId?: string | null }).importedTransactionId)
+          : null,
+        reservedAt: (data.reservedKotakFeed as { reservedAt?: string | null }).reservedAt
+          ? String((data.reservedKotakFeed as { reservedAt?: string | null }).reservedAt)
+          : null,
+        appliedInvoiceId: (data.reservedKotakFeed as { appliedInvoiceId?: string | null }).appliedInvoiceId
+          ? String((data.reservedKotakFeed as { appliedInvoiceId?: string | null }).appliedInvoiceId)
+          : null,
+        appliedAt: (data.reservedKotakFeed as { appliedAt?: string | null }).appliedAt
+          ? String((data.reservedKotakFeed as { appliedAt?: string | null }).appliedAt)
+          : null,
+        applyError: (data.reservedKotakFeed as { applyError?: string | null }).applyError
+          ? String((data.reservedKotakFeed as { applyError?: string | null }).applyError)
+          : null,
+      }
+      : null,
     yesOneSyncError: data.yesOneSyncError ? String(data.yesOneSyncError) : null,
     manuallyMarkedInvoicedAt: data.manuallyMarkedInvoicedAt ? String(data.manuallyMarkedInvoicedAt) : null,
     yesOnePriceCustomized: Boolean(data.yesOnePriceCustomized),

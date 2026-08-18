@@ -1,5 +1,6 @@
 import { getFunctions, httpsCallable } from 'firebase/functions';
 import { app } from '../firebase';
+import type { AdminSalesOrderDetail } from './admin-sales-orders';
 import { dealerOrderErrorMessage } from './dealerOrders';
 
 const functions = getFunctions(app, 'asia-south1');
@@ -19,6 +20,7 @@ export interface KotakBankFeed {
   accountName: string;
   bankName: string;
   importedTransactionId: string | null;
+  reservedForSalesOrderId?: string | null;
 }
 
 export interface KotakBankFeedSyncResult {
@@ -37,6 +39,23 @@ export async function fetchKotakBankFeeds(): Promise<KotakBankFeedSyncResult> {
       { timeout: 120_000 },
     );
     const result = await fn({});
+    return result.data;
+  } catch (err) {
+    throw new Error(dealerOrderErrorMessage(err));
+  }
+}
+
+export async function reserveKotakFeedForSalesOrder(
+  salesOrderId: string,
+  feed: KotakBankFeed,
+): Promise<AdminSalesOrderDetail> {
+  try {
+    const fn = httpsCallable<{ salesOrderId: string; feed: KotakBankFeed }, AdminSalesOrderDetail>(
+      functions,
+      'reserveKotakFeedForSalesOrder',
+      { timeout: 60_000 },
+    );
+    const result = await fn({ salesOrderId, feed });
     return result.data;
   } catch (err) {
     throw new Error(dealerOrderErrorMessage(err));

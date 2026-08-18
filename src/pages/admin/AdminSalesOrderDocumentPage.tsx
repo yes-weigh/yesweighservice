@@ -43,7 +43,7 @@ import { resolveAvailableQtyByProductIds } from '../../lib/catalogAvailableStock
 import { combinedCartRate, newCartLineId } from '../../lib/gatcCart';
 import type { CatalogProduct } from '../../types/catalog';
 import { dealerOrderErrorMessage } from '../../lib/dealerOrders';
-import { fetchKotakBankFeeds, type KotakBankFeed } from '../../lib/kotakBankFeeds';
+import { fetchKotakBankFeeds, reserveKotakFeedForSalesOrder, type KotakBankFeed } from '../../lib/kotakBankFeeds';
 import {
   listCustomerShippingAddresses,
   resolveShippingDestination,
@@ -147,6 +147,7 @@ export const AdminSalesOrderDocumentPage: React.FC = () => {
   const [bankFeeds, setBankFeeds] = useState<KotakBankFeed[] | null>(null);
   const [bankFeedsFetchedAt, setBankFeedsFetchedAt] = useState<string | null>(null);
   const [selectedKotakFeed, setSelectedKotakFeed] = useState<KotakBankFeed | null>(null);
+  const [reservingKotakFeed, setReservingKotakFeed] = useState(false);
   const bankFeedFetchGen = useRef(0);
   const shareCaptureRef = useRef<HTMLDivElement>(null);
   const soDetailRef = useRef<HTMLDivElement>(null);
@@ -176,6 +177,27 @@ export const AdminSalesOrderDocumentPage: React.FC = () => {
   );
   const canUploadPayment = canPay && stage === 'ready_for_payment';
   const pdfPath = `${listPath}/${salesOrderId}/view`;
+
+  useEffect(() => {
+    const reserved = salesOrder?.reservedKotakFeed;
+    if (!reserved?.transactionId) return;
+    setSelectedKotakFeed({
+      transactionId: reserved.transactionId,
+      date: reserved.date ?? null,
+      postedTime: reserved.postedTime ?? null,
+      amount: Number(reserved.amount) || 0,
+      debitOrCredit: 'debit',
+      payee: reserved.payee ?? null,
+      description: reserved.description ?? null,
+      referenceNumber: reserved.referenceNumber ?? null,
+      status: 'uncategorized',
+      accountId: reserved.accountId ?? '',
+      accountName: '',
+      bankName: 'Kotak',
+      importedTransactionId: reserved.importedTransactionId ?? null,
+      reservedForSalesOrderId: salesOrderId,
+    });
+  }, [salesOrderId, salesOrder?.reservedKotakFeed?.transactionId]);
 
   useEffect(() => {
     if (!salesOrder?.lineItems?.length) return;
@@ -1495,7 +1517,7 @@ export const AdminSalesOrderDocumentPage: React.FC = () => {
         ) : null}
         {selectedKotakFeed ? (
           <p className="so-detail__selected-bank-feed mb-0">
-            Selected pay-in:{' '}
+            Selected pay-in reserved for this order:{' '}
             <strong>
               {formatCurrency(selectedKotakFeed.amount, salesOrder?.currencyCode)}
             </strong>
@@ -1694,14 +1716,32 @@ export const AdminSalesOrderDocumentPage: React.FC = () => {
           feeds={bankFeeds || []}
           fetchedAt={bankFeedsFetchedAt}
           loading={fetchingBankFeeds}
+          selecting={reservingKotakFeed}
           matchAmount={salesOrder?.paymentAmount ?? salesOrder?.total ?? null}
-          onSelect={(feed) => {
-            setSelectedKotakFeed(feed);
-            const ref = feed.referenceNumber?.trim() || feed.transactionId;
-            const line = `Bank pay-in ${formatCurrency(feed.amount, salesOrder?.currencyCode)} · Ref ${ref}`;
-            setPaymentNotes((current) => (current.trim() ? current : line));
+          matchCustomerName={salesOrder?.customerName ?? null}
+          salesOrderId={salesOrderId}
+          reservedTransactionId={salesOrder?.reservedKotakFeed?.transactionId ?? selectedKotakFeed?.transactionId ?? null}
+          onSelect={async (feed) => {
+            if (!salesOrderId) return;
+            setReservingKotakFeed(true);
+            try {
+              const next = await reserveKotakFeedForSalesOrder(salesOrderId, feed);
+              setSalesOrder(next);
+              setSelectedKotakFeed(feed);
+              const ref = feed.referenceNumber?.trim() || feed.transactionId;
+              const line = `Bank pay-in ${formatCurrency(feed.amount, salesOrder?.currencyCode)} · Ref ${ref}`;
+              setPaymentNotes((current) => (current.trim() ? current : line));
+              bankFeedFetchGen.current += 1;
+              setBankFeeds(null);
+              setFetchingBankFeeds(false);
+            } catch (err) {
+              throw err instanceof Error ? err : new Error('Could not reserve this bank pay-in.');
+            } finally {
+              setReservingKotakFeed(false);
+            }
           }}
           onClose={() => {
+            if (reservingKotakFeed) return;
             bankFeedFetchGen.current += 1;
             setBankFeeds(null);
             setFetchingBankFeeds(false);

@@ -48667,6 +48667,11 @@ button.invoice-detail-top__card {
   background: #ff9a3d;
 }
 
+.kotak-feeds-sheet__close:disabled {
+  opacity: 0.65;
+  cursor: wait;
+}
+
 .kotak-feeds-sheet__head {
   display: flex;
   align-items: flex-start;
@@ -48689,8 +48694,9 @@ button.invoice-detail-top__card {
 
 .kotak-feeds-sheet__cols {
   display: grid;
-  grid-template-columns: 4.1rem minmax(0, 1fr) 6.4rem;
-  gap: 0.65rem;
+  grid-template-columns: 4.4rem minmax(0, 1fr) auto;
+  gap: 0.55rem;
+  flex-shrink: 0;
   padding: 0.35rem 0.15rem 0.5rem;
   border-bottom: 1px solid rgba(255, 255, 255, 0.12);
   font-size: 0.68rem;
@@ -48707,48 +48713,41 @@ button.invoice-detail-top__card {
 .kotak-feeds-sheet__list {
   list-style: none;
   margin: 0;
-  padding: 0;
+  padding: 0.2rem 0 0.15rem;
   flex: 1;
   min-height: 0;
   overflow: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
 }
 
 .kotak-feeds-sheet__row {
   display: grid;
-  grid-template-columns: 4.1rem minmax(0, 1fr) 6.4rem;
-  gap: 0.65rem;
-  align-items: center;
+  grid-template-columns: 4.4rem minmax(0, 1fr) auto;
+  gap: 0.55rem;
+  align-items: start;
   width: 100%;
   margin: 0;
-  padding: 0.7rem 0.1rem;
-  border: none;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
-  border-radius: 0;
+  padding: 0.45rem 0.5rem;
+  border: 1px solid transparent;
+  border-radius: 10px;
   background: transparent;
   color: inherit;
   font: inherit;
   text-align: left;
   cursor: pointer;
+  box-sizing: border-box;
 }
 
 .kotak-feeds-sheet__row--match {
-  background: rgba(22, 163, 74, 0.12);
-  margin: 0 -0.35rem;
-  padding-left: 0.45rem;
-  padding-right: 0.45rem;
-  border-radius: 8px;
-  border-bottom-color: transparent;
+  background: rgba(22, 163, 74, 0.1);
 }
 
 .kotak-feeds-sheet__row--selected {
-  background: rgba(245, 130, 32, 0.2);
-  margin: 0 -0.35rem;
-  padding-left: 0.45rem;
-  padding-right: 0.45rem;
-  border-radius: 8px;
-  outline: 2px solid #f58220;
-  outline-offset: -2px;
-  border-bottom-color: transparent;
+  background: rgba(245, 130, 32, 0.16);
+  border-color: #f58220;
+  box-shadow: none;
 }
 
 .kotak-feeds-sheet__date {
@@ -48756,14 +48755,14 @@ button.invoice-detail-top__card {
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  min-height: 3.15rem;
-  padding: 0.28rem 0.18rem;
+  width: 100%;
+  padding: 0.28rem 0.2rem;
   border-radius: 6px;
   background: #1f2937;
   color: #fff;
   font-size: 0.62rem;
   font-weight: 800;
-  line-height: 1.15;
+  line-height: 1.2;
   text-align: center;
 }
 
@@ -48831,11 +48830,21 @@ button.invoice-detail-top__card {
 
 .kotak-feeds-sheet__footer {
   display: flex;
+  align-items: center;
   justify-content: flex-end;
+  gap: 0.75rem;
   flex-shrink: 0;
   margin-top: 0.65rem;
   padding-top: 0.7rem;
   border-top: 1px solid rgba(255, 255, 255, 0.12);
+}
+
+.kotak-feeds-sheet__select-error {
+  flex: 1;
+  min-width: 0;
+  color: #fecaca;
+  font-size: 0.75rem;
+  line-height: 1.3;
 }
 
 .kotak-feeds-sheet__select {

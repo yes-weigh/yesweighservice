@@ -94,21 +94,43 @@ async function zohoBankJsonWithFallback(accessToken, orgId, path, options = {}) 
   }
 }
 
-function pickPostedTime(raw) {
-  const candidates = [
-    raw?.time,
-    raw?.transaction_time,
-    raw?.entry_time,
-    raw?.posted_time,
-    raw?.date,
-  ];
-  for (const candidate of candidates) {
-    if (candidate == null) continue;
-    const value = String(candidate).trim();
-    if (!value) continue;
-    if (/T\d{2}:\d{2}/.test(value) || /\s\d{1,2}:\d{2}/.test(value) || /^\d{1,2}:\d{2}/.test(value)) {
-      return value;
+function valueHasClock(value) {
+  const text = String(value || '').trim();
+  if (!text) return false;
+  return /T\d{2}:\d{2}/.test(text)
+    || /^\d{1,2}:\d{2}/.test(text)
+    || /\s\d{1,2}:\d{2}/.test(text);
+}
+
+function pickPostedTime(raw, keyHint = '') {
+  if (raw == null) return null;
+  if (typeof raw !== 'object') {
+    if (/last_modified|created_time|updated_time/i.test(keyHint)) return null;
+    return valueHasClock(raw) ? String(raw).trim() : null;
+  }
+  if (Array.isArray(raw)) {
+    for (const item of raw) {
+      const found = pickPostedTime(item);
+      if (found) return found;
     }
+    return null;
+  }
+  const preferred = [
+    raw.time,
+    raw.transaction_time,
+    raw.entry_time,
+    raw.posted_time,
+    raw.value_time,
+    raw.txn_time,
+    raw.date,
+  ];
+  for (const candidate of preferred) {
+    if (valueHasClock(candidate)) return String(candidate).trim();
+  }
+  for (const [key, value] of Object.entries(raw)) {
+    if (/last_modified|created_time|updated_time/i.test(key)) continue;
+    const found = pickPostedTime(value, key);
+    if (found) return found;
   }
   return null;
 }
@@ -273,10 +295,129 @@ export async function syncKotakUncategorizedFeeds(secrets, orgId, { source = 'ma
   unique.sort((a, b) => String(b.date || '').localeCompare(String(a.date || '')));
 
   const persisted = await persistFeeds(unique, source);
+  const withReservations = await overlayFeedReservations(unique);
   return {
-    feeds: unique,
+    feeds: withReservations,
     fetchedAt: persisted.fetchedAt,
-    count: unique.length,
+    count: withReservations.length,
     accountNames: accounts.map(account => account.accountName),
   };
+}
+
+export async function overlayFeedReservations(feeds) {
+  const rows = Array.isArray(feeds) ? feeds : [];
+  if (!rows.length) return rows;
+  const snaps = await getFirestore().collection(COLLECTION).get();
+  const reserved = new Map();
+  for (const doc of snaps.docs) {
+    const soId = String(doc.data()?.reservedForSalesOrderId || '').trim();
+    if (soId) reserved.set(doc.id, soId);
+  }
+  return rows.map(feed => ({
+    ...feed,
+    reservedForSalesOrderId: reserved.get(feed.transactionId) || null,
+  }));
+}
+
+function paymentModeFromFeed(feed) {
+  const text = `${feed?.payee || ''} ${feed?.description || ''} ${feed?.referenceNumber || ''}`.toLowerCase();
+  if (/\bupi\b/.test(text)) return 'UPI';
+  if (/\bneft\b/.test(text)) return 'NEFT';
+  if (/\brtgs\b/.test(text)) return 'RTGS';
+  if (/\bimps\b/.test(text)) return 'IMPS';
+  return 'Bank Transfer';
+}
+
+function feedDateYmd(feed) {
+  const raw = String(feed?.date || '').trim();
+  const match = raw.match(/^(\d{4}-\d{2}-\d{2})/);
+  if (match) return match[1];
+  const parsed = new Date(raw);
+  if (!Number.isNaN(parsed.getTime())) return parsed.toISOString().slice(0, 10);
+  return new Date().toISOString().slice(0, 10);
+}
+
+/**
+ * Categorize a reserved Kotak pay-in as a customer payment on the Zoho invoice
+ * so the invoice is marked paid.
+ */
+export async function applyReservedKotakFeedToInvoice(secrets, orgId, {
+  feed,
+  customerId,
+  invoiceId,
+  invoiceTotal,
+}) {
+  const transactionId = String(feed?.transactionId || '').trim();
+  const accountId = String(feed?.accountId || '').trim();
+  const contactId = String(customerId || '').trim();
+  const invId = String(invoiceId || '').trim();
+  if (!transactionId || !accountId || !contactId || !invId) {
+    throw new Error('Bank pay-in, customer, and invoice are required to mark the invoice paid.');
+  }
+
+  const amount = Number(feed?.amount);
+  const total = Number(invoiceTotal);
+  const payable = Number.isFinite(total) && total > 0 ? total : amount;
+  const applied = Math.min(
+    Number.isFinite(amount) && amount > 0 ? amount : payable,
+    payable,
+  );
+  if (!(applied > 0)) {
+    throw new Error('Bank pay-in amount is missing.');
+  }
+
+  const body = {
+    customer_id: contactId,
+    account_id: accountId,
+    amount: Number.isFinite(amount) && amount > 0 ? amount : applied,
+    date: feedDateYmd(feed),
+    payment_mode: paymentModeFromFeed(feed),
+    reference_number: String(feed?.referenceNumber || transactionId).slice(0, 50),
+    description: String(feed?.description || feed?.payee || 'Kotak pay-in').slice(0, 250),
+    invoices: [
+      {
+        invoice_id: invId,
+        amount_applied: applied,
+      },
+    ],
+  };
+
+  const accessToken = await getAccessToken(secrets);
+  const organizationId = await resolveOrganizationId(accessToken, orgId);
+  const ids = [...new Set([
+    transactionId,
+    String(feed?.importedTransactionId || '').trim(),
+  ].filter(Boolean))];
+  const paths = ids.flatMap(id => ([
+    `/banktransactions/uncategorized/${encodeURIComponent(id)}/categorize/customerpayments`,
+    `/banktransactions/uncategorizeds/${encodeURIComponent(id)}/categorize/customerpayments`,
+  ]));
+
+  let lastErr = null;
+  for (const path of paths) {
+    try {
+      await zohoBankJsonWithFallback(accessToken, organizationId, path, {
+        method: 'POST',
+        body,
+      });
+      return { amountApplied: applied, transactionId };
+    } catch (err) {
+      lastErr = err;
+      const msg = String(err?.message || '');
+      if (/payment_mode|payment mode/i.test(msg)) {
+        try {
+          const withoutMode = { ...body };
+          delete withoutMode.payment_mode;
+          await zohoBankJsonWithFallback(accessToken, organizationId, path, {
+            method: 'POST',
+            body: withoutMode,
+          });
+          return { amountApplied: applied, transactionId };
+        } catch (retryErr) {
+          lastErr = retryErr;
+        }
+      }
+    }
+  }
+  throw new Error(String(lastErr?.message || 'Could not associate the Kotak pay-in with this invoice in Zoho.'));
 }

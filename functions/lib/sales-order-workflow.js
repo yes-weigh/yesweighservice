@@ -34,6 +34,7 @@ import { resolveShippingAddressId } from './zoho-contact-addresses.js';
 import { isQuantityExcludedLineItem } from './invoice-category.js';
 import { effectiveCatalogStockStatus } from './sac-catalog.js';
 import { isFreightOrderLine, isFreightProductId, isFreightSku } from './freight-lines.js';
+import { applyReservedKotakFeedToInvoice } from './zoho-bank-feeds.js';
 import {
   defaultInventorySiteForSegment,
   inventorySiteLabel,
@@ -650,6 +651,9 @@ async function detailPayload(id, data, { includePaymentUrl = false } = {}) {
     readyForPaymentByName: data.readyForPaymentByName ?? null,
     zohoInvoiceId: data.zohoInvoiceId ?? null,
     zohoInvoiceNumber: data.zohoInvoiceNumber ?? null,
+    reservedKotakFeed: data.reservedKotakFeed && typeof data.reservedKotakFeed === 'object'
+      ? data.reservedKotakFeed
+      : null,
     yesOneSyncError: data.yesOneSyncError ? String(data.yesOneSyncError) : null,
     manuallyMarkedInvoicedAt: data.manuallyMarkedInvoicedAt ?? null,
   };
@@ -667,7 +671,119 @@ function inferWorkflowStageAfterRepair(data) {
   return 'review';
 }
 
-/** Seed YesOne workflow after cart creates a Draft SO. */
+function kotakReservationFromFeed(feed) {
+  const raw = feed && typeof feed === 'object' ? feed : {};
+  const transactionId = String(raw.transactionId || '').trim();
+  if (!transactionId) return null;
+  return {
+    transactionId,
+    date: raw.date ? String(raw.date) : null,
+    postedTime: raw.postedTime ? String(raw.postedTime) : null,
+    amount: Number(raw.amount) || 0,
+    debitOrCredit: raw.debitOrCredit ? String(raw.debitOrCredit) : null,
+    payee: raw.payee ? String(raw.payee) : null,
+    description: raw.description ? String(raw.description) : null,
+    referenceNumber: raw.referenceNumber ? String(raw.referenceNumber) : null,
+    accountId: raw.accountId ? String(raw.accountId) : '',
+    importedTransactionId: raw.importedTransactionId ? String(raw.importedTransactionId) : null,
+  };
+}
+
+async function applyReservedKotakPayment(secrets, orgId, {
+  ref,
+  data,
+  invoiceId,
+}) {
+  const feed = kotakReservationFromFeed(data?.reservedKotakFeed);
+  if (!feed || !invoiceId) return null;
+  const result = await applyReservedKotakFeedToInvoice(secrets, orgId, {
+    feed,
+    customerId: data.customerId,
+    invoiceId,
+    invoiceTotal: Number(data.paymentAmount ?? data.total ?? feed.amount),
+  });
+  const at = nowIso();
+  await ref.set({
+    reservedKotakFeed: {
+      ...data.reservedKotakFeed,
+      ...feed,
+      appliedInvoiceId: invoiceId,
+      appliedAt: at,
+      amountApplied: result.amountApplied,
+      applyError: null,
+    },
+    yesOneUpdatedAt: at,
+  }, { merge: true });
+  try {
+    await getFirestore().collection('kotakBankFeeds').doc(feed.transactionId).set({
+      appliedInvoiceId: invoiceId,
+      appliedAt: at,
+    }, { merge: true });
+  } catch {
+    // Reservation apply still succeeded in Zoho.
+  }
+  return result;
+}
+
+/**
+ * Reserve an uncategorised Kotak pay-in for this sales order.
+ * On Verify & invoice it is categorized against the created invoice (marked paid in Zoho).
+ */
+export async function reserveKotakFeedForSalesOrder(uid, role, payload = {}) {
+  const user = await loadUser(uid);
+  requireOrdersManage(user);
+
+  const { ref, id, data } = await loadSoOrThrow(payload.salesOrderId);
+  const feed = kotakReservationFromFeed(payload.feed);
+  if (!feed) {
+    throw new HttpsError('invalid-argument', 'Select a Kotak pay-in transaction first.');
+  }
+
+  const db = getFirestore();
+  const feedRef = db.collection('kotakBankFeeds').doc(feed.transactionId);
+  const feedSnap = await feedRef.get();
+  const reservedBy = String(feedSnap.data()?.reservedForSalesOrderId || '').trim();
+  if (reservedBy && reservedBy !== id) {
+    throw new HttpsError(
+      'failed-precondition',
+      'This bank pay-in is already reserved for another sales order.',
+    );
+  }
+
+  const previousId = String(data.reservedKotakFeed?.transactionId || '').trim();
+  const at = nowIso();
+  if (previousId && previousId !== feed.transactionId) {
+    await db.collection('kotakBankFeeds').doc(previousId).set({
+      reservedForSalesOrderId: FieldValue.delete(),
+      reservedAt: FieldValue.delete(),
+      reservedByUid: FieldValue.delete(),
+    }, { merge: true });
+  }
+
+  await feedRef.set({
+    ...feed,
+    reservedForSalesOrderId: id,
+    reservedAt: at,
+    reservedByUid: uid,
+  }, { merge: true });
+
+  await ref.set({
+    reservedKotakFeed: {
+      ...feed,
+      reservedAt: at,
+      reservedByUid: uid,
+      reservedByName: displayName(user),
+      appliedInvoiceId: null,
+      appliedAt: null,
+      applyError: null,
+    },
+    paymentUtr: feed.referenceNumber || feed.transactionId,
+    yesOneUpdatedAt: at,
+  }, { merge: true });
+
+  const snap = await ref.get();
+  return detailPayload(snap.id, snap.data() || {}, { includePaymentUrl: false });
+}
 export async function initYesOneSalesOrderWorkflow(salesOrderId, extras = {}) {
   const id = String(salesOrderId || '').trim();
   if (!id) return;
@@ -1024,6 +1140,26 @@ export async function verifySalesOrderPayment(uid, role, salesOrderId, secrets, 
       }
     }
 
+    if (kotakReservationFromFeed(data.reservedKotakFeed)) {
+      try {
+        await applyReservedKotakPayment(secrets, orgId, {
+          ref,
+          data,
+          invoiceId,
+        });
+      } catch (payErr) {
+        const message = String(payErr?.message || 'Could not mark the invoice paid from the reserved Kotak pay-in.');
+        await ref.set({
+          reservedKotakFeed: {
+            ...(data.reservedKotakFeed || {}),
+            applyError: message,
+          },
+          yesOneUpdatedAt: nowIso(),
+        }, { merge: true });
+        throw new Error(message);
+      }
+    }
+
     let einvoicePushStatus = 'skipped_not_b2b';
     let einvoicePushError = null;
     const customer = await resolveCustomerForEinvoice(secrets, orgId, data.customerId);
@@ -1159,6 +1295,26 @@ export async function markSalesOrderInvoicedManually(uid, role, salesOrderId, se
       ? `Could not confirm a Zoho invoice for this sales order: ${linkedLookupError.message || linkedLookupError}`
       : 'No invoice is linked to this sales order in Zoho.';
     throw new HttpsError('failed-precondition', message, { code: 'mark_invoiced_no_zoho_invoice' });
+  }
+
+  if (kotakReservationFromFeed(data.reservedKotakFeed)) {
+    try {
+      await applyReservedKotakPayment(secrets, orgId, {
+        ref,
+        data,
+        invoiceId,
+      });
+    } catch (payErr) {
+      const message = String(payErr?.message || 'Could not mark the invoice paid from the reserved Kotak pay-in.');
+      await ref.set({
+        reservedKotakFeed: {
+          ...(data.reservedKotakFeed || {}),
+          applyError: message,
+        },
+        yesOneUpdatedAt: nowIso(),
+      }, { merge: true });
+      throw new HttpsError('internal', message);
+    }
   }
 
   try {

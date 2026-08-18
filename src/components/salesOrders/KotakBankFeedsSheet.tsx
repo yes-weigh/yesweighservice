@@ -58,41 +58,32 @@ function clockFromValue(raw: string | null | undefined): string | null {
 }
 
 function clockFromNarration(feed: KotakBankFeed): string | null {
-  const text = `${feed.description || ''} ${feed.payee || ''} ${feed.referenceNumber || ''}`;
-  const match = text.match(/(?:^|[^\d])(\d{1,2}):(\d{2})(?::\d{2})?\s*(AM|PM|am|pm)?(?:[^\d]|$)/);
+  const text = `${feed.description || ''} ${feed.payee || ''} ${feed.referenceNumber || ''} ${feed.postedTime || ''}`;
+  const match = text.match(/(?:^|[^\d])(\d{1,2}):(\d{2})(?::(\d{2}))?\s*(AM|PM|am|pm)?(?:[^\d]|$)/);
   if (!match) return null;
   let hours = Number(match[1]);
   const minutes = Number(match[2]);
-  const meridiem = match[3]?.toLowerCase();
+  const meridiem = match[4]?.toLowerCase();
   if (meridiem === 'pm' && hours < 12) hours += 12;
   if (meridiem === 'am' && hours === 12) hours = 0;
   if (hours > 23 || minutes > 59) return null;
   return formatClock(hours, minutes);
 }
 
-function formatFeedStamp(feed: KotakBankFeed): { dayMonth: string; year: string; time: string } {
+function formatFeedStamp(feed: KotakBankFeed): { dayMonth: string; year: string; time: string | null } {
   const raw = feed.date;
+  const time = clockFromValue(feed.postedTime)
+    || clockFromValue(raw)
+    || clockFromNarration(feed);
   if (!raw) {
-    return {
-      dayMonth: '—',
-      year: '',
-      time: clockFromValue(feed.postedTime) || clockFromNarration(feed) || '—',
-    };
+    return { dayMonth: '—', year: '', time };
   }
   const parsed = new Date(/^\d{4}-\d{2}-\d{2}$/.test(raw) ? `${raw}T00:00:00` : raw);
   if (Number.isNaN(parsed.getTime())) {
-    return {
-      dayMonth: raw,
-      year: '',
-      time: clockFromValue(feed.postedTime) || clockFromNarration(feed) || '—',
-    };
+    return { dayMonth: raw, year: '', time };
   }
   const dayMonth = parsed.toLocaleDateString('en-GB', { day: '2-digit', month: 'short' });
   const year = `'${String(parsed.getFullYear()).slice(-2)}`;
-  const time = clockFromValue(feed.postedTime)
-    || clockFromValue(raw)
-    || clockFromNarration(feed)
-    || '—';
   return { dayMonth, year, time };
 }
 
@@ -116,8 +107,41 @@ function feedDetail(feed: KotakBankFeed): string | null {
   return null;
 }
 
+const AMOUNT_MATCH_WINDOW = 500;
+
 function amountsMatch(amount: number, due: number): boolean {
   return Math.abs(Number(amount) - due) < 0.009;
+}
+
+function amountDelta(amount: number, due: number): number {
+  return Math.abs(Number(amount) - due);
+}
+
+function isAmountNearDue(amount: number, due: number): boolean {
+  return amountDelta(amount, due) <= AMOUNT_MATCH_WINDOW + 0.009;
+}
+
+function nameHits(feed: KotakBankFeed, customerName: string): number {
+  const text = `${feed.payee || ''} ${feed.description || ''}`.toLowerCase();
+  const tokens = customerName.toLowerCase().split(/[^a-z0-9]+/).filter(token => token.length >= 4);
+  return tokens.reduce((count, token) => count + (text.includes(token) ? 1 : 0), 0);
+}
+
+function rankPayInFeeds(
+  feeds: KotakBankFeed[],
+  due: number,
+  hasDue: boolean,
+  customerName: string,
+): KotakBankFeed[] {
+  return [...feeds].sort((left, right) => {
+    if (hasDue) {
+      const delta = amountDelta(left.amount, due) - amountDelta(right.amount, due);
+      if (delta !== 0) return delta;
+    }
+    const names = nameHits(right, customerName) - nameHits(left, customerName);
+    if (names !== 0) return names;
+    return String(right.date || '').localeCompare(String(left.date || ''));
+  });
 }
 
 /**
@@ -141,27 +165,62 @@ export const KotakBankFeedsSheet: React.FC<{
   feeds: KotakBankFeed[];
   fetchedAt: string | null;
   loading?: boolean;
+  selecting?: boolean;
   matchAmount?: number | null;
+  matchCustomerName?: string | null;
+  salesOrderId?: string | null;
+  reservedTransactionId?: string | null;
   onClose: () => void;
-  onSelect?: (feed: KotakBankFeed) => void;
-}> = ({ feeds, fetchedAt, loading = false, matchAmount, onClose, onSelect }) => {
+  onSelect?: (feed: KotakBankFeed) => void | Promise<void>;
+}> = ({
+  feeds,
+  fetchedAt,
+  loading = false,
+  selecting = false,
+  matchAmount,
+  matchCustomerName,
+  salesOrderId,
+  reservedTransactionId,
+  onClose,
+  onSelect,
+}) => {
   const due = Number(matchAmount);
   const hasDue = Number.isFinite(due) && due > 0;
-  const payInFeeds = useMemo(() => feeds.filter(isKotakPayInFeed), [feeds]);
+  const customerName = String(matchCustomerName || '').trim();
+  const payInFeeds = useMemo(() => {
+    const soId = String(salesOrderId || '').trim();
+    return rankPayInFeeds(
+      feeds.filter(feed => {
+        if (!isKotakPayInFeed(feed)) return false;
+        const reservedBy = String(feed.reservedForSalesOrderId || '').trim();
+        if (reservedBy && reservedBy !== soId) return false;
+        if (hasDue && !isAmountNearDue(feed.amount, due) && feed.transactionId !== String(reservedTransactionId || '')) {
+          return false;
+        }
+        return true;
+      }),
+      due,
+      hasDue,
+      customerName,
+    );
+  }, [feeds, salesOrderId, due, hasDue, customerName, reservedTransactionId]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [selectError, setSelectError] = useState('');
 
   useEffect(() => {
     if (loading) return;
-    const exact = hasDue
-      ? payInFeeds.find(feed => amountsMatch(feed.amount, due))
-      : null;
-    setSelectedId(exact?.transactionId ?? null);
-  }, [loading, payInFeeds, hasDue, due]);
+    const reserved = String(reservedTransactionId || '').trim();
+    if (reserved && payInFeeds.some(feed => feed.transactionId === reserved)) {
+      setSelectedId(reserved);
+      return;
+    }
+    setSelectedId(payInFeeds[0]?.transactionId ?? null);
+  }, [loading, payInFeeds, reservedTransactionId]);
 
   const selected = payInFeeds.find(feed => feed.transactionId === selectedId) ?? null;
 
   return (
-    <div className="dealers-modal-backdrop kotak-feeds-sheet" onClick={onClose}>
+    <div className="dealers-modal-backdrop kotak-feeds-sheet" onClick={selecting ? undefined : onClose}>
       <div
         className="dealers-modal panel glass kotak-feeds-sheet__modal"
         role="dialog"
@@ -179,8 +238,10 @@ export const KotakBankFeedsSheet: React.FC<{
               {loading
                 ? 'Fetching uncategorised Kotak pay-ins…'
                 : (payInFeeds.length === 0
-                  ? 'No uncategorised pay-in transactions.'
-                  : `${payInFeeds.length} pay-in ${payInFeeds.length === 1 ? 'transaction' : 'transactions'}`)}
+                  ? (hasDue
+                    ? `No pay-in within ±${AMOUNT_MATCH_WINDOW} of the amount due.`
+                    : 'No uncategorised pay-in transactions.')
+                  : `${payInFeeds.length} matching pay-in ${payInFeeds.length === 1 ? 'transaction' : 'transactions'}`)}
               {!loading && fetchedAt ? ` · ${new Date(fetchedAt).toLocaleString('en-IN')}` : ''}
             </p>
           </div>
@@ -188,6 +249,7 @@ export const KotakBankFeedsSheet: React.FC<{
             type="button"
             className="kotak-feeds-sheet__close"
             onClick={onClose}
+            disabled={selecting}
             aria-label="Close"
           >
             <X size={18} strokeWidth={2.75} />
@@ -203,7 +265,11 @@ export const KotakBankFeedsSheet: React.FC<{
         {loading ? (
           <p className="kotak-feeds-sheet__loading">Loading feeds from Zoho…</p>
         ) : payInFeeds.length === 0 ? (
-          <p className="kotak-feeds-sheet__empty">No uncategorised pay-in transactions to show.</p>
+          <p className="kotak-feeds-sheet__empty">
+            {hasDue
+              ? `No uncategorised pay-in matches the amount due or falls within ±${AMOUNT_MATCH_WINDOW}.`
+              : 'No uncategorised pay-in transactions to show.'}
+          </p>
         ) : (
           <ul className="kotak-feeds-sheet__list">
             {payInFeeds.map(feed => {
@@ -224,9 +290,10 @@ export const KotakBankFeedsSheet: React.FC<{
                     aria-pressed={isSelected}
                   >
                     <div className="kotak-feeds-sheet__date">
-                      <span>{stamp.dayMonth}</span>
-                      {stamp.year ? <span>{stamp.year}</span> : null}
-                      <span className="kotak-feeds-sheet__time">{stamp.time}</span>
+                      <span>{stamp.dayMonth}{stamp.year ? ` ${stamp.year}` : ''}</span>
+                      {stamp.time ? (
+                        <span className="kotak-feeds-sheet__time">{stamp.time}</span>
+                      ) : null}
                     </div>
                     <div className="kotak-feeds-sheet__details">
                       <strong>{feedTitle(feed)}</strong>
@@ -251,17 +318,22 @@ export const KotakBankFeedsSheet: React.FC<{
         )}
 
         <div className="kotak-feeds-sheet__footer">
+          {selectError ? (
+            <p className="kotak-feeds-sheet__select-error mb-0">{selectError}</p>
+          ) : null}
           <button
             type="button"
             className="btn btn-primary kotak-feeds-sheet__select"
-            disabled={!selected || loading}
+            disabled={!selected || loading || selecting}
             onClick={() => {
               if (!selected) return;
-              onSelect?.(selected);
-              onClose();
+              setSelectError('');
+              void Promise.resolve(onSelect?.(selected)).catch((err: unknown) => {
+                setSelectError(err instanceof Error ? err.message : 'Could not reserve this pay-in.');
+              });
             }}
           >
-            Select
+            {selecting ? 'Reserving…' : 'Select'}
           </button>
         </div>
       </div>
