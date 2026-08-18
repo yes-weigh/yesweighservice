@@ -4,7 +4,7 @@ import { onDocumentCreated, onDocumentWritten } from 'firebase-functions/v2/fire
 import { onCall, onRequest, HttpsError } from 'firebase-functions/v2/https';
 import { onSchedule } from 'firebase-functions/v2/scheduler';
 import { defineSecret, defineString } from 'firebase-functions/params';
-import { isCatalogSyncWindow } from './lib/business-hours.js';
+import { isCatalogSyncWindow, isKotakBankFeedWindow } from './lib/business-hours.js';
 import {
   getAccessToken,
   resolveOrganizationId,
@@ -49,6 +49,7 @@ import {
   backfillLegacyCatalogProductAudits,
 } from './lib/catalog-product-audit.js';
 import { scheduledInboundQtyByProductId } from './lib/scheduled-goods-receipt-inbound.js';
+import { syncKotakUncategorizedFeeds } from './lib/zoho-bank-feeds.js';
 import { migrateExistingAuditsIntoCycles } from './lib/audit-cycles-migrate.js';
 import { transferCatalogProductWarehouseStock as persistWarehouseTransfer } from './lib/zoho-warehouse-transfer.js';
 import {
@@ -2740,6 +2741,57 @@ export const zohoCustomerWebhook = onRequest(
  * Nightly org sync safety net if webhooks miss updates.
  * Invoices 2 AM IST, POs 3 AM, SOs 4 AM — each uses at most 70% of daily Zoho quota.
  */
+export const syncKotakBankFeedsScheduled = onSchedule(
+  {
+    schedule: '*/10 9-17 * * 1-6',
+    timeZone: 'Asia/Kolkata',
+    region: 'asia-south1',
+    secrets: [zohoClientId, zohoClientSecret, zohoRefreshToken],
+    timeoutSeconds: 180,
+    memory: '512MiB',
+  },
+  async () => {
+    if (!isKotakBankFeedWindow()) {
+      console.log('Skipping Kotak bank feed sync — outside Mon–Sat 09:30–17:30 IST.');
+      return;
+    }
+    try {
+      const result = await syncKotakUncategorizedFeeds(
+        zohoSecrets(),
+        zohoOrganizationId.value(),
+        { source: 'scheduled' },
+      );
+      console.log(
+        `Scheduled Kotak bank feed sync: ${result.count} uncategorised from ${result.accountNames.join(', ') || 'Kotak'}.`,
+      );
+    } catch (err) {
+      console.error('Scheduled Kotak bank feed sync failed:', err?.message ?? err);
+    }
+  },
+);
+
+export const fetchKotakBankFeedsFn = onCall(
+  {
+    region: 'asia-south1',
+    secrets: [zohoClientId, zohoClientSecret, zohoRefreshToken],
+    timeoutSeconds: 120,
+    memory: '512MiB',
+  },
+  async request => {
+    await requireActiveUser(request.auth?.uid, SYNC_ROLES, { allowViewOnly: true });
+    try {
+      return await syncKotakUncategorizedFeeds(
+        zohoSecrets(),
+        zohoOrganizationId.value(),
+        { source: 'manual' },
+      );
+    } catch (err) {
+      if (err instanceof HttpsError) throw err;
+      throw new HttpsError('internal', err?.message ?? 'Could not fetch Kotak bank feeds.');
+    }
+  },
+);
+
 export const syncZohoInvoicesScheduled = onSchedule(
   {
     schedule: '0 2 * * *',
@@ -4893,12 +4945,25 @@ export const uploadSalesOrderPaymentScreenshotFn = onCall(
 );
 
 export const submitSalesOrderPayment = onCall(
-  { region: 'asia-south1', timeoutSeconds: 60, memory: '256MiB' },
+  {
+    region: 'asia-south1',
+    secrets: [zohoClientId, zohoClientSecret, zohoRefreshToken],
+    timeoutSeconds: 120,
+    memory: '512MiB',
+  },
   async request => {
     const uid = request.auth?.uid;
     const role = await requireActiveUser(uid, new Set(['dealer', 'dealer_staff', 'staff', 'super_admin']));
     try {
-      return await submitSalesOrderPaymentRecord(uid, role, request.data ?? {});
+      const result = await submitSalesOrderPaymentRecord(uid, role, request.data ?? {});
+      try {
+        await syncKotakUncategorizedFeeds(zohoSecrets(), zohoOrganizationId.value(), {
+          source: 'payment_submit',
+        });
+      } catch (feedErr) {
+        console.warn('Kotak bank feed sync after payment failed:', feedErr?.message ?? feedErr);
+      }
+      return result;
     } catch (err) {
       if (err instanceof HttpsError) throw err;
       throw new HttpsError('internal', err?.message ?? 'Could not submit payment proof.');

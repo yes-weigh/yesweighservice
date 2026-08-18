@@ -360,7 +360,7 @@ export async function submitSalesOrderPayment(input: {
   paymentUtr?: string;
 }): Promise<SalesOrderWorkflowDetail> {
   try {
-    return await call('submitSalesOrderPayment', input);
+    return await call('submitSalesOrderPayment', input, 120_000);
   } catch (err) {
     throw new Error(dealerOrderErrorMessage(err));
   }

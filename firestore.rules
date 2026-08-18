@@ -443,6 +443,17 @@ service cloud.firestore {
       allow read, write: if false;
     }
 
+    // Kotak uncategorised bank feeds mirrored from Zoho Banking.
+    match /kotakBankFeeds/{feedId} {
+      allow read: if isOpsUser();
+      allow write: if false;
+    }
+
+    match /kotakBankFeedMeta/{docId} {
+      allow read: if isOpsUser();
+      allow write: if false;
+    }
+
     // Portal invoice GATC stamping ledger (written by Cloud Functions on payment verify).
     match /gatcReports/{invoiceId} {
       allow read: if isOpsUser();

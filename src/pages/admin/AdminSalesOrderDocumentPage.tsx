@@ -10,6 +10,7 @@ import {
   FileText,
   ImageIcon,
   IndianRupee,
+  Landmark,
   Pencil,
   Plus,
   Trash2,
@@ -34,6 +35,7 @@ import { SoFreightExpandPanel } from '../../components/salesOrders/SoFreightExpa
 import { SoLineEditSheet } from '../../components/salesOrders/SoLineEditSheet';
 import { SoLineInlineEditor } from '../../components/salesOrders/SoLineInlineEditor';
 import { VerifyInvoiceClock } from '../../components/salesOrders/VerifyInvoiceClock';
+import { KotakBankFeedsSheet } from '../../components/salesOrders/KotakBankFeedsSheet';
 import { ZoomableImageDialog } from '../../components/ZoomableImageDialog';
 import { useAuth } from '../../context/AuthContext';
 import { fetchCatalog, formatCurrency, formatStockQuantity } from '../../lib/catalog';
@@ -41,6 +43,7 @@ import { resolveAvailableQtyByProductIds } from '../../lib/catalogAvailableStock
 import { combinedCartRate, newCartLineId } from '../../lib/gatcCart';
 import type { CatalogProduct } from '../../types/catalog';
 import { dealerOrderErrorMessage } from '../../lib/dealerOrders';
+import { fetchKotakBankFeeds, type KotakBankFeed } from '../../lib/kotakBankFeeds';
 import {
   listCustomerShippingAddresses,
   resolveShippingDestination,
@@ -140,6 +143,9 @@ export const AdminSalesOrderDocumentPage: React.FC = () => {
   const [showPaymentProof, setShowPaymentProof] = useState(false);
   const [orderListOpen, setOrderListOpen] = useState(false);
   const [sharing, setSharing] = useState(false);
+  const [fetchingBankFeeds, setFetchingBankFeeds] = useState(false);
+  const [bankFeeds, setBankFeeds] = useState<KotakBankFeed[] | null>(null);
+  const [bankFeedsFetchedAt, setBankFeedsFetchedAt] = useState<string | null>(null);
   const shareCaptureRef = useRef<HTMLDivElement>(null);
   const soDetailRef = useRef<HTMLDivElement>(null);
   const warmShotRef = useRef<{ key: string; shot: PreparedScreenshot } | null>(null);
@@ -743,6 +749,20 @@ export const AdminSalesOrderDocumentPage: React.FC = () => {
       window.alert(dealerOrderErrorMessage(err));
     } finally {
       setSavingShip(false);
+    }
+  };
+
+  const handleFetchBankFeeds = async () => {
+    if (fetchingBankFeeds) return;
+    setFetchingBankFeeds(true);
+    try {
+      const result = await fetchKotakBankFeeds();
+      setBankFeeds(result.feeds || []);
+      setBankFeedsFetchedAt(result.fetchedAt || null);
+    } catch (err) {
+      window.alert(err instanceof Error ? err.message : 'Could not fetch Kotak bank feeds.');
+    } finally {
+      setFetchingBankFeeds(false);
     }
   };
 
@@ -1452,6 +1472,19 @@ export const AdminSalesOrderDocumentPage: React.FC = () => {
           <WhatsAppIcon size={16} />
           {sharing ? 'Sharing…' : 'WhatsApp'}
         </button>
+        {isOps ? (
+          <button
+            type="button"
+            className="btn so-detail__fetch-bank-btn"
+            disabled={fetchingBankFeeds}
+            onClick={() => { void handleFetchBankFeeds(); }}
+            aria-label="Fetch uncategorised Kotak bank feeds"
+            title="Fetch uncategorised Kotak bank feeds from Zoho"
+          >
+            <Landmark size={16} aria-hidden />
+            {fetchingBankFeeds ? 'Fetching…' : 'Fetch Bank'}
+          </button>
+        ) : null}
         {showWorkflowActions && workflowActions && (
           <>
           {workflowActions.canReady && (
@@ -1633,6 +1666,15 @@ export const AdminSalesOrderDocumentPage: React.FC = () => {
           title="Payment proof"
           alt="Payment screenshot"
           onClose={() => setShowPaymentProof(false)}
+        />
+      ) : null}
+
+      {bankFeeds ? (
+        <KotakBankFeedsSheet
+          feeds={bankFeeds}
+          fetchedAt={bankFeedsFetchedAt}
+          matchAmount={salesOrder?.paymentAmount ?? salesOrder?.total ?? null}
+          onClose={() => setBankFeeds(null)}
         />
       ) : null}
 
