@@ -403,7 +403,7 @@ const LayoutShell: React.FC = () => {
     : isGoodsReceiptDetail
       ? 'Goods receipt'
     : isSupportDetail
-      ? 'Support'
+      ? 'Complaint'
     : isSpareMapDetail
       ? 'Map spares'
     : isProductDetail

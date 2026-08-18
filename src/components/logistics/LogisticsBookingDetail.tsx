@@ -58,6 +58,7 @@ import {
   fetchLogisticsBooking,
   generateLogisticsDocument,
   hydrateLogisticsBookingPhotos,
+  resolveLogisticsComplaint,
   updateLogisticsBookingDelhiveryIds,
   updateLogisticsBookingDelhiveryPickup,
   updateLogisticsBookingFreightBillingMode,
@@ -80,6 +81,7 @@ import { isPlaceholderLogisticsAddress } from '../../lib/logisticsDealers';
 import { loadLogisticsSettings } from '../../lib/logisticsSettings';
 import { logisticsTrackingUrl } from '../../lib/logisticsTracking';
 import { partnerSupportsTrackRefresh } from '../../lib/logisticsTrackRefresh';
+import { resolveSupportRequest } from '../../lib/dealerSupport';
 import { shippingLabelAddressGate } from '../../lib/shippingLabel';
 import { homePathForRole } from '../../types';
 import type {
@@ -96,6 +98,7 @@ import {
 } from './DelhiveryDocumentDialog';
 import { PhotoLightbox } from './PhotoLightbox';
 import { RaiseLogisticsIssueDialog } from './RaiseLogisticsIssueDialog';
+import { ResolveLogisticsComplaintDialog } from './ResolveLogisticsComplaintDialog';
 import { ChangeLogisticsPartnerDialog } from './ChangeLogisticsPartnerDialog';
 import { ShippingLabelPrintDialog } from './ShippingLabelPrintDialog';
 import {
@@ -397,6 +400,9 @@ export const LogisticsBookingDetail: React.FC<LogisticsBookingDetailProps> = ({
   const [delhiveryIdsError, setDelhiveryIdsError] = useState('');
   const [savingBillingMode, setSavingBillingMode] = useState(false);
   const [raiseIssueOpen, setRaiseIssueOpen] = useState(false);
+  const [resolveComplaintOpen, setResolveComplaintOpen] = useState(false);
+  const [resolvingComplaint, setResolvingComplaint] = useState(false);
+  const [resolveComplaintError, setResolveComplaintError] = useState('');
   const [changePartnerOpen, setChangePartnerOpen] = useState(false);
   const [delhiveryDocs, setDelhiveryDocs] = useState<DelhiveryBookingDocument[]>([]);
   const [delhiveryDocsLoading, setDelhiveryDocsLoading] = useState(false);
@@ -1901,6 +1907,40 @@ export const LogisticsBookingDetail: React.FC<LogisticsBookingDetailProps> = ({
     && Boolean(onReturn)
     && !partnerSupportsTrackRefresh(booking.partnerId);
   const showOpsDelete = Boolean(user && canDeleteLogisticsBooking(user) && onDelete);
+  const canResolveComplaint = Boolean(
+    isOps && user && booking.supportRequestId && !booking.complaintResolvedAt,
+  );
+  const complaintHistory = useMemo(
+    () => (booking.complaintLogs || []).map(log => ({
+      at: log.at,
+      activity: 'Complaint resolved',
+      location: log.notes || (log.byName ? `By ${log.byName}` : ''),
+    })),
+    [booking.complaintLogs],
+  );
+  const handleResolveComplaint = useCallback(async (notes: string) => {
+    if (!user) return;
+    setResolvingComplaint(true);
+    setResolveComplaintError('');
+    try {
+      const next = await resolveLogisticsComplaint(booking, notes, user);
+      if (next.supportRequestId) {
+        try {
+          await resolveSupportRequest(user, next.supportRequestId, notes.trim() || undefined);
+        } catch {
+          // Ticket may already be resolved.
+        }
+      }
+      onUpdate(next);
+      setResolveComplaintOpen(false);
+    } catch (err) {
+      setResolveComplaintError(
+        err instanceof Error ? err.message : 'Could not resolve complaint.',
+      );
+    } finally {
+      setResolvingComplaint(false);
+    }
+  }, [booking, onUpdate, user]);
   const showBottomOps = Boolean(
     user || showOpsCancel || showOpsChangePartner || showOpsReturn || showOpsDelete,
   );
@@ -2106,13 +2146,13 @@ export const LogisticsBookingDetail: React.FC<LogisticsBookingDetailProps> = ({
           {booking.supportRequestId && booking.supportRequestNumber ? (
             <Link
               to={`${basePath}/warranty-support/${booking.supportRequestId}`}
-              className="invoice-detail-top__card invoice-detail-top__card--purple"
+              className="invoice-detail-top__card invoice-detail-top__card--red"
               title={`Open ${booking.supportRequestNumber}`}
             >
               <span className="invoice-detail-top__card-icon" aria-hidden>
                 <ExternalLink size={28} strokeWidth={1.75} />
               </span>
-              <span className="invoice-detail-top__card-label">Ticket</span>
+              <span className="invoice-detail-top__card-label">Complaint</span>
             </Link>
           ) : null}
         </div>
@@ -2288,6 +2328,13 @@ export const LogisticsBookingDetail: React.FC<LogisticsBookingDetailProps> = ({
           courierDeliveryOffice={isStCourier ? booking.courierDeliveryOffice : null}
           cachedTrack={booking.courierTrack}
           documentDestination={isBlueDart ? blueDartDocumentDest : null}
+          extraHistory={complaintHistory}
+          canResolveComplaint={canResolveComplaint}
+          resolveBusy={resolvingComplaint}
+          onResolveComplaint={() => {
+            setResolveComplaintError('');
+            setResolveComplaintOpen(true);
+          }}
           onTrackUpdated={(track) => {
             let nextStatus = booking.status;
             if (booking.status !== 'returned' && booking.status !== 'cancelled') {
@@ -3086,7 +3133,21 @@ export const LogisticsBookingDetail: React.FC<LogisticsBookingDetailProps> = ({
               onClick={() => setRaiseIssueOpen(true)}
             >
               <MessageSquareWarning size={14} aria-hidden />
-              Support
+              Complaint
+            </button>
+          ) : null}
+          {canResolveComplaint ? (
+            <button
+              type="button"
+              className="btn btn-primary btn-sm"
+              onClick={() => {
+                setResolveComplaintError('');
+                setResolveComplaintOpen(true);
+              }}
+              disabled={resolvingComplaint}
+            >
+              <Check size={14} aria-hidden />
+              Resolve
             </button>
           ) : null}
           {showOpsChangePartner ? (
@@ -3161,6 +3222,16 @@ export const LogisticsBookingDetail: React.FC<LogisticsBookingDetailProps> = ({
           user={user}
           onClose={() => setRaiseIssueOpen(false)}
           onCreated={onUpdate}
+        />
+      )}
+      {resolveComplaintOpen && user && (
+        <ResolveLogisticsComplaintDialog
+          submitting={resolvingComplaint}
+          error={resolveComplaintError}
+          onClose={() => {
+            if (!resolvingComplaint) setResolveComplaintOpen(false);
+          }}
+          onSubmit={notes => void handleResolveComplaint(notes)}
         />
       )}
 

@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { RefreshCw, Truck } from 'lucide-react';
+import { RefreshCw, Truck, Check } from 'lucide-react';
 import { LOGISTICS_BRANCH_TRACKING_CONTACTS } from '../../constants/logisticsSettings';
 import {
   fetchStCourierShipmentTrack,
@@ -23,6 +23,7 @@ import { formatLogisticsDateTime, formatLogisticsDateTimeLabel } from '../../lib
 import type {
   LogisticsCourierDeliveryOffice,
   LogisticsCourierTrack,
+  LogisticsCourierTrackHistoryItem,
 } from '../../types/logistics-dispatch';
 import { isStaffLogisticsSite, type StaffLogisticsSite } from '../../types/staff-logistics';
 
@@ -43,6 +44,10 @@ interface StCourierTrackPanelProps {
   cachedTrack?: LogisticsCourierTrack | null;
   /** Blue Dart AWB/label destination loc (overrides track city name). */
   documentDestination?: string | null;
+  extraHistory?: LogisticsCourierTrackHistoryItem[];
+  canResolveComplaint?: boolean;
+  resolveBusy?: boolean;
+  onResolveComplaint?: () => void;
   onTrackUpdated?: (track: CourierTrackResult) => void;
 }
 
@@ -60,6 +65,17 @@ function phoneHrefFromContact(contact: string): string | null {
   return match?.[1] ? `tel:${match[1]}` : null;
 }
 
+function mergeTrackHistory(
+  courier: LogisticsCourierTrackHistoryItem[],
+  extra: LogisticsCourierTrackHistoryItem[],
+): LogisticsCourierTrackHistoryItem[] {
+  return [...extra, ...courier].sort((a, b) => {
+    const ta = Date.parse(a.at || '') || 0;
+    const tb = Date.parse(b.at || '') || 0;
+    return tb - ta;
+  });
+}
+
 export const StCourierTrackPanel: React.FC<StCourierTrackPanelProps> = ({
   awb,
   bookingId,
@@ -68,6 +84,10 @@ export const StCourierTrackPanel: React.FC<StCourierTrackPanelProps> = ({
   courierDeliveryOffice,
   cachedTrack,
   documentDestination,
+  extraHistory = [],
+  canResolveComplaint = false,
+  resolveBusy = false,
+  onResolveComplaint,
   onTrackUpdated,
 }) => {
   const [loading, setLoading] = useState(false);
@@ -116,6 +136,7 @@ export const StCourierTrackPanel: React.FC<StCourierTrackPanelProps> = ({
 
   const fetchedLabel = formatLogisticsDateTime(result?.fetchedAt);
   const hasSnapshot = Boolean(result);
+  const history = mergeTrackHistory(result?.ok ? result.history : [], extraHistory);
   const branchContact = branchContactForSite(provider, shipFromSite);
   const bookingPhoneHref = branchContact ? phoneHrefFromContact(branchContact) : null;
   const deliveryOffice = courierDeliveryOffice?.communication?.trim() || null;
@@ -139,6 +160,17 @@ export const StCourierTrackPanel: React.FC<StCourierTrackPanelProps> = ({
             )}
           </h4>
           <div className="logistics-booking__track-panel-actions">
+            {canResolveComplaint && onResolveComplaint ? (
+              <button
+                type="button"
+                className="btn btn-primary btn-sm"
+                onClick={onResolveComplaint}
+                disabled={resolveBusy || loading}
+              >
+                <Check size={14} aria-hidden />
+                {resolveBusy ? 'Saving…' : 'Resolve'}
+              </button>
+            ) : null}
             <button
               type="button"
               className="btn btn-secondary btn-sm"
@@ -154,7 +186,7 @@ export const StCourierTrackPanel: React.FC<StCourierTrackPanelProps> = ({
         </div>
 
         <div className="logistics-booking__track-panel-body">
-          {!hasSnapshot && !loading && !error && (
+          {!hasSnapshot && !loading && !error && history.length === 0 && (
             <p className="text-muted text-sm">
               No tracking data saved yet. Use Refresh to fetch the latest status.
             </p>
@@ -185,11 +217,11 @@ export const StCourierTrackPanel: React.FC<StCourierTrackPanelProps> = ({
                   <div><dt>Delivered</dt><dd>{formatLogisticsDateTimeLabel(result.deliveredAt)}</dd></div>
                 )}
               </dl>
-              {result.history.length > 0 ? (
+              {history.length > 0 ? (
                 <div className="logistics-booking__track-panel-history">
                   <h5>Tracking history</h5>
                   <ol className="logistics-booking__track-timeline">
-                    {result.history.map((item, index) => (
+                    {history.map((item, index) => (
                       <li
                         key={`${item.at}-${item.activity}-${index}`}
                         className={index === 0 ? 'is-latest' : undefined}
@@ -219,6 +251,34 @@ export const StCourierTrackPanel: React.FC<StCourierTrackPanelProps> = ({
               )}
             </>
           )}
+          {!result?.ok && history.length > 0 ? (
+            <div className="logistics-booking__track-panel-history">
+              <h5>Tracking history</h5>
+              <ol className="logistics-booking__track-timeline">
+                {history.map((item, index) => (
+                  <li
+                    key={`${item.at}-${item.activity}-${index}`}
+                    className={index === 0 ? 'is-latest' : undefined}
+                  >
+                    <span className="logistics-booking__track-timeline-dot" aria-hidden />
+                    <div className="logistics-booking__track-timeline-copy">
+                      <strong>{item.activity || 'Update'}</strong>
+                      {item.location ? (
+                        <span className="logistics-booking__track-timeline-location">
+                          {item.location}
+                        </span>
+                      ) : null}
+                      {item.at ? (
+                        <time className="logistics-booking__track-timeline-at">
+                          {formatLogisticsDateTimeLabel(item.at)}
+                        </time>
+                      ) : null}
+                    </div>
+                  </li>
+                ))}
+              </ol>
+            </div>
+          ) : null}
 
           {branchContact && (
             <div className="logistics-booking__track-branch-contact">

@@ -91,7 +91,7 @@ export const RaiseLogisticsIssueDialog: React.FC<Props> = ({
       >
         <header className="dealers-modal__header">
           <div>
-            <h2 id={titleId}>Raise issue ticket</h2>
+            <h2 id={titleId}>Raise complaint</h2>
             <p className="text-muted text-sm logistics-issue-dialog__subtitle">
               Creates a Logistics &amp; Delivery complaint in Warranty &amp; Support with this
               shipment’s details.
@@ -152,7 +152,7 @@ export const RaiseLogisticsIssueDialog: React.FC<Props> = ({
             </button>
             <button type="submit" className="btn btn-primary" disabled={submitting}>
               <MessageSquareWarning size={16} aria-hidden />
-              {submitting ? 'Creating…' : 'Create ticket'}
+              {submitting ? 'Creating…' : 'Create complaint'}
             </button>
           </div>
         </form>

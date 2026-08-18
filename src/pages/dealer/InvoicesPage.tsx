@@ -85,7 +85,7 @@ const EMPTY_CATEGORY_COUNTS: DealerInvoiceCategoryCounts = {
   gatc: 0,
 };
 const DEFAULT_SORT_FIELD: InvoiceSortField = 'date';
-const DEFAULT_SORT_DIR: 'asc' | 'desc' = 'asc';
+const DEFAULT_SORT_DIR: 'asc' | 'desc' = 'desc';
 const DEFAULT_CATEGORY: InvoiceCategory | 'all' = 'all';
 
 const SORT_OPTIONS: Array<{ value: InvoiceSortField; label: string }> = [
@@ -251,8 +251,8 @@ function InvoiceFilterSheet({
               <span className="catalog-spares-multi-filters__label">Sorting</span>
               <div className="catalog-spares-multi-filters__options" role="radiogroup" aria-label="Sorting">
                 {([
-                  { value: 'asc' as const, label: 'Oldest first' },
                   { value: 'desc' as const, label: 'Latest first' },
+                  { value: 'asc' as const, label: 'Oldest first' },
                 ]).map(option => {
                   const id = `invoice-sort-dir-${option.value}`;
                   return (

@@ -325,6 +325,14 @@ export interface LogisticsCourierDeliveryOffice {
   fetchedAt: string;
 }
 
+/** Staff complaint resolve entry shown in courier tracking history. */
+export interface LogisticsComplaintLog {
+  at: string;
+  notes: string;
+  kind: 'resolved';
+  byName: string;
+}
+
 export interface LogisticsBooking {
   id: string;
   orderRef: string;
@@ -339,6 +347,9 @@ export interface LogisticsBooking {
   invoiceValueInr?: number | null;
   supportRequestId: string | null;
   supportRequestNumber: string | null;
+  /** Staff resolve notes logged onto this shipment (shown in tracking history). */
+  complaintLogs?: LogisticsComplaintLog[];
+  complaintResolvedAt?: string | null;
   partnerId: LogisticsPartnerId;
   consignmentNo: string;
   trackingNo: string;

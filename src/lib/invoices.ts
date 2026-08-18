@@ -369,6 +369,26 @@ export function firstDateTimeValue(
   return null;
 }
 
+/** Milliseconds for list sort: real clock time when known, else calendar date. */
+export function invoiceDateTimeSortMs(
+  date: string | null | undefined,
+  timestamp?: string | null,
+): number {
+  const ts = firstDateTimeValue(timestamp, date);
+  if (ts) {
+    const parsed = Date.parse(ts);
+    if (!Number.isNaN(parsed)) return parsed;
+  }
+  const raw = String(date ?? '').trim();
+  if (!raw) return 0;
+  const match = /^(\d{4})-(\d{2})-(\d{2})/.exec(raw);
+  if (match) {
+    return new Date(Number(match[1]), Number(match[2]) - 1, Number(match[3])).getTime();
+  }
+  const fallback = Date.parse(raw);
+  return Number.isNaN(fallback) ? 0 : fallback;
+}
+
 /**
  * List/table stamp: `14 Aug 2026, 10:13 am` when a real time exists.
  * Date-only values stay `14 Aug 2026` (never invent midnight).

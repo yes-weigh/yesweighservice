@@ -1,6 +1,7 @@
 import type { AdminFirestoreSalesOrder } from './admin-sales-orders';
 import {
   getInvoicePeriodBounds,
+  invoiceDateTimeSortMs,
   invoiceStatusLabel,
 } from './invoices';
 import {
@@ -170,7 +171,7 @@ export function mapZohoOrderToUnified(
     salespersonName: so.salespersonName?.trim() || null,
     date: so.date,
     createdTime: so.createdTime ?? null,
-    sortAt: parseDayTs(so.date) || parseDayTs(so.syncedAt),
+    sortAt: invoiceDateTimeSortMs(so.date, so.createdTime) || parseDayTs(so.syncedAt),
     amount: Number(so.total ?? 0),
     currencyCode: so.currencyCode || 'INR',
     statusRaw: display.statusRaw,

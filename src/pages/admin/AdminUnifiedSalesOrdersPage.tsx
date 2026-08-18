@@ -86,7 +86,7 @@ const LIST_PAGE_SIZE = 25;
 const SEARCH_FETCH_SIZE = 100;
 
 const DEFAULT_RANGE: SalesRangePreset = 'financial_year';
-const DEFAULT_SORT: AdminSalesOrderSort = 'oldest';
+const DEFAULT_SORT: AdminSalesOrderSort = 'latest';
 const DEFAULT_CATEGORY: InvoiceCategory | 'all' = 'all';
 const DEFAULT_STAGE: YesOneStageFilter | 'all' = 'payment_submitted';
 
@@ -100,8 +100,8 @@ const EMPTY_CATEGORY_COUNTS: AdminSalesOrderCategoryCounts = {
 };
 
 const SORT_OPTIONS: Array<{ value: AdminSalesOrderSort; label: string }> = [
-  { value: 'oldest', label: 'Oldest first' },
   { value: 'latest', label: 'Latest first' },
+  { value: 'oldest', label: 'Oldest first' },
 ];
 
 function UnifiedFilterSheet({

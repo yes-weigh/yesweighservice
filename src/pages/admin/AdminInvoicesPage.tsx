@@ -75,7 +75,7 @@ import type { InvoiceCategory, SalesRangePreset } from '../../types/invoices';
 
 const LIST_PAGE_SIZE = 25;
 const DEFAULT_RANGE: SalesRangePreset = 'current_month';
-const DEFAULT_SORT: AdminInvoiceSort = 'oldest';
+const DEFAULT_SORT: AdminInvoiceSort = 'latest';
 const DEFAULT_CATEGORY: InvoiceCategory | 'all' = 'product';
 const DEFAULT_STATUS = 'to_dispatch';
 
@@ -98,8 +98,8 @@ const EMPTY_CATEGORY_COUNTS: AdminInvoiceCategoryCounts = {
 };
 
 const SORT_OPTIONS: Array<{ value: AdminInvoiceSort; label: string }> = [
-  { value: 'oldest', label: 'Oldest first' },
   { value: 'latest', label: 'Latest first' },
+  { value: 'oldest', label: 'Oldest first' },
 ];
 
 function invoicePageCategoryCount(

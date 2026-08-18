@@ -27,6 +27,7 @@ import {
   parseInvoiceCategory,
   sumInvoiceProductQuantity,
   firstDateTimeValue,
+  invoiceDateTimeSortMs,
   freightSkuFromInvoiceLines,
 } from './invoices';
 import {
@@ -267,7 +268,7 @@ export function toSalesOrderDateKey(value: Date): string {
 }
 
 export function buildAdminSalesOrdersQuery(options: AdminSalesOrderListQuery) {
-  const sort = options.sort ?? 'oldest';
+  const sort = options.sort ?? 'latest';
   const pageSize = Math.max(1, Math.min(Number(options.pageSize ?? 25) || 25, 100));
   const category = options.category ?? 'all';
   const dateStart = options.dateStart?.trim() || null;
@@ -584,9 +585,9 @@ function compareSalesOrderSortKey(
     return compareSalesOrderNumberDesc(a.salesOrderNumber, b.salesOrderNumber);
   }
   const oldest = sort === 'oldest';
-  const byDate = oldest
-    ? String(a.date ?? '').localeCompare(String(b.date ?? ''))
-    : String(b.date ?? '').localeCompare(String(a.date ?? ''));
+  const aTs = invoiceDateTimeSortMs(a.date, a.createdTime);
+  const bTs = invoiceDateTimeSortMs(b.date, b.createdTime);
+  const byDate = oldest ? aTs - bTs : bTs - aTs;
   if (byDate) return byDate;
   const byNumber = compareSalesOrderNumberDesc(a.salesOrderNumber, b.salesOrderNumber);
   return oldest ? -byNumber : byNumber;

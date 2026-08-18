@@ -486,7 +486,8 @@ export const AdminInvoiceDetailLayout: React.FC = () => {
       const result = await ensureInvoiceEwayBill({
         customerId,
         invoiceId,
-        partnerId: existingBooking?.partnerId || null,
+        partnerId: existingBooking?.partnerId
+          || resolveInvoiceCourierPartner(invoice).partnerId,
         lrNumber: existingBooking?.consignmentNo?.trim() || existingBooking?.trackingNo?.trim() || null,
         bookingId: existingBooking?.id || null,
         invoiceTotalInr: invoice.total ?? null,

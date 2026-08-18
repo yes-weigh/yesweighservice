@@ -279,8 +279,8 @@ export function sortInvoices(invoices, sortField = 'date', sortDir = 'desc') {
       return (Number(a[key] ?? 0) - Number(b[key] ?? 0)) * dir;
     }
     if (key === 'date' || key === 'dueDate') {
-      const av = a[key] ? Date.parse(a[key]) : 0;
-      const bv = b[key] ? Date.parse(b[key]) : 0;
+      const av = key === 'date' ? invoiceDateTimeMs(a) : (a[key] ? Date.parse(a[key]) : 0);
+      const bv = key === 'date' ? invoiceDateTimeMs(b) : (b[key] ? Date.parse(b[key]) : 0);
       const diff = (av - bv) * dir;
       if (diff !== 0) return diff;
       return compareInvoiceNumber(a, b, dir);
@@ -321,6 +321,15 @@ function invoiceTimestamp(inv) {
   }
   const d = raw ? Date.parse(raw) : NaN;
   return Number.isNaN(d) ? 0 : d;
+}
+
+function invoiceDateTimeMs(inv) {
+  const created = inv.createdTime != null ? String(inv.createdTime).trim() : '';
+  if (created && !/^\d{4}-\d{2}-\d{2}$/.test(created)) {
+    const parsed = Date.parse(created);
+    if (!Number.isNaN(parsed)) return parsed;
+  }
+  return invoiceTimestamp(inv);
 }
 
 function startOfDay(date) {

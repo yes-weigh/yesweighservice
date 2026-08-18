@@ -22329,6 +22329,35 @@ body:has(.confirm-inline-bar) .confirm-inline-bar {
   max-width: 3.6rem;
 }
 
+.logistics-page__complaint-filter {
+  border-color: rgba(248, 113, 113, 0.32);
+  background: rgba(239, 68, 68, 0.08);
+}
+
+.logistics-page__complaint-filter:hover:not(:disabled) {
+  background: rgba(239, 68, 68, 0.16);
+  border-color: rgba(252, 165, 165, 0.5);
+}
+
+.logistics-page__complaint-filter.is-active {
+  background: rgba(239, 68, 68, 0.2);
+  border-color: rgba(252, 165, 165, 0.72);
+  box-shadow: 0 6px 18px rgba(239, 68, 68, 0.18);
+}
+
+.logistics-page__complaint-filter .logistics-page__support-filter-icon {
+  color: #fca5a5;
+}
+
+.logistics-page__complaint-filter.is-active .logistics-page__support-filter-icon {
+  color: #fecaca;
+}
+
+.logistics-page__complaint-filter .logistics-page__support-filter-badge {
+  background: #ef4444;
+  color: #fff1f2;
+}
+
 .logistics-pickups-today {
   width: min(100%, 560px);
 }
@@ -23158,22 +23187,22 @@ body:has(.confirm-inline-bar) .confirm-inline-bar {
   width: 1.35rem;
   height: 1.35rem;
   border-radius: 999px;
-  color: #c4b5fd;
-  border: 1px solid rgba(167, 139, 250, 0.42);
-  background: rgba(139, 92, 246, 0.14);
+  color: #fca5a5;
+  border: 1px solid rgba(248, 113, 113, 0.45);
+  background: rgba(239, 68, 68, 0.14);
   text-decoration: none;
   flex-shrink: 0;
   transition: background 0.15s ease, border-color 0.15s ease, color 0.15s ease;
 }
 
 .logistics-shipment__support:hover {
-  color: #ddd6fe;
-  border-color: rgba(196, 181, 253, 0.55);
-  background: rgba(139, 92, 246, 0.24);
+  color: #fecaca;
+  border-color: rgba(252, 165, 165, 0.6);
+  background: rgba(239, 68, 68, 0.24);
 }
 
 .logistics-shipment__support:focus-visible {
-  outline: 2px solid rgba(167, 139, 250, 0.65);
+  outline: 2px solid rgba(248, 113, 113, 0.7);
   outline-offset: 2px;
 }
 
@@ -34637,6 +34666,15 @@ button.invoice-detail-top__card {
 
 .invoice-detail-top__card--purple.is-active {
   box-shadow: 0 8px 22px rgba(168, 85, 247, 0.18);
+}
+
+.invoice-detail-top__card--red {
+  border-color: rgba(239, 68, 68, 0.9);
+  color: #f87171;
+}
+
+.invoice-detail-top__card--red.is-active {
+  box-shadow: 0 8px 22px rgba(239, 68, 68, 0.18);
 }
 
 .invoice-detail-top__card--amber {

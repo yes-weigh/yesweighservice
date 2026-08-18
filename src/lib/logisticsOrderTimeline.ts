@@ -331,11 +331,11 @@ export function buildLogisticsOrderTimeline(input: {
     pushEvent(events, {
       id: 'support-linked',
       at: booking.createdAt,
-      title: 'Support request linked',
+      title: 'Complaint linked',
       details: [
         booking.supportRequestNumber
-          ? `Ticket ${booking.supportRequestNumber}`
-          : `Ticket ${booking.supportRequestId}`,
+          ? `Complaint ${booking.supportRequestNumber}`
+          : `Complaint ${booking.supportRequestId}`,
       ],
     });
   }

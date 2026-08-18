@@ -42,12 +42,12 @@ import { INVOICE_CATEGORY_FILTER_OPTIONS, SALES_RANGE_OPTIONS } from '../../type
 const PAGE_SIZE = 500;
 const LIST_PAGE_SIZE = 25;
 const DEFAULT_RANGE: SalesRangePreset = 'current_month';
-const DEFAULT_SORT: AdminSalesOrderSort = 'oldest';
+const DEFAULT_SORT: AdminSalesOrderSort = 'latest';
 const DEFAULT_CATEGORY: InvoiceCategory | 'all' = 'all';
 
 const SORT_OPTIONS: Array<{ value: AdminSalesOrderSort; label: string }> = [
-  { value: 'oldest', label: 'Oldest first' },
   { value: 'latest', label: 'Latest first' },
+  { value: 'oldest', label: 'Oldest first' },
 ];
 
 function poStatusClass(status: string): string {

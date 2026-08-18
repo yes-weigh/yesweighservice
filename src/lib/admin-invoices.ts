@@ -40,6 +40,7 @@ import {
   sumInvoiceProductQuantity,
   countInvoiceItemVariants,
   firstDateTimeValue,
+  invoiceDateTimeSortMs,
   freightSkuFromInvoiceLines,
 } from './invoices';
 import {
@@ -358,7 +359,7 @@ export function clearAdminInvoiceListCollectionCache(): void {
 export function buildAdminInvoicesQuery(options: AdminInvoiceListQuery & {
   listCollection?: AdminInvoiceListCollection;
 }) {
-  const sort = options.sort ?? 'oldest';
+  const sort = options.sort ?? 'latest';
   const pageSize = Math.max(1, Math.min(Number(options.pageSize ?? ADMIN_LIST_PAGE_SIZE) || ADMIN_LIST_PAGE_SIZE, 500));
   const category = options.category ?? 'all';
   const dateStart = options.dateStart?.trim() || null;
@@ -718,7 +719,7 @@ export async function fetchAdminInvoicesPageResult(options: {
     listFilterStatus: options.listFilterStatus,
   };
 
-  const requestedSort = options.sort ?? 'oldest';
+  const requestedSort = options.sort ?? 'latest';
   try {
     const snap = await getDocs(buildAdminInvoicesQuery({
       ...queryOptions,
@@ -727,6 +728,7 @@ export async function fetchAdminInvoicesPageResult(options: {
     }));
     const rows = snap.docs.map(mapAdminInvoiceDoc);
     const completeFirstPage = !options.cursor && snap.size < pageSize;
+    const displaySort = requestedSort === 'syncedAt' ? 'syncedAt' : requestedSort === 'oldest' ? 'oldest' : 'latest';
     if (requestedSort === 'oldest' && completeFirstPage) {
       return {
         rows: [...rows].sort((a, b) => compareInvoiceSortKey(a, b, 'oldest')),
@@ -736,7 +738,7 @@ export async function fetchAdminInvoicesPageResult(options: {
     }
     if (requestedSort !== 'oldest' && (snap.size > 0 || !listStatusQueryValues(options.listFilterStatus) || options.cursor)) {
       return {
-        rows,
+        rows: [...rows].sort((a, b) => compareInvoiceSortKey(a, b, displaySort)),
         lastDoc: snap.docs[snap.docs.length - 1] ?? null,
         hasMore: snap.size >= pageSize,
       };
@@ -758,9 +760,11 @@ export async function fetchAdminInvoicesPageResult(options: {
   const filtered = values?.length
     ? all.filter(row => values.includes(String(row.listStatus ?? '')))
     : all;
-  const ordered = requestedSort === 'oldest'
-    ? [...filtered].sort((a, b) => compareInvoiceSortKey(a, b, 'oldest'))
-    : filtered;
+  const ordered = [...filtered].sort((a, b) => compareInvoiceSortKey(
+    a,
+    b,
+    requestedSort === 'oldest' ? 'oldest' : requestedSort === 'syncedAt' ? 'syncedAt' : 'latest',
+  ));
   return { rows: ordered, lastDoc: null, hasMore: false };
 }
 
@@ -1270,10 +1274,8 @@ export function compareInvoiceSortKey(
     if (diff !== 0) return diff;
     return compareInvoiceNumberDesc(a, b);
   }
-  const aTs = a.date ? parseInvoiceDay(a.date) : NaN;
-  const bTs = b.date ? parseInvoiceDay(b.date) : NaN;
-  const aSafe = Number.isNaN(aTs) ? 0 : aTs;
-  const bSafe = Number.isNaN(bTs) ? 0 : bTs;
+  const aSafe = invoiceDateTimeSortMs(a.date, a.createdTime);
+  const bSafe = invoiceDateTimeSortMs(b.date, b.createdTime);
   const oldest = sort === 'oldest';
   const diff = oldest ? aSafe - bSafe : bSafe - aSafe;
   if (diff !== 0) return diff;

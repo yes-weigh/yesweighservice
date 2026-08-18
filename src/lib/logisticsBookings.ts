@@ -1,4 +1,5 @@
 import {
+  arrayUnion,
   collection,
   deleteDoc,
   deleteField,
@@ -75,6 +76,7 @@ import type {
   LogisticsBookingStatus,
   LogisticsCourierDeliveryOffice,
   LogisticsCourierTrack,
+  LogisticsComplaintLog,
   LogisticsDealerSnapshot,
   LogisticsDocumentType,
   ShipmentBox,
@@ -170,6 +172,24 @@ function mapCourierTrack(raw: unknown): LogisticsCourierTrack | null {
     sourceUrl: String(data.sourceUrl ?? ''),
     fetchedAt: String(data.fetchedAt ?? ''),
   };
+}
+
+function mapComplaintLogs(raw: unknown): LogisticsComplaintLog[] {
+  if (!Array.isArray(raw)) return [];
+  const rows: LogisticsComplaintLog[] = [];
+  for (const item of raw) {
+    if (!item || typeof item !== 'object') continue;
+    const data = item as Record<string, unknown>;
+    const at = typeof data.at === 'string' ? data.at.trim() : '';
+    if (!at) continue;
+    rows.push({
+      at,
+      notes: typeof data.notes === 'string' ? data.notes.trim() : '',
+      kind: 'resolved',
+      byName: typeof data.byName === 'string' ? data.byName.trim() : '',
+    });
+  }
+  return rows;
 }
 
 function mapDelhiveryPickup(raw: unknown): import('../types/logistics-dispatch').LogisticsDelhiveryPickup | null {
@@ -652,6 +672,10 @@ export function mapLogisticsBookingDoc(id: string, data: DocumentData): Logistic
     invoiceValueInr,
     supportRequestId: typeof data.supportRequestId === 'string' ? data.supportRequestId : null,
     supportRequestNumber: typeof data.supportRequestNumber === 'string' ? data.supportRequestNumber : null,
+    complaintLogs: mapComplaintLogs(data.complaintLogs),
+    complaintResolvedAt: typeof data.complaintResolvedAt === 'string' && data.complaintResolvedAt.trim()
+      ? data.complaintResolvedAt.trim()
+      : null,
     partnerId,
     consignmentNo: String(data.consignmentNo ?? ''),
     trackingNo: String(data.trackingNo ?? data.consignmentNo ?? ''),
@@ -998,6 +1022,12 @@ async function buildBookingPayload(input: PersistLogisticsBookingInput & {
         const pickup = draft.blueDartPickup || mapBlueDartPickup(existingData?.blueDartPickup);
         return pickup ? { blueDartPickup: pickup } : {};
       })()
+      : {}),
+    ...(mapComplaintLogs(existingData?.complaintLogs).length
+      ? { complaintLogs: mapComplaintLogs(existingData?.complaintLogs) }
+      : {}),
+    ...(typeof existingData?.complaintResolvedAt === 'string' && existingData.complaintResolvedAt.trim()
+      ? { complaintResolvedAt: existingData.complaintResolvedAt.trim() }
       : {}),
     createdAt,
     updatedAt: now,
@@ -1814,6 +1844,34 @@ export async function updateLogisticsBookingStatus(
   const updatedAt = new Date().toISOString();
   await updateDoc(doc(db, COLLECTION, booking.id), { status, updatedAt });
   return { ...booking, status, updatedAt };
+}
+
+export async function resolveLogisticsComplaint(
+  booking: LogisticsBooking,
+  notes: string,
+  user: User,
+): Promise<LogisticsBooking> {
+  if (!isInternalOpsUser(user)) {
+    throw new Error('You do not have permission to resolve this complaint.');
+  }
+  const at = new Date().toISOString();
+  const entry: LogisticsComplaintLog = {
+    at,
+    notes: notes.trim(),
+    kind: 'resolved',
+    byName: user.displayName?.trim() || user.loginId?.trim() || user.email?.trim() || 'Staff',
+  };
+  await updateDoc(doc(db, COLLECTION, booking.id), {
+    complaintLogs: arrayUnion(entry),
+    complaintResolvedAt: at,
+    updatedAt: at,
+  });
+  return {
+    ...booking,
+    complaintLogs: [...(booking.complaintLogs || []), entry],
+    complaintResolvedAt: at,
+    updatedAt: at,
+  };
 }
 
 /**

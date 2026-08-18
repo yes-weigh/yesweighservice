@@ -26,12 +26,38 @@ import {
 } from './eway-shipping-context.js';
 import { updateDelhiveryB2bLrInvoices } from './delhivery-b2b-manifest.js';
 import { fetchDelhiveryPartnerEwayBills } from './delhivery-track.js';
+import {
+  freightSkuFromInvoiceLines,
+  isFreightOrderLine,
+  partnerIdForFreightSku,
+} from './freight-lines.js';
 
 export const EWAY_BILL_THRESHOLD_INR = 50_000;
 const PICKUP_PARTNER_ID = 'personal_collection';
+const DEFAULT_EWAY_PARTNER_ID = 'st_courier';
 
 function normalizeVehicleNumber(raw) {
   return String(raw ?? '').trim().toUpperCase().replace(/\s+/g, '').slice(0, 20);
+}
+
+/** Freight / settings partner when generate is opened from the invoice (no booking yet). */
+function resolveEwayPartnerId(invoice, explicitPartnerId) {
+  const explicit = String(explicitPartnerId ?? '').trim();
+  if (explicit) return explicit;
+  const override = String(invoice?.yesOneFreightPartner?.partnerId ?? '').trim();
+  if (override) return override;
+  const overrideSku = partnerIdForFreightSku(invoice?.yesOneFreightPartner?.sku);
+  if (overrideSku) return overrideSku;
+  const freightSku = String(invoice?.freightSku ?? '').trim()
+    || freightSkuFromInvoiceLines(invoice?.lineItems);
+  const fromFreightSku = partnerIdForFreightSku(freightSku);
+  if (fromFreightSku) return fromFreightSku;
+  for (const line of invoice?.lineItems ?? []) {
+    if (!isFreightOrderLine(line)) continue;
+    const partner = partnerIdForFreightSku(line.sku);
+    if (partner) return partner;
+  }
+  return DEFAULT_EWAY_PARTNER_ID;
 }
 
 function isEwayBillRequired(totalInclGst) {
@@ -436,7 +462,6 @@ export async function syncEwayBillMetadataFromZoho(accessToken, orgId, customerI
 export async function ensureInvoiceEwayBill(secrets, orgId, input) {
   const customerId = String(input.customerId ?? '').trim();
   const invoiceId = String(input.invoiceId ?? '').trim();
-  const partnerId = String(input.partnerId ?? '').trim();
   const lrNumber = String(input.lrNumber ?? '').trim();
   const bookingId = String(input.bookingId ?? '').trim() || null;
   const autoGenerate = input.autoGenerate !== false;
@@ -449,6 +474,12 @@ export async function ensureInvoiceEwayBill(secrets, orgId, input) {
   if (!invoice) {
     throw new Error('Invoice not found in portal. Sync invoices from Zoho first.');
   }
+
+  const isCustomerPickup = String(input.partnerId ?? '').trim() === PICKUP_PARTNER_ID
+    || Boolean(String(invoice.customerPickup?.markedAt ?? '').trim());
+  const partnerId = isCustomerPickup
+    ? PICKUP_PARTNER_ID
+    : resolveEwayPartnerId(invoice, input.partnerId);
 
   const invoiceTotal = Number(input.invoiceTotalInr ?? invoice.total ?? 0);
   const existing = normalizeEwayBillDoc(invoice.ewayBill);
@@ -491,8 +522,6 @@ export async function ensureInvoiceEwayBill(secrets, orgId, input) {
     }
   }
   const pickupVehicle = normalizeVehicleNumber(invoice.customerPickup?.vehicleNumber);
-  const isCustomerPickup = partnerId === PICKUP_PARTNER_ID
-    || Boolean(String(invoice.customerPickup?.markedAt ?? '').trim());
   const transporterDocumentNumber = isCustomerPickup ? '' : lrNumber;
 
   const accessToken = await getAccessToken(secrets);

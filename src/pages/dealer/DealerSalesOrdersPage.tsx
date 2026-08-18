@@ -57,10 +57,10 @@ import type { YesOneStageFilter } from '../../lib/salesOrderWorkflow';
 const LIST_PAGE_SIZE = 25;
 const DEFAULT_RANGE: SalesRangePreset = 'financial_year';
 const DEFAULT_CATEGORY: InvoiceCategory | 'all' = 'all';
-const DEFAULT_SORT: AdminSalesOrderSort = 'oldest';
+const DEFAULT_SORT: AdminSalesOrderSort = 'latest';
 const SORT_OPTIONS: Array<{ value: AdminSalesOrderSort; label: string }> = [
-  { value: 'oldest', label: 'Oldest first' },
   { value: 'latest', label: 'Latest first' },
+  { value: 'oldest', label: 'Oldest first' },
 ];
 
 function DealerFilterSheet({

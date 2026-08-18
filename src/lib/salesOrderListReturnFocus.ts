@@ -124,7 +124,7 @@ export function peekSalesOrderListReturn(
       rangePreset: parseRangePreset(parsed.rangePreset),
       sort: parsed.sort === 'oldest' || parsed.sort === 'latest' || parsed.sort === 'syncedAt'
         ? parsed.sort
-        : 'oldest',
+        : 'latest',
       dealers: parseDealers(parsed.dealers),
       aggregate: Boolean(parsed.aggregate),
       page,

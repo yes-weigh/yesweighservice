@@ -278,8 +278,8 @@ async function loadPartnerTransporter(db, partnerId) {
   if (!transporterRaw || typeof transporterRaw !== 'object') return null;
   const id = String(transporterRaw.id ?? '').trim();
   const name = String(transporterRaw.name ?? '').trim();
-  if (!id || !name) return null;
-  return { id, name };
+  if (!id) return null;
+  return { id, name: name || id };
 }
 
 /**

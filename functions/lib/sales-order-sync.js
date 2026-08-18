@@ -1130,11 +1130,26 @@ async function queryDealerSalesOrdersFromFirestore(customerId, options = {}) {
 
 function sortSalesOrderRows(rows) {
   return [...rows].sort((a, b) => {
-    const ad = String(a.date ?? '');
-    const bd = String(b.date ?? '');
-    if (ad !== bd) return bd.localeCompare(ad);
+    const aTs = salesOrderDateTimeMs(a);
+    const bTs = salesOrderDateTimeMs(b);
+    if (aTs !== bTs) return bTs - aTs;
     return String(b.syncedAt ?? '').localeCompare(String(a.syncedAt ?? ''));
   });
+}
+
+function salesOrderDateTimeMs(row) {
+  const created = row.createdTime != null ? String(row.createdTime).trim() : '';
+  if (created && !/^\d{4}-\d{2}-\d{2}$/.test(created)) {
+    const parsed = Date.parse(created);
+    if (!Number.isNaN(parsed)) return parsed;
+  }
+  const date = String(row.date ?? '').trim();
+  const match = /^(\d{4})-(\d{2})-(\d{2})/.exec(date);
+  if (match) {
+    return new Date(Number(match[1]), Number(match[2]) - 1, Number(match[3])).getTime();
+  }
+  const parsed = Date.parse(date);
+  return Number.isNaN(parsed) ? 0 : parsed;
 }
 
 /**
