@@ -73,6 +73,7 @@ export function AdminPurchaseOrderDocCard({
   const categoryLabel = invoiceCategoryLabel(category);
   const accent = poCardAccent(purchaseOrder.status);
   const locationLabel = [
+    purchaseOrder.vendorCity || vendor?.city,
     purchaseOrder.vendorState || vendor?.state,
     purchaseOrder.vendorCountry || vendor?.country,
   ].filter(Boolean).join(', ')

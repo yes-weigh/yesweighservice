@@ -50,11 +50,11 @@ service cloud.firestore {
     }
 
     function canAccessYesStore() {
-      return isWarehouse() || isSuperAdmin();
+      return isWarehouse() || isOpsUser();
     }
 
     function canWriteYesStore() {
-      return isWarehouse() || isFullSuperAdmin();
+      return isWarehouse() || isFullSuperAdmin() || isStaff();
     }
 
     function isDealer() {
@@ -865,6 +865,7 @@ service cloud.firestore {
         && data.attachments is list;
     }
 
+    // Head Office store room (spares): rack / row / bin.
     match /yesStoreRacks/{rackId} {
       allow read: if canAccessYesStore();
       allow write: if canWriteYesStore();
@@ -885,6 +886,7 @@ service cloud.firestore {
       allow write: if canWriteYesStore();
     }
 
+    // Cochin warehouse (shop products): zone / row.
     match /warehouseZones/{zoneId} {
       allow read: if isOpsUser() || isWarehouse();
       allow write: if isFullSuperAdmin();

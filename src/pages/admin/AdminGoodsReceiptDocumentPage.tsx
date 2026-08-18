@@ -9,13 +9,20 @@ import { PackageInfoIcon } from '../../components/catalog/PackageInfoIcon';
 import { useAuth } from '../../context/AuthContext';
 import { isFreightProductId, isFreightSku } from '../../constants/freightLines';
 import {
+  isHeadOfficeReceiveLocation,
   isReceivedBillStatus,
   markGoodsReceiptReceived,
   receiveLineLocations,
   saveGoodsReceiptReceiveCheck,
   setGoodsReceiptLineHidden,
+  type AdminGoodsReceiptDetail,
+  type GoodsReceiptReceiveLocation,
 } from '../../lib/admin-goods-receipts';
-import { resolveCatalogProductsForLineItems, catalogProductHasCompleteSingleBoxPackageInfo } from '../../lib/catalog';
+import {
+  catalogProductHasCompleteSingleBoxPackageInfo,
+  isCatalogSparePartProduct,
+  resolveCatalogProductsForLineItems,
+} from '../../lib/catalog';
 import { formatInvoiceDate, formatInvoiceDateTime, invoiceErrorMessage, moveFreightLinesToEnd } from '../../lib/invoices';
 import { isFullSuperAdmin, isViewOnlySuperAdmin } from '../../lib/staffAccess';
 import {
@@ -24,6 +31,7 @@ import {
 } from '../../lib/warehouseLocations/data';
 import type { CatalogPackageInfo, CatalogProduct } from '../../types/catalog';
 import type { WarehouseZoneDoc, WarehouseZoneRowDoc } from '../../types/warehouse-locations';
+import { BIN_NUMBERS, ROW_NUMBERS, VALID_RACK_LETTERS } from '../../types/yes-store';
 import type { AdminGoodsReceiptDetailOutletContext } from './adminGoodsReceiptDetailContext';
 
 function formatDiff(value: number): string {
@@ -42,10 +50,16 @@ function resolveCatalogForLine(
   return undefined;
 }
 
+type StorageScheme = 'cochin' | 'head_office';
+
 type LocationDraft = {
   key: string;
+  scheme: StorageScheme;
   zoneId: string;
   zoneRowNumber: string;
+  rackId: string;
+  rowNumber: string;
+  binNumber: string;
   quantity: string;
 };
 
@@ -53,42 +67,110 @@ type LineDraft = {
   locations: LocationDraft[];
 };
 
-function newLocationDraft(defaultZoneId = ''): LocationDraft {
+function lineStorageScheme(
+  catalogProduct: CatalogProduct | undefined,
+  goodsReceipt: Pick<AdminGoodsReceiptDetail, 'inventorySite' | 'goodsReceiptCategory'>,
+): StorageScheme {
+  if (catalogProduct) {
+    return isCatalogSparePartProduct(catalogProduct) ? 'head_office' : 'cochin';
+  }
+  if (goodsReceipt.inventorySite === 'head_office' || goodsReceipt.goodsReceiptCategory === 'spare') {
+    return 'head_office';
+  }
+  return 'cochin';
+}
+
+function newLocationDraft(scheme: StorageScheme, defaultZoneId = ''): LocationDraft {
   return {
     key: crypto.randomUUID(),
-    zoneId: defaultZoneId,
+    scheme,
+    zoneId: scheme === 'cochin' ? defaultZoneId : '',
     zoneRowNumber: '',
+    rackId: '',
+    rowNumber: '',
+    binNumber: '',
     quantity: '',
   };
 }
 
+function locationDraftFromSaved(loc: GoodsReceiptReceiveLocation): LocationDraft {
+  const scheme: StorageScheme = isHeadOfficeReceiveLocation(loc) ? 'head_office' : 'cochin';
+  return {
+    key: crypto.randomUUID(),
+    scheme,
+    zoneId: loc.zoneId ?? '',
+    zoneRowNumber: loc.zoneRowNumber != null ? String(loc.zoneRowNumber) : '',
+    rackId: loc.rackId ?? '',
+    rowNumber: loc.rowNumber != null ? String(loc.rowNumber) : '',
+    binNumber: loc.binNumber != null ? String(loc.binNumber) : '',
+    quantity: String(loc.quantity),
+  };
+}
+
+function locationIdentity(loc: GoodsReceiptReceiveLocation): string {
+  if (isHeadOfficeReceiveLocation(loc)) {
+    return `ho:${String(loc.rackId).toLowerCase()}:${loc.rowNumber}:${loc.binNumber}:${loc.quantity}`;
+  }
+  return `cochin:${String(loc.zoneId || '').toLowerCase()}:${loc.zoneRowNumber ?? 0}:${loc.quantity}`;
+}
+
 function locationsEqual(
-  a: Array<{ zoneId: string; zoneRowNumber: number; quantity: number }>,
-  b: Array<{ zoneId: string; zoneRowNumber: number; quantity: number }>,
+  a: GoodsReceiptReceiveLocation[],
+  b: GoodsReceiptReceiveLocation[],
 ): boolean {
   if (a.length !== b.length) return false;
-  return a.every((loc, i) => (
-    loc.zoneId === b[i].zoneId
-    && loc.zoneRowNumber === b[i].zoneRowNumber
-    && loc.quantity === b[i].quantity
-  ));
+  return a.every((loc, i) => locationIdentity(loc) === locationIdentity(b[i]));
 }
 
 function parseDraftLocations(draft: LineDraft): {
   ok: true;
-  locations: Array<{ zoneId: string; zoneRowNumber: number; quantity: number }>;
+  locations: GoodsReceiptReceiveLocation[];
   empty: boolean;
 } | {
   ok: false;
   error: string;
 } {
-  const prepared: Array<{ zoneId: string; zoneRowNumber: number; quantity: number }> = [];
+  const prepared: GoodsReceiptReceiveLocation[] = [];
   let anyPartial = false;
 
   for (const row of draft.locations) {
+    const qtyRaw = row.quantity.trim();
+    const quantity = Number(qtyRaw);
+
+    if (row.scheme === 'head_office') {
+      const rackId = row.rackId.trim().toLowerCase();
+      const rowRaw = row.rowNumber.trim();
+      const binRaw = row.binNumber.trim();
+      const blank = !rackId && !rowRaw && !binRaw && !qtyRaw;
+      if (blank) continue;
+
+      anyPartial = true;
+      if (!rackId || !rowRaw || !binRaw) {
+        return { ok: false, error: 'Each Head Office location needs a rack, row, and bin.' };
+      }
+      const rowNumber = Number(rowRaw);
+      const binNumber = Number(binRaw);
+      if (!Number.isFinite(rowNumber) || rowNumber < 1) {
+        return { ok: false, error: 'Invalid Head Office row number.' };
+      }
+      if (!Number.isFinite(binNumber) || binNumber < 1) {
+        return { ok: false, error: 'Invalid Head Office bin number.' };
+      }
+      if (qtyRaw === '' || !Number.isFinite(quantity) || quantity < 0) {
+        return { ok: false, error: 'Enter a valid qty for each Head Office location.' };
+      }
+      if (quantity <= 0) continue;
+      prepared.push({
+        rackId,
+        rowNumber: Math.floor(rowNumber),
+        binNumber: Math.floor(binNumber),
+        quantity: Math.floor(quantity),
+      });
+      continue;
+    }
+
     const zoneId = row.zoneId.trim().toLowerCase();
     const rowRaw = row.zoneRowNumber.trim();
-    const qtyRaw = row.quantity.trim();
     const blank = !zoneId && !rowRaw && !qtyRaw;
     if (blank) continue;
 
@@ -97,7 +179,6 @@ function parseDraftLocations(draft: LineDraft): {
       return { ok: false, error: 'Each warehouse location needs a zone and row.' };
     }
     const zoneRowNumber = Number(rowRaw);
-    const quantity = Number(qtyRaw);
     if (!Number.isFinite(zoneRowNumber) || zoneRowNumber < 1) {
       return { ok: false, error: 'Invalid row number.' };
     }
@@ -113,6 +194,15 @@ function parseDraftLocations(draft: LineDraft): {
   }
 
   return { ok: true, locations: prepared, empty: !anyPartial && prepared.length === 0 };
+}
+
+function locationDraftHasValue(loc: LocationDraft): boolean {
+  if (loc.scheme === 'head_office') {
+    return Boolean(
+      loc.rackId.trim() || loc.rowNumber.trim() || loc.binNumber.trim() || loc.quantity.trim(),
+    );
+  }
+  return Boolean(loc.zoneId.trim() || loc.zoneRowNumber.trim() || loc.quantity.trim());
 }
 
 function warehouseZoneLabel(zoneId: string, zones: WarehouseZoneDoc[]): string {
@@ -181,6 +271,15 @@ export const AdminGoodsReceiptDocumentPage: React.FC = () => {
 
   const defaultZoneId = zones[0]?.id ?? '';
 
+  const emptyDraftForLine = (lineId: string, existing?: LocationDraft[]): LocationDraft => {
+    const line = goodsReceipt?.lineItems.find(item => item.id === lineId);
+    const fallback = line && goodsReceipt
+      ? lineStorageScheme(resolveCatalogForLine(line, catalogById), goodsReceipt)
+      : 'cochin';
+    const scheme = existing?.[existing.length - 1]?.scheme ?? fallback;
+    return newLocationDraft(scheme, defaultZoneId);
+  };
+
   useEffect(() => {
     if (!goodsReceipt?.lineItems?.length) {
       setCatalogById({});
@@ -238,15 +337,11 @@ export const AdminGoodsReceiptDocumentPage: React.FC = () => {
     for (const line of goodsReceipt.lineItems) {
       if (!line.id) continue;
       const savedLocs = receiveLineLocations(savedLines[line.id]);
+      const scheme = lineStorageScheme(undefined, goodsReceipt);
       next[line.id] = {
         locations: savedLocs.length > 0
-          ? savedLocs.map(loc => ({
-            key: crypto.randomUUID(),
-            zoneId: loc.zoneId,
-            zoneRowNumber: String(loc.zoneRowNumber),
-            quantity: String(loc.quantity),
-          }))
-          : [newLocationDraft(defaultZoneId)],
+          ? savedLocs.map(locationDraftFromSaved)
+          : [newLocationDraft(scheme, defaultZoneId)],
       };
     }
     setLineDrafts(next);
@@ -254,12 +349,33 @@ export const AdminGoodsReceiptDocumentPage: React.FC = () => {
     setSaveOk('');
   }, [goodsReceipt, defaultZoneId]);
 
+  useEffect(() => {
+    if (!goodsReceipt || Object.keys(catalogById).length === 0) return;
+    setLineDrafts(prev => {
+      let changed = false;
+      const next = { ...prev };
+      const savedLines = goodsReceipt.receiveCheck?.lines ?? {};
+      for (const line of goodsReceipt.lineItems) {
+        if (!line.id) continue;
+        if (receiveLineLocations(savedLines[line.id]).length > 0) continue;
+        const current = next[line.id];
+        if (!current || current.locations.some(locationDraftHasValue)) continue;
+        const scheme = lineStorageScheme(resolveCatalogForLine(line, catalogById), goodsReceipt);
+        if (current.locations.every(loc => loc.scheme === scheme)) continue;
+        next[line.id] = { locations: [newLocationDraft(scheme, defaultZoneId)] };
+        changed = true;
+      }
+      return changed ? next : prev;
+    });
+  }, [catalogById, goodsReceipt, defaultZoneId]);
+
   const dirty = useMemo(() => {
     if (!goodsReceipt) return false;
     const savedLines = goodsReceipt.receiveCheck?.lines ?? {};
     for (const line of goodsReceipt.lineItems) {
       if (!line.id || hiddenLineIds.has(line.id)) continue;
-      const draft = lineDrafts[line.id] ?? { locations: [newLocationDraft()] };
+      const scheme = lineStorageScheme(resolveCatalogForLine(line, catalogById), goodsReceipt);
+      const draft = lineDrafts[line.id] ?? { locations: [newLocationDraft(scheme, defaultZoneId)] };
       const parsed = parseDraftLocations(draft);
       if (!parsed.ok) return true;
       const saved = receiveLineLocations(savedLines[line.id]);
@@ -267,7 +383,7 @@ export const AdminGoodsReceiptDocumentPage: React.FC = () => {
       if (!locationsEqual(parsed.locations, saved)) return true;
     }
     return false;
-  }, [goodsReceipt, lineDrafts, hiddenLineIds]);
+  }, [goodsReceipt, lineDrafts, hiddenLineIds, catalogById, defaultZoneId]);
 
   const missingPackageLines = useMemo(() => {
     if (!goodsReceipt) return [] as Array<{ lineId: string; name: string; productId: string }>;
@@ -352,7 +468,7 @@ export const AdminGoodsReceiptDocumentPage: React.FC = () => {
     patch: Partial<Omit<LocationDraft, 'key'>>,
   ) => {
     setLineDrafts(prev => {
-      const current = prev[lineId] ?? { locations: [newLocationDraft(defaultZoneId)] };
+      const current = prev[lineId] ?? { locations: [emptyDraftForLine(lineId)] };
       return {
         ...prev,
         [lineId]: {
@@ -372,7 +488,7 @@ export const AdminGoodsReceiptDocumentPage: React.FC = () => {
       return {
         ...prev,
         [lineId]: {
-          locations: [...current.locations, newLocationDraft(defaultZoneId)],
+          locations: [...current.locations, emptyDraftForLine(lineId, current.locations)],
         },
       };
     });
@@ -382,12 +498,14 @@ export const AdminGoodsReceiptDocumentPage: React.FC = () => {
 
   const removeLocation = (lineId: string, locationKey: string) => {
     setLineDrafts(prev => {
-      const current = prev[lineId] ?? { locations: [newLocationDraft(defaultZoneId)] };
+      const current = prev[lineId] ?? { locations: [emptyDraftForLine(lineId)] };
       const nextLocations = current.locations.filter(loc => loc.key !== locationKey);
       return {
         ...prev,
         [lineId]: {
-          locations: nextLocations.length > 0 ? nextLocations : [newLocationDraft(defaultZoneId)],
+          locations: nextLocations.length > 0
+            ? nextLocations
+            : [emptyDraftForLine(lineId, nextLocations)],
         },
       };
     });
@@ -396,15 +514,16 @@ export const AdminGoodsReceiptDocumentPage: React.FC = () => {
   };
 
   const collectReceiveLines = (): Record<string, {
-    locations: Array<{ zoneId: string; zoneRowNumber: number; quantity: number }>;
+    locations: GoodsReceiptReceiveLocation[];
   }> | null => {
     const lines: Record<string, {
-      locations: Array<{ zoneId: string; zoneRowNumber: number; quantity: number }>;
+      locations: GoodsReceiptReceiveLocation[];
     }> = {};
 
     for (const line of goodsReceipt.lineItems) {
       if (!line.id || hiddenLineIds.has(line.id)) continue;
-      const draft = lineDrafts[line.id] ?? { locations: [newLocationDraft(defaultZoneId)] };
+      const scheme = lineStorageScheme(resolveCatalogForLine(line, catalogById), goodsReceipt);
+      const draft = lineDrafts[line.id] ?? { locations: [newLocationDraft(scheme, defaultZoneId)] };
       const parsed = parseDraftLocations(draft);
       if (!parsed.ok) {
         setSaveError(`${parsed.error} (${line.name})`);
@@ -583,8 +702,10 @@ export const AdminGoodsReceiptDocumentPage: React.FC = () => {
           <ul className="invoice-detail-item-list mt-3">
             {visibleLineItems.map(item => {
               const ordered = Number(item.quantity ?? 0);
+              const catalogProduct = resolveCatalogForLine(item, catalogById);
+              const scheme = lineStorageScheme(catalogProduct, goodsReceipt);
               const draft = lineDrafts[item.id] ?? {
-                locations: [newLocationDraft(defaultZoneId)],
+                locations: [newLocationDraft(scheme, defaultZoneId)],
               };
               const receivedTotal = draft.locations.reduce((sum, loc) => {
                 const n = Number(loc.quantity);
@@ -599,7 +720,6 @@ export const AdminGoodsReceiptDocumentPage: React.FC = () => {
                   : diff > 0
                     ? 'is-over'
                     : 'is-under';
-              const catalogProduct = resolveCatalogForLine(item, catalogById);
               const isFreight = isFreightProductId(item.itemId)
                 || isFreightSku(item.sku);
               const showPackageInfo = Boolean(catalogProduct && !isFreight);
@@ -608,9 +728,7 @@ export const AdminGoodsReceiptDocumentPage: React.FC = () => {
                 ? catalogProductHasCompleteSingleBoxPackageInfo(catalogProduct)
                 : true;
               const packageMissing = showPackageInfo && packageRequired && !packageComplete;
-              const postedLocations = draft.locations.filter(
-                loc => loc.zoneId.trim() || loc.quantity.trim(),
-              );
+              const postedLocations = draft.locations.filter(locationDraftHasValue);
 
               return (
                 <li
@@ -741,81 +859,176 @@ export const AdminGoodsReceiptDocumentPage: React.FC = () => {
                     )}
 
                     <div className="goods-receipt-receive__locations">
-                      <span className="goods-receipt-receive__label">Warehouse locations</span>
+                      <span className="goods-receipt-receive__label">
+                        {scheme === 'head_office' ? 'Head Office locations' : 'Warehouse locations'}
+                      </span>
                       {receiveLocked ? (
                         postedLocations.length === 0 ? (
                           <span className="goods-receipt-receive__value">—</span>
                         ) : (
                           postedLocations.map(loc => (
-                              <div
-                                key={loc.key}
-                                className="goods-receipt-receive__location-row goods-receipt-receive__location-row--readonly"
-                              >
-                                <div className="goods-receipt-receive__field">
-                                  <span className="goods-receipt-receive__label">Zone</span>
-                                  <span className="goods-receipt-receive__value">
-                                    {warehouseZoneLabel(loc.zoneId, zones)}
-                                  </span>
-                                </div>
-                                <div className="goods-receipt-receive__field">
-                                  <span className="goods-receipt-receive__label">Row</span>
-                                  <span className="goods-receipt-receive__value">
-                                    {warehouseRowLabel(loc.zoneId, loc.zoneRowNumber, rowsByZone)}
-                                  </span>
-                                </div>
-                                <div className="goods-receipt-receive__field goods-receipt-receive__field--qty">
-                                  <span className="goods-receipt-receive__label">Qty</span>
-                                  <span className="goods-receipt-receive__value">
-                                    {loc.quantity.trim() || '—'}
-                                  </span>
-                                </div>
+                            <div
+                              key={loc.key}
+                              className={[
+                                'goods-receipt-receive__location-row',
+                                'goods-receipt-receive__location-row--readonly',
+                                loc.scheme === 'head_office'
+                                  ? 'goods-receipt-receive__location-row--head-office'
+                                  : '',
+                              ].filter(Boolean).join(' ')}
+                            >
+                              {loc.scheme === 'head_office' ? (
+                                <>
+                                  <div className="goods-receipt-receive__field">
+                                    <span className="goods-receipt-receive__label">Rack</span>
+                                    <span className="goods-receipt-receive__value">
+                                      {loc.rackId.trim() ? loc.rackId.toUpperCase() : '—'}
+                                    </span>
+                                  </div>
+                                  <div className="goods-receipt-receive__field">
+                                    <span className="goods-receipt-receive__label">Row</span>
+                                    <span className="goods-receipt-receive__value">
+                                      {loc.rowNumber.trim() || '—'}
+                                    </span>
+                                  </div>
+                                  <div className="goods-receipt-receive__field">
+                                    <span className="goods-receipt-receive__label">Bin</span>
+                                    <span className="goods-receipt-receive__value">
+                                      {loc.binNumber.trim() || '—'}
+                                    </span>
+                                  </div>
+                                </>
+                              ) : (
+                                <>
+                                  <div className="goods-receipt-receive__field">
+                                    <span className="goods-receipt-receive__label">Zone</span>
+                                    <span className="goods-receipt-receive__value">
+                                      {warehouseZoneLabel(loc.zoneId, zones)}
+                                    </span>
+                                  </div>
+                                  <div className="goods-receipt-receive__field">
+                                    <span className="goods-receipt-receive__label">Row</span>
+                                    <span className="goods-receipt-receive__value">
+                                      {warehouseRowLabel(loc.zoneId, loc.zoneRowNumber, rowsByZone)}
+                                    </span>
+                                  </div>
+                                </>
+                              )}
+                              <div className="goods-receipt-receive__field goods-receipt-receive__field--qty">
+                                <span className="goods-receipt-receive__label">Qty</span>
+                                <span className="goods-receipt-receive__value">
+                                  {loc.quantity.trim() || '—'}
+                                </span>
                               </div>
-                            ))
+                            </div>
+                          ))
                         )
                       ) : (
                         draft.locations.map((loc, locIndex) => {
                           const zoneRows = loc.zoneId ? (rowsByZone[loc.zoneId] ?? []) : [];
                           const isLast = locIndex === draft.locations.length - 1;
+                          const isHeadOffice = loc.scheme === 'head_office';
                           return (
                             <div
                               key={loc.key}
-                              className="goods-receipt-receive__location-row"
+                              className={[
+                                'goods-receipt-receive__location-row',
+                                isHeadOffice ? 'goods-receipt-receive__location-row--head-office' : '',
+                              ].filter(Boolean).join(' ')}
                             >
-                              <label className="goods-receipt-receive__field">
-                                <span className="goods-receipt-receive__label">Zone</span>
-                                <ProductNcSelect
-                                  aria-label={`Zone for ${item.name}`}
-                                  value={loc.zoneId}
-                                  disabled={loadingZones || saving}
-                                  placeholder={loadingZones ? 'Loading…' : 'Select zone'}
-                                  onChange={next => setLocationDraft(item.id, loc.key, {
-                                    zoneId: next,
-                                    zoneRowNumber: '',
-                                  })}
-                                  options={zones.map(zone => ({
-                                    value: zone.id,
-                                    label: `${zone.id.toUpperCase()}${zone.label ? ` — ${zone.label}` : ''}`,
-                                  }))}
-                                />
-                              </label>
-                              <label className="goods-receipt-receive__field">
-                                <span className="goods-receipt-receive__label">Row</span>
-                                <ProductNcSelect
-                                  aria-label={`Row for ${item.name}`}
-                                  value={loc.zoneRowNumber}
-                                  disabled={saving || !loc.zoneId || zoneRows.length === 0}
-                                  placeholder={!loc.zoneId ? 'Select zone first' : 'Select row'}
-                                  onChange={next => setLocationDraft(item.id, loc.key, {
-                                    zoneRowNumber: next,
-                                  })}
-                                  options={zoneRows.map(row => ({
-                                    value: String(row.number),
-                                    label: row.label
-                                      ? `${row.number} — ${row.label}`
-                                      : String(row.number),
-                                  }))}
-                                />
-                              </label>
+                              {isHeadOffice ? (
+                                <>
+                                  <label className="goods-receipt-receive__field">
+                                    <span className="goods-receipt-receive__label">Rack</span>
+                                    <ProductNcSelect
+                                      aria-label={`Rack for ${item.name}`}
+                                      value={loc.rackId}
+                                      disabled={saving}
+                                      placeholder="Select rack"
+                                      onChange={next => setLocationDraft(item.id, loc.key, {
+                                        rackId: next,
+                                        rowNumber: '',
+                                        binNumber: '',
+                                      })}
+                                      options={VALID_RACK_LETTERS.map(letter => ({
+                                        value: letter,
+                                        label: letter.toUpperCase(),
+                                      }))}
+                                    />
+                                  </label>
+                                  <label className="goods-receipt-receive__field">
+                                    <span className="goods-receipt-receive__label">Row</span>
+                                    <ProductNcSelect
+                                      aria-label={`Row for ${item.name}`}
+                                      value={loc.rowNumber}
+                                      disabled={saving || !loc.rackId}
+                                      placeholder={!loc.rackId ? 'Select rack first' : 'Select row'}
+                                      onChange={next => setLocationDraft(item.id, loc.key, {
+                                        rowNumber: next,
+                                        binNumber: '',
+                                      })}
+                                      options={ROW_NUMBERS.map(n => ({
+                                        value: String(n),
+                                        label: String(n),
+                                      }))}
+                                    />
+                                  </label>
+                                  <label className="goods-receipt-receive__field">
+                                    <span className="goods-receipt-receive__label">Bin</span>
+                                    <ProductNcSelect
+                                      aria-label={`Bin for ${item.name}`}
+                                      value={loc.binNumber}
+                                      disabled={saving || !loc.rackId || !loc.rowNumber}
+                                      placeholder={!loc.rowNumber ? 'Select row first' : 'Select bin'}
+                                      onChange={next => setLocationDraft(item.id, loc.key, {
+                                        binNumber: next,
+                                      })}
+                                      options={BIN_NUMBERS.map(n => ({
+                                        value: String(n),
+                                        label: String(n),
+                                      }))}
+                                    />
+                                  </label>
+                                </>
+                              ) : (
+                                <>
+                                  <label className="goods-receipt-receive__field">
+                                    <span className="goods-receipt-receive__label">Zone</span>
+                                    <ProductNcSelect
+                                      aria-label={`Zone for ${item.name}`}
+                                      value={loc.zoneId}
+                                      disabled={loadingZones || saving}
+                                      placeholder={loadingZones ? 'Loading…' : 'Select zone'}
+                                      onChange={next => setLocationDraft(item.id, loc.key, {
+                                        zoneId: next,
+                                        zoneRowNumber: '',
+                                      })}
+                                      options={zones.map(zone => ({
+                                        value: zone.id,
+                                        label: `${zone.id.toUpperCase()}${zone.label ? ` — ${zone.label}` : ''}`,
+                                      }))}
+                                    />
+                                  </label>
+                                  <label className="goods-receipt-receive__field">
+                                    <span className="goods-receipt-receive__label">Row</span>
+                                    <ProductNcSelect
+                                      aria-label={`Row for ${item.name}`}
+                                      value={loc.zoneRowNumber}
+                                      disabled={saving || !loc.zoneId || zoneRows.length === 0}
+                                      placeholder={!loc.zoneId ? 'Select zone first' : 'Select row'}
+                                      onChange={next => setLocationDraft(item.id, loc.key, {
+                                        zoneRowNumber: next,
+                                      })}
+                                      options={zoneRows.map(row => ({
+                                        value: String(row.number),
+                                        label: row.label
+                                          ? `${row.number} — ${row.label}`
+                                          : String(row.number),
+                                      }))}
+                                    />
+                                  </label>
+                                </>
+                              )}
                               <label className="goods-receipt-receive__field goods-receipt-receive__field--qty">
                                 <span className="goods-receipt-receive__label">Qty</span>
                                 <input

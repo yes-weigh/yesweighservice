@@ -117,6 +117,8 @@ export async function ensureBin(
   rowNumber: RowNumber,
   binNumber: BinNumber,
 ): Promise<YesStoreBinDoc> {
+  await ensureRack(rackId);
+  await ensureRow(rackId, rowNumber);
   const existing = await getBin(rackId, rowNumber, binNumber);
   if (existing) return existing;
   const createdAt = now();
@@ -541,6 +543,90 @@ export async function listItemsByCatalogProduct(catalogProductId: string): Promi
     ),
   );
   return snap.docs.map(docSnap => ({ id: docSnap.id, ...docSnap.data() } as YesStoreItemDoc));
+}
+
+/** Apply Head Office bin qty deltas from a goods-receipt post (does not rewrite unrelated bins). */
+export async function applyYesStoreInboundDeltas(input: {
+  catalogProductId: string;
+  productName: string;
+  productSku: string | null;
+  deltas: Array<{ rackId: string; rowNumber: number; binNumber: number; quantityDelta: number }>;
+  actor: { uid: string; displayName?: string | null };
+}): Promise<void> {
+  const catalogProductId = String(input.catalogProductId || '').trim();
+  if (!catalogProductId) return;
+
+  const merged = new Map<string, {
+    rackId: string;
+    rowNumber: RowNumber;
+    binNumber: BinNumber;
+    quantityDelta: number;
+  }>();
+  for (const row of input.deltas) {
+    const rackId = String(row.rackId || '').trim().toLowerCase();
+    const rowNumber = Math.floor(Number(row.rowNumber));
+    const binNumber = Math.floor(Number(row.binNumber));
+    const quantityDelta = Math.floor(Number(row.quantityDelta));
+    if (!isValidRackId(rackId) || !isValidRowNumber(rowNumber) || !isValidBinNumber(binNumber)) {
+      throw new Error('Each Head Office location needs a valid rack, row, and bin.');
+    }
+    if (!quantityDelta) continue;
+    const key = `${rackId}:${rowNumber}:${binNumber}`;
+    const existing = merged.get(key);
+    if (existing) existing.quantityDelta += quantityDelta;
+    else {
+      merged.set(key, {
+        rackId,
+        rowNumber: rowNumber as RowNumber,
+        binNumber: binNumber as BinNumber,
+        quantityDelta,
+      });
+    }
+  }
+  if (merged.size === 0) return;
+
+  const existingItems = await listItemsByCatalogProduct(catalogProductId);
+  const actor = input.actor;
+
+  for (const delta of merged.values()) {
+    const match = existingItems.find(item => (
+      item.rackId === delta.rackId
+      && item.rowNumber === delta.rowNumber
+      && item.binNumber === delta.binNumber
+    ));
+    const currentQty = match && typeof match.quantity === 'number'
+      ? Math.max(0, Math.floor(match.quantity))
+      : 0;
+    const nextQty = currentQty + delta.quantityDelta;
+    if (match && nextQty > 0) {
+      await updateItem(match.id, { quantity: nextQty }, actor);
+      match.quantity = nextQty;
+      continue;
+    }
+    if (match && nextQty <= 0) {
+      await deleteItem(match.id);
+      const idx = existingItems.indexOf(match);
+      if (idx >= 0) existingItems.splice(idx, 1);
+      continue;
+    }
+    if (!match && nextQty > 0) {
+      const created = await createLinkedStoreItem({
+        rackId: delta.rackId,
+        rowNumber: delta.rowNumber,
+        binNumber: delta.binNumber,
+        quantity: nextQty,
+        product: {
+          id: catalogProductId,
+          name: input.productName,
+          sku: input.productSku,
+        },
+        countedBy: actor,
+        linkedByUid: actor.uid,
+        linkedByName: actor.displayName,
+      });
+      existingItems.push(created);
+    }
+  }
 }
 
 export async function deleteItem(itemId: string): Promise<void> {

@@ -239,17 +239,27 @@ service firebase.storage {
         );
     }
 
-    /** YesStore only — do not reuse HR/support helpers here. */
-    function canYesStoreUser() {
+    function isWarehouse() {
+      return signedIn() && userExists() && role() == 'warehouse';
+    }
+
+    /** Head Office store room photos (rack / row / bin). Ops receive spare parts here. */
+    function canReadYesStoreMedia() {
       return signedIn() && userExists() && userDoc().active != false && (
-        role() == 'warehouse' || role() == 'super_admin' || role() == 'admin'
+        isWarehouse() || isOpsUser()
+      );
+    }
+
+    function canWriteYesStoreMedia() {
+      return signedIn() && userExists() && userDoc().active != false && (
+        isWarehouse() || isFullSuperAdmin() || isStaff()
       );
     }
 
     match /yesStore/{level}/{parentId}/{fileName} {
-      allow read: if canYesStoreUser();
-      allow create, update: if canYesStoreUser() && validYesStoreImage();
-      allow delete: if canYesStoreUser();
+      allow read: if canReadYesStoreMedia();
+      allow create, update: if canWriteYesStoreMedia() && validYesStoreImage();
+      allow delete: if canWriteYesStoreMedia();
     }
 
     function canAccessLogisticsBooking(bookingId) {

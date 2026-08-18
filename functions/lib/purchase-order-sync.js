@@ -207,6 +207,7 @@ function buildSearchBlob(doc) {
     doc.vendorName,
     doc.vendorState,
     doc.vendorCountry,
+    doc.vendorCity,
     doc.vendorId,
     doc.referenceNumber,
     doc.status,
@@ -252,6 +253,7 @@ function pickVendorAddressFromPurchaseOrder(raw) {
   return {
     vendorState: clean(addr?.state ?? addr?.province ?? raw?.source_of_supply),
     vendorCountry: clean(addr?.country),
+    vendorCity: clean(addr?.city),
   };
 }
 
@@ -275,6 +277,7 @@ function mapPurchaseOrder(raw) {
     vendorName: raw.vendor_name ? String(raw.vendor_name) : null,
     vendorState: vendorAddress.vendorState,
     vendorCountry: vendorAddress.vendorCountry,
+    vendorCity: vendorAddress.vendorCity,
     subtotal: Number(raw.sub_total ?? raw.subtotal ?? 0),
     taxTotal: Number(raw.tax_total ?? 0),
     notes: raw.notes ? String(raw.notes) : null,

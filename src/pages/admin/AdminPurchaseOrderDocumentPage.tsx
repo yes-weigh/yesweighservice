@@ -4,7 +4,6 @@ import { Package, Plus, Trash2 } from 'lucide-react';
 import { DecimalAmountInput } from '../../components/DecimalAmountInput';
 import { QuantityStepper } from '../../components/QuantityStepper';
 import { CategoryThumbnail } from '../../components/catalog/CategoryThumbnail';
-import { InvoiceCategoryBadge } from '../../components/invoices/InvoiceCategoryVisual';
 import { DocumentLineItemSpec } from '../../components/invoices/DocumentLineItemSpec';
 import { InvoiceDocumentBody } from '../../components/invoices/InvoiceDocumentBody';
 import { SoDetailCatalogAddSheet } from '../../components/salesOrders/SoDetailCatalogAddSheet';
@@ -19,10 +18,11 @@ import {
 } from '../../lib/admin-purchase-orders';
 import { formatCurrency } from '../../lib/catalog';
 import { newCartLineId } from '../../lib/gatcCart';
-import { formatInvoiceDate, invoiceCategoryLabel, invoiceErrorMessage, invoiceStatusLabel } from '../../lib/invoices';
+import { formatInvoiceDate, invoiceErrorMessage } from '../../lib/invoices';
 import { formatLogisticsDateTime } from '../../lib/logisticsDateTime';
 import { canUpdatePurchaseOrders } from '../../lib/staffAccess';
 import type { DealerInvoiceLineItem } from '../../types/invoices';
+import { loadZohoVendorById, type ZohoVendorOption } from '../../lib/zoho-vendors';
 import type { AdminPurchaseOrderDetailOutletContext } from './adminPurchaseOrderDetailContext';
 
 type EditLine = {
@@ -34,6 +34,24 @@ type EditLine = {
   rate: number;
   imageUrl: string | null;
 };
+
+function vendorPlaceParts(
+  purchaseOrder: Pick<AdminPurchaseOrderDetail, 'vendorCity' | 'vendorState' | 'vendorCountry'>,
+  vendor?: Pick<ZohoVendorOption, 'city' | 'state' | 'country'> | null,
+): string {
+  return [
+    purchaseOrder.vendorCity || vendor?.city,
+    purchaseOrder.vendorState || vendor?.state,
+    purchaseOrder.vendorCountry || vendor?.country,
+  ].filter(Boolean).join(', ');
+}
+
+function purchaseOrderPaidDate(purchaseOrder: AdminPurchaseOrderDetail): string | null {
+  return purchaseOrder.kotakPayout?.date
+    || purchaseOrder.tracking.paymentDate
+    || purchaseOrder.kotakPayout?.associatedAt
+    || null;
+}
 
 const LOCKED_STATUSES = new Set(['cancelled', 'canceled', 'billed', 'closed', 'void']);
 
@@ -265,6 +283,7 @@ export const AdminPurchaseOrderDocumentPage: React.FC = () => {
   const [saveError, setSaveError] = useState('');
   const [catalogOpen, setCatalogOpen] = useState(false);
   const [catalogSession, setCatalogSession] = useState(0);
+  const [vendorDirectory, setVendorDirectory] = useState<ZohoVendorOption | null>(null);
 
   useEffect(() => {
     if (!purchaseOrder) return;
@@ -272,6 +291,29 @@ export const AdminPurchaseOrderDocumentPage: React.FC = () => {
     setLines(nextLines);
     setBaseline(linesFingerprint(nextLines));
     setSaveError('');
+  }, [purchaseOrder]);
+
+  useEffect(() => {
+    const vendorId = purchaseOrder?.vendorId?.trim();
+    if (!purchaseOrder || !vendorId) {
+      setVendorDirectory(null);
+      return;
+    }
+    if (purchaseOrder.vendorCity && purchaseOrder.vendorState && purchaseOrder.vendorCountry) {
+      setVendorDirectory(null);
+      return;
+    }
+    let active = true;
+    void loadZohoVendorById(vendorId)
+      .then(vendor => {
+        if (active) setVendorDirectory(vendor);
+      })
+      .catch(() => {
+        if (active) setVendorDirectory(null);
+      });
+    return () => {
+      active = false;
+    };
   }, [purchaseOrder]);
 
   const dirty = useMemo(
@@ -301,8 +343,9 @@ export const AdminPurchaseOrderDocumentPage: React.FC = () => {
 
   if (!purchaseOrder) return null;
 
-  const categoryLabel = invoiceCategoryLabel(purchaseOrder.purchaseOrderCategory);
   const currency = purchaseOrder.currencyCode || 'INR';
+  const vendorPlace = vendorPlaceParts(purchaseOrder, vendorDirectory);
+  const poDate = purchaseOrder.tracking.poDate || purchaseOrder.date;
 
   const resetFromPo = () => {
     setLines(linesFromPurchaseOrder(purchaseOrder));
@@ -343,42 +386,37 @@ export const AdminPurchaseOrderDocumentPage: React.FC = () => {
 
   return (
     <>
-      <section className="panel glass mb-4" style={{ padding: '1rem 1.25rem' }}>
-        <div className="flex gap-4 flex-wrap" style={{ justifyContent: 'space-between' }}>
-          <div>
-            <div className="text-muted text-sm">Vendor</div>
-            <strong>{purchaseOrder.vendorName ?? '—'}</strong>
+      <section className="goods-receipt-detail__meta mb-4">
+        <div>
+          <div className="text-muted text-sm">Vendor</div>
+          <strong>{purchaseOrder.vendorName ?? '—'}</strong>
+          {vendorPlace ? (
+            <p className="text-muted text-sm mt-1 mb-0">{vendorPlace}</p>
+          ) : null}
+        </div>
+        <div className="goods-receipt-detail__dates goods-receipt-detail__dates--four">
+          <div className="goods-receipt-detail__date goods-receipt-detail__date--po">
+            <div className="text-muted text-sm">PO date</div>
+            <strong>{formatInvoiceDate(poDate)}</strong>
           </div>
-          <div>
-            <div className="text-muted text-sm">Date</div>
-            <strong>{formatInvoiceDate(purchaseOrder.date)}</strong>
+          <div className="goods-receipt-detail__date goods-receipt-detail__date--paid">
+            <div className="text-muted text-sm">Paid</div>
+            <strong>{formatInvoiceDate(purchaseOrderPaidDate(purchaseOrder))}</strong>
           </div>
-          <div>
-            <div className="text-muted text-sm">Delivery</div>
-            {purchaseOrder.deliveryDate ? (
-              <strong>{formatInvoiceDate(purchaseOrder.deliveryDate)}</strong>
-            ) : (
-              <span className="text-muted">—</span>
-            )}
+          <div className="goods-receipt-detail__date goods-receipt-detail__date--sailed">
+            <div className="text-muted text-sm">Sailed</div>
+            <strong>{formatInvoiceDate(purchaseOrder.tracking.sailingDate)}</strong>
           </div>
-          <div>
-            <div className="text-muted text-sm">Status</div>
-            <strong>{invoiceStatusLabel(purchaseOrder.status)}</strong>
-          </div>
-          <div>
-            <div className="text-muted text-sm">Category</div>
-            {categoryLabel ? (
-              <InvoiceCategoryBadge category={purchaseOrder.purchaseOrderCategory} />
-            ) : (
-              <span className="text-muted">—</span>
-            )}
+          <div className="goods-receipt-detail__date goods-receipt-detail__date--received">
+            <div className="text-muted text-sm">Received</div>
+            <strong>{formatInvoiceDate(purchaseOrder.tracking.receivedDate)}</strong>
           </div>
         </div>
         {purchaseOrder.referenceNumber && (
-          <p className="text-muted text-sm mt-3 mb-0">Ref {purchaseOrder.referenceNumber}</p>
+          <p className="text-muted text-sm mb-0">Ref {purchaseOrder.referenceNumber}</p>
         )}
         {purchaseOrder.notes && (
-          <p className="text-muted text-sm mt-2 mb-0">{purchaseOrder.notes}</p>
+          <p className="text-muted text-sm mb-0">{purchaseOrder.notes}</p>
         )}
       </section>
 

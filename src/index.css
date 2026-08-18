@@ -35379,6 +35379,11 @@ button.invoice-detail-top__card {
   gap: 0.75rem 1rem;
 }
 
+.goods-receipt-detail__dates--four {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 0.75rem 0.65rem;
+}
+
 .goods-receipt-detail__date {
   display: flex;
   flex-direction: column;
@@ -35388,6 +35393,10 @@ button.invoice-detail-top__card {
 
 .goods-receipt-detail__date--po strong {
   color: #fbbf24;
+}
+
+.goods-receipt-detail__date--paid strong {
+  color: #fb923c;
 }
 
 .goods-receipt-detail__date--sailed strong {
@@ -35899,6 +35908,16 @@ button.invoice-detail-top__card {
   flex: 0 0 4.5rem;
   min-width: 4.5rem;
   max-width: 4.5rem;
+}
+
+.goods-receipt-receive__location-row--head-office {
+  gap: 0.35rem;
+}
+
+.goods-receipt-receive__location-row--head-office .goods-receipt-receive__field--qty {
+  flex: 0 0 3.75rem;
+  min-width: 3.75rem;
+  max-width: 3.75rem;
 }
 
 .goods-receipt-receive__location-row .product-nc-select,

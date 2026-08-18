@@ -252,6 +252,7 @@ async function backfillPurchaseOrderVendorPlaces(vendors) {
     const patch = {};
     if (!clean(data.vendorState) && vendor.state) patch.vendorState = vendor.state;
     if (!clean(data.vendorCountry) && vendor.country) patch.vendorCountry = vendor.country;
+    if (!clean(data.vendorCity) && vendor.city) patch.vendorCity = vendor.city;
     if (!Object.keys(patch).length) continue;
     batch.set(docSnap.ref, patch, { merge: true });
     pending += 1;

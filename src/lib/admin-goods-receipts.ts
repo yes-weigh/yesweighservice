@@ -23,6 +23,7 @@ import { recordCatalogProductAudit } from './catalogProductAudit/data';
 import {
   applyCatalogSiteInventoryDeltas,
 } from './catalogSiteInventory/data';
+import { applyYesStoreInboundDeltas } from './yesStore/data';
 import { isFreightProductId, isFreightSku } from '../constants/freightLines';
 import { enrichInvoiceDetailImages } from './invoiceLineItemImages';
 import {
@@ -134,21 +135,48 @@ export interface AdminGoodsReceiptDetail {
 }
 
 export type GoodsReceiptReceiveLocation = {
-  zoneId: string;
-  zoneRowNumber: number;
   quantity: number;
+  /** Cochin warehouse (shop products). */
+  zoneId?: string | null;
+  zoneRowNumber?: number | null;
+  /** Head Office store room (spare parts). */
+  rackId?: string | null;
+  rowNumber?: number | null;
+  binNumber?: number | null;
 };
+
+export function isHeadOfficeReceiveLocation(
+  loc: Pick<GoodsReceiptReceiveLocation, 'rackId' | 'rowNumber' | 'binNumber'>,
+): boolean {
+  return Boolean(loc.rackId && loc.rowNumber != null && loc.binNumber != null);
+}
+
+export function isCochinReceiveLocation(
+  loc: Pick<GoodsReceiptReceiveLocation, 'zoneId' | 'zoneRowNumber'>,
+): boolean {
+  return Boolean(loc.zoneId && loc.zoneRowNumber != null);
+}
+
+function receiveLocationKey(loc: GoodsReceiptReceiveLocation): string {
+  if (isHeadOfficeReceiveLocation(loc)) {
+    return `ho:${String(loc.rackId).toLowerCase()}:${loc.rowNumber}:${loc.binNumber}`;
+  }
+  return `cochin:${String(loc.zoneId || '').toLowerCase()}:${loc.zoneRowNumber ?? 0}`;
+}
 
 export type GoodsReceiptReceiveLine = {
   /** Total received qty (sum of location quantities, or standalone when no locations). */
   receivedQty: number;
   /**
-   * Legacy single placement — mirrored from locations[0] when present.
+   * Legacy single Cochin placement — mirrored from locations[0] when present.
    * Prefer `locations`.
    */
   zoneId: string | null;
   zoneRowNumber: number | null;
-  /** Warehouse placements for this line (zone + row + qty each). */
+  rackId: string | null;
+  rowNumber: number | null;
+  binNumber: number | null;
+  /** Warehouse placements for this line. */
   locations: GoodsReceiptReceiveLocation[];
 };
 
@@ -158,7 +186,7 @@ export type GoodsReceiptReceiveCheck = {
   /** Legacy qty-only map — kept in sync when saving. */
   byLineId: Record<string, number>;
   /**
-   * Last placements pushed to Cochin site inventory + product audit.
+   * Last placements pushed to stock + product audit (Cochin zone/row and/or Head Office rack/row/bin).
    * Draft saves update `lines` only; Goods received copies `lines` here after posting.
    */
   postedLines: Record<string, GoodsReceiptReceiveLine>;
@@ -174,6 +202,68 @@ export type GoodsReceiptReceiveCheck = {
   updatedByName: string | null;
 };
 
+function parseReceiveLocation(raw: Record<string, unknown>): GoodsReceiptReceiveLocation | null {
+  const quantity = Math.max(0, Number(raw.quantity));
+  if (!Number.isFinite(quantity) || quantity <= 0) return null;
+  const rackId = raw.rackId != null && String(raw.rackId).trim()
+    ? String(raw.rackId).trim().toLowerCase()
+    : '';
+  const rowNumber = Number(raw.rowNumber);
+  const binNumber = Number(raw.binNumber);
+  if (rackId && Number.isFinite(rowNumber) && rowNumber >= 1 && Number.isFinite(binNumber) && binNumber >= 1) {
+    return {
+      quantity,
+      rackId,
+      rowNumber: Math.floor(rowNumber),
+      binNumber: Math.floor(binNumber),
+    };
+  }
+  const zoneId = raw.zoneId != null && String(raw.zoneId).trim()
+    ? String(raw.zoneId).trim().toLowerCase()
+    : '';
+  const zoneRowNumber = Number(raw.zoneRowNumber);
+  if (zoneId && Number.isFinite(zoneRowNumber) && zoneRowNumber >= 1) {
+    return {
+      quantity,
+      zoneId,
+      zoneRowNumber: Math.floor(zoneRowNumber),
+    };
+  }
+  return null;
+}
+
+function emptyReceiveLine(receivedQty: number): GoodsReceiptReceiveLine {
+  return {
+    receivedQty,
+    zoneId: null,
+    zoneRowNumber: null,
+    rackId: null,
+    rowNumber: null,
+    binNumber: null,
+    locations: [],
+  };
+}
+
+function receiveLineFromLocations(
+  locations: GoodsReceiptReceiveLocation[],
+  fallbackQty = 0,
+): GoodsReceiptReceiveLine {
+  const receivedQty = locations.length > 0
+    ? locations.reduce((sum, loc) => sum + loc.quantity, 0)
+    : fallbackQty;
+  const firstHo = locations.find(isHeadOfficeReceiveLocation) ?? null;
+  const firstCochin = locations.find(isCochinReceiveLocation) ?? null;
+  return {
+    receivedQty,
+    zoneId: firstCochin?.zoneId ?? null,
+    zoneRowNumber: firstCochin?.zoneRowNumber ?? null,
+    rackId: firstHo?.rackId ?? null,
+    rowNumber: firstHo?.rowNumber ?? null,
+    binNumber: firstHo?.binNumber ?? null,
+    locations,
+  };
+}
+
 /** Normalize placements from a saved receive line (supports legacy single zone/row). */
 export function receiveLineLocations(
   line: GoodsReceiptReceiveLine | null | undefined,
@@ -181,21 +271,18 @@ export function receiveLineLocations(
   if (!line) return [];
   if (Array.isArray(line.locations) && line.locations.length > 0) {
     return line.locations
-      .map(loc => ({
-        zoneId: String(loc.zoneId ?? '').trim().toLowerCase(),
-        zoneRowNumber: Math.max(1, Math.floor(Number(loc.zoneRowNumber))),
-        quantity: Math.max(0, Number(loc.quantity)),
-      }))
-      .filter(loc => loc.zoneId && Number.isFinite(loc.zoneRowNumber) && Number.isFinite(loc.quantity));
+      .map(loc => parseReceiveLocation(loc as unknown as Record<string, unknown>))
+      .filter((loc): loc is GoodsReceiptReceiveLocation => Boolean(loc));
   }
-  if (line.zoneId && line.zoneRowNumber != null && Number(line.receivedQty) > 0) {
-    return [{
-      zoneId: String(line.zoneId).trim().toLowerCase(),
-      zoneRowNumber: Math.max(1, Math.floor(Number(line.zoneRowNumber))),
-      quantity: Math.max(0, Number(line.receivedQty)),
-    }];
-  }
-  return [];
+  const legacy = parseReceiveLocation({
+    quantity: Number(line.receivedQty),
+    zoneId: line.zoneId,
+    zoneRowNumber: line.zoneRowNumber,
+    rackId: line.rackId,
+    rowNumber: line.rowNumber,
+    binNumber: line.binNumber,
+  } as Record<string, unknown>);
+  return legacy ? [legacy] : [];
 }
 
 export interface AdminGoodsReceiptsPageResult {
@@ -659,42 +746,26 @@ function mapReceiveLineMap(raw: unknown): {
     const row = value as Record<string, unknown>;
     const qty = Number(row.receivedQty);
     if (!Number.isFinite(qty)) continue;
-    const zoneId = row.zoneId != null && String(row.zoneId).trim()
-      ? String(row.zoneId).trim().toLowerCase()
-      : null;
-    const zoneRowNumber = row.zoneRowNumber != null && Number.isFinite(Number(row.zoneRowNumber))
-      ? Math.max(1, Math.floor(Number(row.zoneRowNumber)))
-      : null;
     const locationsRaw = Array.isArray(row.locations) ? row.locations : [];
     const locations: GoodsReceiptReceiveLocation[] = locationsRaw
       .filter((loc): loc is Record<string, unknown> => Boolean(loc) && typeof loc === 'object')
-      .map(loc => ({
-        zoneId: String(loc.zoneId ?? '').trim().toLowerCase(),
-        zoneRowNumber: Math.max(1, Math.floor(Number(loc.zoneRowNumber))),
-        quantity: Math.max(0, Number(loc.quantity)),
-      }))
-      .filter(loc => (
-        loc.zoneId
-        && Number.isFinite(loc.zoneRowNumber)
-        && Number.isFinite(loc.quantity)
-        && loc.quantity > 0
-      ));
+      .map(loc => parseReceiveLocation(loc))
+      .filter((loc): loc is GoodsReceiptReceiveLocation => Boolean(loc));
+    const legacy = locations.length > 0
+      ? null
+      : parseReceiveLocation({
+        quantity: qty,
+        zoneId: row.zoneId,
+        zoneRowNumber: row.zoneRowNumber,
+        rackId: row.rackId,
+        rowNumber: row.rowNumber,
+        binNumber: row.binNumber,
+      });
     const normalizedLocations = locations.length > 0
       ? locations
-      : (zoneId && zoneRowNumber != null && qty > 0
-        ? [{ zoneId, zoneRowNumber, quantity: qty }]
-        : []);
-    const receivedQty = normalizedLocations.length > 0
-      ? normalizedLocations.reduce((sum, loc) => sum + loc.quantity, 0)
-      : qty;
-    const first = normalizedLocations[0] ?? null;
-    lines[key] = {
-      receivedQty,
-      zoneId: first?.zoneId ?? zoneId,
-      zoneRowNumber: first?.zoneRowNumber ?? zoneRowNumber,
-      locations: normalizedLocations,
-    };
-    byLineId[key] = receivedQty;
+      : (legacy ? [legacy] : []);
+    lines[key] = receiveLineFromLocations(normalizedLocations, qty);
+    byLineId[key] = lines[key].receivedQty;
   }
   return { lines, byLineId };
 }
@@ -719,7 +790,7 @@ function mapReceiveCheck(raw: unknown): GoodsReceiptReceiveCheck | null {
       if (!Number.isFinite(n)) continue;
       byLineId[key] = n;
       if (!lines[key]) {
-        lines[key] = { receivedQty: n, zoneId: null, zoneRowNumber: null, locations: [] };
+        lines[key] = emptyReceiveLine(n);
       }
     }
   }
@@ -833,11 +904,7 @@ export async function fetchAdminGoodsReceiptDetail(
 }
 
 type GoodsReceiptReceiveLineInput = {
-  locations: Array<{
-    zoneId: string;
-    zoneRowNumber: number;
-    quantity: number;
-  }>;
+  locations: GoodsReceiptReceiveLocation[];
 };
 
 function normalizeReceiveLines(
@@ -850,46 +917,54 @@ function normalizeReceiveLines(
     if (!key) continue;
     const locations: GoodsReceiptReceiveLocation[] = [];
     for (const loc of value.locations ?? []) {
+      const quantity = Number(loc.quantity);
+      const rackId = String(loc.rackId ?? '').trim().toLowerCase();
+      const rowNumber = Number(loc.rowNumber);
+      const binNumber = Number(loc.binNumber);
       const zoneId = String(loc.zoneId ?? '').trim().toLowerCase();
       const zoneRowNumber = Number(loc.zoneRowNumber);
-      const quantity = Number(loc.quantity);
-      if (!zoneId && !Number.isFinite(zoneRowNumber) && !(Number.isFinite(quantity) && quantity > 0)) {
+      const hasHo = Boolean(rackId || Number.isFinite(rowNumber) || Number.isFinite(binNumber));
+      const hasCochin = Boolean(zoneId || Number.isFinite(zoneRowNumber));
+      if (!hasHo && !hasCochin && !(Number.isFinite(quantity) && quantity > 0)) {
         continue;
       }
-      if (!zoneId || !Number.isFinite(zoneRowNumber) || zoneRowNumber < 1) {
+      if (hasHo) {
+        if (!rackId || !Number.isFinite(rowNumber) || rowNumber < 1 || !Number.isFinite(binNumber) || binNumber < 1) {
+          throw new Error('Each Head Office location needs a rack, row, and bin.');
+        }
+      } else if (!zoneId || !Number.isFinite(zoneRowNumber) || zoneRowNumber < 1) {
         throw new Error('Each warehouse location needs a zone and row.');
       }
       if (!Number.isFinite(quantity) || quantity < 0) {
         throw new Error('Location qty must be a non-negative number.');
       }
       if (quantity <= 0) continue;
-      locations.push({
-        zoneId,
-        zoneRowNumber: Math.max(1, Math.floor(zoneRowNumber)),
-        quantity: Math.floor(quantity),
-      });
-    }
-    // Merge duplicate zone/row pairs on the same line.
-    const merged = new Map<string, GoodsReceiptReceiveLocation>();
-    for (const loc of locations) {
-      const mergeKey = `${loc.zoneId}:${loc.zoneRowNumber}`;
-      const existing = merged.get(mergeKey);
-      if (existing) {
-        existing.quantity += loc.quantity;
+      if (hasHo) {
+        locations.push({
+          rackId,
+          rowNumber: Math.floor(rowNumber),
+          binNumber: Math.floor(binNumber),
+          quantity: Math.floor(quantity),
+        });
       } else {
-        merged.set(mergeKey, { ...loc });
+        locations.push({
+          zoneId,
+          zoneRowNumber: Math.max(1, Math.floor(zoneRowNumber)),
+          quantity: Math.floor(quantity),
+        });
       }
     }
+    const merged = new Map<string, GoodsReceiptReceiveLocation>();
+    for (const loc of locations) {
+      const mergeKey = receiveLocationKey(loc);
+      const existing = merged.get(mergeKey);
+      if (existing) existing.quantity += loc.quantity;
+      else merged.set(mergeKey, { ...loc });
+    }
     const normalizedLocations = [...merged.values()];
-    const receivedQty = normalizedLocations.reduce((sum, loc) => sum + loc.quantity, 0);
-    const first = normalizedLocations[0] ?? null;
-    lines[key] = {
-      receivedQty,
-      zoneId: first?.zoneId ?? null,
-      zoneRowNumber: first?.zoneRowNumber ?? null,
-      locations: normalizedLocations,
-    };
-    byLineId[key] = receivedQty;
+    const next = receiveLineFromLocations(normalizedLocations);
+    lines[key] = next;
+    byLineId[key] = next.receivedQty;
   }
   return { lines, byLineId };
 }
@@ -904,11 +979,11 @@ function receivePlacementsEqual(
 ): boolean {
   const tally = new Map<string, number>();
   for (const loc of a) {
-    const key = `${loc.zoneId}:${loc.zoneRowNumber}`;
+    const key = receiveLocationKey(loc);
     tally.set(key, (tally.get(key) ?? 0) + loc.quantity);
   }
   for (const loc of b) {
-    const key = `${loc.zoneId}:${loc.zoneRowNumber}`;
+    const key = receiveLocationKey(loc);
     const next = (tally.get(key) ?? 0) - loc.quantity;
     if (next === 0) tally.delete(key);
     else tally.set(key, next);
@@ -973,7 +1048,8 @@ function toClientReceiveCheck(
 /**
  * Persist receive placements on the goods receipt.
  * `draft` stores entries on the bill only.
- * `post` also applies Cochin stock + product audit (delta vs last posted snapshot).
+ * `post` applies Cochin and/or Head Office stock + product audit (delta vs last posted snapshot).
+ * Historical zone/row placements are left as-is; they are not rewritten to rack/bin.
  */
 export async function saveGoodsReceiptReceiveCheck(
   goodsReceiptId: string,
@@ -1031,19 +1107,42 @@ export async function saveGoodsReceiptReceiveCheck(
     )
   ));
 
-  const deltasByProduct = new Map<string, Array<{
+  const cochinDeltasByProduct = new Map<string, Array<{
     zoneId: string;
     zoneRowNumber: number;
     quantityDelta: number;
   }>>();
-  let openCycleId: string | null = null;
+  const headOfficeDeltasByProduct = new Map<string, Array<{
+    rackId: string;
+    rowNumber: number;
+    binNumber: number;
+    quantityDelta: number;
+  }>>();
+  let cochinCycleId: string | null = null;
+  let headOfficeCycleId: string | null = null;
 
   if (input.mode === 'post' && changedLineIds.length > 0) {
-    const openCycle = await getOpenAuditCycle('cochin');
-    if (!openCycle?.id) {
-      throw new Error('No open audit cycle for Cochin. Counting is locked — open a cycle to place stock.');
+    const changedLocs = changedLineIds.flatMap(lineId => [
+      ...receiveLineLocations(postedLines[lineId]),
+      ...receiveLineLocations(lines[lineId]),
+    ]);
+    const needsCochin = changedLocs.some(isCochinReceiveLocation);
+    const needsHeadOffice = changedLocs.some(isHeadOfficeReceiveLocation);
+
+    if (needsCochin) {
+      const openCycle = await getOpenAuditCycle('cochin');
+      if (!openCycle?.id) {
+        throw new Error('No open audit cycle for Cochin. Counting is locked — open a cycle to place stock.');
+      }
+      cochinCycleId = openCycle.id;
     }
-    openCycleId = openCycle.id;
+    if (needsHeadOffice) {
+      const openCycle = await getOpenAuditCycle('head_office');
+      if (!openCycle?.id) {
+        throw new Error('No open audit cycle for Head Office. Counting is locked — open a cycle to place stock.');
+      }
+      headOfficeCycleId = openCycle.id;
+    }
 
     for (const lineId of changedLineIds) {
       const itemId = itemIdByLineId.get(lineId);
@@ -1051,23 +1150,28 @@ export async function saveGoodsReceiptReceiveCheck(
       const needsForward = receiveLineHasPlacement(lines[lineId]);
       if (!itemId) {
         if (needsForward) {
-          throw new Error(`No catalog product linked for ${lineName} — cannot place zone/row.`);
+          throw new Error(`No catalog product linked for ${lineName} — cannot place stock.`);
         }
         continue;
       }
       const productSnap = await getDoc(doc(db, 'catalogProducts', itemId));
-      if (!productSnap.exists()) {
-        if (needsForward) {
-          throw new Error(`Catalog product not found for ${lineName}.`);
-        }
+      if (!productSnap.exists() && needsForward) {
+        throw new Error(`Catalog product not found for ${lineName}.`);
       }
     }
 
-    const ensureProductDeltas = (catalogProductId: string) => {
-      let deltas = deltasByProduct.get(catalogProductId);
+    const ensureCochinDeltas = (catalogProductId: string) => {
+      let deltas = cochinDeltasByProduct.get(catalogProductId);
       if (deltas) return deltas;
       deltas = [];
-      deltasByProduct.set(catalogProductId, deltas);
+      cochinDeltasByProduct.set(catalogProductId, deltas);
+      return deltas;
+    };
+    const ensureHeadOfficeDeltas = (catalogProductId: string) => {
+      let deltas = headOfficeDeltasByProduct.get(catalogProductId);
+      if (deltas) return deltas;
+      deltas = [];
+      headOfficeDeltasByProduct.set(catalogProductId, deltas);
       return deltas;
     };
 
@@ -1076,21 +1180,26 @@ export async function saveGoodsReceiptReceiveCheck(
       if (!catalogProductId) continue;
       const prevLocs = receiveLineLocations(postedLines[lineId]);
       const nextLocs = receiveLineLocations(lines[lineId]);
-      const deltas = ensureProductDeltas(catalogProductId);
-      for (const loc of prevLocs) {
-        deltas.push({
-          zoneId: loc.zoneId,
-          zoneRowNumber: loc.zoneRowNumber,
-          quantityDelta: -loc.quantity,
-        });
-      }
-      for (const loc of nextLocs) {
-        deltas.push({
-          zoneId: loc.zoneId,
-          zoneRowNumber: loc.zoneRowNumber,
-          quantityDelta: loc.quantity,
-        });
-      }
+      const pushLoc = (loc: GoodsReceiptReceiveLocation, sign: 1 | -1) => {
+        if (isHeadOfficeReceiveLocation(loc) && loc.rackId && loc.rowNumber != null && loc.binNumber != null) {
+          ensureHeadOfficeDeltas(catalogProductId).push({
+            rackId: loc.rackId,
+            rowNumber: loc.rowNumber,
+            binNumber: loc.binNumber,
+            quantityDelta: sign * loc.quantity,
+          });
+          return;
+        }
+        if (isCochinReceiveLocation(loc) && loc.zoneId && loc.zoneRowNumber != null) {
+          ensureCochinDeltas(catalogProductId).push({
+            zoneId: loc.zoneId,
+            zoneRowNumber: loc.zoneRowNumber,
+            quantityDelta: sign * loc.quantity,
+          });
+        }
+      };
+      for (const loc of prevLocs) pushLoc(loc, -1);
+      for (const loc of nextLocs) pushLoc(loc, 1);
     }
   }
 
@@ -1115,27 +1224,45 @@ export async function saveGoodsReceiptReceiveCheck(
     throw new Error(invoiceErrorMessage(err));
   }
 
-  const productsToAudit = new Set<string>(deltasByProduct.keys());
+  const productsToAuditCochin = new Set<string>(cochinDeltasByProduct.keys());
+  const productsToAuditHeadOffice = new Set<string>(headOfficeDeltasByProduct.keys());
   if (input.mode === 'post' && input.auditedAt) {
     for (const [lineId, line] of Object.entries(lines)) {
       if (!receiveLineHasPlacement(line)) continue;
       const catalogProductId = itemIdByLineId.get(lineId);
-      if (catalogProductId) productsToAudit.add(catalogProductId);
+      if (!catalogProductId) continue;
+      const locs = receiveLineLocations(line);
+      if (locs.some(isCochinReceiveLocation)) productsToAuditCochin.add(catalogProductId);
+      if (locs.some(isHeadOfficeReceiveLocation)) productsToAuditHeadOffice.add(catalogProductId);
     }
   }
 
-  if (input.mode === 'post' && productsToAudit.size > 0 && !openCycleId) {
+  if (input.mode === 'post' && productsToAuditCochin.size > 0 && !cochinCycleId) {
     const openCycle = await getOpenAuditCycle('cochin');
     if (!openCycle?.id) {
       throw new Error('No open audit cycle for Cochin. Counting is locked — open a cycle to place stock.');
     }
-    openCycleId = openCycle.id;
+    cochinCycleId = openCycle.id;
+  }
+  if (input.mode === 'post' && productsToAuditHeadOffice.size > 0 && !headOfficeCycleId) {
+    const openCycle = await getOpenAuditCycle('head_office');
+    if (!openCycle?.id) {
+      throw new Error('No open audit cycle for Head Office. Counting is locked — open a cycle to place stock.');
+    }
+    headOfficeCycleId = openCycle.id;
   }
 
   const inboundAlreadyInZoho = Boolean(input.zohoAlreadyIncludesInbound);
   const auditedProducts = new Set<string>();
+  const productMeta = (catalogProductId: string) => {
+    const line = input.lineItems.find(item => (item.itemId?.trim() || null) === catalogProductId);
+    return {
+      name: line?.name?.trim() || catalogProductId,
+      sku: line?.sku?.trim() || null,
+    };
+  };
   try {
-    for (const [catalogProductId, deltas] of deltasByProduct) {
+    for (const [catalogProductId, deltas] of cochinDeltasByProduct) {
       await applyCatalogSiteInventoryDeltas({
         catalogProductId,
         site: 'cochin',
@@ -1144,16 +1271,41 @@ export async function saveGoodsReceiptReceiveCheck(
         updatedByName: actor.displayName,
       });
     }
-    for (const catalogProductId of productsToAudit) {
-      if (!openCycleId) continue;
+    for (const [catalogProductId, deltas] of headOfficeDeltasByProduct) {
+      const meta = productMeta(catalogProductId);
+      await applyYesStoreInboundDeltas({
+        catalogProductId,
+        productName: meta.name,
+        productSku: meta.sku,
+        deltas,
+        actor,
+      });
+    }
+    for (const catalogProductId of productsToAuditCochin) {
+      if (!cochinCycleId) continue;
       await recordCatalogProductAudit(
         catalogProductId,
         'cochin_inventory',
-        openCycleId,
+        cochinCycleId,
         {
           auditedAt: input.auditedAt ?? null,
           incomingZohoQty: zohoInboundQtyForProduct(input.lineItems, catalogProductId),
           cochinInboundQty: placedQtyForProduct(lines, itemIdByLineId, catalogProductId),
+          sourceGoodsReceiptId: id,
+          inboundAlreadyInZoho,
+        },
+      );
+      auditedProducts.add(catalogProductId);
+    }
+    for (const catalogProductId of productsToAuditHeadOffice) {
+      if (!headOfficeCycleId) continue;
+      await recordCatalogProductAudit(
+        catalogProductId,
+        'warehouse_count',
+        headOfficeCycleId,
+        {
+          auditedAt: input.auditedAt ?? null,
+          incomingZohoQty: zohoInboundQtyForProduct(input.lineItems, catalogProductId),
           sourceGoodsReceiptId: id,
           inboundAlreadyInZoho,
         },
@@ -1219,24 +1371,49 @@ export async function setGoodsReceiptLineHidden(
     delete nextPostedLines[targetLineId];
   }
 
-  let openCycleId: string | null = null;
+  let cochinCycleId: string | null = null;
+  let headOfficeCycleId: string | null = null;
   let reverseProductId: string | null = null;
-  const reverseDeltas: Array<{ zoneId: string; zoneRowNumber: number; quantityDelta: number }> = [];
+  const cochinReverseDeltas: Array<{ zoneId: string; zoneRowNumber: number; quantityDelta: number }> = [];
+  const headOfficeReverseDeltas: Array<{
+    rackId: string;
+    rowNumber: number;
+    binNumber: number;
+    quantityDelta: number;
+  }> = [];
   if (postedLocs.length > 0) {
     const line = options.lineItems.find(l => l.id === targetLineId);
     reverseProductId = line?.itemId?.trim() || null;
     if (reverseProductId) {
-      const openCycle = await getOpenAuditCycle('cochin');
-      if (!openCycle?.id) {
-        throw new Error('No open audit cycle for Cochin. Counting is locked — open a cycle to update stock.');
-      }
-      openCycleId = openCycle.id;
       for (const loc of postedLocs) {
-        reverseDeltas.push({
-          zoneId: loc.zoneId,
-          zoneRowNumber: loc.zoneRowNumber,
-          quantityDelta: -loc.quantity,
-        });
+        if (isHeadOfficeReceiveLocation(loc) && loc.rackId && loc.rowNumber != null && loc.binNumber != null) {
+          headOfficeReverseDeltas.push({
+            rackId: loc.rackId,
+            rowNumber: loc.rowNumber,
+            binNumber: loc.binNumber,
+            quantityDelta: -loc.quantity,
+          });
+        } else if (isCochinReceiveLocation(loc) && loc.zoneId && loc.zoneRowNumber != null) {
+          cochinReverseDeltas.push({
+            zoneId: loc.zoneId,
+            zoneRowNumber: loc.zoneRowNumber,
+            quantityDelta: -loc.quantity,
+          });
+        }
+      }
+      if (cochinReverseDeltas.length > 0) {
+        const openCycle = await getOpenAuditCycle('cochin');
+        if (!openCycle?.id) {
+          throw new Error('No open audit cycle for Cochin. Counting is locked — open a cycle to update stock.');
+        }
+        cochinCycleId = openCycle.id;
+      }
+      if (headOfficeReverseDeltas.length > 0) {
+        const openCycle = await getOpenAuditCycle('head_office');
+        if (!openCycle?.id) {
+          throw new Error('No open audit cycle for Head Office. Counting is locked — open a cycle to update stock.');
+        }
+        headOfficeCycleId = openCycle.id;
       }
     }
   }
@@ -1265,16 +1442,29 @@ export async function setGoodsReceiptLineHidden(
   }
 
   try {
-    if (reverseProductId && reverseDeltas.length > 0) {
+    if (reverseProductId && cochinReverseDeltas.length > 0) {
       await applyCatalogSiteInventoryDeltas({
         catalogProductId: reverseProductId,
         site: 'cochin',
-        deltas: reverseDeltas,
+        deltas: cochinReverseDeltas,
         updatedByUid: actor.uid,
         updatedByName: actor.displayName,
       });
-      if (openCycleId) {
-        await recordCatalogProductAudit(reverseProductId, 'cochin_inventory', openCycleId);
+      if (cochinCycleId) {
+        await recordCatalogProductAudit(reverseProductId, 'cochin_inventory', cochinCycleId);
+      }
+    }
+    if (reverseProductId && headOfficeReverseDeltas.length > 0) {
+      const line = options.lineItems.find(l => l.id === targetLineId);
+      await applyYesStoreInboundDeltas({
+        catalogProductId: reverseProductId,
+        productName: line?.name?.trim() || reverseProductId,
+        productSku: line?.sku?.trim() || null,
+        deltas: headOfficeReverseDeltas,
+        actor,
+      });
+      if (headOfficeCycleId) {
+        await recordCatalogProductAudit(reverseProductId, 'warehouse_count', headOfficeCycleId);
       }
     }
   } catch (err) {

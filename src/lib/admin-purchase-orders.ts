@@ -109,6 +109,7 @@ export interface AdminFirestorePurchaseOrder {
   vendorName: string | null;
   vendorState: string | null;
   vendorCountry: string | null;
+  vendorCity: string | null;
   date: string | null;
   createdTime?: string | null;
   deliveryDate: string | null;
@@ -182,6 +183,9 @@ export interface AdminPurchaseOrderDetail {
   currencyCode: string;
   vendorId: string;
   vendorName: string | null;
+  vendorCity: string | null;
+  vendorState: string | null;
+  vendorCountry: string | null;
   purchaseOrderCategory: InvoiceCategory | null;
   categories: InvoiceCategory[];
   categoryAmounts: Partial<Record<InvoiceCategory, number>>;
@@ -250,6 +254,7 @@ export function mapAdminPurchaseOrderDoc(
     vendorName: data.vendorName ? String(data.vendorName) : null,
     vendorState: data.vendorState ? String(data.vendorState) : null,
     vendorCountry: data.vendorCountry ? String(data.vendorCountry) : null,
+    vendorCity: data.vendorCity ? String(data.vendorCity) : null,
     date: data.date ? String(data.date) : null,
     createdTime: firstDateTimeValue(
       timestampToIso(data.createdTime),
@@ -590,6 +595,7 @@ export function filterAdminPurchaseOrders(
     const haystack = [
       row.purchaseOrderNumber,
       row.vendorName,
+      row.vendorCity,
       row.vendorState,
       row.vendorCountry,
       row.vendorId,
@@ -652,6 +658,9 @@ export function mapAdminPurchaseOrderDetail(
     currencyCode: data.currencyCode ? String(data.currencyCode).toUpperCase() : 'INR',
     vendorId: String(data.vendorId ?? ''),
     vendorName: data.vendorName ? String(data.vendorName) : null,
+    vendorCity: data.vendorCity ? String(data.vendorCity) : null,
+    vendorState: data.vendorState ? String(data.vendorState) : null,
+    vendorCountry: data.vendorCountry ? String(data.vendorCountry) : null,
     purchaseOrderCategory: parseInvoiceCategory(data.purchaseOrderCategory),
     categories: normalizeInvoiceCategories(data.categories),
     categoryAmounts: normalizeInvoiceCategoryAmounts(data.categoryAmounts),

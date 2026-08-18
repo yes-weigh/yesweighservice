@@ -76,6 +76,14 @@ export async function loadZohoVendors(): Promise<ZohoVendorOption[]> {
     .sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: 'base' }));
 }
 
+export async function loadZohoVendorById(vendorId: string): Promise<ZohoVendorOption | null> {
+  const id = String(vendorId || '').trim();
+  if (!id) return null;
+  const snap = await getDoc(doc(db, 'zohoVendors', id));
+  if (!snap.exists()) return null;
+  return mapZohoVendorDoc(snap.id, snap.data());
+}
+
 export async function loadZohoVendorDirectory(): Promise<Map<string, ZohoVendorOption>> {
   const rows = await loadZohoVendors();
   return new Map(rows.map(row => [row.id, row]));

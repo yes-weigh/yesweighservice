@@ -42,7 +42,7 @@ const LIST_PAGE_SIZE = 25;
 const DEFAULT_RANGE: SalesRangePreset = 'financial_year';
 const DEFAULT_SORT: AdminGoodsReceiptSort = 'date';
 const DEFAULT_LOCATION: GoodsReceiptLocationFilter = 'all';
-const DEFAULT_SHIPMENT: GoodsReceiptShipmentFilter = 'all';
+const DEFAULT_SHIPMENT: GoodsReceiptShipmentFilter = 'scheduled';
 
 const LOCATION_BLOCKS: Array<{ value: GoodsReceiptLocationFilter; label: string }> = [
   { value: 'all', label: 'All' },
@@ -51,9 +51,9 @@ const LOCATION_BLOCKS: Array<{ value: GoodsReceiptLocationFilter; label: string 
 ];
 
 const SHIPMENT_BLOCKS: Array<{ value: GoodsReceiptShipmentFilter; label: string }> = [
-  { value: 'all', label: 'All' },
   { value: 'scheduled', label: 'Scheduled' },
   { value: 'received', label: 'Received' },
+  { value: 'all', label: 'All' },
 ];
 
 const EMPTY_LOCATION_COUNTS: AdminGoodsReceiptLocationCounts = {
