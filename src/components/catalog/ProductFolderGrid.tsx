@@ -16,6 +16,7 @@ export interface ProductFolderGridProps {
   warehouseLinkedProductIds?: Set<string>;
   openNcQtyByProductId?: Map<string, number>;
   auditedLocationByProductId?: Map<string, string>;
+  raisedPoQtyByProductId?: Map<string, number>;
   onLongPressProduct?: (product: CatalogProduct) => void;
 }
 
@@ -33,6 +34,7 @@ export const ProductFolderGrid: React.FC<ProductFolderGridProps> = ({
   warehouseLinkedProductIds,
   openNcQtyByProductId,
   auditedLocationByProductId,
+  raisedPoQtyByProductId,
   onLongPressProduct,
 }) => {
   const [localProducts, setLocalProducts] = useState<CatalogProduct[]>(products);
@@ -102,6 +104,7 @@ export const ProductFolderGrid: React.FC<ProductFolderGridProps> = ({
           warehouseLinked={warehouseLinkedProductIds?.has(product.id)}
           openNcCount={openNcQtyByProductId?.get(product.id)}
           auditedLocationLabel={auditedLocationByProductId?.get(product.id)}
+          raisedPoQty={raisedPoQtyByProductId?.get(product.id)}
           onLongPress={onLongPressProduct}
           dragProps={{
             draggable: true,

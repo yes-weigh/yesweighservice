@@ -8,8 +8,9 @@ import {
   List,
   Package,
   Search,
+  Ship,
 } from 'lucide-react';
-import { compareCatalogProductsInCategory, isHiddenCatalogCategory } from '../../lib/catalog';
+import { compareCatalogProductsInCategory, isHiddenCatalogCategory, formatStockQuantity } from '../../lib/catalog';
 import { catalogGridStockQty } from '../../lib/catalogProductAudit/display';
 import { buildProductNavState, buildSpareNavState, catalogOriginFromReturnView } from '../../lib/catalogNav';
 import type { CatalogNavState } from '../../lib/catalogNav';
@@ -89,6 +90,8 @@ export interface CatalogBrowseProps {
   openNcQtyByProductId?: Map<string, number>;
   /** Staff/super_admin — audited location label per product id. */
   auditedLocationByProductId?: Map<string, string>;
+  /** Staff/super_admin — open / raised PO qty per product id. */
+  raisedPoQtyByProductId?: Map<string, number>;
   /** Staff/super_admin — long-press product tile (e.g. Zoho warehouse move). */
   onLongPressProduct?: (product: CatalogProduct) => void;
   /** Emphasize this product after returning from detail. */
@@ -103,10 +106,12 @@ function ProductListRow({
   product,
   onSelect,
   showStockQuantity = false,
+  raisedPoQty = null,
 }: {
   product: CatalogProduct;
   onSelect: () => void;
   showStockQuantity?: boolean;
+  raisedPoQty?: number | null;
 }) {
   const gridStockQty = catalogGridStockQty(product);
   const gridStockStatus = gridStockQty <= 0
@@ -131,6 +136,12 @@ function ProductListRow({
             status={gridStockStatus}
             compact
           />
+        )}
+        {raisedPoQty != null && raisedPoQty > 0 && (
+          <span className="catalog-product-card__on-order" title="Raised purchase order quantity">
+            <Ship size={12} strokeWidth={2.5} aria-hidden />
+            <span>{formatStockQuantity(raisedPoQty, product.unit)}</span>
+          </span>
         )}
       </div>
       <div className="catalog-row__price">
@@ -256,6 +267,7 @@ export const CatalogBrowse: React.FC<CatalogBrowseProps> = ({
   warehouseLinkedProductIds,
   openNcQtyByProductId,
   auditedLocationByProductId,
+  raisedPoQtyByProductId,
   onLongPressProduct,
   highlightedProductId = null,
   onProductSelect,
@@ -535,6 +547,7 @@ export const CatalogBrowse: React.FC<CatalogBrowseProps> = ({
               warehouseLinkedProductIds={warehouseLinkedProductIds}
               openNcQtyByProductId={openNcQtyByProductId}
               auditedLocationByProductId={auditedLocationByProductId}
+              raisedPoQtyByProductId={raisedPoQtyByProductId}
               onLongPressProduct={onLongPressProduct}
             />
           ) : filterMode === 'minimal' || viewMode === 'grid' ? (
@@ -566,6 +579,7 @@ export const CatalogBrowse: React.FC<CatalogBrowseProps> = ({
                   warehouseLinked={warehouseLinkedProductIds?.has(product.id)}
                   openNcCount={openNcQtyByProductId?.get(product.id)}
                   auditedLocationLabel={auditedLocationByProductId?.get(product.id)}
+                  raisedPoQty={raisedPoQtyByProductId?.get(product.id)}
                   onLongPress={onLongPressProduct}
                   highlighted={highlightedProductId === product.id}
                 />
@@ -579,6 +593,7 @@ export const CatalogBrowse: React.FC<CatalogBrowseProps> = ({
                   product={product}
                   onSelect={() => openProduct(product)}
                   showStockQuantity={showStockQuantity}
+                  raisedPoQty={raisedPoQtyByProductId?.get(product.id)}
                 />
               ))}
             </div>

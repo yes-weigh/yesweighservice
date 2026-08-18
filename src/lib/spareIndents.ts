@@ -157,7 +157,7 @@ async function scanPurchasesForItem(
   return null;
 }
 
-/** Last PO vendor, then last goods-receipt vendor. Staff often only has GR read. */
+/** Last PO vendor, then last goods-receipt vendor. */
 export async function loadLatestSupplierForItemId(itemId: string): Promise<SpareIndentSupplier | null> {
   const id = itemId.trim();
   if (!id) return null;
@@ -165,7 +165,7 @@ export async function loadLatestSupplierForItemId(itemId: string): Promise<Spare
     const fromPo = await scanPurchasesForItem('purchaseOrders', id);
     if (fromPo) return fromPo;
   } catch {
-    // Staff cannot read purchaseOrders.
+    // Fall through to goods receipts if PO scan is denied.
   }
   try {
     return await scanPurchasesForItem('goodsReceipts', id);

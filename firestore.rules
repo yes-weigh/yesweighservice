@@ -381,10 +381,11 @@ service cloud.firestore {
       );
     }
 
-    // Org-wide Zoho purchase orders — view any super admin; Zoho writes via functions.
+    // Org-wide Zoho purchase orders — staff and super admin may read
+    // (catalog on-order qty + spare indent last-purchase). Zoho writes via functions.
     // Full super admin may attach a vendor PI and bill of lading only.
     match /purchaseOrders/{poId} {
-      allow read: if isSuperAdmin();
+      allow read: if isOpsUser();
       allow create, delete: if false;
       allow update: if isFullSuperAdmin()
         && request.resource.data.diff(resource.data).affectedKeys()
@@ -410,9 +411,10 @@ service cloud.firestore {
     }
 
     // Draft Zoho purchase bills mirrored as goods receipts.
-    // Invoice-access staff (and sales/admin dept) may read + update receive-check only.
+    // Staff and super admin may read (catalog ship qty after receive).
+    // Invoice-access staff (and sales/admin dept) may update receive-check only.
     match /goodsReceipts/{billId} {
-      allow read: if isSuperAdmin() || staffHasInvoiceView();
+      allow read: if isOpsUser();
       allow create, delete: if false;
       allow update: if (isFullSuperAdmin() || staffHasInvoiceView())
         && request.resource.data.diff(resource.data).affectedKeys()

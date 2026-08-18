@@ -1,9 +1,10 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { ArrowDown, ArrowUp, IndianRupee, Link2, Minus, Package, ShoppingCart } from 'lucide-react';
+import { ArrowDown, ArrowUp, IndianRupee, Link2, Minus, Package, Ship, ShoppingCart } from 'lucide-react';
 import { getCategoryTheme } from '../../lib/category-display';
 import {
   catalogProductHasSingleBoxPackageInfo,
   expectsCatalogPackageInfo,
+  formatStockQuantity,
 } from '../../lib/catalog';
 import {
   catalogGridStockQty,
@@ -63,6 +64,8 @@ export interface ProductBrowseCardProps {
   openNcCount?: number;
   /** Audited location label (Zone·Row or Rack·Row·Bin) — staff/super_admin. */
   auditedLocationLabel?: string | null;
+  /** Open / raised PO qty — staff/super_admin. */
+  raisedPoQty?: number | null;
   /** Long-press (e.g. update Zoho warehouse) — staff/super_admin. */
   onLongPress?: (product: CatalogProduct) => void;
   /** Emphasize after returning from product detail. */
@@ -100,6 +103,7 @@ export const ProductBrowseCard: React.FC<ProductBrowseCardProps> = ({
   warehouseLinked = false,
   openNcCount,
   auditedLocationLabel = null,
+  raisedPoQty = null,
   onLongPress,
   highlighted = false,
   editable = false,
@@ -223,6 +227,8 @@ export const ProductBrowseCard: React.FC<ProductBrowseCardProps> = ({
         : auditDiff < 0 ? 'under'
           : 'match';
   const showAuditInfo = auditDisplay?.hasAuditSnapshot === true && auditDiff != null;
+  const onOrderQty = Number(raisedPoQty);
+  const showOnOrderQty = Number.isFinite(onOrderQty) && onOrderQty > 0;
 
   const cardStyle = {
     '--cat-accent': theme.accent,
@@ -354,14 +360,25 @@ export const ProductBrowseCard: React.FC<ProductBrowseCardProps> = ({
                 </>
               )}
             </div>
-            {showStockQuantity && (
+            {(showStockQuantity || showOnOrderQty) && (
               <div className="catalog-product-card__stock-meta">
-                <StockQuantity
-                  stock={gridStockQty}
-                  unit={product.unit}
-                  status={gridStockStatus}
-                  compact
-                />
+                {showStockQuantity && (
+                  <StockQuantity
+                    stock={gridStockQty}
+                    unit={product.unit}
+                    status={gridStockStatus}
+                    compact
+                  />
+                )}
+                {showOnOrderQty && (
+                  <span
+                    className="catalog-product-card__on-order"
+                    title="Raised purchase order quantity"
+                  >
+                    <Ship size={12} strokeWidth={2.5} aria-hidden />
+                    <span>{formatStockQuantity(onOrderQty, product.unit)}</span>
+                  </span>
+                )}
                 {dealerInboundOnly && (
                   <span
                     className="catalog-product-card__inbound-chip"

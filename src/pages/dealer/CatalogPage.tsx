@@ -14,6 +14,7 @@ import { useAuth } from '../../context/AuthContext';
 import { useConfirm } from '../../context/ConfirmContext';
 import { useCatalogPageHeader, usePageHeaderSlot, useTopBarAction } from '../../context/PageHeaderContext';
 import { useDealerPriceLevels } from '../../hooks/useDealerUnitPrice';
+import { useRaisedPoQtyByProductId } from '../../hooks/useRaisedPoQtyByProductId';
 import { canViewCatalogStock, isDealerPortalUser } from '../../lib/dealerAccess';
 import { SPARE_PRICE_LEVEL_CATEGORY_ID } from '../../types/priceLevels';
 import { canViewDealersInHr, hasStaffPermission } from '../../lib/staffAccess';
@@ -191,6 +192,7 @@ export const CatalogPage: React.FC = () => {
   const canUseCatalogFilters = isSuperAdmin || isStaff;
   const showStockQuantity = canSync || canViewCatalogStock(user);
   const showAuditedLocations = isSuperAdmin || isStaff;
+  const raisedPoQtyByProductId = useRaisedPoQtyByProductId(isSuperAdmin || isStaff);
   /** Matches firestore `canAccessYesStore` — staff cannot list yesStoreItems. */
   const canReadYesStore = isSuperAdmin || user?.role === 'warehouse';
 
@@ -1952,6 +1954,7 @@ export const CatalogPage: React.FC = () => {
           isCartable={isCartable}
           showStockQuantity={showStockQuantity}
           dealerView={dealerView}
+          raisedPoQtyByProductId={raisedPoQtyByProductId}
           unlinkedSpareIds={linkedSpareIds ?? undefined}
           onLinkSpare={canSync ? spare => void openLinkEditor(spare) : undefined}
           isLoading={loading || (isMedia && mediaIndexLoading)}
@@ -2019,6 +2022,7 @@ export const CatalogPage: React.FC = () => {
             spareLinkCountByProductId={canSync ? spareCountByProductId ?? undefined : undefined}
             openNcQtyByProductId={canUseCatalogFilters ? openNcQtyByProductId : undefined}
             auditedLocationByProductId={auditedLocationByProductId}
+            raisedPoQtyByProductId={raisedPoQtyByProductId}
             onLongPressProduct={canTransferWarehouseLocation ? handleLongPressWarehouseLocation : undefined}
             activeCategoryId={categoryId}
             onActiveCategoryChange={setCategoryId}
@@ -2074,6 +2078,7 @@ export const CatalogPage: React.FC = () => {
           showStockQuantity={showStockQuantity}
           dealerView={dealerView}
           spareLinkCountByProductId={spareCountByProductId ?? undefined}
+          raisedPoQtyByProductId={raisedPoQtyByProductId}
           hideFilterBar
           searchQuery={committedSearchQuery}
           onSearchChange={handleSearchChange}
@@ -2098,6 +2103,7 @@ export const CatalogPage: React.FC = () => {
           productsBasePath={`${pathname}/spare`}
           showStockQuantity={showStockQuantity}
           dealerView={dealerView}
+          raisedPoQtyByProductId={raisedPoQtyByProductId}
           returnView="unlinked"
           manageItemLabel="Link to products"
           onManageItem={spare => void openLinkEditor(spare)}
@@ -2151,6 +2157,7 @@ export const CatalogPage: React.FC = () => {
               highlightedProductId={highlightProductId}
               onProductSelect={openSpareFromFilteredList}
               auditedLocationByProductId={auditedLocationByProductId}
+              raisedPoQtyByProductId={raisedPoQtyByProductId}
               onLongPressProduct={canTransferWarehouseLocation ? handleLongPressWarehouseLocation : undefined}
               manageItemLabel={isSuperAdmin && canSync && spareCatalogFilters.has('unmapped') ? 'Link to products' : undefined}
               onManageItem={

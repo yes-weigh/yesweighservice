@@ -4,6 +4,7 @@ import { AlertCircle, Boxes, Link2, Package, RefreshCw, Search } from 'lucide-re
 import { CatalogBrowse } from '../../components/catalog/CatalogBrowse';
 import { SpareLinkEditor } from '../../components/catalog/SpareLinkEditor';
 import { useAuth } from '../../context/AuthContext';
+import { useRaisedPoQtyByProductId } from '../../hooks/useRaisedPoQtyByProductId';
 import { canViewCatalogStock, isDealerPortalUser } from '../../lib/dealerAccess';
 import { hasStaffPermission } from '../../lib/staffAccess';
 import {
@@ -45,6 +46,9 @@ export const SparesPage: React.FC = () => {
   );
   const showStockQuantity = canSync || canViewCatalogStock(user);
   const dealerView = isDealerPortalUser(user);
+  const raisedPoQtyByProductId = useRaisedPoQtyByProductId(
+    user?.role === 'super_admin' || user?.role === 'staff',
+  );
   const viewMode = parseViewMode(searchParams.get('view'), canSync);
 
   const [catalog, setCatalog] = useState<CatalogResponse | null>(null);
@@ -427,6 +431,7 @@ export const SparesPage: React.FC = () => {
           isCartable={isCartable}
           showStockQuantity={showStockQuantity}
           dealerView={dealerView}
+          raisedPoQtyByProductId={raisedPoQtyByProductId}
           spareLinkCountByProductId={canSync ? spareCountByProductId ?? undefined : undefined}
           searchPlaceholder="Search products to map spares…"
           simpleCategoryTiles
@@ -448,6 +453,7 @@ export const SparesPage: React.FC = () => {
           productsBasePath={pathname}
           showStockQuantity={showStockQuantity}
           dealerView={dealerView}
+          raisedPoQtyByProductId={raisedPoQtyByProductId}
           returnView="unlinked"
           manageItemLabel="Link to products"
           onManageItem={spare => void openLinkEditor(spare)}
@@ -479,6 +485,7 @@ export const SparesPage: React.FC = () => {
           isCartable={isCartable}
           showStockQuantity={showStockQuantity}
           dealerView={dealerView}
+          raisedPoQtyByProductId={raisedPoQtyByProductId}
           returnView="spares"
         />
       )}
