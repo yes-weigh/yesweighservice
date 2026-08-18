@@ -935,7 +935,9 @@ export async function submitSalesOrderPayment(uid, role, payload = {}) {
 
 /**
  * Super admin or ops with orders.manage: verify payment → Confirm Zoho SO
- * → create Invoice → (B2B only) push e-invoice to IRP → mark invoice Sent → completed.
+ * → create Invoice → (B2B only) push e-invoice to IRP (no e-way bill)
+ * → mark invoice Sent → completed.
+ * E-way bills are generated later by logistics (Generate e-way bill).
  */
 export async function verifySalesOrderPayment(uid, role, salesOrderId, secrets, orgId) {
   const user = await loadUser(uid);

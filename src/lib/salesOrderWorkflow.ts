@@ -423,7 +423,7 @@ export function markInvoicedPortalRouteSteps(
   if (stage !== 'payment_submitted') {
     steps.push('Submit payment proof on this page (dealer upload or staff payment screenshot / note).');
   }
-  steps.push('Super admin: use Verify & invoice to confirm payment and create the Zoho invoice.');
+  steps.push('Super admin: use Verify & invoice to confirm payment and create the Zoho invoice and e-invoice.');
   return steps;
 }
 

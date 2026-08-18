@@ -492,7 +492,7 @@ export const AdminInvoiceDetailLayout: React.FC = () => {
         lrNumber: existingBooking?.consignmentNo?.trim() || existingBooking?.trackingNo?.trim() || null,
         bookingId: existingBooking?.id || null,
         invoiceTotalInr: invoice.total ?? null,
-        autoGenerate: Boolean(user && isInternalOpsUser(user) && canCreateLogisticsBooking(user)),
+        autoGenerate: false,
         forceRequired: Boolean(
           existingBooking
           && clubbedNeedsEwayBill(existingBooking.invoices ?? existingBooking.invoiceValueInr ?? 0),
@@ -525,7 +525,6 @@ export const AdminInvoiceDetailLayout: React.FC = () => {
     invoice,
     invoiceId,
     showEwayFromResult,
-    user,
   ]);
 
   return (

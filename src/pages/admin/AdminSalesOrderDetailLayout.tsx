@@ -295,7 +295,7 @@ export const AdminSalesOrderDetailLayout: React.FC = () => {
   const handleVerify = useCallback(async () => {
     if (!salesOrderId || actionBusy) return;
     if (!window.confirm(
-      'Verify payment, confirm this sales order in Zoho, and create the invoice?',
+      'Verify payment, confirm this sales order in Zoho, and create the invoice and e-invoice? E-way bill is generated later in logistics.',
     )) return;
     setActionBusy('verify');
     try {

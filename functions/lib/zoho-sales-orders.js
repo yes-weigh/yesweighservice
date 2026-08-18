@@ -972,8 +972,16 @@ export async function markInvoiceAsSent(secrets, configuredOrgId, invoiceId) {
   }
 }
 
+function einvoicePushLooksLikeInvalidBody(err) {
+  return /json|invalid|unknown|parameter|unrecognized|not (a )?valid|unexpected/i.test(
+    String(err?.message ?? ''),
+  );
+}
+
 /**
  * Push an invoice's e-invoice to the IRP (Zoho "Push to IRP").
+ * Invoice / IRN only — never generate or push e-way bill details.
+ * Logistics generates the e-way bill later via Generate e-way bill.
  * Only succeeds for GST-registered B2B customers.
  */
 export async function pushInvoiceEinvoiceToIrp(secrets, configuredOrgId, invoiceId) {
@@ -982,12 +990,23 @@ export async function pushInvoiceEinvoiceToIrp(secrets, configuredOrgId, invoice
   const id = String(invoiceId || '').trim();
   if (!id) throw new Error('Invoice id is required.');
 
-  const payload = await zohoJson(
-    accessToken,
-    orgId,
-    `/invoices/${encodeURIComponent(id)}/einvoice/push`,
-    { method: 'POST' },
-  );
+  const path = `/invoices/${encodeURIComponent(id)}/einvoice/push`;
+  const skipEway = { generate_ewaybill: false, push_ewaybill: false };
+  let payload;
+  try {
+    payload = await zohoJson(accessToken, orgId, path, {
+      method: 'POST',
+      body: skipEway,
+    });
+  } catch (err) {
+    if (!einvoicePushLooksLikeInvalidBody(err)) throw err;
+    payload = await zohoJson(
+      accessToken,
+      orgId,
+      `${path}?generate_ewaybill=false`,
+      { method: 'POST' },
+    );
+  }
 
   return {
     invoiceId: id,
