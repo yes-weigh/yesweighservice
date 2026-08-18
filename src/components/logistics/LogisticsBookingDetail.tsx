@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Link } from 'react-router-dom';
 import {
   AlertTriangle,
+  ArrowRightLeft,
   Barcode,
   Camera,
   Check,
@@ -38,6 +39,7 @@ import {
   bookingStatusIndex,
   bookingSummaryLines,
   chargeableWeight,
+  canChangeLogisticsBookingPartner,
   isIncompleteLogisticsBooking,
   missingFinalPackagePhoto,
   shipmentModeLabel,
@@ -86,6 +88,7 @@ import {
 } from './DelhiveryDocumentDialog';
 import { PhotoLightbox } from './PhotoLightbox';
 import { RaiseLogisticsIssueDialog } from './RaiseLogisticsIssueDialog';
+import { ChangeLogisticsPartnerDialog } from './ChangeLogisticsPartnerDialog';
 import { ShippingLabelPrintDialog } from './ShippingLabelPrintDialog';
 import {
   bookingDateFromTrackBookedAt,
@@ -363,6 +366,7 @@ export const LogisticsBookingDetail: React.FC<LogisticsBookingDetailProps> = ({
   const [delhiveryIdsError, setDelhiveryIdsError] = useState('');
   const [savingBillingMode, setSavingBillingMode] = useState(false);
   const [raiseIssueOpen, setRaiseIssueOpen] = useState(false);
+  const [changePartnerOpen, setChangePartnerOpen] = useState(false);
   const [delhiveryDocs, setDelhiveryDocs] = useState<DelhiveryBookingDocument[]>([]);
   const [delhiveryDocsLoading, setDelhiveryDocsLoading] = useState(false);
   const [delhiveryDocsError, setDelhiveryDocsError] = useState('');
@@ -1735,6 +1739,9 @@ export const LogisticsBookingDetail: React.FC<LogisticsBookingDetailProps> = ({
     && booking.status !== 'cancelled'
     && booking.status !== 'returned'
     && (isDelhivery || Boolean(onCancel));
+  const showOpsChangePartner = Boolean(
+    isOps && user && canChangeLogisticsBookingPartner(booking),
+  );
   const showOpsReturn = isOps
     && booking.status !== 'delivered'
     && booking.status !== 'cancelled'
@@ -1742,7 +1749,9 @@ export const LogisticsBookingDetail: React.FC<LogisticsBookingDetailProps> = ({
     && Boolean(onReturn)
     && !partnerSupportsTrackRefresh(booking.partnerId);
   const showOpsDelete = Boolean(user && canDeleteLogisticsBooking(user) && onDelete);
-  const showBottomOps = Boolean(user || showOpsCancel || showOpsReturn || showOpsDelete);
+  const showBottomOps = Boolean(
+    user || showOpsCancel || showOpsChangePartner || showOpsReturn || showOpsDelete,
+  );
   const articleRef = useRef<HTMLElement>(null);
   const stickyTopRef = useRef<HTMLDivElement>(null);
   const sectionBarRef = useRef<HTMLDivElement>(null);
@@ -2924,6 +2933,16 @@ export const LogisticsBookingDetail: React.FC<LogisticsBookingDetailProps> = ({
               Support
             </button>
           ) : null}
+          {showOpsChangePartner ? (
+            <button
+              type="button"
+              className="btn btn-secondary btn-sm"
+              onClick={() => setChangePartnerOpen(true)}
+            >
+              <ArrowRightLeft size={14} aria-hidden />
+              Change courier
+            </button>
+          ) : null}
           {showOpsReturn ? (
             <button
               type="button"
@@ -2970,6 +2989,15 @@ export const LogisticsBookingDetail: React.FC<LogisticsBookingDetailProps> = ({
           ) : null}
         </section>
       ) : null}
+
+      {changePartnerOpen && user && (
+        <ChangeLogisticsPartnerDialog
+          booking={booking}
+          user={user}
+          onClose={() => setChangePartnerOpen(false)}
+          onChanged={onUpdate}
+        />
+      )}
 
       {raiseIssueOpen && user && (
         <RaiseLogisticsIssueDialog

@@ -1,6 +1,7 @@
 import {
   collection,
   deleteDoc,
+  deleteField,
   doc,
   getDoc,
   getDocs,
@@ -32,6 +33,8 @@ import {
   zohoDealerToSnapshot,
 } from './logisticsDealers';
 import {
+  CHANGEABLE_LOGISTICS_PARTNER_IDS,
+  canChangeLogisticsBookingPartner,
   computeVolumetricWeight,
   consignmentChargeableWeightKg,
   draftBoxesHaveRequiredPhotos,
@@ -2078,6 +2081,123 @@ export async function cancelLogisticsBooking(
     throw new Error('Delivered or returned shipments cannot be cancelled.');
   }
   return updateLogisticsBookingStatus(booking, 'cancelled', user);
+}
+
+function serviceTypeForPartner(partnerId: LogisticsPartnerId): string {
+  if (partnerId === 'trackon_air') return 'Air';
+  if (partnerId === 'trackon_surface') return 'Surface';
+  if (partnerId === 'bluedart_air') return 'Air';
+  if (partnerId === 'bluedart_surface') return 'Surface';
+  if (partnerId === 'bluedart_domestic') return 'Domestic Priority';
+  return '';
+}
+
+/**
+ * Switch a confirmed manual booking (ST / Trackon / DTDC / …) to another
+ * non-API partner. Recalculates volumetric weight, clears the old carrier’s
+ * track/slip, and stores the new AWB.
+ */
+export async function changeLogisticsBookingPartner(
+  booking: LogisticsBooking,
+  input: { partnerId: LogisticsPartnerId; consignmentNo: string },
+  user: User,
+): Promise<LogisticsBooking> {
+  if (!isInternalOpsUser(user)) {
+    throw new Error('You do not have permission to change the courier.');
+  }
+  if (!canChangeLogisticsBookingPartner(booking)) {
+    throw new Error(
+      isApiBookedLogisticsPartner(booking.partnerId)
+        ? 'Cancel the Delhivery / Blue Dart LR, then book the new courier.'
+        : 'This shipment cannot change courier.',
+    );
+  }
+  const nextPartnerId = input.partnerId;
+  if (!CHANGEABLE_LOGISTICS_PARTNER_IDS.includes(nextPartnerId)) {
+    throw new Error('That courier cannot be assigned on an existing booking.');
+  }
+  if (nextPartnerId === booking.partnerId) {
+    throw new Error('Pick a different courier.');
+  }
+  const consignmentNo = input.consignmentNo.trim();
+  if (!consignmentNo) {
+    throw new Error('Enter the new courier AWB / consignment number.');
+  }
+
+  const boxes = booking.boxes.map(box => ({
+    ...box,
+    volumetricWeightKg: booking.shipmentMode === 'envelope'
+      ? 0
+      : computeVolumetricWeight(box.lengthCm, box.widthCm, box.heightCm, nextPartnerId),
+  }));
+  const actualWeightKg = boxes.reduce((total, box) => total + box.weightKg, 0);
+  const volumetricWeightKg = boxes.reduce((total, box) => total + box.volumetricWeightKg, 0);
+  const chargeableWeightKg = consignmentChargeableWeightKg(boxes, nextPartnerId);
+  const serviceType = serviceTypeForPartner(nextPartnerId);
+  const updatedAt = new Date().toISOString();
+  const leavingSt = booking.partnerId === 'st_courier' && nextPartnerId !== 'st_courier';
+  const courierDeliveryOffice = leavingSt
+    ? null
+    : (nextPartnerId === 'st_courier'
+      ? await resolveCourierDeliveryOfficeForPersist(
+        nextPartnerId,
+        booking.deliveryAddress,
+        booking.courierDeliveryOffice ?? null,
+      )
+      : (booking.courierDeliveryOffice ?? null));
+
+  const patch: Record<string, unknown> = {
+    partnerId: nextPartnerId,
+    consignmentNo,
+    trackingNo: consignmentNo,
+    serviceType,
+    boxes: boxes.map(box => ({
+      id: box.id,
+      lengthCm: box.lengthCm,
+      widthCm: box.widthCm,
+      heightCm: box.heightCm,
+      weightKg: box.weightKg,
+      volumetricWeightKg: box.volumetricWeightKg,
+      photos: firestoreBoxPhotos(box.photos),
+    })),
+    actualWeightKg,
+    volumetricWeightKg,
+    chargeableWeightKg,
+    courierSlipGenerated: false,
+    courierTrack: deleteField(),
+    trackFetchedAt: deleteField(),
+    courierFreight: deleteField(),
+    actualFreightInr: deleteField(),
+    freightFetchedAt: deleteField(),
+    updatedAt,
+  };
+  if (courierDeliveryOffice) {
+    patch.courierDeliveryOffice = courierDeliveryOffice;
+  } else {
+    patch.courierDeliveryOffice = deleteField();
+  }
+
+  await updateDoc(doc(db, COLLECTION, booking.id), patch);
+
+  return {
+    ...booking,
+    partnerId: nextPartnerId,
+    consignmentNo,
+    trackingNo: consignmentNo,
+    serviceType,
+    boxes,
+    actualWeightKg,
+    volumetricWeightKg,
+    chargeableWeightKg,
+    courierSlipGenerated: false,
+    courierTrack: null,
+    trackFetchedAt: null,
+    courierFreight: null,
+    actualFreightInr: null,
+    freightFetchedAt: null,
+    courierDeliveryOffice: courierDeliveryOffice ?? undefined,
+    updatedAt,
+  };
 }
 
 export async function returnLogisticsBooking(

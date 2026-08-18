@@ -35,6 +35,26 @@ export function isApiBookedLogisticsPartner(id: string): boolean {
   return id === 'delhivery' || isBlueDartLogisticsPartnerId(id);
 }
 
+/**
+ * Manual (non-API) partners whose booking can be switched after confirm
+ * (ST ↔ Trackon, DTDC, etc.). Delhivery / Blue Dart need cancel-LR instead.
+ */
+export const CHANGEABLE_LOGISTICS_PARTNER_IDS: ReadonlyArray<LogisticsPartnerId> =
+  ENABLED_LOGISTICS_PARTNER_IDS.filter(id => !isApiBookedLogisticsPartner(id));
+
+export function canChangeLogisticsBookingPartner(
+  booking: Pick<LogisticsBooking, 'status' | 'partnerId'>,
+): boolean {
+  if (
+    booking.status === 'delivered'
+    || booking.status === 'cancelled'
+    || booking.status === 'returned'
+  ) {
+    return false;
+  }
+  return CHANGEABLE_LOGISTICS_PARTNER_IDS.includes(booking.partnerId);
+}
+
 export const LOGISTICS_BOOKING_STATUSES: ReadonlyArray<{
   id: LogisticsBookingStatus;
   label: string;
