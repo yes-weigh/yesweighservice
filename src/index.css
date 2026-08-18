@@ -484,6 +484,10 @@ html::-webkit-scrollbar {
   color: #6b7585;
 }
 
+.login-hero__form .input-icon-wrap:has(.input-icon-right) .input-with-icon {
+  padding-right: 2.5rem;
+}
+
 .login-hero__hint {
   margin: 0.28rem 0 0;
   font-size: 0.7rem;

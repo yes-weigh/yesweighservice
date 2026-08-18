@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
-import { ArrowLeft, KeyRound, Lock, Phone, ShieldCheck } from 'lucide-react';
+import { ArrowLeft, Eye, EyeOff, KeyRound, Lock, Phone, ShieldCheck } from 'lucide-react';
 import {
   LoginHeroFeatures,
   LoginHeroHelp,
@@ -37,6 +37,7 @@ export const DealerLogin: React.FC = () => {
   const [otp, setOtp] = useState('');
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
   const [dealerInfo, setDealerInfo] = useState<DealerLookupResult | null>(null);
   const [dealerOptions, setDealerOptions] = useState<DealerLookupOption[]>([]);
   const [selectedDealerId, setSelectedDealerId] = useState('');
@@ -61,6 +62,7 @@ export const DealerLogin: React.FC = () => {
     setOtp('');
     setPassword('');
     setConfirmPassword('');
+    setShowPassword(false);
     setSetupToken('');
   };
 
@@ -351,7 +353,7 @@ export const DealerLogin: React.FC = () => {
                 <Lock size={18} className="input-icon" />
                 <input
                   id="dealer-signin-password"
-                  type="password"
+                  type={showPassword ? 'text' : 'password'}
                   className="input-field input-with-icon login-hero__input"
                   placeholder="Password"
                   aria-label="Password"
@@ -361,6 +363,14 @@ export const DealerLogin: React.FC = () => {
                   autoFocus
                   autoComplete="current-password"
                 />
+                <button
+                  type="button"
+                  className="input-icon-right"
+                  onClick={() => setShowPassword(visible => !visible)}
+                  aria-label={showPassword ? 'Hide password' : 'Show password'}
+                >
+                  {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
+                </button>
               </div>
             </div>
             <button type="submit" className="login-hero__submit" disabled={submitting}>
@@ -487,7 +497,7 @@ export const DealerLogin: React.FC = () => {
                 <Lock size={18} className="input-icon" />
                 <input
                   id="dealer-password"
-                  type="password"
+                  type={showPassword ? 'text' : 'password'}
                   className="input-field input-with-icon login-hero__input"
                   name="yw-dealer-password"
                   placeholder="Password"
@@ -502,6 +512,14 @@ export const DealerLogin: React.FC = () => {
                   data-bwignore="true"
                   data-form-type="other"
                 />
+                <button
+                  type="button"
+                  className="input-icon-right"
+                  onClick={() => setShowPassword(visible => !visible)}
+                  aria-label={showPassword ? 'Hide password' : 'Show password'}
+                >
+                  {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
+                </button>
               </div>
             </div>
 
@@ -510,7 +528,7 @@ export const DealerLogin: React.FC = () => {
                 <Lock size={18} className="input-icon" />
                 <input
                   id="dealer-password-confirm"
-                  type="password"
+                  type={showPassword ? 'text' : 'password'}
                   className="input-field input-with-icon login-hero__input"
                   name="yw-dealer-password-confirm"
                   placeholder="Confirm password"
@@ -524,6 +542,14 @@ export const DealerLogin: React.FC = () => {
                   data-bwignore="true"
                   data-form-type="other"
                 />
+                <button
+                  type="button"
+                  className="input-icon-right"
+                  onClick={() => setShowPassword(visible => !visible)}
+                  aria-label={showPassword ? 'Hide password' : 'Show password'}
+                >
+                  {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
+                </button>
               </div>
             </div>
 
