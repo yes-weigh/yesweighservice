@@ -178,13 +178,33 @@ async function listKotakAccounts(accessToken, orgId) {
 }
 
 async function refreshAccountFeeds(accessToken, orgId, accountId) {
-  try {
-    await zohoBankJsonWithFallback(accessToken, orgId, `/bankaccounts/${accountId}/feeds`, {
-      method: 'POST',
-    });
-  } catch {
-    // Refresh is not always exposed on the API; listing uncategorised still works.
+  const paths = [
+    `/bankaccounts/${encodeURIComponent(accountId)}/feeds`,
+    `/bankaccounts/${encodeURIComponent(accountId)}/feeds/refresh`,
+    `/bankaccounts/${encodeURIComponent(accountId)}/refreshfeeds`,
+  ];
+  const errors = [];
+  for (const path of paths) {
+    try {
+      const payload = await zohoBankJsonWithFallback(accessToken, orgId, path, {
+        method: 'POST',
+      });
+      return {
+        ok: true,
+        path,
+        message: String(payload?.message || 'Bank feeds refreshed in Zoho.'),
+      };
+    } catch (err) {
+      errors.push(`${path}: ${err?.message || err}`);
+    }
   }
+  const message = errors.join(' | ') || 'Zoho Refresh Feeds failed.';
+  console.warn(`Zoho Refresh Feeds failed for account ${accountId}: ${message}`);
+  return { ok: false, path: null, message };
+}
+
+function sleep(ms) {
+  return new Promise(resolve => setTimeout(resolve, ms));
 }
 
 async function listUncategorizedForAccount(accessToken, orgId, account) {
@@ -213,7 +233,7 @@ async function listUncategorizedForAccount(accessToken, orgId, account) {
   return feeds;
 }
 
-async function persistFeeds(feeds, source) {
+async function persistFeeds(feeds, source, extras = {}) {
   const db = getFirestore();
   const col = db.collection(COLLECTION);
   const existing = await col.get();
@@ -255,6 +275,7 @@ async function persistFeeds(feeds, source) {
     source,
     count: feeds.length,
     accountNames: [...new Set(feeds.map(feed => feed.accountName).filter(Boolean))],
+    ...(extras && typeof extras === 'object' ? extras : {}),
   }, { merge: true });
 
   return { fetchedAt, count: feeds.length };
@@ -275,9 +296,19 @@ export async function syncKotakUncategorizedFeeds(secrets, orgId, { source = 'ma
     throw new Error('No Kotak bank account found in Zoho Banking.');
   }
 
-  await Promise.all(accounts.map(account => (
-    refreshAccountFeeds(accessToken, organizationId, account.accountId)
-  )));
+  const refreshResults = [];
+  for (const account of accounts) {
+    const refreshed = await refreshAccountFeeds(accessToken, organizationId, account.accountId);
+    refreshResults.push({
+      accountId: account.accountId,
+      accountName: account.accountName,
+      ...refreshed,
+    });
+  }
+  if (refreshResults.some(row => row.ok)) {
+    // Zoho pulls from the bank asynchronously after Refresh Feeds.
+    await sleep(5000);
+  }
 
   const feeds = [];
   for (const account of accounts) {
@@ -294,7 +325,10 @@ export async function syncKotakUncategorizedFeeds(secrets, orgId, { source = 'ma
   }
   unique.sort((a, b) => String(b.date || '').localeCompare(String(a.date || '')));
 
-  const persisted = await persistFeeds(unique, source);
+  const persisted = await persistFeeds(unique, source, {
+    lastZohoFeedRefreshAt: new Date().toISOString(),
+    lastZohoFeedRefresh: refreshResults,
+  });
   const withReservations = await overlayFeedReservations(unique);
   return {
     feeds: withReservations,
