@@ -272,6 +272,7 @@ import {
   submitSalesOrderPayment as submitSalesOrderPaymentRecord,
   verifySalesOrderPayment as verifySalesOrderPaymentRecord,
   reserveKotakFeedForSalesOrder as reserveKotakFeedForSalesOrderRecord,
+  selectKotakFeedAndInvoiceSalesOrder as selectKotakFeedAndInvoiceSalesOrderRecord,
   applySalesOrderSalespersonFromDealer as applySalesOrderSalespersonFromDealerRecord,
   applySalesOrderSalespersonFromStaff as applySalesOrderSalespersonFromStaffRecord,
   backfillOpenSalesOrdersSalespersonForCustomer as backfillOpenSalesOrdersSalespersonForCustomerRecord,
@@ -2739,8 +2740,8 @@ export const zohoCustomerWebhook = onRequest(
 );
 
 /**
- * Nightly org sync safety net if webhooks miss updates.
- * Invoices 2 AM IST, POs 3 AM, SOs 4 AM — each uses at most 70% of daily Zoho quota.
+ * Refresh Kotak bank feeds in Zoho (same as Banking → Refresh Feeds), then store
+ * uncategorised pay-ins. Runs every 10 minutes Mon–Sat 09:30–17:30 IST.
  */
 export const syncKotakBankFeedsScheduled = onSchedule(
   {
@@ -2748,12 +2749,12 @@ export const syncKotakBankFeedsScheduled = onSchedule(
     timeZone: 'Asia/Kolkata',
     region: 'asia-south1',
     secrets: [zohoClientId, zohoClientSecret, zohoRefreshToken],
-    timeoutSeconds: 180,
+    timeoutSeconds: 240,
     memory: '512MiB',
   },
   async () => {
     if (!isKotakBankFeedWindow()) {
-      console.log('Skipping Kotak bank feed sync — outside Mon–Sat 09:30–17:30 IST.');
+      console.log('Skipping Kotak bank feed refresh — outside Mon–Sat 09:30–17:30 IST.');
       return;
     }
     try {
@@ -2763,10 +2764,10 @@ export const syncKotakBankFeedsScheduled = onSchedule(
         { source: 'scheduled' },
       );
       console.log(
-        `Scheduled Kotak bank feed sync: ${result.count} uncategorised from ${result.accountNames.join(', ') || 'Kotak'}.`,
+        `Scheduled Kotak bank feed refresh: ${result.count} uncategorised from ${result.accountNames.join(', ') || 'Kotak'}.`,
       );
     } catch (err) {
-      console.error('Scheduled Kotak bank feed sync failed:', err?.message ?? err);
+      console.error('Scheduled Kotak bank feed refresh failed:', err?.message ?? err);
     }
   },
 );
@@ -2807,6 +2808,31 @@ export const reserveKotakFeedForSalesOrder = onCall(
     } catch (err) {
       if (err instanceof HttpsError) throw err;
       throw new HttpsError('internal', err?.message ?? 'Could not reserve this bank pay-in.');
+    }
+  },
+);
+
+export const selectKotakFeedAndInvoiceSalesOrder = onCall(
+  {
+    region: 'asia-south1',
+    secrets: [zohoClientId, zohoClientSecret, zohoRefreshToken],
+    timeoutSeconds: 180,
+    memory: '512MiB',
+  },
+  async request => {
+    const uid = request.auth?.uid;
+    const role = await requireActiveUser(uid, new Set(['staff', 'super_admin']));
+    try {
+      return await selectKotakFeedAndInvoiceSalesOrderRecord(
+        uid,
+        role,
+        request.data ?? {},
+        zohoSecrets(),
+        zohoOrganizationId.value(),
+      );
+    } catch (err) {
+      if (err instanceof HttpsError) throw err;
+      throw new HttpsError('internal', err?.message ?? 'Could not invoice from this bank pay-in.');
     }
   },
 );

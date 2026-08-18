@@ -784,6 +784,57 @@ export async function reserveKotakFeedForSalesOrder(uid, role, payload = {}) {
   const snap = await ref.get();
   return detailPayload(snap.id, snap.data() || {}, { includePaymentUrl: false });
 }
+
+/**
+ * One click: reserve Kotak pay-in → convert SO to invoice → push e-invoice (no e-way)
+ * → categorize the bank feed onto that invoice (marked paid in Zoho).
+ */
+export async function selectKotakFeedAndInvoiceSalesOrder(uid, role, payload = {}, secrets, orgId) {
+  await reserveKotakFeedForSalesOrder(uid, role, payload);
+
+  const user = await loadUser(uid);
+  const { ref, id, data } = await loadSoOrThrow(payload.salesOrderId);
+  const stage = yesOneStageOf(data);
+  if (stage === 'completed') {
+    throw new HttpsError('failed-precondition', 'This sales order is already invoiced.');
+  }
+  if (stage === 'void') {
+    throw new HttpsError('failed-precondition', 'Cannot invoice a voided sales order.');
+  }
+
+  const feed = kotakReservationFromFeed(data.reservedKotakFeed);
+  const at = nowIso();
+  const note = String(data.paymentNotes || '').trim()
+    || `Bank pay-in ${Number(feed?.amount || 0).toFixed(2)} · Ref ${feed?.referenceNumber || feed?.transactionId || ''}`.trim();
+
+  if (stage === 'review') {
+    await ref.set({
+      yesOneStage: 'ready_for_payment',
+      readyForPaymentAt: at,
+      readyForPaymentByUid: uid,
+      readyForPaymentByName: displayName(user),
+      paymentAmount: Number(data.total ?? data.subtotal ?? 0),
+      yesOneUpdatedAt: at,
+    }, { merge: true });
+  }
+
+  if (stage !== 'payment_submitted') {
+    await ref.set({
+      yesOneStage: 'payment_submitted',
+      paymentNotes: note,
+      paymentUtr: feed?.referenceNumber || feed?.transactionId || data.paymentUtr || null,
+      paymentAmount: Number(data.total ?? data.paymentAmount ?? 0),
+      paymentSubmittedAt: data.paymentSubmittedAt || at,
+      paymentSubmittedByUid: data.paymentSubmittedByUid || uid,
+      paymentSubmittedByName: data.paymentSubmittedByName || displayName(user),
+      yesOneUpdatedAt: at,
+    }, { merge: true });
+  }
+
+  return verifySalesOrderPayment(uid, role, payload.salesOrderId, secrets, orgId);
+}
+
+/** Seed YesOne workflow after cart creates a Draft SO. */
 export async function initYesOneSalesOrderWorkflow(salesOrderId, extras = {}) {
   const id = String(salesOrderId || '').trim();
   if (!id) return;
@@ -1140,26 +1191,6 @@ export async function verifySalesOrderPayment(uid, role, salesOrderId, secrets, 
       }
     }
 
-    if (kotakReservationFromFeed(data.reservedKotakFeed)) {
-      try {
-        await applyReservedKotakPayment(secrets, orgId, {
-          ref,
-          data,
-          invoiceId,
-        });
-      } catch (payErr) {
-        const message = String(payErr?.message || 'Could not mark the invoice paid from the reserved Kotak pay-in.');
-        await ref.set({
-          reservedKotakFeed: {
-            ...(data.reservedKotakFeed || {}),
-            applyError: message,
-          },
-          yesOneUpdatedAt: nowIso(),
-        }, { merge: true });
-        throw new Error(message);
-      }
-    }
-
     let einvoicePushStatus = 'skipped_not_b2b';
     let einvoicePushError = null;
     const customer = await resolveCustomerForEinvoice(secrets, orgId, data.customerId);
@@ -1174,6 +1205,27 @@ export async function verifySalesOrderPayment(uid, role, salesOrderId, secrets, 
           `E-invoice push failed for invoice ${invoiceId} (SO ${id}):`,
           einvoicePushError,
         );
+      }
+    }
+
+    const latest = (await ref.get()).data() || data;
+    if (kotakReservationFromFeed(latest.reservedKotakFeed)) {
+      try {
+        await applyReservedKotakPayment(secrets, orgId, {
+          ref,
+          data: latest,
+          invoiceId,
+        });
+      } catch (payErr) {
+        const message = String(payErr?.message || 'Could not mark the invoice paid from the reserved Kotak pay-in.');
+        await ref.set({
+          reservedKotakFeed: {
+            ...(latest.reservedKotakFeed || {}),
+            applyError: message,
+          },
+          yesOneUpdatedAt: nowIso(),
+        }, { merge: true });
+        throw new Error(message);
       }
     }
 

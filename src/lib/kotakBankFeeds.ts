@@ -45,15 +45,15 @@ export async function fetchKotakBankFeeds(): Promise<KotakBankFeedSyncResult> {
   }
 }
 
-export async function reserveKotakFeedForSalesOrder(
+export async function selectKotakFeedAndInvoiceSalesOrder(
   salesOrderId: string,
   feed: KotakBankFeed,
 ): Promise<AdminSalesOrderDetail> {
   try {
     const fn = httpsCallable<{ salesOrderId: string; feed: KotakBankFeed }, AdminSalesOrderDetail>(
       functions,
-      'reserveKotakFeedForSalesOrder',
-      { timeout: 60_000 },
+      'selectKotakFeedAndInvoiceSalesOrder',
+      { timeout: 180_000 },
     );
     const result = await fn({ salesOrderId, feed });
     return result.data;

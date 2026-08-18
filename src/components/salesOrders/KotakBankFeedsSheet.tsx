@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { Check, Landmark, X } from 'lucide-react';
 import type { KotakBankFeed } from '../../lib/kotakBankFeeds';
+import { VerifyInvoiceClock } from './VerifyInvoiceClock';
 
 const PAYOUT_TYPES = new Set([
   'expense',
@@ -323,17 +324,18 @@ export const KotakBankFeedsSheet: React.FC<{
           ) : null}
           <button
             type="button"
-            className="btn btn-primary kotak-feeds-sheet__select"
+            className={`btn btn-primary kotak-feeds-sheet__select${selecting ? ' kotak-feeds-sheet__select--busy' : ''}`}
             disabled={!selected || loading || selecting}
             onClick={() => {
               if (!selected) return;
               setSelectError('');
               void Promise.resolve(onSelect?.(selected)).catch((err: unknown) => {
-                setSelectError(err instanceof Error ? err.message : 'Could not reserve this pay-in.');
+                setSelectError(err instanceof Error ? err.message : 'Could not invoice from this pay-in.');
               });
             }}
           >
-            {selecting ? 'Reserving…' : 'Select'}
+            {selecting ? <VerifyInvoiceClock size={20} /> : null}
+            {selecting ? 'Invoicing…' : 'Select & Invoice'}
           </button>
         </div>
       </div>

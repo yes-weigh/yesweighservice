@@ -36,6 +36,10 @@ import { SoLineEditSheet } from '../../components/salesOrders/SoLineEditSheet';
 import { SoLineInlineEditor } from '../../components/salesOrders/SoLineInlineEditor';
 import { VerifyInvoiceClock } from '../../components/salesOrders/VerifyInvoiceClock';
 import { KotakBankFeedsSheet } from '../../components/salesOrders/KotakBankFeedsSheet';
+import {
+  KotakInvoiceProgressOverlay,
+  type KotakInvoicePhase,
+} from '../../components/salesOrders/KotakInvoiceProgressOverlay';
 import { ZoomableImageDialog } from '../../components/ZoomableImageDialog';
 import { useAuth } from '../../context/AuthContext';
 import { fetchCatalog, formatCurrency, formatStockQuantity } from '../../lib/catalog';
@@ -43,7 +47,7 @@ import { resolveAvailableQtyByProductIds } from '../../lib/catalogAvailableStock
 import { combinedCartRate, newCartLineId } from '../../lib/gatcCart';
 import type { CatalogProduct } from '../../types/catalog';
 import { dealerOrderErrorMessage } from '../../lib/dealerOrders';
-import { fetchKotakBankFeeds, reserveKotakFeedForSalesOrder, type KotakBankFeed } from '../../lib/kotakBankFeeds';
+import { fetchKotakBankFeeds, selectKotakFeedAndInvoiceSalesOrder, type KotakBankFeed } from '../../lib/kotakBankFeeds';
 import {
   listCustomerShippingAddresses,
   resolveShippingDestination,
@@ -76,6 +80,7 @@ import {
   shareScreenshotBlob,
   type PreparedScreenshot,
 } from '../../lib/shareElementScreenshot';
+import { playOnlineOrderAlert, unlockOrderAlertAudio } from '../../lib/orderAlertSound';
 import type { AdminSalesOrderDetailOutletContext } from './adminSalesOrderDetailContext';
 import { portalSalesOrderRemarks } from '../../lib/admin-sales-orders';
 
@@ -148,6 +153,7 @@ export const AdminSalesOrderDocumentPage: React.FC = () => {
   const [bankFeedsFetchedAt, setBankFeedsFetchedAt] = useState<string | null>(null);
   const [selectedKotakFeed, setSelectedKotakFeed] = useState<KotakBankFeed | null>(null);
   const [reservingKotakFeed, setReservingKotakFeed] = useState(false);
+  const [kotakInvoicePhase, setKotakInvoicePhase] = useState<KotakInvoicePhase | null>(null);
   const bankFeedFetchGen = useRef(0);
   const shareCaptureRef = useRef<HTMLDivElement>(null);
   const soDetailRef = useRef<HTMLDivElement>(null);
@@ -1723,19 +1729,30 @@ export const AdminSalesOrderDocumentPage: React.FC = () => {
           reservedTransactionId={salesOrder?.reservedKotakFeed?.transactionId ?? selectedKotakFeed?.transactionId ?? null}
           onSelect={async (feed) => {
             if (!salesOrderId) return;
+            if (packageBlocksActions) {
+              throw new Error(freightPackageAlert || 'Fill missing package information before invoicing.');
+            }
+            if (!String(salesOrder?.salespersonId || '').trim()) {
+              throw new Error('Assign a salesperson before Select & Invoice.');
+            }
             setReservingKotakFeed(true);
+            setKotakInvoicePhase('invoicing');
             try {
-              const next = await reserveKotakFeedForSalesOrder(salesOrderId, feed);
+              unlockOrderAlertAudio();
+              const next = await selectKotakFeedAndInvoiceSalesOrder(salesOrderId, feed);
+              playOnlineOrderAlert();
+              setKotakInvoicePhase('categorizing');
               setSalesOrder(next);
               setSelectedKotakFeed(feed);
-              const ref = feed.referenceNumber?.trim() || feed.transactionId;
-              const line = `Bank pay-in ${formatCurrency(feed.amount, salesOrder?.currencyCode)} · Ref ${ref}`;
-              setPaymentNotes((current) => (current.trim() ? current : line));
               bankFeedFetchGen.current += 1;
               setBankFeeds(null);
               setFetchingBankFeeds(false);
+              await new Promise(resolve => window.setTimeout(resolve, 2200));
+              playOnlineOrderAlert();
+              setKotakInvoicePhase('paid');
             } catch (err) {
-              throw err instanceof Error ? err : new Error('Could not reserve this bank pay-in.');
+              setKotakInvoicePhase(null);
+              throw err instanceof Error ? err : new Error('Could not invoice from this bank pay-in.');
             } finally {
               setReservingKotakFeed(false);
             }
@@ -1746,6 +1763,13 @@ export const AdminSalesOrderDocumentPage: React.FC = () => {
             setBankFeeds(null);
             setFetchingBankFeeds(false);
           }}
+        />
+      ) : null}
+
+      {kotakInvoicePhase ? (
+        <KotakInvoiceProgressOverlay
+          phase={kotakInvoicePhase}
+          onPaidDone={() => setKotakInvoicePhase(null)}
         />
       ) : null}
 
