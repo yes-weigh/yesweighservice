@@ -22,4 +22,9 @@ export interface AdminInvoiceDetailOutletContext {
   existingBooking: LogisticsBooking | null;
   /** Ops: salesperson chip on the title toggles the full KAM card. */
   kamCardOpen?: boolean;
+  /** Super admin: local courier switch on the freight line (not pushed to Zoho). */
+  canEditLocalFreight?: boolean;
+  localFreightBusy?: boolean;
+  localFreightError?: string;
+  onChangeLocalFreight?: (sku: import('../../constants/freightLines').FreightLineSku) => void;
 }

@@ -189,9 +189,11 @@ export function buildInvoiceSummaryFields(invoiceDoc, customerId, invoiceId) {
     listStatus,
     ...(itemVariantCount != null && Number.isFinite(itemVariantCount) ? { itemVariantCount } : {}),
     amountExclGst: amount,
-    freightSku: invoiceDoc.freightSku
-      ? String(invoiceDoc.freightSku).trim().toUpperCase() || null
-      : freightSkuFromInvoiceLines(invoiceDoc.lineItems),
+    freightSku: invoiceDoc.yesOneFreightPartner?.sku
+      ? String(invoiceDoc.yesOneFreightPartner.sku).trim().toUpperCase() || null
+      : invoiceDoc.freightSku
+        ? String(invoiceDoc.freightSku).trim().toUpperCase() || null
+        : freightSkuFromInvoiceLines(invoiceDoc.lineItems),
     customerPickup,
     customerPickupMarkedAt,
     manualDelivery,

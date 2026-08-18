@@ -27,6 +27,7 @@ import {
   invoiceErrorMessage,
   invoiceHasCategory,
   invoiceHasNoCourierFreightLine,
+  freightSkuFromInvoiceLines,
 } from '../../lib/invoices';
 import {
   canCreateLogisticsBooking,
@@ -52,8 +53,9 @@ import {
   isInvoiceManuallyDelivered,
   rememberInvoiceManualDelivery,
 } from '../../lib/invoiceManualDelivery';
+import { setInvoiceLocalFreightPartner } from '../../lib/invoiceLocalFreight';
 import { base64ToUint8Array } from '../../lib/pdfViewer';
-import { isInternalOpsUser } from '../../lib/staffAccess';
+import { canSuperAdminWrite, isInternalOpsUser } from '../../lib/staffAccess';
 import {
   bookingInvoiceEwayRow,
   clubbedNeedsEwayBill,
@@ -62,6 +64,7 @@ import {
 } from '../../constants/ewayBill';
 import type { CatalogProduct } from '../../types/catalog';
 import type { LogisticsPartnerId } from '../../constants/logisticsPartners';
+import type { FreightLineSku } from '../../constants/freightLines';
 import type { DealerInvoiceDetail } from '../../types/invoices';
 import type { LogisticsBooking } from '../../types/logistics-dispatch';
 import type { StaffLogisticsSite } from '../../types/staff-logistics';
@@ -100,6 +103,8 @@ export const AdminInvoiceDetailLayout: React.FC = () => {
   const [ewayDocError, setEwayDocError] = useState('');
   const [ewayDocDialog, setEwayDocDialog] = useState<DelhiveryDocumentDialogPayload | null>(null);
   const [kamCardOpen, setKamCardOpen] = useState(false);
+  const [localFreightBusy, setLocalFreightBusy] = useState(false);
+  const [localFreightError, setLocalFreightError] = useState('');
   const showKamOnTitle = Boolean(user && isInternalOpsUser(user) && !isPdfView);
 
   const handleBack = useCallback(() => {
@@ -276,6 +281,32 @@ export const AdminInvoiceDetailLayout: React.FC = () => {
     };
   }, [invoice, customerId, invoiceId, user]);
 
+  const handleChangeLocalFreight = useCallback(async (sku: FreightLineSku) => {
+    if (!invoice || !customerId || !invoiceId) return;
+    setLocalFreightBusy(true);
+    setLocalFreightError('');
+    try {
+      const result = await setInvoiceLocalFreightPartner({
+        customerId,
+        invoiceId,
+        sku,
+      });
+      setInvoice(prev => (prev ? {
+        ...prev,
+        yesOneFreightPartner: result.yesOneFreightPartner,
+        freightSku: result.yesOneFreightPartner?.sku
+          || freightSkuFromInvoiceLines(prev.lineItems)
+          || prev.freightSku,
+      } : prev));
+    } catch (err) {
+      setLocalFreightError(
+        err instanceof Error ? err.message : 'Could not update local logistics partner.',
+      );
+    } finally {
+      setLocalFreightBusy(false);
+    }
+  }, [customerId, invoice, invoiceId]);
+
   if (!customerId || !invoiceId) return null;
 
   const showManualLogistics = Boolean(
@@ -307,6 +338,15 @@ export const AdminInvoiceDetailLayout: React.FC = () => {
     && invoice
     && canMarkInvoiceCustomerPickup(invoice, Boolean(existingBooking)),
   );
+  const canEditLocalFreight = Boolean(
+    canSuperAdminWrite(user)
+    && invoice
+    && !existingBooking
+    && !isInvoiceCustomerPickup(invoice)
+    && !invoice.sourceSalesOrderIsPickup
+    && !invoiceHasNoCourierFreightLine(invoice)
+    && String(invoice.status ?? '').toLowerCase() !== 'void',
+  );
   const outletContext: AdminInvoiceDetailOutletContext = {
     invoice,
     loading,
@@ -323,6 +363,10 @@ export const AdminInvoiceDetailLayout: React.FC = () => {
     onOpenMarkDelivered: () => setDeliveredOpen(true),
     existingBooking,
     kamCardOpen,
+    canEditLocalFreight,
+    localFreightBusy,
+    localFreightError,
+    onChangeLocalFreight: handleChangeLocalFreight,
   };
 
   // Shared picking list for product/spare invoices — ops (staff / super admin) only.

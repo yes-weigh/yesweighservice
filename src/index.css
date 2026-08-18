@@ -47547,6 +47547,22 @@ button.invoice-detail-top__card {
   border-top: 1px solid rgba(148, 163, 184, 0.18);
 }
 
+.invoice-local-freight {
+  display: flex;
+  flex-direction: column;
+  gap: 0.65rem;
+}
+
+.invoice-local-freight__hint {
+  margin: 0;
+}
+
+.invoice-local-freight__error {
+  margin: 0;
+  color: #fca5a5;
+  font-size: 0.8125rem;
+}
+
 .so-line-inline {
   display: flex;
   flex-direction: column;

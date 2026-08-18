@@ -24,6 +24,8 @@ interface InvoiceDocumentBodyProps {
   freightAlert?: string | null;
   /** Allow selecting freight lines (SO inline freight expand). */
   selectFreight?: boolean;
+  /** Select only freight lines (invoice local courier switch). */
+  selectFreightOnly?: boolean;
   /** Content rendered under the selected / expanded line. */
   renderExpanded?: (item: DealerInvoiceLineItem) => React.ReactNode;
   /** Optional meta under each line (e.g. available stock for staff review). */
@@ -45,6 +47,7 @@ export const InvoiceDocumentBody: React.FC<InvoiceDocumentBodyProps> = ({
   hideAmounts = false,
   freightAlert = null,
   selectFreight = false,
+  selectFreightOnly = false,
   renderExpanded,
   itemMeta,
   afterItems = null,
@@ -85,7 +88,11 @@ export const InvoiceDocumentBody: React.FC<InvoiceDocumentBodyProps> = ({
           {visibleItems.map(item => {
             const isFreight = isFreightInvoiceLineItem(item);
             const isSelected = selectedLineItemId === item.id;
-            const canSelect = selectable && (selectFreight || !isFreight || Boolean(hideLineItem));
+            const canSelect = selectable && (
+              selectFreightOnly
+                ? isFreight
+                : (selectFreight || !isFreight || Boolean(hideLineItem))
+            );
             const showFreightAlert = Boolean(isFreight && freightAlert);
             const expanded = isSelected ? renderExpanded?.(item) : null;
 

@@ -129,8 +129,16 @@ export function navigateToLogisticsBookingDetail(
 
 /** Prefer freight-line partner (e.g. STFRC → st_courier); fall back to ST. */
 export function resolveInvoiceCourierPartner(
-  invoice: Pick<DealerInvoiceDetail, 'lineItems'>,
+  invoice: Pick<DealerInvoiceDetail, 'lineItems' | 'yesOneFreightPartner'>,
 ): { partnerId: LogisticsPartnerId; fromFreight: boolean } {
+  const override = String(invoice.yesOneFreightPartner?.partnerId ?? '').trim();
+  if (override && isPipelineEnabledPartner(override)) {
+    return { partnerId: override as LogisticsPartnerId, fromFreight: true };
+  }
+  const overrideSku = partnerIdForFreightSku(invoice.yesOneFreightPartner?.sku);
+  if (overrideSku && isPipelineEnabledPartner(overrideSku)) {
+    return { partnerId: overrideSku, fromFreight: true };
+  }
   for (const line of invoice.lineItems ?? []) {
     if (!isFreightInvoiceLineItem(line)) continue;
     const partner = partnerIdForFreightSku(line.sku);
@@ -143,7 +151,7 @@ export function resolveInvoiceCourierPartner(
 
 /** Prefer freight-line partner (e.g. STFRC → st_courier); fall back to ST. */
 export function resolveInvoiceCourierPartnerId(
-  invoice: Pick<DealerInvoiceDetail, 'lineItems'>,
+  invoice: Pick<DealerInvoiceDetail, 'lineItems' | 'yesOneFreightPartner'>,
 ): LogisticsPartnerId {
   return resolveInvoiceCourierPartner(invoice).partnerId;
 }
