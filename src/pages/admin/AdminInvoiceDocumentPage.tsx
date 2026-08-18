@@ -109,6 +109,7 @@ export const AdminInvoiceDocumentPage: React.FC = () => {
           ? (item) => (
             isFreightInvoiceLineItem(item) ? (
               <InvoiceLocalFreightEditor
+                invoice={invoice}
                 selectedSku={selectedFreightSku}
                 busy={localFreightBusy}
                 error={localFreightError}

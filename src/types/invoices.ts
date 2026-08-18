@@ -127,6 +127,11 @@ export type InvoiceLocalFreightPartner = {
   sku: string;
   previousPartnerId?: string | null;
   previousSku?: string | null;
+  /**
+   * Freight billed on the invoice when the partner was switched (INR).
+   * Invoice line amounts never change; logistics Paid uses this vs Actual.
+   */
+  paidFreightInr?: number | null;
   updatedAt: string;
   updatedByUid?: string | null;
   updatedByName?: string | null;

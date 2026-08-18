@@ -47557,6 +47557,63 @@ button.invoice-detail-top__card {
   margin: 0;
 }
 
+.invoice-local-freight__compare {
+  display: grid;
+  gap: 0.28rem 0;
+  margin: 0;
+}
+
+.invoice-local-freight__compare > div {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 0.35rem 0.85rem;
+  align-items: baseline;
+}
+
+.invoice-local-freight__compare dt {
+  margin: 0;
+  font-size: 0.6875rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: #94a3b8;
+}
+
+.invoice-local-freight__compare dd {
+  margin: 0;
+  text-align: right;
+  font-size: 0.8125rem;
+  font-weight: 700;
+  color: #e2e8f0;
+}
+
+.invoice-local-freight__compare dd em {
+  display: block;
+  font-style: normal;
+  font-size: 0.625rem;
+  font-weight: 600;
+  color: #94a3b8;
+}
+
+.invoice-local-freight__diff.is-under dd,
+.invoice-local-freight__diff.is-under dd em {
+  color: #f87171;
+}
+
+.invoice-local-freight__diff.is-over dd,
+.invoice-local-freight__diff.is-over dd em {
+  color: #4ade80;
+}
+
+.invoice-local-freight__diff.is-matched dd,
+.invoice-local-freight__diff.is-matched dd em {
+  color: #94a3b8;
+}
+
+.invoice-local-freight__diff-note {
+  margin: 0;
+}
+
 .invoice-local-freight__error {
   margin: 0;
   color: #fca5a5;

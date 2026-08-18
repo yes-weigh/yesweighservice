@@ -1,3 +1,4 @@
+import type { LogisticsPartnerId } from '../constants/logisticsPartners';
 import {
   blueDartServiceForPartner,
   isBlueDartLogisticsPartnerId,
@@ -6,14 +7,21 @@ import {
   trackonServiceForPartner,
 } from '../constants/logisticsPartners';
 import { invoiceTotalInclGst } from '../constants/ewayBill';
+import type { CatalogProduct } from '../types/catalog';
 import type { DealerInvoiceDetail, DealerInvoiceLineItem } from '../types/invoices';
 import { isInvoicePaidStatus } from '../types/invoices';
-import type { LogisticsBooking, ShipmentMode } from '../types/logistics-dispatch';
+import type {
+  LogisticsBooking,
+  ShipmentBox,
+  ShipmentBoxDraft,
+  ShipmentMode,
+} from '../types/logistics-dispatch';
 import type { LogisticsCourierRates } from '../types/logistics-courier-rates';
 import {
   isCourierRatePartnerId,
   ST_COURIER_ZONE_LABELS,
 } from '../types/logistics-courier-rates';
+import type { StaffLogisticsSite } from '../types/staff-logistics';
 import { STAFF_LOGISTICS_SITE_LABELS } from '../types/staff-logistics';
 import type { InventorySite } from './salesOrderSegments';
 import { fetchAdminInvoiceDetail } from './admin-invoices';
@@ -34,6 +42,7 @@ import {
   computeVolumetricWeight,
 } from './logisticsBooking';
 import {
+  buildInvoiceBookingBoxes,
   isDelhiveryFreightBillingModeLocked,
   resolveInvoiceFreightBillingMode,
 } from './logisticsPrefill';
@@ -136,6 +145,18 @@ export function sumPaidFreightInr(
   ), 0);
 }
 
+/**
+ * Freight billed on the invoice. After a local partner switch this stays the
+ * original billed amount (invoice lines / Zoho never change).
+ */
+export function paidFreightInrForInvoice(
+  invoice: Pick<DealerInvoiceDetail, 'lineItems' | 'yesOneFreightPartner'>,
+): number {
+  const frozen = Number(invoice.yesOneFreightPartner?.paidFreightInr);
+  if (Number.isFinite(frozen) && frozen >= 0) return Math.round(frozen * 100) / 100;
+  return Math.round(sumPaidFreightInr(invoice.lineItems ?? []) * 100) / 100;
+}
+
 /** All invoice ids on a booking (clubbed LRs include every linked invoice). */
 export function linkedInvoiceIdsForBooking(booking: Pick<
   LogisticsBooking,
@@ -152,9 +173,9 @@ export function linkedInvoiceIdsForBooking(booking: Pick<
 }
 
 export function sumPaidFreightAcrossInvoices(
-  invoices: ReadonlyArray<Pick<DealerInvoiceDetail, 'lineItems'>>,
+  invoices: ReadonlyArray<Pick<DealerInvoiceDetail, 'lineItems' | 'yesOneFreightPartner'>>,
 ): number {
-  return invoices.reduce((sum, invoice) => sum + sumPaidFreightInr(invoice.lineItems ?? []), 0);
+  return invoices.reduce((sum, invoice) => sum + paidFreightInrForInvoice(invoice), 0);
 }
 
 function normKey(value: string | null | undefined): string {
@@ -710,6 +731,124 @@ export function quoteActualFreightFromBooking(
       totalVolumetricKg: quoted.volumetricKg,
     }),
   };
+}
+
+function shipmentBoxesFromDrafts(drafts: ShipmentBoxDraft[]): ShipmentBox[] {
+  return drafts.map((draft, index) => {
+    const lengthCm = Number(draft.lengthCm);
+    const widthCm = Number(draft.widthCm);
+    const heightCm = Number(draft.heightCm);
+    const weightKg = Number(draft.weightKg);
+    return {
+      id: draft.id || `box-${index + 1}`,
+      lengthCm: Number.isFinite(lengthCm) && lengthCm > 0 ? lengthCm : null,
+      widthCm: Number.isFinite(widthCm) && widthCm > 0 ? widthCm : null,
+      heightCm: Number.isFinite(heightCm) && heightCm > 0 ? heightCm : null,
+      weightKg: Number.isFinite(weightKg) && weightKg > 0 ? weightKg : 0,
+      volumetricWeightKg: 0,
+      photos: [],
+    };
+  });
+}
+
+function bookingStubForInvoiceQuote(input: {
+  partnerId: LogisticsPartnerId;
+  invoice: Pick<DealerInvoiceDetail, 'id' | 'invoiceNumber' | 'customerName' | 'shippingAddress' | 'billingAddress' | 'total'>;
+  boxes: ShipmentBox[];
+  shipFromSite: StaffLogisticsSite;
+}): LogisticsBooking {
+  const { partnerId, invoice, boxes, shipFromSite } = input;
+  const deliveryAddress = invoice.shippingAddress?.trim() || invoice.billingAddress?.trim() || '';
+  const actualWeightKg = boxes.reduce((sum, box) => sum + (Number(box.weightKg) || 0), 0);
+  return {
+    id: 'invoice-freight-quote',
+    orderRef: invoice.invoiceNumber || invoice.id || '',
+    source: 'invoice',
+    invoiceId: invoice.id,
+    invoiceNumber: invoice.invoiceNumber ?? null,
+    invoiceValueInr: Number(invoice.total) || null,
+    supportRequestId: null,
+    supportRequestNumber: null,
+    partnerId,
+    consignmentNo: '',
+    trackingNo: '',
+    branch: '',
+    serviceType: '',
+    bookingDate: '',
+    dealer: {
+      zohoCustomerId: '',
+      dealerId: '',
+      name: invoice.customerName || '',
+      code: '',
+      contactPerson: '',
+      mobile: '',
+      shippingAddress: invoice.shippingAddress || '',
+      billingAddress: invoice.billingAddress || '',
+    },
+    deliveryAddressKind: 'shipping',
+    deliveryAddress,
+    shipFromSite,
+    shipFromAddress: '',
+    shipmentMode: 'box',
+    boxes,
+    numberOfBoxes: boxes.length,
+    actualWeightKg,
+    volumetricWeightKg: 0,
+    finalPackagePhoto: null,
+    finalPackagePhotoStoragePath: null,
+    labelGenerated: false,
+    courierSlipGenerated: false,
+    shippingLabelGenerated: false,
+    status: 'label_generated',
+    createdAt: '',
+    updatedAt: '',
+    createdByUid: '',
+    createdByName: '',
+  };
+}
+
+/**
+ * Rate-card actual for a partner using catalog carton sizes on the invoice.
+ * Used to preview Paid vs Actual before booking after a local courier switch.
+ */
+export function quoteActualFreightForInvoicePartner(input: {
+  invoice: DealerInvoiceDetail;
+  partnerId: LogisticsPartnerId;
+  rates: LogisticsCourierRates;
+  productsById: Map<string, CatalogProduct>;
+  shipFromSite: StaffLogisticsSite;
+}): {
+  totalInr: number | null;
+  chargeableKg: number | null;
+  note: string | null;
+  calc: LogisticsFreightCalcDetails;
+} {
+  const boxes = shipmentBoxesFromDrafts(
+    buildInvoiceBookingBoxes(input.invoice, input.productsById),
+  );
+  if (!boxes.length) {
+    const booking = bookingStubForInvoiceQuote({
+      partnerId: input.partnerId,
+      invoice: input.invoice,
+      boxes: [],
+      shipFromSite: input.shipFromSite,
+    });
+    const quoted = quoteActualFreightFromBooking(booking, input.rates);
+    return {
+      ...quoted,
+      totalInr: null,
+      note: quoted.note || 'Add package sizes to estimate actual freight',
+    };
+  }
+  return quoteActualFreightFromBooking(
+    bookingStubForInvoiceQuote({
+      partnerId: input.partnerId,
+      invoice: input.invoice,
+      boxes,
+      shipFromSite: input.shipFromSite,
+    }),
+    input.rates,
+  );
 }
 
 function freightBillingModeFromInvoices(

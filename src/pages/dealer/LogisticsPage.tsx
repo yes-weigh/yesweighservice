@@ -1408,13 +1408,13 @@ export const LogisticsPage: React.FC = () => {
                                   ) : (
                                     <>
                                       <span>
-                                        Freight{' '}
+                                        Paid{' '}
                                         {freight.paidFreightInr != null
                                           ? formatCurrency(freight.paidFreightInr)
                                           : '—'}
                                       </span>
                                       <span>
-                                        Actual freight{' '}
+                                        Actual{' '}
                                         {freight.actualFreightInr != null
                                           ? formatCurrency(freight.actualFreightInr)
                                           : '—'}

@@ -35,11 +35,13 @@ export function mapInvoiceLocalFreightPartner(
     || partnerIdForFreightSku(sku)
     || '';
   if (!sku || !partnerId) return null;
+  const paidRaw = Number(data.paidFreightInr);
   return {
     partnerId,
     sku,
     previousPartnerId: data.previousPartnerId ? String(data.previousPartnerId) : null,
     previousSku: data.previousSku ? String(data.previousSku) : null,
+    paidFreightInr: Number.isFinite(paidRaw) && paidRaw >= 0 ? paidRaw : null,
     updatedAt: data.updatedAt ? String(data.updatedAt) : '',
     updatedByUid: data.updatedByUid ? String(data.updatedByUid) : null,
     updatedByName: data.updatedByName ? String(data.updatedByName) : null,
@@ -55,7 +57,10 @@ export function effectiveInvoiceFreightSku(
   return listed || null;
 }
 
-/** Overlay the first courier freight line with the local YesOne partner (display only). */
+/**
+ * Overlay the first courier freight line with the local YesOne partner (display only).
+ * Name / SKU / image change — billed rate and total never change.
+ */
 export function overlayLocalFreightOnLineItems(
   invoice: Pick<DealerInvoiceDetail, 'lineItems' | 'yesOneFreightPartner'>,
 ): DealerInvoiceLineItem[] {

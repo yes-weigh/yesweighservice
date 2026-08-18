@@ -8,6 +8,7 @@ import { patchInvoiceSummaryListFields } from './invoice-stats.js';
 import {
   freightOptionForSku,
   freightSkuFromInvoiceLines,
+  isFreightOrderLine,
   partnerIdForFreightSku,
 } from './freight-lines.js';
 
@@ -46,6 +47,33 @@ async function findActiveLogisticsBooking(db, invoiceId) {
 
 function zohoFreightSku(invoice) {
   return freightSkuFromInvoiceLines(invoice?.lineItems) || null;
+}
+
+function lineAmount(line) {
+  const total = Number(line?.total);
+  if (Number.isFinite(total)) return total;
+  const rate = Number(line?.rate) || 0;
+  const qty = Number(line?.quantity) || 0;
+  return rate * qty;
+}
+
+function isFreightLine(line) {
+  if (!line || typeof line !== 'object') return false;
+  if (isFreightOrderLine(line)) return true;
+  const name = String(line.name ?? '').toLowerCase();
+  const sku = String(line.sku ?? '').toLowerCase();
+  return name.includes('freight') || sku.includes('freight');
+}
+
+/** Billed freight on the invoice — never overwritten when the local partner changes. */
+function billedFreightInr(invoice) {
+  const frozen = Number(invoice?.yesOneFreightPartner?.paidFreightInr);
+  if (Number.isFinite(frozen) && frozen >= 0) return Math.round(frozen * 100) / 100;
+  const lines = Array.isArray(invoice?.lineItems) ? invoice.lineItems : [];
+  const sum = lines.reduce((acc, line) => (
+    isFreightLine(line) ? acc + lineAmount(line) : acc
+  ), 0);
+  return Math.round(sum * 100) / 100;
 }
 
 /**
@@ -110,6 +138,7 @@ export async function setInvoiceLocalFreightPartner(input) {
       sku,
       previousPartnerId: previousPartnerId || null,
       previousSku: previousSku || null,
+      paidFreightInr: billedFreightInr(invoice),
       updatedAt: now,
       updatedByUid: markedByUid,
       updatedByName: markedByName,
