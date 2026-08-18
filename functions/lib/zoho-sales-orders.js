@@ -77,8 +77,34 @@ function lineItemsFromOrder(order, warehouseId = null) {
   })).filter(line => line.quantity > 0 && line.item_id);
 }
 
+function zohoLineAllowsWarehouse(item) {
+  return lineAllowsWarehouse({
+    itemId: item?.item_id,
+    productId: item?.item_id,
+    sku: item?.sku,
+    hsn: item?.hsn_or_sac || item?.hsn,
+  });
+}
+
+function zohoStatusKey(status) {
+  return String(status || '').toLowerCase().replace(/\s+/g, '_');
+}
+
+function isAlreadyConfirmedMessage(message) {
+  return /already|confirmed|status is open|\bis open\b|invoiced/i.test(String(message || ''));
+}
+
+async function postZohoIgnore(accessToken, orgId, path, ignorePattern) {
+  try {
+    await zohoJson(accessToken, orgId, path, { method: 'POST', body: {} });
+  } catch (err) {
+    const message = String(err?.message || '');
+    if (!ignorePattern.test(message) && !isZohoNotAuthorized(err)) throw err;
+  }
+}
+
 /** Writable line fields only — Zoho GET payloads include read-only keys that break PUT. */
-function lineItemsForSalesOrderPut(so) {
+function lineItemsForSalesOrderPut(so, { keepGoodsWarehouse = false } = {}) {
   const items = Array.isArray(so?.line_items) ? so.line_items : [];
   return items.map(item => {
     const line = {
@@ -92,8 +118,76 @@ function lineItemsForSalesOrderPut(so) {
     if (item.description) line.description = item.description;
     if (item.hsn_or_sac) line.hsn_or_sac = item.hsn_or_sac;
     if (item.tax_id) line.tax_id = item.tax_id;
+    if (
+      keepGoodsWarehouse
+      && zohoLineAllowsWarehouse(item)
+      && item.warehouse_id != null
+      && String(item.warehouse_id).trim()
+    ) {
+      line.warehouse_id = String(item.warehouse_id).trim();
+    }
     return line;
   }).filter(line => line.item_id && Number(line.quantity) > 0);
+}
+
+function salesOrderHasServiceWarehouse(so) {
+  const items = Array.isArray(so?.line_items) ? so.line_items : [];
+  return items.some(item =>
+    item?.warehouse_id != null
+    && String(item.warehouse_id).trim()
+    && !zohoLineAllowsWarehouse(item),
+  );
+}
+
+async function stripServiceWarehousesOnSalesOrder(accessToken, orgId, so) {
+  if (!so?.salesorder_id || !salesOrderHasServiceWarehouse(so)) return so;
+  const payload = await zohoJson(accessToken, orgId, `/salesorders/${so.salesorder_id}`, {
+    method: 'PUT',
+    body: {
+      customer_id: so.customer_id,
+      date: so.date || new Date().toISOString().slice(0, 10),
+      line_items: lineItemsForSalesOrderPut(so, { keepGoodsWarehouse: true }),
+      ...(so.reference_number ? { reference_number: so.reference_number } : {}),
+      ...(so.notes ? { notes: so.notes } : {}),
+      ...(so.salesperson_id ? { salesperson_id: so.salesperson_id } : {}),
+    },
+  });
+  return payload?.salesorder || so;
+}
+
+async function confirmSalesOrderRequest(accessToken, orgId, soId) {
+  try {
+    await zohoJson(accessToken, orgId, `/salesorders/${soId}/status/confirmed`, {
+      method: 'POST',
+      body: {},
+    });
+  } catch (err) {
+    if (isAlreadyConfirmedMessage(err?.message)) return;
+    if (!isZohoNotAuthorized(err) && !/approv|submit|draft|pending/i.test(String(err?.message || ''))) {
+      throw err;
+    }
+    await postZohoIgnore(
+      accessToken,
+      orgId,
+      `/salesorders/${soId}/submit`,
+      /already|submit|approv|cannot submit/i,
+    );
+    await postZohoIgnore(
+      accessToken,
+      orgId,
+      `/salesorders/${soId}/approve`,
+      /already|approv|cannot approve/i,
+    );
+    try {
+      await zohoJson(accessToken, orgId, `/salesorders/${soId}/status/confirmed`, {
+        method: 'POST',
+        body: {},
+      });
+    } catch (retryErr) {
+      if (isAlreadyConfirmedMessage(retryErr?.message)) return;
+      throw retryErr;
+    }
+  }
 }
 
 export async function createSalesOrderFromDealerOrder(secrets, configuredOrgId, order) {
@@ -372,10 +466,25 @@ export async function confirmSalesOrder(secrets, configuredOrgId, salesOrderId) 
   if (!soId) throw new Error('Sales order id is required.');
   const accessToken = await getAccessToken(secrets);
   const orgId = await resolveOrganizationId(accessToken, configuredOrgId);
-  await zohoJson(accessToken, orgId, `/salesorders/${soId}/status/confirmed`, {
-    method: 'POST',
-    body: {},
-  });
+  const existing = await zohoJson(accessToken, orgId, `/salesorders/${soId}`);
+  let so = existing?.salesorder;
+  if (!so) throw new Error('Sales order not found in Zoho.');
+
+  const status = zohoStatusKey(so.status);
+  if (['open', 'confirmed', 'invoiced', 'closed'].includes(status)) {
+    return { salesOrderId: soId, status: status === 'open' ? 'confirmed' : status };
+  }
+
+  try {
+    so = await stripServiceWarehousesOnSalesOrder(accessToken, orgId, so);
+  } catch (err) {
+    console.warn(
+      `Could not strip service warehouses before confirm for SO ${soId}:`,
+      err?.message || err,
+    );
+  }
+
+  await confirmSalesOrderRequest(accessToken, orgId, soId);
   return { salesOrderId: soId, status: 'confirmed' };
 }
 
@@ -550,51 +659,99 @@ export async function createInvoiceFromSalesOrder(secrets, configuredOrgId, {
   if (!soId) throw new Error('Sales order id is required.');
   const spId = String(salespersonId || '').trim();
 
-  const soPayload = await zohoJson(accessToken, orgId, `/salesorders/${soId}`);
-  const so = soPayload?.salesorder;
-  if (!so) throw new Error('Could not load sales order from Zoho.');
+  const loadSo = async () => {
+    const soPayload = await zohoJson(accessToken, orgId, `/salesorders/${soId}`);
+    const loaded = soPayload?.salesorder;
+    if (!loaded) throw new Error('Could not load sales order from Zoho.');
+    return loaded;
+  };
+
+  const linkedInvoiceFromSo = (order) => {
+    const invoices = Array.isArray(order?.invoices) ? order.invoices : [];
+    const first = invoices.find(row => row?.invoice_id) || null;
+    if (!first) return null;
+    return {
+      invoiceId: String(first.invoice_id),
+      invoiceNumber: first.invoice_number ? String(first.invoice_number) : null,
+    };
+  };
+
+  let so = await loadSo();
+  const already = linkedInvoiceFromSo(so);
+  if (already) return already;
+
+  try {
+    so = await stripServiceWarehousesOnSalesOrder(accessToken, orgId, so);
+  } catch (err) {
+    console.warn(
+      `Could not strip service warehouses before invoice for SO ${soId}:`,
+      err?.message || err,
+    );
+  }
+
+  const status = zohoStatusKey(so.status);
+  if (!['open', 'confirmed', 'invoiced', 'closed'].includes(status)) {
+    await confirmSalesOrderRequest(accessToken, orgId, soId);
+    so = await loadSo();
+    const afterConfirm = linkedInvoiceFromSo(so);
+    if (afterConfirm) return afterConfirm;
+  }
+
   const shippingFields = shippingFieldsFromSalesOrder(so);
 
-  // Prefer convert endpoint when available (inherits SO salesperson when set on SO).
-  try {
-    const converted = await zohoJson(
-      accessToken,
-      orgId,
-      `/invoices/fromsalesorder?salesorder_id=${encodeURIComponent(soId)}`,
-      { method: 'POST', body: {} },
-    );
-    const inv = converted?.invoice;
-    if (inv?.invoice_id) {
-      const invoiceId = String(inv.invoice_id);
-      const needsSalesperson = Boolean(spId && String(inv.salesperson_id || '').trim() !== spId);
-      // Always push SO shipping when present — convert may omit it or use contact default.
-      const needsShipping = Object.keys(shippingFields).length > 0;
-      if (needsSalesperson || needsShipping) {
-        try {
-          await zohoJson(accessToken, orgId, `/invoices/${encodeURIComponent(invoiceId)}`, {
-            method: 'PUT',
-            body: {
-              customer_id: inv.customer_id || so.customer_id,
-              date: inv.date || so.date || new Date().toISOString().slice(0, 10),
-              line_items: Array.isArray(inv.line_items) ? inv.line_items : [],
-              ...(needsSalesperson ? { salesperson_id: spId } : {}),
-              ...(needsShipping ? shippingFields : {}),
-            },
-          });
-        } catch (err) {
-          console.warn(
-            'Could not set salesperson/shipping on converted invoice:',
-            err?.message || err,
-          );
-        }
-      }
+  const patchConvertedInvoice = async (inv) => {
+    const invoiceId = String(inv.invoice_id);
+    const needsSalesperson = Boolean(spId && String(inv.salesperson_id || '').trim() !== spId);
+    const needsShipping = Object.keys(shippingFields).length > 0;
+    if (!needsSalesperson && !needsShipping) {
       return {
         invoiceId,
         invoiceNumber: inv.invoice_number ? String(inv.invoice_number) : null,
       };
     }
-  } catch {
-    // Fall through to create-from-SO details.
+    try {
+      await zohoJson(accessToken, orgId, `/invoices/${encodeURIComponent(invoiceId)}`, {
+        method: 'PUT',
+        body: {
+          customer_id: inv.customer_id || so.customer_id,
+          date: inv.date || so.date || new Date().toISOString().slice(0, 10),
+          line_items: lineItemsForSalesOrderPut(inv, { keepGoodsWarehouse: true }),
+          ...(needsSalesperson ? { salesperson_id: spId } : {}),
+          ...(needsShipping ? shippingFields : {}),
+        },
+      });
+    } catch (err) {
+      console.warn(
+        'Could not set salesperson/shipping on converted invoice:',
+        err?.message || err,
+      );
+    }
+    return {
+      invoiceId,
+      invoiceNumber: inv.invoice_number ? String(inv.invoice_number) : null,
+    };
+  };
+
+  // Prefer convert endpoint when available. Do not send `{}` — Zoho treats an
+  // empty JSON body as unauthorized on some orgs.
+  try {
+    const converted = await zohoJson(
+      accessToken,
+      orgId,
+      `/invoices/fromsalesorder?salesorder_id=${encodeURIComponent(soId)}`,
+      { method: 'POST' },
+    );
+    const inv = converted?.invoice;
+    if (inv?.invoice_id) return patchConvertedInvoice(inv);
+  } catch (convertErr) {
+    const linked = linkedInvoiceFromSo(await loadSo().catch(() => so));
+    if (linked) return linked;
+    if (!isZohoNotAuthorized(convertErr)) {
+      console.warn(
+        `Convert SO ${soId} to invoice failed, trying create:`,
+        convertErr?.message || convertErr,
+      );
+    }
   }
 
   const lineItems = (Array.isArray(so.line_items) ? so.line_items : []).map(item => ({
@@ -602,39 +759,53 @@ export async function createInvoiceFromSalesOrder(secrets, configuredOrgId, {
     name: item.name,
     rate: item.rate,
     quantity: item.quantity,
-    unit: item.unit,
+    unit: item.unit || 'pcs',
     salesorder_item_id: item.line_item_id,
-  }));
+  })).filter(line => line.item_id && Number(line.quantity) > 0);
 
   if (!lineItems.length) {
     throw new Error('Sales order has no line items to invoice.');
   }
 
-  const body = {
+  const baseBody = {
     customer_id: String(customerId || so.customer_id || ''),
     reference_number: String(referenceNumber || so.reference_number || ''),
     date: new Date().toISOString().slice(0, 10),
     line_items: lineItems,
     salesorder_id: soId,
-    ...shippingFields,
   };
   const effectiveSp = spId || (so.salesperson_id != null ? String(so.salesperson_id).trim() : '');
-  if (effectiveSp) body.salesperson_id = effectiveSp;
 
-  const payload = await zohoJson(accessToken, orgId, '/invoices', {
-    method: 'POST',
-    body,
-  });
+  const attempts = [
+    { ...baseBody, ...shippingFields, ...(effectiveSp ? { salesperson_id: effectiveSp } : {}) },
+    { ...baseBody, ...shippingFields },
+    baseBody,
+  ];
 
-  const inv = payload?.invoice;
-  if (!inv?.invoice_id) {
-    throw new Error(payload?.message || 'Zoho did not return an invoice id.');
+  let lastErr = null;
+  for (const body of attempts) {
+    try {
+      const payload = await zohoJson(accessToken, orgId, '/invoices', {
+        method: 'POST',
+        body,
+      });
+      const inv = payload?.invoice;
+      if (inv?.invoice_id) {
+        return {
+          invoiceId: String(inv.invoice_id),
+          invoiceNumber: inv.invoice_number ? String(inv.invoice_number) : null,
+        };
+      }
+      lastErr = new Error(payload?.message || 'Zoho did not return an invoice id.');
+    } catch (err) {
+      lastErr = err;
+      const linked = linkedInvoiceFromSo(await loadSo().catch(() => so));
+      if (linked) return linked;
+      if (!isZohoNotAuthorized(err)) break;
+    }
   }
 
-  return {
-    invoiceId: String(inv.invoice_id),
-    invoiceNumber: inv.invoice_number ? String(inv.invoice_number) : null,
-  };
+  throw lastErr || new Error('Zoho did not return an invoice id.');
 }
 
 function invoiceAlreadySentMessage(message) {

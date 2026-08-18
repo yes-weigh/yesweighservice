@@ -4839,7 +4839,7 @@ export const verifySalesOrderPayment = onCall(
   },
   async request => {
     const uid = request.auth?.uid;
-    const role = await requireActiveUser(uid, SUPER_ADMIN_ROLES);
+    const role = await requireActiveUser(uid, new Set(['staff', 'super_admin']));
     try {
       return await verifySalesOrderPaymentRecord(
         uid,

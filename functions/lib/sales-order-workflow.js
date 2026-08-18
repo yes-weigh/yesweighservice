@@ -958,12 +958,12 @@ export async function submitSalesOrderPayment(uid, role, payload = {}) {
 }
 
 /**
- * Super admin: verify payment → Confirm Zoho SO → create Invoice
- * → (B2B only) push e-invoice to IRP → mark invoice Sent → mark completed.
+ * Super admin or ops with orders.manage: verify payment → Confirm Zoho SO
+ * → create Invoice → (B2B only) push e-invoice to IRP → mark invoice Sent → completed.
  */
 export async function verifySalesOrderPayment(uid, role, salesOrderId, secrets, orgId) {
   const user = await loadUser(uid);
-  requireSuperAdmin(user);
+  requireOrdersManage(user);
 
   const { ref, id, data } = await loadSoOrThrow(salesOrderId);
   if (yesOneStageOf(data) !== 'payment_submitted') {
@@ -987,7 +987,7 @@ export async function verifySalesOrderPayment(uid, role, salesOrderId, secrets, 
   }
 
   try {
-    if (zohoStatus === 'draft' || zohoStatus === 'pending') {
+    if (zohoStatus !== 'invoiced' && zohoStatus !== 'closed') {
       await confirmSalesOrder(secrets, orgId, id);
     }
 

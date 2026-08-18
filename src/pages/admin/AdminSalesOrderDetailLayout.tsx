@@ -40,7 +40,7 @@ import {
 } from '../../lib/salesOrderWorkflow';
 import { listAssignableDealerStaff } from '../../lib/dealers';
 import { sealKindForSalesOrder } from '../../lib/unified-sales-orders';
-import { canSuperAdminWrite } from '../../lib/staffAccess';
+import { canSuperAdminWrite, hasStaffPermission } from '../../lib/staffAccess';
 import type {
   AdminSalesOrderDetailOutletContext,
   SalesOrderActionBusy,
@@ -61,7 +61,10 @@ export const AdminSalesOrderDetailLayout: React.FC = () => {
   const isDealerView = basePath === '/dealer' || basePath === '/dealer-staff';
   const canManageZoho = !isDealerView
     && (user?.role === 'staff' || canSuperAdminWrite(user));
-  const canVerifyPayment = !isDealerView && canSuperAdminWrite(user);
+  const canVerifyPayment = !isDealerView && (
+    canSuperAdminWrite(user)
+    || hasStaffPermission(user, 'orders.manage')
+  );
   const listPath = `${basePath}/sales-orders`;
   const summaryPath = `${listPath}/${salesOrderId}`;
   const isPdfView = pathname.endsWith('/view');
