@@ -16,7 +16,12 @@ import { formatAuditDate } from '../../lib/yesStore/format';
 import { formatQtyDifference } from '../../lib/yesStore/inventoryAudit';
 import { useCart } from '../../context/useCart';
 import { useCartFly } from '../../context/useCartFly';
+import { useDealerOrderStockGate } from '../../hooks/useDealerOrderStockGate';
 import { useDealerUnitPrice } from '../../hooks/useDealerUnitPrice';
+import {
+  DEALER_ORDER_SCHEDULED_TITLE,
+  DEALER_ORDER_UNAVAILABLE_TITLE,
+} from '../../lib/dealerOrderStock';
 import type { CatalogProduct } from '../../types/catalog';
 import { AuditedSealIcon } from './AuditedSealIcon';
 import { CategoryThumbnail } from './CategoryThumbnail';
@@ -102,7 +107,10 @@ export const ProductBrowseCard: React.FC<ProductBrowseCardProps> = ({
 }) => {
   const { addItem, isInCart } = useCart();
   const { flyToCart } = useCartFly();
+  const dealerStock = useDealerOrderStockGate();
   const dealerPricing = useDealerUnitPrice(dealerView ? product : null);
+  const dealerCanAdd = dealerStock.canOrder(product);
+  const dealerInboundOnly = dealerStock.usesScheduledInbound(product);
   const [addedFlash, setAddedFlash] = useState(false);
   const [dragOver, setDragOver] = useState(false);
   const [gatcOptions, setGatcOptions] = useState<CatalogGatcStampingPriceEntry[]>([]);
@@ -223,6 +231,7 @@ export const ProductBrowseCard: React.FC<ProductBrowseCardProps> = ({
 
   const handleAddToCart = (event: React.MouseEvent<HTMLButtonElement>) => {
     event.stopPropagation();
+    if (!dealerCanAdd) return;
     // Stampable items add without stamping; dealer configures in cart.
     if (addItem(product)) {
       flyToCart(event.currentTarget, { imageUrl: product.imageUrl });
@@ -346,12 +355,22 @@ export const ProductBrowseCard: React.FC<ProductBrowseCardProps> = ({
               )}
             </div>
             {showStockQuantity && (
-              <StockQuantity
-                stock={gridStockQty}
-                unit={product.unit}
-                status={gridStockStatus}
-                compact
-              />
+              <div className="catalog-product-card__stock-meta">
+                <StockQuantity
+                  stock={gridStockQty}
+                  unit={product.unit}
+                  status={gridStockStatus}
+                  compact
+                />
+                {dealerInboundOnly && (
+                  <span
+                    className="catalog-product-card__inbound-chip"
+                    title={DEALER_ORDER_SCHEDULED_TITLE}
+                  >
+                    Inbound
+                  </span>
+                )}
+              </div>
             )}
           </div>
 
@@ -448,8 +467,21 @@ export const ProductBrowseCard: React.FC<ProductBrowseCardProps> = ({
           type="button"
           className={`catalog-product-card__cart-btn ${addedFlash ? 'catalog-product-card__cart-btn--added' : ''}`}
           onClick={handleAddToCart}
-          aria-label={inCart ? 'Add another to cart' : 'Add to cart'}
-          title="Add to cart"
+          disabled={!dealerCanAdd}
+          aria-label={
+            !dealerCanAdd
+              ? DEALER_ORDER_UNAVAILABLE_TITLE
+              : inCart
+                ? 'Add another to cart'
+                : 'Add to cart'
+          }
+          title={
+            !dealerCanAdd
+              ? DEALER_ORDER_UNAVAILABLE_TITLE
+              : dealerInboundOnly
+                ? DEALER_ORDER_SCHEDULED_TITLE
+                : 'Add to cart'
+          }
         >
           <ShoppingCart size={16} />
         </button>

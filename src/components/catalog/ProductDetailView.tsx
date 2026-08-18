@@ -65,7 +65,12 @@ import { getCategoryTheme } from '../../lib/category-display';
 import { useCart } from '../../context/useCart';
 import { useCartFly } from '../../context/useCartFly';
 import { useConfirm } from '../../context/ConfirmContext';
+import { useDealerOrderStockGate } from '../../hooks/useDealerOrderStockGate';
 import { useDealerUnitPrice } from '../../hooks/useDealerUnitPrice';
+import {
+  DEALER_ORDER_SCHEDULED_MESSAGE,
+  DEALER_ORDER_UNAVAILABLE_MESSAGE,
+} from '../../lib/dealerOrderStock';
 import { DealerPriceDisplay } from './DealerPriceDisplay';
 import { listItemsByCatalogProduct } from '../../lib/yesStore/data';
 import {
@@ -237,6 +242,7 @@ export const ProductDetailView: React.FC<{
   }, [backPath, backState, navigate, currentNavState]);
   const { addItem, getQuantity } = useCart();
   const { flyToCart } = useCartFly();
+  const dealerStock = useDealerOrderStockGate();
   const confirm = useConfirm();
   const [quantityText, setQuantityText] = useState('1');
   const [addedFlash, setAddedFlash] = useState(false);
@@ -993,6 +999,8 @@ export const ProductDetailView: React.FC<{
     [detail?.warehouses],
   );
   const cartQty = product ? getQuantity(product.id) : 0;
+  const dealerCanAdd = dealerStock.canOrder(product);
+  const dealerInboundOnly = dealerStock.usesScheduledInbound(product);
 
   const parseQuantity = useCallback((value: string) => Math.max(1, parseInt(value, 10) || 1), []);
 
@@ -1009,7 +1017,7 @@ export const ProductDetailView: React.FC<{
   }, [productId]);
 
   const handleAddToCart = (event: React.MouseEvent<HTMLButtonElement>) => {
-    if (!product) return;
+    if (!product || !dealerCanAdd) return;
     const quantity = parseQuantity(quantityText);
     setQuantityText(String(quantity));
     // Stampable items add without stamping; dealer configures in cart.
@@ -2476,7 +2484,7 @@ export const ProductDetailView: React.FC<{
                   type="button"
                   className="product-detail-page__qty-btn"
                   onClick={() => bumpQuantity(-1)}
-                  disabled={parseQuantity(quantityText) <= 1}
+                  disabled={!dealerCanAdd || parseQuantity(quantityText) <= 1}
                   aria-label="Decrease quantity"
                 >
                   −
@@ -2495,12 +2503,14 @@ export const ProductDetailView: React.FC<{
                   }}
                   onBlur={commitQuantityText}
                   onFocus={e => e.target.select()}
+                  disabled={!dealerCanAdd}
                   aria-label="Quantity"
                 />
                 <button
                   type="button"
                   className="product-detail-page__qty-btn"
                   onClick={() => bumpQuantity(1)}
+                  disabled={!dealerCanAdd}
                   aria-label="Increase quantity"
                 >
                   +
@@ -2510,6 +2520,7 @@ export const ProductDetailView: React.FC<{
                 type="button"
                 className={`btn btn-primary product-detail-page__add-cart ${addedFlash ? 'product-detail-page__add-cart--added' : ''}`}
                 onClick={handleAddToCart}
+                disabled={!dealerCanAdd}
               >
                 <ShoppingCart size={18} />
                 {addedFlash ? 'Added to cart' : 'Add to cart'}
@@ -2522,6 +2533,14 @@ export const ProductDetailView: React.FC<{
                 >
                   View cart ({cartQty})
                 </button>
+              )}
+              {dealerStock.gate && !dealerCanAdd && (
+                <p className="product-detail-page__stock-gate">{DEALER_ORDER_UNAVAILABLE_MESSAGE}</p>
+              )}
+              {dealerInboundOnly && (
+                <p className="product-detail-page__stock-gate product-detail-page__stock-gate--scheduled">
+                  {DEALER_ORDER_SCHEDULED_MESSAGE}
+                </p>
               )}
             </div>
           )}

@@ -235,6 +235,7 @@ export const AdminSalesOrderDocumentPage: React.FC = () => {
           'invoice-detail-item__avail-chip',
           sufficient ? 'invoice-detail-item__avail-chip--ok' : 'invoice-detail-item__avail-chip--low',
         ].join(' ')}
+        title="Live audited stock"
       >
         Avail: {label}
       </span>
@@ -1219,6 +1220,81 @@ export const AdminSalesOrderDocumentPage: React.FC = () => {
         </section>
       ) : null}
 
+      {showPayment && (
+        <section className="so-detail__payment panel glass" data-capture-ignore="1">
+          <div className="so-detail__payment-head">
+            <h3 className="so-detail__section-title">Payment</h3>
+            {salesOrder.paymentAmount != null ? (
+              <div className="so-detail__payment-due">
+                <span className="so-detail__payment-due-label">Amount due</span>
+                <strong className="so-detail__payment-due-value">
+                  {formatCurrency(salesOrder.paymentAmount, salesOrder.currencyCode)}
+                </strong>
+              </div>
+            ) : null}
+          </div>
+
+          {canUploadPayment && (
+            <div className="so-detail__payment-form" data-capture-ignore="1">
+              <div className="so-detail__payment-field">
+                <span>Payment screenshot <span className="text-muted">(optional if noting credit)</span></span>
+                <label className="so-detail__payment-file" htmlFor="so-payment-file">
+                  <span className="so-detail__payment-file-icon" aria-hidden>
+                    <ImageIcon size={18} />
+                  </span>
+                  <span className="so-detail__payment-file-copy">
+                    <strong>{paymentFile ? paymentFile.name : 'Choose image'}</strong>
+                    <span className="text-muted text-sm">
+                      {paymentFile ? 'Tap to replace' : 'PNG, JPG — bank transfer screenshot'}
+                    </span>
+                  </span>
+                  <input
+                    id="so-payment-file"
+                    type="file"
+                    accept="image/*"
+                    onChange={e => setPaymentFile(e.target.files?.[0] ?? null)}
+                  />
+                </label>
+              </div>
+
+              <label className="so-detail__payment-field" htmlFor="so-payment-notes">
+                <span>Payment note <span className="text-muted">(optional if screenshot attached)</span></span>
+                <textarea
+                  id="so-payment-notes"
+                  className="input-field so-detail__payment-notes"
+                  value={paymentNotes}
+                  onChange={e => setPaymentNotes(e.target.value.slice(0, 1000))}
+                  disabled={submittingPayment}
+                  rows={3}
+                  maxLength={1000}
+                  placeholder="e.g. Adjust against existing company credit / advance balance"
+                />
+              </label>
+              <p className="so-detail__payment-hint text-muted text-sm mb-0">
+                Provide a screenshot, a note, or both. Notes alone are enough when settling against existing credit.
+              </p>
+
+              <button
+                type="button"
+                className="btn btn-primary so-detail__payment-submit"
+                disabled={submittingPayment}
+                onClick={() => { void handleSubmitPayment(); }}
+              >
+                <IndianRupee size={16} aria-hidden />
+                {submittingPayment ? 'Submitting…' : 'Submit payment'}
+              </button>
+            </div>
+          )}
+
+          {salesOrder.paymentNotes?.trim() ? (
+            <div className="so-detail__payment-note-view">
+              <span className="so-detail__payment-note-label">Payment note</span>
+              <p className="so-detail__payment-note-text mb-0">{salesOrder.paymentNotes.trim()}</p>
+            </div>
+          ) : null}
+        </section>
+      )}
+
       {/* Products + totals — tap a line to edit; tap freight for splitup */}
       <section className="so-detail__doc">
         {canEditLines ? (
@@ -1325,87 +1401,6 @@ export const AdminSalesOrderDocumentPage: React.FC = () => {
           </ul>
         </section>
       ) : null}
-
-      {showPayment && (
-        <section className="so-detail__payment panel glass" data-capture-ignore="1">
-          <div className="so-detail__payment-head">
-            <h3 className="so-detail__section-title">Payment</h3>
-            {salesOrder.paymentAmount != null ? (
-              <div className="so-detail__payment-due">
-                <span className="so-detail__payment-due-label">Amount due</span>
-                <strong className="so-detail__payment-due-value">
-                  {formatCurrency(salesOrder.paymentAmount, salesOrder.currencyCode)}
-                </strong>
-              </div>
-            ) : null}
-          </div>
-
-          {canUploadPayment && (
-            <div className="so-detail__payment-form" data-capture-ignore="1">
-              <div className="so-detail__payment-field">
-                <span>Payment screenshot <span className="text-muted">(optional if noting credit)</span></span>
-                <label className="so-detail__payment-file" htmlFor="so-payment-file">
-                  <span className="so-detail__payment-file-icon" aria-hidden>
-                    <ImageIcon size={18} />
-                  </span>
-                  <span className="so-detail__payment-file-copy">
-                    <strong>{paymentFile ? paymentFile.name : 'Choose image'}</strong>
-                    <span className="text-muted text-sm">
-                      {paymentFile ? 'Tap to replace' : 'PNG, JPG — bank transfer screenshot'}
-                    </span>
-                  </span>
-                  <input
-                    id="so-payment-file"
-                    type="file"
-                    accept="image/*"
-                    onChange={e => setPaymentFile(e.target.files?.[0] ?? null)}
-                  />
-                </label>
-              </div>
-
-              <label className="so-detail__payment-field" htmlFor="so-payment-notes">
-                <span>Payment note <span className="text-muted">(optional if screenshot attached)</span></span>
-                <textarea
-                  id="so-payment-notes"
-                  className="input-field so-detail__payment-notes"
-                  value={paymentNotes}
-                  onChange={e => setPaymentNotes(e.target.value.slice(0, 1000))}
-                  disabled={submittingPayment}
-                  rows={3}
-                  maxLength={1000}
-                  placeholder="e.g. Adjust against existing company credit / advance balance"
-                />
-              </label>
-              <p className="so-detail__payment-hint text-muted text-sm mb-0">
-                Provide a screenshot, a note, or both. Notes alone are enough when settling against existing credit.
-              </p>
-
-              <button
-                type="button"
-                className="btn btn-primary so-detail__payment-submit"
-                disabled={submittingPayment}
-                onClick={() => { void handleSubmitPayment(); }}
-              >
-                <IndianRupee size={16} aria-hidden />
-                {submittingPayment ? 'Submitting…' : 'Submit payment'}
-              </button>
-            </div>
-          )}
-
-          {salesOrder.paymentNotes?.trim() ? (
-            <div className="so-detail__payment-note-view">
-              <span className="so-detail__payment-note-label">Payment note</span>
-              <p className="so-detail__payment-note-text mb-0">{salesOrder.paymentNotes.trim()}</p>
-            </div>
-          ) : null}
-
-          {stage === 'payment_submitted' && !canUploadPayment && (
-            <p className="so-detail__payment-waiting text-muted text-sm mb-0">
-              Payment submitted. Waiting for verification.
-            </p>
-          )}
-        </section>
-      )}
 
       </div>
 

@@ -48,6 +48,7 @@ import {
   listCatalogProductAuditLogs,
   backfillLegacyCatalogProductAudits,
 } from './lib/catalog-product-audit.js';
+import { scheduledInboundQtyByProductId } from './lib/scheduled-goods-receipt-inbound.js';
 import { migrateExistingAuditsIntoCycles } from './lib/audit-cycles-migrate.js';
 import { transferCatalogProductWarehouseStock as persistWarehouseTransfer } from './lib/zoho-warehouse-transfer.js';
 import {
@@ -1489,6 +1490,24 @@ export const getCatalogProductAuditLogs = onCall(
       return { logs };
     } catch (err) {
       throw new HttpsError('internal', err?.message ?? 'Could not load audit history.');
+    }
+  },
+);
+
+/** Draft goods receipts — inbound qty by catalog item (dealers cannot read goodsReceipts). */
+export const getScheduledGoodsReceiptInboundFn = onCall(
+  {
+    region: 'asia-south1',
+    timeoutSeconds: 60,
+    memory: '256MiB',
+  },
+  async request => {
+    await requireActiveUser(request.auth?.uid, ALLOWED_ROLES, { allowViewOnly: true });
+    try {
+      const qtyByProductId = await scheduledInboundQtyByProductId();
+      return { qtyByProductId };
+    } catch (err) {
+      throw new HttpsError('internal', err?.message ?? 'Could not load scheduled inbound stock.');
     }
   },
 );

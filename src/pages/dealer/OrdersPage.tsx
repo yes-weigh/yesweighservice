@@ -17,7 +17,14 @@ import { useAuth } from '../../context/AuthContext';
 import { CART_REMARKS_MAX_LENGTH } from '../../context/CartProvider';
 import { useCart } from '../../context/useCart';
 import { useDealerPriceLevels } from '../../hooks/useDealerUnitPrice';
+import { useDealerOrderStockGate } from '../../hooks/useDealerOrderStockGate';
 import { cartLineIsOutOfStock, fetchCatalog, formatCurrency } from '../../lib/catalog';
+import {
+  DEALER_ORDER_SCHEDULED_MESSAGE,
+  DEALER_ORDER_UNAVAILABLE_MESSAGE,
+  dealerCanOrderProduct,
+  dealerOrderUsesScheduledInbound,
+} from '../../lib/dealerOrderStock';
 import {
   DIRECTORS_QTY_CLUB_LABEL,
   isDirectorsQtyClubSku,
@@ -93,6 +100,7 @@ const DealerCartPage: React.FC = () => {
     clearCart,
   } = useCart();
   const { level: dealerPriceLevel } = useDealerPriceLevels();
+  const dealerStock = useDealerOrderStockGate();
   const skipsOpsReview = priceLevelSkipsOpsReview(dealerPriceLevel);
   const [submitting, setSubmitting] = useState(false);
   const [createdOrders, setCreatedOrders] = useState<SegmentSalesOrderResult[] | null>(null);
@@ -310,8 +318,25 @@ const DealerCartPage: React.FC = () => {
     cartIsSpareOnly,
   ]);
 
+  const { inboundByProductId } = dealerStock;
+  const unorderableItems = useMemo(() => items.filter(item => {
+    const product = catalogById[item.productId];
+    const inbound = inboundByProductId[item.productId] ?? 0;
+    if (product) return !dealerCanOrderProduct(product, inbound);
+    if (inbound > 0) return false;
+    return cartLineIsOutOfStock(item);
+  }), [items, catalogById, inboundByProductId]);
+
   const handlePlaceOrder = async () => {
     if (items.length === 0 || submitting) return;
+    if (unorderableItems.length > 0) {
+      window.alert(
+        unorderableItems.length === 1
+          ? `${unorderableItems[0].name} is out of stock and is not scheduled on a goods receipt.`
+          : `${unorderableItems.length} items are out of stock and not scheduled on a goods receipt.`,
+      );
+      return;
+    }
     if (!shipping) {
       window.alert('Select or enter a complete shipping address before placing the order.');
       return;
@@ -494,8 +519,14 @@ const DealerCartPage: React.FC = () => {
           <ul className="orders-page__items">
             {items.map(item => {
               const lineTotal = item.rate * item.quantity;
-              const outOfStock = cartLineIsOutOfStock(item);
               const catalogProduct = catalogById[item.productId];
+              const scheduledQty = dealerStock.scheduledQty(item.productId);
+              const canOrderLine = catalogProduct
+                ? dealerCanOrderProduct(catalogProduct, scheduledQty)
+                : scheduledQty > 0 || !cartLineIsOutOfStock(item);
+              const inboundOnly = catalogProduct
+                ? dealerOrderUsesScheduledInbound(catalogProduct, scheduledQty)
+                : cartLineIsOutOfStock(item) && scheduledQty > 0;
               const canEditStamp = catalogProduct
                 ? productHasLinkedGatc(catalogProduct)
                 : Boolean(item.gatcStampingPriceId);
@@ -510,7 +541,7 @@ const DealerCartPage: React.FC = () => {
               return (
                 <li
                   key={item.cartLineId}
-                  className={`orders-page__item panel glass ${outOfStock ? 'orders-page__item--unavailable' : ''}`}
+                  className={`orders-page__item panel glass ${!canOrderLine ? 'orders-page__item--unavailable' : ''}`}
                 >
                   <div className="orders-page__item-media">
                     {item.imageUrl ? (
@@ -608,8 +639,15 @@ const DealerCartPage: React.FC = () => {
                         }}
                       />
                     )}
-                    {outOfStock && (
-                      <p className="orders-page__item-warning">Currently out of stock — will be fulfilled when available</p>
+                    {!canOrderLine && (
+                      <p className="orders-page__item-warning orders-page__item-warning--blocked">
+                        {DEALER_ORDER_UNAVAILABLE_MESSAGE}
+                      </p>
+                    )}
+                    {inboundOnly && (
+                      <p className="orders-page__item-warning">
+                        {DEALER_ORDER_SCHEDULED_MESSAGE}
+                      </p>
                     )}
                   </DocumentLineItemSpec>
 
@@ -795,6 +833,7 @@ const DealerCartPage: React.FC = () => {
               || !shipping
               || addressesLoading
               || !freightAdjustAgreed
+              || unorderableItems.length > 0
             }
             onClick={() => void handlePlaceOrder()}
           >

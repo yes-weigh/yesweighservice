@@ -6239,6 +6239,26 @@ body:has(.confirm-inline-bar) .confirm-inline-bar {
   min-width: 0;
 }
 
+.catalog-product-card__stock-meta {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  flex-shrink: 0;
+}
+
+.catalog-product-card__inbound-chip {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.12rem 0.38rem;
+  border-radius: 999px;
+  background: rgba(14, 116, 144, 0.14);
+  color: #0e7490;
+  font-size: 0.58rem;
+  font-weight: 800;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+}
+
 .catalog-product-card__price {
   display: inline-flex;
   align-items: baseline;
@@ -15342,6 +15362,24 @@ body:has(.confirm-inline-bar) .confirm-inline-bar {
   background: #16a34a !important;
 }
 
+.product-detail-page__add-cart:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.product-detail-page__stock-gate {
+  flex: 1 1 100%;
+  margin: 0;
+  font-size: 0.8rem;
+  font-weight: 650;
+  line-height: 1.4;
+  color: #be123c;
+}
+
+.product-detail-page__stock-gate--scheduled {
+  color: #0e7490;
+}
+
 .product-detail-page__view-cart {
   width: 100%;
   border: none;
@@ -15490,8 +15528,12 @@ body:has(.confirm-inline-bar) .confirm-inline-bar {
 .orders-page__item-warning {
   margin: 0.35rem 0 0;
   font-size: 0.75rem;
-  color: #b45309;
+  color: #0e7490;
   font-weight: 600;
+}
+
+.orders-page__item-warning--blocked {
+  color: #be123c;
 }
 
 .orders-page__item-actions {
@@ -22074,7 +22116,7 @@ body:has(.confirm-inline-bar) .confirm-inline-bar {
   transition: background 0.15s ease, border-color 0.15s ease;
 }
 
-.related-catalog__add-cart:hover {
+.related-catalog__add-cart:hover:not(:disabled) {
   background: rgba(245, 130, 32, 0.18);
   border-color: rgba(245, 130, 32, 0.65);
 }
@@ -47274,7 +47316,7 @@ button.invoice-detail-top__card {
 }
 
 .so-detail__payment {
-  margin-top: 0.25rem;
+  margin: 0 0 0.85rem;
   padding: 1rem !important;
   display: grid;
   gap: 0.85rem;
@@ -47333,14 +47375,6 @@ button.invoice-detail-top__card {
   border-radius: 10px;
   background: rgba(255, 255, 255, 0.04);
   border: 1px solid rgba(255, 255, 255, 0.08);
-}
-
-.so-detail__payment-waiting {
-  margin: 0;
-  padding: 0.65rem 0.75rem;
-  border-radius: 10px;
-  background: rgba(245, 130, 32, 0.08);
-  border: 1px solid rgba(245, 130, 32, 0.2);
 }
 
 .so-detail__remarks {

@@ -3,6 +3,11 @@ import { useNavigate } from 'react-router-dom';
 import { IndianRupee, Link2Off, Package, ShoppingCart } from 'lucide-react';
 import { useCart } from '../../context/useCart';
 import { useCartFly } from '../../context/useCartFly';
+import { useDealerOrderStockGate } from '../../hooks/useDealerOrderStockGate';
+import {
+  DEALER_ORDER_SCHEDULED_TITLE,
+  DEALER_ORDER_UNAVAILABLE_TITLE,
+} from '../../lib/dealerOrderStock';
 import type { CatalogNavState } from '../../lib/catalogNav';
 import type { CatalogProduct } from '../../types/catalog';
 import { QuantityStepper } from '../QuantityStepper';
@@ -26,6 +31,8 @@ function RelatedCatalogCartControls({
 }) {
   const { items, addItem, getQuantity, setQuantity } = useCart();
   const { flyToCart } = useCartFly();
+  const dealerStock = useDealerOrderStockGate();
+  const dealerCanAdd = dealerStock.canOrder(item);
 
   if (!enableCart) {
     return (
@@ -41,10 +48,21 @@ function RelatedCatalogCartControls({
 
   const handleAdd = (event: React.MouseEvent<HTMLButtonElement>) => {
     event.stopPropagation();
+    if (!dealerCanAdd) return;
     if (addItem(item, 1)) {
       flyToCart(event.currentTarget, { imageUrl: item.imageUrl });
     }
   };
+
+  if (!dealerCanAdd) {
+    return (
+      <div className="related-catalog__actions related-catalog__actions--muted">
+        <span className="related-catalog__cart-unavailable" title={DEALER_ORDER_UNAVAILABLE_TITLE}>
+          Out of stock
+        </span>
+      </div>
+    );
+  }
 
   if (cartQty === 0 || !primaryLine) {
     return (
@@ -53,6 +71,7 @@ function RelatedCatalogCartControls({
           type="button"
           className="related-catalog__add-cart"
           onClick={handleAdd}
+          title={dealerStock.usesScheduledInbound(item) ? DEALER_ORDER_SCHEDULED_TITLE : undefined}
           aria-label={`Add ${item.name} to cart`}
         >
           <ShoppingCart size={16} aria-hidden />

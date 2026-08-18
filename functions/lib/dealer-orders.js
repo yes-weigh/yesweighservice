@@ -71,6 +71,7 @@ import {
   resolveGatcFeeForProduct,
 } from './gatc-stamping.js';
 import { staffUserHasPermission } from './staff-permissions.js';
+import { assertDealerGoodsLinesOrderable } from './dealer-order-stock.js';
 
 const PRODUCTS = 'catalogProducts';
 const CUSTOMERS = 'zohoCustomers';
@@ -731,6 +732,7 @@ export async function submitDealerOrder(uid, role, payload = {}, secrets, orgId)
 
   // Dealers cannot choose freight amounts — strip any client freight and auto-add below.
   const goodsLines = builtLines.filter(line => !isFreightOrderLine(line));
+  await assertDealerGoodsLinesOrderable(goodsLines);
 
   if (profile.canBuySpares === false) {
     const spare = goodsLines.find(isSpareSegmentLine);
