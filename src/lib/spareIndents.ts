@@ -53,7 +53,12 @@ export type SpareIndent = {
 export type SpareIndentPoPrefill = {
   indentIds: string[];
   vendorId: string | null;
-  lines: Array<{ productId: string; quantity: number }>;
+  lines: Array<{
+    productId: string;
+    quantity: number;
+    name: string;
+    rate: number | null;
+  }>;
 };
 
 const PAGE_SIZE = 40;
@@ -269,13 +274,28 @@ export async function markSpareIndentsConverted(input: {
 export function spareIndentPoPrefill(rows: SpareIndent[]): SpareIndentPoPrefill {
   const open = rows.filter(row => row.status === 'open' && row.qty > 0);
   const vendorId = open.find(row => row.vendorId)?.vendorId ?? null;
-  const byProduct = new Map<string, number>();
+  const byProduct = new Map<string, { quantity: number; name: string; rate: number | null }>();
   for (const row of open) {
-    byProduct.set(row.catalogProductId, (byProduct.get(row.catalogProductId) ?? 0) + row.qty);
+    const prev = byProduct.get(row.catalogProductId);
+    if (prev) {
+      prev.quantity += row.qty;
+      if (prev.rate == null && row.lastPurchaseRate != null) prev.rate = row.lastPurchaseRate;
+      continue;
+    }
+    byProduct.set(row.catalogProductId, {
+      quantity: row.qty,
+      name: row.name,
+      rate: row.lastPurchaseRate,
+    });
   }
   return {
     indentIds: open.map(row => row.id),
     vendorId,
-    lines: [...byProduct.entries()].map(([productId, quantity]) => ({ productId, quantity })),
+    lines: [...byProduct.entries()].map(([productId, line]) => ({
+      productId,
+      quantity: line.quantity,
+      name: line.name,
+      rate: line.rate,
+    })),
   };
 }
