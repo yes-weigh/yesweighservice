@@ -48482,6 +48482,109 @@ button.invoice-detail-top__card {
   flex-shrink: 0;
 }
 
+.so-detail__actions .btn.so-detail__verify-btn--busy {
+  opacity: 1;
+  cursor: wait;
+}
+
+.so-verify-clock {
+  display: block;
+  color: currentColor;
+  overflow: visible;
+}
+
+.so-verify-clock__track {
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2.2;
+  opacity: 0.28;
+}
+
+.so-verify-clock__ring {
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2.6;
+  stroke-linecap: round;
+  stroke-dasharray: 81.7;
+  stroke-dashoffset: 81.7;
+  transform-origin: 50% 50%;
+  transform-box: fill-box;
+  transform: rotate(-90deg);
+  animation: so-verify-countdown 8s linear infinite;
+}
+
+.so-verify-clock__hand {
+  stroke: currentColor;
+  stroke-width: 2.1;
+  stroke-linecap: round;
+  transform-origin: 16px 16px;
+  transform-box: view-box;
+  animation: so-verify-hand 8s linear infinite;
+}
+
+.so-verify-clock__hub {
+  fill: currentColor;
+}
+
+@keyframes so-verify-countdown {
+  to {
+    stroke-dashoffset: 0;
+  }
+}
+
+@keyframes so-verify-hand {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.so-invoiced-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 90;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(6, 8, 12, 0.55);
+  backdrop-filter: blur(4px);
+  cursor: pointer;
+}
+
+.so-invoiced-overlay__stamp {
+  animation: so-invoiced-stamp 0.55s cubic-bezier(0.18, 0.89, 0.32, 1.28) both;
+}
+
+.so-invoiced-overlay__seal {
+  width: 11.5rem !important;
+  height: 11.5rem !important;
+  flex: none !important;
+  opacity: 1 !important;
+  transform: none !important;
+  filter: drop-shadow(0 10px 28px rgba(34, 197, 94, 0.45));
+}
+
+.so-invoiced-overlay__seal .so-order-seal__img {
+  mix-blend-mode: screen;
+}
+
+@keyframes so-invoiced-stamp {
+  0% {
+    transform: scale(1.85) rotate(-18deg);
+    opacity: 0;
+  }
+  58% {
+    transform: scale(0.92) rotate(-5deg);
+    opacity: 1;
+  }
+  78% {
+    transform: scale(1.06) rotate(-8deg);
+  }
+  100% {
+    transform: scale(1) rotate(-6deg);
+    opacity: 1;
+  }
+}
+
 .so-detail__actions-staff {
   flex: 1 1 100%;
 }

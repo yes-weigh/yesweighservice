@@ -33,6 +33,7 @@ import { SoDetailCatalogAddSheet } from '../../components/salesOrders/SoDetailCa
 import { SoFreightExpandPanel } from '../../components/salesOrders/SoFreightExpandPanel';
 import { SoLineEditSheet } from '../../components/salesOrders/SoLineEditSheet';
 import { SoLineInlineEditor } from '../../components/salesOrders/SoLineInlineEditor';
+import { VerifyInvoiceClock } from '../../components/salesOrders/VerifyInvoiceClock';
 import { ZoomableImageDialog } from '../../components/ZoomableImageDialog';
 import { useAuth } from '../../context/AuthContext';
 import { fetchCatalog, formatCurrency, formatStockQuantity } from '../../lib/catalog';
@@ -1543,7 +1544,9 @@ export const AdminSalesOrderDocumentPage: React.FC = () => {
           {workflowActions.canVerify && (
             <button
               type="button"
-              className="btn btn-primary"
+              className={`btn btn-primary so-detail__verify-btn${
+                workflowActions.actionBusy === 'verify' ? ' so-detail__verify-btn--busy' : ''
+              }`}
               disabled={Boolean(workflowActions.actionBusy) || packageBlocksActions}
               title={packageBlocksActions ? freightPackageAlert ?? undefined : undefined}
               onClick={() => {
@@ -1551,8 +1554,10 @@ export const AdminSalesOrderDocumentPage: React.FC = () => {
                 workflowActions.onVerify();
               }}
             >
-              <Check size={16} aria-hidden />
-              {workflowActions.actionBusy === 'verify' ? 'Verifying…' : 'Verify & invoice'}
+              {workflowActions.actionBusy === 'verify'
+                ? <VerifyInvoiceClock size={22} />
+                : <Check size={16} aria-hidden />}
+              {workflowActions.actionBusy === 'verify' ? 'Invoicing…' : 'Verify & invoice'}
             </button>
           )}
           {workflowActions.canMarkInvoiced && (

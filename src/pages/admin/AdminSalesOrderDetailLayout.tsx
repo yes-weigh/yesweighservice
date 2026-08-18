@@ -9,6 +9,7 @@ import { FetchingLoader } from '../../components/FetchingLoader';
 import { useAuth } from '../../context/AuthContext';
 import { InvoiceCategoryBadge } from '../../components/invoices/InvoiceCategoryVisual';
 import { SalesOrderStageSeal } from '../../components/salesOrders/SalesOrderStageSeal';
+import { InvoicedStampOverlay } from '../../components/salesOrders/InvoicedStampOverlay';
 import { MarkInvoicedNoInvoiceDialog } from '../../components/salesOrders/MarkInvoicedNoInvoiceDialog';
 import { useCatalogPageHeader, usePageHeaderTitleBelow, usePageHeaderTitleMeta } from '../../context/PageHeaderContext';
 import {
@@ -17,6 +18,7 @@ import {
 } from '../../lib/admin-sales-orders';
 import { fetchDealerSalesOrderDetail } from '../../lib/dealer-sales-orders';
 import { dealerOrderErrorMessage, voidZohoSalesOrder } from '../../lib/dealerOrders';
+import { playOnlineOrderAlert, unlockOrderAlertAudio } from '../../lib/orderAlertSound';
 import {
   formatInvoiceDate,
   invoiceErrorMessage,
@@ -74,6 +76,7 @@ export const AdminSalesOrderDetailLayout: React.FC = () => {
   const [actionBusy, setActionBusy] = useState<SalesOrderActionBusy>(null);
   const [assignableStaff, setAssignableStaff] = useState<Array<{ uid: string; displayName: string }>>([]);
   const [markInvoicedGuide, setMarkInvoicedGuide] = useState<{ message: string } | null>(null);
+  const [showInvoicedStamp, setShowInvoicedStamp] = useState(false);
   const [kamCardOpen, setKamCardOpen] = useState(false);
   const showKamOnTitle = !isDealerView && canVerifyPayment && !isPdfView;
 
@@ -276,6 +279,8 @@ export const AdminSalesOrderDetailLayout: React.FC = () => {
     && stage !== 'void',
   );
 
+  const dismissInvoicedStamp = useCallback(() => setShowInvoicedStamp(false), []);
+
   const handleReady = useCallback(async () => {
     if (!salesOrderId || actionBusy) return;
     if (!window.confirm(
@@ -297,9 +302,12 @@ export const AdminSalesOrderDetailLayout: React.FC = () => {
     if (!window.confirm(
       'Verify payment, confirm this sales order in Zoho, and create the invoice and e-invoice? E-way bill is generated later in logistics.',
     )) return;
+    unlockOrderAlertAudio();
     setActionBusy('verify');
     try {
       const next = await verifySalesOrderPayment(salesOrderId);
+      playOnlineOrderAlert();
+      setShowInvoicedStamp(true);
       setSalesOrder(next);
     } catch (err) {
       window.alert(dealerOrderErrorMessage(err));
@@ -525,6 +533,10 @@ export const AdminSalesOrderDetailLayout: React.FC = () => {
           yesOneStage={salesOrder?.yesOneStage}
           onClose={() => setMarkInvoicedGuide(null)}
         />
+      ) : null}
+
+      {showInvoicedStamp ? (
+        <InvoicedStampOverlay onDone={dismissInvoicedStamp} />
       ) : null}
     </div>
   );
