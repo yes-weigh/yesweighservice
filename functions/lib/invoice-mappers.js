@@ -531,9 +531,11 @@ export function firestoreDocToListInvoice(data) {
     invoiceCategory,
     categories: normalizeCategories(data.categories),
     categoryAmounts: normalizeCategoryAmounts(data.categoryAmounts),
-    freightSku: data.freightSku
-      ? String(data.freightSku).trim().toUpperCase() || null
-      : freightSkuFromInvoiceLines(data.lineItems),
+    freightSku: data.yesOneFreightPartner?.sku
+      ? String(data.yesOneFreightPartner.sku).trim().toUpperCase() || null
+      : data.freightSku
+        ? String(data.freightSku).trim().toUpperCase() || null
+        : freightSkuFromInvoiceLines(data.lineItems),
     customerPickup: data.customerPickup && typeof data.customerPickup === 'object'
       ? data.customerPickup
       : null,
@@ -562,5 +564,8 @@ export function firestoreDocToDetail(data) {
     shippingAddressId: data.shippingAddressId ? String(data.shippingAddressId) : null,
     billingAddress: data.billingAddress ? String(data.billingAddress) : null,
     lineItems: Array.isArray(data.lineItems) ? data.lineItems : [],
+    yesOneFreightPartner: data.yesOneFreightPartner && typeof data.yesOneFreightPartner === 'object'
+      ? data.yesOneFreightPartner
+      : null,
   };
 }

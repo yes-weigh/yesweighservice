@@ -267,6 +267,7 @@ async function upsertOneInvoice(input) {
       manualDelivery: existing.manualDelivery ?? null,
       manualDeliveredAt: existing.manualDeliveredAt ?? null,
       ewayBill: existing.ewayBill ?? null,
+      yesOneFreightPartner: existing.yesOneFreightPartner ?? null,
     };
     await writeInvoiceSummaryAndReconcile(
       customerId,

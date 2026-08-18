@@ -96,6 +96,7 @@ import {
   updateCustomerPickupEwayPartB,
 } from './lib/invoice-customer-pickup.js';
 import { markInvoiceDelivered } from './lib/invoice-manual-delivery.js';
+import { setInvoiceLocalFreightPartner } from './lib/invoice-local-freight.js';
 import { listZohoTransporters, formatEwayBillPortalError } from './lib/zoho-ewaybills.js';
 import { syncOrgInvoicesToFirestore } from './lib/org-invoice-sync.js';
 import {
@@ -2309,6 +2310,46 @@ export const markInvoiceDeliveredFn = onCall(
       if (err instanceof HttpsError) throw err;
       const message = err?.message ?? 'Could not mark invoice delivered.';
       const code = /already|void|returned|not found|required/i.test(message)
+        ? 'failed-precondition'
+        : 'internal';
+      throw new HttpsError(code, message);
+    }
+  },
+);
+
+/** Super admin: switch courier locally on an e-invoiced document (not pushed to Zoho). */
+export const setInvoiceLocalFreightPartnerFn = onCall(
+  {
+    region: 'asia-south1',
+    timeoutSeconds: 60,
+    memory: '256MiB',
+  },
+  async request => {
+    const uid = request.auth?.uid;
+    await requireActiveUser(uid, SUPER_ADMIN_ROLES);
+    const userSnap = await getFirestore().doc(`users/${uid}`).get();
+    const userData = userSnap.data() ?? {};
+    const customerId = String(request.data?.customerId ?? '').trim();
+    const invoiceId = String(request.data?.invoiceId ?? '').trim();
+    const sku = String(request.data?.sku ?? '').trim();
+    if (!customerId || !invoiceId) {
+      throw new HttpsError('invalid-argument', 'Customer id and invoice id are required.');
+    }
+    if (!sku) {
+      throw new HttpsError('invalid-argument', 'Freight partner SKU is required.');
+    }
+    try {
+      return await setInvoiceLocalFreightPartner({
+        customerId,
+        invoiceId,
+        sku,
+        markedByUid: uid,
+        markedByName: String(userData.displayName ?? userData.loginId ?? userData.email ?? 'YESWEIGH').trim(),
+      });
+    } catch (err) {
+      if (err instanceof HttpsError) throw err;
+      const message = err?.message ?? 'Could not update local logistics partner.';
+      const code = /already|void|pickup|not found|required|Choose|cannot/i.test(message)
         ? 'failed-precondition'
         : 'internal';
       throw new HttpsError(code, message);

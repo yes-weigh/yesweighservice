@@ -645,6 +645,9 @@ export async function upsertInvoiceFromRaw(accessToken, orgId, invoiceRaw, optio
     if (doc.ewayBill == null && existing.ewayBill) doc.ewayBill = existing.ewayBill;
     if (doc.district == null && existing.district) doc.district = existing.district;
     if (doc.billingState == null && existing.billingState) doc.billingState = existing.billingState;
+    if (doc.yesOneFreightPartner == null && existing.yesOneFreightPartner) {
+      doc.yesOneFreightPartner = existing.yesOneFreightPartner;
+    }
   }
 
   await invoicesCollection(customerId).doc(invoiceId).set(doc, { merge: true });

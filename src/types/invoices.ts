@@ -100,6 +100,11 @@ export interface DealerInvoiceDetail extends DealerInvoice {
   /** Ops marked delivered from the invoice (with or without a logistics booking). */
   manualDelivery?: InvoiceManualDelivery | null;
   manualDeliveredAt?: string | null;
+  /**
+   * Super-admin local courier switch (e.g. Delhivery → Blue Dart when service
+   * is unavailable). Never written to Zoho — e-invoice invoices cannot change.
+   */
+  yesOneFreightPartner?: InvoiceLocalFreightPartner | null;
 }
 
 export type InvoiceCustomerPickup = {
@@ -115,6 +120,16 @@ export type InvoiceManualDelivery = {
   markedAt: string;
   markedByUid?: string | null;
   markedByName?: string | null;
+};
+
+export type InvoiceLocalFreightPartner = {
+  partnerId: string;
+  sku: string;
+  previousPartnerId?: string | null;
+  previousSku?: string | null;
+  updatedAt: string;
+  updatedByUid?: string | null;
+  updatedByName?: string | null;
 };
 
 export type InvoiceEwayBillStatus =

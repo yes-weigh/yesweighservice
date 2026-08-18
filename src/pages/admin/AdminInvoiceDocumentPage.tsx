@@ -1,12 +1,19 @@
-import React, { useEffect } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { useOutletContext } from 'react-router-dom';
 import { CheckCircle2, PackagePlus } from 'lucide-react';
 import { DocumentKamStrip } from '../../components/admin/DocumentKamStrip';
 import { DocumentPartyBlock } from '../../components/admin/DocumentPartyBlock';
 import { InvoiceDocumentBody } from '../../components/invoices/InvoiceDocumentBody';
+import { InvoiceLocalFreightEditor } from '../../components/invoices/InvoiceLocalFreightEditor';
 import { RelatedSupportRequests } from '../../components/support/RelatedSupportRequests';
 import { logisticsPartnerLabel } from '../../constants/logisticsPartners';
+import type { FreightLineSku } from '../../constants/freightLines';
 import { useAuth } from '../../context/AuthContext';
+import { isFreightInvoiceLineItem } from '../../lib/invoices';
+import {
+  effectiveInvoiceFreightSku,
+  overlayLocalFreightOnLineItems,
+} from '../../lib/invoiceLocalFreight';
 import { isInternalOpsUser } from '../../lib/staffAccess';
 import type { AdminInvoiceDetailOutletContext } from './adminInvoiceDetailContext';
 
@@ -24,10 +31,15 @@ export const AdminInvoiceDocumentPage: React.FC = () => {
     onOpenMarkDelivered,
     existingBooking,
     kamCardOpen,
+    canEditLocalFreight = false,
+    localFreightBusy = false,
+    localFreightError = '',
+    onChangeLocalFreight,
   } = useOutletContext<AdminInvoiceDetailOutletContext>();
 
   const isOps = isInternalOpsUser(user);
   const showKamCard = Boolean(invoice) && (!isOps || Boolean(kamCardOpen));
+  const [freightOpen, setFreightOpen] = useState(true);
 
   useEffect(() => {
     if (!kamCardOpen) return;
@@ -39,11 +51,24 @@ export const AdminInvoiceDocumentPage: React.FC = () => {
     });
   }, [kamCardOpen]);
 
-  if (!invoice) return null;
+  const displayInvoice = useMemo(() => {
+    if (!invoice) return null;
+    return {
+      ...invoice,
+      lineItems: overlayLocalFreightOnLineItems(invoice),
+    };
+  }, [invoice]);
+
+  if (!displayInvoice || !invoice) return null;
 
   const trackingLabel = existingBooking?.consignmentNo?.trim()
     || existingBooking?.trackingNo?.trim()
     || '';
+  const selectedFreightSku = (effectiveInvoiceFreightSku(invoice) || null) as FreightLineSku | null;
+  const freightItem = displayInvoice.lineItems.find(item => isFreightInvoiceLineItem(item));
+  const selectedLineItemId = canEditLocalFreight && freightOpen
+    ? (freightItem?.id ?? null)
+    : null;
 
   return (
     <>
@@ -71,9 +96,27 @@ export const AdminInvoiceDocumentPage: React.FC = () => {
         invoiceNumber={invoice.invoiceNumber}
       />
       <InvoiceDocumentBody
-        invoice={invoice}
+        invoice={displayInvoice}
         itemClassName="admin-invoice-detail-item"
         totalsAfterItems
+        selectFreightOnly={canEditLocalFreight}
+        selectedLineItemId={selectedLineItemId}
+        onSelectLineItem={canEditLocalFreight ? (item) => {
+          if (!isFreightInvoiceLineItem(item)) return;
+          setFreightOpen(open => !open);
+        } : undefined}
+        renderExpanded={canEditLocalFreight && onChangeLocalFreight
+          ? (item) => (
+            isFreightInvoiceLineItem(item) ? (
+              <InvoiceLocalFreightEditor
+                selectedSku={selectedFreightSku}
+                busy={localFreightBusy}
+                error={localFreightError}
+                onSelect={onChangeLocalFreight}
+              />
+            ) : null
+          )
+          : undefined}
         afterItems={
           showManualLogistics || showMarkDelivered ? (
             <div className="invoice-manual-logistics panel glass">

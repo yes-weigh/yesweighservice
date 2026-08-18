@@ -65,6 +65,26 @@ export function isFreightOrderLine(line = {}) {
   return isFreightProductId(line.productId || line.itemId) || isFreightSku(line.sku);
 }
 
+const SKU_TO_PARTNER = {
+  STFRC: 'st_courier',
+  TRAIR: 'trackon_air',
+  TRFRC: 'trackon_surface',
+  DELFRC: 'delhivery',
+  BDAIR: 'bluedart_air',
+  BDFRC: 'bluedart_surface',
+  BDDP: 'bluedart_domestic',
+};
+
+export function partnerIdForFreightSku(sku) {
+  const value = String(sku ?? '').trim().toUpperCase();
+  return SKU_TO_PARTNER[value] || null;
+}
+
+export function freightOptionForSku(sku) {
+  const value = String(sku ?? '').trim().toUpperCase();
+  return FREIGHT_LINE_OPTIONS.find(option => String(option.sku).toUpperCase() === value) || null;
+}
+
 export function freightSkuFromInvoiceLines(lineItems) {
   const items = Array.isArray(lineItems) ? lineItems : [];
   let generic = null;

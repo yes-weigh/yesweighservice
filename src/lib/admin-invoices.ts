@@ -27,6 +27,7 @@ import {
   type GatcReportDoc,
 } from './gatcReports';
 import { enrichInvoiceDetailImages } from './invoiceLineItemImages';
+import { mapInvoiceLocalFreightPartner } from './invoiceLocalFreight';
 import {
   getInvoicePeriodBounds,
   invoiceCategoryAmount,
@@ -251,7 +252,7 @@ export function mapAdminInvoiceDoc(
     invoiceCategory: parseInvoiceCategory(data.invoiceCategory),
     categories: normalizeInvoiceCategories(data.categories),
     categoryAmounts: normalizeInvoiceCategoryAmounts(data.categoryAmounts),
-    freightSku: String(data.freightSku ?? '').trim().toUpperCase()
+    freightSku: String(data.yesOneFreightPartner?.sku ?? data.freightSku ?? '').trim().toUpperCase()
       || freightSkuFromInvoiceLines(
         Array.isArray(data.lineItems) ? data.lineItems : null,
       )
@@ -2457,7 +2458,7 @@ export function mapAdminInvoiceDetail(
     invoiceCategory: parseInvoiceCategory(data.invoiceCategory),
     categories: normalizeInvoiceCategories(data.categories),
     categoryAmounts: normalizeInvoiceCategoryAmounts(data.categoryAmounts),
-    freightSku: String(data.freightSku ?? '').trim().toUpperCase()
+    freightSku: String(data.yesOneFreightPartner?.sku ?? data.freightSku ?? '').trim().toUpperCase()
       || freightSkuFromInvoiceLines(
         Array.isArray(data.lineItems) ? data.lineItems : null,
       )
@@ -2479,6 +2480,7 @@ export function mapAdminInvoiceDetail(
     ewayBill: data.ewayBill && typeof data.ewayBill === 'object'
       ? (data.ewayBill as DealerInvoiceDetail['ewayBill'])
       : null,
+    yesOneFreightPartner: mapInvoiceLocalFreightPartner(data.yesOneFreightPartner),
   };
 }
 
@@ -2603,5 +2605,6 @@ export async function fetchAdminInvoiceDetail(
     ewayBill: data.ewayBill && typeof data.ewayBill === 'object'
       ? (data.ewayBill as DealerInvoiceDetail['ewayBill'])
       : null,
+    yesOneFreightPartner: mapInvoiceLocalFreightPartner(data.yesOneFreightPartner),
   };
 }
