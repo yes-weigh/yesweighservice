@@ -26,5 +26,5 @@ export interface AdminInvoiceDetailOutletContext {
   canEditLocalFreight?: boolean;
   localFreightBusy?: boolean;
   localFreightError?: string;
-  onChangeLocalFreight?: (sku: import('../../constants/freightLines').FreightLineSku) => void;
+  onChangeLocalFreight?: (sku: import('../../lib/invoiceLocalFreight').LocalFreightSelectSku) => void;
 }

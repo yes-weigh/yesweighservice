@@ -53,7 +53,7 @@ import {
   isInvoiceManuallyDelivered,
   rememberInvoiceManualDelivery,
 } from '../../lib/invoiceManualDelivery';
-import { setInvoiceLocalFreightPartner } from '../../lib/invoiceLocalFreight';
+import { isInvoiceLocalFreightPickup, setInvoiceLocalFreightPartner, type LocalFreightSelectSku } from '../../lib/invoiceLocalFreight';
 import { base64ToUint8Array } from '../../lib/pdfViewer';
 import { canSuperAdminWrite, isInternalOpsUser } from '../../lib/staffAccess';
 import {
@@ -64,7 +64,6 @@ import {
 } from '../../constants/ewayBill';
 import type { CatalogProduct } from '../../types/catalog';
 import type { LogisticsPartnerId } from '../../constants/logisticsPartners';
-import type { FreightLineSku } from '../../constants/freightLines';
 import type { DealerInvoiceDetail } from '../../types/invoices';
 import type { LogisticsBooking } from '../../types/logistics-dispatch';
 import type { StaffLogisticsSite } from '../../types/staff-logistics';
@@ -231,6 +230,7 @@ export const AdminInvoiceDetailLayout: React.FC = () => {
 
       if (
         isInvoiceCustomerPickup(invoice)
+        || isInvoiceLocalFreightPickup(invoice)
         || invoice.sourceSalesOrderIsPickup
         || invoiceHasNoCourierFreightLine(invoice)
         || isInvoiceManuallyDelivered(invoice)
@@ -281,7 +281,7 @@ export const AdminInvoiceDetailLayout: React.FC = () => {
     };
   }, [invoice, customerId, invoiceId, user]);
 
-  const handleChangeLocalFreight = useCallback(async (sku: FreightLineSku) => {
+  const handleChangeLocalFreight = useCallback(async (sku: LocalFreightSelectSku) => {
     if (!invoice || !customerId || !invoiceId) return;
     setLocalFreightBusy(true);
     setLocalFreightError('');
@@ -313,6 +313,7 @@ export const AdminInvoiceDetailLayout: React.FC = () => {
     addLrAvailable
     && !existingBooking
     && !isInvoiceCustomerPickup(invoice)
+    && !isInvoiceLocalFreightPickup(invoice)
     && !invoice?.sourceSalesOrderIsPickup
     && !invoiceHasNoCourierFreightLine(invoice)
     && !isInvoiceManuallyDelivered(invoice),

@@ -20,6 +20,7 @@ const PIPELINE_SKUS = new Set([
   'BDAIR',
   'BDFRC',
   'BDDP',
+  'PICKUP',
 ]);
 
 function pickupAlreadyMarked(raw) {
@@ -102,8 +103,9 @@ export async function setInvoiceLocalFreightPartner(input) {
     throw new Error('Choose a delivery partner that YesOne can book.');
   }
 
-  const option = freightOptionForSku(sku);
-  const partnerId = partnerIdForFreightSku(sku);
+  const isPickup = sku === 'PICKUP';
+  const option = isPickup ? { sku: 'PICKUP', name: 'CUSTOMER PICKUP' } : freightOptionForSku(sku);
+  const partnerId = isPickup ? 'personal_collection' : partnerIdForFreightSku(sku);
   if (!option || !partnerId) {
     throw new Error('Choose a delivery partner that YesOne can book.');
   }

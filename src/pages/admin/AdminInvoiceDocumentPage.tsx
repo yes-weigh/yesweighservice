@@ -7,12 +7,12 @@ import { InvoiceDocumentBody } from '../../components/invoices/InvoiceDocumentBo
 import { InvoiceLocalFreightEditor } from '../../components/invoices/InvoiceLocalFreightEditor';
 import { RelatedSupportRequests } from '../../components/support/RelatedSupportRequests';
 import { logisticsPartnerLabel } from '../../constants/logisticsPartners';
-import type { FreightLineSku } from '../../constants/freightLines';
 import { useAuth } from '../../context/AuthContext';
 import { isFreightInvoiceLineItem } from '../../lib/invoices';
 import {
   effectiveInvoiceFreightSku,
   overlayLocalFreightOnLineItems,
+  type LocalFreightSelectSku,
 } from '../../lib/invoiceLocalFreight';
 import { isInternalOpsUser } from '../../lib/staffAccess';
 import type { AdminInvoiceDetailOutletContext } from './adminInvoiceDetailContext';
@@ -64,7 +64,7 @@ export const AdminInvoiceDocumentPage: React.FC = () => {
   const trackingLabel = existingBooking?.consignmentNo?.trim()
     || existingBooking?.trackingNo?.trim()
     || '';
-  const selectedFreightSku = (effectiveInvoiceFreightSku(invoice) || null) as FreightLineSku | null;
+  const selectedFreightSku = (effectiveInvoiceFreightSku(invoice) || null) as LocalFreightSelectSku | null;
   const freightItem = displayInvoice.lineItems.find(item => isFreightInvoiceLineItem(item));
   const selectedLineItemId = canEditLocalFreight && freightOpen
     ? (freightItem?.id ?? null)

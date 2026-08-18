@@ -12,6 +12,7 @@ import type {
 } from '../types/logistics-dispatch';
 import type { StaffLogisticsSite } from '../types/staff-logistics';
 import { invoiceHasNoCourierFreightLine, isFreightInvoiceLineItem } from './invoices';
+import { isInvoiceLocalFreightPickup } from './invoiceLocalFreight';
 import { invoiceAllowsLogisticsFulfillment } from './invoiceListStatus';
 import {
   emptyShipmentBoxDraft,
@@ -67,12 +68,13 @@ function invoiceCalendarDay(value: string): Date | null {
 export function canBookCourierForInvoice(
   invoice: Pick<
     DealerInvoiceDetail,
-    'date' | 'invoiceCategory' | 'categories' | 'sourceSalesOrderIsPickup'
+    'date' | 'invoiceCategory' | 'categories' | 'sourceSalesOrderIsPickup' | 'yesOneFreightPartner'
   > & {
     lineItems?: DealerInvoiceDetail['lineItems'] | null;
   },
 ): boolean {
   if (invoice.sourceSalesOrderIsPickup) return false;
+  if (isInvoiceLocalFreightPickup(invoice)) return false;
   if (invoiceHasNoCourierFreightLine(invoice)) return false;
   if (!invoiceAllowsLogisticsFulfillment(invoice)) return false;
 
@@ -95,12 +97,13 @@ export function canBookCourierForInvoice(
 export function canRecordInvoiceLogisticsLr(
   invoice: Pick<
     DealerInvoiceDetail,
-    'invoiceCategory' | 'categories' | 'sourceSalesOrderIsPickup'
+    'invoiceCategory' | 'categories' | 'sourceSalesOrderIsPickup' | 'yesOneFreightPartner'
   > & {
     lineItems?: DealerInvoiceDetail['lineItems'] | null;
   },
 ): boolean {
   if (invoice.sourceSalesOrderIsPickup) return false;
+  if (isInvoiceLocalFreightPickup(invoice)) return false;
   if (invoiceHasNoCourierFreightLine(invoice)) return false;
   return invoiceAllowsLogisticsFulfillment(invoice);
 }
@@ -132,6 +135,9 @@ export function resolveInvoiceCourierPartner(
   invoice: Pick<DealerInvoiceDetail, 'lineItems' | 'yesOneFreightPartner'>,
 ): { partnerId: LogisticsPartnerId; fromFreight: boolean } {
   const override = String(invoice.yesOneFreightPartner?.partnerId ?? '').trim();
+  if (override === 'personal_collection') {
+    return { partnerId: 'personal_collection', fromFreight: true };
+  }
   if (override && isPipelineEnabledPartner(override)) {
     return { partnerId: override as LogisticsPartnerId, fromFreight: true };
   }

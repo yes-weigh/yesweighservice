@@ -47661,6 +47661,12 @@ button.invoice-detail-top__card {
 .invoice-detail-item.is-expanded {
   border-color: rgba(255, 122, 0, 0.45);
   background: rgba(255, 122, 0, 0.06);
+  min-width: 0;
+}
+
+.invoice-detail-item.is-expanded .invoice-detail-item__select,
+.invoice-detail-item.is-expanded .invoice-detail-item__expanded {
+  min-width: 0;
 }
 
 .invoice-detail-item__expanded {
@@ -47669,14 +47675,91 @@ button.invoice-detail-top__card {
   border-top: 1px solid rgba(148, 163, 184, 0.18);
 }
 
+.invoice-detail-item.is-expanded:has(.invoice-local-freight) .invoice-detail-item__select {
+  flex: 0 1 16rem;
+}
+
+.invoice-detail-item.is-expanded:has(.invoice-local-freight) .invoice-detail-item__expanded {
+  flex: 1 1 18rem;
+  margin-top: 0;
+  padding-top: 0;
+  border-top: 0;
+}
+
 .invoice-local-freight {
   display: flex;
   flex-direction: column;
   gap: 0.65rem;
+  min-width: 0;
 }
 
 .invoice-local-freight__hint {
   margin: 0;
+  line-height: 1.45;
+}
+
+.invoice-local-freight .freight-partner-picker__list {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.invoice-local-freight .freight-partner-picker__row {
+  min-width: 0;
+  width: 100%;
+}
+
+.invoice-local-freight .freight-partner-picker__main {
+  grid-template-columns: auto auto minmax(0, 1fr) auto;
+}
+
+.invoice-local-freight .freight-partner-picker__copy {
+  min-width: 0;
+}
+
+.invoice-local-freight .freight-partner-picker__copy strong,
+.invoice-local-freight .freight-partner-picker__copy span {
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
+.invoice-local-freight__est {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 0.05rem;
+  min-width: 4.5rem;
+}
+
+.invoice-local-freight__est strong {
+  font-size: 0.8125rem;
+  font-weight: 750;
+  line-height: 1.2;
+  color: #f8fafc;
+  white-space: nowrap;
+}
+
+.invoice-local-freight__est em {
+  font-style: normal;
+  font-size: 0.625rem;
+  font-weight: 650;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: #94a3b8;
+}
+
+.invoice-local-freight__est.is-under strong {
+  color: #f87171;
+}
+
+.invoice-local-freight__est.is-over strong {
+  color: #4ade80;
+}
+
+.invoice-local-freight__est.is-live strong,
+.invoice-local-freight__est.is-live em,
+.invoice-local-freight__actual.is-live dd {
+  color: #f87171;
 }
 
 .invoice-local-freight__compare {
@@ -47740,6 +47823,56 @@ button.invoice-detail-top__card {
   margin: 0;
   color: #fca5a5;
   font-size: 0.8125rem;
+}
+
+@media (max-width: 720px) {
+  .invoice-detail-item.is-expanded:has(.invoice-local-freight) {
+    flex-direction: column;
+    gap: 0.4rem;
+  }
+
+  .invoice-detail-item.is-expanded:has(.invoice-local-freight) .invoice-detail-item__select,
+  .invoice-detail-item.is-expanded:has(.invoice-local-freight) .invoice-detail-item__expanded {
+    flex: 1 1 auto;
+    width: 100%;
+  }
+
+  .invoice-detail-item.is-expanded:has(.invoice-local-freight) .invoice-detail-item__expanded {
+    padding: 0.15rem 0.2rem 0.35rem;
+  }
+
+  .invoice-local-freight .freight-partner-picker__row {
+    padding: 0.5rem 0.55rem;
+  }
+
+  .invoice-local-freight .freight-partner-picker__main {
+    gap: 0.5rem;
+  }
+
+  .invoice-local-freight .freight-partner-picker__logo-wrap {
+    width: 1.85rem;
+    height: 1.85rem;
+  }
+
+  .invoice-local-freight .freight-partner-picker__copy strong {
+    font-size: 0.82rem;
+    line-height: 1.2;
+  }
+
+  .invoice-local-freight__compare {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 0.45rem;
+    padding-top: 0.15rem;
+  }
+
+  .invoice-local-freight__compare > div {
+    grid-template-columns: 1fr;
+    gap: 0.12rem;
+  }
+
+  .invoice-local-freight__compare dd {
+    text-align: left;
+  }
 }
 
 .so-line-inline {

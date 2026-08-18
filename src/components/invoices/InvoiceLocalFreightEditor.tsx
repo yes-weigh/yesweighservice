@@ -1,19 +1,28 @@
-import React, { useEffect, useState } from 'react';
-import type { FreightLineSku } from '../../constants/freightLines';
+import React, { useEffect, useMemo, useState } from 'react';
 import { fetchCatalog, formatCurrency } from '../../lib/catalog';
-import { LOCAL_FREIGHT_SKU_OPTIONS } from '../../lib/invoiceLocalFreight';
+import {
+  invoiceLocalFreightListOptions,
+  isLocalFreightPickupSku,
+  type LocalFreightSelectSku,
+} from '../../lib/invoiceLocalFreight';
 import { loadLogisticsCourierRates } from '../../lib/logisticsCourierRates';
+import { loadLogisticsSettings } from '../../lib/logisticsSettings';
+import { partnerUsesLiveDelhiveryQuote } from '../../lib/delhiveryCartFreight';
 import {
   formatFreightDiffLabel,
   paidFreightInrForInvoice,
   quoteActualFreightForInvoicePartner,
+  quoteLiveDelhiveryFreightForInvoice,
 } from '../../lib/logisticsFreightCompare';
 import { resolveInvoiceShipFromSiteOrDefault } from '../../lib/logisticsShipFrom';
-import { partnerIdForFreightSku } from '../../lib/orderFreight';
+import { isPickupPartner } from '../../lib/orderFreight';
 import type { CatalogProduct } from '../../types/catalog';
 import type { DealerInvoiceDetail } from '../../types/invoices';
+import type { LogisticsDeliveryRulesMatrix } from '../../types/logistics-delivery-rules';
+import type { LogisticsPartnerStatuses } from '../../types/logistics-partner-status';
+import type { StaffLogisticsSite } from '../../types/staff-logistics';
 
-type Estimate = {
+type PartnerQuote = {
   actualFreightInr: number | null;
   differenceInr: number | null;
   note: string | null;
@@ -24,7 +33,7 @@ type Props = {
   selectedSku: string | null;
   busy?: boolean;
   error?: string;
-  onSelect: (sku: FreightLineSku) => void;
+  onSelect: (sku: LocalFreightSelectSku) => void;
 };
 
 export const InvoiceLocalFreightEditor: React.FC<Props> = ({
@@ -35,50 +44,111 @@ export const InvoiceLocalFreightEditor: React.FC<Props> = ({
   onSelect,
 }) => {
   const paidFreightInr = paidFreightInrForInvoice(invoice);
-  const [estimate, setEstimate] = useState<Estimate | null>(null);
+  const [quotes, setQuotes] = useState<Partial<Record<string, PartnerQuote>>>({});
   const [estimating, setEstimating] = useState(false);
+  const [deliveryRules, setDeliveryRules] = useState<LogisticsDeliveryRulesMatrix | null>(null);
+  const [partnerStatuses, setPartnerStatuses] = useState<LogisticsPartnerStatuses | null>(null);
+  const [shipFromSite, setShipFromSite] = useState<StaffLogisticsSite | null>(null);
+  const [originAddress, setOriginAddress] = useState('');
 
   useEffect(() => {
     let cancelled = false;
-    const partnerId = partnerIdForFreightSku(selectedSku);
-    if (!partnerId) {
-      setEstimate(null);
+    void Promise.all([
+      loadLogisticsSettings(),
+      resolveInvoiceShipFromSiteOrDefault(invoice),
+    ]).then(([settings, shipFrom]) => {
+      if (cancelled) return;
+      setDeliveryRules(settings.deliveryRules);
+      setPartnerStatuses(settings.partnerStatuses);
+      setShipFromSite(shipFrom.site);
+      setOriginAddress(settings.fromAddresses[shipFrom.site] || '');
+    }).catch(() => {
+      if (!cancelled) {
+        setDeliveryRules(null);
+        setPartnerStatuses(null);
+      }
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [invoice]);
+
+  const options = useMemo(() => {
+    if (!deliveryRules || !partnerStatuses || !shipFromSite) return [];
+    return invoiceLocalFreightListOptions({
+      invoice,
+      deliveryRules,
+      partnerStatuses,
+      shipFromSite,
+    });
+  }, [deliveryRules, invoice, partnerStatuses, shipFromSite]);
+
+  useEffect(() => {
+    let cancelled = false;
+    if (!options.length || !shipFromSite) {
+      setQuotes({});
       return undefined;
     }
-
     setEstimating(true);
     void (async () => {
       try {
-        const [rates, catalog, shipFrom] = await Promise.all([
+        const [rates, catalog] = await Promise.all([
           loadLogisticsCourierRates(),
           fetchCatalog(),
-          resolveInvoiceShipFromSiteOrDefault(invoice),
         ]);
         if (cancelled) return;
         const productsById = new Map<string, CatalogProduct>(
           catalog.items.map(item => [item.id, item]),
         );
-        const quoted = quoteActualFreightForInvoicePartner({
-          invoice,
-          partnerId,
-          rates,
-          productsById,
-          shipFromSite: shipFrom.site,
-        });
-        const actual = quoted.totalInr;
-        setEstimate({
-          actualFreightInr: actual,
-          differenceInr: actual != null ? actual - paidFreightInr : null,
-          note: quoted.note,
-        });
-      } catch {
-        if (!cancelled) {
-          setEstimate({
-            actualFreightInr: null,
-            differenceInr: null,
-            note: 'Could not estimate actual freight',
+        const next: Partial<Record<string, PartnerQuote>> = {};
+        const delhiverySkus: string[] = [];
+        for (const option of options) {
+          if (isPickupPartner(option.partnerId) || isLocalFreightPickupSku(option.sku)) {
+            next[option.sku] = {
+              actualFreightInr: 0,
+              differenceInr: 0 - paidFreightInr,
+              note: null,
+            };
+            continue;
+          }
+          if (partnerUsesLiveDelhiveryQuote(option.partnerId)) {
+            delhiverySkus.push(option.sku);
+            continue;
+          }
+          const quoted = quoteActualFreightForInvoicePartner({
+            invoice,
+            partnerId: option.partnerId,
+            rates,
+            productsById,
+            shipFromSite,
           });
+          const actual = quoted.totalInr;
+          next[option.sku] = {
+            actualFreightInr: actual,
+            differenceInr: actual != null ? actual - paidFreightInr : null,
+            note: quoted.note,
+          };
         }
+        if (!cancelled) setQuotes(next);
+        if (delhiverySkus.length) {
+          const live = await quoteLiveDelhiveryFreightForInvoice({
+            invoice,
+            productsById,
+            originAddress,
+          });
+          if (cancelled) return;
+          const actual = live.totalInr;
+          for (const sku of delhiverySkus) {
+            next[sku] = {
+              actualFreightInr: actual,
+              differenceInr: actual != null ? actual - paidFreightInr : null,
+              note: live.note,
+            };
+          }
+          setQuotes({ ...next });
+        }
+      } catch {
+        if (!cancelled) setQuotes({});
       } finally {
         if (!cancelled) setEstimating(false);
       }
@@ -87,24 +157,37 @@ export const InvoiceLocalFreightEditor: React.FC<Props> = ({
     return () => {
       cancelled = true;
     };
-  }, [invoice, paidFreightInr, selectedSku]);
+  }, [invoice, options, originAddress, paidFreightInr, shipFromSite]);
 
-  const actualHigher = (estimate?.differenceInr ?? 0) > 0;
+  const selectedQuote = selectedSku ? quotes[selectedSku] ?? null : null;
+  const selectedIsPickup = isLocalFreightPickupSku(selectedSku);
+  const selectedIsLive = Boolean(
+    selectedSku
+    && partnerUsesLiveDelhiveryQuote(
+      options.find(option => option.sku === selectedSku)?.partnerId,
+    ),
+  );
+  const actualHigher = !selectedIsPickup && (selectedQuote?.differenceInr ?? 0) > 0;
+  const selectedNote = useMemo(
+    () => (!estimating && selectedQuote?.note && selectedQuote.actualFreightInr == null
+      ? selectedQuote.note
+      : null),
+    [estimating, selectedQuote],
+  );
 
   return (
     <div className="invoice-local-freight">
-      <p className="invoice-local-freight__hint text-muted text-sm">
-        Super admin only — switch courier in YesOne if the billed partner cannot serve this pin.
-        Invoice amount stays the billed freight. This is not sent to Zoho (e-invoice cannot change).
-        If the new partner costs more, logistics shows Paid vs Actual and the Diff.
-      </p>
       <div
         className="freight-partner-picker__list"
         role="radiogroup"
-        aria-label="Local logistics partner"
+        aria-label="Serviceable logistics partners"
       >
-        {LOCAL_FREIGHT_SKU_OPTIONS.map(option => {
+        {options.map(option => {
           const selected = selectedSku === option.sku;
+          const quote = quotes[option.sku];
+          const pickup = isLocalFreightPickupSku(option.sku);
+          const liveApi = partnerUsesLiveDelhiveryQuote(option.partnerId);
+          const diff = pickup || liveApi ? null : (quote?.differenceInr ?? null);
           return (
             <div
               key={option.sku}
@@ -136,7 +219,30 @@ export const InvoiceLocalFreightEditor: React.FC<Props> = ({
                 </span>
                 <span className="freight-partner-picker__copy">
                   <strong>{option.label}</strong>
-                  <span className="text-muted text-sm">{option.sku}</span>
+                  <span className="text-muted text-sm">
+                    {pickup ? 'Customer collect' : option.sku}
+                  </span>
+                </span>
+                <span
+                  className={[
+                    'invoice-local-freight__est',
+                    liveApi
+                      ? 'is-live'
+                      : diff == null
+                        ? ''
+                        : diff > 0
+                          ? 'is-under'
+                          : diff < 0
+                            ? 'is-over'
+                            : 'is-matched',
+                  ].filter(Boolean).join(' ')}
+                >
+                  <strong>
+                    {quote?.actualFreightInr != null
+                      ? formatCurrency(quote.actualFreightInr)
+                      : (estimating ? '…' : '—')}
+                  </strong>
+                  <em>{pickup ? 'No freight' : (liveApi ? 'API' : 'Est.')}</em>
                 </span>
               </button>
             </div>
@@ -148,24 +254,24 @@ export const InvoiceLocalFreightEditor: React.FC<Props> = ({
           <dt>Paid</dt>
           <dd>{formatCurrency(paidFreightInr)}</dd>
         </div>
-        <div>
+        <div className={selectedIsLive ? 'invoice-local-freight__actual is-live' : undefined}>
           <dt>Actual</dt>
           <dd>
             {estimating
               ? '…'
-              : (estimate?.actualFreightInr != null
-                ? formatCurrency(estimate.actualFreightInr)
+              : (selectedQuote?.actualFreightInr != null
+                ? formatCurrency(selectedQuote.actualFreightInr)
                 : '—')}
           </dd>
         </div>
         <div
           className={[
             'invoice-local-freight__diff',
-            estimate?.differenceInr == null
+            selectedQuote?.differenceInr == null
               ? ''
-              : estimate.differenceInr > 0
+              : selectedQuote.differenceInr > 0
                 ? 'is-under'
-                : estimate.differenceInr < 0
+                : selectedQuote.differenceInr < 0
                   ? 'is-over'
                   : 'is-matched',
           ].filter(Boolean).join(' ')}
@@ -174,11 +280,11 @@ export const InvoiceLocalFreightEditor: React.FC<Props> = ({
           <dd>
             {estimating
               ? '…'
-              : (estimate?.differenceInr != null
+              : (selectedQuote?.differenceInr != null
                 ? (
                   <>
-                    {formatCurrency(estimate.differenceInr)}
-                    <em>{formatFreightDiffLabel(estimate.differenceInr)}</em>
+                    {formatCurrency(selectedQuote.differenceInr)}
+                    <em>{formatFreightDiffLabel(selectedQuote.differenceInr)}</em>
                   </>
                 )
                 : '—')}
@@ -190,8 +296,8 @@ export const InvoiceLocalFreightEditor: React.FC<Props> = ({
           Invoice stays {formatCurrency(paidFreightInr)}. The extra shows as Diff on the logistics list after booking.
         </p>
       ) : null}
-      {!estimating && estimate?.note && estimate.actualFreightInr == null ? (
-        <p className="invoice-local-freight__diff-note text-muted text-sm">{estimate.note}</p>
+      {selectedNote ? (
+        <p className="invoice-local-freight__diff-note text-muted text-sm">{selectedNote}</p>
       ) : null}
       {error ? (
         <p className="invoice-local-freight__error" role="alert">{error}</p>

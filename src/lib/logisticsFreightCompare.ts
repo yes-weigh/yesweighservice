@@ -27,6 +27,11 @@ import type { InventorySite } from './salesOrderSegments';
 import { fetchAdminInvoiceDetail } from './admin-invoices';
 import { quoteBlueDartParcels } from './blueDartQuote';
 import {
+  pinFromText,
+  quoteDelhiveryLane,
+  type DelhiveryQuoteDimension,
+} from './delhiveryQuote';
+import {
   fetchGatcReportForInvoice,
   type GatcReportLineItem,
 } from './gatcReports';
@@ -849,6 +854,107 @@ export function quoteActualFreightForInvoicePartner(input: {
     }),
     input.rates,
   );
+}
+
+function delhiveryQuoteDimensionsFromBoxes(
+  boxes: ReadonlyArray<Pick<ShipmentBox, 'lengthCm' | 'widthCm' | 'heightCm'>>,
+): DelhiveryQuoteDimension[] {
+  const byKey = new Map<string, DelhiveryQuoteDimension>();
+  for (const box of boxes) {
+    const length = Math.round(Number(box.lengthCm) || 0);
+    const width = Math.round(Number(box.widthCm) || 0);
+    const height = Math.round(Number(box.heightCm) || 0);
+    if (!(length > 0 && width > 0 && height > 0)) continue;
+    const key = `${length}x${width}x${height}`;
+    const prev = byKey.get(key);
+    byKey.set(key, {
+      box_count: (prev?.box_count || 0) + 1,
+      length_cm: length,
+      width_cm: width,
+      height_cm: height,
+    });
+  }
+  return [...byKey.values()];
+}
+
+/**
+ * Live Delhivery B2B estimate for the invoice expander.
+ * Rate-card Delhivery is unused — Est. must come from the lane API.
+ */
+export async function quoteLiveDelhiveryFreightForInvoice(input: {
+  invoice: DealerInvoiceDetail;
+  productsById: Map<string, CatalogProduct>;
+  originAddress?: string | null;
+}): Promise<{
+  totalInr: number | null;
+  chargeableKg: number | null;
+  note: string | null;
+}> {
+  const destPin = pinFromText(
+    input.invoice.shippingAddress || input.invoice.billingAddress,
+  );
+  const originPin = pinFromText(input.originAddress);
+  if (destPin.length !== 6) {
+    return {
+      totalInr: null,
+      chargeableKg: null,
+      note: 'Destination PIN missing for Delhivery estimate',
+    };
+  }
+  if (originPin.length !== 6) {
+    return {
+      totalInr: null,
+      chargeableKg: null,
+      note: 'Origin PIN missing for Delhivery estimate',
+    };
+  }
+  const boxes = shipmentBoxesFromDrafts(
+    buildInvoiceBookingBoxes(input.invoice, input.productsById),
+  );
+  const weightKg = boxes.reduce((sum, box) => sum + (Number(box.weightKg) || 0), 0);
+  const weightG = weightKg > 0 ? Math.max(1, Math.round(weightKg * 1000)) : 5000;
+  const dimensions = delhiveryQuoteDimensionsFromBoxes(boxes);
+  const invAmount = Number(input.invoice.total);
+  const freightBillingMode = resolveInvoiceFreightBillingMode(input.invoice) || 'btc';
+  try {
+    const quote = await quoteDelhiveryLane({
+      originPin,
+      destinationPin: destPin,
+      weightG,
+      invAmount: Number.isFinite(invAmount) && invAmount > 0
+        ? Math.round(invAmount)
+        : 1000,
+      dimensions: dimensions.length ? dimensions : undefined,
+      freightBillingMode,
+      includeEstimate: true,
+    });
+    if (quote.serviceability.ok && quote.serviceability.serviceable === false) {
+      return {
+        totalInr: null,
+        chargeableKg: weightKg || null,
+        note: 'Delhivery not serviceable for this PIN',
+      };
+    }
+    const preTax = quote.estimate.preTaxInr ?? quote.estimate.totalInr;
+    if (quote.estimate.ok && preTax != null && Number.isFinite(preTax) && preTax > 0) {
+      return {
+        totalInr: Math.round(preTax * 100) / 100,
+        chargeableKg: quote.estimate.chargedWeightKg ?? (weightKg || null),
+        note: null,
+      };
+    }
+    return {
+      totalInr: null,
+      chargeableKg: weightKg || null,
+      note: quote.estimate.error || 'Delhivery estimate unavailable',
+    };
+  } catch (err) {
+    return {
+      totalInr: null,
+      chargeableKg: null,
+      note: err instanceof Error ? err.message : 'Could not quote Delhivery',
+    };
+  }
 }
 
 function freightBillingModeFromInvoices(
