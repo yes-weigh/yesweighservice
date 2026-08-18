@@ -85,6 +85,9 @@ export interface AdminFirestoreInvoice {
   /** GST / tax total. Null on older docs. */
   taxTotal: number | null;
   balance: number;
+  /** Set when a Kotak bank feed was categorized onto this invoice. */
+  kotakPaidAt?: string | null;
+  kotakAmountApplied?: number | null;
   referenceNumber: string | null;
   syncedAt: string | null;
   itemQuantity: number | null;
@@ -245,6 +248,8 @@ export function mapAdminInvoiceDoc(
     subtotal: data.subtotal != null ? Number(data.subtotal) : null,
     taxTotal: data.taxTotal != null ? Number(data.taxTotal) : null,
     balance: Number(data.balance ?? 0),
+    kotakPaidAt: data.kotakPaidAt ? String(data.kotakPaidAt) : null,
+    kotakAmountApplied: data.kotakAmountApplied != null ? Number(data.kotakAmountApplied) : null,
     referenceNumber: data.referenceNumber ? String(data.referenceNumber) : null,
     syncedAt: timestampToIso(data.syncedAt),
     itemQuantity,
@@ -427,6 +432,30 @@ async function getAdminInvoicesQuerySnap(
     }
     throw err;
   }
+}
+
+/** Invoice IDs whose sales order had a Kotak pay-in categorized (may predate kotakPaidAt on the invoice). */
+export async function fetchKotakPaidInvoiceIds(invoiceIds: string[]): Promise<Set<string>> {
+  const ids = [...new Set(invoiceIds.map(id => String(id || '').trim()).filter(Boolean))];
+  const paid = new Set<string>();
+  if (!ids.length) return paid;
+  for (let i = 0; i < ids.length; i += 10) {
+    const chunk = ids.slice(i, i + 10);
+    const snap = await getDocs(query(collection(db, 'salesOrders'), where('zohoInvoiceId', 'in', chunk)));
+    for (const row of snap.docs) {
+      const data = row.data() as {
+        zohoInvoiceId?: string;
+        reservedKotakFeed?: { appliedAt?: string | null; appliedInvoiceId?: string | null };
+      };
+      const appliedAt = String(data.reservedKotakFeed?.appliedAt ?? '').trim();
+      if (!appliedAt) continue;
+      const invoiceId = String(
+        data.reservedKotakFeed?.appliedInvoiceId || data.zohoInvoiceId || '',
+      ).trim();
+      if (invoiceId) paid.add(invoiceId);
+    }
+  }
+  return paid;
 }
 
 export function subscribeAdminInvoices(

@@ -132,6 +132,44 @@ export interface PurchaseOrderBl {
   uploadedAt: string | null;
 }
 
+export interface PurchaseOrderVendorPi {
+  storagePath: string;
+  fileName: string;
+  contentType: string;
+  uploadedAt: string | null;
+}
+
+export interface PurchaseOrderKotakPayout {
+  transactionId: string;
+  date: string | null;
+  amountInr: number;
+  amountUsd: number;
+  usdToInrRate: number;
+  bankCharges: number;
+  zohoVendorPaymentId: string | null;
+  payee: string | null;
+  description: string | null;
+  referenceNumber: string | null;
+  associatedAt: string | null;
+  associatedByName: string | null;
+}
+
+export interface PurchaseOrderTracking {
+  poDate: string | null;
+  paymentDate: string | null;
+  loadingDate: string | null;
+  sailingDate: string | null;
+  arrivalDate: string | null;
+  receivedDate: string | null;
+}
+
+export interface PurchaseOrderActivityLog {
+  at: string;
+  byName: string | null;
+  action: string;
+  detail: string;
+}
+
 export interface AdminPurchaseOrderDetail {
   id: string;
   purchaseOrderNumber: string;
@@ -152,6 +190,10 @@ export interface AdminPurchaseOrderDetail {
   notes: string | null;
   lineItems: DealerInvoiceLineItem[];
   bl: PurchaseOrderBl | null;
+  vendorPi: PurchaseOrderVendorPi | null;
+  kotakPayout: PurchaseOrderKotakPayout | null;
+  tracking: PurchaseOrderTracking;
+  activityLogs: PurchaseOrderActivityLog[];
 }
 
 export interface AdminPurchaseOrdersPageResult {
@@ -620,6 +662,10 @@ export function mapAdminPurchaseOrderDetail(
       ? data.lineItems.map(item => mapLineItem(item as Record<string, unknown>))
       : [],
     bl: parsePurchaseOrderBl(data),
+    vendorPi: parsePurchaseOrderVendorPi(data),
+    kotakPayout: parsePurchaseOrderKotakPayout(data),
+    tracking: parsePurchaseOrderTracking(data),
+    activityLogs: parsePurchaseOrderActivityLogs(data),
   };
 }
 
@@ -636,6 +682,86 @@ export function parsePurchaseOrderBl(data: DocumentData): PurchaseOrderBl | null
     contentType: typeof data.blContentType === 'string' ? data.blContentType.trim() : '',
     uploadedAt: typeof data.blUploadedAt === 'string' ? data.blUploadedAt : null,
   };
+}
+
+export function parsePurchaseOrderVendorPi(data: DocumentData): PurchaseOrderVendorPi | null {
+  const storagePath = typeof data.piStoragePath === 'string' ? data.piStoragePath.trim() : '';
+  if (!storagePath) return null;
+  return {
+    storagePath,
+    fileName: typeof data.piFileName === 'string' ? data.piFileName.trim() : '',
+    contentType: typeof data.piContentType === 'string' ? data.piContentType.trim() : '',
+    uploadedAt: typeof data.piUploadedAt === 'string' ? data.piUploadedAt : null,
+  };
+}
+
+function parseYmd(value: unknown): string | null {
+  const raw = String(value ?? '').trim();
+  const match = raw.match(/^(\d{4}-\d{2}-\d{2})/);
+  return match ? match[1] : null;
+}
+
+export function parsePurchaseOrderKotakPayout(data: DocumentData): PurchaseOrderKotakPayout | null {
+  const raw = data.kotakPayout;
+  if (!raw || typeof raw !== 'object') return null;
+  const row = raw as Record<string, unknown>;
+  const transactionId = String(row.transactionId ?? '').trim();
+  if (!transactionId) return null;
+  return {
+    transactionId,
+    date: parseYmd(row.date),
+    amountInr: Number(row.amountInr ?? row.amount ?? 0) || 0,
+    amountUsd: Number(row.amountUsd ?? 0) || 0,
+    usdToInrRate: Number(row.usdToInrRate ?? 0) || 0,
+    bankCharges: Number(row.bankCharges ?? 0) || 0,
+    zohoVendorPaymentId: row.zohoVendorPaymentId ? String(row.zohoVendorPaymentId) : null,
+    payee: row.payee ? String(row.payee) : null,
+    description: row.description ? String(row.description) : null,
+    referenceNumber: row.referenceNumber ? String(row.referenceNumber) : null,
+    associatedAt: row.associatedAt ? String(row.associatedAt) : null,
+    associatedByName: row.associatedByName ? String(row.associatedByName) : null,
+  };
+}
+
+export function emptyPurchaseOrderTracking(poDate?: string | null): PurchaseOrderTracking {
+  return {
+    poDate: parseYmd(poDate),
+    paymentDate: null,
+    loadingDate: null,
+    sailingDate: null,
+    arrivalDate: null,
+    receivedDate: null,
+  };
+}
+
+export function parsePurchaseOrderTracking(data: DocumentData): PurchaseOrderTracking {
+  const raw = data.tracking && typeof data.tracking === 'object'
+    ? data.tracking as Record<string, unknown>
+    : {};
+  return {
+    poDate: parseYmd(raw.poDate) || parseYmd(data.date),
+    paymentDate: parseYmd(raw.paymentDate),
+    loadingDate: parseYmd(raw.loadingDate),
+    sailingDate: parseYmd(raw.sailingDate),
+    arrivalDate: parseYmd(raw.arrivalDate),
+    receivedDate: parseYmd(raw.receivedDate),
+  };
+}
+
+export function parsePurchaseOrderActivityLogs(data: DocumentData): PurchaseOrderActivityLog[] {
+  if (!Array.isArray(data.activityLogs)) return [];
+  return data.activityLogs.flatMap((row) => {
+    if (!row || typeof row !== 'object') return [];
+    const item = row as Record<string, unknown>;
+    const at = String(item.at ?? '').trim();
+    if (!at) return [];
+    return [{
+      at,
+      byName: item.byName ? String(item.byName) : null,
+      action: String(item.action ?? ''),
+      detail: String(item.detail ?? ''),
+    }];
+  });
 }
 
 export async function fetchAdminPurchaseOrderDetail(
@@ -862,4 +988,188 @@ export async function fetchPurchaseOrderBlPreview(storagePath: string): Promise<
     throw new Error('Could not open the bill of lading.');
   }
   return { url, bytes: new Uint8Array(await res.arrayBuffer()), isPdf: true };
+}
+
+const MAX_PI_BYTES = 16 * 1024 * 1024;
+
+const PI_EXCEL_TYPES = new Set([
+  'application/vnd.ms-excel',
+  'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+]);
+
+function piExtension(file: File): 'pdf' | 'xlsx' | 'xls' {
+  const fromName = file.name.split('.').pop()?.toLowerCase() ?? '';
+  if (fromName === 'xls' || file.type === 'application/vnd.ms-excel') return 'xls';
+  if (
+    fromName === 'xlsx'
+    || file.type === 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+  ) {
+    return 'xlsx';
+  }
+  if (fromName === 'pdf' || file.type === 'application/pdf') return 'pdf';
+  return 'xlsx';
+}
+
+function piContentTypeForExt(ext: 'pdf' | 'xlsx' | 'xls'): string {
+  if (ext === 'pdf') return 'application/pdf';
+  if (ext === 'xls') return 'application/vnd.ms-excel';
+  return 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
+}
+
+function isAllowedPiFile(file: File): boolean {
+  const type = file.type.toLowerCase();
+  if (type === 'application/pdf' || PI_EXCEL_TYPES.has(type)) return true;
+  return /\.(pdf|xlsx|xls)$/i.test(file.name);
+}
+
+export function purchaseOrderPiStoragePath(purchaseOrderId: string, ext: string): string {
+  const safeId = purchaseOrderId.replace(/[^\w\-]+/g, '-').slice(0, 80) || 'po';
+  const safeExt = ext.replace(/[^\w]+/g, '').slice(0, 8) || 'bin';
+  return `purchaseOrderPi/${safeId}/pi.${safeExt}`;
+}
+
+export function purchaseOrderHasVendorPi(pi?: PurchaseOrderVendorPi | null): boolean {
+  return Boolean(pi?.storagePath);
+}
+
+export function purchaseOrderVendorPiIsPdf(pi?: PurchaseOrderVendorPi | null): boolean {
+  if (!pi) return false;
+  const type = pi.contentType.toLowerCase();
+  if (type === 'application/pdf') return true;
+  return /\.pdf$/i.test(pi.storagePath) || /\.pdf$/i.test(pi.fileName);
+}
+
+export async function savePurchaseOrderVendorPi(input: {
+  purchaseOrderId: string;
+  file?: File | null;
+  existing?: PurchaseOrderVendorPi | null;
+}): Promise<PurchaseOrderVendorPi> {
+  if (!input.file && !input.existing?.storagePath) {
+    throw new Error('Upload a vendor PI as Excel or PDF.');
+  }
+
+  let storagePath = input.existing?.storagePath ?? '';
+  let fileName = input.existing?.fileName ?? '';
+  let contentType = input.existing?.contentType ?? '';
+
+  if (input.file) {
+    if (input.file.size > MAX_PI_BYTES) {
+      throw new Error('File must be under 16 MB.');
+    }
+    if (!isAllowedPiFile(input.file)) {
+      throw new Error('Upload an Excel (.xlsx / .xls) or PDF file.');
+    }
+    const ext = piExtension(input.file);
+    const nextPath = purchaseOrderPiStoragePath(input.purchaseOrderId, ext);
+    const uploadType = piContentTypeForExt(ext);
+    try {
+      await uploadBytes(ref(storage, nextPath), input.file, {
+        contentType: uploadType,
+      });
+    } catch (err) {
+      throw new Error(formatStorageUploadError(err, 'Could not upload vendor PI.'));
+    }
+    if (input.existing?.storagePath && input.existing.storagePath !== nextPath) {
+      try {
+        await deleteObject(ref(storage, input.existing.storagePath));
+      } catch {
+        // ignore leftover file
+      }
+    }
+    storagePath = nextPath;
+    fileName = input.file.name;
+    contentType = uploadType;
+  }
+
+  const uploadedAt = new Date().toISOString();
+  await updateDoc(doc(db, 'purchaseOrders', input.purchaseOrderId), {
+    piStoragePath: storagePath,
+    piFileName: fileName,
+    piContentType: contentType,
+    piUploadedAt: uploadedAt,
+    piUploadedBy: auth.currentUser?.uid ?? null,
+  });
+
+  return {
+    storagePath,
+    fileName,
+    contentType,
+    uploadedAt,
+  };
+}
+
+export async function fetchPurchaseOrderVendorPiPreview(storagePath: string): Promise<{
+  url: string;
+  bytes: Uint8Array | null;
+  isPdf: boolean;
+}> {
+  const url = await getDownloadURL(ref(storage, storagePath));
+  const isPdf = storagePath.toLowerCase().endsWith('.pdf')
+    || storagePath.toLowerCase().includes('.pdf?');
+  if (!isPdf) return { url, bytes: null, isPdf: false };
+  const res = await fetch(url);
+  if (!res.ok) {
+    throw new Error('Could not open the vendor PI.');
+  }
+  return { url, bytes: new Uint8Array(await res.arrayBuffer()), isPdf: true };
+}
+
+export async function associateKotakPayoutWithPurchaseOrder(input: {
+  purchaseOrderId: string;
+  feed: {
+    transactionId: string;
+    date: string | null;
+    postedTime?: string | null;
+    amount: number;
+    debitOrCredit: string | null;
+    payee: string | null;
+    description: string | null;
+    referenceNumber: string | null;
+    accountId: string;
+    importedTransactionId: string | null;
+  };
+  amountUsd: number;
+  usdToInrRate: number;
+}): Promise<{
+  kotakPayout: PurchaseOrderKotakPayout;
+  tracking: PurchaseOrderTracking;
+  activityLogs: PurchaseOrderActivityLog[];
+}> {
+  const callable = httpsCallable<typeof input, {
+    kotakPayout: PurchaseOrderKotakPayout;
+    tracking: PurchaseOrderTracking;
+    activityLogs: PurchaseOrderActivityLog[];
+  }>(
+    functions,
+    'associateKotakPayoutWithPurchaseOrder',
+    { timeout: 120_000 },
+  );
+  try {
+    const result = await callable(input);
+    return result.data;
+  } catch (err) {
+    throw new Error(invoiceErrorMessage(err));
+  }
+}
+
+export async function savePurchaseOrderTracking(input: {
+  purchaseOrderId: string;
+} & PurchaseOrderTracking): Promise<{
+  tracking: PurchaseOrderTracking;
+  activityLogs: PurchaseOrderActivityLog[];
+}> {
+  const callable = httpsCallable<typeof input, {
+    tracking: PurchaseOrderTracking;
+    activityLogs: PurchaseOrderActivityLog[];
+  }>(
+    functions,
+    'savePurchaseOrderTracking',
+    { timeout: 30_000 },
+  );
+  try {
+    const result = await callable(input);
+    return result.data;
+  } catch (err) {
+    throw new Error(invoiceErrorMessage(err));
+  }
 }

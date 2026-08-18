@@ -140,6 +140,10 @@ import {
   createPurchaseOrderInZoho,
 } from './lib/purchase-order-sync.js';
 import {
+  associateKotakPayoutWithPurchaseOrder as associateKotakPayoutWithPurchaseOrderRecord,
+  savePurchaseOrderTracking as savePurchaseOrderTrackingRecord,
+} from './lib/purchase-order-kotak.js';
+import {
   searchZohoVendors as searchZohoVendorContacts,
   syncZohoVendorsToFirestore,
 } from './lib/zoho-vendors.js';
@@ -2833,6 +2837,48 @@ export const selectKotakFeedAndInvoiceSalesOrder = onCall(
     } catch (err) {
       if (err instanceof HttpsError) throw err;
       throw new HttpsError('internal', err?.message ?? 'Could not invoice from this bank pay-in.');
+    }
+  },
+);
+
+export const associateKotakPayoutWithPurchaseOrder = onCall(
+  {
+    region: 'asia-south1',
+    secrets: [zohoClientId, zohoClientSecret, zohoRefreshToken],
+    timeoutSeconds: 120,
+    memory: '256MiB',
+  },
+  async request => {
+    const uid = request.auth?.uid;
+    await requireActiveUser(uid, SUPER_ADMIN_ROLES);
+    try {
+      return await associateKotakPayoutWithPurchaseOrderRecord(
+        uid,
+        request.data ?? {},
+        zohoSecrets(),
+        zohoOrganizationId.value(),
+      );
+    } catch (err) {
+      if (err instanceof HttpsError) throw err;
+      throw new HttpsError('internal', err?.message ?? 'Could not mark this bank payout as paid.');
+    }
+  },
+);
+
+export const savePurchaseOrderTracking = onCall(
+  {
+    region: 'asia-south1',
+    timeoutSeconds: 30,
+    memory: '256MiB',
+  },
+  async request => {
+    const uid = request.auth?.uid;
+    await requireActiveUser(uid, SUPER_ADMIN_ROLES);
+    try {
+      return await savePurchaseOrderTrackingRecord(uid, request.data ?? {});
+    } catch (err) {
+      if (err instanceof HttpsError) throw err;
+      throw new HttpsError('internal', err?.message ?? 'Could not save tracking dates.');
     }
   },
 );

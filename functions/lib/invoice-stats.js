@@ -202,6 +202,10 @@ export function buildInvoiceSummaryFields(invoiceDoc, customerId, invoiceId) {
     ...(district ? { district } : {}),
     ...(billingState ? { billingState } : {}),
     ...(logistics ? { logistics } : {}),
+    ...(invoiceDoc.kotakPaidAt ? { kotakPaidAt: String(invoiceDoc.kotakPaidAt) } : {}),
+    ...(invoiceDoc.kotakAmountApplied != null
+      ? { kotakAmountApplied: Number(invoiceDoc.kotakAmountApplied) }
+      : {}),
     syncedAt: invoiceDoc.syncedAt ?? FieldValue.serverTimestamp(),
     updatedAt: FieldValue.serverTimestamp(),
   };

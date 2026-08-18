@@ -342,14 +342,19 @@ export async function overlayFeedReservations(feeds) {
   const rows = Array.isArray(feeds) ? feeds : [];
   if (!rows.length) return rows;
   const snaps = await getFirestore().collection(COLLECTION).get();
-  const reserved = new Map();
+  const reservedSo = new Map();
+  const reservedPo = new Map();
   for (const doc of snaps.docs) {
-    const soId = String(doc.data()?.reservedForSalesOrderId || '').trim();
-    if (soId) reserved.set(doc.id, soId);
+    const data = doc.data() || {};
+    const soId = String(data.reservedForSalesOrderId || '').trim();
+    const poId = String(data.reservedForPurchaseOrderId || '').trim();
+    if (soId) reservedSo.set(doc.id, soId);
+    if (poId) reservedPo.set(doc.id, poId);
   }
   return rows.map(feed => ({
     ...feed,
-    reservedForSalesOrderId: reserved.get(feed.transactionId) || null,
+    reservedForSalesOrderId: reservedSo.get(feed.transactionId) || null,
+    reservedForPurchaseOrderId: reservedPo.get(feed.transactionId) || null,
   }));
 }
 
@@ -454,4 +459,142 @@ export async function applyReservedKotakFeedToInvoice(secrets, orgId, {
     }
   }
   throw new Error(String(lastErr?.message || 'Could not associate the Kotak pay-in with this invoice in Zoho.'));
+}
+
+function money2(value) {
+  const n = Number(value);
+  if (!Number.isFinite(n)) return 0;
+  return Math.round(n * 100) / 100;
+}
+
+function vendorPaymentIdFromPayload(payload) {
+  const raw = payload?.vendorpayment
+    || payload?.vendorpayments
+    || payload?.payment
+    || payload?.banktransaction
+    || payload?.banktransactions;
+  const row = Array.isArray(raw) ? raw[0] : raw;
+  if (!row || typeof row !== 'object') return null;
+  const id = String(row.payment_id || row.vendorpayment_id || row.transaction_id || '').trim();
+  return id || null;
+}
+
+function describeVendorAdvance(purchaseOrderNumber, amountUsd, rate) {
+  const po = String(purchaseOrderNumber || '').trim();
+  const usd = money2(amountUsd);
+  const fx = money2(rate);
+  return [
+    po ? `Vendor advance ${po}` : 'Vendor advance',
+    usd > 0 ? `$${usd.toFixed(2)}` : null,
+    fx > 0 ? `@ ₹${fx.toFixed(2)}` : null,
+  ].filter(Boolean).join(' · ').slice(0, 250);
+}
+
+/**
+ * Categorize a reserved Kotak payout as a Zoho vendor advance.
+ * USD amount + FX rate are stored on the payment; leftover INR is bank charges.
+ */
+export async function applyReservedKotakFeedAsVendorAdvance(secrets, orgId, {
+  feed,
+  vendorId,
+  amountUsd,
+  usdToInrRate,
+  purchaseOrderNumber,
+}) {
+  const transactionId = String(feed?.transactionId || '').trim();
+  const accountId = String(feed?.accountId || '').trim();
+  const contactId = String(vendorId || '').trim();
+  if (!transactionId || !accountId || !contactId) {
+    throw new Error('Bank payout, Kotak account, and vendor are required to mark this paid in Zoho.');
+  }
+
+  const amountInr = money2(feed?.amount);
+  const usd = money2(amountUsd);
+  const rate = Math.round(Number(usdToInrRate) * 10000) / 10000;
+  if (!(usd > 0)) throw new Error('Enter a USD amount.');
+  if (!(rate > 0)) throw new Error('Exchange rate is missing.');
+  if (!(amountInr > 0)) throw new Error('Bank payout amount is missing.');
+
+  const expectedInr = money2(usd * rate);
+  const bankCharges = money2(Math.max(0, amountInr - expectedInr));
+
+  const base = {
+    vendor_id: contactId,
+    date: feedDateYmd(feed),
+    payment_mode: paymentModeFromFeed(feed),
+    reference_number: String(feed?.referenceNumber || transactionId).slice(0, 50),
+    description: describeVendorAdvance(purchaseOrderNumber, usd, rate),
+    paid_through_account_id: accountId,
+    account_id: accountId,
+  };
+
+  const bodies = [
+    {
+      ...base,
+      amount: usd,
+      exchange_rate: rate,
+      bank_charges: bankCharges,
+      bills: [],
+    },
+    {
+      ...base,
+      amount: usd,
+      exchange_rate: rate,
+      bank_charges: bankCharges,
+    },
+    {
+      ...base,
+      amount: amountInr,
+      exchange_rate: rate,
+      bank_charges: bankCharges,
+      bills: [],
+    },
+    {
+      ...base,
+      amount: amountInr,
+      bills: [],
+    },
+  ];
+
+  const accessToken = await getAccessToken(secrets);
+  const organizationId = await resolveOrganizationId(accessToken, orgId);
+  const ids = [...new Set([
+    transactionId,
+    String(feed?.importedTransactionId || '').trim(),
+  ].filter(Boolean))];
+  const paths = ids.flatMap(id => ([
+    `/banktransactions/uncategorized/${encodeURIComponent(id)}/categorize/vendorpayments`,
+    `/banktransactions/uncategorizeds/${encodeURIComponent(id)}/categorize/vendorpayments`,
+  ]));
+
+  let lastErr = null;
+  for (const path of paths) {
+    for (const body of bodies) {
+      const attempts = [body];
+      if (body.payment_mode) {
+        const withoutMode = { ...body };
+        delete withoutMode.payment_mode;
+        attempts.push(withoutMode);
+      }
+      for (const attempt of attempts) {
+        try {
+          const payload = await zohoBankJsonWithFallback(accessToken, organizationId, path, {
+            method: 'POST',
+            body: attempt,
+          });
+          return {
+            amountUsd: usd,
+            usdToInrRate: rate,
+            amountInr,
+            bankCharges,
+            transactionId,
+            zohoVendorPaymentId: vendorPaymentIdFromPayload(payload),
+          };
+        } catch (err) {
+          lastErr = err;
+        }
+      }
+    }
+  }
+  throw new Error(String(lastErr?.message || 'Could not mark this Kotak payout as a vendor advance in Zoho.'));
 }

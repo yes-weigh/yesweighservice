@@ -648,6 +648,16 @@ export async function upsertInvoiceFromRaw(accessToken, orgId, invoiceRaw, optio
     if (doc.yesOneFreightPartner == null && existing.yesOneFreightPartner) {
       doc.yesOneFreightPartner = existing.yesOneFreightPartner;
     }
+    if (existing.kotakPaidAt) {
+      doc.kotakPaidAt = existing.kotakPaidAt;
+      if (existing.kotakAmountApplied != null) doc.kotakAmountApplied = existing.kotakAmountApplied;
+      const zohoPaid = String(doc.status || '').trim().toLowerCase() === 'paid'
+        || Number(doc.balance) <= 0.01;
+      if (!zohoPaid) {
+        doc.status = 'paid';
+        doc.balance = 0;
+      }
+    }
   }
 
   await invoicesCollection(customerId).doc(invoiceId).set(doc, { merge: true });

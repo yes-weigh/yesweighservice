@@ -34,6 +34,7 @@ import { invoiceListStatusKey, invoiceListStatusLabel } from '../../lib/invoiceL
 import { resolveDealerKamName } from '../../lib/dealerKamDisplay';
 import type { LogisticsBooking } from '../../types/logistics-dispatch';
 import type { InvoiceCategory } from '../../types/invoices';
+import { isInvoicePaidStatus } from '../../types/invoices';
 import { preventMouseFocusScroll } from '../../lib/preventMouseFocusScroll';
 import { ListTileKam } from '../list/ListTileKam';
 import { FitSingleLine } from './FitSingleLine';
@@ -47,6 +48,7 @@ type InvoiceDocCardProps = {
   showKam: boolean;
   dealerStaffById: Record<string, string>;
   onOpen: (invoice: AdminFirestoreInvoice) => void;
+  kotakPaid?: boolean;
 };
 
 function invoiceStatusClass(status: string): string {
@@ -75,17 +77,29 @@ function invoiceRowStatusDisplay(
   };
 }
 
+type FieldTone =
+  | 'invoice'
+  | 'so'
+  | 'qty'
+  | 'date'
+  | 'kam'
+  | 'eway'
+  | 'courier'
+  | 'lr';
+
 function CardField({
   icon: Icon,
   label,
+  tone,
   children,
 }: {
   icon?: LucideIcon;
   label?: string;
+  tone?: FieldTone;
   children: ReactNode;
 }) {
   return (
-    <span className="invoice-doc-card__field">
+    <span className={`invoice-doc-card__field${tone ? ` invoice-doc-card__field--${tone}` : ''}`}>
       {label ? (
         <span className="invoice-doc-card__field-head">
           {Icon ? <Icon size={13} strokeWidth={2.2} className="invoice-doc-card__icon" aria-hidden /> : null}
@@ -123,6 +137,16 @@ function ewayFieldDisplay(
   return { text: 'Not mandatory', tone: 'optional' };
 }
 
+function invoiceShowsPaidStamp(invoice: AdminFirestoreInvoice): boolean {
+  const status = String(invoice.status ?? '').trim().toLowerCase().replace(/\s+/g, '_');
+  if (status === 'void' || status === 'cancelled') return false;
+  if (invoice.kotakPaidAt) return true;
+  if (isInvoicePaidStatus(invoice.status)) return true;
+  const total = Number(invoice.total);
+  const balance = Number(invoice.balance);
+  return Number.isFinite(total) && total > 0 && Number.isFinite(balance) && balance <= 0.01;
+}
+
 function lrFieldValue(
   invoice: AdminFirestoreInvoice,
   booking: LogisticsBooking | undefined,
@@ -141,6 +165,7 @@ export function AdminInvoiceDocCard({
   showKam,
   dealerStaffById,
   onOpen,
+  kotakPaid = false,
 }: InvoiceDocCardProps) {
   const isAggregateRow = (invoice.aggregateInvoiceCount ?? 0) > 1;
   const locationLabel = formatAdminCustomerLocation(location);
@@ -170,19 +195,25 @@ export function AdminInvoiceDocCard({
           : rowStatus?.key === 'returned'
             ? 'returned'
             : 'default';
+  const paid = !isAggregateRow && (kotakPaid || invoiceShowsPaidStamp(invoice));
 
   return (
     <button
       type="button"
-      className={`invoice-doc-card invoice-doc-card--${accent}`}
+      className={`invoice-doc-card invoice-doc-card--invoices invoice-doc-card--${accent}${paid ? ' invoice-doc-card--paid' : ''}`}
       onMouseDown={preventMouseFocusScroll}
       onClick={() => onOpen(invoice)}
       aria-label={
         isAggregateRow
           ? `View invoices for ${invoice.customerName ?? 'dealer'}`
-          : `View invoice ${invoice.invoiceNumber || invoice.id}`
+          : `View invoice ${invoice.invoiceNumber || invoice.id}${paid ? ', paid' : ''}`
       }
     >
+      {paid ? (
+        <span className="invoice-doc-card__paid-stamp" aria-hidden>
+          <span>PAID</span>
+        </span>
+      ) : null}
       <span className="invoice-doc-card__main">
         <span className="invoice-doc-card__head">
           <span className="invoice-doc-card__dealer">
@@ -207,34 +238,34 @@ export function AdminInvoiceDocCard({
 
         <span className="invoice-doc-card__grid">
           <span className="invoice-doc-card__row">
-            <CardField icon={FileText} label="Invoice No.">
+            <CardField icon={FileText} label="Invoice No." tone="invoice">
               {isAggregateRow ? `${invoice.aggregateInvoiceCount} invoices` : (invoice.invoiceNumber || invoice.id)}
             </CardField>
-            <CardField icon={ClipboardList} label="SO No.">
+            <CardField icon={ClipboardList} label="SO No." tone="so">
               {isAggregateRow ? '—' : (invoice.referenceNumber || '—')}
             </CardField>
-            <CardField icon={Package} label="Qty / Variants">
+            <CardField icon={Package} label="Qty / Variants" tone="qty">
               {formatInvoiceQtyVariants(invoice.itemQuantity, invoice.itemVariantCount ?? null)}
             </CardField>
           </span>
           <span className="invoice-doc-card__row">
-            <CardField icon={Calendar} label="Date & Time">
+            <CardField icon={Calendar} label="Date & Time" tone="date">
               {formatInvoiceDateTime(invoice.date, invoice.createdTime) || '—'}
             </CardField>
-            <CardField icon={User} label="KAM">
+            <CardField icon={User} label="KAM" tone="kam">
               {showKam && kamName ? <ListTileKam name={kamName} /> : '—'}
             </CardField>
-            <CardField icon={CreditCard} label="E-way">
+            <CardField icon={CreditCard} label="E-way" tone="eway">
               <span className={`invoice-doc-card__eway invoice-doc-card__eway--${eway.tone}`}>
                 {eway.text}
               </span>
             </CardField>
           </span>
           <span className="invoice-doc-card__row">
-            <CardField>
+            <CardField tone="courier">
               <InvoiceTileLeadWithLabel invoice={invoice} booking={booking} layout="row" />
             </CardField>
-            <CardField icon={ScanBarcode} label="LR / AWB">
+            <CardField icon={ScanBarcode} label="LR / AWB" tone="lr">
               {lrFieldValue(invoice, booking)}
             </CardField>
             <span className="invoice-doc-card__field invoice-doc-card__field--status">

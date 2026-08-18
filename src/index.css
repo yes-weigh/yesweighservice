@@ -19521,6 +19521,23 @@ body:has(.confirm-inline-bar) .confirm-inline-bar {
   min-height: 12rem;
 }
 
+.po-pi-dialog__excel {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.75rem;
+  padding: 0.25rem 0;
+}
+
+.po-tracking__head {
+  margin-bottom: 0.85rem;
+}
+
+.po-tracking__head h2 {
+  margin: 0;
+  font-size: 1rem;
+}
+
 .freight-partner-picker {
   display: flex;
   flex-direction: column;
@@ -33545,6 +33562,33 @@ body:has(.confirm-inline-bar) .confirm-inline-bar {
   min-width: 0;
   display: flex;
   flex-direction: column;
+  position: relative;
+  z-index: 1;
+}
+
+.invoice-doc-card__paid-stamp {
+  position: absolute;
+  left: 50%;
+  top: 54%;
+  z-index: 0;
+  pointer-events: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 3.55rem;
+  height: 3.55rem;
+  border: 2px solid rgba(34, 197, 94, 0.4);
+  border-radius: 50%;
+  background: rgba(34, 197, 94, 0.08);
+  color: rgba(74, 222, 128, 0.48);
+  transform: translate(-50%, -50%) rotate(-16deg);
+}
+
+.invoice-doc-card__paid-stamp span {
+  font-size: 0.62rem;
+  font-weight: 900;
+  letter-spacing: 0.16em;
+  line-height: 1;
 }
 
 .invoice-doc-card__icon {
@@ -33808,6 +33852,75 @@ body:has(.confirm-inline-bar) .confirm-inline-bar {
 
 .invoice-doc-card__eway--number {
   color: #4ade80;
+}
+
+.invoice-doc-card--invoices .invoice-doc-card__dealer > .invoice-doc-card__icon {
+  color: #38bdf8;
+}
+
+.invoice-doc-card--invoices .invoice-doc-card__title {
+  color: #e0f2fe;
+}
+
+.invoice-doc-card--invoices .invoice-doc-card__meta-item,
+.invoice-doc-card--invoices .invoice-doc-card__meta-item svg {
+  color: #fb7185;
+}
+
+.invoice-doc-card--invoices .invoice-doc-card__amount {
+  color: #4ade80;
+}
+
+.invoice-doc-card--invoices .invoice-doc-card__field-label,
+.invoice-doc-card--invoices .invoice-doc-card__field .invoice-doc-card__icon {
+  color: var(--inv-field-title, #94a3b8);
+}
+
+.invoice-doc-card--invoices .invoice-doc-card__field-value,
+.invoice-doc-card--invoices .invoice-doc-card__lead-label {
+  color: var(--inv-field-value, #fff);
+}
+
+.invoice-doc-card--invoices .invoice-doc-card__field--invoice {
+  --inv-field-title: #38bdf8;
+  --inv-field-value: #7dd3fc;
+}
+
+.invoice-doc-card--invoices .invoice-doc-card__field--so {
+  --inv-field-title: #a78bfa;
+  --inv-field-value: #c4b5fd;
+}
+
+.invoice-doc-card--invoices .invoice-doc-card__field--qty {
+  --inv-field-title: #fbbf24;
+  --inv-field-value: #fde68a;
+}
+
+.invoice-doc-card--invoices .invoice-doc-card__field--date {
+  --inv-field-title: #2dd4bf;
+  --inv-field-value: #99f6e4;
+}
+
+.invoice-doc-card--invoices .invoice-doc-card__field--kam {
+  --inv-field-title: #f59e0b;
+  --inv-field-value: #fbbf24;
+}
+
+.invoice-doc-card--invoices .invoice-doc-card__field--eway {
+  --inv-field-title: #f472b6;
+}
+
+.invoice-doc-card--invoices .invoice-doc-card__field--courier {
+  --inv-field-value: #86efac;
+}
+
+.invoice-doc-card--invoices .invoice-doc-card__field--lr {
+  --inv-field-title: #fb923c;
+  --inv-field-value: #fdba74;
+}
+
+.invoice-doc-card--invoices .invoice-doc-card__field-value .list-tile-kam {
+  color: #fbbf24;
 }
 
 @media (max-width: 520px) {
@@ -34813,6 +34926,10 @@ button.invoice-detail-top__card {
 }
 
 .invoice-detail-top__card-label {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.28rem;
   font-size: 0.8125rem;
   font-weight: 700;
   color: #fff;
@@ -48891,11 +49008,42 @@ button.invoice-detail-top__card {
   display: flex;
   align-items: center;
   justify-content: flex-end;
+  flex-wrap: wrap;
   gap: 0.75rem;
   flex-shrink: 0;
   margin-top: 0.65rem;
   padding-top: 0.7rem;
   border-top: 1px solid rgba(255, 255, 255, 0.12);
+}
+
+.kotak-feeds-sheet__usd {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.65rem 1rem;
+  flex: 1 1 12rem;
+  min-width: 0;
+}
+
+.kotak-feeds-sheet__usd-inr {
+  font-size: 0.75rem;
+  font-weight: 650;
+  color: #fdba74;
+}
+
+.kotak-feeds-sheet__usd-field {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-size: 0.75rem;
+  font-weight: 800;
+  color: #86efac;
+}
+
+.kotak-feeds-sheet__usd-field .input-field {
+  width: 6.75rem;
+  font-weight: 800;
+  color: #86efac;
 }
 
 .kotak-feeds-sheet__select-error {

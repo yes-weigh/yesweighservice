@@ -162,63 +162,108 @@ export function isKotakPayInFeed(feed: KotakBankFeed): boolean {
   return PAYIN_NARRATION.test(text);
 }
 
+/** Money leaving the bank (vendor remittance / SENT TO / Zoho credit). */
+export function isKotakPayoutFeed(feed: KotakBankFeed): boolean {
+  if (isKotakPayInFeed(feed)) return false;
+  const text = `${feed.payee || ''} ${feed.description || ''}`.toLowerCase();
+  const side = String(feed.debitOrCredit || '').toLowerCase();
+  const type = String(feed.transactionType || '').toLowerCase();
+  if (side === 'credit' || side === 'cr') return true;
+  if (PAYOUT_TYPES.has(type)) return true;
+  return PAYOUT_NARRATION.test(text);
+}
+
 export const KotakBankFeedsSheet: React.FC<{
   feeds: KotakBankFeed[];
   fetchedAt: string | null;
   loading?: boolean;
   selecting?: boolean;
+  kind?: 'payin' | 'payout';
   matchAmount?: number | null;
   matchCustomerName?: string | null;
   salesOrderId?: string | null;
+  purchaseOrderId?: string | null;
   reservedTransactionId?: string | null;
+  usdToInrRate?: number | null;
   onClose: () => void;
   onSelect?: (feed: KotakBankFeed) => void | Promise<void>;
+  onAssociatePayout?: (feed: KotakBankFeed, usd: { amountUsd: number; usdToInrRate: number }) => void | Promise<void>;
 }> = ({
   feeds,
   fetchedAt,
   loading = false,
   selecting = false,
+  kind = 'payin',
   matchAmount,
   matchCustomerName,
   salesOrderId,
+  purchaseOrderId,
   reservedTransactionId,
+  usdToInrRate = null,
   onClose,
   onSelect,
+  onAssociatePayout,
 }) => {
   const due = Number(matchAmount);
-  const hasDue = Number.isFinite(due) && due > 0;
+  const hasDue = kind === 'payin' && Number.isFinite(due) && due > 0;
   const customerName = String(matchCustomerName || '').trim();
-  const payInFeeds = useMemo(() => {
+  const listedFeeds = useMemo(() => {
     const soId = String(salesOrderId || '').trim();
-    return rankPayInFeeds(
-      feeds.filter(feed => {
-        if (!isKotakPayInFeed(feed)) return false;
-        const reservedBy = String(feed.reservedForSalesOrderId || '').trim();
-        if (reservedBy && reservedBy !== soId) return false;
-        if (hasDue && !isAmountNearDue(feed.amount, due) && feed.transactionId !== String(reservedTransactionId || '')) {
-          return false;
-        }
+    const poId = String(purchaseOrderId || '').trim();
+    const filtered = feeds.filter(feed => {
+      if (kind === 'payout') {
+        if (!isKotakPayoutFeed(feed)) return false;
+        const reservedPo = String(feed.reservedForPurchaseOrderId || '').trim();
+        if (reservedPo && reservedPo !== poId) return false;
+        const reservedSo = String(feed.reservedForSalesOrderId || '').trim();
+        if (reservedSo) return false;
         return true;
-      }),
-      due,
-      hasDue,
-      customerName,
-    );
-  }, [feeds, salesOrderId, due, hasDue, customerName, reservedTransactionId]);
+      }
+      if (!isKotakPayInFeed(feed)) return false;
+      const reservedBy = String(feed.reservedForSalesOrderId || '').trim();
+      if (reservedBy && reservedBy !== soId) return false;
+      if (hasDue && !isAmountNearDue(feed.amount, due) && feed.transactionId !== String(reservedTransactionId || '')) {
+        return false;
+      }
+      return true;
+    });
+    if (kind === 'payout') {
+      return [...filtered].sort((a, b) => String(b.date || '').localeCompare(String(a.date || '')));
+    }
+    return rankPayInFeeds(filtered, due, hasDue, customerName);
+  }, [feeds, kind, salesOrderId, purchaseOrderId, due, hasDue, customerName, reservedTransactionId]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [selectError, setSelectError] = useState('');
+  const [usdDraft, setUsdDraft] = useState('');
 
   useEffect(() => {
     if (loading) return;
     const reserved = String(reservedTransactionId || '').trim();
-    if (reserved && payInFeeds.some(feed => feed.transactionId === reserved)) {
+    if (reserved && listedFeeds.some(feed => feed.transactionId === reserved)) {
       setSelectedId(reserved);
       return;
     }
-    setSelectedId(payInFeeds[0]?.transactionId ?? null);
-  }, [loading, payInFeeds, reservedTransactionId]);
+    setSelectedId(listedFeeds[0]?.transactionId ?? null);
+  }, [loading, listedFeeds, reservedTransactionId]);
 
-  const selected = payInFeeds.find(feed => feed.transactionId === selectedId) ?? null;
+  const selected = listedFeeds.find(feed => feed.transactionId === selectedId) ?? null;
+  const rate = Number(usdToInrRate);
+  const hasRate = Number.isFinite(rate) && rate > 0;
+
+  useEffect(() => {
+    if (kind !== 'payout' || !selected || !hasRate) {
+      if (!selected) setUsdDraft('');
+      return;
+    }
+    setUsdDraft((selected.amount / rate).toFixed(2));
+  }, [kind, selected, hasRate, rate]);
+
+  const payoutNoun = kind === 'payout' ? 'payout' : 'pay-in';
+  const title = kind === 'payout' ? 'Payout from bank' : 'Pay-in to bank';
+  const usdAmount = Number(usdDraft);
+  const bankCharges = kind === 'payout' && selected && hasRate && usdAmount > 0
+    ? Math.max(0, Math.round((selected.amount - usdAmount * rate) * 100) / 100)
+    : 0;
 
   return (
     <div className="dealers-modal-backdrop kotak-feeds-sheet" onClick={selecting ? undefined : onClose}>
@@ -233,16 +278,16 @@ export const KotakBankFeedsSheet: React.FC<{
           <div className="kotak-feeds-sheet__head-copy">
             <h2 id="kotak-feeds-title">
               <Landmark size={18} aria-hidden />
-              Pay-in to bank
+              {title}
             </h2>
             <p className="text-muted text-sm mb-0">
               {loading
-                ? 'Fetching uncategorised Kotak pay-ins…'
-                : (payInFeeds.length === 0
-                  ? (hasDue
+                ? `Fetching uncategorised Kotak ${payoutNoun}s…`
+                : (listedFeeds.length === 0
+                  ? (kind === 'payin' && hasDue
                     ? `No pay-in within ±${AMOUNT_MATCH_WINDOW} of the amount due.`
-                    : 'No uncategorised pay-in transactions.')
-                  : `${payInFeeds.length} matching pay-in ${payInFeeds.length === 1 ? 'transaction' : 'transactions'}`)}
+                    : `No uncategorised ${payoutNoun} transactions.`)
+                  : `${listedFeeds.length} uncategorised ${payoutNoun} ${listedFeeds.length === 1 ? 'transaction' : 'transactions'}`)}
               {!loading && fetchedAt ? ` · ${new Date(fetchedAt).toLocaleString('en-IN')}` : ''}
             </p>
           </div>
@@ -265,15 +310,15 @@ export const KotakBankFeedsSheet: React.FC<{
 
         {loading ? (
           <p className="kotak-feeds-sheet__loading">Loading feeds from Zoho…</p>
-        ) : payInFeeds.length === 0 ? (
+        ) : listedFeeds.length === 0 ? (
           <p className="kotak-feeds-sheet__empty">
-            {hasDue
+            {kind === 'payin' && hasDue
               ? `No uncategorised pay-in matches the amount due or falls within ±${AMOUNT_MATCH_WINDOW}.`
-              : 'No uncategorised pay-in transactions to show.'}
+              : `No uncategorised ${payoutNoun} transactions to show.`}
           </p>
         ) : (
           <ul className="kotak-feeds-sheet__list">
-            {payInFeeds.map(feed => {
+            {listedFeeds.map(feed => {
               const stamp = formatFeedStamp(feed);
               const exact = hasDue && amountsMatch(feed.amount, due);
               const extra = feedDetail(feed);
@@ -319,26 +364,61 @@ export const KotakBankFeedsSheet: React.FC<{
         )}
 
         <div className="kotak-feeds-sheet__footer">
+          {kind === 'payout' && selected ? (
+            <div className="kotak-feeds-sheet__usd">
+              <span className="kotak-feeds-sheet__usd-inr">
+                INR {formatFeedAmount(selected.amount)}
+                {hasRate ? ` · 1 USD = ₹${rate.toFixed(2)}` : ' · rate unavailable'}
+                {bankCharges > 0 ? ` · bank charges ₹${formatFeedAmount(bankCharges)}` : ''}
+              </span>
+              <label className="kotak-feeds-sheet__usd-field">
+                <span>USD</span>
+                <input
+                  type="number"
+                  inputMode="decimal"
+                  min="0"
+                  step="0.01"
+                  className="input-field"
+                  value={usdDraft}
+                  disabled={selecting}
+                  onChange={e => setUsdDraft(e.target.value)}
+                  aria-label="USD amount"
+                />
+              </label>
+            </div>
+          ) : null}
           {selectError ? (
             <p className="kotak-feeds-sheet__select-error mb-0">{selectError}</p>
           ) : null}
           <button
             type="button"
             className={`btn btn-primary kotak-feeds-sheet__select${selecting ? ' kotak-feeds-sheet__select--busy' : ''}`}
-            disabled={!selected || loading || selecting}
+            disabled={!selected || loading || selecting || (kind === 'payout' && !(Number(usdDraft) > 0 && hasRate))}
             onClick={() => {
               if (!selected) return;
               setSelectError('');
+              if (kind === 'payout') {
+                void Promise.resolve(onAssociatePayout?.(selected, {
+                  amountUsd: Math.round(Number(usdDraft) * 100) / 100,
+                  usdToInrRate: rate,
+                })).catch((err: unknown) => {
+                  setSelectError(err instanceof Error ? err.message : 'Could not mark this payout as paid.');
+                });
+                return;
+              }
               void Promise.resolve(onSelect?.(selected)).catch((err: unknown) => {
                 setSelectError(err instanceof Error ? err.message : 'Could not invoice from this pay-in.');
               });
             }}
           >
             {selecting ? <VerifyInvoiceClock size={20} /> : null}
-            {selecting ? 'Invoicing…' : 'Select & Invoice'}
+            {kind === 'payout'
+              ? (selecting ? 'Paying…' : 'Paid')
+              : (selecting ? 'Invoicing…' : 'Select & Invoice')}
           </button>
         </div>
       </div>
     </div>
   );
 };
+

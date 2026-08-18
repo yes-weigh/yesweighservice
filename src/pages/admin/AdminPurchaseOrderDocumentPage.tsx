@@ -11,12 +11,16 @@ import { SoDetailCatalogAddSheet } from '../../components/salesOrders/SoDetailCa
 import type { DraftEditLine } from '../../components/salesOrders/SalesOrderDraftLineEditor';
 import { useAuth } from '../../context/AuthContext';
 import {
+  purchaseOrderHasBl,
+  purchaseOrderHasVendorPi,
   updateAdminPurchaseOrder,
   type AdminPurchaseOrderDetail,
+  type PurchaseOrderTracking,
 } from '../../lib/admin-purchase-orders';
 import { formatCurrency } from '../../lib/catalog';
 import { newCartLineId } from '../../lib/gatcCart';
 import { formatInvoiceDate, invoiceCategoryLabel, invoiceErrorMessage, invoiceStatusLabel } from '../../lib/invoices';
+import { formatLogisticsDateTime } from '../../lib/logisticsDateTime';
 import { canUpdatePurchaseOrders } from '../../lib/staffAccess';
 import type { DealerInvoiceLineItem } from '../../types/invoices';
 import type { AdminPurchaseOrderDetailOutletContext } from './adminPurchaseOrderDetailContext';
@@ -99,6 +103,153 @@ function linesFingerprint(lines: EditLine[]): string {
     quantity: line.quantity,
     rate: line.rate,
   })));
+}
+
+type PoTrackEvent = {
+  key: string;
+  title: string;
+  location: string | null;
+  at: string | null;
+};
+
+function trackingSortMs(value: string | null | undefined): number {
+  const trimmed = String(value || '').trim();
+  if (!trimmed) return 0;
+  const dateOnly = /^(\d{4})-(\d{2})-(\d{2})$/.exec(trimmed);
+  if (dateOnly) {
+    return Date.UTC(Number(dateOnly[1]), Number(dateOnly[2]) - 1, Number(dateOnly[3]));
+  }
+  const ms = Date.parse(trimmed);
+  return Number.isNaN(ms) ? 0 : ms;
+}
+
+const TRACKING_MILESTONES: Array<{ key: keyof PurchaseOrderTracking; title: string }> = [
+  { key: 'loadingDate', title: 'Loading' },
+  { key: 'sailingDate', title: 'Sailing' },
+  { key: 'arrivalDate', title: 'Arrival at port' },
+  { key: 'receivedDate', title: 'Received at warehouse' },
+];
+
+const SKIPPED_LOG_ACTIONS = new Set(['kotak_payout_associated', 'kotak_payout_paid', 'tracking_updated']);
+
+function buildPoTrackingEvents(purchaseOrder: AdminPurchaseOrderDetail): PoTrackEvent[] {
+  const events: PoTrackEvent[] = [];
+  const poDate = purchaseOrder.tracking.poDate || purchaseOrder.date;
+  if (poDate) {
+    events.push({
+      key: 'po',
+      title: 'Purchase order',
+      location: purchaseOrder.vendorName?.trim() || null,
+      at: poDate,
+    });
+  }
+
+  const payout = purchaseOrder.kotakPayout;
+  const paymentAt = payout?.associatedAt || payout?.date || purchaseOrder.tracking.paymentDate;
+  if (payout || paymentAt) {
+    const location = [
+      payout?.payee?.trim() || null,
+      payout
+        ? `${formatCurrency(payout.amountInr, 'INR')} → $${payout.amountUsd.toFixed(2)}`
+        : null,
+      payout?.bankCharges
+        ? `Bank charges ${formatCurrency(payout.bankCharges, 'INR')}`
+        : null,
+      payout?.referenceNumber?.trim() || null,
+    ].filter(Boolean).join(' · ') || null;
+    events.push({
+      key: 'payment',
+      title: 'Payment',
+      location,
+      at: paymentAt,
+    });
+  }
+
+  if (purchaseOrderHasVendorPi(purchaseOrder.vendorPi)) {
+    events.push({
+      key: 'pi',
+      title: 'Vendor PI',
+      location: purchaseOrder.vendorPi?.fileName || null,
+      at: purchaseOrder.vendorPi?.uploadedAt || null,
+    });
+  }
+
+  if (purchaseOrderHasBl(purchaseOrder.bl)) {
+    events.push({
+      key: 'bl',
+      title: 'Bill of lading',
+      location: purchaseOrder.bl?.containerNumber?.trim() || purchaseOrder.bl?.fileName || null,
+      at: purchaseOrder.bl?.uploadedAt || null,
+    });
+  }
+
+  for (const row of TRACKING_MILESTONES) {
+    const at = purchaseOrder.tracking[row.key];
+    if (!at) continue;
+    events.push({
+      key: row.key,
+      title: row.title,
+      location: null,
+      at,
+    });
+  }
+
+  for (const log of purchaseOrder.activityLogs) {
+    if (SKIPPED_LOG_ACTIONS.has(log.action)) continue;
+    const title = log.detail.trim() || log.action.trim();
+    if (!title) continue;
+    events.push({
+      key: `log-${log.at}-${log.action}`,
+      title,
+      location: log.byName,
+      at: log.at,
+    });
+  }
+
+  return events.sort((a, b) => trackingSortMs(b.at) - trackingSortMs(a.at));
+}
+
+function PurchaseOrderTrackingCard({
+  purchaseOrder,
+}: {
+  purchaseOrder: AdminPurchaseOrderDetail;
+}) {
+  const events = buildPoTrackingEvents(purchaseOrder);
+  if (!events.length) return null;
+
+  return (
+    <section className="panel glass mb-4 po-tracking" aria-label="Tracking history">
+      <div className="po-tracking__head">
+        <h2>Tracking history</h2>
+      </div>
+      <ol className="logistics-booking__track-timeline">
+        {events.map((event, index) => {
+          const atLabel = formatLogisticsDateTime(event.at);
+          return (
+            <li
+              key={event.key}
+              className={index === 0 ? 'is-latest' : undefined}
+            >
+              <span className="logistics-booking__track-timeline-dot" aria-hidden />
+              <div className="logistics-booking__track-timeline-copy">
+                <strong>{event.title}</strong>
+                {event.location ? (
+                  <span className="logistics-booking__track-timeline-location">
+                    {event.location}
+                  </span>
+                ) : null}
+                {atLabel ? (
+                  <time className="logistics-booking__track-timeline-at" dateTime={event.at ?? undefined}>
+                    {atLabel}
+                  </time>
+                ) : null}
+              </div>
+            </li>
+          );
+        })}
+      </ol>
+    </section>
+  );
 }
 
 export const AdminPurchaseOrderDocumentPage: React.FC = () => {
@@ -230,6 +381,8 @@ export const AdminPurchaseOrderDocumentPage: React.FC = () => {
           <p className="text-muted text-sm mt-2 mb-0">{purchaseOrder.notes}</p>
         )}
       </section>
+
+      <PurchaseOrderTrackingCard purchaseOrder={purchaseOrder} />
 
       {canEdit ? (
         <section className="panel glass staff-create-so-page__section">

@@ -59,7 +59,8 @@ import {
   writeGatcReportFromSalesOrder,
   yesOneGatcPersistFields,
 } from './gatc-report.js';
-import { syncSingleInvoiceFromZoho } from './invoice-sync.js';
+import { syncSingleInvoiceFromZoho, invoicesCollection } from './invoice-sync.js';
+import { patchInvoiceSummaryListFields } from './invoice-stats.js';
 import { getAccessToken, resolveOrganizationId } from './zoho.js';
 import { staffUserHasPermission } from './staff-permissions.js';
 import { fetchRawCustomerDetail } from './zoho-customers.js';
@@ -714,6 +715,7 @@ async function applyReservedKotakPayment(secrets, orgId, {
     },
     yesOneUpdatedAt: at,
   }, { merge: true });
+  await persistKotakPaidOnInvoice(data.customerId, invoiceId, result, at);
   try {
     await getFirestore().collection('kotakBankFeeds').doc(feed.transactionId).set({
       appliedInvoiceId: invoiceId,
@@ -723,6 +725,33 @@ async function applyReservedKotakPayment(secrets, orgId, {
     // Reservation apply still succeeded in Zoho.
   }
   return result;
+}
+
+async function persistKotakPaidOnInvoice(customerId, invoiceId, result, appliedAt) {
+  const cid = String(customerId || '').trim();
+  const id = String(invoiceId || '').trim();
+  if (!cid || !id) return;
+  try {
+    const ref = invoicesCollection(cid).doc(id);
+    const snap = await ref.get();
+    const data = snap.data() || {};
+    const total = Number(data.total ?? 0);
+    const prevBalance = Number.isFinite(Number(data.balance)) ? Number(data.balance) : total;
+    const applied = Number(result?.amountApplied ?? 0);
+    const deducted = applied > 0 ? applied : prevBalance;
+    const nextBalance = Math.max(0, Number((prevBalance - deducted).toFixed(2)));
+    const paidOff = nextBalance <= 0.01;
+    const payload = {
+      kotakPaidAt: appliedAt,
+      kotakAmountApplied: applied || null,
+      status: paidOff ? 'paid' : 'partially_paid',
+      balance: paidOff ? 0 : nextBalance,
+    };
+    await ref.set(payload, { merge: true });
+    await patchInvoiceSummaryListFields(cid, id, payload);
+  } catch (err) {
+    console.warn(`Could not persist Kotak paid on invoice ${invoiceId}:`, err?.message || err);
+  }
 }
 
 /**
@@ -1270,6 +1299,12 @@ export async function verifySalesOrderPayment(uid, role, salesOrderId, secrets, 
           `Invoice mirror after verify failed for ${invoiceId} (SO ${id}):`,
           syncErr?.message ?? syncErr,
         );
+      }
+      const kotakFeed = kotakReservationFromFeed(soData.reservedKotakFeed);
+      if (kotakFeed && soData.reservedKotakFeed?.appliedAt) {
+        await persistKotakPaidOnInvoice(soData.customerId, invoiceId, {
+          amountApplied: Number(soData.reservedKotakFeed.amountApplied ?? kotakFeed.amount ?? 0),
+        }, soData.reservedKotakFeed.appliedAt);
       }
       const invoice = await loadInvoiceDocById(invoiceId);
       await writeGatcReportFromSalesOrder({

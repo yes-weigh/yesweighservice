@@ -43,6 +43,21 @@ service firebase.storage {
         );
     }
 
+    function validPurchaseOrderPiMedia() {
+      return request.resource.size < 16 * 1024 * 1024
+        && (
+          request.resource.contentType == null
+          || request.resource.contentType == ''
+          || request.resource.contentType == 'application/pdf'
+          || request.resource.contentType == 'application/octet-stream'
+          || request.resource.contentType == 'application/vnd.ms-excel'
+          || request.resource.contentType == 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+          || request.resource.contentType == 'application/excel'
+          || request.resource.contentType == 'application/x-excel'
+          || request.resource.contentType == 'application/x-msexcel'
+        );
+    }
+
     function isStaff() {
       return signedIn() && userExists() && role() == 'staff';
     }
@@ -180,6 +195,13 @@ service firebase.storage {
     match /purchaseOrderBl/{poId}/{fileName} {
       allow read: if isSuperAdmin();
       allow create, update: if isFullSuperAdmin() && validPurchaseOrderBlMedia();
+      allow delete: if isFullSuperAdmin();
+    }
+
+    // Client-uploaded vendor proforma invoice (PDF / Excel) linked to a purchase order.
+    match /purchaseOrderPi/{poId}/{fileName} {
+      allow read: if isSuperAdmin();
+      allow create, update: if isFullSuperAdmin() && validPurchaseOrderPiMedia();
       allow delete: if isFullSuperAdmin();
     }
 

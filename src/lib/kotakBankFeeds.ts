@@ -21,6 +21,7 @@ export interface KotakBankFeed {
   bankName: string;
   importedTransactionId: string | null;
   reservedForSalesOrderId?: string | null;
+  reservedForPurchaseOrderId?: string | null;
 }
 
 export interface KotakBankFeedSyncResult {

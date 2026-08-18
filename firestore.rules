@@ -382,7 +382,7 @@ service cloud.firestore {
     }
 
     // Org-wide Zoho purchase orders — view any super admin; Zoho writes via functions.
-    // Full super admin may attach a bill of lading (file path + container number) only.
+    // Full super admin may attach a vendor PI and bill of lading only.
     match /purchaseOrders/{poId} {
       allow read: if isSuperAdmin();
       allow create, delete: if false;
@@ -395,6 +395,14 @@ service cloud.firestore {
               'blContentType',
               'blUploadedAt',
               'blUploadedBy',
+              'piStoragePath',
+              'piFileName',
+              'piContentType',
+              'piUploadedAt',
+              'piUploadedBy',
+              'kotakPayout',
+              'tracking',
+              'activityLogs',
             ]);
     }
 

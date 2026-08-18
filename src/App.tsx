@@ -38,7 +38,6 @@ import { AdminPurchaseOrdersPage } from './pages/admin/AdminPurchaseOrdersPage';
 import { AdminCreatePurchaseOrderPage } from './pages/admin/AdminCreatePurchaseOrderPage';
 import { AdminPurchaseOrderDetailLayout } from './pages/admin/AdminPurchaseOrderDetailLayout';
 import { AdminPurchaseOrderDocumentPage } from './pages/admin/AdminPurchaseOrderDocumentPage';
-import { AdminPurchaseOrderPdfViewerPage } from './pages/admin/AdminPurchaseOrderPdfViewerPage';
 import { AdminGoodsReceiptsPage } from './pages/admin/AdminGoodsReceiptsPage';
 import { AdminGoodsReceiptDetailLayout } from './pages/admin/AdminGoodsReceiptDetailLayout';
 import { AdminGoodsReceiptDocumentPage } from './pages/admin/AdminGoodsReceiptDocumentPage';
@@ -325,7 +324,7 @@ const App: React.FC = () => (
                 <Route path="purchase-orders/sync" element={<Navigate to="/super-admin/purchase-orders" replace />} />
                 <Route path="purchase-orders/:purchaseOrderId" element={<AdminPurchaseOrderDetailLayout />}>
                   <Route index element={<AdminPurchaseOrderDocumentPage />} />
-                  <Route path="view" element={<AdminPurchaseOrderPdfViewerPage />} />
+                  <Route path="view" element={<Navigate to=".." replace />} />
                 </Route>
               </Route>
               <Route path="goods-receipts" element={<AdminGoodsReceiptsPage />} />

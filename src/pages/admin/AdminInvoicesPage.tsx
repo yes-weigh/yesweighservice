@@ -29,6 +29,7 @@ import {
   alignInvoiceChipCountsToList,
   countInvoiceRowsByCategory,
   fetchAdminCustomerLocations,
+  fetchKotakPaidInvoiceIds,
   fetchAdminDealerLifetimeAggregates,
   fetchAdminInvoicesForCustomers,
   fetchAdminPortalStampingInvoices,
@@ -400,6 +401,7 @@ export const AdminInvoicesPage: React.FC = () => {
   const [logisticsByInvoiceId, setLogisticsByInvoiceId] = useState(
     () => new Map<string, LogisticsBooking>(),
   );
+  const [kotakPaidInvoiceIds, setKotakPaidInvoiceIds] = useState(() => new Set<string>());
 
   const dealerFilterFromUrl = searchParams.get('dealerId')?.trim() || '';
   const dealersParam = searchParams.get('dealers') || '';
@@ -925,6 +927,26 @@ export const AdminInvoicesPage: React.FC = () => {
     return displayRows.slice(start, start + LIST_PAGE_SIZE);
   }, [displayRows, page, clientPaged, serverPaged]);
 
+  const pageInvoiceIdsKey = useMemo(
+    () => pageRows.map(invoice => invoice.id).join(','),
+    [pageRows],
+  );
+
+  useEffect(() => {
+    const ids = pageInvoiceIdsKey.split(',').filter(Boolean);
+    if (!ids.length) {
+      setKotakPaidInvoiceIds(new Set());
+      return;
+    }
+    let cancelled = false;
+    void fetchKotakPaidInvoiceIds(ids).then(paid => {
+      if (!cancelled) setKotakPaidInvoiceIds(paid);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [pageInvoiceIdsKey]);
+
   const logisticsInvoiceIdsKey = useMemo(() => {
     const source = listRows;
     return source
@@ -1340,6 +1362,7 @@ export const AdminInvoicesPage: React.FC = () => {
               category={category}
               showKam={showKam}
               dealerStaffById={dealerStaffById}
+              kotakPaid={kotakPaidInvoiceIds.has(invoice.id)}
               onOpen={openRow}
             />
           ))}
