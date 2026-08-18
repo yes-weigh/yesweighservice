@@ -95,6 +95,15 @@ function isAlreadyConfirmedMessage(message) {
   return /already|confirmed|status is open|\bis open\b|invoiced/i.test(String(message || ''));
 }
 
+function isAlreadyInvoicedQuantityMessage(message) {
+  return /no items in this sales order to be invoiced|quantity recorded cannot be more than quantity ordered/i
+    .test(String(message || ''));
+}
+
+function stripSalesOrderItemIds(lines) {
+  return (Array.isArray(lines) ? lines : []).map(({ salesorder_item_id: _id, ...line }) => line);
+}
+
 async function postZohoIgnore(accessToken, orgId, path, ignorePattern) {
   try {
     await zohoJson(accessToken, orgId, path, { method: 'POST', body: {} });
@@ -828,14 +837,13 @@ export async function createInvoiceFromSalesOrder(secrets, configuredOrgId, {
     const inv = converted?.invoice;
     if (inv?.invoice_id) return patchConvertedInvoice(inv);
   } catch (convertErr) {
-    const linked = linkedInvoiceFromSo(await loadSo().catch(() => so));
+    so = await loadSo().catch(() => so);
+    const linked = linkedInvoiceFromSo(so);
     if (linked) return linked;
-    if (!isZohoNotAuthorized(convertErr)) {
-      console.warn(
-        `Convert SO ${soId} to invoice failed, trying create:`,
-        convertErr?.message || convertErr,
-      );
-    }
+    console.warn(
+      `Convert SO ${soId} to invoice failed, trying create:`,
+      convertErr?.message || convertErr,
+    );
   }
 
   const linkedLineItems = invoiceLineItemsFromSalesOrder(so, { linkServiceLines: true });
@@ -853,14 +861,23 @@ export async function createInvoiceFromSalesOrder(secrets, configuredOrgId, {
   const effectiveSp = spId || (so.salesperson_id != null ? String(so.salesperson_id).trim() : '');
 
   const { salesorder_id: _soLink, ...unlinkedBase } = baseBody;
+  const unlinkedLineItems = stripSalesOrderItemIds(linkedLineItems);
+  const unlinkedGoodsLineItems = stripSalesOrderItemIds(goodsLinkedLineItems);
+  const salespersonFields = effectiveSp ? { salesperson_id: effectiveSp } : {};
   const attempts = [
-    { ...baseBody, line_items: linkedLineItems, ...shippingFields, ...(effectiveSp ? { salesperson_id: effectiveSp } : {}) },
+    { ...baseBody, line_items: linkedLineItems, ...shippingFields, ...salespersonFields },
     { ...baseBody, line_items: linkedLineItems, ...shippingFields },
-    { ...baseBody, line_items: linkedLineItems },
-    { ...baseBody, line_items: goodsLinkedLineItems, ...shippingFields, ...(effectiveSp ? { salesperson_id: effectiveSp } : {}) },
-    { ...baseBody, line_items: goodsLinkedLineItems },
-    { ...unlinkedBase, line_items: linkedLineItems, ...shippingFields },
-    { ...unlinkedBase, line_items: linkedLineItems },
+    { ...baseBody, line_items: linkedLineItems, ...salespersonFields },
+    { ...baseBody, line_items: goodsLinkedLineItems, ...shippingFields, ...salespersonFields },
+    { ...baseBody, line_items: goodsLinkedLineItems, ...salespersonFields },
+    // Convert can report "no items to invoice" while the SO is still open. Creating
+    // with salesorder_item_id then fails as "quantity … more than quantity ordered".
+    // Retry without the line-item link so Zoho can still invoice the confirmed SO.
+    { ...baseBody, line_items: unlinkedLineItems, ...shippingFields, ...salespersonFields },
+    { ...baseBody, line_items: unlinkedLineItems, ...salespersonFields },
+    { ...baseBody, line_items: unlinkedGoodsLineItems, ...salespersonFields },
+    { ...unlinkedBase, line_items: linkedLineItems, ...shippingFields, ...salespersonFields },
+    { ...unlinkedBase, line_items: linkedLineItems, ...salespersonFields },
   ];
 
   let lastErr = null;
@@ -880,9 +897,18 @@ export async function createInvoiceFromSalesOrder(secrets, configuredOrgId, {
       lastErr = new Error(payload?.message || 'Zoho did not return an invoice id.');
     } catch (err) {
       lastErr = err;
-      const linked = linkedInvoiceFromSo(await loadSo().catch(() => so));
+      so = await loadSo().catch(() => so);
+      const linked = linkedInvoiceFromSo(so);
       if (linked) return linked;
-      if (!isZohoNotAuthorized(err)) break;
+      const invoiced = String(so?.invoiced_status || '').toLowerCase();
+      if (invoiced === 'invoiced' || invoiced === 'partially_invoiced') {
+        throw new Error(
+          'This sales order is already invoiced in Zoho, but YesOne could not read the invoice id. Use Mark as invoiced, or refresh and retry.',
+        );
+      }
+      const message = String(err?.message || '');
+      if (isAlreadyInvoicedQuantityMessage(message) || isZohoNotAuthorized(err)) continue;
+      break;
     }
   }
 

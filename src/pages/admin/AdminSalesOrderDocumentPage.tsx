@@ -1442,7 +1442,7 @@ export const AdminSalesOrderDocumentPage: React.FC = () => {
           <>
         {packageBlocksActions ? (
           <p className="so-detail__actions-block-note" role="status">
-            Fill missing package information before advancing this order.
+            Fill missing package information before verifying or invoicing. Void and delete stay available.
           </p>
         ) : null}
         <button
@@ -1599,10 +1599,8 @@ export const AdminSalesOrderDocumentPage: React.FC = () => {
             <button
               type="button"
               className="btn btn-secondary"
-              disabled={Boolean(workflowActions.actionBusy) || packageBlocksActions}
-              title={packageBlocksActions ? freightPackageAlert ?? undefined : undefined}
+              disabled={Boolean(workflowActions.actionBusy)}
               onClick={() => {
-                if (packageBlocksActions) return;
                 workflowActions.onVoid();
               }}
             >

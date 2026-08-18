@@ -1340,7 +1340,14 @@ export async function deleteDraftSalesOrder(uid, role, salesOrderId, secrets, or
     );
   }
   const stage = yesOneStageOf(data);
-  if (stage === 'payment_submitted' || stage === 'completed' || stage === 'void') {
+  const superAdminDelete = isFullSuperAdmin(user);
+  if (stage === 'completed' || stage === 'void') {
+    throw new HttpsError(
+      'failed-precondition',
+      'This sales order can no longer be deleted.',
+    );
+  }
+  if (stage === 'payment_submitted' && !superAdminDelete) {
     throw new HttpsError(
       'failed-precondition',
       'This sales order can no longer be deleted.',

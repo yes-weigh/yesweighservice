@@ -260,9 +260,9 @@ export const AdminSalesOrderDetailLayout: React.FC = () => {
   const canDelete = Boolean(
     (canManageZoho || isDealerView)
     && (statusKey === 'draft' || statusKey === 'pending')
-    && stage !== 'payment_submitted'
     && stage !== 'completed'
-    && stage !== 'void',
+    && stage !== 'void'
+    && (stage !== 'payment_submitted' || canSuperAdminWrite(user)),
   );
   const canVoid = Boolean(
     canManageZoho
