@@ -257,10 +257,10 @@ export type StaffNavFeature =
   | 'sales-orders'
   | 'purchase-orders'
   | 'goods-receipts'
+  | 'spare-indents'
   | 'logistics'
   | 'loyalty'
   | 'ai-assistant'
-  | 'notifications'
   | 'training'
   | 'reports'
   | 'staff';
@@ -282,10 +282,10 @@ const NAV_FEATURE_PERMISSIONS: Record<StaffNavFeature, StaffPermission[] | 'alwa
   'purchase-orders': [],
   // Same gate as Invoice — Invoice access role and anyone with invoices.view.
   'goods-receipts': ['invoices.view'],
+  'spare-indents': ['catalog.view'],
   logistics: ['logistics.view'],
   loyalty: ['loyalty.view'],
   'ai-assistant': 'always',
-  notifications: 'always',
   training: 'always',
   reports: 'always',
   staff: ['staff.manage', 'hr.view', 'hr.manage'],
@@ -310,7 +310,7 @@ export function canAccessNavFeature(user: User | null | undefined, feature: Staf
 
   const rule = NAV_FEATURE_PERMISSIONS[feature];
   if (rule === 'always') {
-    // Invoice-only staff: Dashboard stays; hide AI / notifications / training / reports.
+    // Invoice-only staff: Dashboard stays; hide AI / training / reports.
     if (feature === 'dashboard') return true;
     if (isInvoiceAccessOnlyStaff(user)) return false;
     return true;

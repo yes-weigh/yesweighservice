@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useLocation, useNavigate } from 'react-router-dom';
 import {
   AlertCircle,
   ArrowRight,
@@ -28,6 +28,7 @@ import { useCartFly } from '../../context/useCartFly';
 import {
   excludeHiddenCatalogProducts,
   fetchCatalog,
+  fetchCatalogProductDetail,
   fetchSpareLinkIndex,
   formatCurrency,
   getCategoriesForProducts,
@@ -38,6 +39,10 @@ import {
   createAdminPurchaseOrder,
 } from '../../lib/admin-purchase-orders';
 import { invoiceErrorMessage } from '../../lib/invoices';
+import {
+  markSpareIndentsConverted,
+  type SpareIndentPoPrefill,
+} from '../../lib/spareIndents';
 import {
   loadLatestPurchaseCostsByItemId,
   type PurchaseItemCost,
@@ -94,7 +99,8 @@ function lineRateForVendor(
 const CreatePurchaseOrderWizard: React.FC = () => {
   const { user } = useAuth();
   const navigate = useNavigate();
-  const { items, itemCount, setQuantity, removeItem } = useCart();
+  const location = useLocation();
+  const { items, itemCount, setQuantity, removeItem, addItem, clearCart } = useCart();
   const { registerCartTarget, cartBump } = useCartFly();
   const cartBtnRef = useRef<HTMLButtonElement>(null);
   const goBackRef = useRef<() => void>(() => navigate(LIST_PATH));
@@ -121,6 +127,9 @@ const CreatePurchaseOrderWizard: React.FC = () => {
 
   const [poCosts, setPoCosts] = useState<Map<string, PurchaseItemCostSet>>(new Map());
   const [costsLoading, setCostsLoading] = useState(false);
+  const indentPrefill = (location.state as { spareIndentPrefill?: SpareIndentPoPrefill } | null)
+    ?.spareIndentPrefill ?? null;
+  const prefillApplied = useRef(false);
 
   const canCreate = canUpdatePurchaseOrders(user);
   const showStockQuantity = canViewCatalogStock(user);
@@ -195,6 +204,44 @@ const CreatePurchaseOrderWizard: React.FC = () => {
       cancelled = true;
     };
   }, [reloadVendors]);
+
+  useEffect(() => {
+    if (!indentPrefill?.vendorId || selectedVendor) return;
+    const vendor = vendors.find(row => row.id === indentPrefill.vendorId);
+    if (!vendor) return;
+    setSelectedVendor(vendor);
+    setStep('pi');
+  }, [indentPrefill, selectedVendor, vendors]);
+
+  useEffect(() => {
+    if (!indentPrefill?.lines.length || prefillApplied.current) return;
+    prefillApplied.current = true;
+    let cancelled = false;
+    void Promise.all(indentPrefill.lines.map(async line => {
+      try {
+        const product = await fetchCatalogProductDetail(line.productId);
+        return { product, quantity: line.quantity };
+      } catch {
+        return null;
+      }
+    }))
+      .then(loaded => {
+        if (cancelled) return;
+        clearCart();
+        loaded.forEach(row => {
+          if (row?.product && row.quantity > 0) addItem(row.product, row.quantity);
+        });
+      })
+      .catch(err => {
+        prefillApplied.current = false;
+        if (!cancelled) {
+          setError(err instanceof Error ? err.message : 'Could not load indent items.');
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [addItem, clearCart, indentPrefill]);
 
   const fetchVendorsFromZoho = async () => {
     setVendorsFetching(true);
@@ -380,6 +427,13 @@ const CreatePurchaseOrderWizard: React.FC = () => {
           name: item.name,
         })),
       });
+      if (indentPrefill?.indentIds.length) {
+        await markSpareIndentsConverted({
+          indentIds: indentPrefill.indentIds,
+          purchaseOrderId: created.id,
+          purchaseOrderNumber: created.purchaseOrderNumber,
+        });
+      }
       navigate(`${LIST_PATH}/${created.id}`, { replace: true });
     } catch (err) {
       setError(invoiceErrorMessage(err));

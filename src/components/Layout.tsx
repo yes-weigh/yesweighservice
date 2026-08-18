@@ -20,7 +20,6 @@ import {
   Package,
   LifeBuoy,
   GraduationCap,
-  Bell,
   Bot,
   Wrench,
   RotateCcw,
@@ -43,6 +42,7 @@ import {
   Phone,
   ShoppingBag,
   PackageCheck,
+  PackagePlus,
   RefreshCw,
 } from 'lucide-react';
 import { getAppVersionLabel } from '../lib/appVersion';
@@ -65,7 +65,6 @@ const OPS_PRIORITY_SUFFIXES = [
 const OPS_BEFORE_REPORTS_SUFFIXES = [
   '/advertisements',
   '/loyalty',
-  '/notifications',
 ] as const;
 
 /** Shown after Reports. */
@@ -126,10 +125,14 @@ function portalNavItems(
       icon: <PackageCheck size={20} />,
       label: 'Goods receipt',
     },
+    spareIndents: {
+      path: `${home}/spare-indents`,
+      icon: <PackagePlus size={20} />,
+      label: 'Spare Indent',
+    },
     logistics: { path: `${home}/logistics`, icon: <Truck size={20} />, label: 'Logistics' },
     loyalty: { path: `${home}/loyalty`, icon: <Gift size={20} />, label: 'Loyalty' },
     aiAssistant: { path: `${home}/ai-assistant`, icon: <Bot size={20} />, label: 'AI assistance' },
-    notifications: { path: `${home}/notifications`, icon: <Bell size={20} />, label: 'Notifications' },
     training: { path: `${home}/training`, icon: <GraduationCap size={20} />, label: 'Trainings' },
   };
 
@@ -141,9 +144,9 @@ function portalNavItems(
           'warrantySupport',
           'advertisements',
           'goodsReceipts',
+          'spareIndents',
           'loyalty',
           'aiAssistant',
-          'notifications',
         ]
       : order === 'dealer_staff'
         ? [
@@ -156,7 +159,6 @@ function portalNavItems(
             'loyalty',
             'aiAssistant',
             'training',
-            'notifications',
           ]
         : [
           'catalog',
@@ -167,7 +169,6 @@ function portalNavItems(
           'advertisements',
           'loyalty',
           'training',
-          'notifications',
           'aiAssistant',
         ];
 
@@ -192,10 +193,10 @@ function staffPathToFeature(path: string): StaffNavFeature {
     'sales-orders': 'sales-orders',
     'purchase-orders': 'purchase-orders',
     'goods-receipts': 'goods-receipts',
+    'spare-indents': 'spare-indents',
     logistics: 'logistics',
     loyalty: 'loyalty',
     'ai-assistant': 'ai-assistant',
-    notifications: 'notifications',
     training: 'training',
     settings: 'dashboard',
     hr: 'staff',
@@ -288,6 +289,7 @@ const LayoutShell: React.FC = () => {
           { path: '/super-admin/dealers', icon: <Building2 size={20} />, label: 'Dealers' },
           { path: '/super-admin/purchase-orders', icon: <ShoppingBag size={20} />, label: 'Purchase order' },
           { path: '/super-admin/goods-receipts', icon: <PackageCheck size={20} />, label: 'Goods receipt' },
+          { path: '/super-admin/spare-indents', icon: <PackagePlus size={20} />, label: 'Spare Indent' },
           ...operationsNavItems('/super-admin', OPS_BEFORE_REPORTS_SUFFIXES),
           { path: '/super-admin/reports', icon: <BarChart3 size={20} />, label: 'Reports' },
           { path: '/super-admin/whatsapp', icon: <SidebarWhatsAppIcon />, label: 'WhatsApp' },
@@ -305,10 +307,10 @@ const LayoutShell: React.FC = () => {
           { path: '/staff/sales-orders', icon: <ClipboardList size={20} />, label: 'Sales orders' },
           { path: '/staff/invoices', icon: <FileText size={20} />, label: 'Invoices' },
         );
-        const notificationsIndex = withExtras.findIndex(item => item.path.endsWith('/notifications'));
+        const reportsAnchor = withExtras.findIndex(item => item.path.endsWith('/ai-assistant'));
         const reportsItem = { path: '/staff/reports', icon: <BarChart3 size={20} />, label: 'Reports' };
-        if (notificationsIndex >= 0) {
-          withExtras.splice(notificationsIndex + 1, 0, reportsItem);
+        if (reportsAnchor >= 0) {
+          withExtras.splice(reportsAnchor + 1, 0, reportsItem);
         } else {
           withExtras.push(reportsItem);
         }

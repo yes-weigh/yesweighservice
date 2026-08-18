@@ -41,6 +41,7 @@ import { AdminPurchaseOrderDocumentPage } from './pages/admin/AdminPurchaseOrder
 import { AdminGoodsReceiptsPage } from './pages/admin/AdminGoodsReceiptsPage';
 import { AdminGoodsReceiptDetailLayout } from './pages/admin/AdminGoodsReceiptDetailLayout';
 import { AdminGoodsReceiptDocumentPage } from './pages/admin/AdminGoodsReceiptDocumentPage';
+import { AdminSpareIndentsPage } from './pages/admin/AdminSpareIndentsPage';
 import { AdminUnifiedSalesOrdersPage } from './pages/admin/AdminUnifiedSalesOrdersPage';
 import { AdminSalesOrderDetailLayout } from './pages/admin/AdminSalesOrderDetailLayout';
 import { AdminSalesOrderDocumentPage } from './pages/admin/AdminSalesOrderDocumentPage';
@@ -333,6 +334,7 @@ const App: React.FC = () => (
                 <Route index element={<AdminGoodsReceiptDocumentPage />} />
                 <Route path="view" element={<Navigate to=".." replace />} />
               </Route>
+              <Route path="spare-indents" element={<AdminSpareIndentsPage />} />
               {superAdminOpsRoutes}
               <Route path="reports" element={<ReportsLayout basePath="/super-admin" />}>
                 <Route path="audit-report" element={<AuditReportTab />} />
@@ -389,6 +391,7 @@ const App: React.FC = () => (
               {portalMenuRoutes}
               {staffInvoiceRoutes}
               {staffGoodsReceiptRoutes}
+              <Route path="spare-indents" element={<AdminSpareIndentsPage />} />
               <Route path="leads" element={<DealerMenuPages.Leads />} />
               <Route path="dealers/*" element={<AdminDealersList />} />
               <Route path="sales-orders" element={<AdminUnifiedSalesOrdersPage />} />

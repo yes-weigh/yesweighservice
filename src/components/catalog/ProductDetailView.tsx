@@ -92,6 +92,7 @@ import { ProductPackageInfo } from './ProductPackageInfo';
 import type { ProductNcExistingLocation } from './ProductNcPanel';
 import { ProductOpenNcTile } from './ProductOpenNcTile';
 import { ProductSiteStockLocations } from './ProductSiteStockLocations';
+import { ProductSpareIndentBlock } from './ProductSpareIndentBlock';
 import { listOpenAuditCycles } from '../../lib/auditCycles/data';
 import {
   catalogGridStockQty,
@@ -2474,6 +2475,25 @@ export const ProductDetailView: React.FC<{
                   }}
                 />
               ))}
+              {isSpareItem ? (
+                <ProductSpareIndentBlock
+                  product={product as CatalogProductDetail}
+                  canCreate={canEditCochin}
+                  actorUid={user?.uid ?? ''}
+                  actorName={user?.displayName || 'Staff'}
+                />
+              ) : null}
+            </div>
+          )}
+
+          {showAuditedStock && isSpareItem && product && activeInventorySites.length === 0 && (
+            <div className="product-detail-page__stock-locations">
+              <ProductSpareIndentBlock
+                product={product}
+                canCreate={canEditCochin}
+                actorUid={user?.uid ?? ''}
+                actorName={user?.displayName || 'Staff'}
+              />
             </div>
           )}
 
