@@ -254,3 +254,73 @@ export function blueDartTrackFromBooking(
     fetchedAt: cached.fetchedAt,
   };
 }
+
+const PICKUP_REGISTERED_RE = /pickup\s+has\s+been\s+registered/i;
+const BLUE_DART_DELIVERED_RE = /\bdelivered\b|\bdelivery\s+(completed|done|successful)\b|\bpod\b/i;
+const BLUE_DART_RETURNED_RE = /\b(rto|return\s*to\s*origin|returned)\b/i;
+const BLUE_DART_CANCELLED_RE = /\b(cancel+ed|cancelled)\b/i;
+const BLUE_DART_TRANSIT_RE = /\b(in\s*transit|out\s*for\s*delivery|ofd|reached|arrived|dispatched|manifest|transit|hub|branch|undelivered|on\s*hold|held|attempted|outscanned)\b|shipment\s+picked|\bpicked\s+up\b/i;
+
+function blueDartActivityLines(
+  track: Pick<BlueDartTrackResult, 'status' | 'history'>,
+): string[] {
+  const lines = [String(track.status || '')];
+  if (Array.isArray(track.history)) {
+    for (const item of track.history) {
+      lines.push(String(item?.activity || ''));
+    }
+  }
+  return lines.map(line => line.trim()).filter(Boolean);
+}
+
+function isBlueDartPickupRegisteredOnly(
+  track: Pick<BlueDartTrackResult, 'status' | 'history'>,
+): boolean {
+  const lines = blueDartActivityLines(track);
+  if (!lines.length) return false;
+  const hasRegistered = lines.some(line => PICKUP_REGISTERED_RE.test(line));
+  if (!hasRegistered) return false;
+  const moved = lines.some((line) => {
+    const rest = line.replace(/pickup\s+has\s+been\s+registered/gi, ' ').trim();
+    if (!rest) return false;
+    return BLUE_DART_TRANSIT_RE.test(rest)
+      || BLUE_DART_DELIVERED_RE.test(rest)
+      || BLUE_DART_RETURNED_RE.test(rest);
+  });
+  return !moved;
+}
+
+/**
+ * Optimistic UI status after a live Blue Dart refresh.
+ * Pickup registered stays Booked; actual pickup / transit → In Transit.
+ */
+export function inferBlueDartUiStatus(
+  track: Pick<BlueDartTrackResult, 'ok' | 'status' | 'statusType' | 'deliveredAt' | 'history'>,
+  currentStatus: string,
+): string {
+  if (currentStatus === 'returned' || currentStatus === 'cancelled') return currentStatus;
+  if (!track.ok) return 'label_generated';
+
+  const statusType = String(track.statusType || '').trim().toUpperCase();
+  const bits = blueDartActivityLines(track).join(' ');
+
+  if (statusType === 'DL' || Boolean(String(track.deliveredAt || '').trim()) || BLUE_DART_DELIVERED_RE.test(bits)) {
+    return 'delivered';
+  }
+  if (statusType === 'RT' || BLUE_DART_RETURNED_RE.test(bits)) return 'returned';
+  if (statusType === 'CN' || BLUE_DART_CANCELLED_RE.test(bits)) return 'cancelled';
+  if (currentStatus === 'delivered') return 'delivered';
+
+  if (isBlueDartPickupRegisteredOnly(track)) return 'label_generated';
+
+  if (
+    statusType === 'IT'
+    || statusType === 'UD'
+    || BLUE_DART_TRANSIT_RE.test(bits.replace(/pickup\s+has\s+been\s+registered/gi, ' '))
+  ) {
+    return 'in_transit';
+  }
+
+  return 'label_generated';
+}
+

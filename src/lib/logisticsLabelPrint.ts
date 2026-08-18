@@ -635,6 +635,51 @@ export async function tryPrintLabelImagesThermal(
   return { usedThermal: true, bytesSent };
 }
 
+/** Open the system print dialog for a PDF (A4 / office printer). */
+export function printPdfBytes(bytes: Uint8Array, title = 'Document'): void {
+  if (typeof window === 'undefined') {
+    throw new Error('Print is only available in the browser.');
+  }
+  if (!bytes.length) throw new Error('Nothing to print.');
+  const blob = new Blob([Uint8Array.from(bytes)], { type: 'application/pdf' });
+  const url = URL.createObjectURL(blob);
+  const iframe = document.createElement('iframe');
+  iframe.title = title;
+  iframe.setAttribute('aria-hidden', 'true');
+  iframe.style.position = 'fixed';
+  iframe.style.right = '0';
+  iframe.style.bottom = '0';
+  iframe.style.width = '0';
+  iframe.style.height = '0';
+  iframe.style.border = '0';
+  let cleaned = false;
+  const cleanup = () => {
+    if (cleaned) return;
+    cleaned = true;
+    iframe.remove();
+    URL.revokeObjectURL(url);
+  };
+  iframe.onload = () => {
+    const win = iframe.contentWindow;
+    if (!win) {
+      cleanup();
+      throw new Error('Could not open print preview.');
+    }
+    win.focus();
+    win.print();
+    window.setTimeout(cleanup, 60_000);
+  };
+  document.body.appendChild(iframe);
+  iframe.src = url;
+  window.setTimeout(() => {
+    try {
+      iframe.contentWindow?.print();
+    } catch {
+      /* PDF iframe onload is unreliable in some browsers */
+    }
+  }, 600);
+}
+
 /** Browser print fallback: each image → one 100×150 mm page. */
 export async function printShippingLabelImages(
   imageUrls: string[],

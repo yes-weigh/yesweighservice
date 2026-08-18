@@ -95,3 +95,17 @@ export async function loadBlueDartPincode(
 export function clearBlueDartPincodeCache(): void {
   cache.clear();
 }
+
+/** City / area name from BdService CAREADESC (falls back to CAREA). */
+export function blueDartCityNameFromPincodeDoc(
+  doc: BlueDartPincodeDoc | null | undefined,
+): string {
+  const raw = String(doc?.areaDesc || doc?.area || '').trim();
+  if (!raw) return '';
+  return raw
+    .toLowerCase()
+    .split(/[\s/,-]+/)
+    .filter(Boolean)
+    .map(word => word.charAt(0).toUpperCase() + word.slice(1))
+    .join(' ');
+}

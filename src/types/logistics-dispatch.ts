@@ -203,6 +203,8 @@ export interface LogisticsBlueDartPickup {
   pickupAddress?: string | null;
   pickupPin?: string | null;
   originArea?: string | null;
+  destinationArea?: string | null;
+  destinationLocation?: string | null;
   tokenNumber?: string | null;
   message?: string | null;
   requestedAt: string;

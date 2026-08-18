@@ -21,12 +21,20 @@ import {
 import { useAuth } from '../../context/AuthContext';
 import { useConfirm } from '../../context/ConfirmContext';
 import { cancelDelhiveryShipment, createDelhiveryPickupRequest } from '../../lib/delhiveryB2b';
-import { getBlueDartWaybill } from '../../lib/blueDartApi';
+import { getBlueDartWaybill, inferBlueDartUiStatus } from '../../lib/blueDartApi';
+import {
+  BLUE_DART_LOGO_URL,
+  buildBlueDartAwbPdfFromBooking,
+  resolveBlueDartTrackingDestination,
+} from '../../lib/blueDartAwbPdf';
+import { buildBlueDartProfessionalLabelPdfFromBooking } from '../../lib/blueDartProfessionalLabelPdf';
 import {
   BLUE_DART_LABEL_HEIGHT_MM,
   BLUE_DART_LABEL_WIDTH_MM,
   fitBlueDartWaybillToLabelPdf,
+  fitPdfPagesToLabelPdf,
   renderBlueDartWaybillLabelPng,
+  renderPdfPagesToLogisticsLabelPngs,
 } from '../../lib/blueDartLabel';
 import { LOGISTICS_PARTNERS, isBlueDartLogisticsPartnerId } from '../../constants/logisticsPartners';
 import { logisticsPartnerLabel } from '../../constants/logisticsPartners';
@@ -147,12 +155,24 @@ type LogisticsDocCard = {
 
 type DocCardIcon = React.FC<{ size?: number; strokeWidth?: number; className?: string }>;
 
+const BlueDartCardIcon: DocCardIcon = ({ size = 28, className }) => (
+  <img
+    src={BLUE_DART_LOGO_URL}
+    alt=""
+    width={size}
+    height={size}
+    className={className ?? 'invoice-detail-top__bluedart-logo'}
+    draggable={false}
+  />
+);
+
 const LOGISTICS_DOC_KIND_ORDER: Record<string, number> = {
   lr_copy: 10,
   courier_slip: 10,
   bluedart_waybill: 10,
   shipping_label: 20,
   invoice: 30,
+  bluedart_form: 35,
   eway_bill: 40,
   pod: 50,
 };
@@ -186,15 +206,16 @@ function clubbedInvoiceRowsFromBooking(booking: {
     .filter(row => row.invoiceId);
 }
 
-function logisticsTopCardTone(kind: string): 'green' | 'blue' | 'orange' | 'purple' {
+function logisticsTopCardTone(kind: string): 'green' | 'blue' | 'orange' | 'purple' | 'bluedart' {
   if (kind === 'lr_copy' || kind === 'courier_slip' || kind === 'bluedart_waybill') return 'green';
+  if (kind === 'bluedart_form') return 'bluedart';
   if (kind === 'shipping_label') return 'blue';
   if (kind === 'invoice') return 'orange';
   if (kind === 'eway_bill') return 'purple';
   return 'blue';
 }
 
-function logisticsDocCardMeta(kind: string): {
+function logisticsDocCardMeta(kind: string, isBlueDart = false): {
   tone: DelhiveryDocCardTone;
   title: string;
   subtitle: string;
@@ -208,11 +229,21 @@ function logisticsDocCardMeta(kind: string): {
       Icon: FileText,
     };
   }
+  if (kind === 'bluedart_form') {
+    return {
+      tone: 'label',
+      title: 'Bluedart',
+      subtitle: 'Official Blue Dart 100×150 mm label',
+      Icon: BlueDartCardIcon,
+    };
+  }
   if (kind === 'shipping_label') {
     return {
       tone: 'label',
-      title: 'Shipping label',
-      subtitle: 'View or print 100×150 mm shipping label',
+      title: 'Label',
+      subtitle: isBlueDart
+        ? 'Print generated 100×150 mm thermal bitmap'
+        : 'View or print 100×150 mm shipping label',
       Icon: Barcode,
     };
   }
@@ -408,17 +439,22 @@ export const LogisticsBookingDetail: React.FC<LogisticsBookingDetailProps> = ({
     if (finalUrl) urls.push(finalUrl);
     return urls;
   }, [booking.boxes, booking.finalPackagePhoto]);
+  const pipelineStatus = (
+    isBlueDartLogisticsPartnerId(booking.partnerId) && booking.courierTrack
+      ? inferBlueDartUiStatus(booking.courierTrack, booking.status)
+      : booking.status
+  ) as typeof booking.status;
   const currentIndex = isIncompleteLogisticsBooking(booking)
     ? -1
-    : bookingStatusIndex(booking.status);
+    : bookingStatusIndex(pipelineStatus);
   // Advance only along the public pipeline (Booked → Transit → Delivered).
   const nextStatus = (
     isIncompleteLogisticsBooking(booking)
-    || booking.status === 'returned'
-    || booking.status === 'cancelled'
-    || booking.status === 'delivered'
+    || pipelineStatus === 'returned'
+    || pipelineStatus === 'cancelled'
+    || pipelineStatus === 'delivered'
     || (
-      booking.status === 'label_generated'
+      pipelineStatus === 'label_generated'
       && !booking.shippingLabelGenerated
       && booking.partnerId !== 'delhivery'
     )
@@ -440,6 +476,20 @@ export const LogisticsBookingDetail: React.FC<LogisticsBookingDetailProps> = ({
   );
   const isDelhivery = booking.partnerId === 'delhivery';
   const isBlueDart = isBlueDartLogisticsPartnerId(booking.partnerId);
+  const [blueDartDocumentDest, setBlueDartDocumentDest] = useState('');
+  useEffect(() => {
+    if (!isBlueDartLogisticsPartnerId(booking.partnerId)) {
+      setBlueDartDocumentDest('');
+      return;
+    }
+    let cancelled = false;
+    void resolveBlueDartTrackingDestination(booking).then((label) => {
+      if (!cancelled) setBlueDartDocumentDest(label);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [booking, isBlueDart]);
   const delhiveryIds = useMemo(
     () => (isDelhivery ? resolveDelhiveryBookingIds(booking) : null),
     [booking, isDelhivery],
@@ -1063,24 +1113,27 @@ export const LogisticsBookingDetail: React.FC<LogisticsBookingDetailProps> = ({
     if (isDelhivery) return delhiveryDocCards;
     if (isBlueDart) {
       const hasAwb = Boolean((booking.consignmentNo || '').replace(/\D/g, ''));
-      const hasA4 = Boolean(booking.blueDartDocuments?.awbA4?.storagePath);
       const hasLabel = Boolean(booking.blueDartDocuments?.waybill?.storagePath);
       return [
         {
           id: 'bluedart_waybill',
           kind: 'bluedart_waybill',
           label: 'AWB',
-          enabled: hasAwb && hasA4,
-          disabledReason: hasAwb
-            ? (hasA4
-              ? null
-              : 'A4 AWB is saved when Blue Dart books the shipment. This booking only has the 100×150 mm label.')
-            : 'Create a Blue Dart AWB first.',
+          enabled: hasAwb,
+          disabledReason: hasAwb ? null : 'Create a Blue Dart AWB first.',
         },
         {
           id: 'bluedart_shipping_label',
           kind: 'shipping_label',
           label: `Shipping label · ${BLUE_DART_LABEL_WIDTH_MM}×${BLUE_DART_LABEL_HEIGHT_MM} mm`,
+          enabled: hasAwb,
+          disabledReason: hasAwb ? null : 'Create a Blue Dart AWB first.',
+        },
+        ...sharedDocCards,
+        {
+          id: 'bluedart_form',
+          kind: 'bluedart_form',
+          label: 'Bluedart',
           enabled: hasAwb && hasLabel,
           disabledReason: hasAwb
             ? (hasLabel
@@ -1088,7 +1141,6 @@ export const LogisticsBookingDetail: React.FC<LogisticsBookingDetailProps> = ({
               : 'Waybill PDF was not returned by Blue Dart.')
             : 'Create a Blue Dart AWB first.',
         },
-        ...sharedDocCards,
       ];
     }
     const cards: LogisticsDocCard[] = [
@@ -1130,19 +1182,32 @@ export const LogisticsBookingDetail: React.FC<LogisticsBookingDetailProps> = ({
     setDelhiveryDocOpening('bluedart_waybill');
     setDelhiveryDocsError('');
     try {
-      const pdf = await getBlueDartWaybill({
-        bookingId: booking.id,
-        storagePath: booking.blueDartDocuments?.awbA4?.storagePath,
-        variant: 'a4',
-      });
-      const bytes = base64ToUint8Array(pdf.contentBase64);
-      const awb = (booking.consignmentNo || pdf.fileName || 'waybill').replace(/\D/g, '') || 'waybill';
+      const awb = (booking.consignmentNo || '').replace(/\D/g, '') || 'waybill';
+      const officialPath = booking.blueDartDocuments?.awbA4?.storagePath;
+      if (officialPath) {
+        const pdf = await getBlueDartWaybill({
+          bookingId: booking.id,
+          storagePath: officialPath,
+          variant: 'a4',
+        });
+        const bytes = base64ToUint8Array(pdf.contentBase64);
+        setDelhiveryDocDialog({
+          title: `AWB ${awb}`,
+          contentType: pdf.contentType || 'application/pdf',
+          pdfBytes: bytes,
+          fileName: pdf.fileName || `${awb}-a4.pdf`,
+          downloadBlob: new Blob([Uint8Array.from(bytes)], { type: pdf.contentType || 'application/pdf' }),
+        });
+        return;
+      }
+      const settings = await loadLogisticsSettings();
+      const built = await buildBlueDartAwbPdfFromBooking(booking, settings.blueDart);
       setDelhiveryDocDialog({
         title: `AWB ${awb}`,
-        contentType: pdf.contentType || 'application/pdf',
-        pdfBytes: bytes,
-        fileName: pdf.fileName || `${awb}-a4.pdf`,
-        downloadBlob: new Blob([Uint8Array.from(bytes)], { type: pdf.contentType || 'application/pdf' }),
+        contentType: 'application/pdf',
+        pdfBytes: built.bytes,
+        fileName: built.fileName,
+        downloadBlob: new Blob([Uint8Array.from(built.bytes)], { type: 'application/pdf' }),
       });
     } catch (err) {
       setDelhiveryDocsError(
@@ -1151,10 +1216,46 @@ export const LogisticsBookingDetail: React.FC<LogisticsBookingDetailProps> = ({
     } finally {
       setDelhiveryDocOpening(null);
     }
-  }, [booking.blueDartDocuments?.awbA4?.storagePath, booking.consignmentNo, booking.id]);
+  }, [booking, booking.blueDartDocuments?.awbA4?.storagePath, booking.consignmentNo, booking.id]);
 
-  const openBlueDartShippingLabel = useCallback(async () => {
-    setDelhiveryDocOpening('bluedart_shipping_label');
+  const openBlueDartBrandedForm = useCallback(async (
+    openingId = 'bluedart_shipping_label',
+  ) => {
+    setDelhiveryDocOpening(openingId);
+    setDelhiveryDocsError('');
+    try {
+      const awb = (booking.consignmentNo || '').replace(/\D/g, '') || 'waybill';
+      const settings = await loadLogisticsSettings();
+      const built = await buildBlueDartProfessionalLabelPdfFromBooking(
+        booking,
+        settings.blueDart,
+      );
+      const fitted = await fitPdfPagesToLabelPdf(built.bytes);
+      const pngs = await renderPdfPagesToLogisticsLabelPngs(fitted);
+      const imageUrls = pngs.map(blob => URL.createObjectURL(blob));
+      delhiveryDocObjectUrlsRef.current = imageUrls;
+      setDelhiveryDocDialog({
+        title: `Shipping label ${awb}`,
+        contentType: 'application/pdf',
+        pdfBytes: fitted,
+        imageUrls,
+        fileName: `${awb}-100x150.pdf`,
+        layout: 'shipping_label',
+        downloadBlob: new Blob([Uint8Array.from(fitted)], { type: 'application/pdf' }),
+      });
+    } catch (err) {
+      setDelhiveryDocsError(
+        err instanceof Error ? err.message : 'Could not open Blue Dart shipping label.',
+      );
+    } finally {
+      setDelhiveryDocOpening(null);
+    }
+  }, [booking]);
+
+  const openBlueDartShippingLabel = useCallback(async (
+    openingId = 'bluedart_form',
+  ) => {
+    setDelhiveryDocOpening(openingId);
     setDelhiveryDocsError('');
     try {
       const pdf = await getBlueDartWaybill({
@@ -1168,7 +1269,7 @@ export const LogisticsBookingDetail: React.FC<LogisticsBookingDetailProps> = ({
       delhiveryDocObjectUrlsRef.current = [imageUrl];
       const awb = (booking.consignmentNo || pdf.fileName || 'waybill').replace(/\D/g, '') || 'waybill';
       setDelhiveryDocDialog({
-        title: `Shipping label ${awb}`,
+        title: `Blue Dart label ${awb}`,
         contentType: 'application/pdf',
         pdfBytes: fitted,
         imageUrls: [imageUrl],
@@ -1187,7 +1288,7 @@ export const LogisticsBookingDetail: React.FC<LogisticsBookingDetailProps> = ({
 
   const openShippingLabel = useCallback(() => {
     if (isBlueDart) {
-      void openBlueDartShippingLabel();
+      void openBlueDartBrandedForm();
       return;
     }
     if (shippingLabelGate.message) {
@@ -1196,7 +1297,7 @@ export const LogisticsBookingDetail: React.FC<LogisticsBookingDetailProps> = ({
     }
     setShippingLabelBooking(booking);
     setShippingLabelOpen(true);
-  }, [booking, isBlueDart, openBlueDartShippingLabel, shippingLabelGate.message]);
+  }, [booking, isBlueDart, openBlueDartBrandedForm, shippingLabelGate.message]);
 
   const markDocumentGenerated = useCallback(async (document: LogisticsDocumentType) => {
     if (!user || !isOps) return;
@@ -1298,7 +1399,7 @@ export const LogisticsBookingDetail: React.FC<LogisticsBookingDetailProps> = ({
     const lrn = (delhiveryIds?.lrn || booking.consignmentNo || '').replace(/\D/g, '');
     if (!lrn) return;
     const bookingId = booking.id;
-    const card = logisticsDocCardMeta(doc.kind);
+    const card = logisticsDocCardMeta(doc.kind, isBlueDart);
     setDelhiveryDocOpening(doc.id);
     setDelhiveryDocsError('');
     try {
@@ -1411,7 +1512,7 @@ export const LogisticsBookingDetail: React.FC<LogisticsBookingDetailProps> = ({
     } finally {
       setDelhiveryDocOpening(null);
     }
-  }, [booking.consignmentNo, booking.id, delhiveryIds?.lrn]);
+  }, [booking.consignmentNo, booking.id, delhiveryIds?.lrn, isBlueDart]);
 
   const openLogisticsDocCard = useCallback((card: LogisticsDocCard) => {
     if (!card.enabled) {
@@ -1434,8 +1535,12 @@ export const LogisticsBookingDetail: React.FC<LogisticsBookingDetailProps> = ({
       void openBlueDartAwbA4();
       return;
     }
-    if (card.kind === 'shipping_label' && isBlueDart) {
+    if (card.kind === 'bluedart_form') {
       void openBlueDartShippingLabel();
+      return;
+    }
+    if (card.kind === 'shipping_label' && isBlueDart) {
+      void openBlueDartBrandedForm();
       return;
     }
     if (card.kind === 'shipping_label' && !isDelhivery) {
@@ -1456,6 +1561,7 @@ export const LogisticsBookingDetail: React.FC<LogisticsBookingDetailProps> = ({
     isBlueDart,
     isDelhivery,
     openBlueDartAwbA4,
+    openBlueDartBrandedForm,
     openBlueDartShippingLabel,
     openDelhiveryDocument,
     openEwayBillDocument,
@@ -1698,14 +1804,14 @@ export const LogisticsBookingDetail: React.FC<LogisticsBookingDetailProps> = ({
       const updated = await updateLogisticsBookingShipFrom(booking, invoiceBranch.site, user);
       onUpdate(updated);
       setShippingLabelBooking(updated);
-      if (isBlueDart) void openBlueDartShippingLabel();
+      if (isBlueDart) void openBlueDartBrandedForm();
       else setShippingLabelOpen(true);
     } catch (err) {
       window.alert(err instanceof Error ? err.message : 'Could not update ship-from.');
     } finally {
       setUpdatingShipFrom(false);
     }
-  }, [booking, invoiceBranch, isBlueDart, isOps, onUpdate, openBlueDartShippingLabel, user]);
+  }, [booking, invoiceBranch, isBlueDart, isOps, onUpdate, openBlueDartBrandedForm, user]);
 
   /** Pull Sites address onto this booking (settings save does not update existing shipments). */
   const handleApplyShipFromFromSites = useCallback(async (opts?: { openLabel?: boolean }) => {
@@ -1726,7 +1832,7 @@ export const LogisticsBookingDetail: React.FC<LogisticsBookingDetailProps> = ({
       onUpdate(updated);
       setShippingLabelBooking(updated);
       if (opts?.openLabel) {
-        if (isBlueDart) void openBlueDartShippingLabel();
+        if (isBlueDart) void openBlueDartBrandedForm();
         else {
           const gate = shippingLabelAddressGate(updated);
           if (!gate.message) setShippingLabelOpen(true);
@@ -1739,7 +1845,7 @@ export const LogisticsBookingDetail: React.FC<LogisticsBookingDetailProps> = ({
     } finally {
       setUpdatingShipFrom(false);
     }
-  }, [booking, isBlueDart, isOps, onUpdate, openBlueDartShippingLabel, user]);
+  }, [booking, isBlueDart, isOps, onUpdate, openBlueDartBrandedForm, user]);
 
   const shipFromAutoAppliedRef = useRef<string | null>(null);
   useEffect(() => {
@@ -1910,12 +2016,12 @@ export const LogisticsBookingDetail: React.FC<LogisticsBookingDetailProps> = ({
             </a>
           )}
           <span className={`logistics-booking__status logistics-booking__status--${
-            isIncompleteLogisticsBooking(booking) ? 'incomplete' : booking.status
+            isIncompleteLogisticsBooking(booking) ? 'incomplete' : pipelineStatus
           }`}
           >
             {isIncompleteLogisticsBooking(booking)
               ? 'Incomplete'
-              : LOGISTICS_BOOKING_STATUSES.find(item => item.id === booking.status)?.label}
+              : LOGISTICS_BOOKING_STATUSES.find(item => item.id === pipelineStatus)?.label}
           </span>
         </div>
       </header>
@@ -1929,7 +2035,7 @@ export const LogisticsBookingDetail: React.FC<LogisticsBookingDetailProps> = ({
           aria-label="Documents"
         >
           {sortedLogisticsDocCards.map(doc => {
-            const meta = logisticsDocCardMeta(doc.kind);
+            const meta = logisticsDocCardMeta(doc.kind, isBlueDart);
             const opening = delhiveryDocOpening === doc.id;
             const done = (doc.kind === 'shipping_label' && booking.shippingLabelGenerated)
               || (doc.kind === 'courier_slip' && booking.courierSlipGenerated);
@@ -1954,6 +2060,7 @@ export const LogisticsBookingDetail: React.FC<LogisticsBookingDetailProps> = ({
                 onClick={() => openLogisticsDocCard(doc)}
                 disabled={disabled}
                 title={doc.disabledReason ?? meta.subtitle}
+                aria-label={meta.title}
               >
                 <span className="invoice-detail-top__card-icon" aria-hidden>
                   <meta.Icon size={28} strokeWidth={1.75} />
@@ -2180,11 +2287,14 @@ export const LogisticsBookingDetail: React.FC<LogisticsBookingDetailProps> = ({
           shipFromSite={booking.shipFromSite}
           courierDeliveryOffice={isStCourier ? booking.courierDeliveryOffice : null}
           cachedTrack={booking.courierTrack}
+          documentDestination={isBlueDart ? blueDartDocumentDest : null}
           onTrackUpdated={(track) => {
             let nextStatus = booking.status;
             if (booking.status !== 'returned' && booking.status !== 'cancelled') {
               if (isDelhivery) {
                 nextStatus = inferDelhiveryUiStatus(track, booking.status) as typeof booking.status;
+              } else if (isBlueDart) {
+                nextStatus = inferBlueDartUiStatus(track, booking.status) as typeof booking.status;
               } else if (!track.ok) {
                 nextStatus = 'label_generated';
               } else if (
@@ -2664,7 +2774,7 @@ export const LogisticsBookingDetail: React.FC<LogisticsBookingDetailProps> = ({
           <ol className="logistics-booking__timeline-list">
             {PROGRESS_STATUSES.map((item, index) => {
               const done = index <= currentIndex;
-              const current = item.id === booking.status;
+              const current = item.id === pipelineStatus;
               return (
                 <li
                   key={item.id}

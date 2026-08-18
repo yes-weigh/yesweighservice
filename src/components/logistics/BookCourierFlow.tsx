@@ -1411,6 +1411,8 @@ export const BookCourierFlow: React.FC<BookCourierFlowProps> = ({
           pickupAddress: result.pickupAddress ?? fromAddress ?? null,
           pickupPin: result.pickupPin ?? shipFromPin ?? null,
           originArea: result.originArea ?? null,
+          destinationArea: result.destinationArea ?? null,
+          destinationLocation: result.destinationLocation ?? null,
           tokenNumber: result.pickupToken ?? null,
           message: result.pickupMessage
             || (result.pickupRegistered

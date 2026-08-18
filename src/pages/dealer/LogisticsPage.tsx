@@ -30,7 +30,7 @@ import { BookCourierFlow } from '../../components/logistics/BookCourierFlow';
 import { CourierPartnerPicker } from '../../components/logistics/CourierPartnerPicker';
 import { LogisticsBookingDetail } from '../../components/logistics/LogisticsBookingDetail';
 import { LogisticsPickupsTodayDialog } from '../../components/logistics/LogisticsPickupsTodayDialog';
-import { LOGISTICS_PARTNERS } from '../../constants/logisticsPartners';
+import { LOGISTICS_PARTNERS, isBlueDartLogisticsPartnerId } from '../../constants/logisticsPartners';
 import { isLogisticsPartnerId } from '../../constants/logisticsPartners';
 import type { LogisticsPartnerId } from '../../constants/logisticsPartners';
 import {
@@ -53,6 +53,7 @@ import {
   updateLogisticsBookingStatus,
   type LogisticsBookingListFilters,
 } from '../../lib/logisticsBookings';
+import { inferBlueDartUiStatus } from '../../lib/blueDartApi';
 import { formatCurrency } from '../../lib/catalog';
 import { ewayBillListChip, preferredInvoiceTotalInclGst } from '../../constants/ewayBill';
 import { clubbedInvoiceCount } from '../../lib/logisticsClubInvoices';
@@ -278,8 +279,15 @@ function lastTrackedLabel(booking: LogisticsBooking): {
   return { text: 'Not tracked', activity: null, tone: 'missing' };
 }
 
+function displayStatusForBooking(booking: LogisticsBooking): LogisticsBooking['status'] {
+  if (isBlueDartLogisticsPartnerId(booking.partnerId) && booking.courierTrack) {
+    return inferBlueDartUiStatus(booking.courierTrack, booking.status) as LogisticsBooking['status'];
+  }
+  return booking.status;
+}
+
 function cardToneForStatus(booking: LogisticsBooking): CardTone {
-  switch (booking.status) {
+  switch (displayStatusForBooking(booking)) {
     case 'label_generated':
       return 'label';
     case 'in_transit':
@@ -295,12 +303,13 @@ function cardToneForStatus(booking: LogisticsBooking): CardTone {
 }
 
 function statusBadgeLabel(booking: LogisticsBooking): string {
-  if (booking.status === 'cancelled') return 'Cancelled';
-  if (booking.status === 'returned') return 'Returned';
-  if (booking.status === 'label_generated') return 'Booked';
-  if (booking.status === 'in_transit') return 'In Transit';
-  if (booking.status === 'delivered') return 'Delivered';
-  return booking.status;
+  const status = displayStatusForBooking(booking);
+  if (status === 'cancelled') return 'Cancelled';
+  if (status === 'returned') return 'Returned';
+  if (status === 'label_generated') return 'Booked';
+  if (status === 'in_transit') return 'In Transit';
+  if (status === 'delivered') return 'Delivered';
+  return status;
 }
 
 function originPlaceLabel(booking: LogisticsBooking): string {

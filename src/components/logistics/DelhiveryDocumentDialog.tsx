@@ -8,6 +8,7 @@ import {
 import { shareDelhiveryDocumentFile } from '../../lib/delhiveryDocuments';
 import { isNativePrintAvailable } from '../../lib/localPrinterPrint';
 import {
+  printPdfBytes,
   printShippingLabelImages,
   tryPrintLabelImagesThermal,
 } from '../../lib/logisticsLabelPrint';
@@ -116,6 +117,21 @@ export const DelhiveryDocumentDialog: React.FC<Props> = ({
     }
   }, [downloadTarget, payload.title]);
 
+  const handlePrintPdf = useCallback(() => {
+    if (!payload.pdfBytes?.length) return;
+    setPrinting(true);
+    setPrintError('');
+    setPrintSuccess('');
+    try {
+      printPdfBytes(payload.pdfBytes, payload.title);
+      setPrintSuccess('Opened system print dialog.');
+    } catch (err) {
+      setPrintError(err instanceof Error ? err.message : 'Print failed.');
+    } finally {
+      setPrinting(false);
+    }
+  }, [payload.pdfBytes, payload.title]);
+
   const handlePrintAll = useCallback(async () => {
     if (!images.length) return;
     setPrinting(true);
@@ -198,9 +214,7 @@ export const DelhiveryDocumentDialog: React.FC<Props> = ({
         ) : null}
 
         <div className="courier-slip-view-dialog__body">
-          {isPdf && payload.pdfBytes ? (
-            <ZoomablePdfPreview data={payload.pdfBytes} />
-          ) : isShippingLabel ? (
+          {isShippingLabel ? (
             <div className="book-courier__label-preview book-courier__label-preview--stack delhivery-label-dialog__stack">
               {images.map((src, index) => (
                 <div key={`${src}-${index}`} className="book-courier__label-sheet">
@@ -219,6 +233,8 @@ export const DelhiveryDocumentDialog: React.FC<Props> = ({
                 </div>
               ))}
             </div>
+          ) : isPdf && payload.pdfBytes ? (
+            <ZoomablePdfPreview data={payload.pdfBytes} />
           ) : images[0] ? (
             <ZoomableImagePreview src={images[0]} alt={payload.title} />
           ) : (
@@ -284,7 +300,7 @@ export const DelhiveryDocumentDialog: React.FC<Props> = ({
           {canShare && !isShippingLabel ? (
             <button
               type="button"
-              className="btn btn-primary"
+              className="btn btn-secondary"
               onClick={() => void handleShare()}
               disabled={printing || sharing}
             >
@@ -303,6 +319,16 @@ export const DelhiveryDocumentDialog: React.FC<Props> = ({
               {printing
                 ? 'Printing…'
                 : (images.length > 1 ? 'Print all' : 'Print')}
+            </button>
+          ) : isPdf ? (
+            <button
+              type="button"
+              className="btn btn-primary"
+              onClick={handlePrintPdf}
+              disabled={printing || sharing || !payload.pdfBytes?.length}
+            >
+              <Printer size={16} aria-hidden />
+              {printing ? 'Printing…' : 'Print'}
             </button>
           ) : null}
         </div>

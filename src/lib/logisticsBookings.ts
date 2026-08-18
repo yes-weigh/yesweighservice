@@ -215,6 +215,8 @@ function mapBlueDartPickup(raw: unknown): import('../types/logistics-dispatch').
     pickupAddress: typeof data.pickupAddress === 'string' ? data.pickupAddress : null,
     pickupPin: typeof data.pickupPin === 'string' ? data.pickupPin : null,
     originArea: typeof data.originArea === 'string' ? data.originArea : null,
+    destinationArea: typeof data.destinationArea === 'string' ? data.destinationArea : null,
+    destinationLocation: typeof data.destinationLocation === 'string' ? data.destinationLocation : null,
     tokenNumber: typeof data.tokenNumber === 'string' ? data.tokenNumber : null,
     message: typeof data.message === 'string' ? data.message : null,
     requestedAt: requestedAt || new Date(0).toISOString(),

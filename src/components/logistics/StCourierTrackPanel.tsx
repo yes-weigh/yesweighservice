@@ -41,6 +41,8 @@ interface StCourierTrackPanelProps {
   courierDeliveryOffice?: LogisticsCourierDeliveryOffice | null;
   /** Persisted Firestore snapshot — shown as-is until the user refreshes. */
   cachedTrack?: LogisticsCourierTrack | null;
+  /** Blue Dart AWB/label destination loc (overrides track city name). */
+  documentDestination?: string | null;
   onTrackUpdated?: (track: CourierTrackResult) => void;
 }
 
@@ -65,6 +67,7 @@ export const StCourierTrackPanel: React.FC<StCourierTrackPanelProps> = ({
   shipFromSite,
   courierDeliveryOffice,
   cachedTrack,
+  documentDestination,
   onTrackUpdated,
 }) => {
   const [loading, setLoading] = useState(false);
@@ -166,8 +169,15 @@ export const StCourierTrackPanel: React.FC<StCourierTrackPanelProps> = ({
               )}
               <dl className="logistics-booking__track-panel-meta">
                 {result.origin && <div><dt>Origin</dt><dd>{result.origin}</dd></div>}
-                {result.destination && <div><dt>Destination</dt><dd>{result.destination}</dd></div>}
-                {result.consignmentType && <div><dt>Consignment</dt><dd>{result.consignmentType}</dd></div>}
+                {(documentDestination?.trim() || result.destination) && (
+                  <div>
+                    <dt>Destination</dt>
+                    <dd>{documentDestination?.trim() || result.destination}</dd>
+                  </div>
+                )}
+                {provider !== 'bluedart' && result.consignmentType && (
+                  <div><dt>Consignment</dt><dd>{result.consignmentType}</dd></div>
+                )}
                 {result.bookedAt && (
                   <div><dt>Booked</dt><dd>{formatLogisticsDateTimeLabel(result.bookedAt)}</dd></div>
                 )}
