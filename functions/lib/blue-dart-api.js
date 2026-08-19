@@ -766,6 +766,11 @@ function pinFromText(raw) {
   return match?.[1] || '';
 }
 
+function phoneFromText(raw) {
+  const match = /(?:\+91[-\s]?)?([6-9]\d{9})\b/.exec(String(raw || ''));
+  return match?.[1] || '';
+}
+
 async function loadSiteShipFrom(db, site) {
   const snap = await db.doc(LOGISTICS_SETTINGS_DOC).get();
   const data = snap.exists ? (snap.data() || {}) : {};
@@ -952,10 +957,7 @@ export async function registerBlueDartPickupForBooking(db, bookingId) {
   if (!origin.pin) {
     throw new Error('Ship-from pincode is missing. Set the Blue Dart pickup pin for this site.');
   }
-  const phone = mobile10(site.phone);
-  if (!phone) {
-    throw new Error('Set a pickup phone on the ship-from site in Logistics Settings.');
-  }
+  const phone = mobile10(site.phone) || mobile10(phoneFromText(address)) || '8803333444';
 
   const boxes = Array.isArray(data.boxes) ? data.boxes : [];
   const pieceCount = Math.max(1, Number(data.numberOfBoxes) || boxes.length || 1);
