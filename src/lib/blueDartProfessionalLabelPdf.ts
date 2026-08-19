@@ -18,14 +18,15 @@ const PAGE_H = 841.89;
 const M = 14;
 const INK = rgb(0.07, 0.07, 0.07);
 const WHITE = rgb(1, 1, 1);
-const MUTED = rgb(0.28, 0.28, 0.28);
 const RULE = rgb(0.1, 0.1, 0.1);
 
 export const BLUE_DART_WORDMARK_BLACK_URL = '/logistics/bluedart-wordmark-black.png?v=2';
 
-const LABEL = 9.5;
-const VALUE = 12;
-const HEAD = 11;
+/** A4 design sizes; label is shrink-to-fit 100×150 mm (~0.48×). Keep these large. */
+const LABEL = 14;
+const VALUE = 20;
+const HEAD = 14;
+const ADDR_LEAD = 22;
 
 type Fonts = { regular: PDFFont; bold: PDFFont };
 
@@ -177,9 +178,9 @@ function field(
   labelW: number,
   valueMaxW: number,
 ): void {
-  text(page, fonts.regular, label, x, y, LABEL, MUTED);
+  text(page, fonts.bold, label, x, y, LABEL, INK);
   const clipped = wrapLines(fonts.bold, value, VALUE, valueMaxW, 1)[0] || value;
-  text(page, fonts.bold, clipped, x + labelW, y - 0.6, VALUE);
+  text(page, fonts.bold, clipped, x + labelW, y - 0.8, VALUE);
 }
 
 function kvLine(
@@ -191,8 +192,8 @@ function kvLine(
   y: number,
   labelW: number,
 ): void {
-  text(page, fonts.regular, label, x, y, LABEL, MUTED);
-  text(page, fonts.bold, value, x + labelW, y - 0.4, VALUE);
+  text(page, fonts.bold, label, x, y, LABEL, INK);
+  text(page, fonts.bold, value, x + labelW, y - 0.6, VALUE);
 }
 
 function drawLabel(
@@ -202,19 +203,19 @@ function drawLabel(
   extra: LabelExtra,
   wordmark?: PDFImage,
 ): void {
-  const { regular, bold } = fonts;
+  const { bold } = fonts;
   const x = M;
   const w = PAGE_W - M * 2;
   const top = PAGE_H - M;
   const bottom = M;
   strokeRect(page, x, bottom, w, top - bottom, 1.35);
 
-  const headerH = 52;
+  const headerH = 56;
   const headerBottom = top - headerH;
   lineH(page, x, x + w, headerBottom, 1.1);
 
   const express = 'EXPRESS';
-  const expressSize = 16;
+  const expressSize = 18;
   const expressW = bold.widthOfTextAtSize(express, expressSize);
   const brandMaxW = w - expressW - 36;
   const brandX = x + 10;
@@ -231,7 +232,7 @@ function drawLabel(
       height: lh,
     });
   } else {
-    text(page, bold, 'BLUE DART', brandX, headerBottom + 18, 20);
+    text(page, bold, 'BLUE DART', brandX, headerBottom + 18, 22);
   }
   text(
     page,
@@ -242,98 +243,98 @@ function drawLabel(
     expressSize,
   );
 
-  const originH = 30;
+  const originH = 36;
   const originBottom = headerBottom - originH;
   const mid = x + w / 2;
   lineH(page, x, x + w, originBottom, 1.1);
   lineV(page, mid, originBottom, headerBottom, 1.1);
-  text(page, regular, 'Origin', x + 10, originBottom + 17, LABEL, MUTED);
+  text(page, bold, 'Origin', x + 10, originBottom + 20, LABEL, INK);
   text(
     page,
     bold,
     [input.originArea, input.originLocation].filter(Boolean).join(' / ') || '—',
-    x + 52,
-    originBottom + 16,
-    13,
+    x + 72,
+    originBottom + 18,
+    18,
   );
-  text(page, regular, 'Destination', mid + 10, originBottom + 17, LABEL, MUTED);
+  text(page, bold, 'Destination', mid + 10, originBottom + 20, LABEL, INK);
   text(
     page,
     bold,
     [input.destinationArea, input.destinationLocation].filter(Boolean).join(' / ') || '—',
-    mid + 76,
-    originBottom + 16,
-    13,
+    mid + 104,
+    originBottom + 18,
+    18,
   );
 
-  const partyH = 198;
+  const partyH = 228;
   const partyBottom = originBottom - partyH;
   lineH(page, x, x + w, partyBottom, 1.1);
   lineV(page, mid, partyBottom, originBottom, 1.1);
 
-  fillBar(page, x, originBottom - 20, mid - x, 20, 'FROM (SHIPPER)', bold, 11);
-  fillBar(page, mid, originBottom - 20, x + w - mid, 20, 'TO (CONSIGNEE)', bold, 11);
+  fillBar(page, x, originBottom - 24, mid - x, 24, 'FROM (SHIPPER)', bold, 13);
+  fillBar(page, mid, originBottom - 24, x + w - mid, 24, 'TO (CONSIGNEE)', bold, 13);
 
-  const pinY = partyBottom + 34;
-  const telY = partyBottom + 16;
-  const addrStartY = originBottom - 72;
-  const maxAddrLines = Math.max(2, Math.floor((addrStartY - pinY - 16) / 14));
+  const pinY = partyBottom + 42;
+  const telY = partyBottom + 18;
+  const addrStartY = originBottom - 88;
+  const maxAddrLines = Math.max(2, Math.floor((addrStartY - pinY - 18) / ADDR_LEAD));
 
-  const leftW = mid - x - 64;
-  text(page, regular, 'Shipper', x + 8, originBottom - 36, LABEL, MUTED);
-  text(page, bold, input.customerCode, x + 60, originBottom - 38, 18);
-  field(page, fonts, 'Sender', input.shipperSender, x + 8, originBottom - 54, 52, leftW);
-  text(page, regular, 'Address', x + 8, addrStartY, LABEL, MUTED);
+  const leftW = mid - x - 78;
+  text(page, bold, 'Shipper', x + 8, originBottom - 44, LABEL, INK);
+  text(page, bold, input.customerCode, x + 78, originBottom - 46, 24);
+  field(page, fonts, 'Sender', input.shipperSender, x + 8, originBottom - 68, 70, leftW);
+  text(page, bold, 'Address', x + 8, addrStartY, LABEL, INK);
   wrapLines(bold, input.shipperAddress, VALUE, leftW, maxAddrLines).forEach((line, i) => {
-    text(page, bold, line, x + 60, addrStartY - i * 14, VALUE);
+    text(page, bold, line, x + 78, addrStartY - i * ADDR_LEAD, VALUE);
   });
-  field(page, fonts, 'Pincode', input.shipperPin, x + 8, pinY, 52, 80);
-  field(page, fonts, 'Tel/Mob', input.shipperPhone, x + 8, telY, 52, 110);
+  field(page, fonts, 'Pincode', input.shipperPin, x + 8, pinY, 70, 90);
+  field(page, fonts, 'Tel/Mob', input.shipperPhone, x + 8, telY, 70, 120);
 
-  const rightW = x + w - mid - 70;
-  field(page, fonts, 'TO', input.consigneeCompany, mid + 8, originBottom - 36, 58, rightW);
-  field(page, fonts, 'Attention', input.consigneeAttn, mid + 8, originBottom - 54, 58, rightW);
-  text(page, regular, 'Address', mid + 8, addrStartY, LABEL, MUTED);
+  const rightW = x + w - mid - 86;
+  field(page, fonts, 'TO', input.consigneeCompany, mid + 8, originBottom - 44, 78, rightW);
+  field(page, fonts, 'Attention', input.consigneeAttn, mid + 8, originBottom - 68, 78, rightW);
+  text(page, bold, 'Address', mid + 8, addrStartY, LABEL, INK);
   wrapLines(bold, input.consigneeAddress, VALUE, rightW, maxAddrLines).forEach((line, i) => {
-    text(page, bold, line, mid + 66, addrStartY - i * 14, VALUE);
+    text(page, bold, line, mid + 86, addrStartY - i * ADDR_LEAD, VALUE);
   });
-  field(page, fonts, 'Pincode', input.consigneePin, mid + 8, pinY, 58, 80);
-  field(page, fonts, 'Tel/Mob', input.consigneePhone, mid + 8, telY, 58, 110);
+  field(page, fonts, 'Pincode', input.consigneePin, mid + 8, pinY, 78, 90);
+  field(page, fonts, 'Tel/Mob', input.consigneePhone, mid + 8, telY, 78, 120);
 
-  const deliveryH = 64;
+  const deliveryH = 70;
   const deliveryBottom = bottom;
   const deliveryTop = deliveryBottom + deliveryH;
-  const trackH = 118;
-  const cellH = 48;
-  const commH = 32;
+  const trackH = 148;
+  const cellH = 56;
+  const commH = 40;
   const trackTop = partyBottom - 8;
   const trackBottom = trackTop - trackH;
   const cellBottom = trackBottom - cellH;
   const commBottom = cellBottom - commH;
 
-  const col1 = x + 148;
-  const col2 = x + w - 148;
+  const col1 = x + 168;
+  const col2 = x + w - 168;
   lineH(page, x, x + w, trackTop, 1.1);
   lineH(page, x, x + w, trackBottom, 1.1);
   lineV(page, col1, trackBottom, trackTop, 1.1);
   lineV(page, col2, trackBottom, trackTop, 1.1);
 
-  kvLine(page, fonts, 'Pickup Date', input.pickupDate, x + 8, trackTop - 16, 72);
-  kvLine(page, fonts, 'Time', extra.pickupTime, x + 8, trackTop - 34, 72);
-  kvLine(page, fonts, 'Emp#', '', x + 8, trackTop - 52, 72);
-  kvLine(page, fonts, 'Sign', '', x + 8, trackTop - 70, 72);
-  kvLine(page, fonts, 'Pack type', extra.packType, x + 8, trackTop - 96, 72);
+  kvLine(page, fonts, 'Pickup Date', input.pickupDate, x + 8, trackTop - 22, 96);
+  kvLine(page, fonts, 'Time', extra.pickupTime, x + 8, trackTop - 46, 96);
+  kvLine(page, fonts, 'Emp#', '', x + 8, trackTop - 70, 96);
+  kvLine(page, fonts, 'Sign', '', x + 8, trackTop - 94, 96);
+  kvLine(page, fonts, 'Pack type', extra.packType, x + 8, trackTop - 126, 96);
 
   const piece = `${extra.pieceIndex}/${extra.pieceTotal}`;
-  fillBar(page, col1, trackTop - 18, col2 - col1, 18, 'AWB / TRACKING NUMBER', bold, 9.5);
+  fillBar(page, col1, trackTop - 22, col2 - col1, 22, 'AWB / TRACKING NUMBER', bold, 12);
   const awbMaxW = col2 - col1 - 12;
-  let awbSize = 28;
-  while (awbSize > 14 && bold.widthOfTextAtSize(input.awb, awbSize) > awbMaxW) {
+  let awbSize = 34;
+  while (awbSize > 16 && bold.widthOfTextAtSize(input.awb, awbSize) > awbMaxW) {
     awbSize -= 0.5;
   }
   const awbW = bold.widthOfTextAtSize(input.awb, awbSize);
-  text(page, bold, input.awb, col1 + (col2 - col1 - awbW) / 2, trackTop - 48, awbSize);
-  drawCode39(page, input.awb, col1 + 8, trackBottom + 10, col2 - col1 - 16, 36);
+  text(page, bold, input.awb, col1 + (col2 - col1 - awbW) / 2, trackTop - 58, awbSize);
+  drawCode39(page, input.awb, col1 + 8, trackBottom + 10, col2 - col1 - 16, 42);
 
   const specs = [
     { label: 'Dox / Non Dox', value: input.doxNonDox },
@@ -344,9 +345,9 @@ function drawLabel(
     { label: 'Dim Wt (kg)', value: input.volumetricKg || '0.00' },
   ];
   specs.forEach((row, i) => {
-    const y = trackTop - 16 - i * 16;
-    text(page, regular, row.label, col2 + 8, y, 8.5, MUTED);
-    text(page, bold, row.value, col2 + 88, y - 0.4, 11);
+    const y = trackTop - 22 - i * 20;
+    text(page, bold, row.label, col2 + 8, y, 12, INK);
+    text(page, bold, row.value, col2 + 108, y - 0.5, 16);
   });
 
   lineH(page, x, x + w, cellBottom, 1.1);
@@ -361,19 +362,19 @@ function drawLabel(
   cells.forEach((cell, i) => {
     const cx = x + i * cellW;
     if (i > 0) lineV(page, cx, cellBottom, trackBottom, 1.1);
-    text(page, regular, cell.label, cx + 6, trackBottom - 14, LABEL, MUTED);
-    wrapLines(bold, cell.value || '—', 11, cellW - 12, 2).forEach((line, li) => {
-      text(page, bold, line, cx + 6, trackBottom - 30 - li * 12, 11);
+    text(page, bold, cell.label, cx + 6, trackBottom - 16, LABEL, INK);
+    wrapLines(bold, cell.value || '—', 15, cellW - 12, 2).forEach((line, li) => {
+      text(page, bold, line, cx + 6, trackBottom - 36 - li * 16, 15);
     });
   });
 
   lineH(page, x, x + w, commBottom, 1.1);
-  text(page, regular, 'Commodity', x + 8, cellBottom - 12, LABEL, MUTED);
-  text(page, bold, extra.commodity || '—', x + 92, cellBottom - 13, VALUE);
+  text(page, bold, 'Commodity', x + 8, cellBottom - 16, LABEL, INK);
+  text(page, bold, extra.commodity || '—', x + 118, cellBottom - 17, VALUE);
 
   const gapTop = commBottom;
   const gapBot = deliveryTop;
-  const box = Math.min(108, Math.max(64, gapTop - gapBot - 36));
+  const box = Math.min(120, Math.max(72, gapTop - gapBot - 36));
   const boxX = x + 16;
   let boxY = (gapBot + gapTop - box) / 2 + 28;
   boxY = Math.min(gapTop - box - 8, Math.max(gapBot + 8, boxY));
@@ -384,7 +385,7 @@ function drawLabel(
     height: box,
     color: INK,
   });
-  const pieceSize = 40;
+  const pieceSize = 44;
   const pieceLabelW = bold.widthOfTextAtSize(piece, pieceSize);
   text(
     page,
@@ -397,18 +398,18 @@ function drawLabel(
   );
 
   lineH(page, x, x + w, deliveryTop, 1.1);
-  fillBar(page, x, deliveryTop - 20, w, 20, 'DELIVERY DETAILS', bold, 11);
+  fillBar(page, x, deliveryTop - 24, w, 24, 'DELIVERY DETAILS', bold, 13);
   const d1 = x + w / 3;
   const d2 = x + (2 * w) / 3;
-  lineV(page, d1, deliveryBottom, deliveryTop - 20, 1.1);
-  lineV(page, d2, deliveryBottom, deliveryTop - 20, 1.1);
-  text(page, regular, 'Delivery Date', x + 8, deliveryTop - 36, LABEL, MUTED);
-  text(page, regular, 'Time', d1 + 8, deliveryTop - 36, LABEL, MUTED);
-  text(page, regular, 'Consignee Signature', d2 + 8, deliveryTop - 36, LABEL, MUTED);
-  text(page, regular, 'Name', d2 + 8, deliveryBottom + 12, LABEL, MUTED);
+  lineV(page, d1, deliveryBottom, deliveryTop - 24, 1.1);
+  lineV(page, d2, deliveryBottom, deliveryTop - 24, 1.1);
+  text(page, bold, 'Delivery Date', x + 8, deliveryTop - 42, LABEL, INK);
+  text(page, bold, 'Time', d1 + 8, deliveryTop - 42, LABEL, INK);
+  text(page, bold, 'Consignee Signature', d2 + 8, deliveryTop - 42, LABEL, INK);
+  text(page, bold, 'Name', d2 + 8, deliveryBottom + 14, LABEL, INK);
   page.drawLine({
-    start: { x: d2 + 48, y: deliveryBottom + 10 },
-    end: { x: x + w - 10, y: deliveryBottom + 10 },
+    start: { x: d2 + 56, y: deliveryBottom + 12 },
+    end: { x: x + w - 10, y: deliveryBottom + 12 },
     thickness: 0.7,
     color: RULE,
   });
