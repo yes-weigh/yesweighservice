@@ -100,7 +100,11 @@ import {
   putLogisticsVaultPhoto,
 } from '../../lib/logisticsPhotoVault';
 import { bookDelhiveryShipment } from '../../lib/delhiveryB2b';
-import { bookBlueDartShipment, parseBlueDartAlreadyGeneratedWaybillNo } from '../../lib/blueDartApi';
+import {
+  bookBlueDartShipment,
+  cancelBlueDartWaybill,
+  parseBlueDartAlreadyGenerated,
+} from '../../lib/blueDartApi';
 import { blueDartPickupPinForSite } from '../../constants/blueDartPickup';
 import { pinFromText } from '../../lib/delhiveryQuote';
 import { fetchAdminInvoiceDetail } from '../../lib/admin-invoices';
@@ -362,6 +366,8 @@ export const BookCourierFlow: React.FC<BookCourierFlowProps> = ({
   const [delhiveryBookError, setDelhiveryBookError] = useState('');
   const [bookingBlueDart, setBookingBlueDart] = useState(false);
   const [blueDartBookError, setBlueDartBookError] = useState('');
+  const [cancellingBlueDart, setCancellingBlueDart] = useState(false);
+  const blueDartCreditRefNonceRef = useRef<string | null>(null);
   const [draft, setDraft] = useState<LogisticsBookingDraft>(() => ({
     ...emptyBookingDraft(partnerId),
     ...initialDraft,
@@ -1349,12 +1355,16 @@ export const BookCourierFlow: React.FC<BookCourierFlowProps> = ({
         invoiceNumber = hydrated.invoiceNumber?.trim() || invoiceNumber;
         invoiceValueInr = hydrated.invoiceValueInr || invoiceValueInr;
       }
-      const shipperRef = (
+      const shipperBase = (
         draftRef.current.salesOrderNumber?.trim()
         || invoiceBranchShipFrom?.salesOrderNumber?.trim()
         || invoiceNumber
         || `YW-${Date.now()}`
       );
+      const retryNonce = blueDartCreditRefNonceRef.current;
+      const shipperRef = retryNonce
+        ? `${shipperBase.replace(/[^A-Za-z0-9]/g, '').slice(0, 14)}${retryNonce}`.slice(0, 20)
+        : shipperBase.slice(0, 20);
       const siteLabel = STAFF_LOGISTICS_SITE_LABELS[draftRef.current.shipFromSite];
       const result = await bookBlueDartShipment({
         partnerId,
@@ -1424,32 +1434,6 @@ export const BookCourierFlow: React.FC<BookCourierFlowProps> = ({
       return true;
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Could not book Blue Dart AWB.';
-      const existingAwb = parseBlueDartAlreadyGeneratedWaybillNo(message);
-      // Rebook retry/idempotency: Blue Dart rejects duplicate GenerateWayBill calls,
-      // but the shipment already exists. Treat it as success and keep moving.
-      if (existingAwb) {
-        applyDraft(prev => ({
-          ...prev,
-          consignmentNo: existingAwb,
-          barcodeRaw: prev.barcodeRaw || existingAwb,
-          branch: 'Blue Dart',
-          blueDartPickup: {
-            ok: false,
-            registered: false,
-            pickupDate: null,
-            pickupTime: null,
-            pickupAddress: null,
-            pickupPin: null,
-            originArea: null,
-            destinationArea: null,
-            destinationLocation: null,
-            tokenNumber: null,
-            message: 'Waybill already generated — continuing.',
-            requestedAt: new Date().toISOString(),
-          },
-        }));
-        return true;
-      }
       setBlueDartBookError(message);
       return false;
     } finally {
@@ -1732,6 +1716,9 @@ export const BookCourierFlow: React.FC<BookCourierFlowProps> = ({
   const isEnvelope = draft.shipmentMode === 'envelope';
   const isBlueDartAir = partnerId === 'bluedart_air';
   const isBlueDartDomestic = partnerId === 'bluedart_domestic';
+  const recoveredBlueDartAwb = isBlueDart
+    ? (parseBlueDartAlreadyGenerated(blueDartBookError)?.awb ?? null)
+    : null;
   const isStCourier = partnerId === 'st_courier';
   const canProceedScan = Boolean(draft.barcodeRaw.trim() || draft.consignmentNo.trim());
   const boxesValid = draftBoxesHaveRequiredPhotos(draft.boxes)
@@ -1867,77 +1854,6 @@ export const BookCourierFlow: React.FC<BookCourierFlowProps> = ({
     handleConfirmShipment,
   ]);
 
-  const openBlueDartGenerateAwbPopup = useCallback((): Window | null => {
-    // Open a same-origin popup with a clock animation while Blue Dart confirms.
-    // Popup open must happen from a user gesture (button click).
-    const popup = window.open('', 'bluedart-awb-wait', 'width=430,height=340');
-    if (!popup) return null;
-    try {
-      const doc = popup.document;
-      doc.open();
-      doc.write(`<!doctype html>
-<html>
-  <head>
-    <meta charset="utf-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Generating AWB</title>
-    <style>
-      body{
-        margin:0;
-        font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Arial;
-        background:#0b0c10;
-        color:#e8eaed;
-        height:100vh;
-        display:flex;
-        align-items:center;
-        justify-content:center;
-        flex-direction:column;
-        gap:16px;
-      }
-      .clock-wrap{display:flex;align-items:center;justify-content:center;gap:16px;flex-direction:column;}
-      .clock{
-        width:128px;height:128px;border-radius:50%;
-        border:8px solid rgba(255,140,0,0.85);
-        box-shadow:0 0 0 10px rgba(255,140,0,0.12) inset;
-        position:relative;
-      }
-      .hand{
-        position:absolute; left:50%; top:50%;
-        transform-origin: bottom;
-        border-radius:4px;
-        background:rgba(255,140,0,0.95);
-        transform: translate(-50%,-100%) rotate(0deg);
-      }
-      .hand.hour{ width:6px; height:36px; animation: spin-hour 1.8s linear infinite; }
-      .hand.minute{ width:4px; height:52px; animation: spin-minute 1.0s linear infinite; }
-      @keyframes spin-hour{ from{ transform: translate(-50%,-100%) rotate(0deg);} to{ transform: translate(-50%,-100%) rotate(360deg);} }
-      @keyframes spin-minute{ from{ transform: translate(-50%,-100%) rotate(0deg);} to{ transform: translate(-50%,-100%) rotate(-360deg);} }
-      .center{ position:absolute; left:50%; top:50%; width:14px; height:14px; border-radius:50%; background:rgba(255,140,0,0.95); transform: translate(-50%,-50%); }
-      .note{ text-align:center; max-width:320px; font-size:15px; line-height:1.35; opacity:0.95; }
-      .sub{ color:rgba(232,234,237,0.75); font-size:13px; margin-top:6px; }
-    </style>
-  </head>
-  <body>
-    <div class="clock-wrap">
-      <div class="clock">
-        <div class="hand hour"></div>
-        <div class="hand minute"></div>
-        <div class="center"></div>
-      </div>
-      <div class="note">
-        Generating AWB with Blue Dart…
-        <div class="sub">Waiting for confirmation</div>
-      </div>
-    </div>
-  </body>
-</html>`);
-      doc.close();
-    } catch {
-      // If popup is blocked or DOM access fails, proceed without animation.
-    }
-    return popup;
-  }, []);
-
   const confirmBlueDartFromReview = useCallback(async () => {
     if (!canCreateBlueDartAwb) {
       setBlueDartBookError(
@@ -1945,21 +1861,41 @@ export const BookCourierFlow: React.FC<BookCourierFlowProps> = ({
       );
       return;
     }
-    const popup = openBlueDartGenerateAwbPopup();
-    try {
-      const ok = await ensureBlueDartAwb();
-      if (!ok) return;
-      await handleConfirmShipment();
-    } finally {
-      popup?.close();
-    }
+    const ok = await ensureBlueDartAwb();
+    if (!ok) return;
+    await handleConfirmShipment();
   }, [
     blueDartContactIssues,
     canCreateBlueDartAwb,
-    openBlueDartGenerateAwbPopup,
     ensureBlueDartAwb,
     handleConfirmShipment,
   ]);
+
+  const cancelRecoveredBlueDartAwb = useCallback(async () => {
+    const existing = parseBlueDartAlreadyGenerated(blueDartBookError);
+    if (!existing) return;
+    const leave = window.confirm(
+      `Cancel Blue Dart AWB ${existing.awb}? After it is cancelled you can Generate AWB again from this screen.`,
+    );
+    if (!leave) return;
+    setCancellingBlueDart(true);
+    setBlueDartBookError('');
+    try {
+      await cancelBlueDartWaybill(existing.awb);
+      blueDartCreditRefNonceRef.current = Date.now().toString(36).slice(-6);
+      applyDraft(prev => ({
+        ...prev,
+        consignmentNo: '',
+        barcodeRaw: prev.barcodeRaw === existing.awb ? '' : prev.barcodeRaw,
+      }));
+    } catch (err) {
+      setBlueDartBookError(
+        err instanceof Error ? err.message : 'Could not cancel Blue Dart AWB.',
+      );
+    } finally {
+      setCancellingBlueDart(false);
+    }
+  }, [applyDraft, blueDartBookError]);
 
   const shippingLabelCount = isEnvelope ? 1 : Math.max(1, draft.boxes.length);
   const buildShippingLabelsForDealer = useCallback((
@@ -3018,7 +2954,32 @@ export const BookCourierFlow: React.FC<BookCourierFlowProps> = ({
                 <p className="book-courier__slip-error" role="alert">{delhiveryBookError}</p>
               ) : null}
               {isBlueDart && blueDartBookError ? (
-                <p className="book-courier__slip-error" role="alert">{blueDartBookError}</p>
+                <p className="book-courier__slip-error" role="alert">
+                  {blueDartBookError}
+                  {recoveredBlueDartAwb ? (
+                    <>
+                      {' '}
+                      Cancel this AWB first, then Generate AWB again from this screen.
+                    </>
+                  ) : null}
+                </p>
+              ) : null}
+              {isBlueDart && recoveredBlueDartAwb && !bookingBlueDart ? (
+                <button
+                  type="button"
+                  className="btn btn-secondary book-courier__next"
+                  disabled={cancellingBlueDart || saving}
+                  onClick={() => void cancelRecoveredBlueDartAwb()}
+                >
+                  {cancellingBlueDart
+                    ? 'Cancelling AWB…'
+                    : `Cancel AWB ${recoveredBlueDartAwb}`}
+                </button>
+              ) : null}
+              {isBlueDart && bookingBlueDart ? (
+                <p className="text-sm book-courier__hint text-muted" role="status">
+                  Generating AWB with Blue Dart — stay on this screen.
+                </p>
               ) : null}
 
               <div className="book-courier__review-card">
@@ -3267,7 +3228,15 @@ export const BookCourierFlow: React.FC<BookCourierFlowProps> = ({
                 <button
                   type="button"
                   className="btn btn-primary book-courier__next"
-                  disabled={bookingDelhivery || bookingBlueDart || saving || !canCreateDelhiveryLrn || !canCreateBlueDartAwb}
+                  disabled={
+                    bookingDelhivery
+                    || bookingBlueDart
+                    || cancellingBlueDart
+                    || saving
+                    || !canCreateDelhiveryLrn
+                    || !canCreateBlueDartAwb
+                    || Boolean(isBlueDart && recoveredBlueDartAwb)
+                  }
                   onClick={() => {
                     if (isDelhivery) {
                       void confirmDelhiveryFromReview();
@@ -3295,7 +3264,9 @@ export const BookCourierFlow: React.FC<BookCourierFlowProps> = ({
                         : 'Fix phone & GSTIN to continue')
                       : isBlueDart
                         ? (canCreateBlueDartAwb
-                          ? (draft.consignmentNo.trim() ? 'Confirm shipment' : 'Generate AWB')
+                          ? (draft.consignmentNo.trim()
+                            ? 'Confirm shipment'
+                            : (recoveredBlueDartAwb ? 'Cancel AWB first' : 'Generate AWB'))
                           : 'Fix phone to continue')
                         : 'Next')}
                 </button>

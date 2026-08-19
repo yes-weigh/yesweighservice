@@ -428,6 +428,28 @@ function firstStatusInfo(statusRows) {
   return String(row.StatusInformation || row.StatusCode || '').trim();
 }
 
+function parseAlreadyGeneratedWaybill(message, result) {
+  const fromResult = String(result?.AWBNo || '').replace(/\D/g, '').trim();
+  const msg = String(message || '').replace(/\u00a0/g, ' ');
+  const fromMsg = /waybill\s*no\s*[:.\-–—]?\s*'?(\d{8,})/i.exec(msg)?.[1]
+    || (/\balready\s+generated\b/i.test(msg) && /\bwaybill\b/i.test(msg)
+      ? /\b(\d{11,12})\b/.exec(msg)?.[1]
+      : null);
+  const awb = (fromResult.length >= 8 ? fromResult : String(fromMsg || '').replace(/\D/g, '')).trim();
+  if (!awb) return null;
+  const destArea = String(result?.DestinationArea || '').trim().toUpperCase()
+    || (/dest\s*area\s*[:.\-–—]?\s*([A-Z]{3,6})/i.exec(msg)?.[1] || '').toUpperCase()
+    || null;
+  const destLoc = String(result?.DestinationLocation || '').trim().toUpperCase()
+    || (/dest\s*scrcd\s*[:.\-–—]?\s*([A-Z0-9]{3,8})/i.exec(msg)?.[1] || '').toUpperCase()
+    || null;
+  return {
+    awb,
+    destinationArea: destArea || null,
+    destinationLocation: destLoc || null,
+  };
+}
+
 function blueDartErrorMessage(json, text, status, fallback) {
   const errList = json?.['error-response'];
   if (Array.isArray(errList) && errList[0]) {
@@ -871,14 +893,18 @@ export async function cancelBlueDartWaybill(db, awb) {
   const row = res.json?.CancelWaybillResult || res.json;
   const failed = Boolean(row?.IsError) || !res.ok;
   if (failed) {
-    throw new Error(blueDartErrorMessage(
+    const message = blueDartErrorMessage(
       res.json,
       res.text,
       res.status,
       'Blue Dart cancel waybill failed',
-    ));
+    );
+    if (/already\s+cancel/i.test(message) || /cancelled/i.test(message) && /waybill/i.test(message)) {
+      return { ok: true, awb: number, alreadyCancelled: true };
+    }
+    throw new Error(message);
   }
-  return { ok: true, awb: number };
+  return { ok: true, awb: number, alreadyCancelled: false };
 }
 
 /**
@@ -1070,12 +1096,34 @@ export async function bookBlueDartShipment(db, input = {}) {
   const awb = String(result?.AWBNo || '').replace(/\D/g, '').trim();
   const failed = Boolean(result?.IsError) || !res.ok || !awb;
   if (failed) {
-    throw new Error(blueDartErrorMessage(
+    const errMsg = blueDartErrorMessage(
       res.json,
       res.text,
       res.status,
       'Blue Dart waybill failed',
-    ));
+    );
+    const recovered = parseAlreadyGeneratedWaybill(errMsg, result);
+    if (!recovered) {
+      throw new Error(errMsg);
+    }
+    return {
+      ok: true,
+      awb: recovered.awb,
+      env: config.env,
+      productCode,
+      destinationArea: recovered.destinationArea,
+      destinationLocation: recovered.destinationLocation,
+      creditReferenceNo: result?.CCRCRDREF || cref,
+      pickupRegistered: false,
+      pickupDate: null,
+      pickupTime: null,
+      pickupAddress: pickupAddress || null,
+      pickupPin: pin6(payload.Request.Shipper.CustomerPincode) || shipperPin,
+      originArea: payload.Request.Shipper.OriginArea || origin.area,
+      pickupToken: null,
+      pickupMessage: 'Waybill already generated — continuing.',
+      documents: null,
+    };
   }
 
   const officialPdf = pdfFromPrintContent(result.AWBPrintContent);

@@ -6,11 +6,27 @@ import type { LogisticsCourierTrack } from '../types/logistics-dispatch';
 
 const functions = getFunctions(app, 'asia-south1');
 
+function blueDartCallableErrorText(err: unknown): string {
+  if (err == null) return '';
+  if (typeof err === 'string') return err;
+  if (typeof err !== 'object') return String(err);
+  const row = err as {
+    message?: unknown;
+    details?: unknown;
+    customData?: { message?: unknown } | null;
+  };
+  return [
+    row.message,
+    row.details,
+    row.customData?.message,
+  ].map(part => (part == null ? '' : String(part))).filter(Boolean).join('\n');
+}
+
 function callableError(err: unknown, fallback: string): Error {
-  if (err && typeof err === 'object' && 'message' in err) {
-    const message = String((err as { message?: string }).message ?? '').trim();
-    if (message) return new Error(message.replace(/^FirebaseError:\s*/i, ''));
-  }
+  const message = blueDartCallableErrorText(err)
+    .replace(/^Firebase(Error)?:\s*/i, '')
+    .trim();
+  if (message) return new Error(message);
   return new Error(fallback);
 }
 
@@ -192,6 +208,26 @@ export async function bookBlueDartShipment(input: {
   }
 }
 
+export async function cancelBlueDartWaybill(awb: string): Promise<{
+  ok: boolean;
+  awb: string;
+  alreadyCancelled?: boolean;
+}> {
+  const number = String(awb || '').replace(/\D/g, '').trim();
+  if (!number) throw new Error('AWB is required to cancel.');
+  try {
+    const fn = httpsCallable<{ awb: string }, { ok: boolean; awb: string; alreadyCancelled?: boolean }>(
+      functions,
+      'cancelBlueDartWaybillFn',
+      { timeout: 60_000 },
+    );
+    const result = await fn({ awb: number });
+    return result.data;
+  } catch (err) {
+    throw callableError(err, 'Could not cancel Blue Dart waybill.');
+  }
+}
+
 export async function getBlueDartWaybill(input: {
   bookingId?: string;
   storagePath?: string;
@@ -324,19 +360,34 @@ export function inferBlueDartUiStatus(
   return 'label_generated';
 }
 
+export type BlueDartAlreadyGenerated = {
+  awb: string;
+  destinationArea: string | null;
+  destinationLocation: string | null;
+};
+
 /**
  * Blue Dart returns an error when trying to GenerateWayBill twice for the same
  * CreditReferenceNo (orderId).
  *
- * Example message:
- * "Waybill already generated for this CreditReferenceNo. Waybill No: 21094582725"
+ * Example:
+ * "Waybill already generated for this CreditReferenceNo. Waybill No : 21094582725 Dest Area : GGN Dest Scrcd : GDC"
  */
+export function parseBlueDartAlreadyGenerated(raw: string): BlueDartAlreadyGenerated | null {
+  const msg = String(raw ?? '').replace(/\u00a0/g, ' ');
+  if (!/already\s+generated/i.test(msg) || !/waybill/i.test(msg)) return null;
+  const awbMatch = /waybill\s*no\s*[:.\-–—]?\s*'?(\d{8,})/i.exec(msg)
+    || /\b(\d{11,12})\b/.exec(msg);
+  const awb = String(awbMatch?.[1] ?? '').replace(/\D/g, '').trim();
+  if (!awb) return null;
+  const destinationArea = /dest\s*area\s*[:.\-–—]?\s*([A-Z]{3,6})/i.exec(msg)?.[1]?.toUpperCase()
+    ?? null;
+  const destinationLocation = /dest\s*scrcd\s*[:.\-–—]?\s*([A-Z0-9]{3,8})/i.exec(msg)?.[1]?.toUpperCase()
+    ?? null;
+  return { awb, destinationArea, destinationLocation };
+}
+
 export function parseBlueDartAlreadyGeneratedWaybillNo(message: string): string | null {
-  const msg = String(message ?? '');
-  if (!/waybill\s*already\s*generated/i.test(msg) || !/creditreferenceno/i.test(msg)) return null;
-  const m = /waybill\s*no\s*[:\-]?\s*'?(\d+)/i.exec(msg);
-  if (!m) return null;
-  const awb = String(m[1] ?? '').replace(/\D/g, '').trim();
-  return awb || null;
+  return parseBlueDartAlreadyGenerated(message)?.awb ?? null;
 }
 

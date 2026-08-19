@@ -63,7 +63,7 @@ import { loadLogisticsSettings } from './logisticsSettings';
 import { resolvePersistShipFromSite } from './logisticsShipFrom';
 import {
   bookBlueDartShipment,
-  parseBlueDartAlreadyGeneratedWaybillNo,
+  parseBlueDartAlreadyGenerated,
 } from './blueDartApi';
 import { blueDartPickupPinForSite } from '../constants/blueDartPickup';
 import { FIRM_GSTIN, FIRM_PHONE } from '../constants/brand';
@@ -2408,17 +2408,19 @@ export async function rebookCancelledBookingViaBlueDartDomestic(
     });
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err ?? '');
-    const alreadyGeneratedAwb = parseBlueDartAlreadyGeneratedWaybillNo(message);
-    if (!alreadyGeneratedAwb) throw err;
+    const existing = parseBlueDartAlreadyGenerated(message);
+    if (!existing) throw err;
     result = {
       ok: true,
-      awb: alreadyGeneratedAwb,
+      awb: existing.awb,
       pickupRegistered: false,
       pickupDate: null,
       pickupTime: null,
       pickupAddress: null,
       pickupPin: null,
       originArea: null,
+      destinationArea: existing.destinationArea,
+      destinationLocation: existing.destinationLocation,
       pickupToken: null,
       pickupMessage: 'Waybill already generated — continuing.',
       documents: null,

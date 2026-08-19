@@ -223,6 +223,7 @@ import {
   testBlueDartConnection,
   lookupBlueDartPincodes,
   bookBlueDartShipment,
+  cancelBlueDartWaybill,
   fetchBlueDartTrack,
   readBlueDartWaybillPdf,
 } from './lib/blue-dart-api.js';
@@ -5811,6 +5812,31 @@ export const bookBlueDartShipmentFn = onCall(
       throw new HttpsError(
         'failed-precondition',
         err?.message ?? 'Could not book Blue Dart shipment.',
+      );
+    }
+  },
+);
+
+/** Cancel a Blue Dart AWB via CancelWaybill. */
+export const cancelBlueDartWaybillFn = onCall(
+  {
+    region: 'asia-south1',
+    timeoutSeconds: 60,
+    memory: '256MiB',
+  },
+  async request => {
+    await requireActiveUser(request.auth?.uid, ALLOWED_ROLES);
+    const awb = String(request.data?.awb ?? '').replace(/\D/g, '').trim();
+    if (!awb) {
+      throw new HttpsError('invalid-argument', 'AWB is required to cancel.');
+    }
+    try {
+      return await cancelBlueDartWaybill(getFirestore(), awb);
+    } catch (err) {
+      if (err instanceof HttpsError) throw err;
+      throw new HttpsError(
+        'failed-precondition',
+        err?.message ?? 'Could not cancel Blue Dart waybill.',
       );
     }
   },
