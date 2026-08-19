@@ -23,10 +23,29 @@ function blueDartCallableErrorText(err: unknown): string {
 }
 
 function callableError(err: unknown, fallback: string): Error {
-  const message = blueDartCallableErrorText(err)
+  if (err && typeof err === 'object') {
+    const row = err as {
+      message?: unknown;
+      details?: unknown;
+      customData?: { message?: unknown } | null;
+    };
+    const details = row.details != null && typeof row.details === 'object'
+      ? JSON.stringify(row.details)
+      : row.details;
+    const message = [
+      row.message,
+      details,
+      row.customData?.message,
+    ].map(part => (part == null ? '' : String(part))).filter(Boolean).join('\n')
+      .replace(/^Firebase(Error)?:\s*/i, '')
+      .replace(/^functions\/[a-z-]+(?:\s+error)?:\s*/i, '')
+      .trim();
+    if (message) return new Error(message);
+  }
+  const text = blueDartCallableErrorText(err)
     .replace(/^Firebase(Error)?:\s*/i, '')
     .trim();
-  if (message) return new Error(message);
+  if (text) return new Error(text);
   return new Error(fallback);
 }
 

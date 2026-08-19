@@ -423,9 +423,37 @@ export async function blueDartFetch(db, path, options = {}) {
 }
 
 function firstStatusInfo(statusRows) {
+  if (typeof statusRows === 'string' && statusRows.trim()) return statusRows.trim();
   if (!Array.isArray(statusRows) || !statusRows[0]) return '';
   const row = statusRows[0];
-  return String(row.StatusInformation || row.StatusCode || '').trim();
+  return String(row.StatusInformation || row.ErrorMessage || row.StatusCode || '').trim();
+}
+
+function compactBlueDartError(json, text, status, fallback) {
+  const pickup = json?.RegisterPickupResult
+    || json?.PickupRegistrationResponse
+    || json?.PickupRegistrationResponseEntity
+    || json?.CancelPickupResult;
+  const fromPickup = firstStatusInfo(pickup?.Status)
+    || String(pickup?.StatusInformation || pickup?.ErrorMessage || pickup?.Message || '').trim();
+  if (fromPickup && fromPickup.toLowerCase() !== 'bad request') {
+    return fromPickup.slice(0, 400);
+  }
+  const full = blueDartErrorMessage(json, text, status, fallback)
+    .replace(/<[^>]+>/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+  if (full && full.toLowerCase() !== 'bad request') return full.slice(0, 400);
+  return `${fallback} (${status})`;
+}
+
+function pickupTimeHhMm(raw) {
+  const digits = String(raw || '1600').replace(/\D/g, '').slice(0, 4).padStart(4, '0');
+  return `${digits.slice(0, 2)}:${digits.slice(2, 4)}`;
+}
+
+function sanitizeBlueDartRef(raw) {
+  return String(raw || '').replace(/[^a-zA-Z0-9]/g, '').slice(0, 20);
 }
 
 function parseAlreadyGeneratedWaybill(message, result) {
@@ -748,7 +776,7 @@ async function loadSiteShipFrom(db, site) {
     : {};
   return {
     address,
-    phone: String(contact.phone || '').trim(),
+    phone: String(contact.phone || contact.mobile || contact.mobileNumber || '').trim(),
     gstin: String(contact.gstin || '').trim(),
   };
 }
@@ -782,58 +810,83 @@ export async function registerBlueDartPickupAtAddress(db, input = {}) {
   const phone = mobile10(input.phone);
   const pickupDt = input.pickupMs ? new Date(input.pickupMs) : nextPickupIst();
   const awb = String(input.awb || '').replace(/\D/g, '');
-  const body = {
-    Request: {
-      ...(awb ? { AWBNo: [awb] } : {}),
-      AreaCode: area,
-      CISDDN: false,
-      ContactPersonName: String(input.contactName || secrets.customerName || 'YESWEIGH').slice(0, 30),
-      CustomerAddress1: addr[0],
-      CustomerAddress2: addr[1],
-      CustomerAddress3: addr[2],
-      CustomerCode: secrets.customerCode,
-      CustomerName: String(secrets.customerName || 'YESWEIGH').slice(0, 30),
-      CustomerPincode: pin,
-      CustomerTelephoneNumber: phone,
-      DoxNDox: '1',
-      EmailID: '',
-      IsForcePickup: true,
-      IsReversePickup: false,
-      MobileTelNo: phone,
-      NumberofPieces: Math.max(1, Number(input.pieceCount) || 1),
-      OfficeCloseTime: '18:00',
-      PackType: '',
-      ProductCode: String(input.productCode || 'E'),
-      ReferenceNo: String(input.referenceNo || '').slice(0, 20),
-      Remarks: String(input.remarks || 'Warehouse pickup').slice(0, 30),
-      RouteCode: '99',
-      ShipmentPickupDate: `/Date(${pickupDt.getTime()})/`,
-      ShipmentPickupTime: '1600',
-      VolumeWeight: Number(input.weightKg) || 0.5,
-      WeightofShipment: Number(input.weightKg) || 0.5,
-      isToPayShipper: false,
-    },
-    Profile: profilePayload(config.env, secrets, 'shipping'),
+  const productCode = String(input.productCode || 'E').trim().slice(0, 1).toUpperCase() || 'E';
+  const pickupTime = pickupTimeHhMm(input.pickupTime || '1600');
+  const requestBase = {
+    AreaCode: area,
+    ContactPersonName: String(input.contactName || secrets.customerName || 'YESWEIGH').slice(0, 30),
+    CustomerAddress1: addr[0],
+    CustomerAddress2: addr[1],
+    CustomerAddress3: addr[2],
+    CustomerCode: secrets.customerCode,
+    CustomerName: String(secrets.customerName || 'YESWEIGH').slice(0, 30),
+    CustomerPincode: pin,
+    CustomerTelephoneNumber: phone,
+    DoxNDox: '1',
+    IsForcePickup: true,
+    IsReversePickup: false,
+    MobileTelNo: phone,
+    NumberofPieces: Math.max(1, Number(input.pieceCount) || 1),
+    OfficeCloseTime: '18:00',
+    ProductCode: productCode,
+    ReferenceNo: sanitizeBlueDartRef(input.referenceNo || awb),
+    Remarks: String(input.remarks || 'Warehouse pickup').replace(/[^a-zA-Z0-9 .]/g, ' ').slice(0, 30),
+    RouteCode: '99',
+    ShipmentPickupDate: `/Date(${pickupDt.getTime()})/`,
+    ShipmentPickupTime: pickupTime,
+    VolumeWeight: Number(input.weightKg) || 0.5,
+    WeightofShipment: Number(input.weightKg) || 0.5,
+    isToPayShipper: false,
   };
+  const profile = profilePayload(config.env, secrets, 'shipping');
   const paths = ['/pickup/v1/RegisterPickup', '/pickup/v1RegisterPickup'];
-  let res = await blueDartFetch(db, paths[0], { method: 'POST', body });
-  if (!res.ok || /index was outside|not found|404/i.test(String(res.text || ''))) {
-    res = await blueDartFetch(db, paths[1], { method: 'POST', body });
+
+  async function postPickup(includeAwb, code) {
+    const body = {
+      Request: {
+        ...requestBase,
+        ProductCode: code,
+        ...(includeAwb && awb ? { AWBNo: [awb] } : {}),
+      },
+      Profile: profile,
+    };
+    let res = await blueDartFetch(db, paths[0], { method: 'POST', body });
+    if (!res.ok || /index was outside|not found|404/i.test(String(res.text || ''))) {
+      res = await blueDartFetch(db, paths[1], { method: 'POST', body });
+    }
+    const row = res.json?.RegisterPickupResult
+      || res.json?.PickupRegistrationResponse
+      || res.json;
+    const token = String(row?.TokenNumber || row?.tokenNumber || '').trim();
+    const message = compactBlueDartError(
+      res.json,
+      res.text,
+      res.status,
+      'Blue Dart pickup registration failed',
+    );
+    const failed = Boolean(row?.IsError) || !res.ok;
+    return { res, row, token, message, failed };
   }
-  const row = res.json?.RegisterPickupResult
-    || res.json?.PickupRegistrationResponse
-    || res.json;
-  const token = String(row?.TokenNumber || row?.tokenNumber || '').trim();
-  const failed = Boolean(row?.IsError) || !res.ok;
-  const message = blueDartErrorMessage(
-    res.json,
-    res.text,
-    res.status,
-    'Blue Dart pickup registration failed',
-  );
+
+  let attempt = await postPickup(Boolean(awb), productCode);
+  if (attempt.failed && !attempt.token && awb && /awb|waybill|invalid/i.test(attempt.message)) {
+    attempt = await postPickup(false, productCode);
+  }
+  if (attempt.failed && !attempt.token && productCode === 'D') {
+    attempt = await postPickup(Boolean(awb), 'E');
+  }
+
+  const { row, token, message, failed } = attempt;
   const alreadyRegistered = /already\s+(register|exist|generat)/i.test(message)
     || /pickup\s+already/i.test(message);
   if (failed && !token && !alreadyRegistered) {
+    console.error('registerBlueDartPickupAtAddress', message, {
+      status: attempt.res.status,
+      pin,
+      area,
+      productCode,
+      awb: awb || null,
+    });
     throw new Error(message);
   }
   return {
@@ -841,7 +894,7 @@ export async function registerBlueDartPickupAtAddress(db, input = {}) {
     alreadyRegistered,
     tokenNumber: token || null,
     pickupDate: `${pickupDt.getUTCFullYear()}-${String(pickupDt.getUTCMonth() + 1).padStart(2, '0')}-${String(pickupDt.getUTCDate()).padStart(2, '0')}`,
-    pickupTime: '1600',
+    pickupTime: pickupTime.replace(':', ''),
     pickupPin: pin,
     originArea: area,
     raw: row,

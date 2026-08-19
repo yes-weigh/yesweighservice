@@ -5860,10 +5860,12 @@ export const registerBlueDartPickupFn = onCall(
       return await registerBlueDartPickupForBooking(getFirestore(), bookingId);
     } catch (err) {
       if (err instanceof HttpsError) throw err;
-      throw new HttpsError(
-        'failed-precondition',
-        err?.message ?? 'Could not request Blue Dart pickup.',
-      );
+      const message = String(err?.message || 'Could not request Blue Dart pickup.')
+        .replace(/\s+/g, ' ')
+        .trim()
+        .slice(0, 400);
+      console.error('registerBlueDartPickupFn', message);
+      throw new HttpsError('failed-precondition', message || 'Could not request Blue Dart pickup.');
     }
   },
 );
