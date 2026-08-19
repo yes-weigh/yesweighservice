@@ -26,7 +26,8 @@ export const BLUE_DART_WORDMARK_BLACK_URL = '/logistics/bluedart-wordmark-black.
 const LABEL = 14;
 const VALUE = 20;
 const HEAD = 14;
-const ADDR_LEAD = 22;
+const ADDR = 16;
+const ADDR_LEAD = 18;
 
 type Fonts = { regular: PDFFont; bold: PDFFont };
 
@@ -41,20 +42,55 @@ type LabelExtra = {
 };
 
 function wrapLines(font: PDFFont, text: string, size: number, maxWidth: number, maxLines: number): string[] {
-  const words = text.replace(/\s+/g, ' ').trim().split(' ').filter(Boolean);
-  const lines: string[] = [];
-  let current = '';
-  for (const word of words) {
-    const next = current ? `${current} ${word}` : word;
-    if (font.widthOfTextAtSize(next, size) <= maxWidth) {
-      current = next;
-      continue;
+  const fits = (value: string) => font.widthOfTextAtSize(value, size) <= maxWidth;
+  const splitWord = (word: string): string[] => {
+    if (fits(word) || maxWidth <= 0) return [word];
+    const parts: string[] = [];
+    let rest = word;
+    while (rest) {
+      if (fits(rest)) {
+        parts.push(rest);
+        break;
+      }
+      let lo = 1;
+      let hi = rest.length;
+      while (lo < hi) {
+        const mid = Math.ceil((lo + hi) / 2);
+        if (fits(rest.slice(0, mid))) lo = mid;
+        else hi = mid - 1;
+      }
+      const take = Math.max(1, lo);
+      parts.push(rest.slice(0, take));
+      rest = rest.slice(take);
     }
-    if (current) lines.push(current);
-    current = word;
-    if (lines.length >= maxLines - 1) break;
+    return parts;
+  };
+
+  const lines: string[] = [];
+  const paragraphs = String(text || '').replace(/\r\n/g, '\n').split('\n');
+  for (const paragraph of paragraphs) {
+    if (lines.length >= maxLines) break;
+    const words = paragraph.replace(/\s+/g, ' ').trim().split(' ').filter(Boolean);
+    if (!words.length) continue;
+    let current = '';
+    const flush = () => {
+      if (current && lines.length < maxLines) lines.push(current);
+      current = '';
+    };
+    for (const raw of words) {
+      for (const word of splitWord(raw)) {
+        const next = current ? `${current} ${word}` : word;
+        if (fits(next)) {
+          current = next;
+          continue;
+        }
+        flush();
+        if (lines.length >= maxLines) return lines;
+        current = word;
+      }
+    }
+    flush();
   }
-  if (current && lines.length < maxLines) lines.push(current);
   return lines;
 }
 
@@ -267,7 +303,7 @@ function drawLabel(
     18,
   );
 
-  const partyH = 228;
+  const partyH = 252;
   const partyBottom = originBottom - partyH;
   lineH(page, x, x + w, partyBottom, 1.1);
   lineV(page, mid, partyBottom, originBottom, 1.1);
@@ -278,15 +314,15 @@ function drawLabel(
   const pinY = partyBottom + 42;
   const telY = partyBottom + 18;
   const addrStartY = originBottom - 88;
-  const maxAddrLines = Math.max(2, Math.floor((addrStartY - pinY - 18) / ADDR_LEAD));
+  const maxAddrLines = Math.max(3, Math.floor((addrStartY - pinY - 14) / ADDR_LEAD));
 
   const leftW = mid - x - 78;
   text(page, bold, 'Shipper', x + 8, originBottom - 44, LABEL, INK);
   text(page, bold, input.customerCode, x + 78, originBottom - 46, 24);
   field(page, fonts, 'Sender', input.shipperSender, x + 8, originBottom - 68, 70, leftW);
   text(page, bold, 'Address', x + 8, addrStartY, LABEL, INK);
-  wrapLines(bold, input.shipperAddress, VALUE, leftW, maxAddrLines).forEach((line, i) => {
-    text(page, bold, line, x + 78, addrStartY - i * ADDR_LEAD, VALUE);
+  wrapLines(bold, input.shipperAddress, ADDR, leftW, maxAddrLines).forEach((line, i) => {
+    text(page, bold, line, x + 78, addrStartY - i * ADDR_LEAD, ADDR);
   });
   field(page, fonts, 'Pincode', input.shipperPin, x + 8, pinY, 70, 90);
   field(page, fonts, 'Tel/Mob', input.shipperPhone, x + 8, telY, 70, 120);
@@ -295,8 +331,8 @@ function drawLabel(
   field(page, fonts, 'TO', input.consigneeCompany, mid + 8, originBottom - 44, 78, rightW);
   field(page, fonts, 'Attention', input.consigneeAttn, mid + 8, originBottom - 68, 78, rightW);
   text(page, bold, 'Address', mid + 8, addrStartY, LABEL, INK);
-  wrapLines(bold, input.consigneeAddress, VALUE, rightW, maxAddrLines).forEach((line, i) => {
-    text(page, bold, line, mid + 86, addrStartY - i * ADDR_LEAD, VALUE);
+  wrapLines(bold, input.consigneeAddress, ADDR, rightW, maxAddrLines).forEach((line, i) => {
+    text(page, bold, line, mid + 86, addrStartY - i * ADDR_LEAD, ADDR);
   });
   field(page, fonts, 'Pincode', input.consigneePin, mid + 8, pinY, 78, 90);
   field(page, fonts, 'Tel/Mob', input.consigneePhone, mid + 8, telY, 78, 120);

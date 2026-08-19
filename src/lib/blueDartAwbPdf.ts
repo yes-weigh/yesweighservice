@@ -16,7 +16,14 @@ import type { LogisticsBooking } from '../types/logistics-dispatch';
 import { loadBlueDartPincode, blueDartCityNameFromPincodeDoc } from './blueDartPincodes';
 import { encodeCode39 } from './code39';
 import { boxDimensionsLabel, chargeableWeight } from './logisticsBooking';
-import { resolveReceiverPhoneFromSnapshot } from './logisticsDealers';
+import {
+  isPlaceholderLogisticsAddress,
+  resolveReceiverPhoneFromSnapshot,
+} from './logisticsDealers';
+import {
+  resolveBookingDeliveryAddress,
+  stripDuplicateAddressPhrases,
+} from './shippingLabel';
 
 const PAGE_W = 595.28;
 const PAGE_H = 841.89;
@@ -265,7 +272,7 @@ export async function resolveBlueDartTrackingDestination(
     );
     code = locCode(input.destinationLocation) || locCode(input.destinationArea);
   }
-  const pin = pin6(booking.deliveryAddress || booking.dealer.shippingAddress);
+  const pin = pin6(resolveBookingDeliveryAddress(booking));
   const row = await loadBlueDartPincode(pin);
   return blueDartCityNameFromPincodeDoc(row) || code;
 }
@@ -276,7 +283,7 @@ export async function fillBlueDartDestinationFromSlip(
   input: BlueDartAwbPdfInput,
 ): Promise<BlueDartAwbPdfInput> {
   if (locCode(input.destinationArea) && locCode(input.destinationLocation)) return input;
-  const pin = pin6(booking.deliveryAddress || booking.dealer.shippingAddress);
+  const pin = pin6(resolveBookingDeliveryAddress(booking));
   const row = await loadBlueDartPincode(pin);
   const fromPin = locCode(row?.sfcLocIb)
     || locCode(row?.apxLocIb)
@@ -298,7 +305,12 @@ export function buildBlueDartAwbInput(
   const awb = (booking.consignmentNo || booking.trackingNo || '').replace(/\D/g, '');
   const shipFrom = booking.shipFromAddress || '';
   const pickup = booking.blueDartPickup;
-  const destAddr = booking.deliveryAddress || booking.dealer.shippingAddress || '';
+  const destAddr = resolveBookingDeliveryAddress(booking);
+  const destStreet = stripDuplicateAddressPhrases(destAddr, [
+    booking.dealer.name,
+    booking.dealer.contactPerson,
+  ]);
+  const consigneeAddress = isPlaceholderLogisticsAddress(destStreet) ? destAddr : destStreet;
   const pieces = Math.max(1, booking.numberOfBoxes || booking.boxes.length || 1);
   const actual = Number(booking.actualWeightKg) || 0;
   const volumetric = Number(booking.volumetricWeightKg) || 0;
@@ -333,12 +345,12 @@ export function buildBlueDartAwbInput(
     customerCode: (settings?.customerCode || '').trim(),
     shipperCompany: (settings?.customerName || FIRM_NAME).trim().toUpperCase(),
     shipperSender: FIRM_TRADE_NAME.replace(/\s+/g, ''),
-    shipperAddress: shipFrom.replace(/\s+/g, ' ').trim(),
+    shipperAddress: shipFrom.trim(),
     shipperPin: pin6(pickup?.pickupPin || shipFrom),
     shipperPhone: maskPhone(DEFAULT_SUPPORT_COURIER.phone),
     consigneeCompany: (booking.dealer.name || '').trim(),
     consigneeAttn: (booking.dealer.contactPerson || booking.dealer.name || '').trim(),
-    consigneeAddress: destAddr.replace(/\s+/g, ' ').trim(),
+    consigneeAddress: consigneeAddress.trim(),
     consigneePin: pin6(destAddr),
     consigneePhone: maskPhone(
       resolveReceiverPhoneFromSnapshot(booking.dealer) || booking.dealer.mobile,

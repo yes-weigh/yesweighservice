@@ -611,10 +611,21 @@ export function buildShippingLabelViewModel(input: {
 
 /** Prefer persisted deliveryAddress; fall back to dealer snapshot shipping/billing. */
 export function resolveBookingDeliveryAddress(booking: LogisticsBooking): string {
-  if (!isPlaceholderLogisticsAddress(booking.deliveryAddress)) {
-    return booking.deliveryAddress.trim();
+  const stored = String(booking.deliveryAddress ?? '').trim();
+  const fallback = resolveDeliveryAddress(booking.dealer, booking.deliveryAddressKind);
+  if (isPlaceholderLogisticsAddress(stored)) return fallback;
+  const street = stripDuplicateAddressPhrases(stored, [
+    booking.dealer.name,
+    booking.dealer.contactPerson,
+  ]);
+  if (!isPlaceholderLogisticsAddress(street) || /\b\d{6}\b/.test(stored)) return stored;
+  if (
+    !isPlaceholderLogisticsAddress(fallback)
+    && normalizePhrase(fallback) !== normalizePhrase(stored)
+  ) {
+    return fallback;
   }
-  return resolveDeliveryAddress(booking.dealer, booking.deliveryAddressKind);
+  return stored;
 }
 
 /** Whether FROM / TO addresses are ready for a shipping label preview/print. */
