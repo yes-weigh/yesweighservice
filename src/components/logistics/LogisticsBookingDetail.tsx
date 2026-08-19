@@ -21,7 +21,11 @@ import {
 import { useAuth } from '../../context/AuthContext';
 import { useConfirm } from '../../context/ConfirmContext';
 import { cancelDelhiveryShipment, createDelhiveryPickupRequest } from '../../lib/delhiveryB2b';
-import { getBlueDartWaybill, inferBlueDartUiStatus } from '../../lib/blueDartApi';
+import {
+  getBlueDartWaybill,
+  inferBlueDartUiStatus,
+  registerBlueDartPickupForBooking,
+} from '../../lib/blueDartApi';
 import {
   BLUE_DART_LOGO_URL,
   buildBlueDartAwbPdfFromBooking,
@@ -1709,6 +1713,38 @@ export const LogisticsBookingDetail: React.FC<LogisticsBookingDetailProps> = ({
     }
   }, [booking, isOps, onUpdate, user]);
 
+  const handleRequestBlueDartPickup = useCallback(async () => {
+    if (!user || !isOps || !isBlueDartLogisticsPartnerId(booking.partnerId)) return;
+    const awb = String(booking.consignmentNo || booking.trackingNo || '').replace(/\D/g, '');
+    if (awb.length < 8) {
+      setPickupError('This booking has no Blue Dart AWB.');
+      return;
+    }
+    const ok = await confirm({
+      title: 'Request Blue Dart pickup',
+      message:
+        `Request pickup for AWB ${awb} from ${shipFromSiteLabel(booking.shipFromSite)}? `
+        + 'Blue Dart typically collects the next working day around 4:00 pm IST. '
+        + 'The AWB is not cancelled.',
+      confirmLabel: 'Request pickup',
+    });
+    if (!ok) return;
+    setRequestingPickup(true);
+    setPickupError('');
+    try {
+      const result = await registerBlueDartPickupForBooking(booking.id);
+      onUpdate({
+        ...booking,
+        blueDartPickup: result.pickup,
+        updatedAt: new Date().toISOString(),
+      });
+    } catch (err) {
+      setPickupError(err instanceof Error ? err.message : 'Could not request Blue Dart pickup.');
+    } finally {
+      setRequestingPickup(false);
+    }
+  }, [booking, confirm, isOps, onUpdate, user]);
+
   const handleSaveDelhiveryIdsAndRefresh = useCallback(async () => {
     if (!user || !isOps || booking.partnerId !== 'delhivery') return;
     const current = resolveDelhiveryBookingIds(booking);
@@ -3028,11 +3064,34 @@ export const LogisticsBookingDetail: React.FC<LogisticsBookingDetailProps> = ({
                       </>
                     )
                     : (booking.blueDartPickup
-                      ? (booking.blueDartPickup.message || 'Not registered')
-                      : 'Registered at booking when GenerateWayBill succeeds')}
+                      ? (booking.blueDartPickup.message || 'Not requested')
+                      : 'Not requested')}
                 </dd>
               </div>
             ) : null}
+            {isBlueDart && isOps && user
+              && booking.status !== 'cancelled'
+              && booking.status !== 'returned'
+              && !isIncompleteLogisticsBooking(booking)
+              && !booking.blueDartPickup?.registered
+              && (
+                <div>
+                  <dt />
+                  <dd>
+                    <button
+                      type="button"
+                      className="btn btn-secondary"
+                      disabled={requestingPickup || String(booking.consignmentNo || '').replace(/\D/g, '').length < 8}
+                      onClick={() => { void handleRequestBlueDartPickup(); }}
+                    >
+                      {requestingPickup ? 'Requesting pickup…' : 'Request pickup'}
+                    </button>
+                    {pickupError ? (
+                      <p className="text-danger text-sm" style={{ marginTop: 6 }}>{pickupError}</p>
+                    ) : null}
+                  </dd>
+                </div>
+              )}
             <div><dt>Branch</dt><dd>{booking.branch || '—'}</dd></div>
             <div><dt>Service</dt><dd>{booking.serviceType || '—'}</dd></div>
             <div><dt>Booked on</dt><dd>{formatLogisticsDateTimeLabel(booking.bookingDate)}</dd></div>

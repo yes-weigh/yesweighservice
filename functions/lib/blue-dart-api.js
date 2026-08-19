@@ -825,19 +825,128 @@ export async function registerBlueDartPickupAtAddress(db, input = {}) {
     || res.json;
   const token = String(row?.TokenNumber || row?.tokenNumber || '').trim();
   const failed = Boolean(row?.IsError) || !res.ok;
-  if (failed && !token) {
-    throw new Error(blueDartErrorMessage(
-      res.json,
-      res.text,
-      res.status,
-      'Blue Dart pickup registration failed',
-    ));
+  const message = blueDartErrorMessage(
+    res.json,
+    res.text,
+    res.status,
+    'Blue Dart pickup registration failed',
+  );
+  const alreadyRegistered = /already\s+(register|exist|generat)/i.test(message)
+    || /pickup\s+already/i.test(message);
+  if (failed && !token && !alreadyRegistered) {
+    throw new Error(message);
   }
   return {
-    ok: !failed || Boolean(token),
+    ok: !failed || Boolean(token) || alreadyRegistered,
+    alreadyRegistered,
     tokenNumber: token || null,
+    pickupDate: `${pickupDt.getUTCFullYear()}-${String(pickupDt.getUTCMonth() + 1).padStart(2, '0')}-${String(pickupDt.getUTCDate()).padStart(2, '0')}`,
+    pickupTime: '1600',
+    pickupPin: pin,
+    originArea: area,
     raw: row,
   };
+}
+
+const BLUE_DART_PARTNER_IDS = new Set([
+  'bluedart_air',
+  'bluedart_surface',
+  'bluedart_domestic',
+]);
+
+/**
+ * Register first-mile pickup for an existing Blue Dart AWB and persist the token.
+ * @param {FirebaseFirestore.Firestore} db
+ * @param {string} bookingId
+ */
+export async function registerBlueDartPickupForBooking(db, bookingId) {
+  const id = String(bookingId || '').trim();
+  if (!id) throw new Error('Booking is required.');
+  const ref = db.collection('logisticsBookings').doc(id);
+  const snap = await ref.get();
+  if (!snap.exists) throw new Error('Logistics booking not found.');
+  const data = snap.data() || {};
+  const partnerId = String(data.partnerId || '').trim();
+  if (!BLUE_DART_PARTNER_IDS.has(partnerId)) {
+    throw new Error('This booking is not a Blue Dart shipment.');
+  }
+  const status = String(data.status || '').trim();
+  if (status === 'cancelled' || status === 'returned') {
+    throw new Error('Cancelled or returned shipments cannot request pickup.');
+  }
+  const awb = String(data.consignmentNo || data.trackingNo || '').replace(/\D/g, '');
+  if (awb.length < 8) throw new Error('This booking has no Blue Dart AWB.');
+
+  const existing = data.blueDartPickup && typeof data.blueDartPickup === 'object'
+    ? data.blueDartPickup
+    : {};
+  const existingToken = String(existing.tokenNumber || '').trim();
+  if (existing.registered === true && existingToken) {
+    return { ok: true, alreadyRegistered: true, pickup: existing };
+  }
+
+  const shipFromSite = String(data.shipFromSite || 'cochin').trim() || 'cochin';
+  const site = await loadSiteShipFrom(db, shipFromSite);
+  const address = String(data.shipFromAddress || site.address || '').trim();
+  if (!address) {
+    throw new Error('Ship-from address is missing. Set it in Logistics Settings.');
+  }
+  const secrets = await loadSecrets(db);
+  const origin = await resolveBlueDartShipFromOrigin(db, secrets, {
+    shipFromSite,
+    pincode: pinFromText(address),
+  });
+  if (!origin.pin) {
+    throw new Error('Ship-from pincode is missing. Set the Blue Dart pickup pin for this site.');
+  }
+  const phone = mobile10(site.phone);
+  if (!phone) {
+    throw new Error('Set a pickup phone on the ship-from site in Logistics Settings.');
+  }
+
+  const boxes = Array.isArray(data.boxes) ? data.boxes : [];
+  const pieceCount = Math.max(1, Number(data.numberOfBoxes) || boxes.length || 1);
+  const weightKg = boxes.reduce((sum, box) => {
+    const kg = Number(box?.weightKg);
+    return sum + (Number.isFinite(kg) && kg > 0 ? kg : 0);
+  }, 0);
+  const pickupDt = nextPickupIst();
+  const created = await registerBlueDartPickupAtAddress(db, {
+    awb,
+    address,
+    pincode: origin.pin,
+    area: origin.area,
+    phone,
+    contactName: secrets.customerName || 'YESWEIGH',
+    productCode: blueDartProductCode(partnerId),
+    pieceCount,
+    weightKg: weightKg || 0.5,
+    pickupMs: pickupDt.getTime(),
+    referenceNo: String(data.invoiceNumber || awb).slice(0, 20),
+    remarks: 'YesWeigh AWB pickup',
+  });
+
+  const pickup = {
+    ok: created.ok === true,
+    registered: created.ok === true,
+    pickupDate: created.pickupDate || null,
+    pickupTime: created.pickupTime || '1600',
+    pickupAddress: address,
+    pickupPin: created.pickupPin || origin.pin || null,
+    originArea: created.originArea || origin.area || null,
+    destinationArea: existing.destinationArea || null,
+    destinationLocation: existing.destinationLocation || null,
+    tokenNumber: created.tokenNumber || existingToken || null,
+    message: created.tokenNumber
+      ? `Pickup token ${created.tokenNumber}`
+      : (created.alreadyRegistered
+        ? 'Pickup already registered with Blue Dart'
+        : `Pickup requested at ${origin.pin}`),
+    requestedAt: new Date().toISOString(),
+  };
+  const updatedAt = new Date().toISOString();
+  await ref.set({ blueDartPickup: pickup, updatedAt }, { merge: true });
+  return { ok: pickup.registered, alreadyRegistered: Boolean(created.alreadyRegistered), pickup };
 }
 
 export async function cancelBlueDartPickup(db, input = {}) {

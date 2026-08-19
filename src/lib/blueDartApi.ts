@@ -2,7 +2,7 @@ import { getFunctions, httpsCallable } from 'firebase/functions';
 import { app } from '../firebase';
 import type { BlueDartApiEnv, BlueDartPublicConfig } from '../types/blue-dart-api';
 import type { StCourierTrackResult } from './stCourierTrack';
-import type { LogisticsCourierTrack } from '../types/logistics-dispatch';
+import type { LogisticsBlueDartPickup, LogisticsCourierTrack } from '../types/logistics-dispatch';
 
 const functions = getFunctions(app, 'asia-south1');
 
@@ -225,6 +225,30 @@ export async function cancelBlueDartWaybill(awb: string): Promise<{
     return result.data;
   } catch (err) {
     throw callableError(err, 'Could not cancel Blue Dart waybill.');
+  }
+}
+
+export async function registerBlueDartPickupForBooking(bookingId: string): Promise<{
+  ok: boolean;
+  alreadyRegistered?: boolean;
+  pickup: LogisticsBlueDartPickup;
+}> {
+  const id = String(bookingId || '').trim();
+  if (!id) throw new Error('Booking is required.');
+  try {
+    const fn = httpsCallable<{ bookingId: string }, {
+      ok: boolean;
+      alreadyRegistered?: boolean;
+      pickup: LogisticsBlueDartPickup;
+    }>(
+      functions,
+      'registerBlueDartPickupFn',
+      { timeout: 60_000 },
+    );
+    const result = await fn({ bookingId: id });
+    return result.data;
+  } catch (err) {
+    throw callableError(err, 'Could not request Blue Dart pickup.');
   }
 }
 

@@ -224,6 +224,7 @@ import {
   lookupBlueDartPincodes,
   bookBlueDartShipment,
   cancelBlueDartWaybill,
+  registerBlueDartPickupForBooking,
   fetchBlueDartTrack,
   readBlueDartWaybillPdf,
 } from './lib/blue-dart-api.js';
@@ -5837,6 +5838,31 @@ export const cancelBlueDartWaybillFn = onCall(
       throw new HttpsError(
         'failed-precondition',
         err?.message ?? 'Could not cancel Blue Dart waybill.',
+      );
+    }
+  },
+);
+
+/** Register first-mile pickup for an existing Blue Dart AWB. */
+export const registerBlueDartPickupFn = onCall(
+  {
+    region: 'asia-south1',
+    timeoutSeconds: 60,
+    memory: '256MiB',
+  },
+  async request => {
+    await requireActiveUser(request.auth?.uid, ALLOWED_ROLES);
+    const bookingId = String(request.data?.bookingId ?? '').trim();
+    if (!bookingId) {
+      throw new HttpsError('invalid-argument', 'Booking is required.');
+    }
+    try {
+      return await registerBlueDartPickupForBooking(getFirestore(), bookingId);
+    } catch (err) {
+      if (err instanceof HttpsError) throw err;
+      throw new HttpsError(
+        'failed-precondition',
+        err?.message ?? 'Could not request Blue Dart pickup.',
       );
     }
   },
