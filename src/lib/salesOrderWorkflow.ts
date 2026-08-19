@@ -6,6 +6,7 @@ import {
   shippingSelectionPayload,
   type ShippingSelection,
 } from './shippingAddresses';
+import type { SpareFreightPackaging } from './spareFreightQuote';
 
 const functions = getFunctions(app, 'asia-south1');
 
@@ -315,6 +316,21 @@ export async function updateDraftSalesOrderShipping(
     return await call(
       'updateDraftSalesOrderShipping',
       { salesOrderId, shipping: shippingSelectionPayload(shipping) },
+      120_000,
+    );
+  } catch (err) {
+    throw new Error(dealerOrderErrorMessage(err));
+  }
+}
+
+export async function updateDraftSalesOrderSparePackaging(
+  salesOrderId: string,
+  sparePackaging: SpareFreightPackaging[],
+): Promise<SalesOrderWorkflowDetail> {
+  try {
+    return await call(
+      'updateDraftSalesOrderSparePackaging',
+      { salesOrderId, sparePackaging },
       120_000,
     );
   } catch (err) {

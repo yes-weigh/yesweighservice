@@ -2471,6 +2471,25 @@ export function mapAdminInvoiceDetail(
   invoiceId: string,
   data: DocumentData,
 ): DealerInvoiceDetail {
+  const sparePackaging = Array.isArray(data.sparePackaging)
+    ? data.sparePackaging
+      .map(row => {
+        const lengthCm = Number(row?.lengthCm);
+        const widthCm = Number(row?.widthCm);
+        const heightCm = Number(row?.heightCm);
+        const weightKg = Number(row?.weightKg);
+        return {
+          lengthCm: Number.isFinite(lengthCm) ? lengthCm : 0,
+          widthCm: Number.isFinite(widthCm) ? widthCm : 0,
+          heightCm: Number.isFinite(heightCm) ? heightCm : 0,
+          weightKg: Number.isFinite(weightKg) ? Math.max(0, weightKg) : 0,
+          boxDefinitionId: row?.boxDefinitionId != null
+            ? String(row.boxDefinitionId).trim() || null
+            : null,
+        };
+      })
+      .filter(r => r.lengthCm > 0 && r.widthCm > 0 && r.heightCm > 0)
+    : null;
   return {
     id: String(data.id ?? invoiceId),
     invoiceNumber: String(data.invoiceNumber ?? ''),
@@ -2512,6 +2531,7 @@ export function mapAdminInvoiceDetail(
       ? (data.ewayBill as DealerInvoiceDetail['ewayBill'])
       : null,
     yesOneFreightPartner: mapInvoiceLocalFreightPartner(data.yesOneFreightPartner),
+    sparePackaging,
   };
 }
 

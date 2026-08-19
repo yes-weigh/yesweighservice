@@ -1,3 +1,5 @@
+import type { SpareFreightPackaging } from '../lib/spareFreightQuote';
+
 export type InvoiceStatus =
   | 'sent'
   | 'draft'
@@ -105,6 +107,8 @@ export interface DealerInvoiceDetail extends DealerInvoice {
    * is unavailable). Never written to Zoho — e-invoice invoices cannot change.
    */
   yesOneFreightPartner?: InvoiceLocalFreightPartner | null;
+  /** For spare invoices: admin-entered spare carton LBH + weight (from the SO). */
+  sparePackaging?: SpareFreightPackaging[] | null;
 }
 
 export type InvoiceCustomerPickup = {

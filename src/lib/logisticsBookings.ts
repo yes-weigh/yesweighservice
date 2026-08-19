@@ -61,7 +61,10 @@ import {
 } from './logisticsPhotos';
 import { loadLogisticsSettings } from './logisticsSettings';
 import { resolvePersistShipFromSite } from './logisticsShipFrom';
-import { bookBlueDartShipment } from './blueDartApi';
+import {
+  bookBlueDartShipment,
+  parseBlueDartAlreadyGeneratedWaybillNo,
+} from './blueDartApi';
 import { blueDartPickupPinForSite } from '../constants/blueDartPickup';
 import { FIRM_GSTIN, FIRM_PHONE } from '../constants/brand';
 import { extractCityState, extractDestinationCity } from './shippingLabel';
@@ -2313,10 +2316,6 @@ export async function rebookCancelledBookingViaBlueDartDomestic(
   if (missingDims) {
     throw new Error('Each box needs length, breadth, and height (cm) before Blue Dart booking.');
   }
-  const hasWeight = booking.boxes.some(box => Number(box.weightKg) > 0);
-  if (!hasWeight) {
-    throw new Error('Enter box weight before Blue Dart booking.');
-  }
 
   const destPin = extractIndianPincode(booking.deliveryAddress)
     || extractIndianPincode(booking.dealer.shippingAddress)
@@ -2360,45 +2359,6 @@ export async function rebookCancelledBookingViaBlueDartDomestic(
     || booking.bookingDate?.trim()
     || `YW-${Date.now()}`
   );
-
-  const result = await bookBlueDartShipment({
-    partnerId,
-    shipFromSite,
-    orderId,
-    consignee: {
-      name: booking.dealer.name,
-      phone: consigneePhone,
-      address: booking.deliveryAddress,
-      city: booking.dealer.destinationCity?.trim() || deliveryPlace.city,
-      state: deliveryPlace.state,
-      pincode: destPin,
-    },
-    returnAddress: {
-      name: STAFF_LOGISTICS_SITE_LABELS[shipFromSite],
-      phone: shipperPhone,
-      address: fromAddress,
-      city: shipFromPlace.city,
-      state: shipFromPlace.state,
-      pincode: shipFromPin,
-    },
-    boxes: booking.boxes.map(box => ({
-      lengthCm: Number(box.lengthCm) || undefined,
-      widthCm: Number(box.widthCm) || undefined,
-      heightCm: Number(box.heightCm) || undefined,
-      weightKg: Number(box.weightKg) || undefined,
-      quantity: 1,
-    })),
-    invoiceId: booking.invoiceId,
-    zohoCustomerId: booking.dealer.zohoCustomerId,
-    invoiceNumber: invoiceNumber || null,
-    invoiceValueInr: invoiceValueInr || null,
-    sellerGstin: shipperGstin,
-    freightBillingMode: booking.freightBillingMode === 'fod' ? 'fod' : 'btc',
-  });
-
-  const awb = String(result.awb || '').replace(/\D/g, '').trim();
-  if (!awb) throw new Error('Blue Dart did not return an AWB.');
-
   const boxes = booking.boxes.map(box => ({
     ...box,
     volumetricWeightKg: computeVolumetricWeight(
@@ -2408,9 +2368,80 @@ export async function rebookCancelledBookingViaBlueDartDomestic(
       partnerId,
     ),
   }));
-  const actualWeightKg = boxes.reduce((total, box) => total + box.weightKg, 0);
-  const volumetricWeightKg = boxes.reduce((total, box) => total + box.volumetricWeightKg, 0);
-  const chargeableWeightKg = consignmentChargeableWeightKg(boxes, partnerId);
+  const boxesForApi = boxes.map(box => ({
+    lengthCm: Number(box.lengthCm) || undefined,
+    widthCm: Number(box.widthCm) || undefined,
+    heightCm: Number(box.heightCm) || undefined,
+    weightKg: (Number(box.weightKg) > 0 ? box.weightKg : box.volumetricWeightKg) || undefined,
+    quantity: 1,
+  }));
+
+  let result: Awaited<ReturnType<typeof bookBlueDartShipment>> | null = null;
+  try {
+    result = await bookBlueDartShipment({
+      partnerId,
+      shipFromSite,
+      orderId,
+      consignee: {
+        name: booking.dealer.name,
+        phone: consigneePhone,
+        address: booking.deliveryAddress,
+        city: booking.dealer.destinationCity?.trim() || deliveryPlace.city,
+        state: deliveryPlace.state,
+        pincode: destPin,
+      },
+      returnAddress: {
+        name: STAFF_LOGISTICS_SITE_LABELS[shipFromSite],
+        phone: shipperPhone,
+        address: fromAddress,
+        city: shipFromPlace.city,
+        state: shipFromPlace.state,
+        pincode: shipFromPin,
+      },
+      boxes: boxesForApi,
+      invoiceId: booking.invoiceId,
+      zohoCustomerId: booking.dealer.zohoCustomerId,
+      invoiceNumber: invoiceNumber || null,
+      invoiceValueInr: invoiceValueInr || null,
+      sellerGstin: shipperGstin,
+      freightBillingMode: booking.freightBillingMode === 'fod' ? 'fod' : 'btc',
+    });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err ?? '');
+    const alreadyGeneratedAwb = parseBlueDartAlreadyGeneratedWaybillNo(message);
+    if (!alreadyGeneratedAwb) throw err;
+    result = {
+      ok: true,
+      awb: alreadyGeneratedAwb,
+      pickupRegistered: false,
+      pickupDate: null,
+      pickupTime: null,
+      pickupAddress: null,
+      pickupPin: null,
+      originArea: null,
+      pickupToken: null,
+      pickupMessage: 'Waybill already generated — continuing.',
+      documents: null,
+    };
+  }
+
+  if (!result) {
+    throw new Error('Blue Dart did not return a booking result.');
+  }
+
+  const awb = String(result.awb || '').replace(/\D/g, '').trim();
+  if (!awb) throw new Error('Blue Dart did not return an AWB.');
+
+  const normalizedBoxes = boxes.map(box => ({
+    ...box,
+    weightKg: Number(box.weightKg) > 0 ? box.weightKg : box.volumetricWeightKg,
+  }));
+  const actualWeightKg = normalizedBoxes.reduce((total, b) => total + (Number(b.weightKg) || 0), 0);
+  const volumetricWeightKg = normalizedBoxes.reduce((total, b) => total + b.volumetricWeightKg, 0);
+  const chargeableWeightKg = consignmentChargeableWeightKg(
+    normalizedBoxes,
+    partnerId,
+  );
   const updatedAt = new Date().toISOString();
   const pickup = {
     ok: result.pickupRegistered === true,
@@ -2445,7 +2476,7 @@ export async function rebookCancelledBookingViaBlueDartDomestic(
       lengthCm: box.lengthCm,
       widthCm: box.widthCm,
       heightCm: box.heightCm,
-      weightKg: box.weightKg,
+      weightKg: Number(box.weightKg) > 0 ? box.weightKg : box.volumetricWeightKg,
       volumetricWeightKg: box.volumetricWeightKg,
       photos: firestoreBoxPhotos(box.photos),
     })),

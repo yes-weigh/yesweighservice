@@ -954,6 +954,45 @@ export async function updateDraftSalesOrderLines(uid, role, payload = {}, secret
   return detailPayload(snap.id, snap.data() || {}, { includePaymentUrl: true });
 }
 
+export async function updateDraftSalesOrderSparePackaging(uid, role, payload = {}, secrets, orgId) {
+  const user = await loadUser(uid);
+  requireOrdersManage(user);
+
+  const { ref, id, data } = await loadSoOrThrow(payload.salesOrderId);
+  assertCanEditSalesOrder(user, data, 'updated spare packaging');
+
+  const input = payload.sparePackaging;
+  const rows = Array.isArray(input) ? input : [];
+
+  const normalized = rows
+    .map(row => {
+      const lengthCm = Number(row.lengthCm);
+      const widthCm = Number(row.widthCm);
+      const heightCm = Number(row.heightCm);
+      const weightKg = Number(row.weightKg);
+      return {
+        lengthCm: Number.isFinite(lengthCm) ? lengthCm : 0,
+        widthCm: Number.isFinite(widthCm) ? widthCm : 0,
+        heightCm: Number.isFinite(heightCm) ? heightCm : 0,
+        weightKg: Number.isFinite(weightKg) ? Math.max(0, weightKg) : 0,
+        boxDefinitionId: row.boxDefinitionId ? String(row.boxDefinitionId).trim() : null,
+      };
+    })
+    // Spare freight cartons are only considered "complete" when LBH are present.
+    .filter(r => r.lengthCm > 0 && r.widthCm > 0 && r.heightCm > 0);
+
+  await ref.set({
+    sparePackaging: normalized,
+    yesOneUpdatedAt: nowIso(),
+    yesOneLastEditedAt: nowIso(),
+    yesOneLastEditedByUid: uid,
+    yesOneLastEditedByName: displayName(user),
+  }, { merge: true });
+
+  const snap = await ref.get();
+  return detailPayload(snap.id, snap.data() || {}, { includePaymentUrl: true });
+}
+
 /** Staff/super admin: change shipping address on a Draft SO (Zoho + mirror). */
 export async function updateDraftSalesOrderShipping(uid, role, payload = {}, secrets, orgId) {
   const user = await loadUser(uid);

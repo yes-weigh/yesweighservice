@@ -324,3 +324,19 @@ export function inferBlueDartUiStatus(
   return 'label_generated';
 }
 
+/**
+ * Blue Dart returns an error when trying to GenerateWayBill twice for the same
+ * CreditReferenceNo (orderId).
+ *
+ * Example message:
+ * "Waybill already generated for this CreditReferenceNo. Waybill No: 21094582725"
+ */
+export function parseBlueDartAlreadyGeneratedWaybillNo(message: string): string | null {
+  const msg = String(message ?? '');
+  if (!/waybill\s*already\s*generated/i.test(msg) || !/creditreferenceno/i.test(msg)) return null;
+  const m = /waybill\s*no\s*[:\-]?\s*'?(\d+)/i.exec(msg);
+  if (!m) return null;
+  const awb = String(m[1] ?? '').replace(/\D/g, '').trim();
+  return awb || null;
+}
+

@@ -52,6 +52,7 @@ import {
   type SpareFreightPackagingDraft,
   type SpareFreightPartnerQuoteNote,
 } from './SpareFreightPackagingFields';
+import type { SpareFreightPackaging } from '../../lib/spareFreightQuote';
 
 function freightDraftLine(sku: FreightLineSku, rate: number): DraftEditLine {
   const option = FREIGHT_LINE_OPTIONS.find(row => row.sku === sku)!;
@@ -86,6 +87,8 @@ type Props = {
   /** When false, still auto-sync freight into lines but render nothing (keep mounted while editing). */
   showUi?: boolean;
   onPackageInfoSaved?: (productId: string, info: NonNullable<CatalogProduct['packageInfo']>) => void;
+  /** Persist admin-entered spare carton LBH + weight for later invoicing/logistics. */
+  onSparePackagingChange?: (next: SpareFreightPackaging[] | null) => void;
 };
 
 export const SoFreightExpandPanel: React.FC<Props> = ({
@@ -97,6 +100,7 @@ export const SoFreightExpandPanel: React.FC<Props> = ({
   disabled = false,
   showUi = true,
   onPackageInfoSaved,
+  onSparePackagingChange,
 }) => {
   const productLines = useMemo(
     () => lines.filter(line => !isFreightDraftEditLine(line)),
@@ -234,6 +238,10 @@ export const SoFreightExpandPanel: React.FC<Props> = ({
     () => (cartHasSpare ? spareFreightPackagingsFromDrafts(sparePackagingDrafts) : null),
     [cartHasSpare, sparePackagingDrafts],
   );
+
+  useEffect(() => {
+    onSparePackagingChange?.(sparePackaging);
+  }, [onSparePackagingChange, sparePackaging]);
 
   const freightEstimateBase = useMemo((): StCourierCartFreightEstimate | null => {
     if (!courierRates || !deliveryRules || !partnerStatuses || productLines.length === 0) return null;

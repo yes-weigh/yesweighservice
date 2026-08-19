@@ -65,9 +65,11 @@ import {
   canEditSalesOrderDraft,
   isSalesOrderInvoicingMismatch,
   updateDraftSalesOrderLines,
+  updateDraftSalesOrderSparePackaging,
   updateDraftSalesOrderShipping,
   uploadSalesOrderPaymentScreenshot,
 } from '../../lib/salesOrderWorkflow';
+import type { SpareFreightPackaging } from '../../lib/spareFreightQuote';
 import {
   formatInvoiceDate,
   invoiceHasCategory,
@@ -127,6 +129,8 @@ export const AdminSalesOrderDocumentPage: React.FC = () => {
   const [baselineFingerprint, setBaselineFingerprint] = useState('');
   const [expandedLineId, setExpandedLineId] = useState<string | null>(null);
   const [linesHydrating, setLinesHydrating] = useState(false);
+  // Captured from SoFreightExpandPanel spare carton drafts (LBH + weight) for later invoicing/logistics.
+  const [sparePackaging, setSparePackaging] = useState<SpareFreightPackaging[] | null>(null);
   const [savingLines, setSavingLines] = useState(false);
   const [paymentFile, setPaymentFile] = useState<File | null>(null);
   const [paymentNotes, setPaymentNotes] = useState('');
@@ -510,6 +514,12 @@ export const AdminSalesOrderDocumentPage: React.FC = () => {
       return { ...prev, [productId]: { ...existing, packageInfo: info } };
     });
   }, []);
+
+  const persistSparePackaging = useCallback(async () => {
+    if (!salesOrderId) return;
+    if (!sparePackaging) return;
+    await updateDraftSalesOrderSparePackaging(salesOrderId, sparePackaging);
+  }, [salesOrderId, sparePackaging]);
 
   const hydrateEditLines = useCallback(async (): Promise<DraftEditLine[] | null> => {
     if (!salesOrder) return null;
@@ -1407,6 +1417,7 @@ export const AdminSalesOrderDocumentPage: React.FC = () => {
                   canEditPackage={isOps}
                   disabled={savingLines}
                   onPackageInfoSaved={onFreightPackageInfoSaved}
+                  onSparePackagingChange={setSparePackaging}
                 />
               </section>
             ) : null
@@ -1543,7 +1554,14 @@ export const AdminSalesOrderDocumentPage: React.FC = () => {
               title={packageBlocksActions ? freightPackageAlert ?? undefined : undefined}
               onClick={() => {
                 if (packageBlocksActions) return;
-                workflowActions.onReady();
+                void (async () => {
+                  try {
+                    await persistSparePackaging();
+                    workflowActions.onReady();
+                  } catch (err) {
+                    window.alert(err instanceof Error ? err.message : 'Could not save spare packaging.');
+                  }
+                })();
               }}
             >
               <IndianRupee size={16} aria-hidden />
@@ -1632,7 +1650,14 @@ export const AdminSalesOrderDocumentPage: React.FC = () => {
               title={packageBlocksActions ? freightPackageAlert ?? undefined : undefined}
               onClick={() => {
                 if (packageBlocksActions) return;
-                workflowActions.onVerify();
+                void (async () => {
+                  try {
+                    await persistSparePackaging();
+                    workflowActions.onVerify();
+                  } catch (err) {
+                    window.alert(err instanceof Error ? err.message : 'Could not save spare packaging.');
+                  }
+                })();
               }}
             >
               {workflowActions.actionBusy === 'verify'

@@ -248,6 +248,31 @@ export function buildInvoiceBookingBoxes(
   return boxes;
 }
 
+function buildInvoiceBookingBoxesFromSparePackaging(
+  sparePackaging: DealerInvoiceDetail['sparePackaging'],
+): ShipmentBoxDraft[] | undefined {
+  if (!Array.isArray(sparePackaging) || sparePackaging.length === 0) return undefined;
+  const boxes: ShipmentBoxDraft[] = [];
+  for (const row of sparePackaging) {
+    const lengthCm = Number(row?.lengthCm);
+    const widthCm = Number(row?.widthCm);
+    const heightCm = Number(row?.heightCm);
+    const weightKg = Number(row?.weightKg);
+    if (!Number.isFinite(lengthCm) || lengthCm <= 0) continue;
+    if (!Number.isFinite(widthCm) || widthCm <= 0) continue;
+    if (!Number.isFinite(heightCm) || heightCm <= 0) continue;
+    const draft = emptyShipmentBoxDraft();
+    boxes.push({
+      ...draft,
+      lengthCm: String(lengthCm),
+      widthCm: String(widthCm),
+      heightCm: String(heightCm),
+      weightKg: Number.isFinite(weightKg) ? String(Math.max(0, weightKg)) : '0',
+    });
+  }
+  return boxes.length > 0 ? boxes : undefined;
+}
+
 export function buildInvoiceBookingDraftPatch(
   invoice: DealerInvoiceDetail,
   invoiceId: string,
@@ -256,9 +281,18 @@ export function buildInvoiceBookingDraftPatch(
   options?: BuildInvoiceBookingDraftOptions,
 ): Partial<LogisticsBookingDraft> {
   const partnerId = options?.partnerId ?? resolveInvoiceCourierPartnerId(invoice);
-  const boxes = options?.productsById
-    ? buildInvoiceBookingBoxes(invoice, options.productsById)
+  const isSpareInvoice = invoice.invoiceCategory === 'spare'
+    || (invoice.categories ?? []).includes('spare');
+
+  const spareBoxes = isSpareInvoice
+    ? buildInvoiceBookingBoxesFromSparePackaging(invoice.sparePackaging)
     : undefined;
+
+  const boxes = (spareBoxes && spareBoxes.length > 0)
+    ? spareBoxes
+    : (options?.productsById
+      ? buildInvoiceBookingBoxes(invoice, options.productsById)
+      : undefined);
   const shipFromSite = options?.shipFromSite && (
     options.shipFromSite === 'cochin' || options.shipFromSite === 'head_office'
   )

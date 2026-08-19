@@ -258,6 +258,19 @@ async function shippingFromMirroredSalesOrder(salesOrderId) {
   }
 }
 
+async function sparePackagingFromSalesOrderId(salesOrderId) {
+  const id = String(salesOrderId || '').trim();
+  if (!id) return null;
+  try {
+    const snap = await getFirestore().collection('salesOrders').doc(id).get();
+    if (!snap.exists) return null;
+    const data = snap.data() || {};
+    return Array.isArray(data.sparePackaging) ? data.sparePackaging : null;
+  } catch {
+    return null;
+  }
+}
+
 async function resolveSalesOrder(accessToken, orgId, customerId, invoiceRaw) {
   const salesOrderId = invoiceRaw.salesorder_id ? String(invoiceRaw.salesorder_id) : null;
   const referenceNumber = invoiceRaw.reference_number ? String(invoiceRaw.reference_number) : null;
@@ -406,6 +419,10 @@ async function buildFirestoreInvoiceDoc(accessToken, orgId, invoiceRaw, options 
     ? (invoiceRaw.salesorder_id ? String(invoiceRaw.salesorder_id) : null)
     : (salesOrder?.id ?? (invoiceRaw.salesorder_id ? String(invoiceRaw.salesorder_id) : null));
 
+  const sparePackaging = invoiceCategory === 'spare' && salesOrderId
+    ? await sparePackagingFromSalesOrderId(salesOrderId)
+    : null;
+
   let shippingAddress = summary.shippingAddress || null;
   let shippingAddressId = summary.shippingAddressId || null;
   if (!shippingAddress && salesOrder?.shippingAddress) {
@@ -443,6 +460,7 @@ async function buildFirestoreInvoiceDoc(accessToken, orgId, invoiceRaw, options 
       taxTotal: Number(invoiceRaw.tax_total ?? 0),
     }),
     invoiceCategory,
+    sparePackaging,
     categories: categoryBreakdown.categories,
     categoryAmounts: categoryBreakdown.categoryAmounts,
     freightSku: freightSkuFromInvoiceLines(lineItems),
@@ -553,6 +571,11 @@ export async function upsertInvoiceFromRaw(accessToken, orgId, invoiceRaw, optio
       categoryAmounts: existing.categoryAmounts ?? {},
       syncedAt: FieldValue.serverTimestamp(),
     };
+
+    if (doc.invoiceCategory === 'spare' && doc.salesOrderId) {
+      const spare = await sparePackagingFromSalesOrderId(doc.salesOrderId);
+      if (spare) doc.sparePackaging = spare;
+    }
   } else if (needsDetail || options.forceDetail) {
     const fullRaw = options.useProvidedRaw
       ? invoiceRaw
@@ -594,6 +617,11 @@ export async function upsertInvoiceFromRaw(accessToken, orgId, invoiceRaw, optio
       categoryAmounts: existing.categoryAmounts ?? {},
       syncedAt: FieldValue.serverTimestamp(),
     };
+
+    if (doc.invoiceCategory === 'spare' && doc.salesOrderId) {
+      const spare = await sparePackagingFromSalesOrderId(doc.salesOrderId);
+      if (spare) doc.sparePackaging = spare;
+    }
     if (!options.skipSalesOrder && existing.salesOrderId) {
       salesOrder = { id: existing.salesOrderId, number: existing.salesOrderNumber };
     }

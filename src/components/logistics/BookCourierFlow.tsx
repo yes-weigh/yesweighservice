@@ -100,7 +100,7 @@ import {
   putLogisticsVaultPhoto,
 } from '../../lib/logisticsPhotoVault';
 import { bookDelhiveryShipment } from '../../lib/delhiveryB2b';
-import { bookBlueDartShipment } from '../../lib/blueDartApi';
+import { bookBlueDartShipment, parseBlueDartAlreadyGeneratedWaybillNo } from '../../lib/blueDartApi';
 import { blueDartPickupPinForSite } from '../../constants/blueDartPickup';
 import { pinFromText } from '../../lib/delhiveryQuote';
 import { fetchAdminInvoiceDetail } from '../../lib/admin-invoices';
@@ -1423,7 +1423,34 @@ export const BookCourierFlow: React.FC<BookCourierFlowProps> = ({
       }));
       return true;
     } catch (err) {
-      setBlueDartBookError(err instanceof Error ? err.message : 'Could not book Blue Dart AWB.');
+      const message = err instanceof Error ? err.message : 'Could not book Blue Dart AWB.';
+      const existingAwb = parseBlueDartAlreadyGeneratedWaybillNo(message);
+      // Rebook retry/idempotency: Blue Dart rejects duplicate GenerateWayBill calls,
+      // but the shipment already exists. Treat it as success and keep moving.
+      if (existingAwb) {
+        applyDraft(prev => ({
+          ...prev,
+          consignmentNo: existingAwb,
+          barcodeRaw: prev.barcodeRaw || existingAwb,
+          branch: 'Blue Dart',
+          blueDartPickup: {
+            ok: false,
+            registered: false,
+            pickupDate: null,
+            pickupTime: null,
+            pickupAddress: null,
+            pickupPin: null,
+            originArea: null,
+            destinationArea: null,
+            destinationLocation: null,
+            tokenNumber: null,
+            message: 'Waybill already generated — continuing.',
+            requestedAt: new Date().toISOString(),
+          },
+        }));
+        return true;
+      }
+      setBlueDartBookError(message);
       return false;
     } finally {
       setBookingBlueDart(false);
@@ -1840,6 +1867,77 @@ export const BookCourierFlow: React.FC<BookCourierFlowProps> = ({
     handleConfirmShipment,
   ]);
 
+  const openBlueDartGenerateAwbPopup = useCallback((): Window | null => {
+    // Open a same-origin popup with a clock animation while Blue Dart confirms.
+    // Popup open must happen from a user gesture (button click).
+    const popup = window.open('', 'bluedart-awb-wait', 'width=430,height=340');
+    if (!popup) return null;
+    try {
+      const doc = popup.document;
+      doc.open();
+      doc.write(`<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Generating AWB</title>
+    <style>
+      body{
+        margin:0;
+        font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Arial;
+        background:#0b0c10;
+        color:#e8eaed;
+        height:100vh;
+        display:flex;
+        align-items:center;
+        justify-content:center;
+        flex-direction:column;
+        gap:16px;
+      }
+      .clock-wrap{display:flex;align-items:center;justify-content:center;gap:16px;flex-direction:column;}
+      .clock{
+        width:128px;height:128px;border-radius:50%;
+        border:8px solid rgba(255,140,0,0.85);
+        box-shadow:0 0 0 10px rgba(255,140,0,0.12) inset;
+        position:relative;
+      }
+      .hand{
+        position:absolute; left:50%; top:50%;
+        transform-origin: bottom;
+        border-radius:4px;
+        background:rgba(255,140,0,0.95);
+        transform: translate(-50%,-100%) rotate(0deg);
+      }
+      .hand.hour{ width:6px; height:36px; animation: spin-hour 1.8s linear infinite; }
+      .hand.minute{ width:4px; height:52px; animation: spin-minute 1.0s linear infinite; }
+      @keyframes spin-hour{ from{ transform: translate(-50%,-100%) rotate(0deg);} to{ transform: translate(-50%,-100%) rotate(360deg);} }
+      @keyframes spin-minute{ from{ transform: translate(-50%,-100%) rotate(0deg);} to{ transform: translate(-50%,-100%) rotate(-360deg);} }
+      .center{ position:absolute; left:50%; top:50%; width:14px; height:14px; border-radius:50%; background:rgba(255,140,0,0.95); transform: translate(-50%,-50%); }
+      .note{ text-align:center; max-width:320px; font-size:15px; line-height:1.35; opacity:0.95; }
+      .sub{ color:rgba(232,234,237,0.75); font-size:13px; margin-top:6px; }
+    </style>
+  </head>
+  <body>
+    <div class="clock-wrap">
+      <div class="clock">
+        <div class="hand hour"></div>
+        <div class="hand minute"></div>
+        <div class="center"></div>
+      </div>
+      <div class="note">
+        Generating AWB with Blue Dart…
+        <div class="sub">Waiting for confirmation</div>
+      </div>
+    </div>
+  </body>
+</html>`);
+      doc.close();
+    } catch {
+      // If popup is blocked or DOM access fails, proceed without animation.
+    }
+    return popup;
+  }, []);
+
   const confirmBlueDartFromReview = useCallback(async () => {
     if (!canCreateBlueDartAwb) {
       setBlueDartBookError(
@@ -1847,12 +1945,18 @@ export const BookCourierFlow: React.FC<BookCourierFlowProps> = ({
       );
       return;
     }
-    const ok = await ensureBlueDartAwb();
-    if (!ok) return;
-    await handleConfirmShipment();
+    const popup = openBlueDartGenerateAwbPopup();
+    try {
+      const ok = await ensureBlueDartAwb();
+      if (!ok) return;
+      await handleConfirmShipment();
+    } finally {
+      popup?.close();
+    }
   }, [
     blueDartContactIssues,
     canCreateBlueDartAwb,
+    openBlueDartGenerateAwbPopup,
     ensureBlueDartAwb,
     handleConfirmShipment,
   ]);
@@ -3191,7 +3295,7 @@ export const BookCourierFlow: React.FC<BookCourierFlowProps> = ({
                         : 'Fix phone & GSTIN to continue')
                       : isBlueDart
                         ? (canCreateBlueDartAwb
-                          ? (draft.consignmentNo.trim() ? 'Confirm shipment' : 'Create AWB & Confirm')
+                          ? (draft.consignmentNo.trim() ? 'Confirm shipment' : 'Generate AWB')
                           : 'Fix phone to continue')
                         : 'Next')}
                 </button>

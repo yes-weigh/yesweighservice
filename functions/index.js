@@ -269,6 +269,7 @@ import { getPendingFreightDiffPreview } from './lib/freight-diff-settlement.js';
 import {
   updateDraftSalesOrderLines as updateDraftSalesOrderLinesRecord,
   updateDraftSalesOrderShipping as updateDraftSalesOrderShippingRecord,
+  updateDraftSalesOrderSparePackaging as updateDraftSalesOrderSparePackagingRecord,
   markSalesOrderReadyForPayment as markSalesOrderReadyForPaymentRecord,
   markSalesOrderInvoicedManually as markSalesOrderInvoicedManuallyRecord,
   repairSalesOrderInvoicingMismatch as repairSalesOrderInvoicingMismatchRecord,
@@ -5003,6 +5004,31 @@ export const updateDraftSalesOrderShipping = onCall(
     } catch (err) {
       if (err instanceof HttpsError) throw err;
       throw new HttpsError('internal', err?.message ?? 'Could not update shipping address.');
+    }
+  },
+);
+
+export const updateDraftSalesOrderSparePackaging = onCall(
+  {
+    region: 'asia-south1',
+    secrets: [zohoClientId, zohoClientSecret, zohoRefreshToken],
+    timeoutSeconds: 120,
+    memory: '512MiB',
+  },
+  async request => {
+    const uid = request.auth?.uid;
+    const role = await requireActiveUser(uid, new Set(['staff', 'super_admin']));
+    try {
+      return await updateDraftSalesOrderSparePackagingRecord(
+        uid,
+        role,
+        request.data ?? {},
+        zohoSecrets(),
+        zohoOrganizationId.value(),
+      );
+    } catch (err) {
+      if (err instanceof HttpsError) throw err;
+      throw new HttpsError('internal', err?.message ?? 'Could not update spare packaging.');
     }
   },
 );

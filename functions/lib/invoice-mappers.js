@@ -560,6 +560,25 @@ export function firestoreDocToListInvoice(data) {
   };
 }
 
+function normalizeSparePackaging(sparePackaging) {
+  if (!Array.isArray(sparePackaging)) return null;
+  const rows = sparePackaging.map(row => {
+    const lengthCm = Number(row?.lengthCm);
+    const widthCm = Number(row?.widthCm);
+    const heightCm = Number(row?.heightCm);
+    const weightKg = Number(row?.weightKg);
+    return {
+      lengthCm: Number.isFinite(lengthCm) ? lengthCm : 0,
+      widthCm: Number.isFinite(widthCm) ? widthCm : 0,
+      heightCm: Number.isFinite(heightCm) ? heightCm : 0,
+      weightKg: Number.isFinite(weightKg) ? Math.max(0, weightKg) : 0,
+      boxDefinitionId: row?.boxDefinitionId != null ? String(row.boxDefinitionId).trim() || null : null,
+    };
+  });
+  // Treat as complete only when LBH are present. Weight may be blank/0.
+  return rows.filter(r => r.lengthCm > 0 && r.widthCm > 0 && r.heightCm > 0);
+}
+
 export function firestoreDocToDetail(data) {
   const list = firestoreDocToListInvoice(data);
   return {
@@ -573,6 +592,7 @@ export function firestoreDocToDetail(data) {
     shippingAddressId: data.shippingAddressId ? String(data.shippingAddressId) : null,
     billingAddress: data.billingAddress ? String(data.billingAddress) : null,
     lineItems: Array.isArray(data.lineItems) ? data.lineItems : [],
+    sparePackaging: normalizeSparePackaging(data.sparePackaging),
     yesOneFreightPartner: data.yesOneFreightPartner && typeof data.yesOneFreightPartner === 'object'
       ? data.yesOneFreightPartner
       : null,
