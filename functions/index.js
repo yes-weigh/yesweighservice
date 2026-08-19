@@ -1433,6 +1433,7 @@ export const recordCatalogProductAudit = onCall(
     const allowBackdate = role === 'super_admin';
     const incomingZohoQty = Number(request.data?.incomingZohoQty);
     const cochinInboundQty = Number(request.data?.cochinInboundQty);
+    const inboundQty = Number(request.data?.inboundQty);
     const sourceGoodsReceiptId = String(request.data?.sourceGoodsReceiptId ?? '').trim() || null;
     const inboundAlreadyInZoho = request.data?.inboundAlreadyInZoho === true;
 
@@ -1461,6 +1462,7 @@ export const recordCatalogProductAudit = onCall(
           allowBackdate,
           incomingZohoQty: Number.isFinite(incomingZohoQty) ? incomingZohoQty : 0,
           cochinInboundQty: Number.isFinite(cochinInboundQty) ? cochinInboundQty : null,
+          inboundQty: Number.isFinite(inboundQty) ? inboundQty : null,
           sourceGoodsReceiptId,
           inboundAlreadyInZoho,
         },

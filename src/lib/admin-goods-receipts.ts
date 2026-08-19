@@ -1291,6 +1291,7 @@ export async function saveGoodsReceiptReceiveCheck(
           auditedAt: input.auditedAt ?? null,
           incomingZohoQty: zohoInboundQtyForProduct(input.lineItems, catalogProductId),
           cochinInboundQty: placedQtyForProduct(lines, itemIdByLineId, catalogProductId),
+          inboundQty: placedQtyForProduct(lines, itemIdByLineId, catalogProductId),
           sourceGoodsReceiptId: id,
           inboundAlreadyInZoho,
         },
@@ -1306,6 +1307,7 @@ export async function saveGoodsReceiptReceiveCheck(
         {
           auditedAt: input.auditedAt ?? null,
           incomingZohoQty: zohoInboundQtyForProduct(input.lineItems, catalogProductId),
+          inboundQty: placedQtyForProduct(lines, itemIdByLineId, catalogProductId),
           sourceGoodsReceiptId: id,
           inboundAlreadyInZoho,
         },

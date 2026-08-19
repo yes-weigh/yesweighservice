@@ -464,8 +464,9 @@ async function rebuildProductAuditSnapshot(productRef) {
 }
 
 /**
- * Sales keep Diff. Zoho inbound consumes pending receive qty first and leaves
- * the prior locked variance (e.g. last Diff -5 after a 150 receive).
+ * Sales keep Diff. Goods-receipt inbound is pending until it posts in Zoho;
+ * that consume leaves the prior locked variance (e.g. +3 NC after a 30 receive).
+ * Unsolicited Zoho inbound does not eat the locked Diff — only pending qty does.
  */
 export function nextAuditStateAfterZohoChange(
   previousZohoQty,
@@ -488,9 +489,6 @@ export function nextAuditStateAfterZohoChange(
       baselineDifference: diff - consumed,
       pendingZohoInbound: pending - consumed,
     };
-  }
-  if (delta > 0 && pending <= 0 && diff > 0) {
-    return { baselineDifference: diff - delta, pendingZohoInbound: 0 };
   }
   if (delta < 0 && diff < 0) {
     return {
@@ -517,7 +515,7 @@ export function nextAuditDiffAfterZohoChange(
 
 /**
  * When Zoho stock changes on sync, keep Diff through sales; consume pending
- * receive inbound first so a prior variance (e.g. -5) remains.
+ * receive inbound first so a prior variance (e.g. +3 NC) remains.
  */
 export function buildZohoSyncAuditAdjustment(existingSnapshot, previousZohoQty, nextZohoQty, auditedAt) {
   if (!existingSnapshot || existingSnapshot.baselineDifference == null) return null;
@@ -759,6 +757,11 @@ export async function recordCatalogProductAudit(
     ? null
     : clampInboundQty(options.cochinInboundQty);
   const sourceGoodsReceiptId = String(options.sourceGoodsReceiptId ?? '').trim() || null;
+  const inboundQty = options.inboundQty != null
+    ? clampInboundQty(options.inboundQty)
+    : (cochinInboundQty != null
+      ? cochinInboundQty
+      : (sourceGoodsReceiptId && incomingZohoQty > 0 ? incomingZohoQty : null));
   const inboundAlreadyInZoho = options.inboundAlreadyInZoho === true;
   const auditedAt = resolveAuditedAt(options.auditedAt, options.allowBackdate === true);
 
@@ -819,7 +822,7 @@ export async function recordCatalogProductAudit(
     return !sourceGoodsReceiptId || sourceId !== sourceGoodsReceiptId;
   });
 
-  const priorAtT = hasLaterLogs || cochinInboundQty != null
+  const priorAtT = hasLaterLogs || inboundQty != null
     ? await resolveLastLogAtOrBefore(productRef, auditedAt, sourceGoodsReceiptId)
     : null;
 
@@ -838,21 +841,23 @@ export async function recordCatalogProductAudit(
   let pendingZohoInbound = 0;
   const lastWarehouse = Number(existingSnapshot?.headOfficeQtyAtAudit ?? 0)
     + Number(existingSnapshot?.cochinQtyAtAudit ?? 0);
-  if (sourceGoodsReceiptId && cochinInboundQty != null) {
+  if (sourceGoodsReceiptId && inboundQty != null) {
+    const snapshotDiff = existingSnapshot && Number.isFinite(Number(existingSnapshot.baselineDifference))
+      ? Number(existingSnapshot.baselineDifference)
+      : 0;
     const priorDiff = priorAtT && Number.isFinite(Number(priorAtT.baselineDifference))
       ? Number(priorAtT.baselineDifference)
-      : 0;
+      : snapshotDiff;
     if (inboundAlreadyInZoho) {
       pendingZohoInbound = 0;
       baselineDifference = priorDiff;
     } else {
-      pendingZohoInbound = Math.max(0, Number(cochinInboundQty) || 0);
+      pendingZohoInbound = Math.max(0, Number(inboundQty) || 0);
       baselineDifference = priorDiff + pendingZohoInbound;
     }
     physicalQty = zohoQtyAtAudit + baselineDifference;
   } else if (
-    PHYSICAL_TRIGGERS.has(trigger)
-    && !sourceGoodsReceiptId
+    trigger === 'manual'
     && existingSnapshot
     && existingSnapshot.baselineDifference != null
     && lastWarehouse === physicalQty

@@ -42,8 +42,8 @@ export interface CatalogProductAuditSnapshot {
   lastAuditedByUid: string | null;
   lastAuditedByName: string | null;
   /**
-   * Diff at last write. Sales keep it. Zoho inbound consumes pending receive qty
-   * and leaves the prior locked variance (e.g. -5).
+   * Diff at last write. Sales keep it. Pending goods-receipt inbound posts to
+   * Zoho and leaves the prior locked variance (e.g. +3 NC).
    * Live Audited = current Zoho + remaining Diff.
    */
   baselineDifference: number;

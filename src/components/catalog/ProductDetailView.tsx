@@ -749,8 +749,16 @@ export const ProductDetailView: React.FC<{
     const snap = product.auditSnapshot;
     const warehouseFrozen =
       Number(snap.headOfficeQtyAtAudit ?? 0) + Number(snap.cochinQtyAtAudit ?? 0);
-    return livePhysicalQty !== warehouseFrozen;
-  }, [showAuditedStock, detailOpenCycles.length, livePhysicalQty, product?.auditSnapshot]);
+    if (livePhysicalQty !== warehouseFrozen) return true;
+    // GRN posted to Zoho without pending inbound can leave Audited negative while bins hold stock.
+    return summaryAuditedQty != null && summaryAuditedQty < 0 && livePhysicalQty > 0;
+  }, [
+    showAuditedStock,
+    detailOpenCycles.length,
+    livePhysicalQty,
+    product?.auditSnapshot,
+    summaryAuditedQty,
+  ]);
 
   const handleRefreshAuditedFromLocations = useCallback(async () => {
     if (!product || auditRefreshBusy) return;
@@ -2412,16 +2420,15 @@ export const ProductDetailView: React.FC<{
                 <div className="product-detail-page__audit-cycle-banner">
                   {zohoMovedDuringOpenCycle && (
                     <p className="product-detail-page__audit-cycle-warn text-sm">
-                      Zoho stock changed since the last physical count. Sales keep Diff locked; when Zoho catches up to Audited, Diff closes.
+                      Zoho stock changed since the last physical count. Sales keep Diff locked. Goods-receipt inbound is pending until it posts in Zoho, then the prior variance remains.
                     </p>
                   )}
                   {auditedLiveMismatch && canEditHeadOffice && (
                     <div className="product-detail-page__audit-cycle-refresh">
                       <p className="product-detail-page__audit-cycle-warn text-sm">
-                        Live locations ({livePhysicalQty}) differ from the last warehouse count
-                        ({Number(product?.auditSnapshot?.headOfficeQtyAtAudit ?? 0)
-                          + Number(product?.auditSnapshot?.cochinQtyAtAudit ?? 0)}).
-                        Bins were linked or changed after the last count refresh.
+                        {summaryAuditedQty != null && summaryAuditedQty < 0 && (livePhysicalQty ?? 0) > 0
+                          ? `Audited (${summaryAuditedQty}) does not match live locations (${livePhysicalQty ?? 0}). Update from locations after the Head Office receive.`
+                          : `Live locations (${livePhysicalQty ?? 0}) differ from the last warehouse count (${Number(product?.auditSnapshot?.headOfficeQtyAtAudit ?? 0) + Number(product?.auditSnapshot?.cochinQtyAtAudit ?? 0)}). Bins were linked or changed after the last count refresh.`}
                       </p>
                       <button
                         type="button"

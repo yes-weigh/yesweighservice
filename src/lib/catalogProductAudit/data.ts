@@ -84,6 +84,7 @@ export type RecordCatalogProductAuditOptions = {
   auditedAt?: string | null;
   incomingZohoQty?: number | null;
   cochinInboundQty?: number | null;
+  inboundQty?: number | null;
   sourceGoodsReceiptId?: string | null;
   inboundAlreadyInZoho?: boolean;
 };
@@ -102,6 +103,7 @@ export async function recordCatalogProductAudit(
       auditedAt?: string | null;
       incomingZohoQty?: number | null;
       cochinInboundQty?: number | null;
+      inboundQty?: number | null;
       sourceGoodsReceiptId?: string | null;
       inboundAlreadyInZoho?: boolean;
     },
@@ -115,6 +117,7 @@ export async function recordCatalogProductAudit(
     auditedAt: options?.auditedAt ?? null,
     incomingZohoQty: options?.incomingZohoQty ?? 0,
     cochinInboundQty: options?.cochinInboundQty ?? null,
+    inboundQty: options?.inboundQty ?? null,
     sourceGoodsReceiptId: options?.sourceGoodsReceiptId ?? null,
     inboundAlreadyInZoho: options?.inboundAlreadyInZoho === true,
   });

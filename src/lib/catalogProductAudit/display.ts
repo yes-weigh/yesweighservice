@@ -3,8 +3,9 @@ import type { CatalogProduct } from '../../types/catalog';
 import type { CatalogProductAuditSnapshot } from '../../types/catalog-product-audit';
 
 /**
- * Sales keep Diff. Zoho inbound consumes pending receive qty first and leaves
- * the prior locked variance (e.g. -5 after a 150 receive posts to Zoho).
+ * Sales keep Diff. Goods-receipt inbound is pending until it posts in Zoho;
+ * that consume leaves the prior locked variance (e.g. +3 NC after a 30 receive).
+ * Unsolicited Zoho inbound does not eat the locked Diff — only pending qty does.
  */
 export function nextAuditStateAfterZohoChange(
   previousZohoQty: number,
@@ -27,9 +28,6 @@ export function nextAuditStateAfterZohoChange(
       baselineDifference: diff - consumed,
       pendingZohoInbound: pending - consumed,
     };
-  }
-  if (delta > 0 && pending <= 0 && diff > 0) {
-    return { baselineDifference: diff - delta, pendingZohoInbound: 0 };
   }
   if (delta < 0 && diff < 0) {
     return {
@@ -110,12 +108,12 @@ export function catalogGridStockQty(product: CatalogProduct): number {
 export interface AdjustedAuditDisplay {
   hasAuditSnapshot: boolean;
   /**
-   * Audited stock: follows Zoho on sales; stays put when Zoho inbound
-   * consumes pending Diff (currentZoho + live Diff).
+   * Audited stock: follows Zoho on sales; stays put when pending
+   * goods-receipt inbound posts to Zoho (currentZoho + live Diff).
    */
   displayAuditedQty: number | null;
   /**
-   * Diff from last physical, reduced when Zoho inbound catches up to Audited.
+   * Diff from last physical, reduced when pending receive qty posts to Zoho.
    */
   displayDifference: number | null;
   physicalQtyAtAudit: number | null;
@@ -132,7 +130,7 @@ export interface AdjustedAuditDisplay {
 
 /**
  * Sales: Diff stays locked, Audited = Zoho + Diff.
- * Zoho inbound that closes the gap: Diff shrinks, Audited stays.
+ * Pending goods-receipt inbound: Diff shrinks when Zoho posts it, Audited stays.
  */
 export function resolveAdjustedAuditDisplay(input: {
   currentZohoQty: number | null;
