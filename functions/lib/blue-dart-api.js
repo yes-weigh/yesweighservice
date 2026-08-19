@@ -806,6 +806,18 @@ async function resolveBlueDartShipFromOrigin(db, secrets, input = {}) {
   return { pin, area, usedSitePin: Boolean(sitePin) };
 }
 
+function isMissingBlueDartPickupRoute(res) {
+  if (!res) return false;
+  if (res.status === 404) return true;
+  const blob = `${res.text || ''} ${res.json?.title || ''} ${res.json?.message || ''}`;
+  return /index was outside|not found|no such resource/i.test(blob);
+}
+
+const BLUE_DART_STANDALONE_PICKUP_UNAVAILABLE =
+  'Blue Dart cannot register pickup after the AWB exists on this account. '
+  + 'Pickup is requested with Generate AWB (next working day around 4:00 pm IST from this ship-from). '
+  + 'Refresh tracking, or call Blue Dart with this AWB.';
+
 export async function registerBlueDartPickupAtAddress(db, input = {}) {
   const secrets = await loadSecrets(db);
   const config = await loadBlueDartPublicConfig(db);
@@ -844,7 +856,7 @@ export async function registerBlueDartPickupAtAddress(db, input = {}) {
     isToPayShipper: false,
   };
   const profile = profilePayload(config.env, secrets, 'shipping');
-  const paths = ['/pickup/v1/RegisterPickup', '/pickup/v1RegisterPickup'];
+  const paths = ['/pickup/v1RegisterPickup', '/pickup/v1/RegisterPickup'];
 
   async function postPickup(includeAwb, code) {
     const body = {
@@ -856,37 +868,45 @@ export async function registerBlueDartPickupAtAddress(db, input = {}) {
       Profile: profile,
     };
     let res = await blueDartFetch(db, paths[0], { method: 'POST', body });
-    if (!res.ok || /index was outside|not found|404/i.test(String(res.text || ''))) {
+    if (isMissingBlueDartPickupRoute(res)) {
       res = await blueDartFetch(db, paths[1], { method: 'POST', body });
     }
     const row = res.json?.RegisterPickupResult
       || res.json?.PickupRegistrationResponse
       || res.json;
     const token = String(row?.TokenNumber || row?.tokenNumber || '').trim();
-    const message = compactBlueDartError(
-      res.json,
-      res.text,
-      res.status,
-      'Blue Dart pickup registration failed',
-    );
+    const message = isMissingBlueDartPickupRoute(res)
+      ? BLUE_DART_STANDALONE_PICKUP_UNAVAILABLE
+      : compactBlueDartError(
+        res.json,
+        res.text,
+        res.status,
+        'Blue Dart pickup registration failed',
+      );
     const failed = Boolean(row?.IsError) || !res.ok;
-    return { res, row, token, message, failed };
+    return { res, row, token, message, failed, missingRoute: isMissingBlueDartPickupRoute(res) };
   }
 
-  let attempt = await postPickup(Boolean(awb), productCode);
-  if (attempt.failed && !attempt.token && awb && /awb|waybill|invalid/i.test(attempt.message)) {
-    attempt = await postPickup(false, productCode);
+  const attempt = await postPickup(Boolean(awb), productCode);
+  if (attempt.missingRoute) {
+    throw new Error(BLUE_DART_STANDALONE_PICKUP_UNAVAILABLE);
   }
-  if (attempt.failed && !attempt.token && productCode === 'D') {
-    attempt = await postPickup(Boolean(awb), 'E');
+  let next = attempt;
+  if (next.failed && !next.token && awb && /awb|waybill|invalid/i.test(next.message)) {
+    next = await postPickup(false, productCode);
+    if (next.missingRoute) throw new Error(BLUE_DART_STANDALONE_PICKUP_UNAVAILABLE);
+  }
+  if (next.failed && !next.token && productCode === 'D') {
+    next = await postPickup(Boolean(awb), 'E');
+    if (next.missingRoute) throw new Error(BLUE_DART_STANDALONE_PICKUP_UNAVAILABLE);
   }
 
-  const { row, token, message, failed } = attempt;
+  const { row, token, message, failed } = next;
   const alreadyRegistered = /already\s+(register|exist|generat)/i.test(message)
     || /pickup\s+already/i.test(message);
   if (failed && !token && !alreadyRegistered) {
     console.error('registerBlueDartPickupAtAddress', message, {
-      status: attempt.res.status,
+      status: next.res.status,
       pin,
       area,
       productCode,
