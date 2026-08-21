@@ -3,6 +3,8 @@ import { Camera, Link2, RefreshCw, Search, Trash2, UserPlus } from 'lucide-react
 import { toPng } from 'html-to-image';
 import { DayAttendanceSheet } from '../../components/hr/DayAttendanceSheet';
 import { ExpenseSettlementCard } from '../../components/hr/ExpenseSettlementCard';
+import { HrSalaryDetailTabs, type HrSalaryDetailTab } from '../../components/hr/HrSalaryDetailTabs';
+import { ProjectWorkSummaryCard } from '../../components/hr/ProjectWorkSummaryCard';
 import { DecimalTextInput } from '../../components/DecimalAmountInput';
 import { useAuth } from '../../context/AuthContext';
 import { fetchHrHolidays, holidaysInMonth } from '../../lib/hrHolidays';
@@ -22,11 +24,13 @@ import {
   createSalaryReceiptEntry,
   createWorkShiftEntry,
   computeExpenseSettlement,
+  calendarDayHoverTitle,
+  dayEarningsByDate,
+  dropRegularMarksWhenOtOnClosedDays,
   formatInr,
   formatLeaveDays,
   formatOtHours,
   formatTimeAmPm,
-  formatWorkPercent,
   leaveKindForDate,
   overtimeEntryHours,
   projectWorkSharePercents,
@@ -171,6 +175,7 @@ export const HrSalaryCalculationPage: React.FC<Props> = ({ basePath: _basePath }
   const [shareTokens, setShareTokens] = useState<Record<string, string>>({});
   const [copyingShareUid, setCopyingShareUid] = useState<string | null>(null);
   const [copiedShareUid, setCopiedShareUid] = useState<string | null>(null);
+  const [detailTab, setDetailTab] = useState<HrSalaryDetailTab>('calendar');
   const autosaveTimers = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map());
   const expandCaptureRef = useRef<HTMLDivElement | null>(null);
   const draftsRef = useRef(drafts);
@@ -247,6 +252,12 @@ export const HrSalaryCalculationPage: React.FC<Props> = ({ basePath: _basePath }
       const overtimeEntries = draft.overtimeEntries.map(e => ({ ...e }));
       const expenseEntries = draft.expenseEntries.map(e => ({ ...e }));
       const receiptEntries = draft.receiptEntries.map(e => ({ ...e }));
+      const cleaned = dropRegularMarksWhenOtOnClosedDays(periodNow, holidaysNow, {
+        overtimeEntries,
+        workDayEntries,
+        workShiftEntries,
+        dayJoinEntries,
+      });
       await saveSalaryMonth(
         {
           uid,
@@ -256,9 +267,9 @@ export const HrSalaryCalculationPage: React.FC<Props> = ({ basePath: _basePath }
           otPerDaySalary,
           leaveEntries,
           projects,
-          workDayEntries,
-          workShiftEntries,
-          dayJoinEntries,
+          workDayEntries: cleaned.workDayEntries,
+          workShiftEntries: cleaned.workShiftEntries,
+          dayJoinEntries: cleaned.dayJoinEntries,
           overtimeEntries,
           expenseEntries,
           receiptEntries,
@@ -282,9 +293,9 @@ export const HrSalaryCalculationPage: React.FC<Props> = ({ basePath: _basePath }
             otPerDaySalary,
             leaveEntries,
             projects,
-            workDayEntries,
-            workShiftEntries,
-            dayJoinEntries,
+            workDayEntries: cleaned.workDayEntries,
+            workShiftEntries: cleaned.workShiftEntries,
+            dayJoinEntries: cleaned.dayJoinEntries,
             overtimeEntries,
             expenseEntries,
             receiptEntries,
@@ -302,9 +313,9 @@ export const HrSalaryCalculationPage: React.FC<Props> = ({ basePath: _basePath }
         holidaysNow,
         leaveEntries,
         overtimeEntries,
-        workShiftEntries,
-        workDayEntries,
-        dayJoinEntries,
+        cleaned.workShiftEntries,
+        cleaned.workDayEntries,
+        cleaned.dayJoinEntries,
         projects,
       );
       setRows(prev => prev.map(row => {
@@ -316,9 +327,9 @@ export const HrSalaryCalculationPage: React.FC<Props> = ({ basePath: _basePath }
           otPerDaySalary,
           leaveEntries,
           projects,
-          workDayEntries,
-          workShiftEntries,
-          dayJoinEntries,
+          workDayEntries: cleaned.workDayEntries,
+          workShiftEntries: cleaned.workShiftEntries,
+          dayJoinEntries: cleaned.dayJoinEntries,
           overtimeEntries,
           expenseEntries,
           receiptEntries,
@@ -334,9 +345,9 @@ export const HrSalaryCalculationPage: React.FC<Props> = ({ basePath: _basePath }
           || (Number.parseFloat(cur.otPerDaySalary) || 0) !== otPerDaySalary
           || JSON.stringify(cur.leaveEntries) !== JSON.stringify(leaveEntries)
           || JSON.stringify(cur.projects) !== JSON.stringify(projects)
-          || JSON.stringify(cur.workDayEntries) !== JSON.stringify(workDayEntries)
-          || JSON.stringify(cur.workShiftEntries) !== JSON.stringify(workShiftEntries)
-          || JSON.stringify(cur.dayJoinEntries) !== JSON.stringify(dayJoinEntries)
+          || JSON.stringify(cur.workDayEntries) !== JSON.stringify(cleaned.workDayEntries)
+          || JSON.stringify(cur.workShiftEntries) !== JSON.stringify(cleaned.workShiftEntries)
+          || JSON.stringify(cur.dayJoinEntries) !== JSON.stringify(cleaned.dayJoinEntries)
           || JSON.stringify(cur.overtimeEntries) !== JSON.stringify(overtimeEntries)
           || JSON.stringify(cur.expenseEntries) !== JSON.stringify(expenseEntries)
           || JSON.stringify(cur.receiptEntries) !== JSON.stringify(receiptEntries)
@@ -345,6 +356,9 @@ export const HrSalaryCalculationPage: React.FC<Props> = ({ basePath: _basePath }
           ...prev,
           [uid]: {
             ...cur,
+            workDayEntries: cleaned.workDayEntries,
+            workShiftEntries: cleaned.workShiftEntries,
+            dayJoinEntries: cleaned.dayJoinEntries,
             dirty: stillDirty,
             saving: false,
             savedAt: Date.now(),
@@ -417,7 +431,9 @@ export const HrSalaryCalculationPage: React.FC<Props> = ({ basePath: _basePath }
     setDrafts(prev => {
       const cur = prev[uid];
       if (!cur) return prev;
-      return { ...prev, [uid]: { ...cur, ...patch, dirty: true, error: '' } };
+      const merged = { ...cur, ...patch, dirty: true, error: '' };
+      const cleaned = dropRegularMarksWhenOtOnClosedDays(periodRef.current, holidaysRef.current, merged);
+      return { ...prev, [uid]: { ...merged, ...cleaned } };
     });
     scheduleAutosave(uid);
   };
@@ -441,9 +457,12 @@ export const HrSalaryCalculationPage: React.FC<Props> = ({ basePath: _basePath }
     );
   };
 
-  const selectDay = (uid: string, date: string) => {
+  const selectDay = (uid: string, date: string, force = false) => {
     if (expandedUid !== uid) setExpandedUid(uid);
-    setSelectedDate(prev => (expandedUid === uid && prev === date ? null : date));
+    setDetailTab('calendar');
+    setSelectedDate(prev => (
+      !force && expandedUid === uid && prev === date ? null : date
+    ));
   };
 
   const setLeaveForDay = (uid: string, date: string, kind: HrLeaveKind | null) => {
@@ -758,7 +777,9 @@ export const HrSalaryCalculationPage: React.FC<Props> = ({ basePath: _basePath }
     if (!el || capturingExpand) return;
     setCapturingExpand(true);
     const previousDate = selectedDate;
+    const previousTab = detailTab;
     setSelectedDate(null);
+    setDetailTab('calendar');
     el.classList.add('is-capturing');
     // Let the day editor close and capture layout settle before rasterizing.
     await new Promise<void>(resolve => {
@@ -822,6 +843,7 @@ export const HrSalaryCalculationPage: React.FC<Props> = ({ basePath: _basePath }
     } finally {
       el.classList.remove('is-capturing');
       setSelectedDate(previousDate);
+      setDetailTab(previousTab);
       setCapturingExpand(false);
     }
   };
@@ -1085,6 +1107,20 @@ export const HrSalaryCalculationPage: React.FC<Props> = ({ basePath: _basePath }
               const leadingPads = new Date(period.year, period.month - 1, 1).getDay();
               const monthlyValue = Number.parseFloat(draft.monthlySalary) || 0;
               const otPerDayValue = Number.parseFloat(draft.otPerDaySalary) || 0;
+              const dayEarnings = expanded
+                ? dayEarningsByDate(
+                  period,
+                  holidays,
+                  draft.leaveEntries,
+                  draft.overtimeEntries,
+                  draft.workShiftEntries,
+                  draft.workDayEntries,
+                  draft.dayJoinEntries,
+                  draft.projects,
+                  calc.perDaySalary,
+                  otPerDayValue || calc.otPerDaySalary,
+                )
+                : null;
               const projectTotals = projectWorkTotals(
                 draft.projects,
                 draft.workDayEntries,
@@ -1106,6 +1142,7 @@ export const HrSalaryCalculationPage: React.FC<Props> = ({ basePath: _basePath }
                 period,
                 calc.hourlyRate,
                 calc.otHourlyRate,
+                holidays,
               );
               const otLines = draft.overtimeEntries
                 .map(entry => {
@@ -1151,6 +1188,7 @@ export const HrSalaryCalculationPage: React.FC<Props> = ({ basePath: _basePath }
                       } else {
                         setExpandedUid(row.staffUid);
                         setSelectedDate(null);
+                        setDetailTab('calendar');
                         setActiveProjectId(draft.projects[0]?.id ?? null);
                       }
                     }}
@@ -1163,6 +1201,7 @@ export const HrSalaryCalculationPage: React.FC<Props> = ({ basePath: _basePath }
                         } else {
                           setExpandedUid(row.staffUid);
                           setSelectedDate(null);
+                          setDetailTab('calendar');
                           setActiveProjectId(draft.projects[0]?.id ?? null);
                         }
                       }
@@ -1338,6 +1377,13 @@ export const HrSalaryCalculationPage: React.FC<Props> = ({ basePath: _basePath }
                           </div>
 
                           <div className="hr-salary__main-grid">
+                            <HrSalaryDetailTabs
+                              tab={detailTab}
+                              onTabChange={setDetailTab}
+                              overtimeHint={`${formatOtHours(calc.overtimeHours)} · ${formatInr(calc.overtimePay)}`}
+                              expensesHint={`${formatInr(settlement.netPayable)} net`}
+                            >
+                            {detailTab === 'calendar' ? (
                             <div className="hr-salary__cal-row">
                               <div className="hr-salary__card hr-salary__expand-cal">
                               <div className="hr-salary__cal-head">
@@ -1378,21 +1424,17 @@ export const HrSalaryCalculationPage: React.FC<Props> = ({ basePath: _basePath }
                                       && !halfLeave
                                       && !sunday
                                     );
-                                    const dayTitle = [
-                                      cell.hasUnassignedRegular
-                                        ? 'Unassigned regular day — set a whole-day project or daytime shifts'
-                                        : null,
-                                      hasOt ? `${formatOtHours(cell.overtimeHours)} OT` : null,
-                                      cell.kind === 'holiday' ? cell.holidayName : null,
-                                      cell.kind === 'sunday' && !hasOt ? 'Sunday' : null,
-                                      cell.kind === 'leave' ? 'Full-day leave' : null,
-                                      cell.kind === 'leave_half' ? 'Half-day leave' : null,
-                                    ].filter(Boolean).join(' · ') || cell.date;
+                                    const dayTitle = calendarDayHoverTitle(
+                                      cell,
+                                      dayEarnings?.get(cell.date),
+                                      sunday,
+                                    );
+                                    const dayEarn = dayEarnings?.get(cell.date);
                                     return (
                                       <button
                                         key={cell.date}
                                         type="button"
-                                        title={dayTitle}
+                                        aria-label={dayTitle}
                                         className={[
                                           'hr-salary__day',
                                           hasWork ? 'has-work' : '',
@@ -1428,6 +1470,24 @@ export const HrSalaryCalculationPage: React.FC<Props> = ({ basePath: _basePath }
                                                 className="hr-salary__proj-dot hr-salary__proj-dot--mini is-empty"
                                                 title="Unassigned"
                                               />
+                                            ) : null}
+                                          </span>
+                                        ) : null}
+                                        {dayEarn ? (
+                                          <span className="hr-salary__day-tip" role="tooltip">
+                                            <strong>{formatInr(dayEarn.totalPay)}</strong>
+                                            {dayEarn.regularPay > 0 || dayEarn.overtimePay > 0 ? (
+                                              <span>
+                                                {dayEarn.regularPay > 0
+                                                  ? `Regular ${formatInr(dayEarn.regularPay)}`
+                                                  : null}
+                                                {dayEarn.regularPay > 0 && dayEarn.overtimePay > 0
+                                                  ? ' · '
+                                                  : null}
+                                                {dayEarn.overtimePay > 0
+                                                  ? `OT ${formatInr(dayEarn.overtimePay)}`
+                                                  : null}
+                                              </span>
                                             ) : null}
                                           </span>
                                         ) : null}
@@ -1548,32 +1608,41 @@ export const HrSalaryCalculationPage: React.FC<Props> = ({ basePath: _basePath }
                                     onRemoveReceipt={entryId => removeReceiptEntry(row.staffUid, entryId)}
                                   />
                                 ) : (
-                                  <div className="hr-salary__day-panel-empty">
-                                    <p>Select a day on the calendar</p>
-                                    <p className="text-sm text-muted">
-                                      Edit project, clock times, shifts, leave, expenses, and OT.
-                                    </p>
-                                  </div>
+                                  <ProjectWorkSummaryCard
+                                    projectTotals={projectTotals}
+                                    projectSharePercents={projectSharePercents}
+                                    earnedSalary={calc.earnedSalary}
+                                    leaveDays={calc.leaveDays}
+                                    payableDays={calc.payableDays}
+                                    rateDays={calc.rateDays}
+                                    regularPay={calc.regularPay}
+                                    overtimeHours={calc.overtimeHours}
+                                    overtimePay={calc.overtimePay}
+                                  />
                                 )}
                               </div>
                             </div>
+                            ) : null}
 
+                            {detailTab === 'expenses' ? (
                             <ExpenseSettlementCard
                               settlement={settlement}
                               earnedSalary={calc.earnedSalary}
                               expenseEntries={draft.expenseEntries}
                               receiptEntries={draft.receiptEntries}
-                              onLineClick={date => selectDay(row.staffUid, date)}
+                              onLineClick={date => selectDay(row.staffUid, date, true)}
                               downloadFileName={`${row.displayName
                                 .trim()
                                 .toLowerCase()
                                 .replace(/[^a-z0-9]+/g, '-')
                                 .replace(/^-|-$/g, '') || 'staff'}-expenses-${salaryPeriodKey(period)}`}
                             />
+                            ) : null}
 
+                            {detailTab === 'overtime' ? (
                             <div className="hr-salary__card hr-salary__ot-detail">
                               <div className="hr-salary__ot-detail-head">
-                                <h5>Overtime</h5>
+                                <span className="hr-salary__expense-detail-title">Overtime</span>
                                 <span>
                                   {formatOtHours(calc.overtimeHours)}
                                   {' · '}
@@ -1606,7 +1675,7 @@ export const HrSalaryCalculationPage: React.FC<Props> = ({ basePath: _basePath }
                                         className="hr-salary__ot-detail-line"
                                         onClick={() => {
                                           if (line.project) setActiveProjectId(line.project.id);
-                                          selectDay(row.staffUid, line.date);
+                                          selectDay(row.staffUid, line.date, true);
                                         }}
                                       >
                                         <span className="hr-salary__ot-detail-date">
@@ -1647,67 +1716,8 @@ export const HrSalaryCalculationPage: React.FC<Props> = ({ basePath: _basePath }
                                 </ul>
                               )}
                             </div>
-                          </div>
-
-                          <div className="hr-salary__footer-summary">
-                            <table className="hr-salary__summary-table">
-                              <thead>
-                                <tr>
-                                  <th>Project</th>
-                                  <th>%</th>
-                                  <th>Days</th>
-                                  <th>OT</th>
-                                  <th>Amount</th>
-                                </tr>
-                              </thead>
-                              <tbody>
-                                {projectTotals.map(total => (
-                                  <tr key={total.projectId ?? '__unassigned'}>
-                                    <td>
-                                      <div className="hr-salary__project-cell">
-                                        <i
-                                          className={[
-                                            'hr-salary__proj-dot',
-                                            total.color ? '' : 'is-empty',
-                                          ].filter(Boolean).join(' ')}
-                                          style={total.color ? { background: total.color } : undefined}
-                                        />
-                                        {total.name}
-                                      </div>
-                                    </td>
-                                    <td>
-                                      {formatWorkPercent(
-                                        projectSharePercents.get(total.projectId ?? '__unassigned') ?? 0,
-                                      )}
-                                    </td>
-                                    <td>{total.regularDays}d</td>
-                                    <td>{formatOtHours(total.otHours)}</td>
-                                    <td>{formatInr(total.totalPay)}</td>
-                                  </tr>
-                                ))}
-                                <tr className="hr-salary__summary-total-row">
-                                  <td colSpan={4}>Total Earned</td>
-                                  <td>{formatInr(settlement.netPayable)}</td>
-                                </tr>
-                              </tbody>
-                            </table>
-                            <div className="hr-salary__footer-stats">
-                              <span>
-                                <strong>Leave:</strong> {formatLeaveDays(calc.leaveDays)}
-                              </span>
-                              <span>
-                                <strong>Payable:</strong> {calc.payableDays} / {calc.rateDays}
-                              </span>
-                              <span>
-                                <strong>Regular pay:</strong> {formatInr(calc.regularPay)}
-                              </span>
-                              <span>
-                                <strong>OT hours:</strong> {formatOtHours(calc.overtimeHours)}
-                              </span>
-                              <span>
-                                <strong>OT pay:</strong> {formatInr(calc.overtimePay)}
-                              </span>
-                            </div>
+                            ) : null}
+                            </HrSalaryDetailTabs>
                           </div>
                         </div>
                       </td>

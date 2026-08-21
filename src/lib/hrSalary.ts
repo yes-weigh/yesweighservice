@@ -8,7 +8,13 @@ import {
 } from 'firebase/firestore';
 import { db } from '../firebase';
 import { holidaysInMonth } from './hrHolidays';
-import { fetchPayrollEmployees, payrollEmployeeSalaryKey } from './hrPayrollEmployees';
+import {
+  fetchPayrollEmployees,
+  isPayrollEmployeeKey,
+  payrollEmployeeSalaryKey,
+  PAYROLL_EMPLOYEE_KEY_PREFIX,
+  savePayrollEmployeeSalaryDefaults,
+} from './hrPayrollEmployees';
 import type { HrHoliday } from '../types/hr-holiday';
 import type {
   HrDayJoinEntry,
@@ -100,21 +106,75 @@ export function countSundaysInMonth(year: number, month: number): number {
   return count;
 }
 
+function isSundayIsoDate(date: string): boolean {
+  const [y, m, d] = date.split('-').map(Number);
+  if (!y || !m || !d) return false;
+  return new Date(y, m - 1, d).getDay() === 0;
+}
+
 /** Weekday holidays in month (Sunday holidays excluded to avoid double-counting). */
+export function weekdayHolidayDateSet(
+  holidays: Array<{ date: string }>,
+  year: number,
+  month: number,
+): Set<string> {
+  const prefix = `${year}-${String(month).padStart(2, '0')}`;
+  const dates = new Set<string>();
+  for (const holiday of holidays) {
+    const date = String(holiday.date || '').trim();
+    if (!date.startsWith(prefix)) continue;
+    if (isSundayIsoDate(date)) continue;
+    dates.add(date);
+  }
+  return dates;
+}
+
 export function countWeekdayHolidaysInMonth(
   holidays: HrHoliday[],
   year: number,
   month: number,
 ): number {
-  const monthHolidays = holidaysInMonth(holidays, year, month);
-  let count = 0;
-  for (const holiday of monthHolidays) {
-    const [y, m, d] = holiday.date.split('-').map(Number);
-    if (!y || !m || !d) continue;
-    if (new Date(y, m - 1, d).getDay() === 0) continue;
-    count += 1;
+  return weekdayHolidayDateSet(holidays, year, month).size;
+}
+
+/**
+ * Sundays and weekday holidays are unpaid unless marked as OT.
+ * If OT exists on such a day, drop whole-day project / shifts / clock so the
+ * same hours are not stored twice (e.g. Independence Day clock + full-day OT).
+ */
+export function dropRegularMarksWhenOtOnClosedDays(
+  period: HrSalaryPeriod,
+  holidays: Array<{ date: string }>,
+  input: {
+    overtimeEntries: HrOvertimeEntry[];
+    workDayEntries: HrWorkDayEntry[];
+    workShiftEntries: HrWorkShiftEntry[];
+    dayJoinEntries: HrDayJoinEntry[];
+  },
+): {
+  workDayEntries: HrWorkDayEntry[];
+  workShiftEntries: HrWorkShiftEntry[];
+  dayJoinEntries: HrDayJoinEntry[];
+} {
+  const closed = weekdayHolidayDateSet(holidays, period.year, period.month);
+  const otOnClosed = new Set<string>();
+  for (const entry of input.overtimeEntries) {
+    const date = String(entry.date || '').trim();
+    if (!date) continue;
+    if (isSundayIsoDate(date) || closed.has(date)) otOnClosed.add(date);
   }
-  return count;
+  if (otOnClosed.size === 0) {
+    return {
+      workDayEntries: input.workDayEntries,
+      workShiftEntries: input.workShiftEntries,
+      dayJoinEntries: input.dayJoinEntries,
+    };
+  }
+  return {
+    workDayEntries: input.workDayEntries.filter(e => !otOnClosed.has(e.date)),
+    workShiftEntries: input.workShiftEntries.filter(e => !otOnClosed.has(e.date)),
+    dayJoinEntries: input.dayJoinEntries.filter(e => !otOnClosed.has(e.date)),
+  };
 }
 
 /**
@@ -593,10 +653,12 @@ export function computeOvertimePayWithMakeup(
   period: HrSalaryPeriod,
   hourlyRate: number,
   otHourlyRate: number,
+  holidays: Array<{ date: string }> = [],
 ): HrOvertimePaySplit {
   const normalizedOt = normalizeOvertimeEntries(overtimeEntries, period);
   const normalizedShifts = normalizeWorkShiftEntries(workShiftEntries, period);
   const normalizedJoins = normalizeDayJoinEntries(dayJoinEntries, period);
+  const weekdayHolidays = weekdayHolidayDateSet(holidays, period.year, period.month);
   const otByDate = new Map<string, HrOvertimeEntry[]>();
   for (const entry of normalizedOt) {
     const list = otByDate.get(entry.date) ?? [];
@@ -611,6 +673,16 @@ export function computeOvertimePayWithMakeup(
   let makeupRegularPay = 0;
   const entryPay = new Map<string, { makeupHours: number; billableOtHours: number; pay: number }>();
 
+  const payEntriesAsFullOt = (entries: HrOvertimeEntry[]) => {
+    for (const entry of entries) {
+      const hours = overtimeEntryHours(entry.startTime, entry.endTime);
+      if (hours <= 0) continue;
+      const pay = Math.round(hours * otHourlyRate * 100) / 100;
+      overtimePay += pay;
+      entryPay.set(entry.id, { makeupHours: 0, billableOtHours: hours, pay });
+    }
+  };
+
   for (const [date, entries] of otByDate.entries()) {
     const rawHours = entries.reduce(
       (sum, entry) => sum + overtimeEntryHours(entry.startTime, entry.endTime),
@@ -619,15 +691,14 @@ export function computeOvertimePayWithMakeup(
     if (rawHours <= 0) continue;
 
     const isSunday = isSundayIsoDate(date);
-    if (isSunday) {
-      sundayHours = Math.round((sundayHours + rawHours) * 100) / 100;
-      for (const entry of entries) {
-        const hours = overtimeEntryHours(entry.startTime, entry.endTime);
-        if (hours <= 0) continue;
-        const pay = Math.round(hours * otHourlyRate * 100) / 100;
-        overtimePay += pay;
-        entryPay.set(entry.id, { makeupHours: 0, billableOtHours: hours, pay });
+    const isWeekdayHoliday = weekdayHolidays.has(date);
+    if (isSunday || isWeekdayHoliday) {
+      if (isSunday) {
+        sundayHours = Math.round((sundayHours + rawHours) * 100) / 100;
+      } else {
+        weekdayBillableOtHours = Math.round((weekdayBillableOtHours + rawHours) * 100) / 100;
       }
+      payEntriesAsFullOt(entries);
       continue;
     }
 
@@ -668,33 +739,67 @@ export function computeOvertimePayWithMakeup(
   };
 }
 
+function regularAttendanceForDate(
+  date: string,
+  weekdayHolidayDates: Set<string>,
+  leaveMap: Map<string, HrLeaveKind>,
+  shiftsByDate: Map<string, HrWorkShiftEntry[]>,
+  normalizedJoins: HrDayJoinEntry[],
+  otHoursByDate: Map<string, number>,
+  perDaySalary: number,
+): { regularPay: number; payableDays: number; regularHours: number } {
+  const empty = { regularPay: 0, payableDays: 0, regularHours: 0 };
+  const [y, m, d] = date.split('-').map(Number);
+  if (!y || !m || !d) return empty;
+  const dow = new Date(y, m - 1, d).getDay();
+  if (dow === 0 || weekdayHolidayDates.has(date)) return empty;
+  const leaveKind = leaveMap.get(date);
+  if (leaveKind === 'full') return empty;
+  const basePayable = leaveKind === 'half' ? 0.5 : 1;
+  const shifts = shiftsByDate.get(date) ?? [];
+  const joinEntry = normalizedJoins.find(entry => entry.date === date) ?? null;
+  const usesTimedRegular = shifts.length > 0 || dayJoinHasCustomClock(joinEntry);
+
+  if (usesTimedRegular) {
+    const shiftHours = shifts.reduce(
+      (sum, entry) => sum + overtimeEntryHours(entry.startTime, entry.endTime),
+      0,
+    );
+    const clockHours = shifts.length > 0 ? 0 : dayJoinRegularHours(joinEntry);
+    const workedHours = shifts.length > 0 ? shiftHours : clockHours;
+    const deficit = morningDeficitHoursForDate(date, shifts, normalizedJoins);
+    const { makeupHours } = splitOtHoursWithMorningMakeup(otHoursByDate.get(date) ?? 0, deficit);
+    const effectiveRegularHours = Math.min(
+      basePayable * HR_SALARY_HOURS_PER_DAY,
+      Math.round((workedHours + makeupHours) * 100) / 100,
+    );
+    const dayDays = Math.round((effectiveRegularHours / HR_SALARY_HOURS_PER_DAY) * 100) / 100;
+    return {
+      payableDays: dayDays,
+      regularHours: effectiveRegularHours,
+      regularPay: Math.round(dayDays * perDaySalary * 100) / 100,
+    };
+  }
+
+  return {
+    payableDays: basePayable,
+    regularHours: Math.round(basePayable * HR_SALARY_HOURS_PER_DAY * 100) / 100,
+    regularPay: Math.round(basePayable * perDaySalary * 100) / 100,
+  };
+}
+
 function computeRegularPayFromAttendance(
   period: HrSalaryPeriod,
   holidays: HrHoliday[],
   leaveEntries: HrLeaveEntry[],
-  workDayEntries: HrWorkDayEntry[],
   workShiftEntries: HrWorkShiftEntry[],
   dayJoinEntries: HrDayJoinEntry[],
   overtimeEntries: HrOvertimeEntry[],
-  projects: HrSalaryProject[],
   perDaySalary: number,
 ): { regularPay: number; payableDays: number; regularHours: number } {
-  const monthHolidays = holidaysInMonth(holidays, period.year, period.month);
-  const weekdayHolidayDates = new Set(
-    monthHolidays
-      .filter(h => {
-        const [y, m, d] = h.date.split('-').map(Number);
-        if (!y || !m || !d) return false;
-        return new Date(y, m - 1, d).getDay() !== 0;
-      })
-      .map(h => h.date),
-  );
+  const weekdayHolidayDates = weekdayHolidayDateSet(holidays, period.year, period.month);
   const leaveMap = new Map(
     normalizeLeaveEntries(leaveEntries, period).map(e => [e.date, e.kind]),
-  );
-  const projectIds = new Set(projects.map(p => p.id));
-  const workMap = new Map(
-    normalizeWorkDayEntries(workDayEntries, period, projectIds).map(e => [e.date, e.projectId]),
   );
   const shiftsByDate = new Map<string, HrWorkShiftEntry[]>();
   for (const entry of normalizeWorkShiftEntries(workShiftEntries, period)) {
@@ -719,48 +824,141 @@ function computeRegularPayFromAttendance(
   const total = daysInMonth(period.year, period.month);
   for (let day = 1; day <= total; day += 1) {
     const date = isoDate(period.year, period.month, day);
-    const dow = new Date(period.year, period.month - 1, day).getDay();
-    if (dow === 0 || weekdayHolidayDates.has(date)) continue;
-    const leaveKind = leaveMap.get(date);
-    if (leaveKind === 'full') continue;
-    const basePayable = leaveKind === 'half' ? 0.5 : 1;
-    const shifts = shiftsByDate.get(date) ?? [];
-    const joinEntry = normalizedJoins.find(entry => entry.date === date) ?? null;
-    const usesTimedRegular = shifts.length > 0 || dayJoinHasCustomClock(joinEntry);
-
-    if (usesTimedRegular) {
-      const shiftHours = shifts.reduce(
-        (sum, entry) => sum + overtimeEntryHours(entry.startTime, entry.endTime),
-        0,
-      );
-      const clockHours = shifts.length > 0 ? 0 : dayJoinRegularHours(joinEntry);
-      const workedHours = shifts.length > 0 ? shiftHours : clockHours;
-      const deficit = morningDeficitHoursForDate(date, shifts, normalizedJoins);
-      const { makeupHours } = splitOtHoursWithMorningMakeup(otHoursByDate.get(date) ?? 0, deficit);
-      const effectiveRegularHours = Math.min(
-        basePayable * HR_SALARY_HOURS_PER_DAY,
-        Math.round((workedHours + makeupHours) * 100) / 100,
-      );
-      const dayDays = Math.round((effectiveRegularHours / HR_SALARY_HOURS_PER_DAY) * 100) / 100;
-      payableDays = Math.round((payableDays + dayDays) * 100) / 100;
-      regularHours = Math.round((regularHours + effectiveRegularHours) * 100) / 100;
-      regularPay = Math.round((regularPay + dayDays * perDaySalary) * 100) / 100;
-      continue;
-    }
-
-    if (workMap.has(date)) {
-      payableDays = Math.round((payableDays + basePayable) * 100) / 100;
-      regularHours = Math.round((regularHours + basePayable * HR_SALARY_HOURS_PER_DAY) * 100) / 100;
-      regularPay = Math.round((regularPay + basePayable * perDaySalary) * 100) / 100;
-      continue;
-    }
-
-    payableDays = Math.round((payableDays + basePayable) * 100) / 100;
-    regularHours = Math.round((regularHours + basePayable * HR_SALARY_HOURS_PER_DAY) * 100) / 100;
-    regularPay = Math.round((regularPay + basePayable * perDaySalary) * 100) / 100;
+    const row = regularAttendanceForDate(
+      date,
+      weekdayHolidayDates,
+      leaveMap,
+      shiftsByDate,
+      normalizedJoins,
+      otHoursByDate,
+      perDaySalary,
+    );
+    payableDays = Math.round((payableDays + row.payableDays) * 100) / 100;
+    regularHours = Math.round((regularHours + row.regularHours) * 100) / 100;
+    regularPay = Math.round((regularPay + row.regularPay) * 100) / 100;
   }
 
   return { regularPay, payableDays, regularHours };
+}
+
+export type HrDayEarnings = {
+  date: string;
+  regularPay: number;
+  overtimePay: number;
+  totalPay: number;
+  regularHours: number;
+  overtimeHours: number;
+};
+
+/** Per-calendar-day earned pay (regular + billable OT). Makeup is inside regular. */
+export function dayEarningsByDate(
+  period: HrSalaryPeriod,
+  holidays: HrHoliday[],
+  leaveEntries: HrLeaveEntry[],
+  overtimeEntries: HrOvertimeEntry[],
+  workShiftEntries: HrWorkShiftEntry[],
+  workDayEntries: HrWorkDayEntry[],
+  dayJoinEntries: HrDayJoinEntry[],
+  _projects: HrSalaryProject[],
+  perDaySalary: number,
+  otPerDaySalary: number,
+): Map<string, HrDayEarnings> {
+  const cleaned = dropRegularMarksWhenOtOnClosedDays(period, holidays, {
+    overtimeEntries,
+    workDayEntries,
+    workShiftEntries,
+    dayJoinEntries,
+  });
+  const weekdayHolidayDates = weekdayHolidayDateSet(holidays, period.year, period.month);
+  const leaveMap = new Map(
+    normalizeLeaveEntries(leaveEntries, period).map(e => [e.date, e.kind]),
+  );
+  const shiftsByDate = new Map<string, HrWorkShiftEntry[]>();
+  for (const entry of normalizeWorkShiftEntries(cleaned.workShiftEntries, period)) {
+    const list = shiftsByDate.get(entry.date) ?? [];
+    list.push(entry);
+    shiftsByDate.set(entry.date, list);
+  }
+  const normalizedJoins = normalizeDayJoinEntries(cleaned.dayJoinEntries, period);
+  const normalizedOt = normalizeOvertimeEntries(overtimeEntries, period);
+  const otHoursByDate = overtimeHoursByDate(normalizedOt);
+  const hourlyRate = perDaySalary / HR_SALARY_HOURS_PER_DAY;
+  const otHourlyRate = otPerDaySalary / HR_SALARY_HOURS_PER_DAY;
+  const otSplit = computeOvertimePayWithMakeup(
+    overtimeEntries,
+    cleaned.workShiftEntries,
+    cleaned.dayJoinEntries,
+    period,
+    hourlyRate,
+    otHourlyRate,
+    holidays,
+  );
+
+  const otPayByDate = new Map<string, { overtimePay: number; overtimeHours: number }>();
+  for (const entry of normalizedOt) {
+    const split = otSplit.entryPay.get(entry.id);
+    if (!split || !(split.billableOtHours > 0)) continue;
+    const pay = Math.round(split.billableOtHours * otHourlyRate * 100) / 100;
+    const cur = otPayByDate.get(entry.date) ?? { overtimePay: 0, overtimeHours: 0 };
+    otPayByDate.set(entry.date, {
+      overtimePay: Math.round((cur.overtimePay + pay) * 100) / 100,
+      overtimeHours: Math.round((cur.overtimeHours + split.billableOtHours) * 100) / 100,
+    });
+  }
+
+  const out = new Map<string, HrDayEarnings>();
+  const total = daysInMonth(period.year, period.month);
+  for (let day = 1; day <= total; day += 1) {
+    const date = isoDate(period.year, period.month, day);
+    const regular = regularAttendanceForDate(
+      date,
+      weekdayHolidayDates,
+      leaveMap,
+      shiftsByDate,
+      normalizedJoins,
+      otHoursByDate,
+      perDaySalary,
+    );
+    const ot = otPayByDate.get(date) ?? { overtimePay: 0, overtimeHours: 0 };
+    out.set(date, {
+      date,
+      regularPay: regular.regularPay,
+      overtimePay: ot.overtimePay,
+      totalPay: Math.round((regular.regularPay + ot.overtimePay) * 100) / 100,
+      regularHours: regular.regularHours,
+      overtimeHours: ot.overtimeHours,
+    });
+  }
+  return out;
+}
+
+export function calendarDayHoverTitle(
+  cell: Pick<
+    HrSalaryDayCell,
+    'date' | 'kind' | 'holidayName' | 'leaveKind' | 'hasUnassignedRegular' | 'overtimeHours'
+  >,
+  earnings: HrDayEarnings | undefined,
+  isSunday: boolean,
+): string {
+  const extras = [
+    cell.hasUnassignedRegular
+      ? 'Unassigned regular day — set a whole-day project or daytime shifts'
+      : null,
+    cell.overtimeHours > 0 ? `${formatOtHours(cell.overtimeHours)} OT` : null,
+    cell.kind === 'holiday' ? cell.holidayName : null,
+    isSunday && !(cell.overtimeHours > 0) ? 'Sunday' : null,
+    cell.kind === 'leave' || cell.leaveKind === 'full' ? 'Full-day leave' : null,
+    cell.kind === 'leave_half' || cell.leaveKind === 'half' ? 'Half-day leave' : null,
+  ].filter(Boolean) as string[];
+
+  const total = earnings?.totalPay ?? 0;
+  const lines = [formatInr(total)];
+  const breakdown: string[] = [];
+  if (earnings && earnings.regularPay > 0) breakdown.push(`Regular ${formatInr(earnings.regularPay)}`);
+  if (earnings && earnings.overtimePay > 0) breakdown.push(`OT ${formatInr(earnings.overtimePay)}`);
+  if (breakdown.length > 0) lines.push(breakdown.join(' · '));
+  if (extras.length > 0) lines.push(extras.join(' · '));
+  return lines.join('\n');
 }
 
 export type HrProjectWorkTotal = {
@@ -893,16 +1091,16 @@ export function projectWorkTotals(
     period,
     hourlyRate,
     otHourlyRate,
+    holidays,
   );
 
   for (const entry of normalizeOvertimeEntries(overtimeEntries, period)) {
     const split = otPaySplit.entryPay.get(entry.id);
-    if (!split || split.makeupHours + split.billableOtHours <= 0) continue;
+    if (!split || !(split.billableOtHours > 0)) continue;
     const projectId = entry.projectId && byId.has(entry.projectId) ? entry.projectId : null;
     const row = projectId ? byId.get(projectId)! : ensureUnassigned();
+    if (!(split.billableOtHours > 0)) continue;
     row.otHours = Math.round((row.otHours + split.billableOtHours) * 100) / 100;
-    row.regularDays = Math.round((row.regularDays + split.makeupHours / HR_SALARY_HOURS_PER_DAY) * 100) / 100;
-    row.regularPay = Math.round((row.regularPay + split.makeupHours * hourlyRate) * 100) / 100;
     row.otPay = Math.round((row.otPay + split.billableOtHours * otHourlyRate) * 100) / 100;
   }
 
@@ -1023,7 +1221,14 @@ export function buildMonthDayCells(
   projects: HrSalaryProject[] = [],
   workDayEntries: HrWorkDayEntry[] = [],
   workShiftEntries: HrWorkShiftEntry[] = [],
+  dayJoinEntries: HrDayJoinEntry[] = [],
 ): HrSalaryDayCell[] {
+  const cleaned = dropRegularMarksWhenOtOnClosedDays(period, holidays, {
+    overtimeEntries,
+    workDayEntries,
+    workShiftEntries,
+    dayJoinEntries,
+  });
   const leaveMap = new Map(
     normalizeLeaveEntries(leaveEntries, period).map(e => [e.date, e.kind]),
   );
@@ -1035,26 +1240,18 @@ export function buildMonthDayCells(
   const colorByProject = new Map(projects.map(p => [p.id, p.color]));
   const workMap = new Map(
     normalizeWorkDayEntries(
-      workDayEntries,
+      cleaned.workDayEntries,
       period,
       projectIds,
     ).map(e => [e.date, e.projectId]),
   );
   const shiftsByDate = new Map<string, HrWorkShiftEntry[]>();
-  for (const entry of normalizeWorkShiftEntries(workShiftEntries, period)) {
+  for (const entry of normalizeWorkShiftEntries(cleaned.workShiftEntries, period)) {
     const list = shiftsByDate.get(entry.date) ?? [];
     list.push(entry);
     shiftsByDate.set(entry.date, list);
   }
-  const weekdayHolidayDates = new Set(
-    holidaysInMonth(holidays, period.year, period.month)
-      .filter(h => {
-        const [y, m, d] = h.date.split('-').map(Number);
-        if (!y || !m || !d) return false;
-        return new Date(y, m - 1, d).getDay() !== 0;
-      })
-      .map(h => h.date),
-  );
+  const weekdayHolidayDates = weekdayHolidayDateSet(holidays, period.year, period.month);
   const colorsByDate = new Map<string, string[]>();
   const pushColor = (date: string, projectId: string | null | undefined) => {
     if (!projectId) return;
@@ -1065,7 +1262,7 @@ export function buildMonthDayCells(
     colorsByDate.set(date, list);
   };
   for (const [date, projectId] of workMap) pushColor(date, projectId);
-  for (const entry of normalizeWorkShiftEntries(workShiftEntries, period)) {
+  for (const entry of normalizeWorkShiftEntries(cleaned.workShiftEntries, period)) {
     pushColor(entry.date, entry.projectId);
   }
   for (const entry of overtimeEntries) pushColor(entry.date, entry.projectId);
@@ -1174,12 +1371,6 @@ export function buildMonthDayCells(
   return cells;
 }
 
-function isSundayIsoDate(date: string): boolean {
-  const [y, m, d] = date.split('-').map(Number);
-  if (!y || !m || !d) return false;
-  return new Date(y, m - 1, d).getDay() === 0;
-}
-
 /**
  * Earned = payableDays × (monthly ÷ rateDays)
  *         + (Sunday hours + weekday OT hours) × (OT-per-day ÷ 8).
@@ -1196,7 +1387,7 @@ export function computeSalaryCalc(
   workShiftEntries: HrWorkShiftEntry[] = [],
   workDayEntries: HrWorkDayEntry[] = [],
   dayJoinEntries: HrDayJoinEntry[] = [],
-  projects: HrSalaryProject[] = [],
+  _projects: HrSalaryProject[] = [],
 ): HrSalaryCalc {
   const days = daysInMonth(period.year, period.month);
   const sundays = countSundaysInMonth(period.year, period.month);
@@ -1243,24 +1434,29 @@ export function computeSalaryCalc(
   const hourlyRate = perDaySalary / HR_SALARY_HOURS_PER_DAY;
   const otHourlyRate = otPerDaySalary / HR_SALARY_HOURS_PER_DAY;
 
+  const cleaned = dropRegularMarksWhenOtOnClosedDays(period, holidays, {
+    overtimeEntries,
+    workDayEntries,
+    workShiftEntries,
+    dayJoinEntries,
+  });
   const attendanceRegular = computeRegularPayFromAttendance(
     period,
     holidays,
     leaveEntries,
-    workDayEntries,
-    workShiftEntries,
-    dayJoinEntries,
+    cleaned.workShiftEntries,
+    cleaned.dayJoinEntries,
     overtimeEntries,
-    projects,
     perDaySalary,
   );
   const otSplit = computeOvertimePayWithMakeup(
     overtimeEntries,
-    workShiftEntries,
-    dayJoinEntries,
+    cleaned.workShiftEntries,
+    cleaned.dayJoinEntries,
     period,
     hourlyRate,
     otHourlyRate,
+    holidays,
   );
 
   const payableDays = attendanceRegular.payableDays;
@@ -1317,26 +1513,15 @@ export function resolveSalaryRates(
   const rateDays = salaryRateDays(period.year, period.month, holidays);
   const defaultMonthly = Math.max(0, Number(defaults?.monthlySalary) || 0);
   const defaultPerDay = Math.max(0, Number(defaults?.perDaySalary) || 0);
-  const defaultOt = Math.max(
-    0,
-    Number(defaults?.otPerDaySalary)
-      || (defaultMonthly > 0 ? perDayFromMonthly(defaultMonthly, rateDays) : defaultPerDay),
-  );
+  const defaultOt = Math.max(0, Number(defaults?.otPerDaySalary) || 0);
 
   let monthlySalary = 0;
-  let otPerDaySalary = defaultOt;
-
   if (saved) {
     if (Number(saved.monthlySalary) > 0) {
       monthlySalary = Math.max(0, Number(saved.monthlySalary) || 0);
     } else if (Number(saved.perDaySalary) > 0) {
       // Legacy fixed per-day → reconstruct monthly for this period's rate days.
       monthlySalary = Math.round((Number(saved.perDaySalary) * Math.max(rateDays, 1)) * 100) / 100;
-    }
-    if (Number(saved.otPerDaySalary) > 0) {
-      otPerDaySalary = Math.max(0, Number(saved.otPerDaySalary) || 0);
-    } else if (monthlySalary > 0) {
-      otPerDaySalary = perDayFromMonthly(monthlySalary, rateDays);
     }
   }
 
@@ -1348,7 +1533,17 @@ export function resolveSalaryRates(
   }
 
   const perDaySalary = perDayFromMonthly(monthlySalary, rateDays);
-  if (!(otPerDaySalary > 0) && perDaySalary > 0) otPerDaySalary = perDaySalary;
+
+  // OT is a staff default, not monthly ÷ working days. Only copy per-day when
+  // neither the month nor the employee has an OT rate (legacy).
+  let otPerDaySalary = 0;
+  if (saved && Number(saved.otPerDaySalary) > 0) {
+    otPerDaySalary = Math.max(0, Number(saved.otPerDaySalary) || 0);
+  } else if (defaultOt > 0) {
+    otPerDaySalary = defaultOt;
+  } else if (perDaySalary > 0) {
+    otPerDaySalary = perDaySalary;
+  }
 
   return { monthlySalary, perDaySalary, otPerDaySalary };
 }
@@ -1545,7 +1740,15 @@ export async function saveSalaryMonth(
     ...entry,
     projectId: entry.projectId && projectIds.has(entry.projectId) ? entry.projectId : null,
   }));
-  const dayJoinEntries = normalizeDayJoinEntries(input.dayJoinEntries ?? [], period);
+  const cleaned = dropRegularMarksWhenOtOnClosedDays(period, holidays, {
+    overtimeEntries,
+    workDayEntries: workDayEntries.filter(e => !shiftDates.has(e.date)),
+    workShiftEntries,
+    dayJoinEntries: normalizeDayJoinEntries(input.dayJoinEntries ?? [], period),
+  });
+  const workDayEntriesSaved = cleaned.workDayEntries;
+  const workShiftEntriesSaved = cleaned.workShiftEntries;
+  const dayJoinEntries = cleaned.dayJoinEntries;
   const expenseEntries = normalizeExpenseEntries(input.expenseEntries ?? [], period);
   const receiptEntries = normalizeSalaryReceiptEntries(input.receiptEntries ?? [], period);
   const monthlySalary = Math.max(0, Number(input.monthlySalary) || 0);
@@ -1566,8 +1769,8 @@ export async function saveSalaryMonth(
       leaveEntries,
       leaveDates: leaveEntries.filter(e => e.kind === 'full').map(e => e.date),
       projects,
-      workDayEntries,
-      workShiftEntries,
+      workDayEntries: workDayEntriesSaved,
+      workShiftEntries: workShiftEntriesSaved,
       dayJoinEntries,
       overtimeEntries,
       expenseEntries,
@@ -1578,6 +1781,15 @@ export async function saveSalaryMonth(
     },
     { merge: true },
   );
+  if (isPayrollEmployeeKey(input.uid)) {
+    await savePayrollEmployeeSalaryDefaults(
+      input.uid.slice(PAYROLL_EMPLOYEE_KEY_PREFIX.length),
+      {
+        defaultMonthlySalary: monthlySalary,
+        defaultOtPerDaySalary: otPerDaySalary,
+      },
+    );
+  }
 }
 
 /** Load non-portal (payroll-only) employees with salary/leave for the period. */
@@ -1606,10 +1818,16 @@ export async function buildSalaryCalculationRows(
       );
       const leaveEntries = saved?.leaveEntries ?? [];
       const projects = saved?.projects ?? [];
-      const workDayEntries = saved?.workDayEntries ?? [];
-      const workShiftEntries = saved?.workShiftEntries ?? [];
-      const dayJoinEntries = saved?.dayJoinEntries ?? [];
       const overtimeEntries = saved?.overtimeEntries ?? [];
+      const cleaned = dropRegularMarksWhenOtOnClosedDays(period, holidays, {
+        overtimeEntries,
+        workDayEntries: saved?.workDayEntries ?? [],
+        workShiftEntries: saved?.workShiftEntries ?? [],
+        dayJoinEntries: saved?.dayJoinEntries ?? [],
+      });
+      const workDayEntries = cleaned.workDayEntries;
+      const workShiftEntries = cleaned.workShiftEntries;
+      const dayJoinEntries = cleaned.dayJoinEntries;
       const expenseEntries = saved?.expenseEntries ?? [];
       const receiptEntries = saved?.receiptEntries ?? [];
       return {

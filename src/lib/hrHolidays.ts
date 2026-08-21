@@ -21,6 +21,7 @@ export const DEFAULT_HR_HOLIDAYS_2026: Array<Omit<HrHolidayInput, 'note'>> = [
   { date: '2026-05-01', name: 'Labour Day', type: 'public' },
   { date: '2026-08-15', name: 'Independence Day', type: 'public' },
   { date: '2026-08-26', name: 'Onam', type: 'company' },
+  { date: '2026-08-27', name: 'Onam (second day)', type: 'company' },
   { date: '2026-10-02', name: 'Gandhi Jayanti', type: 'public' },
   { date: '2026-10-20', name: 'Diwali', type: 'public' },
   { date: '2026-11-08', name: 'Deepavali (regional)', type: 'optional' },

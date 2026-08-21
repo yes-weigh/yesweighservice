@@ -99,8 +99,20 @@ export async function createPayrollEmployee(
   };
 }
 
-export async function setPayrollEmployeeActive(id: string, active: boolean): Promise<void> {
-  await updateDoc(doc(db, COLLECTION, id), { active });
+export async function savePayrollEmployeeSalaryDefaults(
+  employeeId: string,
+  defaults: {
+    defaultMonthlySalary?: number;
+    defaultOtPerDaySalary?: number;
+  },
+): Promise<void> {
+  const patch: Record<string, number> = {};
+  const monthly = Math.max(0, Number(defaults.defaultMonthlySalary) || 0);
+  const otPerDay = Math.max(0, Number(defaults.defaultOtPerDaySalary) || 0);
+  if (monthly > 0) patch.defaultMonthlySalary = monthly;
+  if (otPerDay > 0) patch.defaultOtPerDaySalary = otPerDay;
+  if (Object.keys(patch).length === 0) return;
+  await updateDoc(doc(db, COLLECTION, employeeId), patch);
 }
 
 export async function deletePayrollEmployee(id: string): Promise<void> {

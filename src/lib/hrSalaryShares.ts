@@ -20,6 +20,7 @@ import {
   perDayFromMonthly,
   salaryMonthDocId,
   salaryRateDays,
+  dropRegularMarksWhenOtOnClosedDays,
 } from './hrSalary';
 
 const SHARE_COLLECTION = 'hrSalaryShares';
@@ -281,6 +282,12 @@ export async function upsertSalaryShare(
     createdAt: '',
     createdByUid: null,
   }));
+  const cleaned = dropRegularMarksWhenOtOnClosedDays(period, holidayRows, {
+    overtimeEntries: input.overtimeEntries,
+    workDayEntries: input.workDayEntries,
+    workShiftEntries: input.workShiftEntries ?? [],
+    dayJoinEntries: input.dayJoinEntries ?? [],
+  });
   const rateDays = salaryRateDays(period.year, period.month, holidayRows);
   const perDaySalary = perDayFromMonthly(monthlySalary, rateDays);
   await setDoc(
@@ -297,9 +304,9 @@ export async function upsertSalaryShare(
       otPerDaySalary: Math.max(0, input.otPerDaySalary),
       leaveEntries: input.leaveEntries,
       projects: input.projects,
-      workDayEntries: input.workDayEntries,
-      workShiftEntries: input.workShiftEntries ?? [],
-      dayJoinEntries: input.dayJoinEntries ?? [],
+      workDayEntries: cleaned.workDayEntries,
+      workShiftEntries: cleaned.workShiftEntries,
+      dayJoinEntries: cleaned.dayJoinEntries,
       expenseEntries: input.expenseEntries ?? [],
       receiptEntries: input.receiptEntries ?? [],
       overtimeEntries: input.overtimeEntries,

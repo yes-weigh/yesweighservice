@@ -5,6 +5,7 @@
 import { getFirestore } from 'firebase-admin/firestore';
 import { HttpsError } from 'firebase-functions/v2/https';
 import { randomUUID } from 'node:crypto';
+import { dropRegularMarksWhenOtOnClosedDays } from './hr-salary-closed-day.js';
 
 const SHARE_COLLECTION = 'hrSalaryShares';
 const MONTH_COLLECTION = 'hrSalaryMonths';
@@ -257,6 +258,15 @@ export async function updatePublicSalaryShare(payload = {}) {
   const workDayEntries = normalizeWorkDays(payload.workDayEntries, key, projectIds)
     .filter(e => !shiftDates.has(e.date));
   const overtimeEntries = normalizeOt(payload.overtimeEntries, key, projectIds);
+  const cleaned = dropRegularMarksWhenOtOnClosedDays(year, month, holidays, {
+    overtimeEntries,
+    workDayEntries,
+    workShiftEntries,
+    dayJoinEntries,
+  });
+  const workDayEntriesSaved = cleaned.workDayEntries;
+  const workShiftEntriesSaved = cleaned.workShiftEntries;
+  const dayJoinEntriesSaved = cleaned.dayJoinEntries;
   const monthlySalary = Math.max(0, Number(payload.monthlySalary) || 0);
   const otPerDaySalary = Math.max(0, Number(payload.otPerDaySalary) || 0);
   const rateDays = salaryRateDays(year, month, holidays);
@@ -281,9 +291,9 @@ export async function updatePublicSalaryShare(payload = {}) {
     leaveEntries,
     leaveDates: leaveEntries.filter(e => e.kind === 'full').map(e => e.date),
     projects,
-    workDayEntries,
-    workShiftEntries,
-    dayJoinEntries,
+    workDayEntries: workDayEntriesSaved,
+    workShiftEntries: workShiftEntriesSaved,
+    dayJoinEntries: dayJoinEntriesSaved,
     expenseEntries,
     receiptEntries,
     overtimeEntries,
@@ -292,6 +302,16 @@ export async function updatePublicSalaryShare(payload = {}) {
     updatedAt: now,
     updatedByUid: 'public_share',
   }, { merge: true });
+
+  if (uid.startsWith('ext_') && (monthlySalary > 0 || otPerDaySalary > 0)) {
+    const employeeId = uid.slice('ext_'.length);
+    if (employeeId) {
+      const patch = {};
+      if (monthlySalary > 0) patch.defaultMonthlySalary = monthlySalary;
+      if (otPerDaySalary > 0) patch.defaultOtPerDaySalary = otPerDaySalary;
+      await db.collection('hrPayrollEmployees').doc(employeeId).set(patch, { merge: true });
+    }
+  }
 
   await shareRef.set({
     sourceDocId,
@@ -305,9 +325,9 @@ export async function updatePublicSalaryShare(payload = {}) {
     otPerDaySalary,
     leaveEntries,
     projects,
-    workDayEntries,
-    workShiftEntries,
-    dayJoinEntries,
+    workDayEntries: workDayEntriesSaved,
+    workShiftEntries: workShiftEntriesSaved,
+    dayJoinEntries: dayJoinEntriesSaved,
     expenseEntries,
     receiptEntries,
     overtimeEntries,
@@ -325,9 +345,9 @@ export async function updatePublicSalaryShare(payload = {}) {
     otPerDaySalary,
     leaveEntries,
     projects,
-    workDayEntries,
-    workShiftEntries,
-    dayJoinEntries,
+    workDayEntries: workDayEntriesSaved,
+    workShiftEntries: workShiftEntriesSaved,
+    dayJoinEntries: dayJoinEntriesSaved,
     expenseEntries,
     receiptEntries,
     overtimeEntries,

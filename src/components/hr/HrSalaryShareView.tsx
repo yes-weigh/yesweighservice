@@ -1,18 +1,20 @@
-import { useMemo } from 'react';
+import { useMemo, useState } from 'react';
 import { Plus, Trash2 } from 'lucide-react';
 import { DecimalTextInput } from '../DecimalAmountInput';
 import { DayAttendanceSheet } from './DayAttendanceSheet';
 import { ExpenseSettlementCard } from './ExpenseSettlementCard';
+import { HrSalaryDetailTabs, type HrSalaryDetailTab } from './HrSalaryDetailTabs';
+import { ProjectWorkSummaryCard } from './ProjectWorkSummaryCard';
 import {
   buildMonthDayCells,
+  calendarDayHoverTitle,
   computeExpenseSettlement,
   computeOvertimePayWithMakeup,
   computeSalaryCalc,
+  dayEarningsByDate,
   formatInr,
-  formatLeaveDays,
   formatOtHours,
   formatTimeAmPm,
-  formatWorkPercent,
   leaveKindForDate,
   overtimeEntryHours,
   projectWorkSharePercents,
@@ -148,6 +150,7 @@ export function HrSalaryShareView({
   saveError = '',
 }: HrSalaryShareViewProps) {
   const editable = Boolean(edit);
+  const [detailTab, setDetailTab] = useState<HrSalaryDetailTab>('calendar');
   const holidays = useMemo(() => toHrHolidays(holidaysInput), [holidaysInput]);
   const holidayDateSet = useMemo(
     () => new Set(holidays.map(h => h.date)),
@@ -209,8 +212,35 @@ export function HrSalaryShareView({
       projects,
       workDayEntries,
       workShiftEntries,
+      dayJoinEntries,
     ),
-    [period, holidays, leaveEntries, overtimeEntries, projects, workDayEntries, workShiftEntries],
+    [period, holidays, leaveEntries, overtimeEntries, projects, workDayEntries, workShiftEntries, dayJoinEntries],
+  );
+  const dayEarnings = useMemo(
+    () => dayEarningsByDate(
+      period,
+      holidays,
+      leaveEntries,
+      overtimeEntries,
+      workShiftEntries,
+      workDayEntries,
+      dayJoinEntries,
+      projects,
+      calc.perDaySalary,
+      calc.otPerDaySalary,
+    ),
+    [
+      period,
+      holidays,
+      leaveEntries,
+      overtimeEntries,
+      workShiftEntries,
+      workDayEntries,
+      dayJoinEntries,
+      projects,
+      calc.perDaySalary,
+      calc.otPerDaySalary,
+    ],
   );
   const leadingPads = new Date(period.year, period.month - 1, 1).getDay();
   const projectTotals = useMemo(
@@ -249,8 +279,9 @@ export function HrSalaryShareView({
       period,
       calc.hourlyRate,
       calc.otHourlyRate,
+      holidays,
     ),
-    [overtimeEntries, workShiftEntries, dayJoinEntries, period, calc.hourlyRate, calc.otHourlyRate],
+    [overtimeEntries, workShiftEntries, dayJoinEntries, period, calc.hourlyRate, calc.otHourlyRate, holidays],
   );
   const projectSharePercents = useMemo(
     () => projectWorkSharePercents(projectTotals),
@@ -280,6 +311,10 @@ export function HrSalaryShareView({
   );
 
   const selectedDate = edit?.selectedDate ?? null;
+  const selectDate = (date: string | null) => {
+    setDetailTab('calendar');
+    edit?.onSelectDate(date);
+  };
 
   return (
     <div className={`hr-salary__expand hr-salary__expand--public${editable ? ' is-editing' : ''}`}>
@@ -413,7 +448,14 @@ export function HrSalaryShareView({
       </div>
 
       <div className="hr-salary__main-grid">
-        <div className={`hr-salary__cal-row${editable ? '' : ' is-calendar-only'}`}>
+        <HrSalaryDetailTabs
+          tab={detailTab}
+          onTabChange={setDetailTab}
+          overtimeHint={`${formatOtHours(calc.overtimeHours)} · ${formatInr(calc.overtimePay)}`}
+          expensesHint={`${formatInr(settlement.netPayable)} net`}
+        >
+        {detailTab === 'calendar' ? (
+        <div className="hr-salary__cal-row">
           <div className="hr-salary__card hr-salary__expand-cal">
           <div className="hr-salary__cal-head">
             <h4>{salaryPeriodLabel(period)}</h4>
@@ -443,28 +485,20 @@ export function HrSalaryShareView({
                   || cell.kind === 'working'
                 );
                 const showAsWorkday = hasWork && !fullLeave && !halfLeave && !sunday;
-                const dayTitle = [
-                  cell.hasUnassignedRegular
-                    ? 'Unassigned regular day — set a whole-day project or daytime shifts'
-                    : null,
-                  hasOt ? `${formatOtHours(cell.overtimeHours)} OT` : null,
-                  cell.kind === 'holiday' ? cell.holidayName : null,
-                  cell.kind === 'sunday' && !hasOt ? 'Sunday' : null,
-                  cell.kind === 'leave' ? 'Full-day leave' : null,
-                  cell.kind === 'leave_half' ? 'Half-day leave' : null,
-                ].filter(Boolean).join(' · ') || cell.date;
+                const dayEarn = dayEarnings.get(cell.date);
+                const dayTitle = calendarDayHoverTitle(cell, dayEarn, sunday);
                 const DayTag = editable ? 'button' : 'div';
                 const dayProps = editable && edit
                   ? {
                     type: 'button' as const,
-                    onClick: () => edit.onSelectDate(cell.date),
+                    onClick: () => selectDate(cell.date),
                   }
                   : {};
                 return (
                   <DayTag
                     key={cell.date}
                     {...dayProps}
-                    title={dayTitle}
+                    aria-label={dayTitle}
                     className={[
                       'hr-salary__day',
                       editable ? '' : 'is-readonly',
@@ -495,6 +529,22 @@ export function HrSalaryShareView({
                             className="hr-salary__proj-dot hr-salary__proj-dot--mini is-empty"
                             title="Unassigned"
                           />
+                        ) : null}
+                      </span>
+                    ) : null}
+                    {dayEarn ? (
+                      <span className="hr-salary__day-tip" role="tooltip">
+                        <strong>{formatInr(dayEarn.totalPay)}</strong>
+                        {dayEarn.regularPay > 0 || dayEarn.overtimePay > 0 ? (
+                          <span>
+                            {dayEarn.regularPay > 0
+                              ? `Regular ${formatInr(dayEarn.regularPay)}`
+                              : null}
+                            {dayEarn.regularPay > 0 && dayEarn.overtimePay > 0 ? ' · ' : null}
+                            {dayEarn.overtimePay > 0
+                              ? `OT ${formatInr(dayEarn.overtimePay)}`
+                              : null}
+                          </span>
                         ) : null}
                       </span>
                     ) : null}
@@ -541,10 +591,9 @@ export function HrSalaryShareView({
           </div>
           </div>
 
-          {editable ? (
-            <div className="hr-salary__day-panel">
-              {edit && selectedDate ? (
-                <DayAttendanceSheet
+          <div className="hr-salary__day-panel">
+            {editable && edit && selectedDate ? (
+              <DayAttendanceSheet
                   date={selectedDate}
                   canEdit
                   canSetLeave={
@@ -566,7 +615,7 @@ export function HrSalaryShareView({
                     dayJoinEntries.find(e => e.date === selectedDate)?.clockedOutAt ?? null
                   }
                   entries={overtimeEntries.filter(e => e.date === selectedDate)}
-                  onClose={() => edit.onSelectDate(null)}
+                  onClose={() => selectDate(null)}
                   onSetLeave={kind => edit.onSetLeave(selectedDate, kind)}
                   onSetDayProject={projectId => edit.onSetDayProject(selectedDate, projectId)}
                   onSetDayClock={patch => edit.onSetDayClock(selectedDate, patch)}
@@ -585,33 +634,42 @@ export function HrSalaryShareView({
                   onPatchReceipt={edit.onPatchReceipt}
                   onRemoveReceipt={edit.onRemoveReceipt}
                 />
-              ) : (
-                <div className="hr-salary__day-panel-empty">
-                  <p>Select a day on the calendar</p>
-                  <p className="text-sm text-muted">
-                    Edit project, clock times, shifts, leave, expenses, and OT.
-                  </p>
-                </div>
-              )}
-            </div>
-          ) : null}
+            ) : (
+              <ProjectWorkSummaryCard
+                projectTotals={projectTotals}
+                projectSharePercents={projectSharePercents}
+                earnedSalary={calc.earnedSalary}
+                leaveDays={calc.leaveDays}
+                payableDays={calc.payableDays}
+                rateDays={calc.rateDays}
+                regularPay={calc.regularPay}
+                overtimeHours={calc.overtimeHours}
+                overtimePay={calc.overtimePay}
+              />
+            )}
+          </div>
         </div>
+        ) : null}
 
+        {detailTab === 'expenses' ? (
         <ExpenseSettlementCard
           settlement={settlement}
           earnedSalary={calc.earnedSalary}
           expenseEntries={expenseEntries}
           receiptEntries={receiptEntries}
+          onLineClick={editable ? date => selectDate(date) : undefined}
           downloadFileName={`${displayName
             .trim()
             .toLowerCase()
             .replace(/[^a-z0-9]+/g, '-')
             .replace(/^-|-$/g, '') || 'staff'}-expenses-${salaryPeriodKey(period)}`}
         />
+        ) : null}
 
+        {detailTab === 'overtime' ? (
         <div className="hr-salary__card hr-salary__ot-detail">
           <div className="hr-salary__ot-detail-head">
-            <h5>Overtime</h5>
+            <span className="hr-salary__expense-detail-title">Overtime</span>
             <span>
               {formatOtHours(calc.overtimeHours)}
               {' · '}
@@ -639,106 +697,88 @@ export function HrSalaryShareView({
             <ul className="hr-salary__ot-detail-list">
               {otLines.map(line => (
                 <li key={line.id}>
-                  <div className={`hr-salary__ot-detail-line${editable ? '' : ' is-readonly'}`}>
-                    <span className="hr-salary__ot-detail-date">
-                      {line.project ? (
-                        <i
-                          className="hr-salary__proj-dot hr-salary__proj-dot--mini"
-                          style={{ background: line.project.color }}
-                          title={line.project.name}
-                        />
-                      ) : (
-                        <i
-                          className="hr-salary__proj-dot hr-salary__proj-dot--mini is-empty"
-                          title="Unassigned"
-                        />
-                      )}
-                      {formatDayLabel(line.date)}
-                    </span>
-                    <span className="hr-salary__ot-detail-time">
-                      {formatTimeAmPm(line.startTime)} – {formatTimeAmPm(line.endTime)}
-                    </span>
-                    <span className="hr-salary__ot-detail-hrs">
-                      {line.makeupHours > 0 ? (
-                        <>
-                          {formatOtHours(line.billableOtHours)} OT
-                          {' + '}
-                          {formatOtHours(line.makeupHours)} reg
-                        </>
-                      ) : (
-                        formatOtHours(line.hours)
-                      )}
-                    </span>
-                    <span className="hr-salary__ot-detail-pay">
-                      {formatInr(line.pay)}
-                    </span>
-                  </div>
+                  {editable ? (
+                    <button
+                      type="button"
+                      className="hr-salary__ot-detail-line"
+                      onClick={() => selectDate(line.date)}
+                    >
+                      <span className="hr-salary__ot-detail-date">
+                        {line.project ? (
+                          <i
+                            className="hr-salary__proj-dot hr-salary__proj-dot--mini"
+                            style={{ background: line.project.color }}
+                            title={line.project.name}
+                          />
+                        ) : (
+                          <i
+                            className="hr-salary__proj-dot hr-salary__proj-dot--mini is-empty"
+                            title="Unassigned"
+                          />
+                        )}
+                        {formatDayLabel(line.date)}
+                      </span>
+                      <span className="hr-salary__ot-detail-time">
+                        {formatTimeAmPm(line.startTime)} – {formatTimeAmPm(line.endTime)}
+                      </span>
+                      <span className="hr-salary__ot-detail-hrs">
+                        {line.makeupHours > 0 ? (
+                          <>
+                            {formatOtHours(line.billableOtHours)} OT
+                            {' + '}
+                            {formatOtHours(line.makeupHours)} reg
+                          </>
+                        ) : (
+                          formatOtHours(line.hours)
+                        )}
+                      </span>
+                      <span className="hr-salary__ot-detail-pay">
+                        {formatInr(line.pay)}
+                      </span>
+                    </button>
+                  ) : (
+                    <div className="hr-salary__ot-detail-line is-readonly">
+                      <span className="hr-salary__ot-detail-date">
+                        {line.project ? (
+                          <i
+                            className="hr-salary__proj-dot hr-salary__proj-dot--mini"
+                            style={{ background: line.project.color }}
+                            title={line.project.name}
+                          />
+                        ) : (
+                          <i
+                            className="hr-salary__proj-dot hr-salary__proj-dot--mini is-empty"
+                            title="Unassigned"
+                          />
+                        )}
+                        {formatDayLabel(line.date)}
+                      </span>
+                      <span className="hr-salary__ot-detail-time">
+                        {formatTimeAmPm(line.startTime)} – {formatTimeAmPm(line.endTime)}
+                      </span>
+                      <span className="hr-salary__ot-detail-hrs">
+                        {line.makeupHours > 0 ? (
+                          <>
+                            {formatOtHours(line.billableOtHours)} OT
+                            {' + '}
+                            {formatOtHours(line.makeupHours)} reg
+                          </>
+                        ) : (
+                          formatOtHours(line.hours)
+                        )}
+                      </span>
+                      <span className="hr-salary__ot-detail-pay">
+                        {formatInr(line.pay)}
+                      </span>
+                    </div>
+                  )}
                 </li>
               ))}
             </ul>
           )}
         </div>
-      </div>
-
-      <div className="hr-salary__footer-summary">
-        <table className="hr-salary__summary-table">
-          <thead>
-            <tr>
-              <th>Project</th>
-              <th>%</th>
-              <th>Days</th>
-              <th>OT</th>
-              <th>Amount</th>
-            </tr>
-          </thead>
-          <tbody>
-            {projectTotals.map(total => (
-              <tr key={total.projectId ?? '__unassigned'}>
-                <td>
-                  <div className="hr-salary__project-cell">
-                    <i
-                      className={[
-                        'hr-salary__proj-dot',
-                        total.color ? '' : 'is-empty',
-                      ].filter(Boolean).join(' ')}
-                      style={total.color ? { background: total.color } : undefined}
-                    />
-                    {total.name}
-                  </div>
-                </td>
-                <td>
-                  {formatWorkPercent(
-                    projectSharePercents.get(total.projectId ?? '__unassigned') ?? 0,
-                  )}
-                </td>
-                <td>{total.regularDays}d</td>
-                <td>{formatOtHours(total.otHours)}</td>
-                <td>{formatInr(total.totalPay)}</td>
-              </tr>
-            ))}
-            <tr className="hr-salary__summary-total-row">
-              <td colSpan={4}>Total Earned</td>
-              <td>{formatInr(calc.earnedSalary)}</td>
-            </tr>
-          </tbody>
-        </table>
-        <div className="hr-salary__footer-stats">
-          <span>
-            <strong>Leave:</strong> {formatLeaveDays(calc.leaveDays)}
-          </span>
-          <span>
-            <strong>Payable:</strong> {calc.payableDays} / {calc.rateDays}
-          </span>
-          <span>
-            <strong>Regular pay:</strong> {formatInr(calc.regularPay)}
-          </span>
-          <span>
-            <strong>OT hours:</strong> {formatOtHours(calc.overtimeHours)}
-          </span>
-          <span>
-            <strong>OT pay:</strong> {formatInr(calc.overtimePay)}
-          </span>
-        </div>
+        ) : null}
+        </HrSalaryDetailTabs>
       </div>
     </div>
   );

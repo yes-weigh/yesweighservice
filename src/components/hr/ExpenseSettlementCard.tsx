@@ -91,9 +91,12 @@ export function ExpenseSettlementCard({
   };
 
   return (
-    <div ref={cardRef} className="hr-salary__card hr-salary__expense-detail">
+    <div
+      ref={cardRef}
+      className="hr-salary__card hr-salary__expense-detail"
+    >
       <div className="hr-salary__ot-detail-head">
-        <h5>Expenses &amp; payments</h5>
+        <span className="hr-salary__expense-detail-title">Expenses &amp; payments</span>
         <div className="hr-salary__ot-detail-head-right">
           <span>{formatInr(settlement.netPayable)} net</span>
           <button
@@ -111,118 +114,118 @@ export function ExpenseSettlementCard({
       </div>
 
       <ul className="hr-salary__settlement-lines">
-        <li>
-          <span>Earned salary</span>
-          <span>{formatInr(earnedSalary)}</span>
-        </li>
-        {settlement.totalExpenses > 0 ? (
-          <li>
-            <span>Expenses</span>
-            <span>{formatInr(settlement.totalExpenses)}</span>
-          </li>
-        ) : null}
-        {settlement.totalReimbursements > 0 ? (
-          <li>
-            <span>Reimbursements received</span>
-            <span>− {formatInr(settlement.totalReimbursements)}</span>
-          </li>
-        ) : null}
-        {settlement.unreimbursedExpenses > 0 ? (
-          <li className="is-highlight">
-            <span>Pending reimbursement</span>
-            <span>+ {formatInr(settlement.unreimbursedExpenses)}</span>
-          </li>
-        ) : null}
-        {settlement.totalSalaryAdvances > 0 ? (
-          <li>
-            <span>Salary advances received</span>
-            <span>− {formatInr(settlement.totalSalaryAdvances)}</span>
-          </li>
-        ) : null}
-      </ul>
-
-      {lines.length === 0 ? (
-        <p className="hr-salary__project-empty">No expenses or payments yet</p>
-      ) : (
-        <>
-          <div className="hr-salary__expense-detail-divider">
-            <span>By date</span>
-            <span aria-hidden />
-            <span className="hr-salary__expense-detail-col-label">Amount</span>
-            <span className="hr-salary__expense-detail-col-label">Balance</span>
-          </div>
-          <ul className="hr-salary__expense-detail-list">
-            {lines.map(line => {
-              const noteLabel = expenseNoteLabel(line);
-              const hasSplit = Boolean(line.parts && line.parts.length > 1);
-              const row = (
-                <>
-                  <span className="hr-salary__expense-detail-date">
-                    {formatDayLabel(line.date)}
-                  </span>
-                  <span
-                    className={[
-                      'hr-salary__expense-detail-desc',
-                      hasSplit ? 'has-split' : '',
-                    ].filter(Boolean).join(' ')}
-                    title={expenseSplitTitle(line)}
-                  >
-                    <span className={`hr-salary__expense-kind is-${line.kind}`}>
-                      {KIND_LABEL[line.kind]}
-                    </span>
-                    {noteLabel ? (
-                      <span className="hr-salary__expense-note">{noteLabel}</span>
-                    ) : null}
-                    {hasSplit && line.parts ? (
-                      <span className="hr-salary__expense-split" role="tooltip">
-                        {line.parts.map(part => (
-                          <span key={part.id} className="hr-salary__expense-split-row">
-                            <span>{part.note || 'Expense'}</span>
-                            <span>{formatInr(part.amount)}</span>
-                          </span>
-                        ))}
-                      </span>
-                    ) : null}
-                  </span>
-                  <span
-                    className={[
-                      'hr-salary__expense-detail-amount',
-                      line.sign === '+' ? 'is-credit' : 'is-debit',
-                    ].join(' ')}
-                  >
-                    {line.sign} {formatInr(line.amount)}
-                  </span>
-                  <span className="hr-salary__expense-detail-balance">
-                    {formatInr(line.balance)}
-                  </span>
-                </>
-              );
-
-              if (clickable && onLineClick) {
-                return (
-                  <li key={line.id}>
-                    <button
-                      type="button"
-                      className="hr-salary__expense-detail-line"
-                      onClick={() => onLineClick(line.date)}
-                    >
-                      {row}
-                    </button>
-                  </li>
-                );
-              }
-
-              return (
-                <li key={line.id}>
-                  <div className="hr-salary__expense-detail-line is-readonly">
-                    {row}
-                  </div>
-                </li>
-              );
-            })}
+            <li>
+              <span>Earned salary</span>
+              <span>{formatInr(earnedSalary)}</span>
+            </li>
+            {settlement.totalExpenses > 0 ? (
+              <li>
+                <span>Expenses</span>
+                <span>{formatInr(settlement.totalExpenses)}</span>
+              </li>
+            ) : null}
+            {settlement.totalReimbursements > 0 ? (
+              <li>
+                <span>Reimbursements received</span>
+                <span>− {formatInr(settlement.totalReimbursements)}</span>
+              </li>
+            ) : null}
+            {settlement.unreimbursedExpenses > 0 ? (
+              <li className="is-highlight">
+                <span>Pending reimbursement</span>
+                <span>+ {formatInr(settlement.unreimbursedExpenses)}</span>
+              </li>
+            ) : null}
+            {settlement.totalSalaryAdvances > 0 ? (
+              <li>
+                <span>Salary advances received</span>
+                <span>− {formatInr(settlement.totalSalaryAdvances)}</span>
+              </li>
+            ) : null}
           </ul>
-        </>
-      )}
+
+          {lines.length === 0 ? (
+            <p className="hr-salary__project-empty">No expenses or payments yet</p>
+          ) : (
+            <>
+              <div className="hr-salary__expense-detail-divider">
+                <span>By date</span>
+                <span aria-hidden />
+                <span className="hr-salary__expense-detail-col-label">Amount</span>
+                <span className="hr-salary__expense-detail-col-label">Balance</span>
+              </div>
+              <ul className="hr-salary__expense-detail-list">
+                {lines.map(line => {
+                  const noteLabel = expenseNoteLabel(line);
+                  const hasSplit = Boolean(line.parts && line.parts.length > 1);
+                  const row = (
+                    <>
+                      <span className="hr-salary__expense-detail-date">
+                        {formatDayLabel(line.date)}
+                      </span>
+                      <span
+                        className={[
+                          'hr-salary__expense-detail-desc',
+                          hasSplit ? 'has-split' : '',
+                        ].filter(Boolean).join(' ')}
+                        title={expenseSplitTitle(line)}
+                      >
+                        <span className={`hr-salary__expense-kind is-${line.kind}`}>
+                          {KIND_LABEL[line.kind]}
+                        </span>
+                        {noteLabel ? (
+                          <span className="hr-salary__expense-note">{noteLabel}</span>
+                        ) : null}
+                        {hasSplit && line.parts ? (
+                          <span className="hr-salary__expense-split" role="tooltip">
+                            {line.parts.map(part => (
+                              <span key={part.id} className="hr-salary__expense-split-row">
+                                <span>{part.note || 'Expense'}</span>
+                                <span>{formatInr(part.amount)}</span>
+                              </span>
+                            ))}
+                          </span>
+                        ) : null}
+                      </span>
+                      <span
+                        className={[
+                          'hr-salary__expense-detail-amount',
+                          line.sign === '+' ? 'is-credit' : 'is-debit',
+                        ].join(' ')}
+                      >
+                        {line.sign} {formatInr(line.amount)}
+                      </span>
+                      <span className="hr-salary__expense-detail-balance">
+                        {formatInr(line.balance)}
+                      </span>
+                    </>
+                  );
+
+                  if (clickable && onLineClick) {
+                    return (
+                      <li key={line.id}>
+                        <button
+                          type="button"
+                          className="hr-salary__expense-detail-line"
+                          onClick={() => onLineClick(line.date)}
+                        >
+                          {row}
+                        </button>
+                      </li>
+                    );
+                  }
+
+                  return (
+                    <li key={line.id}>
+                      <div className="hr-salary__expense-detail-line is-readonly">
+                        {row}
+                      </div>
+                    </li>
+                  );
+                })}
+              </ul>
+            </>
+          )}
     </div>
   );
 }

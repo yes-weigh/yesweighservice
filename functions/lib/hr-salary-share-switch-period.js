@@ -3,6 +3,7 @@
  */
 import { getFirestore } from 'firebase-admin/firestore';
 import { HttpsError } from 'firebase-functions/v2/https';
+import { dropRegularMarksWhenOtOnClosedDays } from './hr-salary-closed-day.js';
 
 const SHARE_COLLECTION = 'hrSalaryShares';
 const MONTH_COLLECTION = 'hrSalaryMonths';
@@ -99,7 +100,7 @@ function resolveRates(saved, shareFallback, payrollDefaults, year, month, holida
   const defaultOt = payrollDefaults?.otPerDaySalary ?? shareFallback.otPerDaySalary ?? 0;
 
   let monthlySalary = 0;
-  let otPerDaySalary = defaultOt;
+  let otPerDaySalary = 0;
 
   if (saved) {
     if (Number(saved.monthlySalary) > 0) {
@@ -109,19 +110,20 @@ function resolveRates(saved, shareFallback, payrollDefaults, year, month, holida
     }
     if (Number(saved.otPerDaySalary) > 0) {
       otPerDaySalary = Math.max(0, Number(saved.otPerDaySalary) || 0);
-    } else if (monthlySalary > 0) {
-      otPerDaySalary = perDayFromMonthly(monthlySalary, rateDays);
     }
   }
 
   if (!(monthlySalary > 0) && defaultMonthly > 0) {
     monthlySalary = defaultMonthly;
   }
-  if (!(otPerDaySalary > 0) && monthlySalary > 0) {
-    otPerDaySalary = perDayFromMonthly(monthlySalary, rateDays);
+  if (!(otPerDaySalary > 0) && defaultOt > 0) {
+    otPerDaySalary = defaultOt;
+  }
+  const perDaySalary = perDayFromMonthly(monthlySalary, rateDays);
+  if (!(otPerDaySalary > 0) && perDaySalary > 0) {
+    otPerDaySalary = perDaySalary;
   }
 
-  const perDaySalary = perDayFromMonthly(monthlySalary, rateDays);
   return { monthlySalary, perDaySalary, otPerDaySalary };
 }
 
@@ -177,6 +179,12 @@ export async function switchPublicSalarySharePeriod(payload = {}) {
   const workShiftEntries = Array.isArray(monthData?.workShiftEntries) ? monthData.workShiftEntries : [];
   const dayJoinEntries = Array.isArray(monthData?.dayJoinEntries) ? monthData.dayJoinEntries : [];
   const overtimeEntries = Array.isArray(monthData?.overtimeEntries) ? monthData.overtimeEntries : [];
+  const cleaned = dropRegularMarksWhenOtOnClosedDays(year, month, holidays, {
+    overtimeEntries,
+    workDayEntries,
+    workShiftEntries,
+    dayJoinEntries,
+  });
 
   const now = new Date().toISOString();
 
@@ -192,9 +200,9 @@ export async function switchPublicSalarySharePeriod(payload = {}) {
     otPerDaySalary: rates.otPerDaySalary,
     leaveEntries,
     projects,
-    workDayEntries,
-    workShiftEntries,
-    dayJoinEntries,
+    workDayEntries: cleaned.workDayEntries,
+    workShiftEntries: cleaned.workShiftEntries,
+    dayJoinEntries: cleaned.dayJoinEntries,
     expenseEntries,
     receiptEntries,
     overtimeEntries,
