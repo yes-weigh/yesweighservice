@@ -2714,6 +2714,8 @@ export const ProductDetailView: React.FC<{
           imageUrl={currentGalleryUrl}
           imageIndex={activeGalleryIndex}
           imageCount={Math.max(1, galleryUrls.length)}
+          mrpOnly={isDealerPortal}
+          stampingLabels={stampingChipLines.map(line => line.label)}
           onClose={() => setWhatsappShareOpen(false)}
         />
       )}

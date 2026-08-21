@@ -1,10 +1,13 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { Capacitor } from '@capacitor/core';
+import { doc, getDoc } from 'firebase/firestore';
 import { Share2, X } from 'lucide-react';
 import { WhatsAppShare } from 'whatsapp-share';
 import type { CatalogProduct } from '../../types/catalog';
 import shareTagIconUrl from '../../assets/share-tag-icon.png';
+import { useAuth } from '../../context/AuthContext';
+import { db } from '../../firebase';
 import { openWhatsAppWithText, uploadWhatsAppShareCard } from '../../lib/whatsappShareCard';
 import { isCatalogSparePartProduct } from '../../lib/catalog';
 import { loadMrpRules } from '../../lib/catalogProductSettings';
@@ -14,9 +17,6 @@ const GREEN = '#036e35';
 const RED = '#d8151d';
 const BLUE = '#053cbd';
 const ROW_LINE = '#e5e7eb';
-const ICON_GREEN = '#2e9a4a';
-const ICON_BLUE = '#1a6fd0';
-const ICON_PURPLE = '#8e2bb8';
 
 /** Reference card is 411×616 — scale all geometry from that. */
 const REF_W = 411;
@@ -214,54 +214,6 @@ function drawTagIcon(
   ctx.restore();
 }
 
-function drawFieldIconTile(
-  ctx: CanvasRenderingContext2D,
-  kind: 'grid' | 'barcode' | 'cubes',
-  x: number,
-  y: number,
-  size: number,
-  color: string,
-) {
-  roundRectPath(ctx, x, y, size, size, Math.max(3, size * 0.18));
-  ctx.fillStyle = color;
-  ctx.fill();
-  ctx.fillStyle = '#fff';
-  ctx.strokeStyle = '#fff';
-  ctx.lineWidth = Math.max(1.6, size * 0.09);
-  ctx.lineCap = 'round';
-  ctx.lineJoin = 'round';
-  const p = size * 0.2;
-  const ix = x + p;
-  const iy = y + p;
-  const iw = size - p * 2;
-  const ih = size - p * 2;
-  const cx = x + size / 2;
-  const cy = y + size / 2;
-
-  if (kind === 'grid') {
-    const gap = Math.max(2, size * 0.1);
-    const cell = (iw - gap) / 2;
-    ctx.fillRect(ix, iy, cell, cell);
-    ctx.fillRect(ix + cell + gap, iy, cell, cell);
-    ctx.fillRect(ix, iy + cell + gap, cell, cell);
-    ctx.fillRect(ix + cell + gap, iy + cell + gap, cell, cell);
-  } else if (kind === 'barcode') {
-    const bars = [1.2, 0.7, 1.8, 0.7, 1.2, 0.7, 2.2, 0.7, 1.2];
-    const total = bars.reduce((a, b) => a + b, 0);
-    let bx = ix;
-    for (const units of bars) {
-      const bw = (iw * units) / total;
-      ctx.fillRect(bx, iy, Math.max(1.2, bw * 0.85), ih);
-      bx += bw;
-    }
-  } else {
-    const s = iw * 0.36;
-    ctx.strokeRect(ix + 1, cy - s * 0.05, s, s);
-    ctx.strokeRect(cx - s * 0.35, iy + 1, s, s);
-    ctx.strokeRect(cx + s * 0.05, cy - s * 0.15, s, s);
-  }
-}
-
 function round2(n: number): number {
   return Math.round(n * 100) / 100;
 }
@@ -277,7 +229,18 @@ type ShareProduct = Pick<
   | 'categoryId'
   | 'categoryName'
   | 'mrpOverride'
+  | 'description'
+  | 'modelNumber'
+  | 'approvalNumber'
+  | 'hsn'
 >;
+
+type ShareCardOptions = {
+  /** Dealer portal rate card: MRP only, larger image, full specs. */
+  mrpOnly?: boolean;
+  footerName?: string | null;
+  stampingLabels?: string[];
+};
 
 /** Prefer catalog tax; parse taxName; else default 18% (matches share reference cards). */
 function resolveShareTaxPct(product: ShareProduct): number {
@@ -292,19 +255,267 @@ function resolveShareTaxPct(product: ShareProduct): number {
   return 18;
 }
 
+function wrapCanvasLines(
+  ctx: CanvasRenderingContext2D,
+  text: string,
+  maxWidth: number,
+  maxLines: number,
+): string[] {
+  const words = String(text || '').trim().split(/\s+/).filter(Boolean);
+  if (!words.length) return [];
+  const lines: string[] = [];
+  let current = '';
+  for (const word of words) {
+    const next = current ? `${current} ${word}` : word;
+    if (ctx.measureText(next).width <= maxWidth) {
+      current = next;
+      continue;
+    }
+    if (current) lines.push(current);
+    current = word;
+    if (lines.length >= maxLines) break;
+  }
+  if (current && lines.length < maxLines) lines.push(current);
+  if (lines.length === maxLines && words.join(' ').length > lines.join(' ').length) {
+    const last = lines[maxLines - 1] ?? '';
+    let clipped = last;
+    while (clipped.length > 1 && ctx.measureText(`${clipped}…`).width > maxWidth) {
+      clipped = clipped.slice(0, -1);
+    }
+    lines[maxLines - 1] = `${clipped}…`;
+  }
+  return lines;
+}
+
+/** Parse "Make : YESWEIGH Max:50kg e:5g …" style catalog descriptions into label/value rows. */
+function parseDescriptionSpecs(description: string | null | undefined): Array<{ label: string; value: string }> {
+  const raw = String(description ?? '').trim();
+  if (!raw) return [];
+  const rows: Array<{ label: string; value: string }> = [];
+  for (const line of raw.split(/\n+/)) {
+    const trimmed = line.trim();
+    if (!trimmed) continue;
+    const matches = [...trimmed.matchAll(/([A-Za-z][A-Za-z0-9./\s-]{0,28}?)\s*:\s*/g)];
+    if (matches.length === 0) {
+      rows.push({ label: 'Details', value: trimmed });
+      continue;
+    }
+    for (let i = 0; i < matches.length; i += 1) {
+      const match = matches[i];
+      if (!match || match.index == null) continue;
+      const label = String(match[1] ?? '').trim();
+      const valueStart = match.index + match[0].length;
+      const valueEnd = i + 1 < matches.length && matches[i + 1]?.index != null
+        ? matches[i + 1]!.index!
+        : trimmed.length;
+      const value = trimmed.slice(valueStart, valueEnd).trim();
+      if (!label || !value) continue;
+      rows.push({ label, value });
+    }
+  }
+  return rows;
+}
+
+type PrimarySpecLabel = 'Brand' | 'Max' | 'E' | 'Min' | 'Class' | 'Display';
+
+function normalizeSpecKey(label: string): string {
+  const key = String(label || '').trim().toLowerCase().replace(/\s+/g, ' ');
+  if (key === 'e' || key === 'accuracy' || key === 'accuracy (e)' || key === 'e-value' || key === 'e value') {
+    return 'E';
+  }
+  if (key === 'max' || key === 'maximum' || key === 'capacity' || key === 'max capacity') return 'Max';
+  if (key === 'min' || key === 'minimum' || key === 'min capacity') return 'Min';
+  if (key === 'class' || key === 'accuracy class') return 'Class';
+  if (key === 'make' || key === 'brand') return 'Brand';
+  if (key === 'display') return 'Display';
+  return label.trim();
+}
+
+/** "50kg" → "50 kg", "100g" → "100 g", "5g" → "5g" for E (compact). */
+function formatSpecValue(label: PrimarySpecLabel | string, value: string): string {
+  let v = String(value ?? '').trim().replace(/\s+/g, ' ');
+  if (!v) return v;
+
+  if (label === 'Brand') {
+    // YESWEIGH → Yesweigh
+    if (/^[A-Z0-9][A-Z0-9\s./-]*$/.test(v) && /[A-Z]/.test(v)) {
+      v = v
+        .toLowerCase()
+        .split(/(\s+)/)
+        .map(part => (/^\s+$/.test(part) ? part : part.charAt(0).toUpperCase() + part.slice(1)))
+        .join('');
+    }
+    return v;
+  }
+
+  if (label === 'Display') {
+    if (/^(green|red|blue|white|amber|orange|yellow)$/i.test(v)) {
+      return `${v.charAt(0).toUpperCase()}${v.slice(1).toLowerCase()} LED`;
+    }
+    if (/led/i.test(v)) {
+      return v.replace(/\bled\b/i, 'LED');
+    }
+    return v;
+  }
+
+  if (label === 'Class') {
+    return v.toUpperCase();
+  }
+
+  if (label === 'Max' || label === 'Min' || label === 'E') {
+    // Insert space between number and unit: 50kg → 50 kg; keep E compact as "5g" per rate-card convention
+    const m = /^([0-9]+(?:\.[0-9]+)?)\s*([a-zA-Zμµ]+)$/.exec(v);
+    if (m) {
+      const num = m[1]!;
+      const unit = m[2]!;
+      if (label === 'E') return `${num}${unit.toLowerCase()}`;
+      return `${num} ${unit.toLowerCase()}`;
+    }
+  }
+
+  return v;
+}
+
+/** Pull Brand / Max / E / Min / Class / Display from catalog description. */
+function extractPrimarySpecs(
+  description: string | null | undefined,
+): Partial<Record<PrimarySpecLabel, string>> {
+  const parsed = parseDescriptionSpecs(description);
+  const out: Partial<Record<PrimarySpecLabel, string>> = {};
+  for (const row of parsed) {
+    const key = normalizeSpecKey(row.label);
+    if (key === 'Brand' || key === 'Max' || key === 'E' || key === 'Min' || key === 'Class' || key === 'Display') {
+      out[key] = formatSpecValue(key, row.value);
+    }
+  }
+  const raw = String(description ?? '');
+  const fallbacks: Array<[PrimarySpecLabel, RegExp]> = [
+    ['Brand', /\b(?:Make|Brand)\s*:?\s*([A-Za-z0-9][A-Za-z0-9\s./-]{0,40}?)(?=\s+(?:Max|Min|e|E|Class|Display)\b|$)/i],
+    ['Max', /\bMax(?:imum)?\s*:?\s*([0-9]+(?:\.[0-9]+)?\s*[a-zA-Zμµ]*)/i],
+    ['E', /\be\s*:?\s*([0-9]+(?:\.[0-9]+)?\s*[a-zA-Zμµ]*)/i],
+    ['Min', /\bMin(?:imum)?\s*:?\s*([0-9]+(?:\.[0-9]+)?\s*[a-zA-Zμµ]*)/i],
+    ['Class', /\bClass\s*:?\s*([IVX0-9]+)/i],
+    ['Display', /\bDisplay\s*:?\s*([A-Za-z0-9][A-Za-z0-9\s-]{0,40}?)(?=\s+(?:Make|Brand|Max|Min|e|E|Class)\b|$)/i],
+  ];
+  for (const [key, re] of fallbacks) {
+    if (out[key]) continue;
+    const m = re.exec(raw);
+    if (m?.[1]) out[key] = formatSpecValue(key, m[1].trim());
+  }
+  return out;
+}
+
+type RateCardSpecs = {
+  modelNumber: string | null;
+  approvalNumber: string | null;
+  /** Ordered: Brand, Max, E, Min, Class, Display */
+  primarySpecs: Array<{ label: PrimarySpecLabel; value: string }>;
+  otherRows: Array<{ label: string; value: string }>;
+};
+
+const PRIMARY_SPEC_ORDER: PrimarySpecLabel[] = ['Brand', 'Max', 'E', 'Min', 'Class', 'Display'];
+
+function buildRateCardSpecs(
+  product: ShareProduct,
+  stampingLabels: string[],
+): RateCardSpecs {
+  const modelNumber = product.modelNumber?.trim() || null;
+  const approvalNumber = product.approvalNumber?.trim() || null;
+  const primary = extractPrimarySpecs(product.description);
+  const primarySpecs = PRIMARY_SPEC_ORDER
+    .filter(label => Boolean(primary[label]))
+    .map(label => ({ label, value: primary[label]! }));
+
+  const otherRows: Array<{ label: string; value: string }> = [];
+  const push = (label: string, value: string | null | undefined) => {
+    const v = String(value ?? '').trim();
+    if (!v) return;
+    if (otherRows.some(row => row.label.toLowerCase() === label.toLowerCase())) return;
+    otherRows.push({ label, value: v });
+  };
+
+  push('SKU', product.sku);
+  push('Category', product.categoryName);
+  push('HSN', product.hsn);
+  push('Unit', product.unit);
+
+  for (const spec of parseDescriptionSpecs(product.description)) {
+    const key = normalizeSpecKey(spec.label);
+    if (/^(sku|item name|name)$/i.test(key)) continue;
+    if ((PRIMARY_SPEC_ORDER as string[]).includes(key)) continue;
+    push(key, spec.value);
+  }
+
+  if (stampingLabels.length === 1) {
+    push('GATC / Stamping', stampingLabels[0]);
+  } else if (stampingLabels.length > 1) {
+    stampingLabels.forEach((label, index) => {
+      push(`GATC ${index + 1}`, label);
+    });
+  }
+
+  return { modelNumber, approvalNumber, primarySpecs, otherRows };
+}
+
 async function buildShareCardBlob(
   product: ShareProduct,
   imageUrl: string | null,
   _imageIndex: number,
   _imageCount: number,
+  options: ShareCardOptions = {},
 ): Promise<Blob> {
+  const mrpOnly = Boolean(options.mrpOnly);
+  const footerName = String(options.footerName ?? '').trim() || 'Dealer name';
+  const stampingLabels = Array.isArray(options.stampingLabels)
+    ? options.stampingLabels.map(s => String(s).trim()).filter(Boolean)
+    : [];
   const mrpRules = await loadMrpRules();
 
-  // Match reference aspect 411×616 exactly
+  // Match reference aspect 411×616 for staff; rate cards grow for photo + specs.
   const W = 900;
   const S = W / REF_W;
-  const H = Math.round(REF_H * S);
   const sc = (n: number) => Math.round(n * S);
+  const isSpareShare = isCatalogSparePartProduct(product);
+  const productName = product.name.trim() || 'PRODUCT';
+  const productSku = (product.sku ?? '').trim() || '—';
+  const rateSpecs = buildRateCardSpecs(product, stampingLabels);
+
+  const innerL = sc(10);
+  const innerR = W - sc(10);
+  const innerW = innerR - innerL;
+
+  // Load photo early so frame height follows natural aspect (no disproportionate shrink).
+  const photoPad = sc(10);
+  const photoMaxW = innerW - photoPad * 2;
+  const photoMaxH = sc(400); // generous room for product photo
+  let photoImg: HTMLImageElement | null = null;
+  let photoDw = 0;
+  let photoDh = 0;
+  if (imageUrl) {
+    photoImg = await loadImage(imageUrl);
+    if (photoImg && photoImg.width > 0 && photoImg.height > 0) {
+      const scale = Math.min(photoMaxW / photoImg.width, photoMaxH / photoImg.height);
+      photoDw = Math.round(photoImg.width * scale);
+      photoDh = Math.round(photoImg.height * scale);
+    }
+  }
+  const imgH = photoDh > 0 ? photoDh + photoPad * 2 : sc(280);
+  const baseImgH = sc(249); // original card image slot — extra goes into canvas height
+
+  const primaryPairRows = Math.ceil(rateSpecs.primarySpecs.length / 2);
+  const otherPairRows = Math.ceil(rateSpecs.otherRows.length / 2);
+  const hasId = Boolean(rateSpecs.modelNumber || rateSpecs.approvalNumber);
+  const specsBlockH =
+    (hasId ? sc(52) + sc(6) : 0)
+    + (primaryPairRows ? sc(14) + primaryPairRows * sc(24) + sc(8) + sc(6) : 0)
+    + otherPairRows * sc(24)
+    + sc(8);
+  const staffDetailBudget = sc(33) * 3;
+  const baseH = Math.round(REF_H * S);
+  const extraH =
+    Math.max(0, imgH - baseImgH)
+    + Math.max(0, specsBlockH - (mrpOnly ? 0 : staffDetailBudget));
+  const H = baseH + extraH;
 
   const canvas = document.createElement('canvas');
   canvas.width = W;
@@ -313,28 +524,17 @@ async function buildShareCardBlob(
   if (!ctx) throw new Error('Could not create share card.');
 
   const cardR = sc(10);
-  // Fill full canvas white with uniform rounded corners (avoids sharp/uneven clip)
   ctx.clearRect(0, 0, W, H);
   ctx.fillStyle = '#ffffff';
   roundRectPath(ctx, 0, 0, W, H, cardR);
   ctx.fill();
-  // Clip everything to the rounded card
   roundRectPath(ctx, 0, 0, W, H, cardR);
   ctx.save();
   ctx.clip();
 
-  const innerL = sc(10);
-  const innerR = W - sc(10);
-  const innerW = innerR - innerL;
-  // Header flush with card top so top corners match
   let y = 0;
 
-  // --- Header banner (ref: h=48, ~80% width) ---
-  // Spares (generic + uncategorized): "GENUINE SPARE PARTS"
-  // Categorized products: product name on top, SKU on the title ribbon below
-  const isSpareShare = isCatalogSparePartProduct(product);
-  const productName = product.name.trim() || 'PRODUCT';
-  const productSku = (product.sku ?? '').trim() || '—';
+  // --- Header banner ---
   const headerH = sc(48);
   const headerIconPad = sc(5);
   const headerIcon = headerH - headerIconPad * 2;
@@ -372,24 +572,21 @@ async function buildShareCardBlob(
   ctx.textAlign = 'left';
   ctx.textBaseline = 'middle';
   ctx.fillText(headerText, headerPadL + headerIcon + headerGap + sc(4), y + headerH / 2);
-  y += headerH + sc(6);
+  y += headerH + sc(4);
 
-  // --- Image area (white to match product photo backgrounds) ---
-  const imgH = sc(249);
+  // --- Image area: large frame, photo at natural aspect (never stretched) ---
   ctx.fillStyle = '#ffffff';
   roundRectPath(ctx, innerL, y, innerW, imgH, sc(6));
   ctx.fill();
 
-  if (imageUrl) {
-    const img = await loadImage(imageUrl);
-    if (img && img.width > 0) {
-      const maxW = innerW - sc(20);
-      const maxH = imgH - sc(20);
-      const scale = Math.min(maxW / img.width, maxH / img.height);
-      const dw = img.width * scale;
-      const dh = img.height * scale;
-      ctx.drawImage(img, innerL + (innerW - dw) / 2, y + (imgH - dh) / 2, dw, dh);
-    }
+  if (photoImg && photoDw > 0 && photoDh > 0) {
+    ctx.drawImage(
+      photoImg,
+      innerL + (innerW - photoDw) / 2,
+      y + (imgH - photoDh) / 2,
+      photoDw,
+      photoDh,
+    );
   } else {
     ctx.fillStyle = '#9ca3af';
     ctx.font = `bold ${sc(18)}px Arial, Helvetica, sans-serif`;
@@ -399,14 +596,14 @@ async function buildShareCardBlob(
   }
   y += imgH + sc(4);
 
-  // --- Title banner (ref: h=39, ~86% width) ---
-  const titleH = sc(39);
-  const titleIconPad = sc(4);
+  // --- Title banner ---
+  const titleH = sc(34);
+  const titleIconPad = sc(3);
   const titleIcon = titleH - titleIconPad * 2;
   const title = (isSpareShare ? productName : `SKU: ${productSku}`).toUpperCase();
-  const titleSlant = sc(22);
+  const titleSlant = sc(20);
   const tagImg = await loadImage(shareTagIconUrl);
-  let titleFont = sc(17);
+  let titleFont = sc(15);
   ctx.font = `bold ${titleFont}px Arial, Helvetica, sans-serif`;
   const titleMaxTextW = sc(355) - sc(12) - titleIcon - sc(8) - sc(40) - titleSlant;
   while (titleFont > sc(11) && ctx.measureText(title).width > titleMaxTextW) {
@@ -416,11 +613,11 @@ async function buildShareCardBlob(
   const titleBannerW = Math.min(
     innerW,
     Math.max(
-      sc(300),
+      sc(280),
       measureSlantBannerWidth(ctx, title, titleIcon, {
         padL: sc(10),
         gap: sc(8),
-        padR: sc(48),
+        padR: sc(40),
         slant: titleSlant,
         maxW: innerW,
       }),
@@ -435,65 +632,141 @@ async function buildShareCardBlob(
   ctx.fillText(title, innerL + sc(8) + titleIcon + sc(8), y + titleH / 2);
   y += titleH + sc(4);
 
-  // --- Detail rows (ref: ~33px each, icons 24) ---
-  const unit = (product.unit ?? 'pcs').trim() || 'pcs';
-  const qty = /nos/i.test(unit) || /pc/i.test(unit) ? '1 nos' : `1 ${unit}`;
-  const rows: Array<{
-    icon: 'grid' | 'barcode' | 'cubes';
-    color: string;
-    label: string;
-    value: string;
-  }> = [
-    { icon: 'grid', color: ICON_GREEN, label: 'ITEM NAME', value: product.name.trim() || '—' },
-    { icon: 'barcode', color: ICON_BLUE, label: 'SKU', value: (product.sku ?? '').trim() || '—' },
-    { icon: 'cubes', color: ICON_PURPLE, label: 'QTY', value: qty },
-  ];
-
-  const rowH = sc(33);
-  const iconSize = sc(24);
-  const rowFont = sc(13);
-  const rowValueFont = sc(13);
-  ctx.font = `bold ${rowFont}px Arial, Helvetica, sans-serif`;
-  let labelColW = 0;
-  for (const row of rows) {
-    labelColW = Math.max(labelColW, ctx.measureText(row.label).width);
-  }
-  labelColW = Math.min(labelColW + sc(2), sc(90));
-
-  rows.forEach((row, i) => {
-    const cy = y + rowH / 2;
-    if (i > 0) {
-      ctx.strokeStyle = ROW_LINE;
-      ctx.lineWidth = Math.max(1, sc(1));
-      ctx.beginPath();
-      ctx.moveTo(innerL + sc(4), y);
-      ctx.lineTo(innerR - sc(4), y);
+  // --- Model / Approval (compact, 2-up when both present) ---
+  {
+    const idItems: Array<{ label: string; value: string }> = [];
+    if (rateSpecs.modelNumber) {
+      idItems.push({ label: 'Model No.', value: rateSpecs.modelNumber });
+    }
+    if (rateSpecs.approvalNumber) {
+      idItems.push({ label: 'Approval No.', value: rateSpecs.approvalNumber });
+    }
+    if (idItems.length) {
+      const idRowH = sc(36);
+      const idBoxH = sc(14) + idRowH + sc(4);
+      ctx.fillStyle = '#f3faf5';
+      roundRectPath(ctx, innerL, y, innerW, idBoxH, sc(6));
+      ctx.fill();
+      ctx.strokeStyle = GREEN;
+      ctx.lineWidth = Math.max(1.5, sc(1.2));
+      roundRectPath(ctx, innerL, y, innerW, idBoxH, sc(6));
       ctx.stroke();
-    }
-    drawFieldIconTile(ctx, row.icon, innerL + sc(16), cy - iconSize / 2, iconSize, row.color);
-    const textX = innerL + sc(16) + iconSize + sc(10);
-    ctx.fillStyle = '#111111';
-    ctx.font = `bold ${rowFont}px Arial, Helvetica, sans-serif`;
-    ctx.textAlign = 'left';
-    ctx.textBaseline = 'middle';
-    ctx.fillText(row.label, textX, cy);
-    const colonX = textX + labelColW + sc(6);
-    ctx.fillText(':', colonX, cy);
-    ctx.font = `bold ${rowValueFont}px Arial, Helvetica, sans-serif`;
-    const valueX = colonX + sc(10);
-    const valueMax = innerR - valueX - sc(8);
-    let vf = rowValueFont;
-    while (vf > sc(10) && ctx.measureText(row.value).width > valueMax) {
-      vf -= 1;
-      ctx.font = `bold ${vf}px Arial, Helvetica, sans-serif`;
-    }
-    ctx.fillText(row.value, valueX, cy);
-    y += rowH;
-  });
 
-  y += sc(10);
+      ctx.fillStyle = GREEN;
+      ctx.font = `bold ${sc(9)}px Arial, Helvetica, sans-serif`;
+      ctx.textAlign = 'left';
+      ctx.textBaseline = 'middle';
+      ctx.fillText('MODEL & APPROVAL', innerL + sc(10), y + sc(10));
 
-  // --- Price boxes (ref: h=124, header=21, gap=11) ---
+      const colW = idItems.length === 2 ? (innerW - sc(20)) / 2 : innerW - sc(20);
+      idItems.forEach((row, i) => {
+        const cx = innerL + sc(10) + i * colW;
+        const cy = y + sc(14) + idRowH / 2;
+        ctx.fillStyle = '#666666';
+        ctx.font = `bold ${sc(9)}px Arial, Helvetica, sans-serif`;
+        ctx.textAlign = 'left';
+        ctx.fillText(row.label.toUpperCase(), cx, cy - sc(8));
+        ctx.fillStyle = '#111111';
+        ctx.font = `bold ${sc(13)}px Arial, Helvetica, sans-serif`;
+        let vf = sc(13);
+        while (vf > sc(10) && ctx.measureText(row.value).width > colW - sc(8)) {
+          vf -= 1;
+          ctx.font = `bold ${vf}px Arial, Helvetica, sans-serif`;
+        }
+        ctx.fillText(row.value, cx, cy + sc(8));
+      });
+      y += idBoxH + sc(6);
+    }
+
+    // Specs: 2 per row — Brand | Max, E | Min, Class | Display
+    if (rateSpecs.primarySpecs.length) {
+      const rowH = sc(24);
+      const pairRows = Math.ceil(rateSpecs.primarySpecs.length / 2);
+      const boxH = sc(14) + pairRows * rowH + sc(6);
+      ctx.fillStyle = '#ffffff';
+      roundRectPath(ctx, innerL, y, innerW, boxH, sc(6));
+      ctx.fill();
+      ctx.strokeStyle = GREEN;
+      ctx.lineWidth = Math.max(1.5, sc(1.2));
+      roundRectPath(ctx, innerL, y, innerW, boxH, sc(6));
+      ctx.stroke();
+
+      ctx.fillStyle = GREEN;
+      ctx.font = `bold ${sc(9)}px Arial, Helvetica, sans-serif`;
+      ctx.textAlign = 'left';
+      ctx.textBaseline = 'middle';
+      ctx.fillText('SPECIFICATIONS', innerL + sc(10), y + sc(9));
+
+      const colGap = sc(8);
+      const colW = (innerW - sc(20) - colGap) / 2;
+      rateSpecs.primarySpecs.forEach((row, i) => {
+        const col = i % 2;
+        const pair = Math.floor(i / 2);
+        const cx = innerL + sc(10) + col * (colW + colGap);
+        const cy = y + sc(18) + pair * rowH + rowH / 2;
+        ctx.fillStyle = '#555555';
+        ctx.font = `bold ${sc(11)}px Arial, Helvetica, sans-serif`;
+        ctx.textAlign = 'left';
+        const labelText = `${row.label}`;
+        ctx.fillText(labelText, cx, cy);
+        const lw = ctx.measureText(labelText).width;
+        ctx.fillText(':', cx + lw + sc(2), cy);
+        ctx.fillStyle = '#111111';
+        ctx.font = `bold ${sc(12)}px Arial, Helvetica, sans-serif`;
+        const vx = cx + lw + sc(10);
+        let vf = sc(12);
+        while (vf > sc(9) && ctx.measureText(row.value).width > colW - (lw + sc(14))) {
+          vf -= 1;
+          ctx.font = `bold ${vf}px Arial, Helvetica, sans-serif`;
+        }
+        ctx.fillText(row.value, vx, cy);
+      });
+      y += boxH + sc(6);
+    }
+
+    // Secondary: 2 per row (SKU, Category, HSN, GATC, …)
+    const otherRows = rateSpecs.otherRows;
+    if (otherRows.length) {
+      const rowH = sc(22);
+      const colGap = sc(8);
+      const colW = (innerW - sc(8) - colGap) / 2;
+      otherRows.forEach((row, i) => {
+        const col = i % 2;
+        const pair = Math.floor(i / 2);
+        const cx = innerL + sc(4) + col * (colW + colGap);
+        const cy = y + pair * rowH + rowH / 2;
+        if (col === 0 && pair > 0) {
+          ctx.strokeStyle = ROW_LINE;
+          ctx.lineWidth = Math.max(1, sc(1));
+          ctx.beginPath();
+          ctx.moveTo(innerL + sc(4), y + pair * rowH);
+          ctx.lineTo(innerR - sc(4), y + pair * rowH);
+          ctx.stroke();
+        }
+        ctx.fillStyle = '#666666';
+        ctx.font = `bold ${sc(10)}px Arial, Helvetica, sans-serif`;
+        ctx.textAlign = 'left';
+        ctx.textBaseline = 'middle';
+        const labelText = row.label.toUpperCase();
+        ctx.fillText(labelText, cx, cy);
+        const lw = Math.min(ctx.measureText(labelText).width, sc(70));
+        ctx.fillStyle = '#111111';
+        ctx.font = `bold ${sc(11)}px Arial, Helvetica, sans-serif`;
+        const vx = cx + lw + sc(8);
+        let vf = sc(11);
+        while (vf > sc(8) && ctx.measureText(row.value).width > colW - lw - sc(10)) {
+          vf -= 1;
+          ctx.font = `bold ${vf}px Arial, Helvetica, sans-serif`;
+        }
+        ctx.fillText(row.value, vx, cy);
+      });
+      y += Math.ceil(otherRows.length / 2) * rowH;
+    }
+  }
+
+  y += sc(8);
+
+  // --- Price ---
   const rate = Number.isFinite(product.rate) ? product.rate : 0;
   const tax = resolveShareTaxPct(product);
   const dealerGst = round2(rate * (tax / 100));
@@ -504,8 +777,8 @@ async function buildShareCardBlob(
   );
 
   const gap = sc(11);
-  const boxW = (innerW - gap) / 2;
-  const boxH = sc(124);
+  const boxW = mrpOnly ? innerW : (innerW - gap) / 2;
+  const boxH = mrpOnly ? sc(118) : sc(124);
   const leftX = innerL;
   const rightX = innerL + boxW + gap;
   const headerBarH = sc(21);
@@ -514,7 +787,7 @@ async function buildShareCardBlob(
   const priceSub = sc(11);
   const borderW = Math.max(2, sc(1.5));
 
-  // MRP box
+  // MRP box (full width for dealer)
   ctx.strokeStyle = RED;
   ctx.lineWidth = borderW;
   roundRectPath(ctx, leftX, y, boxW, boxH, boxR);
@@ -543,71 +816,74 @@ async function buildShareCardBlob(
   }
   ctx.fillText(mrpSub, leftX + boxW / 2, mrpBodyMid + sc(22));
 
-  // Dealer box
-  ctx.strokeStyle = BLUE;
-  ctx.lineWidth = borderW;
-  roundRectPath(ctx, rightX, y, boxW, boxH, boxR);
-  ctx.stroke();
-  ctx.fillStyle = BLUE;
-  roundRectPath(ctx, rightX, y, boxW, headerBarH, boxR);
-  ctx.fill();
-  ctx.fillRect(rightX, y + headerBarH - boxR, boxW, boxR);
-  ctx.fillStyle = '#fff';
-  ctx.font = `bold ${sc(9)}px Arial, Helvetica, sans-serif`;
-  ctx.fillText('DEALER PRICE (EXCLUDING GST)', rightX + boxW / 2, y + headerBarH / 2);
+  if (!mrpOnly) {
+    // Dealer box (staff / non-dealer shares)
+    ctx.strokeStyle = BLUE;
+    ctx.lineWidth = borderW;
+    roundRectPath(ctx, rightX, y, boxW, boxH, boxR);
+    ctx.stroke();
+    ctx.fillStyle = BLUE;
+    roundRectPath(ctx, rightX, y, boxW, headerBarH, boxR);
+    ctx.fill();
+    ctx.fillRect(rightX, y + headerBarH - boxR, boxW, boxR);
+    ctx.fillStyle = '#fff';
+    ctx.font = `bold ${sc(9)}px Arial, Helvetica, sans-serif`;
+    ctx.fillText('DEALER PRICE (EXCLUDING GST)', rightX + boxW / 2, y + headerBarH / 2);
 
-  const dealerTop = y + headerBarH + sc(18);
-  ctx.fillStyle = BLUE;
-  ctx.font = `bold ${priceMain}px Arial, Helvetica, sans-serif`;
-  ctx.fillText(money(rate), rightX + boxW / 2, dealerTop);
-  ctx.fillStyle = '#111111';
-  ctx.font = `bold ${priceSub}px Arial, Helvetica, sans-serif`;
-  ctx.fillText(`+ ${tax}% GST ${money(dealerGst)}`, rightX + boxW / 2, dealerTop + sc(18));
+    const dealerTop = y + headerBarH + sc(18);
+    ctx.fillStyle = BLUE;
+    ctx.font = `bold ${priceMain}px Arial, Helvetica, sans-serif`;
+    ctx.fillText(money(rate), rightX + boxW / 2, dealerTop);
+    ctx.fillStyle = '#111111';
+    ctx.font = `bold ${priceSub}px Arial, Helvetica, sans-serif`;
+    ctx.fillText(`+ ${tax}% GST ${money(dealerGst)}`, rightX + boxW / 2, dealerTop + sc(18));
 
-  // Dashed separator (~mid body)
-  const dashY = y + headerBarH + sc(52);
-  ctx.strokeStyle = BLUE;
-  ctx.lineWidth = Math.max(1, sc(1));
-  ctx.globalAlpha = 0.55;
-  ctx.setLineDash([sc(4), sc(3)]);
-  ctx.beginPath();
-  ctx.moveTo(rightX + sc(10), dashY);
-  ctx.lineTo(rightX + boxW - sc(10), dashY);
-  ctx.stroke();
-  ctx.setLineDash([]);
-  ctx.globalAlpha = 1;
+    const dashY = y + headerBarH + sc(52);
+    ctx.strokeStyle = BLUE;
+    ctx.lineWidth = Math.max(1, sc(1));
+    ctx.globalAlpha = 0.55;
+    ctx.setLineDash([sc(4), sc(3)]);
+    ctx.beginPath();
+    ctx.moveTo(rightX + sc(10), dashY);
+    ctx.lineTo(rightX + boxW - sc(10), dashY);
+    ctx.stroke();
+    ctx.setLineDash([]);
+    ctx.globalAlpha = 1;
 
-  // Including GST pill + amount
-  const pillLabel = 'DEALER PRICE (INCLUDING GST)';
-  ctx.font = `bold ${sc(8)}px Arial, Helvetica, sans-serif`;
-  const pillW = Math.min(boxW - sc(16), ctx.measureText(pillLabel).width + sc(14));
-  const pillH = sc(14);
-  const pillX = rightX + (boxW - pillW) / 2;
-  const pillY = dashY + sc(8);
-  roundRectPath(ctx, pillX, pillY, pillW, pillH, pillH / 2);
-  ctx.fillStyle = BLUE;
-  ctx.fill();
-  ctx.fillStyle = '#fff';
-  ctx.textAlign = 'center';
-  ctx.textBaseline = 'middle';
-  ctx.fillText(pillLabel, pillX + pillW / 2, pillY + pillH / 2 + 0.5);
+    const pillLabel = 'DEALER PRICE (INCLUDING GST)';
+    ctx.font = `bold ${sc(8)}px Arial, Helvetica, sans-serif`;
+    const pillW = Math.min(boxW - sc(16), ctx.measureText(pillLabel).width + sc(14));
+    const pillH = sc(14);
+    const pillX = rightX + (boxW - pillW) / 2;
+    const pillY = dashY + sc(8);
+    roundRectPath(ctx, pillX, pillY, pillW, pillH, pillH / 2);
+    ctx.fillStyle = BLUE;
+    ctx.fill();
+    ctx.fillStyle = '#fff';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(pillLabel, pillX + pillW / 2, pillY + pillH / 2 + 0.5);
 
-  ctx.fillStyle = BLUE;
-  ctx.font = `bold ${sc(22)}px Arial, Helvetica, sans-serif`;
-  ctx.fillText(money(dealerInc), rightX + boxW / 2, pillY + pillH + sc(16));
+    ctx.fillStyle = BLUE;
+    ctx.font = `bold ${sc(22)}px Arial, Helvetica, sans-serif`;
+    ctx.fillText(money(dealerInc), rightX + boxW / 2, pillY + pillH + sc(16));
+  }
 
   y += boxH + sc(14);
 
-  // Footer (ref ~y=597)
+  // Footer
   ctx.fillStyle = '#222222';
   ctx.font = `bold ${sc(11)}px Arial, Helvetica, sans-serif`;
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
-  ctx.fillText('Interweighing Private Limited', W / 2, Math.min(y + sc(4), H - sc(18)));
+  const footer = mrpOnly ? footerName : 'Interweighing Private Limited';
+  const footerLines = wrapCanvasLines(ctx, footer, innerW - sc(20), 2);
+  footerLines.forEach((line, i) => {
+    ctx.fillText(line, W / 2, Math.min(y + sc(4) + i * sc(14), H - sc(18) - (footerLines.length - 1 - i) * sc(14)));
+  });
 
-  ctx.restore(); // end card clip
+  ctx.restore();
 
-  // Border on top of clipped content
   ctx.strokeStyle = '#9ca3af';
   ctx.lineWidth = Math.max(2, sc(1.5));
   roundRectPath(ctx, sc(0.75), sc(0.75), W - sc(1.5), H - sc(1.5), Math.max(0, cardR - sc(0.5)));
@@ -626,6 +902,10 @@ type Props = {
   imageUrl: string | null;
   imageIndex?: number;
   imageCount?: number;
+  /** Dealer portal: hide dealer price, show MRP-only professional rate card. */
+  mrpOnly?: boolean;
+  footerName?: string | null;
+  stampingLabels?: string[];
   onClose: () => void;
 };
 
@@ -634,20 +914,64 @@ export const ProductWhatsAppShareDialog: React.FC<Props> = ({
   imageUrl,
   imageIndex = 0,
   imageCount = 1,
+  mrpOnly: mrpOnlyProp,
+  footerName: footerNameProp,
+  stampingLabels = [],
   onClose,
 }) => {
+  const { user } = useAuth();
+  const isDealerPortal = user?.role === 'dealer' || user?.role === 'dealer_staff';
+  const mrpOnly = mrpOnlyProp ?? isDealerPortal;
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [building, setBuilding] = useState(true);
   const [sharing, setSharing] = useState(false);
   const [error, setError] = useState('');
+  const [resolvedFooterName, setResolvedFooterName] = useState<string>(
+    footerNameProp?.trim() || (isDealerPortal ? (user?.displayName?.trim() || 'Dealer name') : 'Interweighing Private Limited'),
+  );
   const blobRef = useRef<Blob | null>(null);
+
+  useEffect(() => {
+    if (footerNameProp?.trim()) {
+      setResolvedFooterName(footerNameProp.trim());
+      return;
+    }
+    if (!mrpOnly) {
+      setResolvedFooterName('Interweighing Private Limited');
+      return;
+    }
+    const customerId = user?.zohoCustomerId?.trim() || user?.dealerId?.trim() || '';
+    if (!customerId) {
+      setResolvedFooterName(user?.displayName?.trim() || 'Dealer name');
+      return;
+    }
+    let active = true;
+    void getDoc(doc(db, 'zohoCustomers', customerId))
+      .then(snap => {
+        if (!active) return;
+        const name = String(snap.data()?.customerName ?? '').trim();
+        setResolvedFooterName(name || user?.displayName?.trim() || 'Dealer name');
+      })
+      .catch(() => {
+        if (active) setResolvedFooterName(user?.displayName?.trim() || 'Dealer name');
+      });
+    return () => {
+      active = false;
+    };
+  }, [footerNameProp, mrpOnly, user?.zohoCustomerId, user?.dealerId, user?.displayName]);
+
+  const stampingKey = stampingLabels.join('|');
 
   useEffect(() => {
     let active = true;
     let objectUrl: string | null = null;
     setBuilding(true);
     setError('');
-    void buildShareCardBlob(product, imageUrl, imageIndex, Math.max(1, imageCount))
+    void buildShareCardBlob(product, imageUrl, imageIndex, Math.max(1, imageCount), {
+      mrpOnly,
+      footerName: resolvedFooterName,
+      stampingLabels,
+    })
       .then(blob => {
         if (!active) return;
         blobRef.current = blob;
@@ -664,7 +988,9 @@ export const ProductWhatsAppShareDialog: React.FC<Props> = ({
       active = false;
       if (objectUrl) URL.revokeObjectURL(objectUrl);
     };
-  }, [product, imageUrl, imageIndex, imageCount]);
+    // stampingKey captures stampingLabels contents without referential churn
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [product, imageUrl, imageIndex, imageCount, mrpOnly, resolvedFooterName, stampingKey]);
 
   const handleShare = async () => {
     setSharing(true);
@@ -678,7 +1004,6 @@ export const ProductWhatsAppShareDialog: React.FC<Props> = ({
         .slice(0, 40);
       const fileName = `${safeName}-share.png`;
 
-      // APK: system share sheet — WhatsApp, email, and any app that accepts images.
       if (Capacitor.isNativePlatform()) {
         const dataBase64 = await blobToBase64(blob);
         await WhatsAppShare.shareImage({
@@ -689,24 +1014,22 @@ export const ProductWhatsAppShareDialog: React.FC<Props> = ({
         return;
       }
 
-      // PWA/browser: prefer Web Share with the image file when the browser supports it.
       const file = new File([blob], fileName, { type: 'image/png' });
       const shareData: ShareData = {
         files: [file],
-        title: product.name.trim() || 'Genuine Spare Part',
+        title: product.name.trim() || 'Product',
       };
       if (typeof navigator.canShare === 'function' && navigator.canShare(shareData)) {
         await navigator.share(shareData);
         return;
       }
 
-      // Fallback: upload card and open WhatsApp with the image link.
-      const imageUrl = await uploadWhatsAppShareCard(blob, fileName);
+      const sharedImageUrl = await uploadWhatsAppShareCard(blob, fileName);
       const shareText = [
-        product.name.trim() || 'Genuine Spare Part',
+        product.name.trim() || 'Product',
         product.sku?.trim() ? `SKU: ${product.sku.trim()}` : '',
-        imageUrl,
-        'Interweighing Private Limited · Genuine Spare Parts',
+        sharedImageUrl,
+        mrpOnly ? resolvedFooterName : 'Interweighing Private Limited · Genuine Spare Parts',
       ].filter(Boolean).join('\n');
       openWhatsAppWithText(shareText);
     } catch (err) {
@@ -728,8 +1051,10 @@ export const ProductWhatsAppShareDialog: React.FC<Props> = ({
       >
         <div className="product-wa-share__header">
           <div>
-            <h2 id="product-wa-share-title">Share product</h2>
-            <p className="text-muted text-sm">Preview card · then share</p>
+            <h2 id="product-wa-share-title">{mrpOnly ? 'Share rate card' : 'Share product'}</h2>
+            <p className="text-muted text-sm">
+              {mrpOnly ? 'MRP rate card · then share' : 'Preview card · then share'}
+            </p>
           </div>
           <button type="button" className="dealers-modal__close" onClick={onClose} aria-label="Close">
             <X size={18} />
