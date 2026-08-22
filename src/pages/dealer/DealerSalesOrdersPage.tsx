@@ -28,7 +28,7 @@ import type {
 import { toSalesOrderDateKey } from '../../lib/admin-sales-orders';
 import { formatCurrency } from '../../lib/catalog';
 import { listDealerSalesOrders } from '../../lib/dealer-sales-orders';
-import { hideDealerStaffCommercials } from '../../lib/dealerAccess';
+import { dealerStaffOwnsSalesOrder, hideDealerStaffCommercials } from '../../lib/dealerAccess';
 import {
   FROM_SALES_ORDER_LIST_STATE,
   clearSalesOrderListOpenedRow,
@@ -241,7 +241,7 @@ export const DealerSalesOrdersPage: React.FC = () => {
     // Zoho-only list — portal dealerOrders are no longer merged.
     void listDealerSalesOrders({ limit: 2500, dateStart, dateEnd })
       .then(rows => {
-        setZohoOrders(rows);
+        setZohoOrders(rows.filter(row => dealerStaffOwnsSalesOrder(user, row)));
         setError('');
       })
       .catch(err => {
@@ -249,7 +249,7 @@ export const DealerSalesOrdersPage: React.FC = () => {
         setError(invoiceErrorMessage(err));
       })
       .finally(() => setLoading(false));
-  }, [rangePreset]);
+  }, [rangePreset, user]);
 
   useEffect(() => {
     load();
@@ -448,7 +448,9 @@ export const DealerSalesOrdersPage: React.FC = () => {
             <ClipboardList size={36} aria-hidden />
             <h2>No sales orders found</h2>
             <p className="text-muted text-sm">
-              Zoho sales orders for your account will appear here after you submit a cart.
+              {user?.role === 'dealer_staff'
+                ? 'Sales orders you submit will appear here after your dealer approves them.'
+                : 'Zoho sales orders for your account will appear here after you submit a cart.'}
             </p>
           </div>
         ) : (

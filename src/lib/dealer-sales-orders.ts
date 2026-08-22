@@ -62,6 +62,10 @@ function mapListRow(raw: Record<string, unknown>): AdminFirestoreSalesOrder {
       || null,
     yesOneStage: raw.yesOneStage ? String(raw.yesOneStage) : null,
     yesOneCreatedFromCart: Boolean(raw.yesOneCreatedFromCart),
+    yesOneCreatedByUid: raw.yesOneCreatedByUid ? String(raw.yesOneCreatedByUid) : null,
+    yesOneDealerStaffUid: raw.yesOneDealerStaffUid ? String(raw.yesOneDealerStaffUid) : null,
+    zohoInvoiceId: raw.zohoInvoiceId ? String(raw.zohoInvoiceId) : null,
+    zohoInvoiceNumber: raw.zohoInvoiceNumber ? String(raw.zohoInvoiceNumber) : null,
   };
 }
 

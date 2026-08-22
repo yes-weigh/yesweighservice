@@ -47,6 +47,7 @@ import {
   compareLogisticsBookingsByBookingDateDesc,
   deleteLogisticsBookingPermanently,
   fetchLogisticsBooking,
+  logisticsBookingMatchesInvoiceKeys,
   subscribeLogisticsBookings,
   syncLogisticsShipFromAddressesToAllBookings,
   updateLogisticsBookingStatus,
@@ -54,6 +55,7 @@ import {
 } from '../../lib/logisticsBookings';
 import { inferBlueDartUiStatus } from '../../lib/blueDartApi';
 import { formatCurrency } from '../../lib/catalog';
+import { listDealerSalesOrders } from '../../lib/dealer-sales-orders';
 import { ewayBillListChip, preferredInvoiceTotalInclGst } from '../../constants/ewayBill';
 import { clubbedInvoiceCount } from '../../lib/logisticsClubInvoices';
 import {
@@ -370,7 +372,12 @@ export const LogisticsPage: React.FC = () => {
 
   const isMobile = useIsMobile();
   const isOps = user ? isInternalOpsUser(user) : false;
+  const isDealerStaffUser = user?.role === 'dealer_staff';
   const hideCommercials = hideDealerStaffCommercials(user);
+  const [staffInvoiceKeys, setStaffInvoiceKeys] = useState<{
+    ids: Set<string>;
+    numbers: Set<string>;
+  } | null>(null);
   const dealerStaffById = useDealerStaffById(isOps);
   const canCreate = user ? canCreateLogisticsBooking(user) : false;
   const canSuperDelete = user ? canDeleteLogisticsBooking(user) : false;
@@ -380,9 +387,19 @@ export const LogisticsPage: React.FC = () => {
     if (!canSuperDelete && showDeleteButtons) setShowDeleteButtons(false);
   }, [canSuperDelete, showDeleteButtons]);
 
+  const visibleBookings = useMemo(() => {
+    if (!isDealerStaffUser) return bookings;
+    if (!staffInvoiceKeys) return [];
+    return bookings.filter(booking => logisticsBookingMatchesInvoiceKeys(
+      booking,
+      staffInvoiceKeys.ids,
+      staffInvoiceKeys.numbers,
+    ));
+  }, [bookings, isDealerStaffUser, staffInvoiceKeys]);
+
   const activeBooking = useMemo(
-    () => bookings.find(item => item.id === activeBookingId) ?? null,
-    [bookings, activeBookingId],
+    () => visibleBookings.find(item => item.id === activeBookingId) ?? null,
+    [visibleBookings, activeBookingId],
   );
 
   const flowOpen = flowStep !== 'closed';
@@ -450,6 +467,33 @@ export const LogisticsPage: React.FC = () => {
     return unsubscribe;
   }, [user, filters.query]);
 
+  useEffect(() => {
+    if (!isDealerStaffUser) {
+      setStaffInvoiceKeys(null);
+      return undefined;
+    }
+    let cancelled = false;
+    void listDealerSalesOrders({ limit: 2500 })
+      .then(rows => {
+        if (cancelled) return;
+        const ids = new Set<string>();
+        const numbers = new Set<string>();
+        for (const row of rows) {
+          const invoiceId = String(row.zohoInvoiceId ?? '').trim();
+          if (invoiceId) ids.add(invoiceId);
+          const invoiceNumber = String(row.zohoInvoiceNumber ?? '').trim().toUpperCase();
+          if (invoiceNumber) numbers.add(invoiceNumber);
+        }
+        setStaffInvoiceKeys({ ids, numbers });
+      })
+      .catch(() => {
+        if (!cancelled) setStaffInvoiceKeys({ ids: new Set(), numbers: new Set() });
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [isDealerStaffUser, user?.uid]);
+
   /** Once per session: push Sites ship-from addresses onto all bookings for ops. */
   useEffect(() => {
     if (!user || !isOps || shipFromSessionSyncStarted) return;
@@ -469,8 +513,8 @@ export const LogisticsPage: React.FC = () => {
   }, [user, isOps]);
 
   const datedBookings = useMemo(
-    () => bookings.filter(booking => inDateRange(booking, dateRange.from, dateRange.to)),
-    [bookings, dateRange.from, dateRange.to],
+    () => visibleBookings.filter(booking => inDateRange(booking, dateRange.from, dateRange.to)),
+    [visibleBookings, dateRange.from, dateRange.to],
   );
 
   const pipelineBookings = useMemo(
@@ -780,7 +824,7 @@ export const LogisticsPage: React.FC = () => {
   }, []);
 
   const showListControls = isOps && !flowOpen && !activeBooking;
-  const showListFilters = !loading && !activeBooking;
+  const showListFilters = !loading && !(isDealerStaffUser && staffInvoiceKeys === null) && !activeBooking;
   const hasActiveFilters = Boolean(filters.status)
     || Boolean(filters.partnerId)
     || Boolean(partnerFilter)
@@ -1074,7 +1118,7 @@ export const LogisticsPage: React.FC = () => {
 
       {error && <p className="logistics-page__error text-sm">{error}</p>}
 
-      {loading ? (
+      {loading || (isDealerStaffUser && staffInvoiceKeys === null) ? (
         <div className="logistics-page__empty panel glass">
           <div className="loader-ring" />
         </div>
@@ -1198,9 +1242,11 @@ export const LogisticsPage: React.FC = () => {
               <p className="text-muted text-sm">
                 {hasActiveFilters || hasSearchQuery
                   ? 'Try clearing filters or search to see more logistics bookings.'
-                  : canCreate
-                    ? 'Book courier shipments, generate slips, and track delivery from booking to doorstep.'
-                    : 'Your courier shipments will appear here once booked by YesOne logistics.'}
+                  : isDealerStaffUser
+                    ? 'Shipments for sales orders you created will appear here after YesOne books the courier.'
+                    : canCreate
+                      ? 'Book courier shipments, generate slips, and track delivery from booking to doorstep.'
+                      : 'Your courier shipments will appear here once booked by YesOne logistics.'}
               </p>
               {(hasActiveFilters || hasSearchQuery) ? (
                 <button

@@ -940,6 +940,9 @@ export function mapSalesOrderDoc(id, data) {
     readyForPaymentAt: data.readyForPaymentAt ?? null,
     zohoInvoiceId: data.zohoInvoiceId ?? null,
     zohoInvoiceNumber: data.zohoInvoiceNumber ?? null,
+    yesOneCreatedFromCart: Boolean(data.yesOneCreatedFromCart),
+    yesOneCreatedByUid: data.yesOneCreatedByUid ? String(data.yesOneCreatedByUid) : null,
+    yesOneDealerStaffUid: data.yesOneDealerStaffUid ? String(data.yesOneDealerStaffUid) : null,
   };
 }
 
@@ -966,6 +969,11 @@ function mapSalesOrderListRow(id, data) {
     syncedAt: full.syncedAt,
     yesOneStage: full.yesOneStage,
     yesOnePriceCustomized: full.yesOnePriceCustomized,
+    yesOneCreatedFromCart: full.yesOneCreatedFromCart,
+    yesOneCreatedByUid: full.yesOneCreatedByUid,
+    yesOneDealerStaffUid: full.yesOneDealerStaffUid,
+    zohoInvoiceId: full.zohoInvoiceId,
+    zohoInvoiceNumber: full.zohoInvoiceNumber,
   };
 }
 
@@ -1152,6 +1160,12 @@ function salesOrderDateTimeMs(row) {
   return Number.isNaN(parsed) ? 0 : parsed;
 }
 
+function salesOrderVisibleToDealerStaff(row, uid) {
+  const staffUid = String(row?.yesOneDealerStaffUid ?? '').trim();
+  const createdBy = String(row?.yesOneCreatedByUid ?? '').trim();
+  return staffUid === uid || createdBy === uid;
+}
+
 /**
  * Dealer / dealer_staff: list Zoho sales orders for their linked customer.
  * Mirrors admin visibility: date-ordered pagination for the customer (no 400-cap slice).
@@ -1191,6 +1205,10 @@ export async function listDealerSalesOrders(uid, role, query = {}, context = {})
         console.warn('Dealer SO lazy sync failed:', err?.message ?? err);
       }
     }
+  }
+
+  if (role === 'dealer_staff') {
+    rows = rows.filter(row => salesOrderVisibleToDealerStaff(row, uid));
   }
 
   const payload = sortSalesOrderRows(rows).slice(0, maxRows);
@@ -1260,6 +1278,9 @@ export async function getDealerSalesOrderDetail(uid, role, salesOrderId) {
   }
   const data = snap.data() || {};
   if (String(data.customerId ?? '') !== String(customerId)) {
+    throw new HttpsError('permission-denied', 'You do not have access to this sales order.');
+  }
+  if (role === 'dealer_staff' && !salesOrderVisibleToDealerStaff(data, uid)) {
     throw new HttpsError('permission-denied', 'You do not have access to this sales order.');
   }
   const mapped = await withResolvedShippingAddress(mapSalesOrderDoc(snap.id, data));

@@ -110,6 +110,13 @@ export interface AdminFirestoreSalesOrder {
   yesOneStage?: string | null;
   /** True when this Draft SO was created from a dealer cart submit. */
   yesOneCreatedFromCart?: boolean;
+  /** Portal user who placed the SO (dealer owner after staff approval). */
+  yesOneCreatedByUid?: string | null;
+  /** Dealer staff who submitted the cart for approval. */
+  yesOneDealerStaffUid?: string | null;
+  /** Linked Zoho invoice when this SO has been invoiced. */
+  zohoInvoiceId?: string | null;
+  zohoInvoiceNumber?: string | null;
   /** True when one or more line rates differ from catalog for this SO. */
   yesOnePriceCustomized?: boolean;
 }
@@ -270,6 +277,10 @@ export function mapAdminSalesOrderDoc(
       || null,
     yesOneStage: data.yesOneStage ? String(data.yesOneStage) : null,
     yesOneCreatedFromCart: Boolean(data.yesOneCreatedFromCart),
+    yesOneCreatedByUid: data.yesOneCreatedByUid ? String(data.yesOneCreatedByUid) : null,
+    yesOneDealerStaffUid: data.yesOneDealerStaffUid ? String(data.yesOneDealerStaffUid) : null,
+    zohoInvoiceId: data.zohoInvoiceId ? String(data.zohoInvoiceId) : null,
+    zohoInvoiceNumber: data.zohoInvoiceNumber ? String(data.zohoInvoiceNumber) : null,
     yesOnePriceCustomized: Boolean(data.yesOnePriceCustomized),
   };
 }

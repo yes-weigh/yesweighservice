@@ -64,6 +64,20 @@ export function canPlaceDealerZohoOrder(
   return user?.role === 'dealer';
 }
 
+/** Sales / service staff only see SOs they submitted or created. Owner sees all. */
+export function dealerStaffOwnsSalesOrder(
+  user: Pick<User, 'uid' | 'role'> | null | undefined,
+  order: {
+    yesOneDealerStaffUid?: string | null;
+    yesOneCreatedByUid?: string | null;
+  } | null | undefined,
+): boolean {
+  if (!user || user.role !== 'dealer_staff') return true;
+  const uid = user.uid;
+  return String(order?.yesOneDealerStaffUid ?? '').trim() === uid
+    || String(order?.yesOneCreatedByUid ?? '').trim() === uid;
+}
+
 /** Dealer unit (charge) price. Sales never; Service only on spares; owner always. */
 export function canSeeDealerUnitPrice(
   user: Pick<User, 'role' | 'staffDepartment' | 'dealerTeams'> | null | undefined,

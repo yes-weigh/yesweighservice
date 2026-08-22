@@ -1770,6 +1770,26 @@ async function fetchDealerBookings(user: User): Promise<LogisticsBooking[]> {
   return [...byId.values()].sort(compareLogisticsBookingsByBookingDateDesc);
 }
 
+/** True when a booking is for one of the given Zoho invoices. */
+export function logisticsBookingMatchesInvoiceKeys(
+  booking: Pick<LogisticsBooking, 'invoiceId' | 'invoiceIds' | 'invoices' | 'invoiceNumber'>,
+  invoiceIds: Set<string>,
+  invoiceNumbers: Set<string>,
+): boolean {
+  const ids = [
+    booking.invoiceId,
+    ...(booking.invoiceIds ?? []),
+    ...(booking.invoices ?? []).map(row => row.invoiceId),
+  ].map(id => String(id ?? '').trim()).filter(Boolean);
+  if (ids.some(id => invoiceIds.has(id))) return true;
+
+  const numbers = [
+    booking.invoiceNumber,
+    ...(booking.invoices ?? []).map(row => row.invoiceNumber),
+  ].map(value => String(value ?? '').trim().toUpperCase()).filter(Boolean);
+  return numbers.some(value => invoiceNumbers.has(value));
+}
+
 export async function listLogisticsBookings(
   user: User,
   filters: LogisticsBookingListFilters = {},

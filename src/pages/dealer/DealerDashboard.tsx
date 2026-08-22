@@ -35,6 +35,7 @@ import {
   readCachedDealerInvoiceDashboard,
 } from '../../lib/invoices';
 import { listDealerSalesOrders } from '../../lib/dealer-sales-orders';
+import { dealerStaffOwnsSalesOrder } from '../../lib/dealerAccess';
 import type { DealerInvoice, InvoiceDashboardSummary, InvoiceSalesEntry, SalesRangePreset } from '../../types/invoices';
 
 type Trend = 'up' | 'down';
@@ -259,6 +260,7 @@ export const DealerDashboard: React.FC<{ basePath: string }> = ({ basePath }) =>
       .then(rows => {
         if (cancelled) return;
         const open = rows.filter(order => {
+          if (!dealerStaffOwnsSalesOrder(user, order)) return false;
           const status = String(order.status || '').toLowerCase().replace(/\s+/g, '_');
           return status === 'draft' || status === 'open' || status === 'confirmed' || status === 'approved';
         }).length;
