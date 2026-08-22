@@ -4,8 +4,8 @@ import { AlertCircle, RefreshCw } from 'lucide-react';
 import { CatalogBrowse } from '../../components/catalog/CatalogBrowse';
 import { useAuth } from '../../context/AuthContext';
 import { useRaisedPoQtyByProductId } from '../../hooks/useRaisedPoQtyByProductId';
-import { useCanViewShipmentTracking } from '../../hooks/useCanViewShipmentTracking';
-import { canViewCatalogStock, isDealerPortalUser } from '../../lib/dealerAccess';
+import { useCanViewShipmentTracking, useCanViewCatalogStock } from '../../hooks/useCanViewShipmentTracking';
+import { isDealerPortalUser } from '../../lib/dealerAccess';
 import { hasStaffPermission } from '../../lib/staffAccess';
 import {
   excludeHiddenCatalogProducts,
@@ -25,7 +25,8 @@ export const ProductsPage: React.FC = () => {
   const { pathname } = useLocation();
   const { user } = useAuth();
   const canSync = user?.role === 'super_admin' || hasStaffPermission(user, 'catalog.sync');
-  const showStockQuantity = canSync || canViewCatalogStock(user);
+  const canViewStockQty = useCanViewCatalogStock();
+  const showStockQuantity = canSync || canViewStockQty;
   const dealerView = isDealerPortalUser(user);
   const raisedPoQtyByProductId = useRaisedPoQtyByProductId(useCanViewShipmentTracking());
   const orderCartEnabled = canUseOrderCart(user);

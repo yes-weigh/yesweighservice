@@ -7,7 +7,8 @@ import {
   canEditCatalogProductImageForUser,
   isMediaRole,
 } from '../types';
-import { canViewCatalogStock, canViewWarehouseStock } from '../lib/dealerAccess';
+import { canViewWarehouseStock } from '../lib/dealerAccess';
+import { useCanViewCatalogStock } from '../hooks/useCanViewShipmentTracking';
 import { canSuperAdminWrite } from '../lib/staffAccess';
 import { canUseOrderCart, isCatalogProductCartable, orderCartPathForUser } from '../lib/salesOrderSegments';
 import { canNavigateBackInApp } from '../lib/navigation';
@@ -41,7 +42,8 @@ export const ProductDetailPage: React.FC = () => {
 
   const showWarehouseStock = !mediaOnly
     && (user?.role === 'staff' || user?.role === 'super_admin' || canViewWarehouseStock(user));
-  const showStockQuantity = !mediaOnly && (showWarehouseStock || canViewCatalogStock(user));
+  const canViewStockQty = useCanViewCatalogStock();
+  const showStockQuantity = !mediaOnly && canViewStockQty;
   const showCartActions = !mediaOnly && canUseOrderCart(user);
   const isCartable = useCallback(
     (product: { categoryId?: string | null; categoryName?: string | null }) => (

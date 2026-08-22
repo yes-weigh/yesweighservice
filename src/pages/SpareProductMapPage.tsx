@@ -3,7 +3,7 @@ import { useLocation, useParams } from 'react-router-dom';
 import { SpareProductMapView } from '../components/catalog/SpareProductMapView';
 import { useAuth } from '../context/AuthContext';
 import { catalogBaseForRole } from '../lib/catalogRoutes';
-import { canViewCatalogStock } from '../lib/dealerAccess';
+import { useCanViewCatalogStock } from '../hooks/useCanViewShipmentTracking';
 import { canSuperAdminWrite } from '../lib/staffAccess';
 import type { CatalogProduct } from '../types/catalog';
 
@@ -23,11 +23,7 @@ export const SpareProductMapPage: React.FC = () => {
     : `${catalogBase}?section=map`;
   const sparesBasePath = `${catalogBase}/spare`;
   const canManage = user?.role === 'staff' || canSuperAdminWrite(user);
-  const showStockQuantity = (
-    user?.role === 'staff'
-    || user?.role === 'super_admin'
-    || canViewCatalogStock(user)
-  );
+  const showStockQuantity = useCanViewCatalogStock();
 
   if (!productId) return null;
 

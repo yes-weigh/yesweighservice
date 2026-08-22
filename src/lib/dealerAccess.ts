@@ -45,10 +45,20 @@ export function hasDealerPermission(
   return resolveDealerPermissions(user).includes(permission);
 }
 
-export function canViewCatalogStock(user: User | null | undefined): boolean {
+/**
+ * Audited catalog stock qty (grid pill + last-audit footer).
+ * Staff / super_admin always. Dealers only when their price level is Directors.
+ */
+export function canViewCatalogStock(
+  user: User | null | undefined,
+  priceLevelName?: string | null,
+): boolean {
   if (!user) return false;
   if (user.role === 'super_admin' || user.role === 'staff') return true;
-  return hasDealerPermission(user, 'catalog.stock_view');
+  if (isDealerPortalUser(user)) {
+    return isDirectorsPriceLevelName(priceLevelName);
+  }
+  return false;
 }
 
 export function canViewWarehouseStock(user: User | null | undefined): boolean {
