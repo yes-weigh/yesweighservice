@@ -124,6 +124,63 @@ export interface AdminFirestorePurchaseOrder {
   purchaseOrderCategory: InvoiceCategory | null;
   categories: InvoiceCategory[];
   categoryAmounts: Partial<Record<InvoiceCategory, number>>;
+  /** Shipment milestones used for New PO / Underproduction / Shipped / Transit filters. */
+  tracking: PurchaseOrderTracking;
+  /** True when a Bill of Lading file is stored on the PO (counts as Shipped). */
+  hasBl: boolean;
+}
+
+/** Portal pipeline chips under the Draft POs summary. */
+export type PurchaseOrderPipelineStage =
+  | 'new_po'
+  | 'underproduction'
+  | 'shipped'
+  | 'transit';
+
+export const PURCHASE_ORDER_PIPELINE_STAGES: PurchaseOrderPipelineStage[] = [
+  'new_po',
+  'underproduction',
+  'shipped',
+  'transit',
+];
+
+export const PURCHASE_ORDER_PIPELINE_LABELS: Record<PurchaseOrderPipelineStage, string> = {
+  new_po: 'New PO',
+  underproduction: 'Underproduction',
+  shipped: 'Shipped',
+  transit: 'Transit',
+};
+
+/**
+ * Highest milestone wins:
+ * Transit (arrived/received) → Shipped (BL uploaded or sailed)
+ * → Underproduction (paid/loading) → New PO.
+ */
+export function purchaseOrderPipelineStage(
+  row: Pick<AdminFirestorePurchaseOrder, 'tracking' | 'hasBl'>,
+): PurchaseOrderPipelineStage {
+  const t = row.tracking;
+  if (t.arrivalDate || t.receivedDate) return 'transit';
+  // BL uploaded = Shipped (same as sailing date).
+  if (row.hasBl || t.sailingDate) return 'shipped';
+  if (t.loadingDate || t.paymentDate) return 'underproduction';
+  return 'new_po';
+}
+
+export function countPurchaseOrdersByPipeline(
+  rows: AdminFirestorePurchaseOrder[],
+): Record<PurchaseOrderPipelineStage | 'all', number> {
+  const counts: Record<PurchaseOrderPipelineStage | 'all', number> = {
+    all: rows.length,
+    new_po: 0,
+    underproduction: 0,
+    shipped: 0,
+    transit: 0,
+  };
+  for (const row of rows) {
+    counts[purchaseOrderPipelineStage(row)] += 1;
+  }
+  return counts;
 }
 
 export interface PurchaseOrderBl {
@@ -132,6 +189,9 @@ export interface PurchaseOrderBl {
   fileName: string;
   contentType: string;
   uploadedAt: string | null;
+  /** When set, this PO reuses the BL file stored on another PO (same container). */
+  linkedFromPurchaseOrderId: string | null;
+  linkedFromPurchaseOrderNumber: string | null;
 }
 
 export interface PurchaseOrderVendorPi {
@@ -279,6 +339,8 @@ export function mapAdminPurchaseOrderDoc(
     purchaseOrderCategory: parseInvoiceCategory(data.purchaseOrderCategory),
     categories: normalizeInvoiceCategories(data.categories),
     categoryAmounts: normalizeInvoiceCategoryAmounts(data.categoryAmounts),
+    tracking: parsePurchaseOrderTracking(data),
+    hasBl: typeof data.blStoragePath === 'string' && Boolean(data.blStoragePath.trim()),
   };
 }
 
@@ -582,6 +644,7 @@ export function filterAdminPurchaseOrders(
   rows: AdminFirestorePurchaseOrder[],
   searchText: string,
   category: InvoiceCategory | 'all' = 'all',
+  pipelineStage: PurchaseOrderPipelineStage | 'all' = 'all',
 ): AdminFirestorePurchaseOrder[] {
   let next = rows.filter(row => (
     row.status === PORTAL_PURCHASE_ORDER_STATUS
@@ -593,6 +656,9 @@ export function filterAdminPurchaseOrders(
         ?? (row.categories.length ? row.categories[0] : null);
       return primary === category;
     });
+  }
+  if (pipelineStage && pipelineStage !== 'all') {
+    next = next.filter(row => purchaseOrderPipelineStage(row) === pipelineStage);
   }
   const needle = searchText.trim().toLowerCase();
   if (!needle) return next;
@@ -695,6 +761,12 @@ export function parsePurchaseOrderBl(data: DocumentData): PurchaseOrderBl | null
     fileName: typeof data.blFileName === 'string' ? data.blFileName.trim() : '',
     contentType: typeof data.blContentType === 'string' ? data.blContentType.trim() : '',
     uploadedAt: typeof data.blUploadedAt === 'string' ? data.blUploadedAt : null,
+    linkedFromPurchaseOrderId: typeof data.blLinkedFromPurchaseOrderId === 'string'
+      ? data.blLinkedFromPurchaseOrderId.trim() || null
+      : null,
+    linkedFromPurchaseOrderNumber: typeof data.blLinkedFromPurchaseOrderNumber === 'string'
+      ? data.blLinkedFromPurchaseOrderNumber.trim() || null
+      : null,
   };
 }
 
@@ -929,6 +1001,46 @@ export function purchaseOrderHasBl(bl?: PurchaseOrderBl | null): boolean {
   return Boolean(bl?.storagePath);
 }
 
+export type PurchaseOrderBlSource = {
+  purchaseOrderId: string;
+  purchaseOrderNumber: string;
+  vendorName: string | null;
+  bl: PurchaseOrderBl;
+};
+
+/** Draft POs that already have a BL file — for “ship together / link same container”. */
+export async function listPurchaseOrderBlSources(options?: {
+  excludePurchaseOrderId?: string | null;
+  maxScan?: number;
+}): Promise<PurchaseOrderBlSource[]> {
+  const excludeId = String(options?.excludePurchaseOrderId ?? '').trim();
+  const maxScan = Math.max(50, Math.min(options?.maxScan ?? 300, 500));
+  const q = query(
+    collection(db, 'purchaseOrders'),
+    where('status', '==', PORTAL_PURCHASE_ORDER_STATUS),
+    where('date', '>=', PURCHASE_ORDER_KEEP_AFTER_DATE),
+    orderBy('date', 'desc'),
+    limit(maxScan),
+  );
+  const snap = await getDocs(q);
+  const out: PurchaseOrderBlSource[] = [];
+  for (const docSnap of snap.docs) {
+    if (excludeId && docSnap.id === excludeId) continue;
+    const data = docSnap.data();
+    const bl = parsePurchaseOrderBl(data);
+    if (!purchaseOrderHasBl(bl) || !bl) continue;
+    // Prefer primary (non-linked) BLs so we link to the PO that owns the file.
+    if (bl.linkedFromPurchaseOrderId) continue;
+    out.push({
+      purchaseOrderId: docSnap.id,
+      purchaseOrderNumber: String(data.purchaseOrderNumber ?? docSnap.id),
+      vendorName: data.vendorName ? String(data.vendorName) : null,
+      bl,
+    });
+  }
+  return out;
+}
+
 export async function savePurchaseOrderBl(input: {
   purchaseOrderId: string;
   containerNumber: string;
@@ -963,9 +1075,14 @@ export async function savePurchaseOrderBl(input: {
     } catch (err) {
       throw new Error(formatStorageUploadError(err, 'Could not upload bill of lading.'));
     }
-    if (input.existing?.storagePath && input.existing.storagePath !== nextPath) {
+    const prevPath = input.existing?.storagePath ?? '';
+    const ownedPrev = prevPath
+      && !input.existing?.linkedFromPurchaseOrderId
+      && prevPath.includes(`purchaseOrderBl/${input.purchaseOrderId}/`)
+      && prevPath !== nextPath;
+    if (ownedPrev) {
       try {
-        await deleteObject(ref(storage, input.existing.storagePath));
+        await deleteObject(ref(storage, prevPath));
       } catch {
         // ignore leftover file
       }
@@ -983,6 +1100,8 @@ export async function savePurchaseOrderBl(input: {
     blContentType: contentType,
     blUploadedAt: uploadedAt,
     blUploadedBy: auth.currentUser?.uid ?? null,
+    blLinkedFromPurchaseOrderId: null,
+    blLinkedFromPurchaseOrderNumber: null,
   });
 
   return {
@@ -991,6 +1110,74 @@ export async function savePurchaseOrderBl(input: {
     fileName,
     contentType,
     uploadedAt,
+    linkedFromPurchaseOrderId: null,
+    linkedFromPurchaseOrderNumber: null,
+  };
+}
+
+/** Point this PO at another PO’s BL (same container / ship together). Does not re-upload. */
+export async function linkPurchaseOrderBlFromSource(input: {
+  purchaseOrderId: string;
+  sourcePurchaseOrderId: string;
+}): Promise<PurchaseOrderBl> {
+  const targetId = input.purchaseOrderId.trim();
+  const sourceId = input.sourcePurchaseOrderId.trim();
+  if (!targetId || !sourceId) {
+    throw new Error('Choose a purchase order that already has a bill of lading.');
+  }
+  if (targetId === sourceId) {
+    throw new Error('Cannot link a bill of lading to the same purchase order.');
+  }
+
+  const sourceSnap = await getDoc(doc(db, 'purchaseOrders', sourceId));
+  if (!sourceSnap.exists()) {
+    throw new Error('Source purchase order not found.');
+  }
+  const sourceData = sourceSnap.data();
+  const sourceBl = parsePurchaseOrderBl(sourceData);
+  if (!purchaseOrderHasBl(sourceBl) || !sourceBl) {
+    throw new Error('That purchase order has no bill of lading file yet.');
+  }
+  // If source itself is linked, resolve to the same path but label with the primary PO when possible.
+  const primaryId = sourceBl.linkedFromPurchaseOrderId || sourceId;
+  const primaryNumber = sourceBl.linkedFromPurchaseOrderNumber
+    || String(sourceData.purchaseOrderNumber ?? sourceId);
+
+  const targetSnap = await getDoc(doc(db, 'purchaseOrders', targetId));
+  const existing = targetSnap.exists() ? parsePurchaseOrderBl(targetSnap.data()) : null;
+  const prevPath = existing?.storagePath ?? '';
+  const ownedPrev = prevPath
+    && !existing?.linkedFromPurchaseOrderId
+    && prevPath.includes(`purchaseOrderBl/${targetId}/`)
+    && prevPath !== sourceBl.storagePath;
+  if (ownedPrev) {
+    try {
+      await deleteObject(ref(storage, prevPath));
+    } catch {
+      // ignore
+    }
+  }
+
+  const uploadedAt = new Date().toISOString();
+  await updateDoc(doc(db, 'purchaseOrders', targetId), {
+    blContainerNumber: sourceBl.containerNumber,
+    blStoragePath: sourceBl.storagePath,
+    blFileName: sourceBl.fileName,
+    blContentType: sourceBl.contentType,
+    blUploadedAt: uploadedAt,
+    blUploadedBy: auth.currentUser?.uid ?? null,
+    blLinkedFromPurchaseOrderId: primaryId,
+    blLinkedFromPurchaseOrderNumber: primaryNumber,
+  });
+
+  return {
+    containerNumber: sourceBl.containerNumber,
+    storagePath: sourceBl.storagePath,
+    fileName: sourceBl.fileName,
+    contentType: sourceBl.contentType,
+    uploadedAt,
+    linkedFromPurchaseOrderId: primaryId,
+    linkedFromPurchaseOrderNumber: primaryNumber,
   };
 }
 

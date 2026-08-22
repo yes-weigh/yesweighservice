@@ -39,14 +39,16 @@ function poCardAccent(status: string): string {
 function CardField({
   icon: Icon,
   label,
+  tone,
   children,
 }: {
   icon?: LucideIcon;
   label?: string;
+  tone?: string;
   children: ReactNode;
 }) {
   return (
-    <span className="invoice-doc-card__field">
+    <span className={`invoice-doc-card__field${tone ? ` invoice-doc-card__field--${tone}` : ''}`}>
       {label ? (
         <span className="invoice-doc-card__field-head">
           {Icon ? <Icon size={13} strokeWidth={2.2} className="invoice-doc-card__icon" aria-hidden /> : null}
@@ -112,21 +114,21 @@ export function AdminPurchaseOrderDocCard({
 
         <span className="invoice-doc-card__grid">
           <span className="invoice-doc-card__row">
-            <CardField icon={FileText} label="PO No.">
+            <CardField icon={FileText} label="PO No." tone="po-no">
               {purchaseOrder.purchaseOrderNumber || purchaseOrder.id}
             </CardField>
-            <CardField icon={ClipboardList} label="Reference">
+            <CardField icon={ClipboardList} label="Reference" tone="po-ref">
               {purchaseOrder.referenceNumber || '—'}
             </CardField>
-            <CardField icon={Package} label="Qty">
+            <CardField icon={Package} label="Qty" tone="po-qty">
               {formatInvoiceItemQuantity(purchaseOrder.itemQuantity)}
             </CardField>
           </span>
           <span className="invoice-doc-card__row">
-            <CardField icon={Calendar} label="Date & Time">
+            <CardField icon={Calendar} label="Date & Time" tone="po-date">
               {formatInvoiceDateTime(purchaseOrder.date, purchaseOrder.createdTime) || '—'}
             </CardField>
-            <CardField>
+            <CardField tone="po-category">
               <span className="invoice-doc-card__lead invoice-doc-card__lead--row">
                 <InvoiceCategoryIcon category={category} />
                 {categoryLabel ? (
@@ -134,7 +136,7 @@ export function AdminPurchaseOrderDocCard({
                 ) : null}
               </span>
             </CardField>
-            <span className="invoice-doc-card__field invoice-doc-card__field--status">
+            <span className="invoice-doc-card__field invoice-doc-card__field--status invoice-doc-card__field--po-status">
               <span className={poStatusClass(purchaseOrder.status)}>
                 <Ship size={12} strokeWidth={2.2} aria-hidden />
                 {invoiceStatusLabel(purchaseOrder.status)}

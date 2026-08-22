@@ -19,13 +19,16 @@ import { AdminPurchaseOrderDocCard } from '../../components/admin/AdminPurchaseO
 import { useCatalogPageHeader, usePageHeaderSlot } from '../../context/PageHeaderContext';
 import {
   countAdminPurchaseOrders,
+  countPurchaseOrdersByPipeline,
   fetchAdminPurchaseOrdersPageDetailed,
   fetchAllAdminPurchaseOrdersInRange,
   filterAdminPurchaseOrders,
   toPurchaseOrderDateKey,
   type AdminFirestorePurchaseOrder,
   type AdminPurchaseOrderSort,
+  type PurchaseOrderPipelineStage,
 } from '../../lib/admin-purchase-orders';
+import { PurchaseOrderPipelineFilterBlocks } from '../../components/admin/PurchaseOrderPipelineFilterBlocks';
 import { formatCurrency } from '../../lib/catalog';
 import { loadZohoVendorDirectory, type ZohoVendorOption } from '../../lib/zoho-vendors';
 import {
@@ -232,18 +235,21 @@ export const AdminPurchaseOrdersPage: React.FC = () => {
   const [rangePreset, setRangePreset] = useState<SalesRangePreset>(DEFAULT_RANGE);
   const [filterOpen, setFilterOpen] = useState(false);
   const [page, setPage] = useState(1);
+  const [pipelineStage, setPipelineStage] = useState<PurchaseOrderPipelineStage | 'all'>('all');
   const [vendorsById, setVendorsById] = useState<Map<string, ZohoVendorOption>>(new Map());
 
   const bounds = getInvoicePeriodBounds(rangePreset);
   const dateStart = bounds?.start ? toPurchaseOrderDateKey(bounds.start) : null;
   const dateEnd = bounds?.end ? toPurchaseOrderDateKey(bounds.end) : null;
   const searchActive = Boolean(search.trim());
+  const pipelineActive = pipelineStage !== 'all';
+  const clientPaged = searchActive || pipelineActive;
 
   useEffect(() => {
     setPage(1);
     pageStartCursors.current = [null];
     setPageCursorVersion(v => v + 1);
-  }, [search, rangePreset, sort]);
+  }, [search, rangePreset, sort, pipelineStage]);
 
   useEffect(() => {
     let cancelled = false;
@@ -308,8 +314,8 @@ export const AdminPurchaseOrdersPage: React.FC = () => {
 
     void fetchAdminPurchaseOrdersPageDetailed({
       sort,
-      pageSize: searchActive ? SEARCH_FETCH_SIZE : LIST_PAGE_SIZE,
-      cursor: searchActive ? null : cursor,
+      pageSize: clientPaged ? SEARCH_FETCH_SIZE : LIST_PAGE_SIZE,
+      cursor: clientPaged ? null : cursor,
       category: 'all',
       dateStart,
       dateEnd,
@@ -317,7 +323,7 @@ export const AdminPurchaseOrdersPage: React.FC = () => {
       .then(result => {
         if (cancelled) return;
         setRows(result.rows);
-        if (!searchActive && result.lastDoc) {
+        if (!clientPaged && result.lastDoc) {
           pageStartCursors.current[page] = result.lastDoc;
         }
       })
@@ -334,27 +340,33 @@ export const AdminPurchaseOrdersPage: React.FC = () => {
     return () => {
       cancelled = true;
     };
-  }, [page, pageCursorVersion, sort, dateStart, dateEnd, searchActive]);
+  }, [page, pageCursorVersion, sort, dateStart, dateEnd, clientPaged]);
+
+  const searchBaseRows = clientPaged ? amountRows : rows;
 
   const filtered = useMemo(
-    () => filterAdminPurchaseOrders(rows, search, 'all'),
-    [rows, search],
+    () => filterAdminPurchaseOrders(searchBaseRows, search, 'all', pipelineStage),
+    [searchBaseRows, search, pipelineStage],
   );
 
   const amountFiltered = useMemo(
-    () => filterAdminPurchaseOrders(amountRows, search, 'all'),
+    () => filterAdminPurchaseOrders(amountRows, search, 'all', 'all'),
     [amountRows, search],
   );
 
-  const clientPaged = searchActive;
-  const filteredTotal = searchActive ? filtered.length : totalCount;
+  const pipelineCounts = useMemo(
+    () => countPurchaseOrdersByPipeline(amountFiltered),
+    [amountFiltered],
+  );
+
+  const filteredTotal = clientPaged ? filtered.length : totalCount;
   const pageRows = useMemo(() => {
-    if (searchActive) {
+    if (clientPaged) {
       const start = (page - 1) * LIST_PAGE_SIZE;
       return filtered.slice(start, start + LIST_PAGE_SIZE);
     }
     return filtered;
-  }, [searchActive, filtered, page]);
+  }, [clientPaged, filtered, page]);
 
   const totalPages = useMemo(() => {
     if (clientPaged) return Math.max(1, Math.ceil(filteredTotal / LIST_PAGE_SIZE));
@@ -498,6 +510,15 @@ export const AdminPurchaseOrdersPage: React.FC = () => {
             </div>
           </div>
         </div>
+      </section>
+
+      <section className="invoices-summary invoices-summary--po-pipeline" aria-label="Purchase order pipeline">
+        <PurchaseOrderPipelineFilterBlocks
+          value={pipelineStage}
+          counts={pipelineCounts}
+          loading={busy && amountRows.length === 0}
+          onChange={setPipelineStage}
+        />
       </section>
 
       <div ref={scrollRef} className="invoices-page__scroll">

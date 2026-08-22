@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom';
 import {
   AlertCircle,
+  BookmarkCheck,
   CalendarDays,
   CheckCircle2,
   ChevronRight,
@@ -11,8 +12,8 @@ import {
   Package,
   Plus,
   Search,
+  Ship,
   SlidersHorizontal,
-  Tag,
   Trash2,
   Truck,
   Undo2,
@@ -133,8 +134,8 @@ const STATUS_STAT_META: ReadonlyArray<{
   tone: CardTone;
 }> = [
   { id: 'all', label: 'All', shortLabel: 'All', Icon: LayoutGrid, tone: 'all' },
-  { id: 'label_generated', label: 'Booked', shortLabel: 'Booked', Icon: Tag, tone: 'label' },
-  { id: 'in_transit', label: 'In Transit', shortLabel: 'Transit', Icon: Truck, tone: 'transit' },
+  { id: 'label_generated', label: 'Booked', shortLabel: 'Booked', Icon: BookmarkCheck, tone: 'label' },
+  { id: 'in_transit', label: 'In Transit', shortLabel: 'Transit', Icon: Ship, tone: 'transit' },
   { id: 'delivered', label: 'Delivered', shortLabel: 'Delivered', Icon: CheckCircle2, tone: 'delivered' },
   { id: 'cancelled', label: 'Cancelled', shortLabel: 'Cancel', Icon: AlertCircle, tone: 'exception' },
   { id: 'returned', label: 'Returned', shortLabel: 'Returned', Icon: Undo2, tone: 'exception' },

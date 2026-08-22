@@ -396,6 +396,8 @@ service cloud.firestore {
               'blContentType',
               'blUploadedAt',
               'blUploadedBy',
+              'blLinkedFromPurchaseOrderId',
+              'blLinkedFromPurchaseOrderNumber',
               'piStoragePath',
               'piFileName',
               'piContentType',

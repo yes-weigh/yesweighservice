@@ -199,10 +199,12 @@ export const AdminPurchaseOrderDetailLayout: React.FC = () => {
                     purchaseOrderHasBl(purchaseOrder.bl) || blOpen ? 'is-active' : '',
                   ].filter(Boolean).join(' ')}
                   onClick={openBl}
-                  aria-label="Upload bill of lading copy"
+                  aria-label="Upload or link bill of lading"
                   title={purchaseOrder.bl?.containerNumber
-                    ? `Bill of lading · ${purchaseOrder.bl.containerNumber}`
-                    : 'Upload bill of lading copy'}
+                    ? purchaseOrder.bl.linkedFromPurchaseOrderNumber
+                      ? `BL · ${purchaseOrder.bl.containerNumber} · linked from ${purchaseOrder.bl.linkedFromPurchaseOrderNumber}`
+                      : `Bill of lading · ${purchaseOrder.bl.containerNumber}`
+                    : 'Upload or link bill of lading (same container)'}
                 >
                   <span className="invoice-detail-top__card-icon">
                     <Ship size={28} strokeWidth={1.75} aria-hidden />
@@ -210,7 +212,9 @@ export const AdminPurchaseOrderDetailLayout: React.FC = () => {
                   <span className="invoice-detail-top__card-label">BL</span>
                   {purchaseOrder.bl?.containerNumber ? (
                     <span className="invoice-detail-top__card-meta">
-                      {purchaseOrder.bl.containerNumber}
+                      {purchaseOrder.bl.linkedFromPurchaseOrderNumber
+                        ? `${purchaseOrder.bl.containerNumber} · linked`
+                        : purchaseOrder.bl.containerNumber}
                     </span>
                   ) : null}
                 </button>
