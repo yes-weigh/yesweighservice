@@ -18,6 +18,8 @@ import {
 import { getFunctions, httpsCallable } from 'firebase/functions';
 import { deleteObject, getDownloadURL, ref, uploadBytes } from 'firebase/storage';
 import { auth, db, app, storage } from '../firebase';
+import { WAN_HAI_VESSEL_IMO_BY_NAME } from './ais-wanhai-imos';
+import { voyageMapViewForPorts } from './shipping-port-coords';
 import { formatStorageUploadError } from './storageErrors';
 import { parseVendorPiExcelFile } from './vendorPiExcel';
 import { enrichInvoiceDetailImages } from './invoiceLineItemImages';
@@ -130,6 +132,12 @@ export interface AdminFirestorePurchaseOrder {
   hasBl: boolean;
   /** Shipping line + container/B/L set — BL can be live-tracked (Transit once sailed). */
   blTrackable: boolean;
+  /** B/L number — POs sharing this number follow the same Transit status. */
+  blNumber: string;
+  /** Container number — same-container BLs follow the same Transit status. */
+  blContainerNumber: string;
+  /** When set, this PO is linked to another PO’s master BL. */
+  blLinkedFromPurchaseOrderId: string | null;
 }
 
 /** Portal pipeline chips under the Draft POs summary. */
@@ -154,22 +162,95 @@ export const PURCHASE_ORDER_PIPELINE_LABELS: Record<PurchaseOrderPipelineStage, 
 };
 
 /**
- * Highest milestone wins:
+ * Own-document milestone:
  * Transit (trackable BL + sailed date, or arrived/received)
  * → Shipped (BL uploaded; sailed but not trackable stays here)
  * → Underproduction (paid/loading) → New PO.
+ *
+ * Linked BLs: if any PO in the same BL / container group is Transit, the others
+ * are treated as Transit too — see purchaseOrderPipelineStagesForLinkedBl.
  */
 export function purchaseOrderPipelineStage(
   row: Pick<AdminFirestorePurchaseOrder, 'tracking' | 'hasBl' | 'blTrackable'>,
 ): PurchaseOrderPipelineStage {
   const t = row.tracking;
   if (t.arrivalDate || t.receivedDate) return 'transit';
-  // Trackable BL + sailed date → Transit (vessel has left).
   if (row.blTrackable && t.sailingDate) return 'transit';
-  // Vendor BL received → Shipped.
   if (row.hasBl || t.sailingDate) return 'shipped';
   if (t.loadingDate || t.paymentDate) return 'underproduction';
   return 'new_po';
+}
+
+function normalizeBlGroupToken(value: unknown): string {
+  return String(value ?? '').replace(/\s+/g, '').toUpperCase();
+}
+
+function unionFindParentGet(parent: Map<string, string>, id: string): string {
+  if (!parent.has(id)) parent.set(id, id);
+  const next = parent.get(id)!;
+  if (next !== id) {
+    const root = unionFindParentGet(parent, next);
+    parent.set(id, root);
+    return root;
+  }
+  return id;
+}
+
+function unionFindMerge(parent: Map<string, string>, a: string, b: string): void {
+  const pa = unionFindParentGet(parent, a);
+  const pb = unionFindParentGet(parent, b);
+  if (pa !== pb) parent.set(pa, pb);
+}
+
+/**
+ * If one PO in a shared BL group is Transit, every PO with the same B/L number,
+ * same container, or the same linked master BL is Transit.
+ */
+export function purchaseOrderPipelineStagesForLinkedBl(
+  rows: AdminFirestorePurchaseOrder[],
+): Map<string, PurchaseOrderPipelineStage> {
+  const parent = new Map<string, string>();
+  const byBl = new Map<string, string>();
+  const byContainer = new Map<string, string>();
+  const byMaster = new Map<string, string>();
+
+  for (const row of rows) {
+    parent.set(row.id, row.id);
+    const bl = normalizeBlGroupToken(row.blNumber);
+    const container = normalizeBlGroupToken(row.blContainerNumber);
+    const master = String(row.blLinkedFromPurchaseOrderId || row.id).trim();
+    if (bl) {
+      const prev = byBl.get(bl);
+      if (prev) unionFindMerge(parent, prev, row.id);
+      byBl.set(bl, row.id);
+    }
+    if (container) {
+      const prev = byContainer.get(container);
+      if (prev) unionFindMerge(parent, prev, row.id);
+      byContainer.set(container, row.id);
+    }
+    if (master) {
+      const prev = byMaster.get(master);
+      if (prev) unionFindMerge(parent, prev, row.id);
+      byMaster.set(master, row.id);
+      unionFindMerge(parent, master, row.id);
+    }
+  }
+
+  const transitRoots = new Set<string>();
+  for (const row of rows) {
+    if (purchaseOrderPipelineStage(row) === 'transit') {
+      transitRoots.add(unionFindParentGet(parent, row.id));
+    }
+  }
+
+  const out = new Map<string, PurchaseOrderPipelineStage>();
+  for (const row of rows) {
+    const own = purchaseOrderPipelineStage(row);
+    const linkedTransit = transitRoots.has(unionFindParentGet(parent, row.id));
+    out.set(row.id, linkedTransit ? 'transit' : own);
+  }
+  return out;
 }
 
 export function countPurchaseOrdersByPipeline(
@@ -182,8 +263,9 @@ export function countPurchaseOrdersByPipeline(
     shipped: 0,
     transit: 0,
   };
+  const stages = purchaseOrderPipelineStagesForLinkedBl(rows);
   for (const row of rows) {
-    counts[purchaseOrderPipelineStage(row)] += 1;
+    counts[stages.get(row.id) ?? purchaseOrderPipelineStage(row)] += 1;
   }
   return counts;
 }
@@ -196,8 +278,12 @@ export interface PurchaseOrderBl {
   blNumber: string;
   /** Vessel name or voyage (optional; usually filled from tracking later). */
   vesselName: string;
-  /** BL / shipped-on-board date (YYYY-MM-DD) — copied to tracking.sailingDate. */
+  /** BL / shipped-on-board date (YYYY-MM-DD). */
   blDate: string | null;
+  /** Place of receipt / port of loading. */
+  portOfLoading: string;
+  /** Port of final discharge (YesWeigh cargo is usually Cochin). */
+  portOfDischarge: string;
   storagePath: string;
   fileName: string;
   contentType: string;
@@ -265,6 +351,10 @@ export interface PurchaseOrderTracking {
   sailingDate: string | null;
   arrivalDate: string | null;
   receivedDate: string | null;
+  /** Port for ETD (e.g. Port Klang). */
+  etdPort: string | null;
+  /** Port for ETA — YesWeigh cargo defaults to Cochin. */
+  etaPort: string | null;
 }
 
 export interface PurchaseOrderActivityLog {
@@ -300,6 +390,8 @@ export interface AdminPurchaseOrderDetail {
   vendorPi: PurchaseOrderVendorPi | null;
   /** Factory / vendor QC photos (multi-image). */
   qcImages: PurchaseOrderQcImage[];
+  /** Super-admin tracking screenshots (carrier ETD / ETA). */
+  trackingScreenshots: PurchaseOrderQcImage[];
   kotakPayout: PurchaseOrderKotakPayout | null;
   /** Latest Wan Hai site scrape (extension-assisted live track). */
   wanHaiTrack: WanHaiLiveTrackSnapshot | null;
@@ -313,6 +405,7 @@ export interface PurchaseOrderQcImage {
   fileName: string;
   contentType: string;
   uploadedAt: string;
+  kind?: 'qc' | 'tracking';
 }
 
 export interface AdminPurchaseOrdersPageResult {
@@ -399,6 +492,13 @@ export function mapAdminPurchaseOrderDoc(
       const blNumber = typeof data.blNumber === 'string' ? data.blNumber.trim() : '';
       return Boolean(shippingLine && (containerNumber || blNumber));
     })(),
+    blNumber: typeof data.blNumber === 'string' ? data.blNumber.trim() : '',
+    blContainerNumber: typeof data.blContainerNumber === 'string'
+      ? data.blContainerNumber.trim()
+      : '',
+    blLinkedFromPurchaseOrderId: typeof data.blLinkedFromPurchaseOrderId === 'string'
+      ? data.blLinkedFromPurchaseOrderId.trim() || null
+      : null,
   };
 }
 
@@ -716,7 +816,8 @@ export function filterAdminPurchaseOrders(
     });
   }
   if (pipelineStage && pipelineStage !== 'all') {
-    next = next.filter(row => purchaseOrderPipelineStage(row) === pipelineStage);
+    const stages = purchaseOrderPipelineStagesForLinkedBl(next);
+    next = next.filter(row => (stages.get(row.id) ?? purchaseOrderPipelineStage(row)) === pipelineStage);
   }
   const needle = searchText.trim().toLowerCase();
   if (!needle) return next;
@@ -802,6 +903,7 @@ export function mapAdminPurchaseOrderDetail(
     bl: parsePurchaseOrderBl(data),
     vendorPi: parsePurchaseOrderVendorPi(data),
     qcImages: parsePurchaseOrderQcImages(data),
+    trackingScreenshots: parsePurchaseOrderTrackingScreenshots(data),
     kotakPayout: parsePurchaseOrderKotakPayout(data),
     wanHaiTrack: parseWanHaiLiveTrack(data),
     tracking: parsePurchaseOrderTracking(data),
@@ -818,6 +920,8 @@ export function parsePurchaseOrderBl(data: DocumentData): PurchaseOrderBl | null
   const blNumber = typeof data.blNumber === 'string' ? data.blNumber.trim() : '';
   const vesselName = typeof data.blVesselName === 'string' ? data.blVesselName.trim() : '';
   const blDate = parseYmd(data.blDate);
+  const portOfLoading = typeof data.blPortOfLoading === 'string' ? data.blPortOfLoading.trim() : '';
+  const portOfDischarge = typeof data.blPortOfDischarge === 'string' ? data.blPortOfDischarge.trim() : '';
   if (!storagePath && !containerNumber && !blNumber && !shippingLine && !blDate) return null;
   return {
     containerNumber,
@@ -825,6 +929,8 @@ export function parsePurchaseOrderBl(data: DocumentData): PurchaseOrderBl | null
     blNumber,
     vesselName,
     blDate,
+    portOfLoading,
+    portOfDischarge,
     storagePath,
     fileName: typeof data.blFileName === 'string' ? data.blFileName.trim() : '',
     contentType: typeof data.blContentType === 'string' ? data.blContentType.trim() : '',
@@ -891,6 +997,8 @@ export function emptyPurchaseOrderTracking(poDate?: string | null): PurchaseOrde
     sailingDate: null,
     arrivalDate: null,
     receivedDate: null,
+    etdPort: null,
+    etaPort: null,
   };
 }
 
@@ -898,6 +1006,8 @@ export function parsePurchaseOrderTracking(data: DocumentData): PurchaseOrderTra
   const raw = data.tracking && typeof data.tracking === 'object'
     ? data.tracking as Record<string, unknown>
     : {};
+  const etaPort = typeof raw.etaPort === 'string' ? raw.etaPort.trim() : '';
+  const etdPort = typeof raw.etdPort === 'string' ? raw.etdPort.trim() : '';
   return {
     poDate: parseYmd(raw.poDate) || parseYmd(data.date),
     paymentDate: parseYmd(raw.paymentDate),
@@ -905,6 +1015,8 @@ export function parsePurchaseOrderTracking(data: DocumentData): PurchaseOrderTra
     sailingDate: parseYmd(raw.sailingDate),
     arrivalDate: parseYmd(raw.arrivalDate),
     receivedDate: parseYmd(raw.receivedDate),
+    etdPort: etdPort || null,
+    etaPort: etaPort || null,
   };
 }
 
@@ -1087,11 +1199,177 @@ const BL_LIVE_TRACK_SEALINES: Record<string, string> = {
   'Yang Ming': 'ymlu',
 };
 
+function normalizeVesselSearchName(raw: string): string {
+  return raw
+    .replace(/\b(?:IMO|MMSI)\s*:?\s*\d+\b/gi, ' ')
+    .split('/')[0]
+    .replace(/\bM\.?\s*V\.?\b/gi, ' ')
+    .replace(/[^A-Za-z0-9]+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .toUpperCase();
+}
+
+/** Vessel name, IMO (7 digits), or MMSI (9 digits) for AIS search. */
+export function purchaseOrderBlVesselKeyword(bl?: PurchaseOrderBl | null): string {
+  const raw = String(bl?.vesselName ?? '').trim();
+  if (!raw) return '';
+  const mmsi = raw.match(/\b(?:MMSI\s*)?([0-9]{9})\b/i);
+  if (mmsi) return mmsi[1];
+  const imo = raw.match(/\b(?:IMO\s*)?([0-9]{7})\b/i);
+  if (imo) return imo[1];
+  return raw.split('/')[0].replace(/\s+/g, ' ').trim();
+}
+
+export type PurchaseOrderVesselMapTarget = {
+  keyword: string;
+  name: string;
+  imo: string | null;
+  mmsi: string | null;
+  /** Single-vessel AIS map (this ship only — not the global fleet). */
+  embedUrl: string | null;
+  /** ShipFinder search that auto-fills the vessel (`kw=`). */
+  searchUrl: string;
+};
+
+export function purchaseOrderVesselFinderAisMapUrl(input: {
+  imo?: string | null;
+  mmsi?: string | null;
+  portOfLoading?: string | null;
+  portOfDischarge?: string | null;
+}): string | null {
+  const imo = String(input.imo ?? '').replace(/\D/g, '');
+  const mmsi = String(input.mmsi ?? '').replace(/\D/g, '');
+  const voyage = voyageMapViewForPorts(input.portOfLoading, input.portOfDischarge);
+  const params = new URLSearchParams();
+  params.set('zoom', String(voyage?.zoom ?? 4));
+  params.set('names', 'true');
+  params.set('show_track', 'true');
+  if (voyage) {
+    params.set('lat', voyage.lat.toFixed(4));
+    params.set('lon', voyage.lon.toFixed(4));
+  }
+  if (/^\d{9}$/.test(mmsi)) params.set('mmsi', mmsi);
+  if (/^\d{7}$/.test(imo)) params.set('imo', imo);
+  if (!params.has('imo') && !params.has('mmsi')) return null;
+  return `https://www.vesselfinder.com/aismap?${params.toString()}`;
+}
+
+function imoForKnownVesselName(name: string): string | null {
+  const key = normalizeVesselSearchName(name);
+  if (!key) return null;
+  return WAN_HAI_VESSEL_IMO_BY_NAME[key] || null;
+}
+
+/** Local resolve: IMO / MMSI on the BL, or a known Wan Hai vessel name. */
+export function purchaseOrderVesselMapTarget(
+  bl?: PurchaseOrderBl | null,
+  ports?: { portOfLoading?: string | null; portOfDischarge?: string | null },
+): PurchaseOrderVesselMapTarget | null {
+  const keyword = purchaseOrderBlVesselKeyword(bl);
+  if (!keyword) return null;
+  const raw = String(bl?.vesselName ?? '').trim();
+  const mmsiMatch = raw.match(/\b(?:MMSI\s*:?\s*)([0-9]{9})\b/i) || raw.match(/\b([0-9]{9})\b/);
+  const imoLabeled = raw.match(/\bIMO\s*:?\s*([0-9]{7})\b/i);
+  const imoBare = !mmsiMatch ? raw.match(/\b([0-9]{7})\b/) : null;
+  const mmsi = mmsiMatch?.[1] || (/^\d{9}$/.test(keyword) ? keyword : '');
+  const imoFromField = imoLabeled?.[1] || imoBare?.[1] || (/^\d{7}$/.test(keyword) ? keyword : '');
+  const name = normalizeVesselSearchName(raw) || keyword;
+  const imo = imoFromField || imoForKnownVesselName(raw) || null;
+  const searchUrl = `https://www.shipfinder.com/?kw=${encodeURIComponent(keyword)}`;
+  const portOfLoading = ports?.portOfLoading || bl?.portOfLoading || null;
+  const portOfDischarge = ports?.portOfDischarge || bl?.portOfDischarge || 'Cochin';
+  return {
+    keyword,
+    name,
+    imo,
+    mmsi: mmsi || null,
+    embedUrl: purchaseOrderVesselFinderAisMapUrl({
+      imo,
+      mmsi,
+      portOfLoading,
+      portOfDischarge,
+    }),
+    searchUrl,
+  };
+}
+
+/** Public AIS map URL for the Live map button (single-ship embed, else ShipFinder search). */
+export function purchaseOrderShipFinderUrl(bl?: PurchaseOrderBl | null): string | null {
+  const target = purchaseOrderVesselMapTarget(bl);
+  return target?.embedUrl || target?.searchUrl || null;
+}
+
+export async function lookupPurchaseOrderVesselAis(keyword: string): Promise<{
+  name: string;
+  imo: string | null;
+  mmsi: string | null;
+  mapUrl: string | null;
+} | null> {
+  const q = keyword.trim();
+  if (!q) return null;
+  const callable = httpsCallable<{ keyword: string }, {
+    name?: string;
+    imo?: string;
+    mmsi?: string;
+    mapUrl?: string;
+  }>(functions, 'lookupVesselAisFn', { timeout: 30_000 });
+  try {
+    const result = await callable({ keyword: q });
+    const imo = String(result.data?.imo ?? '').replace(/\D/g, '') || null;
+    const mmsi = String(result.data?.mmsi ?? '').replace(/\D/g, '') || null;
+    const mapUrl = purchaseOrderVesselFinderAisMapUrl({
+      imo,
+      mmsi,
+      portOfLoading: null,
+      portOfDischarge: 'Cochin',
+    }) || String(result.data?.mapUrl ?? '').trim();
+    if (!mapUrl) return null;
+    return {
+      name: String(result.data?.name ?? '').trim() || q,
+      imo: imo && /^\d{7}$/.test(imo) ? imo : null,
+      mmsi: mmsi && /^\d{9}$/.test(mmsi) ? mmsi : null,
+      mapUrl,
+    };
+  } catch {
+    return null;
+  }
+}
+
+export async function resolvePurchaseOrderVesselMap(
+  bl?: PurchaseOrderBl | null,
+  ports?: { portOfLoading?: string | null; portOfDischarge?: string | null },
+): Promise<PurchaseOrderVesselMapTarget | null> {
+  const local = purchaseOrderVesselMapTarget(bl, ports);
+  if (!local) return null;
+  if (local.embedUrl) return local;
+  const remote = await lookupPurchaseOrderVesselAis(local.keyword);
+  if (!remote?.mapUrl) return local;
+  const portOfLoading = ports?.portOfLoading || bl?.portOfLoading || null;
+  const portOfDischarge = ports?.portOfDischarge || bl?.portOfDischarge || 'Cochin';
+  return {
+    ...local,
+    name: remote.name || local.name,
+    imo: remote.imo || local.imo,
+    mmsi: remote.mmsi || local.mmsi,
+    embedUrl: purchaseOrderVesselFinderAisMapUrl({
+      imo: remote.imo || local.imo,
+      mmsi: remote.mmsi || local.mmsi,
+      portOfLoading,
+      portOfDischarge,
+    }) || remote.mapUrl,
+  };
+}
+
 /**
  * Public cargo-tracking URL for the BL’s shipping line + container/B/L.
  * Wan Hai opens Quick Search; Chrome extension pastes container after CAPTCHA.
  */
 export function purchaseOrderBlLiveTrackingUrl(bl?: PurchaseOrderBl | null): string | null {
+  return purchaseOrderCarrierTrackingUrl(bl);
+}
+
+function purchaseOrderCarrierTrackingUrl(bl?: PurchaseOrderBl | null): string | null {
   if (!bl) return null;
   const reference = purchaseOrderBlTrackingReference(bl);
   const shippingLine = normalizePurchaseOrderShippingLine(bl.shippingLine);
@@ -1229,19 +1507,51 @@ export async function saveWanHaiLiveTrack(input: {
   await updateDoc(poRef, patch);
   const nextSnap = await getDoc(poRef);
   const nextData = nextSnap.data() || {};
+  const nextBl = parsePurchaseOrderBl(nextData);
+  const nextTracking = parsePurchaseOrderTracking(nextData);
+  if (nextBl) {
+    try {
+      await syncMasterBlDetailsToLinkedPurchaseOrders({
+        originPurchaseOrderId: purchaseOrderId,
+        bl: nextBl,
+        tracking: nextTracking,
+      });
+    } catch {
+      // Live track on this PO is saved.
+    }
+  }
   return {
     wanHaiTrack: parseWanHaiLiveTrack(nextData)!,
-    tracking: parsePurchaseOrderTracking(nextData),
-    bl: parsePurchaseOrderBl(nextData),
+    tracking: nextTracking,
+    bl: nextBl,
   };
 }
 
-/** Open live tracking; Wan Hai on Android APK uses in-app WebView after CAPTCHA. */
+/** Open single-vessel AIS map, or ShipFinder search if the ship cannot be isolated. */
+export async function openPurchaseOrderShipFinderMap(
+  bl?: PurchaseOrderBl | null,
+): Promise<boolean> {
+  const target = await resolvePurchaseOrderVesselMap(bl);
+  if (!target) return false;
+  const url = target.embedUrl || target.searchUrl;
+  if (!url) return false;
+  if (typeof navigator !== 'undefined' && navigator.clipboard?.writeText) {
+    try {
+      await navigator.clipboard.writeText(target.keyword);
+    } catch {
+      // still open the map
+    }
+  }
+  window.open(url, '_blank', 'noopener,noreferrer');
+  return true;
+}
+
+/** Open carrier live tracking; Wan Hai on Android APK uses in-app WebView after CAPTCHA. */
 export async function openPurchaseOrderBlLiveTracking(
   bl?: PurchaseOrderBl | null,
   options?: { purchaseOrderId?: string | null },
 ): Promise<'saved' | 'opened' | false> {
-  const url = purchaseOrderBlLiveTrackingUrl(bl);
+  const url = purchaseOrderCarrierTrackingUrl(bl);
   if (!url || !bl) return false;
   const reference = purchaseOrderBlTrackingReference(bl);
   const shippingLine = normalizePurchaseOrderShippingLine(bl.shippingLine);
@@ -1467,6 +1777,154 @@ export async function extractPurchaseOrderBlDate(input: {
   return extractBlDateFromFileName(fileName);
 }
 
+function normalizeBlMatchKey(value: unknown): string {
+  return String(value ?? '').replace(/\s+/g, '').toUpperCase();
+}
+
+type PurchaseOrderBlGroup = {
+  id: string;
+  container: string;
+  blNumber: string;
+  linkedFrom: string;
+};
+
+function purchaseOrderBlGroup(id: string, data: DocumentData): PurchaseOrderBlGroup {
+  const bl = parsePurchaseOrderBl(data);
+  const linkedFrom = typeof data.blLinkedFromPurchaseOrderId === 'string'
+    ? data.blLinkedFromPurchaseOrderId.trim()
+    : '';
+  return {
+    id,
+    container: normalizeBlMatchKey(bl?.containerNumber || data.blContainerNumber),
+    blNumber: normalizeBlMatchKey(bl?.blNumber || data.blNumber),
+    linkedFrom,
+  };
+}
+
+function isSameMasterBlGroup(origin: PurchaseOrderBlGroup, peer: PurchaseOrderBlGroup): boolean {
+  if (peer.id === origin.id) return false;
+  const originMaster = origin.linkedFrom || origin.id;
+  if (peer.id === originMaster || peer.linkedFrom === origin.id || peer.linkedFrom === originMaster) {
+    return true;
+  }
+  if (origin.linkedFrom && origin.linkedFrom === peer.id) return true;
+  if (origin.container && origin.container === peer.container) return true;
+  if (origin.blNumber && origin.blNumber === peer.blNumber) return true;
+  return false;
+}
+
+function mergeSharedBlTracking(
+  current: PurchaseOrderTracking,
+  master: PurchaseOrderTracking,
+): PurchaseOrderTracking {
+  return {
+    ...current,
+    sailingDate: master.sailingDate || current.sailingDate,
+    arrivalDate: master.arrivalDate || current.arrivalDate,
+    etdPort: master.etdPort || current.etdPort,
+    etaPort: master.etaPort || current.etaPort || 'Cochin',
+  };
+}
+
+async function listPortalPurchaseOrderSnapsForBlSync(): Promise<
+  QueryDocumentSnapshot<DocumentData>[]
+> {
+  const out: QueryDocumentSnapshot<DocumentData>[] = [];
+  const seen = new Set<string>();
+  const snap = await getDocs(
+    query(
+      collection(db, 'purchaseOrders'),
+      where('status', '==', PORTAL_PURCHASE_ORDER_STATUS),
+      where('date', '>=', PURCHASE_ORDER_KEEP_AFTER_DATE),
+      orderBy('date', 'desc'),
+      limit(500),
+    ),
+  );
+  for (const docSnap of snap.docs) {
+    seen.add(docSnap.id);
+    out.push(docSnap);
+  }
+  if (PURCHASE_ORDER_KEEP_NUMBERS.length) {
+    const keptSnap = await getDocs(
+      query(
+        collection(db, 'purchaseOrders'),
+        where('purchaseOrderNumber', 'in', [...PURCHASE_ORDER_KEEP_NUMBERS]),
+      ),
+    );
+    for (const docSnap of keptSnap.docs) {
+      if (seen.has(docSnap.id)) continue;
+      out.push(docSnap);
+    }
+  }
+  return out;
+}
+
+/**
+ * Copy master BL identity + ocean dates onto every PO that shares this BL
+ * (explicit “link same container”, same container, or same B/L number).
+ * Pipeline status (Shipped / Transit) follows those shared dates.
+ */
+async function syncMasterBlDetailsToLinkedPurchaseOrders(input: {
+  originPurchaseOrderId: string;
+  bl: PurchaseOrderBl;
+  tracking: PurchaseOrderTracking;
+}): Promise<void> {
+  const originId = input.originPurchaseOrderId.trim();
+  if (!originId || !input.bl) return;
+  const origin: PurchaseOrderBlGroup = {
+    id: originId,
+    container: normalizeBlMatchKey(input.bl.containerNumber),
+    blNumber: normalizeBlMatchKey(input.bl.blNumber),
+    linkedFrom: input.bl.linkedFromPurchaseOrderId || '',
+  };
+  if (!origin.container && !origin.blNumber && !origin.linkedFrom) return;
+
+  let snaps: QueryDocumentSnapshot<DocumentData>[] = [];
+  try {
+    snaps = await listPortalPurchaseOrderSnapsForBlSync();
+  } catch {
+    return;
+  }
+
+  const peers = snaps.filter(docSnap => isSameMasterBlGroup(origin, purchaseOrderBlGroup(docSnap.id, docSnap.data())));
+  if (!peers.length) return;
+
+  await Promise.all(peers.map(async docSnap => {
+    const data = docSnap.data();
+    const peerBl = parsePurchaseOrderBl(data);
+    const peerTracking = parsePurchaseOrderTracking(data);
+    const peerIsMaster = origin.linkedFrom === docSnap.id;
+    const alreadyLinked = Boolean(peerBl?.linkedFromPurchaseOrderId);
+    const missingFile = !purchaseOrderHasBl(peerBl) && Boolean(input.bl.storagePath);
+    const patch: Record<string, unknown> = {
+      blContainerNumber: input.bl.containerNumber || null,
+      blShippingLine: input.bl.shippingLine || null,
+      blNumber: input.bl.blNumber || null,
+      blVesselName: input.bl.vesselName || null,
+      blDate: input.bl.blDate || null,
+      blPortOfLoading: input.bl.portOfLoading || null,
+      blPortOfDischarge: input.bl.portOfDischarge || null,
+      tracking: mergeSharedBlTracking(peerTracking, input.tracking),
+    };
+    if (!peerIsMaster && (alreadyLinked || missingFile) && input.bl.storagePath) {
+      patch.blStoragePath = input.bl.storagePath;
+      patch.blFileName = input.bl.fileName || peerBl?.fileName || null;
+      patch.blContentType = input.bl.contentType || peerBl?.contentType || null;
+      if (missingFile && !alreadyLinked) {
+        patch.blLinkedFromPurchaseOrderId = origin.linkedFrom || originId;
+        if (input.bl.linkedFromPurchaseOrderNumber) {
+          patch.blLinkedFromPurchaseOrderNumber = input.bl.linkedFromPurchaseOrderNumber;
+        }
+      }
+    }
+    try {
+      await updateDoc(doc(db, 'purchaseOrders', docSnap.id), patch);
+    } catch {
+      // Skip a PO that cannot be updated; others still sync.
+    }
+  }));
+}
+
 export type PurchaseOrderBlSource = {
   purchaseOrderId: string;
   purchaseOrderNumber: string;
@@ -1514,9 +1972,13 @@ export async function savePurchaseOrderBl(input: {
   blNumber: string;
   vesselName?: string | null;
   blDate?: string | null;
+  portOfLoading?: string | null;
+  portOfDischarge?: string | null;
+  etd?: string | null;
+  eta?: string | null;
   file?: File | null;
   existing?: PurchaseOrderBl | null;
-}): Promise<PurchaseOrderBl> {
+}): Promise<{ bl: PurchaseOrderBl; tracking: PurchaseOrderTracking }> {
   const containerNumber = input.containerNumber.trim().toUpperCase();
   const shippingLine = normalizePurchaseOrderShippingLine(input.shippingLine);
   const blNumber = String(input.blNumber ?? '').trim().toUpperCase();
@@ -1533,7 +1995,7 @@ export async function savePurchaseOrderBl(input: {
     throw new Error('Enter the B/L number (required for live tracking).');
   }
   if (!blDate) {
-    throw new Error('Enter the BL date (used as Sailed date).');
+    throw new Error('Enter the BL date.');
   }
   if (!input.file && !input.existing?.storagePath) {
     throw new Error('Upload a PDF or JPG of the bill of lading.');
@@ -1576,14 +2038,30 @@ export async function savePurchaseOrderBl(input: {
     contentType = input.file.type || blContentTypeForExt(ext);
   }
 
+  const portOfLoading = String(input.portOfLoading ?? '').trim();
+  const portOfDischarge = String(input.portOfDischarge ?? '').trim() || 'Cochin';
+  const etd = parseFlexibleBlDate(input.etd) || parseYmd(input.etd);
+  const eta = parseFlexibleBlDate(input.eta) || parseYmd(input.eta);
+
   const uploadedAt = new Date().toISOString();
   const poRef = doc(db, 'purchaseOrders', input.purchaseOrderId);
   const poSnap = await getDoc(poRef);
   const tracking = parsePurchaseOrderTracking(poSnap.exists() ? poSnap.data() : {});
   const nextTracking: PurchaseOrderTracking = {
     ...tracking,
-    sailingDate: blDate,
+    sailingDate: etd || tracking.sailingDate,
+    arrivalDate: eta || tracking.arrivalDate,
+    etdPort: portOfLoading || tracking.etdPort,
+    etaPort: portOfDischarge || tracking.etaPort || 'Cochin',
   };
+
+  const keepLink = Boolean(input.existing?.linkedFromPurchaseOrderId) && !input.file;
+  const linkedFromPurchaseOrderId = keepLink
+    ? input.existing?.linkedFromPurchaseOrderId ?? null
+    : null;
+  const linkedFromPurchaseOrderNumber = keepLink
+    ? input.existing?.linkedFromPurchaseOrderNumber ?? null
+    : null;
 
   await updateDoc(poRef, {
     blContainerNumber: containerNumber,
@@ -1591,28 +2069,46 @@ export async function savePurchaseOrderBl(input: {
     blNumber,
     blVesselName: vesselName || null,
     blDate,
+    blPortOfLoading: portOfLoading || null,
+    blPortOfDischarge: portOfDischarge || null,
     blStoragePath: storagePath,
     blFileName: fileName,
     blContentType: contentType,
     blUploadedAt: uploadedAt,
     blUploadedBy: auth.currentUser?.uid ?? null,
-    blLinkedFromPurchaseOrderId: null,
-    blLinkedFromPurchaseOrderNumber: null,
+    blLinkedFromPurchaseOrderId: linkedFromPurchaseOrderId,
+    blLinkedFromPurchaseOrderNumber: linkedFromPurchaseOrderNumber,
     tracking: nextTracking,
   });
 
-  return {
+  const bl: PurchaseOrderBl = {
     containerNumber,
     shippingLine,
     blNumber,
     vesselName,
     blDate,
+    portOfLoading,
+    portOfDischarge,
     storagePath,
     fileName,
     contentType,
     uploadedAt,
-    linkedFromPurchaseOrderId: null,
-    linkedFromPurchaseOrderNumber: null,
+    linkedFromPurchaseOrderId,
+    linkedFromPurchaseOrderNumber,
+  };
+  try {
+    await syncMasterBlDetailsToLinkedPurchaseOrders({
+      originPurchaseOrderId: input.purchaseOrderId,
+      bl,
+      tracking: nextTracking,
+    });
+  } catch {
+    // Origin BL is saved; linked POs can retry on the next update.
+  }
+
+  return {
+    bl,
+    tracking: nextTracking,
   };
 }
 
@@ -1620,7 +2116,7 @@ export async function savePurchaseOrderBl(input: {
 export async function linkPurchaseOrderBlFromSource(input: {
   purchaseOrderId: string;
   sourcePurchaseOrderId: string;
-}): Promise<PurchaseOrderBl> {
+}): Promise<{ bl: PurchaseOrderBl; tracking: PurchaseOrderTracking }> {
   const targetId = input.purchaseOrderId.trim();
   const sourceId = input.sourcePurchaseOrderId.trim();
   if (!targetId || !sourceId) {
@@ -1662,10 +2158,22 @@ export async function linkPurchaseOrderBlFromSource(input: {
   const uploadedAt = new Date().toISOString();
   const targetTracking = parsePurchaseOrderTracking(targetSnap.exists() ? targetSnap.data() : {});
   const sourceTracking = parsePurchaseOrderTracking(sourceData);
-  const blDate = sourceBl.blDate || sourceTracking.sailingDate;
+  const blDate = sourceBl.blDate;
+  const portOfLoading = sourceBl.portOfLoading || sourceTracking.etdPort || '';
+  const portOfDischarge = sourceBl.portOfDischarge || sourceTracking.etaPort || 'Cochin';
   const nextTracking: PurchaseOrderTracking = {
     ...targetTracking,
-    sailingDate: blDate || targetTracking.sailingDate,
+    sailingDate: sourceTracking.sailingDate || targetTracking.sailingDate,
+    arrivalDate: sourceTracking.arrivalDate || targetTracking.arrivalDate,
+    etdPort: portOfLoading || sourceTracking.etdPort || targetTracking.etdPort,
+    etaPort: portOfDischarge || sourceTracking.etaPort || targetTracking.etaPort || 'Cochin',
+  };
+  const masterTracking: PurchaseOrderTracking = {
+    ...sourceTracking,
+    sailingDate: nextTracking.sailingDate,
+    arrivalDate: nextTracking.arrivalDate,
+    etdPort: nextTracking.etdPort,
+    etaPort: nextTracking.etaPort,
   };
 
   await updateDoc(doc(db, 'purchaseOrders', targetId), {
@@ -1674,6 +2182,8 @@ export async function linkPurchaseOrderBlFromSource(input: {
     blNumber: sourceBl.blNumber || null,
     blVesselName: sourceBl.vesselName || null,
     blDate: blDate || null,
+    blPortOfLoading: portOfLoading || null,
+    blPortOfDischarge: portOfDischarge || null,
     blStoragePath: sourceBl.storagePath,
     blFileName: sourceBl.fileName,
     blContentType: sourceBl.contentType,
@@ -1684,18 +2194,41 @@ export async function linkPurchaseOrderBlFromSource(input: {
     tracking: nextTracking,
   });
 
-  return {
+  const bl: PurchaseOrderBl = {
     containerNumber: sourceBl.containerNumber,
     shippingLine: sourceBl.shippingLine,
     blNumber: sourceBl.blNumber,
     vesselName: sourceBl.vesselName,
     blDate: blDate || null,
+    portOfLoading,
+    portOfDischarge,
     storagePath: sourceBl.storagePath,
     fileName: sourceBl.fileName,
     contentType: sourceBl.contentType,
     uploadedAt,
     linkedFromPurchaseOrderId: primaryId,
     linkedFromPurchaseOrderNumber: primaryNumber,
+  };
+  try {
+    await syncMasterBlDetailsToLinkedPurchaseOrders({
+      originPurchaseOrderId: primaryId,
+      bl: {
+        ...sourceBl,
+        blDate: blDate || sourceBl.blDate,
+        portOfLoading,
+        portOfDischarge,
+        linkedFromPurchaseOrderId: null,
+        linkedFromPurchaseOrderNumber: null,
+      },
+      tracking: masterTracking,
+    });
+  } catch {
+    // Link on this PO succeeded; other same-container POs can retry on the next update.
+  }
+
+  return {
+    bl,
+    tracking: nextTracking,
   };
 }
 
@@ -1718,8 +2251,7 @@ export async function fetchPurchaseOrderBlPreview(storagePath: string): Promise<
 const MAX_QC_BYTES = 12 * 1024 * 1024;
 const MAX_QC_IMAGES = 40;
 
-export function parsePurchaseOrderQcImages(data: DocumentData): PurchaseOrderQcImage[] {
-  const raw = data.qcImages;
+function parsePurchaseOrderImageList(raw: unknown): PurchaseOrderQcImage[] {
   if (!Array.isArray(raw)) return [];
   const out: PurchaseOrderQcImage[] = [];
   for (const item of raw) {
@@ -1729,16 +2261,27 @@ export function parsePurchaseOrderQcImages(data: DocumentData): PurchaseOrderQcI
     if (!storagePath) continue;
     const id = typeof row.id === 'string' && row.id.trim()
       ? row.id.trim()
-      : storagePath.split('/').pop()?.replace(/\.[^.]+$/, '') || `qc-${out.length + 1}`;
+      : storagePath.split('/').pop()?.replace(/\.[^.]+$/, '') || `img-${out.length + 1}`;
     out.push({
       id,
       storagePath,
       fileName: typeof row.fileName === 'string' ? row.fileName.trim() : '',
       contentType: typeof row.contentType === 'string' ? row.contentType.trim() : 'image/jpeg',
       uploadedAt: typeof row.uploadedAt === 'string' ? row.uploadedAt : new Date(0).toISOString(),
+      kind: row.kind === 'tracking' ? 'tracking' : 'qc',
     });
   }
   return out.sort((a, b) => String(b.uploadedAt).localeCompare(String(a.uploadedAt)));
+}
+
+export function parsePurchaseOrderQcImages(data: DocumentData): PurchaseOrderQcImage[] {
+  return parsePurchaseOrderImageList(data.qcImages).filter(row => row.kind !== 'tracking');
+}
+
+export function parsePurchaseOrderTrackingScreenshots(data: DocumentData): PurchaseOrderQcImage[] {
+  const dedicated = parsePurchaseOrderImageList(data.trackingScreenshots);
+  if (dedicated.length) return dedicated.map(row => ({ ...row, kind: 'tracking' as const }));
+  return parsePurchaseOrderImageList(data.qcImages).filter(row => row.kind === 'tracking');
 }
 
 export function purchaseOrderHasQc(images?: PurchaseOrderQcImage[] | null): boolean {
@@ -1811,8 +2354,14 @@ export async function addPurchaseOrderQcImages(input: {
   }
 
   const next = [...uploaded, ...existing];
-  await updateDoc(doc(db, 'purchaseOrders', input.purchaseOrderId), {
-    qcImages: next,
+  const poRef = doc(db, 'purchaseOrders', input.purchaseOrderId);
+  const snap = await getDoc(poRef);
+  const trackingShots = parsePurchaseOrderTrackingScreenshots(snap.data() || {});
+  await updateDoc(poRef, {
+    qcImages: [
+      ...next.map(row => ({ ...row, kind: 'qc' as const })),
+      ...trackingShots.map(row => ({ ...row, kind: 'tracking' as const })),
+    ],
   });
   return next;
 }
@@ -1826,8 +2375,14 @@ export async function deletePurchaseOrderQcImage(input: {
   const target = existing.find(row => row.id === input.imageId);
   if (!target) throw new Error('QC photo not found.');
   const next = existing.filter(row => row.id !== input.imageId);
-  await updateDoc(doc(db, 'purchaseOrders', input.purchaseOrderId), {
-    qcImages: next,
+  const poRef = doc(db, 'purchaseOrders', input.purchaseOrderId);
+  const snap = await getDoc(poRef);
+  const trackingShots = parsePurchaseOrderTrackingScreenshots(snap.data() || {});
+  await updateDoc(poRef, {
+    qcImages: [
+      ...next.map(row => ({ ...row, kind: 'qc' as const })),
+      ...trackingShots.map(row => ({ ...row, kind: 'tracking' as const })),
+    ],
   });
   try {
     await deleteObject(ref(storage, target.storagePath));
@@ -1839,6 +2394,123 @@ export async function deletePurchaseOrderQcImage(input: {
 
 export async function fetchPurchaseOrderQcImageUrl(storagePath: string): Promise<string> {
   return getDownloadURL(ref(storage, storagePath));
+}
+
+const MAX_TRACKING_SHOTS = 20;
+
+export function purchaseOrderTrackingShotStoragePath(
+  purchaseOrderId: string,
+  imageId: string,
+  ext: string,
+): string {
+  return purchaseOrderQcStoragePath(purchaseOrderId, `track-${imageId}`, ext);
+}
+
+export function purchaseOrderHasTrackingScreenshots(
+  images?: PurchaseOrderQcImage[] | null,
+): boolean {
+  return Array.isArray(images) && images.length > 0;
+}
+
+export async function savePurchaseOrderTrackingUpload(input: {
+  purchaseOrderId: string;
+  files?: File[];
+  existing?: PurchaseOrderQcImage[] | null;
+  tracking: PurchaseOrderTracking;
+}): Promise<{
+  trackingScreenshots: PurchaseOrderQcImage[];
+  tracking: PurchaseOrderTracking;
+  activityLogs: PurchaseOrderActivityLog[];
+}> {
+  const files = (input.files ?? []).filter(Boolean);
+  const existing = Array.isArray(input.existing) ? [...input.existing] : [];
+  if (existing.length + files.length > MAX_TRACKING_SHOTS) {
+    throw new Error(`You can store up to ${MAX_TRACKING_SHOTS} tracking screenshots on a purchase order.`);
+  }
+  if (!files.length && !input.tracking.sailingDate && !input.tracking.arrivalDate) {
+    throw new Error('Upload a screenshot or enter ETD / ETA.');
+  }
+
+  const uploaded: PurchaseOrderQcImage[] = [];
+  for (const file of files) {
+    if (file.size > MAX_QC_BYTES) {
+      throw new Error(`Each screenshot must be under 12 MB (${file.name}).`);
+    }
+    if (!isAllowedQcImage(file)) {
+      throw new Error(`Upload screenshots as photos (JPG / PNG / HEIC). Skipped ${file.name}.`);
+    }
+    const imageId = typeof crypto !== 'undefined' && 'randomUUID' in crypto
+      ? crypto.randomUUID().replace(/-/g, '').slice(0, 16)
+      : `tr${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`;
+    const ext = qcExtension(file);
+    const storagePath = purchaseOrderTrackingShotStoragePath(input.purchaseOrderId, imageId, ext);
+    const contentType = file.type || (ext === 'png' ? 'image/png' : 'image/jpeg');
+    try {
+      await uploadBytes(ref(storage, storagePath), file, { contentType });
+    } catch (err) {
+      throw new Error(formatStorageUploadError(err, `Could not upload ${file.name}.`));
+    }
+    uploaded.push({
+      id: imageId,
+      storagePath,
+      fileName: file.name,
+      contentType,
+      uploadedAt: new Date().toISOString(),
+      kind: 'tracking',
+    });
+  }
+
+  const trackingScreenshots = [...uploaded, ...existing];
+  if (uploaded.length) {
+    const poRef = doc(db, 'purchaseOrders', input.purchaseOrderId);
+    const snap = await getDoc(poRef);
+    const qcImages = parsePurchaseOrderQcImages(snap.data() || {});
+    await updateDoc(poRef, {
+      qcImages: [
+        ...qcImages.map(row => ({ ...row, kind: 'qc' as const })),
+        ...trackingScreenshots.map(row => ({ ...row, kind: 'tracking' as const })),
+      ],
+    });
+  }
+
+  const saved = await savePurchaseOrderTracking({
+    purchaseOrderId: input.purchaseOrderId,
+    poDate: input.tracking.poDate,
+    paymentDate: input.tracking.paymentDate,
+    loadingDate: input.tracking.loadingDate,
+    sailingDate: input.tracking.sailingDate,
+    arrivalDate: input.tracking.arrivalDate,
+    receivedDate: input.tracking.receivedDate,
+    etdPort: input.tracking.etdPort,
+    etaPort: input.tracking.etaPort,
+  });
+
+  const tracking: PurchaseOrderTracking = {
+    ...saved.tracking,
+    etdPort: input.tracking.etdPort || saved.tracking.etdPort || null,
+    etaPort: input.tracking.etaPort || saved.tracking.etaPort || 'Cochin',
+  };
+  await updateDoc(doc(db, 'purchaseOrders', input.purchaseOrderId), { tracking });
+
+  try {
+    const originSnap = await getDoc(doc(db, 'purchaseOrders', input.purchaseOrderId));
+    const originBl = parsePurchaseOrderBl(originSnap.exists() ? originSnap.data() : {});
+    if (originBl) {
+      await syncMasterBlDetailsToLinkedPurchaseOrders({
+        originPurchaseOrderId: input.purchaseOrderId,
+        bl: originBl,
+        tracking,
+      });
+    }
+  } catch {
+    // Screenshots and this PO’s dates are saved.
+  }
+
+  return {
+    trackingScreenshots,
+    tracking,
+    activityLogs: saved.activityLogs,
+  };
 }
 
 const MAX_PI_BYTES = 16 * 1024 * 1024;

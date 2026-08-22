@@ -1,10 +1,9 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { ArrowDown, ArrowUp, IndianRupee, Link2, Minus, Package, Ship, ShoppingCart } from 'lucide-react';
+import { ArrowDown, ArrowUp, IndianRupee, Link2, Minus, Package, ShoppingCart } from 'lucide-react';
 import { getCategoryTheme } from '../../lib/category-display';
 import {
   catalogProductHasSingleBoxPackageInfo,
   expectsCatalogPackageInfo,
-  formatStockQuantity,
 } from '../../lib/catalog';
 import {
   catalogGridStockQty,
@@ -26,6 +25,7 @@ import {
 import type { CatalogProduct } from '../../types/catalog';
 import { AuditedSealIcon } from './AuditedSealIcon';
 import { CategoryThumbnail } from './CategoryThumbnail';
+import { CatalogOnOrderShipChip } from './CatalogOnOrderShipChip';
 import { DealerPriceDisplay } from './DealerPriceDisplay';
 import { StockBadge, StockQuantity } from './StockBadge';
 import { PackageInfoIcon } from './PackageInfoIcon';
@@ -33,6 +33,12 @@ import { StampingShieldIcon } from './StampingShieldIcon';
 
 const LONG_PRESS_MS = 480;
 const LONG_PRESS_MOVE_PX = 10;
+
+function catalogOverlayBlocksLongPress(): boolean {
+  return Boolean(document.querySelector(
+    '.dealers-modal-backdrop, .warehouse-location-dialog__backdrop',
+  ));
+}
 
 let sharedGatcPricesPromise: Promise<CatalogGatcStampingPriceEntry[]> | null = null;
 
@@ -170,12 +176,20 @@ export const ProductBrowseCard: React.FC<ProductBrowseCardProps> = ({
   };
 
   const handlePointerDown = (event: React.PointerEvent) => {
-    if (!onLongPress || event.button !== 0) return;
+    if (!onLongPress || event.button !== 0 || !event.isPrimary) return;
+    if (catalogOverlayBlocksLongPress()) return;
+    if ((event.target as HTMLElement | null)?.closest('.catalog-product-card__on-order')) {
+      return;
+    }
     longPressFired.current = false;
     longPressOrigin.current = { x: event.clientX, y: event.clientY };
     clearLongPress();
     longPressTimer.current = window.setTimeout(() => {
       longPressTimer.current = null;
+      if (catalogOverlayBlocksLongPress()) {
+        longPressFired.current = false;
+        return;
+      }
       longPressFired.current = true;
       onLongPress(product);
     }, LONG_PRESS_MS);
@@ -279,6 +293,8 @@ export const ProductBrowseCard: React.FC<ProductBrowseCardProps> = ({
       onPointerCancel={onLongPress ? handlePointerUp : undefined}
       onContextMenu={onLongPress ? e => {
         e.preventDefault();
+        if (catalogOverlayBlocksLongPress()) return;
+        if ((e.target as HTMLElement | null)?.closest('.catalog-product-card__on-order')) return;
         onLongPress(product);
       } : undefined}
     >
@@ -371,13 +387,11 @@ export const ProductBrowseCard: React.FC<ProductBrowseCardProps> = ({
                   />
                 )}
                 {showOnOrderQty && (
-                  <span
-                    className="catalog-product-card__on-order"
-                    title="Raised purchase order quantity"
-                  >
-                    <Ship size={12} strokeWidth={2.5} aria-hidden />
-                    <span>{formatStockQuantity(onOrderQty, product.unit)}</span>
-                  </span>
+                  <CatalogOnOrderShipChip
+                    productId={product.id}
+                    quantity={onOrderQty}
+                    unit={product.unit}
+                  />
                 )}
                 {dealerInboundOnly && (
                   <span

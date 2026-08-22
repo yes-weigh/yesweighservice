@@ -15,9 +15,34 @@ import {
   PORTAL_PURCHASE_ORDER_STATUS,
   PURCHASE_ORDER_KEEP_AFTER_DATE,
   PURCHASE_ORDER_KEEP_NUMBERS,
+  parsePurchaseOrderBl,
+  parsePurchaseOrderTracking,
   purchaseOrderVisibleInPortal,
+  type PurchaseOrderBl,
 } from './admin-purchase-orders';
 import { isReceivedBillStatus } from './admin-goods-receipts';
+
+export type CatalogOnOrderShipment = {
+  purchaseOrderId: string;
+  purchaseOrderNumber: string;
+  quantity: number;
+  eta: string | null;
+  etaPort: string | null;
+  etd: string | null;
+  etdPort: string | null;
+  vesselName: string;
+  containerNumber: string;
+  bl: PurchaseOrderBl | null;
+};
+
+/** ETD (or vessel + ETA) means the cargo has sailed and can be tracked. */
+export function catalogShipmentHasTracking(row: CatalogOnOrderShipment): boolean {
+  const etd = String(row.etd ?? '').trim();
+  if (etd) return true;
+  const eta = String(row.eta ?? '').trim();
+  const vessel = String(row.vesselName ?? '').trim();
+  return Boolean(vessel && eta);
+}
 
 const PO_PAGE_SIZE = 100;
 const PO_MAX_DOCS = 5000;
@@ -59,8 +84,24 @@ function isYesOnePurchaseOrder(data: DocumentData, poId: string): boolean {
   });
 }
 
+function addShipment(
+  byItemId: Map<string, CatalogOnOrderShipment[]>,
+  itemId: string,
+  row: CatalogOnOrderShipment,
+): void {
+  const list = byItemId.get(itemId) ?? [];
+  const existing = list.find(s => s.purchaseOrderId === row.purchaseOrderId);
+  if (existing) {
+    existing.quantity += row.quantity;
+    return;
+  }
+  list.push(row);
+  byItemId.set(itemId, list);
+}
+
 function addPoLineQty(
   byItemId: Map<string, number>,
+  shipmentsByItemId: Map<string, CatalogOnOrderShipment[]>,
   poNumbers: Set<string>,
   data: DocumentData,
   poId: string,
@@ -71,10 +112,24 @@ function addPoLineQty(
   const poRef = normalizePoNumber(data.referenceNumber);
   if (poRef) poNumbers.add(poRef);
   const lines = Array.isArray(data.lineItems) ? data.lineItems : [];
+  const bl = parsePurchaseOrderBl(data);
+  const tracking = parsePurchaseOrderTracking(data);
   for (const raw of lines) {
     const line = lineQty(raw);
     if (!line) continue;
     byItemId.set(line.itemId, (byItemId.get(line.itemId) ?? 0) + line.quantity);
+    addShipment(shipmentsByItemId, line.itemId, {
+      purchaseOrderId: poId,
+      purchaseOrderNumber: String(data.purchaseOrderNumber ?? poId).trim() || poId,
+      quantity: line.quantity,
+      eta: tracking.arrivalDate,
+      etaPort: tracking.etaPort || bl?.portOfDischarge || 'Cochin',
+      etd: tracking.sailingDate,
+      etdPort: tracking.etdPort || bl?.portOfLoading || null,
+      vesselName: bl?.vesselName || '',
+      containerNumber: bl?.containerNumber || '',
+      bl,
+    });
   }
 }
 
@@ -143,7 +198,11 @@ function addReceivedGrQty(
   }
 }
 
-let cache: { at: number; map: Map<string, number> } | null = null;
+let cache: {
+  at: number;
+  map: Map<string, number>;
+  shipments: Map<string, CatalogOnOrderShipment[]>;
+} | null = null;
 let inflight: Promise<Map<string, number>> | null = null;
 
 /**
@@ -160,10 +219,10 @@ export async function loadRaisedPoQtyByItemId(
   if (inflight) return inflight;
 
   inflight = scanRaisedPoQty()
-    .then(map => {
-      cache = { at: Date.now(), map };
+    .then(result => {
+      cache = { at: Date.now(), map: result.map, shipments: result.shipments };
       inflight = null;
-      return map;
+      return result.map;
     })
     .catch(err => {
       inflight = null;
@@ -175,9 +234,11 @@ export async function loadRaisedPoQtyByItemId(
 
 async function scanPortalPurchaseOrders(): Promise<{
   poQty: Map<string, number>;
+  shipments: Map<string, CatalogOnOrderShipment[]>;
   poNumbers: Set<string>;
 }> {
   const poQty = new Map<string, number>();
+  const shipments = new Map<string, CatalogOnOrderShipment[]>();
   const poNumbers = new Set<string>();
   const seen = new Set<string>();
   let cursor: QueryDocumentSnapshot<DocumentData> | null = null;
@@ -197,7 +258,7 @@ async function scanPortalPurchaseOrders(): Promise<{
 
     for (const docSnap of snap.docs) {
       seen.add(docSnap.id);
-      addPoLineQty(poQty, poNumbers, docSnap.data(), docSnap.id);
+      addPoLineQty(poQty, shipments, poNumbers, docSnap.data(), docSnap.id);
     }
 
     loaded += snap.docs.length;
@@ -214,11 +275,11 @@ async function scanPortalPurchaseOrders(): Promise<{
     );
     for (const docSnap of keptSnap.docs) {
       if (seen.has(docSnap.id)) continue;
-      addPoLineQty(poQty, poNumbers, docSnap.data(), docSnap.id);
+      addPoLineQty(poQty, shipments, poNumbers, docSnap.data(), docSnap.id);
     }
   }
 
-  return { poQty, poNumbers };
+  return { poQty, shipments, poNumbers };
 }
 
 async function scanReceivedGrQty(poNumbers: Set<string>): Promise<Map<string, number>> {
@@ -263,13 +324,40 @@ function subtractReceived(
   return next;
 }
 
-async function scanRaisedPoQty(): Promise<Map<string, number>> {
-  const { poQty, poNumbers } = await scanPortalPurchaseOrders();
+function sortShipments(rows: CatalogOnOrderShipment[]): CatalogOnOrderShipment[] {
+  return [...rows].sort((a, b) => {
+    const eta = (a.eta || '9999-12-31').localeCompare(b.eta || '9999-12-31');
+    if (eta) return eta;
+    return a.purchaseOrderNumber.localeCompare(b.purchaseOrderNumber);
+  });
+}
+
+async function scanRaisedPoQty(): Promise<{
+  map: Map<string, number>;
+  shipments: Map<string, CatalogOnOrderShipment[]>;
+}> {
+  const { poQty, shipments, poNumbers } = await scanPortalPurchaseOrders();
   let receivedQty = new Map<string, number>();
   try {
     receivedQty = await scanReceivedGrQty(poNumbers);
   } catch {
     receivedQty = new Map();
   }
-  return subtractReceived(poQty, receivedQty);
+  const map = subtractReceived(poQty, receivedQty);
+  const nextShipments = new Map<string, CatalogOnOrderShipment[]>();
+  for (const [itemId, rows] of shipments) {
+    if (!map.has(itemId)) continue;
+    nextShipments.set(itemId, sortShipments(rows));
+  }
+  return { map, shipments: nextShipments };
+}
+
+/** Open POs still on the water for this catalog item (ETA / vessel / live map). */
+export async function loadOnOrderShipmentsForItem(
+  itemId: string,
+): Promise<CatalogOnOrderShipment[]> {
+  const id = itemId.trim();
+  if (!id) return [];
+  await loadRaisedPoQtyByItemId();
+  return cache?.shipments.get(id) ?? [];
 }

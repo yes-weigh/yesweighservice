@@ -318,6 +318,7 @@ import {
   fetchGatcVerificationEmbedSrc,
   GATC_VERIFICATION_EMBED_URL,
 } from './lib/gatc-verification-embed.js';
+import { lookupVesselAis } from './lib/vessel-ais.js';
 import { CI_BUILD_TAG } from './lib/ci-build.js';
 
 // CI smoke-test marker (shared bundle entry — triggers full functions deploy in CI).
@@ -6834,6 +6835,28 @@ export const switchPublicSalarySharePeriod = onCall(
     } catch (err) {
       if (err instanceof HttpsError) throw err;
       throw new HttpsError('internal', err?.message ?? 'Could not switch salary month.');
+    }
+  },
+);
+
+/** Resolve vessel name / IMO / MMSI to a single-ship AIS map (PO Live map). */
+export const lookupVesselAisFn = onCall(
+  {
+    region: 'asia-south1',
+    timeoutSeconds: 30,
+    memory: '256MiB',
+  },
+  async request => {
+    await requireActiveUser(request.auth?.uid, ALLOWED_ROLES, { allowViewOnly: true });
+    const keyword = String(request.data?.keyword ?? request.data?.q ?? '').trim();
+    try {
+      return await lookupVesselAis(keyword);
+    } catch (err) {
+      if (err instanceof HttpsError) throw err;
+      throw new HttpsError(
+        'not-found',
+        err?.message ?? 'Could not find that vessel on the live map.',
+      );
     }
   },
 );

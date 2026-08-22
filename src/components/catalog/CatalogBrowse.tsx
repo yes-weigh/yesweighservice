@@ -8,9 +8,8 @@ import {
   List,
   Package,
   Search,
-  Ship,
 } from 'lucide-react';
-import { compareCatalogProductsInCategory, isHiddenCatalogCategory, formatStockQuantity } from '../../lib/catalog';
+import { compareCatalogProductsInCategory, isHiddenCatalogCategory } from '../../lib/catalog';
 import { catalogGridStockQty } from '../../lib/catalogProductAudit/display';
 import { buildProductNavState, buildSpareNavState, catalogOriginFromReturnView } from '../../lib/catalogNav';
 import type { CatalogNavState } from '../../lib/catalogNav';
@@ -20,6 +19,7 @@ import { CategoryBrowseCard } from './CategoryBrowseCard';
 import { CategoryBrowseSection } from './CategoryBrowseSection';
 import { CategoryFolderGrid } from './CategoryFolderGrid';
 import { ProductBrowseCard } from './ProductBrowseCard';
+import { CatalogOnOrderShipChip } from './CatalogOnOrderShipChip';
 import { ProductFolderGrid } from './ProductFolderGrid';
 import { ProductImageFrame } from './ProductImageFrame';
 import { fillSearchFromScan, SkuScanButton } from './SkuScanButton';
@@ -138,10 +138,11 @@ function ProductListRow({
           />
         )}
         {raisedPoQty != null && raisedPoQty > 0 && (
-          <span className="catalog-product-card__on-order" title="Raised purchase order quantity">
-            <Ship size={12} strokeWidth={2.5} aria-hidden />
-            <span>{formatStockQuantity(raisedPoQty, product.unit)}</span>
-          </span>
+          <CatalogOnOrderShipChip
+            productId={product.id}
+            quantity={raisedPoQty}
+            unit={product.unit}
+          />
         )}
       </div>
       <div className="catalog-row__price">

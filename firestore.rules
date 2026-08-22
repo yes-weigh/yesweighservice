@@ -381,11 +381,30 @@ service cloud.firestore {
       );
     }
 
+    function canReadShipmentTracking() {
+      return isOpsUser()
+        || isWarehouse()
+        || isMedia()
+        || (
+          signedIn()
+          && userExists()
+          && (role() == 'dealer' || role() == 'director'
+            || role() == 'dealer_staff' || role() == 'director_staff')
+          && userDoc().get('zohoCustomerId', '') is string
+          && userDoc().get('zohoCustomerId', '').size() > 0
+          && exists(/databases/$(database)/documents/appSettings/priceLevels)
+          && userDoc().get('zohoCustomerId', '')
+            in get(/databases/$(database)/documents/appSettings/priceLevels)
+              .data.get('directorsDealerIds', [])
+        );
+    }
+
     // Org-wide Zoho purchase orders — staff and super admin may read
     // (catalog on-order qty + spare indent last-purchase). Zoho writes via functions.
+    // Directors price-level dealers may read for catalog ship tracking.
     // Full super admin may attach a vendor PI and bill of lading only.
     match /purchaseOrders/{poId} {
-      allow read: if isOpsUser();
+      allow read: if canReadShipmentTracking();
       allow create, delete: if false;
       allow update: if isFullSuperAdmin()
         && request.resource.data.diff(resource.data).affectedKeys()
@@ -395,6 +414,8 @@ service cloud.firestore {
               'blNumber',
               'blVesselName',
               'blDate',
+              'blPortOfLoading',
+              'blPortOfDischarge',
               'blStoragePath',
               'blFileName',
               'blContentType',
@@ -404,6 +425,7 @@ service cloud.firestore {
               'blLinkedFromPurchaseOrderNumber',
               'wanHaiTrack',
               'qcImages',
+              'trackingScreenshots',
               'piStoragePath',
               'piFileName',
               'piContentType',
@@ -419,10 +441,10 @@ service cloud.firestore {
     }
 
     // Draft Zoho purchase bills mirrored as goods receipts.
-    // Staff and super admin may read (catalog ship qty after receive).
+    // Same readers as purchase orders (catalog ship qty after receive).
     // Invoice-access staff (and sales/admin dept) may update receive-check only.
     match /goodsReceipts/{billId} {
-      allow read: if isOpsUser();
+      allow read: if canReadShipmentTracking();
       allow create, delete: if false;
       allow update: if (isFullSuperAdmin() || staffHasInvoiceView())
         && request.resource.data.diff(resource.data).affectedKeys()

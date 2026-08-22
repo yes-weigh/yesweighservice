@@ -2,7 +2,7 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
     <application>
         <activity
-            android:name=".WanHaiTrackActivity"
+            android:name="in.yesweigh.wanhaitrack.WanHaiTrackActivity"
             android:exported="false"
             android:configChanges="orientation|keyboardHidden|screenSize"
             android:theme="@style/Theme.AppCompat.Light.NoActionBar" />

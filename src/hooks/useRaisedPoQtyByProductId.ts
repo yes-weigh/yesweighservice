@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { loadRaisedPoQtyByItemId } from '../lib/raisedPoQty';
 
-/** Open / raised PO qty by catalog product id — admin and staff only. */
+/** Open / raised PO qty by catalog product id — staff and Directors dealers. */
 export function useRaisedPoQtyByProductId(enabled: boolean): Map<string, number> {
   const [map, setMap] = useState<Map<string, number>>(() => new Map());
 

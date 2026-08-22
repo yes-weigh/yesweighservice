@@ -17,6 +17,7 @@ import {
   type AdminPurchaseOrderDetail,
   type PurchaseOrderBl,
   type PurchaseOrderBlSource,
+  type PurchaseOrderTracking,
 } from '../../lib/admin-purchase-orders';
 import { invoiceErrorMessage } from '../../lib/invoices';
 
@@ -25,12 +26,13 @@ type Props = {
   purchaseOrder: AdminPurchaseOrderDetail;
   canEdit: boolean;
   onClose: () => void;
-  onSaved: (bl: PurchaseOrderBl) => void;
+  onSaved: (next: { bl: PurchaseOrderBl; tracking: PurchaseOrderTracking }) => void;
 };
 
 type Mode = 'upload' | 'link';
 
 const DEFAULT_SHIPPING_LINE = 'Wan Hai';
+const DEFAULT_PORT_OF_DISCHARGE = 'Cochin';
 
 async function blobToBase64(blob: Blob): Promise<string> {
   const buffer = await blob.arrayBuffer();
@@ -121,9 +123,15 @@ export const PurchaseOrderBlDialog: React.FC<Props> = ({
   const [blNumber, setBlNumber] = useState(existing?.blNumber ?? '');
   const [containerNumber, setContainerNumber] = useState(existing?.containerNumber ?? '');
   const [vesselName, setVesselName] = useState(existing?.vesselName ?? '');
-  const [blDate, setBlDate] = useState(
-    existing?.blDate || purchaseOrder.tracking.sailingDate || '',
+  const [blDate, setBlDate] = useState(existing?.blDate || '');
+  const [portOfLoading, setPortOfLoading] = useState(
+    existing?.portOfLoading || purchaseOrder.tracking.etdPort || '',
   );
+  const [portOfDischarge, setPortOfDischarge] = useState(
+    existing?.portOfDischarge || purchaseOrder.tracking.etaPort || DEFAULT_PORT_OF_DISCHARGE,
+  );
+  const [etd, setEtd] = useState(purchaseOrder.tracking.sailingDate || '');
+  const [eta, setEta] = useState(purchaseOrder.tracking.arrivalDate || '');
   const [file, setFile] = useState<File | null>(null);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [localPreviewUrl, setLocalPreviewUrl] = useState<string | null>(null);
@@ -144,7 +152,13 @@ export const PurchaseOrderBlDialog: React.FC<Props> = ({
     setBlNumber(existing?.blNumber ?? '');
     setContainerNumber(existing?.containerNumber ?? '');
     setVesselName(existing?.vesselName ?? '');
-    setBlDate(existing?.blDate || purchaseOrder.tracking.sailingDate || '');
+    setBlDate(existing?.blDate || '');
+    setPortOfLoading(existing?.portOfLoading || purchaseOrder.tracking.etdPort || '');
+    setPortOfDischarge(
+      existing?.portOfDischarge || purchaseOrder.tracking.etaPort || DEFAULT_PORT_OF_DISCHARGE,
+    );
+    setEtd(purchaseOrder.tracking.sailingDate || '');
+    setEta(purchaseOrder.tracking.arrivalDate || '');
     setFile(null);
     setError('');
     setSaving(false);
@@ -159,9 +173,14 @@ export const PurchaseOrderBlDialog: React.FC<Props> = ({
     existing?.containerNumber,
     existing?.vesselName,
     existing?.blDate,
+    existing?.portOfLoading,
+    existing?.portOfDischarge,
     existing?.storagePath,
     existing?.linkedFromPurchaseOrderId,
     purchaseOrder.tracking.sailingDate,
+    purchaseOrder.tracking.arrivalDate,
+    purchaseOrder.tracking.etdPort,
+    purchaseOrder.tracking.etaPort,
   ]);
 
   useEffect(() => {
@@ -337,16 +356,20 @@ export const PurchaseOrderBlDialog: React.FC<Props> = ({
         onSaved(next);
         return;
       }
-      const next = await savePurchaseOrderBl({
-        purchaseOrderId: purchaseOrder.id,
-        shippingLine,
-        blNumber,
-        containerNumber,
-        vesselName,
-        blDate,
-        file,
-        existing,
-      });
+        const next = await savePurchaseOrderBl({
+          purchaseOrderId: purchaseOrder.id,
+          shippingLine,
+          blNumber,
+          containerNumber,
+          vesselName,
+          blDate,
+          portOfLoading,
+          portOfDischarge,
+          etd,
+          eta,
+          file,
+          existing,
+        });
       setFile(null);
       onSaved(next);
     } catch (err) {
@@ -497,7 +520,7 @@ export const PurchaseOrderBlDialog: React.FC<Props> = ({
               {canEdit
                 ? mode === 'link'
                   ? 'Select another PO’s BL below to preview and link.'
-                  : 'Upload a PDF or JPG below, then enter shipping company, B/L, and container.'
+                  : 'Upload a PDF or JPG below, then enter shipping company, ports, BL date, ETD, and ETA.'
                 : 'No bill of lading uploaded for this purchase order.'}
             </p>
           )}
@@ -555,20 +578,6 @@ export const PurchaseOrderBlDialog: React.FC<Props> = ({
               )}
             </label>
             <label className="dealers-modal__field">
-              <span>BL date <span className="text-muted">(Sailed)</span></span>
-              {canEdit ? (
-                <input
-                  type="date"
-                  className="input-field"
-                  value={blDate}
-                  onChange={e => setBlDate(e.target.value)}
-                  disabled={saving || sharing}
-                />
-              ) : (
-                <strong>{existing?.blDate || purchaseOrder.tracking.sailingDate || '—'}</strong>
-              )}
-            </label>
-            <label className="dealers-modal__field">
               <span>Container number</span>
               {canEdit ? (
                 <input
@@ -585,7 +594,7 @@ export const PurchaseOrderBlDialog: React.FC<Props> = ({
               )}
             </label>
             <label className="dealers-modal__field">
-              <span>Vessel / voyage <span className="text-muted">(optional)</span></span>
+              <span>Vessel name / IMO / MMSI</span>
               {canEdit ? (
                 <input
                   type="text"
@@ -593,11 +602,89 @@ export const PurchaseOrderBlDialog: React.FC<Props> = ({
                   value={vesselName}
                   onChange={e => setVesselName(e.target.value)}
                   disabled={saving || sharing}
-                  placeholder="e.g. WAN HAI 521 / 123E"
+                  placeholder="e.g. WAN HAI 521 or IMO 9400186"
                   autoComplete="off"
                 />
               ) : (
                 <strong>{existing?.vesselName || '—'}</strong>
+              )}
+            </label>
+            <label className="dealers-modal__field">
+              <span>Port of loading</span>
+              {canEdit ? (
+                <input
+                  type="text"
+                  className="input-field"
+                  value={portOfLoading}
+                  onChange={e => setPortOfLoading(e.target.value)}
+                  disabled={saving || sharing}
+                  placeholder="e.g. Ningbo Beilun"
+                  autoComplete="off"
+                />
+              ) : (
+                <strong>{existing?.portOfLoading || purchaseOrder.tracking.etdPort || '—'}</strong>
+              )}
+            </label>
+            <label className="dealers-modal__field">
+              <span>Port of final discharge</span>
+              {canEdit ? (
+                <input
+                  type="text"
+                  className="input-field"
+                  value={portOfDischarge}
+                  onChange={e => setPortOfDischarge(e.target.value)}
+                  disabled={saving || sharing}
+                  placeholder="Cochin"
+                  autoComplete="off"
+                />
+              ) : (
+                <strong>
+                  {existing?.portOfDischarge
+                    || purchaseOrder.tracking.etaPort
+                    || DEFAULT_PORT_OF_DISCHARGE}
+                </strong>
+              )}
+            </label>
+            <label className="dealers-modal__field">
+              <span>BL date</span>
+              {canEdit ? (
+                <input
+                  type="date"
+                  className="input-field"
+                  value={blDate}
+                  onChange={e => setBlDate(e.target.value)}
+                  disabled={saving || sharing}
+                />
+              ) : (
+                <strong>{existing?.blDate || '—'}</strong>
+              )}
+            </label>
+            <label className="dealers-modal__field">
+              <span>ETD</span>
+              {canEdit ? (
+                <input
+                  type="date"
+                  className="input-field"
+                  value={etd}
+                  onChange={e => setEtd(e.target.value)}
+                  disabled={saving || sharing}
+                />
+              ) : (
+                <strong>{purchaseOrder.tracking.sailingDate || '—'}</strong>
+              )}
+            </label>
+            <label className="dealers-modal__field">
+              <span>ETA</span>
+              {canEdit ? (
+                <input
+                  type="date"
+                  className="input-field"
+                  value={eta}
+                  onChange={e => setEta(e.target.value)}
+                  disabled={saving || sharing}
+                />
+              ) : (
+                <strong>{purchaseOrder.tracking.arrivalDate || '—'}</strong>
               )}
             </label>
           </div>
@@ -605,7 +692,8 @@ export const PurchaseOrderBlDialog: React.FC<Props> = ({
           <div className="po-bl-dialog__fields po-bl-dialog__link">
             <p className="text-muted text-sm po-bl-dialog__link-hint">
               Ship together: reuse a BL already uploaded on another PO for the same container.
-              Tracking fields (line, B/L, container) copy from that PO.
+              Tracking fields (line, B/L, container, ports, ETD, ETA) copy from that PO
+              and stay in sync when the master BL is updated.
             </p>
             <label className="dealers-modal__field">
               <span>Search PO / vendor / container / B/L</span>

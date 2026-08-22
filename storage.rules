@@ -222,6 +222,12 @@ service firebase.storage {
       allow delete: if isFullSuperAdmin();
     }
 
+    match /purchaseOrderTracking/{poId}/{fileName} {
+      allow read: if isSuperAdmin();
+      allow create, update: if isFullSuperAdmin() && validPurchaseOrderQcMedia();
+      allow delete: if isFullSuperAdmin();
+    }
+
     match /salesorders/{allPaths=**} {
       allow read, write: if false;
     }

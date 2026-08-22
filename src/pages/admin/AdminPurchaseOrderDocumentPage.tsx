@@ -1,32 +1,34 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { useOutletContext } from 'react-router-dom';
-import { Package, Plus, Radio } from 'lucide-react';
+import { Package, Plus, Radio, Ship, Upload } from 'lucide-react';
 import { DecimalAmountInput } from '../../components/DecimalAmountInput';
 import { QuantityStepper } from '../../components/QuantityStepper';
 import { CategoryThumbnail } from '../../components/catalog/CategoryThumbnail';
 import { DocumentLineItemSpec } from '../../components/invoices/DocumentLineItemSpec';
 import { InvoiceDocumentBody } from '../../components/invoices/InvoiceDocumentBody';
 import { SoDetailCatalogAddSheet } from '../../components/salesOrders/SoDetailCatalogAddSheet';
+import { PurchaseOrderVesselMapDialog } from '../../components/admin/PurchaseOrderVesselMapDialog';
+import { PurchaseOrderTrackingUploadDialog } from '../../components/admin/PurchaseOrderTrackingUploadDialog';
 import type { DraftEditLine } from '../../components/salesOrders/SalesOrderDraftLineEditor';
 import { useAuth } from '../../context/AuthContext';
 import {
   fetchAdminPurchaseOrderDetail,
   openPurchaseOrderBlLiveTracking,
   purchaseOrderBlLiveTrackingUrl,
+  purchaseOrderShipFinderUrl,
   purchaseOrderBlTrackingSummary,
   purchaseOrderHasBl,
   purchaseOrderHasVendorPi,
   saveWanHaiLiveTrack,
   updateAdminPurchaseOrder,
   type AdminPurchaseOrderDetail,
-  type PurchaseOrderTracking,
   type WanHaiLiveTrackSnapshot,
 } from '../../lib/admin-purchase-orders';
 import { formatCurrency } from '../../lib/catalog';
 import { newCartLineId } from '../../lib/gatcCart';
 import { formatInvoiceDate, invoiceErrorMessage } from '../../lib/invoices';
 import { formatLogisticsDateTime } from '../../lib/logisticsDateTime';
-import { canUpdatePurchaseOrders } from '../../lib/staffAccess';
+import { canUpdatePurchaseOrders, isPlatformAdmin } from '../../lib/staffAccess';
 import type { DealerInvoiceLineItem } from '../../types/invoices';
 import { loadZohoVendorById, type ZohoVendorOption } from '../../lib/zoho-vendors';
 import type { AdminPurchaseOrderDetailOutletContext } from './adminPurchaseOrderDetailContext';
@@ -147,10 +149,13 @@ function trackingSortMs(value: string | null | undefined): number {
   return Number.isNaN(ms) ? 0 : ms;
 }
 
-const TRACKING_MILESTONES: Array<{ key: keyof PurchaseOrderTracking; title: string }> = [
+const TRACKING_MILESTONES: Array<{
+  key: 'loadingDate' | 'sailingDate' | 'arrivalDate' | 'receivedDate';
+  title: string;
+}> = [
   { key: 'loadingDate', title: 'Loading' },
-  { key: 'sailingDate', title: 'Sailing' },
-  { key: 'arrivalDate', title: 'Arrival at port' },
+  { key: 'sailingDate', title: 'ETD' },
+  { key: 'arrivalDate', title: 'ETA' },
   { key: 'receivedDate', title: 'Received at warehouse' },
 ];
 
@@ -199,11 +204,19 @@ function buildPoTrackingEvents(purchaseOrder: AdminPurchaseOrderDetail): PoTrack
   }
 
   const wh = purchaseOrder.wanHaiTrack;
+  const etaPort = purchaseOrder.tracking.etaPort?.trim() || 'Cochin';
+  const etdPort = purchaseOrder.tracking.etdPort?.trim() || null;
   if (wh) {
     events.push({
       key: 'wanhai-live',
       title: 'Wan Hai live track',
       location: [
+        purchaseOrder.tracking.arrivalDate
+          ? `ETA ${etaPort} ${formatInvoiceDate(purchaseOrder.tracking.arrivalDate)}`
+          : null,
+        purchaseOrder.tracking.sailingDate
+          ? ['ETD', etdPort, formatInvoiceDate(purchaseOrder.tracking.sailingDate)].filter(Boolean).join(' ')
+          : null,
         wh.statusName,
         wh.vesselName,
         wh.voyage ? `Voy ${wh.voyage}` : null,
@@ -217,10 +230,15 @@ function buildPoTrackingEvents(purchaseOrder: AdminPurchaseOrderDetail): PoTrack
   for (const row of TRACKING_MILESTONES) {
     const at = purchaseOrder.tracking[row.key];
     if (!at) continue;
+    const location = row.key === 'arrivalDate'
+      ? etaPort
+      : row.key === 'sailingDate'
+        ? etdPort
+        : null;
     events.push({
       key: row.key,
       title: row.title,
-      location: null,
+      location,
       at,
     });
   }
@@ -240,63 +258,130 @@ function buildPoTrackingEvents(purchaseOrder: AdminPurchaseOrderDetail): PoTrack
   return events.sort((a, b) => trackingSortMs(b.at) - trackingSortMs(a.at));
 }
 
-function PurchaseOrderTrackingCard({
+function PoLiveTrackActions({
   purchaseOrder,
+  showLiveTrack,
+  showUploadTracking,
+  onLiveMap,
   onLiveTrack,
+  onUploadTracking,
 }: {
   purchaseOrder: AdminPurchaseOrderDetail;
+  showLiveTrack: boolean;
+  showUploadTracking: boolean;
+  onLiveMap: () => void;
   onLiveTrack: () => void;
+  onUploadTracking: () => void;
+}) {
+  const mapUrl = purchaseOrderShipFinderUrl(purchaseOrder.bl);
+  const liveTrackUrl = showLiveTrack ? purchaseOrderBlLiveTrackingUrl(purchaseOrder.bl) : null;
+  if (!mapUrl && !liveTrackUrl && !showUploadTracking) return null;
+  const iconSize = 14;
+
+  return (
+    <div className="po-tracking__live-actions">
+      {mapUrl ? (
+        <button
+          type="button"
+          className="po-tracking__live-btn"
+          title="Live GPS position of this ship"
+          onClick={onLiveMap}
+        >
+          <Ship size={iconSize} strokeWidth={2.4} aria-hidden />
+          Live Ship
+        </button>
+      ) : null}
+      {liveTrackUrl ? (
+        <button
+          type="button"
+          className="po-tracking__live-btn"
+          title={
+            purchaseOrder.bl?.shippingLine === 'Wan Hai'
+              ? 'Opens Wan Hai — pass CAPTCHA; extension pastes container and imports status'
+              : 'Open live container tracking'
+          }
+          onClick={onLiveTrack}
+        >
+          <Radio size={iconSize} strokeWidth={2.4} aria-hidden />
+          Live track
+        </button>
+      ) : null}
+      {showUploadTracking ? (
+        <button
+          type="button"
+          className="po-tracking__live-btn"
+          title="Upload tracking screenshot and set ETD / ETA"
+          onClick={onUploadTracking}
+        >
+          <Upload size={iconSize} strokeWidth={2.4} aria-hidden />
+          Upload tracking
+        </button>
+      ) : null}
+    </div>
+  );
+}
+
+function PurchaseOrderTrackingCard({
+  purchaseOrder,
+  showLiveTrack,
+  showUploadTracking,
+  onLiveMap,
+  onLiveTrack,
+  onUploadTracking,
+}: {
+  purchaseOrder: AdminPurchaseOrderDetail;
+  showLiveTrack: boolean;
+  showUploadTracking: boolean;
+  onLiveMap: () => void;
+  onLiveTrack: () => void;
+  onUploadTracking: () => void;
 }) {
   const events = buildPoTrackingEvents(purchaseOrder);
-  const liveTrackUrl = purchaseOrderBlLiveTrackingUrl(purchaseOrder.bl);
-  if (!events.length) return null;
+  if (!events.length && !showUploadTracking && !purchaseOrderShipFinderUrl(purchaseOrder.bl)) {
+    return null;
+  }
 
   return (
     <section className="panel glass mb-4 po-tracking" aria-label="Tracking history">
       <div className="po-tracking__head">
         <h2>Tracking history</h2>
-        {liveTrackUrl ? (
-          <button
-            type="button"
-            className="po-tracking__live-btn"
-            title={
-              purchaseOrder.bl?.shippingLine === 'Wan Hai'
-                ? 'Opens Wan Hai — pass CAPTCHA; extension pastes container and imports status'
-                : 'Open live container tracking'
-            }
-            onClick={onLiveTrack}
-          >
-            <Radio size={14} strokeWidth={2.4} aria-hidden />
-            Live track
-          </button>
-        ) : null}
+        <PoLiveTrackActions
+          purchaseOrder={purchaseOrder}
+          showLiveTrack={showLiveTrack}
+          showUploadTracking={showUploadTracking}
+          onLiveMap={onLiveMap}
+          onLiveTrack={onLiveTrack}
+          onUploadTracking={onUploadTracking}
+        />
       </div>
-      <ol className="logistics-booking__track-timeline">
-        {events.map((event, index) => {
-          const atLabel = formatLogisticsDateTime(event.at);
-          return (
-            <li
-              key={event.key}
-              className={index === 0 ? 'is-latest' : undefined}
-            >
-              <span className="logistics-booking__track-timeline-dot" aria-hidden />
-              <div className="logistics-booking__track-timeline-copy">
-                <strong>{event.title}</strong>
-                {event.location ? (
-                  <span className="logistics-booking__track-timeline-location">
-                    {event.location}
-                  </span>
-                ) : null}
-                {atLabel ? (
-                  <time className="logistics-booking__track-timeline-at" dateTime={event.at ?? undefined}>
-                    {atLabel}
-                  </time>
-                ) : null}
-              </div>
-            </li>
-          );
-        })}
-      </ol>
+      {events.length ? (
+        <ol className="logistics-booking__track-timeline">
+          {events.map((event, index) => {
+            const atLabel = formatLogisticsDateTime(event.at);
+            return (
+              <li
+                key={event.key}
+                className={index === 0 ? 'is-latest' : undefined}
+              >
+                <span className="logistics-booking__track-timeline-dot" aria-hidden />
+                <div className="logistics-booking__track-timeline-copy">
+                  <strong>{event.title}</strong>
+                  {event.location ? (
+                    <span className="logistics-booking__track-timeline-location">
+                      {event.location}
+                    </span>
+                  ) : null}
+                  {atLabel ? (
+                    <time className="logistics-booking__track-timeline-at" dateTime={event.at ?? undefined}>
+                      {atLabel}
+                    </time>
+                  ) : null}
+                </div>
+              </li>
+            );
+          })}
+        </ol>
+      ) : null}
     </section>
   );
 }
@@ -307,12 +392,16 @@ export const AdminPurchaseOrderDocumentPage: React.FC = () => {
   const canEdit = canUpdatePurchaseOrders(user)
     && Boolean(purchaseOrder)
     && !LOCKED_STATUSES.has(String(purchaseOrder?.status ?? '').toLowerCase());
+  const canLiveTrack = isPlatformAdmin(user);
+  const canUploadTracking = canUpdatePurchaseOrders(user);
 
   const [lines, setLines] = useState<EditLine[]>([]);
   const [baseline, setBaseline] = useState('');
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState('');
   const [liveTrackNote, setLiveTrackNote] = useState('');
+  const [liveMapOpen, setLiveMapOpen] = useState(false);
+  const [trackingUploadOpen, setTrackingUploadOpen] = useState(false);
   const [catalogOpen, setCatalogOpen] = useState(false);
   const [catalogSession, setCatalogSession] = useState(0);
   const [vendorDirectory, setVendorDirectory] = useState<ZohoVendorOption | null>(null);
@@ -431,9 +520,13 @@ export const AdminPurchaseOrderDocumentPage: React.FC = () => {
   const currency = purchaseOrder.currencyCode || 'INR';
   const vendorPlace = vendorPlaceParts(purchaseOrder, vendorDirectory);
   const poDate = purchaseOrder.tracking.poDate || purchaseOrder.date;
-  const liveTrackUrl = purchaseOrderBlLiveTrackingUrl(purchaseOrder.bl);
+  const startLiveMap = () => {
+    setLiveTrackNote('');
+    setLiveMapOpen(true);
+  };
 
   const startLiveTrack = () => {
+    if (!canLiveTrack) return;
     setLiveTrackNote(
       purchaseOrder.bl?.shippingLine === 'Wan Hai'
         ? 'On phone: use YesOne app → pass CAPTCHA → tap Track now. Browser-only opens Wan Hai for manual paste.'
@@ -518,21 +611,6 @@ export const AdminPurchaseOrderDocumentPage: React.FC = () => {
           <div className="goods-receipt-detail__date goods-receipt-detail__date--sailed">
             <div className="text-muted text-sm">Sailed</div>
             <strong>{formatInvoiceDate(purchaseOrder.tracking.sailingDate)}</strong>
-            {liveTrackUrl ? (
-              <button
-                type="button"
-                className="po-tracking__live-btn po-tracking__live-btn--sailed"
-                title={
-                  purchaseOrder.bl?.shippingLine === 'Wan Hai'
-                    ? 'Opens Wan Hai — pass CAPTCHA; extension pastes container and imports status'
-                    : 'Open live container tracking'
-                }
-                onClick={startLiveTrack}
-              >
-                <Radio size={12} strokeWidth={2.4} aria-hidden />
-                Live track
-              </button>
-            ) : null}
           </div>
           <div className="goods-receipt-detail__date goods-receipt-detail__date--received">
             <div className="text-muted text-sm">Received</div>
@@ -549,7 +627,11 @@ export const AdminPurchaseOrderDocumentPage: React.FC = () => {
 
       <PurchaseOrderTrackingCard
         purchaseOrder={purchaseOrder}
+        showLiveTrack={canLiveTrack}
+        showUploadTracking={canUploadTracking}
+        onLiveMap={startLiveMap}
         onLiveTrack={startLiveTrack}
+        onUploadTracking={() => setTrackingUploadOpen(true)}
       />
       {liveTrackNote ? (
         <p className="text-muted text-sm mb-3" role="status">{liveTrackNote}</p>
@@ -698,6 +780,27 @@ export const AdminPurchaseOrderDocumentPage: React.FC = () => {
           setCatalogOpen(false);
         }}
       />
+
+      <PurchaseOrderVesselMapDialog
+        open={liveMapOpen}
+        purchaseOrder={purchaseOrder}
+        onClose={() => setLiveMapOpen(false)}
+      />
+      {canUploadTracking ? (
+        <PurchaseOrderTrackingUploadDialog
+          open={trackingUploadOpen}
+          purchaseOrder={purchaseOrder}
+          onClose={() => setTrackingUploadOpen(false)}
+          onSaved={saved => {
+            setPurchaseOrder({
+              ...purchaseOrder,
+              trackingScreenshots: saved.trackingScreenshots,
+              tracking: saved.tracking,
+              activityLogs: saved.activityLogs,
+            });
+          }}
+        />
+      ) : null}
     </>
   );
 };

@@ -47,6 +47,21 @@ export function isDirectorsPriceLevelName(name: string | null | undefined): bool
   return String(name ?? '').trim().toLowerCase() === 'directors';
 }
 
+/** Zoho dealer ids on any price level named Directors — used by Firestore rules. */
+export function directorsDealerIdsFromLevels(
+  levels: Array<{ name?: string | null; dealerIds?: string[] | null }>,
+): string[] {
+  const ids = new Set<string>();
+  for (const level of levels) {
+    if (!isDirectorsPriceLevelName(level.name)) continue;
+    for (const raw of level.dealerIds ?? []) {
+      const id = String(raw ?? '').trim();
+      if (id) ids.add(id);
+    }
+  }
+  return [...ids];
+}
+
 /** Directors price level skips ops review and opens at Awaiting payment. */
 export function priceLevelSkipsOpsReview(
   level: Pick<PriceLevel, 'name'> | null | undefined,
@@ -749,6 +764,22 @@ export async function loadPriceLevels(): Promise<PriceLevelsDoc> {
   return normalizePriceLevelsDoc(snap.data());
 }
 
+/** Keep Firestore `directorsDealerIds` in sync so rules can allow catalog ship tracking. */
+export async function syncDirectorsDealerIdsIndex(): Promise<void> {
+  const ref = doc(db, 'appSettings', PRICE_LEVELS_DOC_ID);
+  const snap = await getDoc(ref);
+  const raw = snap.exists() ? snap.data() : {};
+  const ids = directorsDealerIdsFromLevels(normalizePriceLevelsDoc(raw).levels);
+  const existing = Array.isArray(raw.directorsDealerIds)
+    ? raw.directorsDealerIds.map((id: unknown) => String(id ?? '').trim()).filter(Boolean)
+    : [];
+  const same = ids.length === existing.length
+    && ids.every(id => existing.includes(id))
+    && existing.every(id => ids.includes(id));
+  if (same) return;
+  await setDoc(ref, { directorsDealerIds: ids }, { merge: true });
+}
+
 export async function savePriceLevels(
   levels: PriceLevel[],
   updatedByUid: string | null,
@@ -766,7 +797,10 @@ export async function savePriceLevels(
     updatedAt,
     updatedByUid: updatedByUid?.trim() || null,
   };
-  await setDoc(doc(db, 'appSettings', PRICE_LEVELS_DOC_ID), payload, { merge: true });
+  await setDoc(doc(db, 'appSettings', PRICE_LEVELS_DOC_ID), {
+    ...payload,
+    directorsDealerIds: directorsDealerIdsFromLevels(payload.levels),
+  }, { merge: true });
   return payload;
 }
 

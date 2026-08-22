@@ -15,7 +15,9 @@ import { useConfirm } from '../../context/ConfirmContext';
 import { useCatalogPageHeader, usePageHeaderSlot, useTopBarAction } from '../../context/PageHeaderContext';
 import { useDealerPriceLevels } from '../../hooks/useDealerUnitPrice';
 import { useRaisedPoQtyByProductId } from '../../hooks/useRaisedPoQtyByProductId';
+import { useCanViewShipmentTracking } from '../../hooks/useCanViewShipmentTracking';
 import { canViewCatalogStock, isDealerPortalUser } from '../../lib/dealerAccess';
+import { syncDirectorsDealerIdsIndex } from '../../lib/priceLevels';
 import { SPARE_PRICE_LEVEL_CATEGORY_ID } from '../../types/priceLevels';
 import { canViewDealersInHr, hasStaffPermission } from '../../lib/staffAccess';
 import { catalogBaseForRole } from '../../lib/catalogRoutes';
@@ -192,7 +194,8 @@ export const CatalogPage: React.FC = () => {
   const canUseCatalogFilters = isSuperAdmin || isStaff;
   const showStockQuantity = canSync || canViewCatalogStock(user);
   const showAuditedLocations = isSuperAdmin || isStaff;
-  const raisedPoQtyByProductId = useRaisedPoQtyByProductId(isSuperAdmin || isStaff);
+  const canViewShipTracking = useCanViewShipmentTracking();
+  const raisedPoQtyByProductId = useRaisedPoQtyByProductId(canViewShipTracking);
   /** Matches firestore `canAccessYesStore` — staff cannot list yesStoreItems. */
   const canReadYesStore = isSuperAdmin || user?.role === 'warehouse';
 
@@ -239,6 +242,11 @@ export const CatalogPage: React.FC = () => {
   const [mediaIndexLoading, setMediaIndexLoading] = useState(false);
   const [warehouseTransferProduct, setWarehouseTransferProduct] = useState<CatalogProduct | null>(null);
   const [openAuditCycles, setOpenAuditCycles] = useState<AuditCycleDoc[]>([]);
+
+  useEffect(() => {
+    if (!isSuperAdmin) return;
+    void syncDirectorsDealerIdsIndex().catch(() => {});
+  }, [isSuperAdmin]);
 
   const applySpareFilters = useCallback(
     (

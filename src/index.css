@@ -6262,10 +6262,468 @@ body:has(.confirm-inline-bar) .confirm-inline-bar {
   letter-spacing: 0.01em;
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
+  cursor: pointer;
+}
+
+.catalog-product-card__on-order:hover,
+.catalog-product-card__on-order:focus-visible {
+  background: rgba(14, 116, 144, 0.2);
+  outline: none;
 }
 
 .catalog-product-card__on-order svg {
   flex-shrink: 0;
+}
+
+.catalog-on-order-dialog__backdrop {
+  padding: 0;
+  align-items: stretch;
+  z-index: 7200;
+  pointer-events: auto;
+}
+
+.catalog-on-order-dialog.dealers-modal.panel,
+.catalog-on-order-dialog {
+  width: min(100%, 56rem);
+  height: 100dvh;
+  max-height: 100dvh;
+  max-width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  padding: 0.55rem 0.55rem 0;
+  overflow: hidden;
+  border-radius: 0;
+  background: #fff;
+  color: #0f172a;
+}
+
+.catalog-on-order-dialog.panel.glass {
+  background: #fff;
+  color: #0f172a;
+}
+
+.catalog-on-order-dialog .dealers-modal__header,
+.catalog-on-order-dialog__header {
+  margin-bottom: 0;
+  align-items: center;
+  flex-shrink: 0;
+}
+
+.catalog-on-order-dialog__header-ship {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 2.4rem;
+  height: 2.4rem;
+  border-radius: 999px;
+  background: #1e3a8a;
+  color: #fff;
+  flex-shrink: 0;
+}
+
+.catalog-on-order-dialog__titles {
+  flex: 1;
+  min-width: 0;
+  text-align: center;
+}
+
+.catalog-on-order-dialog__header h2 {
+  margin: 0;
+  font-size: 1rem;
+  font-weight: 800;
+  line-height: 1.2;
+  letter-spacing: 0.01em;
+  color: #1e3a8a;
+}
+
+.catalog-on-order-dialog__etd {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.28rem;
+  margin: 0.12rem 0 0;
+  font-size: 0.78rem;
+  font-weight: 700;
+  line-height: 1.25;
+  color: #16a34a;
+}
+
+.catalog-on-order-dialog__x {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 2.35rem;
+  height: 2.35rem;
+  border-radius: 999px;
+  background: rgba(148, 163, 184, 0.22);
+  color: #475569;
+  flex-shrink: 0;
+}
+
+.catalog-on-order-dialog__list {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: nowrap;
+  gap: 0.35rem;
+  overflow-x: auto;
+  overflow-y: hidden;
+  flex-shrink: 0;
+  padding-bottom: 0.05rem;
+}
+
+.catalog-on-order-dialog__row {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 0.4rem;
+  width: auto;
+  flex-shrink: 0;
+  padding: 0.28rem 0.55rem;
+  border-radius: 999px;
+  border: 1px solid rgba(148, 163, 184, 0.35);
+  background: #fff;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.catalog-on-order-dialog__row strong {
+  font-size: 0.72rem;
+  font-weight: 800;
+}
+
+.catalog-on-order-dialog__row span {
+  font-size: 0.68rem;
+  color: #64748b;
+}
+
+.catalog-on-order-dialog__row.is-active {
+  border-color: #2563eb;
+  background: #dbeafe;
+}
+
+.catalog-on-order-dialog__map {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  border-radius: 12px 12px 0 0;
+  overflow: hidden;
+  background: #dbeafe;
+}
+
+.catalog-on-order-dialog__frame {
+  display: block;
+  position: absolute;
+  top: -22px;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  width: 100%;
+  height: calc(100% + 22px);
+  border: 0;
+}
+
+.catalog-on-order-dialog__map-empty {
+  margin: 0;
+  padding: 1rem;
+}
+
+.catalog-on-order-dialog__not-departed {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.75rem;
+  height: 100%;
+  min-height: 12rem;
+  padding: 1.5rem;
+  color: #1e3a8a;
+  text-align: center;
+  background: #eff6ff;
+}
+
+.catalog-on-order-dialog__not-departed p {
+  margin: 0;
+  font-size: 1.15rem;
+  font-weight: 800;
+}
+
+.voyage-sea-map {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  background: #fff;
+}
+
+.voyage-sea-map__stage {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+}
+
+.voyage-sea-map__canvas {
+  width: 100%;
+  height: 100%;
+  background: #dbeafe;
+  isolation: isolate;
+  touch-action: none;
+  z-index: 0;
+}
+
+.voyage-sea-map .leaflet-container {
+  isolation: isolate;
+  touch-action: none;
+}
+
+.voyage-sea-map .leaflet-control-attribution,
+.voyage-sea-map .leaflet-attribution-flag {
+  display: none !important;
+}
+
+.voyage-sea-map__info {
+  position: absolute;
+  top: 0.55rem;
+  left: 0.55rem;
+  z-index: 1100;
+  display: flex;
+  flex-direction: column;
+  gap: 0.18rem;
+  max-width: min(17.5rem, calc(100% - 4.5rem));
+  padding: 0.65rem 0.75rem 0.7rem;
+  border-radius: 12px;
+  background: #fff;
+  color: #0f172a;
+  box-shadow: 0 8px 24px rgba(15, 23, 42, 0.18);
+  font-size: 0.74rem;
+  line-height: 1.35;
+}
+
+.voyage-sea-map__info-head {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.5rem;
+  margin-bottom: 0.15rem;
+}
+
+.voyage-sea-map__info-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.85rem;
+  height: 1.85rem;
+  border-radius: 999px;
+  background: #2563eb;
+  color: #fff;
+  flex-shrink: 0;
+}
+
+.voyage-sea-map__info-name {
+  display: block;
+  color: #1d4ed8;
+  font-size: 0.92rem;
+  font-weight: 800;
+}
+
+.voyage-sea-map__info-type {
+  display: inline-block;
+  margin-top: 0.18rem;
+  padding: 0.08rem 0.45rem;
+  border-radius: 999px;
+  background: #2563eb;
+  color: #fff;
+  font-size: 0.62rem;
+  font-weight: 800;
+}
+
+.voyage-sea-map__info-date {
+  color: #16a34a;
+  font-weight: 700;
+}
+
+.voyage-sea-map__legend {
+  position: absolute;
+  left: 0.55rem;
+  bottom: 0.55rem;
+  z-index: 1100;
+  display: flex;
+  flex-direction: column;
+  gap: 0.28rem;
+  padding: 0.4rem 0.55rem;
+  border-radius: 10px;
+  background: #fff;
+  color: #0f172a;
+  box-shadow: 0 6px 16px rgba(15, 23, 42, 0.14);
+  font-size: 0.68rem;
+  font-weight: 700;
+}
+
+.voyage-sea-map__legend-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+}
+
+.voyage-sea-map__legend-dots {
+  display: inline-block;
+  width: 1.35rem;
+  height: 0;
+  border-top: 3px dotted #3b82f6;
+}
+
+.voyage-sea-map__port-label {
+  background: none !important;
+  border: 0 !important;
+}
+
+.voyage-sea-map__port-card {
+  margin-left: 0.2rem;
+  padding: 0.22rem 0.5rem 0.28rem;
+  border-radius: 8px;
+  background: #fff;
+  box-shadow: 0 4px 12px rgba(15, 23, 42, 0.18);
+  white-space: nowrap;
+}
+
+.voyage-sea-map__port-card strong,
+.voyage-sea-map__port-card span {
+  display: block;
+  margin: 0;
+  padding: 0;
+  border-radius: 0;
+  background: none;
+  box-shadow: none;
+  font-size: 0.68rem;
+  line-height: 1.25;
+}
+
+.voyage-sea-map__port-label--pol .voyage-sea-map__port-card strong {
+  color: #1e3a8a;
+  font-weight: 800;
+}
+
+.voyage-sea-map__port-label--pol .voyage-sea-map__port-card span,
+.voyage-sea-map__port-label--pod .voyage-sea-map__port-card span {
+  font-size: 0.6rem;
+  font-weight: 700;
+}
+
+.voyage-sea-map__port-label--pol .voyage-sea-map__port-card span {
+  color: #2563eb;
+}
+
+.voyage-sea-map__port-label--pod .voyage-sea-map__port-card strong {
+  color: #15803d;
+  font-weight: 800;
+}
+
+.voyage-sea-map__port-label--pod .voyage-sea-map__port-card span {
+  color: #16a34a;
+}
+
+.voyage-sea-map__pin {
+  background: none !important;
+  border: 0 !important;
+}
+
+.voyage-sea-map__ship {
+  background: none !important;
+  border: 0 !important;
+}
+
+.voyage-sea-map__ship-mark {
+  display: block;
+  width: 48px;
+  height: 48px;
+  filter: drop-shadow(0 3px 5px rgba(0, 0, 0, 0.45));
+}
+
+.voyage-sea-map__ship-mark svg {
+  display: block;
+  width: 48px;
+  height: 48px;
+}
+
+.voyage-sea-map__footer {
+  display: flex;
+  flex-wrap: nowrap;
+  align-items: stretch;
+  gap: 0.2rem;
+  flex-shrink: 0;
+  padding: 0.55rem 0.3rem 0.6rem;
+  background: #dbeafe;
+  color: #1e3a8a;
+}
+
+.voyage-sea-map__stat {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.08rem;
+  text-align: center;
+  min-width: 0;
+}
+
+.voyage-sea-map__stat svg {
+  width: 16px;
+  height: 16px;
+  flex-shrink: 0;
+}
+
+.voyage-sea-map__stat span {
+  font-size: 0.58rem;
+  font-weight: 700;
+  letter-spacing: 0.01em;
+  color: #1e40af;
+  white-space: nowrap;
+}
+
+.voyage-sea-map__stat strong {
+  font-size: 0.72rem;
+  font-weight: 800;
+  line-height: 1.2;
+  color: #0f172a;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 100%;
+}
+
+@media (min-width: 640px) {
+  .catalog-on-order-dialog__backdrop {
+    padding: 1rem;
+    align-items: center;
+  }
+
+  .catalog-on-order-dialog.dealers-modal.panel,
+  .catalog-on-order-dialog {
+    height: min(94dvh, 56rem);
+    max-height: min(94dvh, 56rem);
+    border-radius: 1rem;
+  }
+
+  .catalog-on-order-dialog__header h2 {
+    font-size: 1.12rem;
+  }
+}
+
+@media (max-width: 639px) {
+  .voyage-sea-map__info {
+    max-width: min(13.25rem, calc(100% - 3.4rem));
+    padding: 0.42rem 0.5rem 0.45rem;
+    font-size: 0.64rem;
+    gap: 0.08rem;
+  }
+
+  .voyage-sea-map__info-name {
+    font-size: 0.78rem;
+  }
+
+  .voyage-sea-map__legend {
+    display: none;
+  }
 }
 
 .catalog-product-card__inbound-chip {
@@ -19789,7 +20247,7 @@ body:has(.confirm-inline-bar) .confirm-inline-bar {
   gap: 0.55rem;
   padding: 0.65rem 0.15rem 0.35rem;
   flex-shrink: 0;
-  max-height: min(36vh, 17rem);
+  max-height: min(48vh, 26rem);
   overflow: auto;
 }
 
@@ -20309,6 +20767,15 @@ body:has(.confirm-inline-bar) .confirm-inline-bar {
   font-size: 1rem;
 }
 
+.po-tracking__live-actions {
+  display: inline-flex;
+  align-items: center;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 0.4rem;
+  flex-shrink: 0;
+}
+
 .po-tracking__live-btn {
   display: inline-flex;
   align-items: center;
@@ -20334,9 +20801,77 @@ body:has(.confirm-inline-bar) .confirm-inline-bar {
   color: #a7f3d0;
 }
 
-.po-tracking__live-btn--sailed {
-  margin-top: 0.35rem;
-  align-self: flex-start;
+.po-vessel-map-dialog {
+  width: min(100%, 56rem);
+}
+
+.po-vessel-map-dialog__body {
+  min-height: min(70dvh, 36rem);
+}
+
+.po-vessel-map-dialog__frame-wrap {
+  flex: 1;
+  min-height: min(70dvh, 36rem);
+  overflow: hidden;
+  position: relative;
+}
+
+.po-vessel-map-dialog__frame {
+  display: block;
+  position: absolute;
+  /* Crop VesselFinder.com embed header (20px + border). */
+  top: -22px;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  width: 100%;
+  height: calc(100% + 22px);
+  border: 0;
+  background: #0b1220;
+}
+
+.po-vessel-map-dialog__actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 0.65rem;
+}
+
+.po-vessel-map-dialog__actions .text-muted {
+  margin: 0;
+  margin-right: auto;
+}
+
+.po-tracking-upload-dialog {
+  width: min(100%, 26rem);
+}
+
+.po-tracking-upload-dialog__fields {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.po-tracking-upload-dialog__pick {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  cursor: pointer;
+}
+
+.po-tracking-upload-dialog__thumbs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.45rem;
+}
+
+.po-tracking-upload-dialog__thumbs img {
+  width: 4.5rem;
+  height: 4.5rem;
+  object-fit: cover;
+  border-radius: 8px;
+  background: #0b1220;
 }
 
 .po-tracking .logistics-booking__track-timeline-at {

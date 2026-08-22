@@ -5,6 +5,7 @@ import { CatalogBrowse } from '../../components/catalog/CatalogBrowse';
 import { SpareLinkEditor } from '../../components/catalog/SpareLinkEditor';
 import { useAuth } from '../../context/AuthContext';
 import { useRaisedPoQtyByProductId } from '../../hooks/useRaisedPoQtyByProductId';
+import { useCanViewShipmentTracking } from '../../hooks/useCanViewShipmentTracking';
 import { canViewCatalogStock, isDealerPortalUser } from '../../lib/dealerAccess';
 import { hasStaffPermission } from '../../lib/staffAccess';
 import {
@@ -46,9 +47,7 @@ export const SparesPage: React.FC = () => {
   );
   const showStockQuantity = canSync || canViewCatalogStock(user);
   const dealerView = isDealerPortalUser(user);
-  const raisedPoQtyByProductId = useRaisedPoQtyByProductId(
-    user?.role === 'super_admin' || user?.role === 'staff',
-  );
+  const raisedPoQtyByProductId = useRaisedPoQtyByProductId(useCanViewShipmentTracking());
   const viewMode = parseViewMode(searchParams.get('view'), canSync);
 
   const [catalog, setCatalog] = useState<CatalogResponse | null>(null);

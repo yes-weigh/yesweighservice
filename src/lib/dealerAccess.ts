@@ -1,4 +1,5 @@
 import type { User } from '../types';
+import { isDirectorsPriceLevelName } from './priceLevels';
 import {
   ALL_DEALER_PERMISSIONS,
   DEALER_TIER_DEFAULT_PERMISSIONS,
@@ -54,6 +55,22 @@ export function canViewWarehouseStock(user: User | null | undefined): boolean {
   if (!user) return false;
   if (user.role === 'super_admin' || user.role === 'staff') return true;
   return hasDealerPermission(user, 'catalog.warehouse_view');
+}
+
+/**
+ * Catalog ship / live-tracking chip.
+ * All internal users (staff, admin, warehouse, media).
+ * Dealers only when their price level is Directors.
+ */
+export function canViewShipmentTracking(
+  user: User | null | undefined,
+  priceLevelName?: string | null,
+): boolean {
+  if (!user) return false;
+  if (isDealerPortalUser(user)) {
+    return isDirectorsPriceLevelName(priceLevelName);
+  }
+  return true;
 }
 
 export function dealerTierLabel(tier: DealerTier | undefined): string {

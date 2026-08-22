@@ -290,10 +290,22 @@ export const AdminPurchaseOrderDetailLayout: React.FC = () => {
                             : purchaseOrder.bl.containerNumber}
                         </span>
                       ) : null}
-                      {(purchaseOrder.bl?.blDate || purchaseOrder.tracking.sailingDate) ? (
+                      {(purchaseOrder.bl?.portOfLoading || purchaseOrder.bl?.portOfDischarge) ? (
                         <span>
-                          Sailed {purchaseOrder.bl?.blDate || purchaseOrder.tracking.sailingDate}
+                          {[
+                            purchaseOrder.bl?.portOfLoading,
+                            purchaseOrder.bl?.portOfDischarge,
+                          ].filter(Boolean).join(' → ')}
                         </span>
+                      ) : null}
+                      {purchaseOrder.bl?.blDate ? (
+                        <span>BL {purchaseOrder.bl.blDate}</span>
+                      ) : null}
+                      {purchaseOrder.tracking.sailingDate ? (
+                        <span>ETD {purchaseOrder.tracking.sailingDate}</span>
+                      ) : null}
+                      {purchaseOrder.tracking.arrivalDate ? (
+                        <span>ETA {purchaseOrder.tracking.arrivalDate}</span>
                       ) : null}
                       {purchaseOrder.bl?.vesselName ? (
                         <span>{purchaseOrder.bl.vesselName}</span>
@@ -321,14 +333,11 @@ export const AdminPurchaseOrderDetailLayout: React.FC = () => {
               purchaseOrder={purchaseOrder}
               canEdit={canEditBl}
               onClose={() => setBlOpen(false)}
-              onSaved={bl => {
+              onSaved={next => {
                 setPurchaseOrder({
                   ...purchaseOrder,
-                  bl,
-                  tracking: {
-                    ...purchaseOrder.tracking,
-                    sailingDate: bl.blDate || purchaseOrder.tracking.sailingDate,
-                  },
+                  bl: next.bl,
+                  tracking: next.tracking,
                 });
               }}
             />
