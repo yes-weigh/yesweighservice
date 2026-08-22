@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { useNavigate } from 'react-router-dom';
 import { canNavigateBackInApp } from '../../lib/navigation';
 import {
@@ -128,6 +129,13 @@ import {
 } from './BinLabelPrintDialog';
 import type { BinLabelFields } from '../../lib/localPrinterLabel';
 import { ProductWhatsAppShareDialog } from './ProductWhatsAppShareDialog';
+import { CatalogVideoPlayer } from './CatalogVideoCover';
+import { getCatalogProductGallery } from '../../lib/catalogMedia/data';
+import {
+  findCatalogBrochureImage,
+  shareCatalogMediaFile,
+} from '../../lib/catalogMedia/share';
+import type { CatalogMediaFile } from '../../types/catalog-media';
 import { CategoryThumbnail } from './CategoryThumbnail';
 import { SpareLinkEditor } from './SpareLinkEditor';
 import { StockBadge, StockQuantity } from './StockBadge';
@@ -310,6 +318,10 @@ export const ProductDetailView: React.FC<{
   const [titleInView, setTitleInView] = useState(true);
   const [printLabelFields, setPrintLabelFields] = useState<BinLabelFields | null>(null);
   const [whatsappShareOpen, setWhatsappShareOpen] = useState(false);
+  const [mediaFiles, setMediaFiles] = useState<CatalogMediaFile[]>([]);
+  const [playingVideoId, setPlayingVideoId] = useState<string | null>(null);
+  const [brochurePreviewOpen, setBrochurePreviewOpen] = useState(false);
+  const [sharingMedia, setSharingMedia] = useState(false);
   const [auditRefreshBusy, setAuditRefreshBusy] = useState(false);
   const [auditRefreshError, setAuditRefreshError] = useState<string | null>(null);
   const scrolledHeaderTitle = useMemo(() => {
@@ -635,19 +647,64 @@ export const ProductDetailView: React.FC<{
   // Catalog carousel is catalog-only — warehouse bin photos sync to Zoho/catalog on link.
   const galleryUrls = catalogImageUrls;
   const productImageCount = catalogImageUrls.length;
+  const mediaVideos = useMemo(
+    () => mediaFiles.filter(file => file.kind === 'video' && file.url.trim()),
+    [mediaFiles],
+  );
+  const brochureFile = useMemo(() => findCatalogBrochureImage(mediaFiles), [mediaFiles]);
+  const gallerySlides = useMemo(() => {
+    const photos = catalogImageUrls.map(url => ({ type: 'image' as const, url }));
+    const videos = mediaVideos.map(file => ({ type: 'video' as const, file }));
+    return [...photos, ...videos];
+  }, [catalogImageUrls, mediaVideos]);
+
+  useEffect(() => {
+    const id = product?.id;
+    if (!id) {
+      setMediaFiles([]);
+      return;
+    }
+    let cancelled = false;
+    void getCatalogProductGallery('media', id)
+      .then(doc => {
+        if (!cancelled) setMediaFiles(doc?.files ?? []);
+      })
+      .catch(() => {
+        if (!cancelled) setMediaFiles([]);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [product?.id]);
 
   // Reset carousel only when switching products — not after every upload/add.
   useEffect(() => {
     setActiveGalleryIndex(0);
+    setPlayingVideoId(null);
+    setBrochurePreviewOpen(false);
     if (carouselRef.current) carouselRef.current.scrollLeft = 0;
   }, [product?.id]);
 
   useEffect(() => {
     setActiveGalleryIndex(index => {
-      if (galleryUrls.length === 0) return 0;
-      return Math.min(index, galleryUrls.length - 1);
+      if (gallerySlides.length === 0) return 0;
+      return Math.min(index, gallerySlides.length - 1);
     });
-  }, [galleryUrls.length]);
+  }, [gallerySlides.length]);
+
+  useEffect(() => {
+    const slide = gallerySlides[activeGalleryIndex];
+    if (slide?.type !== 'video') setPlayingVideoId(null);
+  }, [activeGalleryIndex, gallerySlides]);
+
+  useEffect(() => {
+    if (!brochurePreviewOpen) return undefined;
+    const previous = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    return () => {
+      document.body.style.overflow = previous;
+    };
+  }, [brochurePreviewOpen]);
 
   const auditTotals = useMemo<InventoryAuditGroupTotals | null>(() => {
     if (!showAuditedStock || !product || auditItems.length === 0) return null;
@@ -1570,15 +1627,22 @@ export const ProductDetailView: React.FC<{
     }
   };
 
-  const currentGalleryUrl = galleryUrls[activeGalleryIndex] ?? product?.imageUrl ?? null;
+  const currentSlide = gallerySlides[activeGalleryIndex] ?? null;
+  const firstGallerySlide = gallerySlides[0] ?? null;
+  const onlyVideoSlide = gallerySlides.length === 1 && firstGallerySlide?.type === 'video'
+    ? firstGallerySlide
+    : null;
+  const currentGalleryUrl = currentSlide?.type === 'image'
+    ? currentSlide.url
+    : (product?.imageUrl ?? null);
 
   const handleCarouselScroll = () => {
     const track = carouselRef.current;
-    if (!track || galleryUrls.length <= 1) return;
+    if (!track || gallerySlides.length <= 1) return;
     const slideWidth = track.clientWidth;
     if (slideWidth <= 0) return;
     const index = Math.round(track.scrollLeft / slideWidth);
-    setActiveGalleryIndex(Math.min(Math.max(index, 0), galleryUrls.length - 1));
+    setActiveGalleryIndex(Math.min(Math.max(index, 0), gallerySlides.length - 1));
   };
 
   const scrollToGalleryIndex = (index: number) => {
@@ -1586,6 +1650,47 @@ export const ProductDetailView: React.FC<{
     if (!track) return;
     track.scrollTo({ left: index * track.clientWidth, behavior: 'smooth' });
     setActiveGalleryIndex(index);
+  };
+
+  const handleShareCurrentMedia = async () => {
+    if (!product) return;
+    if (currentSlide?.type !== 'video') {
+      setWhatsappShareOpen(true);
+      return;
+    }
+    setSharingMedia(true);
+    try {
+      await shareCatalogMediaFile({
+        url: currentSlide.file.url,
+        fileName: currentSlide.file.fileName,
+        contentType: currentSlide.file.contentType,
+        title: currentSlide.file.caption?.trim() || product.name,
+      });
+    } catch (err) {
+      if (err instanceof Error && err.name === 'AbortError') return;
+      setImageError(err instanceof Error ? err.message : 'Could not share video.');
+    } finally {
+      setSharingMedia(false);
+    }
+  };
+
+  const handleShareBrochure = async () => {
+    if (!brochureFile) return;
+    setSharingMedia(true);
+    setImageError(null);
+    try {
+      await shareCatalogMediaFile({
+        url: brochureFile.url,
+        fileName: brochureFile.fileName,
+        contentType: brochureFile.contentType,
+        title: brochureFile.caption?.trim() || 'Brochure',
+      });
+    } catch (err) {
+      if (err instanceof Error && err.name === 'AbortError') return;
+      setImageError(err instanceof Error ? err.message : 'Could not share brochure.');
+    } finally {
+      setSharingMedia(false);
+    }
   };
 
   const handleImageDownload = async () => {
@@ -1751,12 +1856,15 @@ export const ProductDetailView: React.FC<{
             <div
               className={[
                 'product-detail-page__image-stage',
-                galleryUrls.length > 1 ? 'product-detail-page__image-stage--carousel' : '',
+                gallerySlides.length > 1 || currentSlide?.type === 'video'
+                  ? 'product-detail-page__image-stage--carousel'
+                  : '',
+                currentSlide?.type === 'video' ? 'product-detail-page__image-stage--video' : '',
                 canEnterProductEdit ? 'product-detail-page__image-stage--editable' : '',
                 productEditMode ? 'product-detail-page__image-stage--editing' : '',
               ].filter(Boolean).join(' ')}
             >
-              {(product.sku?.trim() || showStockQuantity) && (
+              {currentSlide?.type !== 'video' && (product.sku?.trim() || showStockQuantity) && (
                 <div className="product-detail-page__image-top-left">
                   {product.sku?.trim() && (
                     <span className="product-detail-page__sku-badge" title={product.sku.trim()}>
@@ -1779,15 +1887,17 @@ export const ProductDetailView: React.FC<{
                   )}
                 </div>
               )}
-              <CatalogMerchBadges
-                product={product}
-                className="catalog-merch-badges--overlay catalog-merch-badges--detail"
-              />
-              {stampingChipLines.length > 0 && (
+              {currentSlide?.type !== 'video' && (
+                <CatalogMerchBadges
+                  product={product}
+                  className="catalog-merch-badges--overlay catalog-merch-badges--detail"
+                />
+              )}
+              {currentSlide?.type !== 'video' && stampingChipLines.length > 0 && (
                 <div
                   className={[
                     'product-detail-page__image-bottom-left',
-                    galleryUrls.length > 1 ? 'product-detail-page__image-bottom-left--carousel' : '',
+                    gallerySlides.length > 1 ? 'product-detail-page__image-bottom-left--carousel' : '',
                   ].filter(Boolean).join(' ')}
                 >
                   <div
@@ -1805,13 +1915,13 @@ export const ProductDetailView: React.FC<{
                   </div>
                 </div>
               )}
-              {(product.modelNumber?.trim()
+              {currentSlide?.type !== 'video' && (product.modelNumber?.trim()
                 || product.approvalNumber?.trim()
-                || galleryUrls.length > 1) && (
+                || gallerySlides.length > 1) && (
                 <div
                   className={[
                     'product-detail-page__image-bottom-right',
-                    galleryUrls.length > 1 ? 'product-detail-page__image-bottom-right--carousel' : '',
+                    gallerySlides.length > 1 ? 'product-detail-page__image-bottom-right--carousel' : '',
                   ].filter(Boolean).join(' ')}
                 >
                   {product.modelNumber?.trim() && (
@@ -1830,26 +1940,38 @@ export const ProductDetailView: React.FC<{
                       {product.approvalNumber.trim()}
                     </span>
                   )}
-                  {galleryUrls.length > 1 && (
+                  {gallerySlides.length > 1 && (
                     <span className="product-detail-page__carousel-count" aria-hidden>
-                      {activeGalleryIndex + 1}/{galleryUrls.length}
+                      {activeGalleryIndex + 1}/{gallerySlides.length}
                     </span>
                   )}
                 </div>
               )}
               <div className="product-detail-page__hero-actions">
-                {!productEditMode && (
+                {currentSlide?.type !== 'video' && !productEditMode && brochureFile && (
                   <button
                     type="button"
-                    className="product-detail-page__edit-details-btn product-detail-page__whatsapp-btn"
-                    title="Share product image"
-                    aria-label="Share product image"
-                    onClick={() => setWhatsappShareOpen(true)}
+                    className="product-detail-page__edit-details-btn product-detail-page__brochure-btn"
+                    title="Open brochure"
+                    aria-label="Open brochure"
+                    onClick={() => setBrochurePreviewOpen(true)}
                   >
                     <Share2 size={16} />
                   </button>
                 )}
-                {canEnterProductEdit && (
+                {!productEditMode && (
+                  <button
+                    type="button"
+                    className="product-detail-page__edit-details-btn product-detail-page__whatsapp-btn"
+                    title={currentSlide?.type === 'video' ? 'Share video' : 'Share product image'}
+                    aria-label={currentSlide?.type === 'video' ? 'Share video' : 'Share product image'}
+                    disabled={sharingMedia}
+                    onClick={() => void handleShareCurrentMedia()}
+                  >
+                    <Share2 size={16} />
+                  </button>
+                )}
+                {currentSlide?.type !== 'video' && canEnterProductEdit && (
                   <button
                     type="button"
                     className={[
@@ -1865,48 +1987,77 @@ export const ProductDetailView: React.FC<{
                   </button>
                 )}
               </div>
-              {galleryUrls.length > 1 ? (
+              {gallerySlides.length > 1 ? (
                 <>
                   <div
                     ref={carouselRef}
                     className="product-detail-page__carousel"
                     onScroll={handleCarouselScroll}
                     role="region"
-                    aria-label="Product images"
+                    aria-label="Product photos and videos"
                   >
-                    {galleryUrls.map((url, index) => (
-                      <div key={`${url}-${index}`} className="product-detail-page__carousel-slide">
-                        <CategoryThumbnail src={url} knockout={false} />
+                    {gallerySlides.map((slide, index) => (
+                      <div
+                        key={slide.type === 'image' ? `${slide.url}-${index}` : slide.file.id}
+                        className={[
+                          'product-detail-page__carousel-slide',
+                          slide.type === 'video' ? 'product-detail-page__carousel-slide--video' : '',
+                        ].filter(Boolean).join(' ')}
+                      >
+                        {slide.type === 'image' ? (
+                          <CategoryThumbnail src={slide.url} knockout={false} />
+                        ) : (
+                          <CatalogVideoPlayer
+                            src={slide.file.url}
+                            playing={playingVideoId === slide.file.id}
+                            onPlay={() => setPlayingVideoId(slide.file.id)}
+                          />
+                        )}
                       </div>
                     ))}
                   </div>
+                  {currentSlide?.type !== 'video' && (
                   <div
                     className="product-detail-page__carousel-dots"
                     role="tablist"
-                    aria-label="Image navigation"
+                    aria-label="Photo and video navigation"
                   >
-                    {galleryUrls.map((_, index) => (
+                    {gallerySlides.map((slide, index) => (
                       <button
-                        key={index}
+                        key={slide.type === 'image' ? `${slide.url}-${index}` : slide.file.id}
                         type="button"
                         role="tab"
                         className={[
                           'product-detail-page__carousel-dot',
                           index === activeGalleryIndex ? 'is-active' : '',
+                          slide.type === 'video' ? 'product-detail-page__carousel-dot--video' : '',
                         ].filter(Boolean).join(' ')}
-                        aria-label={`Image ${index + 1} of ${galleryUrls.length}`}
+                        aria-label={
+                          slide.type === 'video'
+                            ? `Video ${index + 1} of ${gallerySlides.length}`
+                            : `Image ${index + 1} of ${gallerySlides.length}`
+                        }
                         aria-selected={index === activeGalleryIndex}
                         onClick={() => scrollToGalleryIndex(index)}
                       />
                     ))}
                   </div>
+                  )}
                 </>
+              ) : onlyVideoSlide ? (
+                <div className="product-detail-page__carousel-slide product-detail-page__carousel-slide--video product-detail-page__carousel-slide--single">
+                  <CatalogVideoPlayer
+                    src={onlyVideoSlide.file.url}
+                    playing={playingVideoId === onlyVideoSlide.file.id}
+                    onPlay={() => setPlayingVideoId(onlyVideoSlide.file.id)}
+                  />
+                </div>
               ) : galleryUrls.length === 1 ? (
                 <CategoryThumbnail src={galleryUrls[0]} knockout={false} />
               ) : (
                 <Package size={72} className="product-detail-page__placeholder" aria-hidden />
               )}
-              {productEditMode && editImages && (
+              {productEditMode && editImages && currentSlide?.type !== 'video' && (
                 <div className="product-detail-page__image-actions-wrap">
                   <p className="product-detail-page__image-actions-hint">
                     {`Photo ${activeGalleryIndex + 1}/${Math.max(1, galleryUrls.length)} · Upload/Camera = replace · Add = new`}
@@ -2126,10 +2277,6 @@ export const ProductDetailView: React.FC<{
                 </div>
               )}
             </div>
-            <CatalogMerchBadges
-              product={product}
-              className="product-detail-page__merch-badges"
-            />
 
             {productEditMode && canEditProductDetails ? (
               <div className="product-detail-page__edit-grid">
@@ -2791,11 +2938,45 @@ export const ProductDetailView: React.FC<{
           product={product}
           imageUrl={currentGalleryUrl}
           imageIndex={activeGalleryIndex}
-          imageCount={Math.max(1, galleryUrls.length)}
+          imageCount={Math.max(1, productImageCount)}
           mrpOnly={isDealerPortal}
           stampingLabels={stampingChipLines.map(line => line.label)}
           onClose={() => setWhatsappShareOpen(false)}
         />
+      )}
+
+      {brochurePreviewOpen && brochureFile && createPortal(
+        <div
+          className="product-brochure-popup"
+          role="dialog"
+          aria-modal="true"
+          aria-label="Brochure"
+        >
+          <button
+            type="button"
+            className="product-brochure-popup__btn product-brochure-popup__btn--close"
+            aria-label="Close brochure"
+            onClick={() => setBrochurePreviewOpen(false)}
+          >
+            <X size={18} strokeWidth={2.6} aria-hidden />
+          </button>
+          <button
+            type="button"
+            className="product-brochure-popup__btn product-brochure-popup__btn--share"
+            aria-label="Share brochure"
+            title="Share brochure"
+            disabled={sharingMedia}
+            onClick={() => void handleShareBrochure()}
+          >
+            <Share2 size={16} strokeWidth={2.6} aria-hidden />
+          </button>
+          <img
+            className="product-brochure-popup__image"
+            src={brochureFile.url}
+            alt=""
+          />
+        </div>,
+        document.body,
       )}
 
     </div>

@@ -407,14 +407,11 @@ export const ProductBrowseCard: React.FC<ProductBrowseCardProps> = ({
             )}
           </div>
 
-          {(openNcCount != null && openNcCount > 0) || product.newArrival === true || product.discontinuedSoon === true ? (
+          {openNcCount != null && openNcCount > 0 ? (
             <div className="catalog-product-card__tag-row">
-              <CatalogMerchBadges product={product} />
-              {openNcCount != null && openNcCount > 0 ? (
-                <span className="catalog-product-card__nc-badge">
-                  NC {openNcCount}
-                </span>
-              ) : null}
+              <span className="catalog-product-card__nc-badge">
+                NC {openNcCount}
+              </span>
             </div>
           ) : null}
 

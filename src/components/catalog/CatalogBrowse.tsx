@@ -125,12 +125,12 @@ function ProductListRow({
     <button type="button" className="catalog-row panel glass" onClick={onSelect}>
       <div className="catalog-row__media">
         <StockBadge status={product.stockStatus} overlay />
+        <CatalogMerchBadges product={product} className="catalog-merch-badges--overlay" />
         <ProductImageFrame src={product.imageUrl} alt={product.name} variant="row" />
       </div>
       <div className="catalog-row__main">
         {product.sku && <span className="catalog-card__sku">{product.sku}</span>}
         <h3>{product.name}</h3>
-        <CatalogMerchBadges product={product} />
         {showStockQuantity && (
           <StockQuantity
             stock={gridStockQty}

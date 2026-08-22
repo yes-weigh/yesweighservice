@@ -6,6 +6,7 @@ import {
   Loader2,
   Pencil,
   Plus,
+  Share2,
   Trash2,
   Upload,
   X,
@@ -13,7 +14,6 @@ import {
 import type {
   CatalogFileGallery,
   CatalogMediaFile,
-  CatalogMediaKind,
   CatalogProductMediaDoc,
 } from '../../types/catalog-media';
 import {
@@ -22,6 +22,8 @@ import {
   updateCatalogGalleryFileCaption,
   uploadCatalogGalleryFile,
 } from '../../lib/catalogMedia/data';
+import { shareCatalogMediaFile } from '../../lib/catalogMedia/share';
+import { CatalogVideoCover } from './CatalogVideoCover';
 
 type ProductMediaPanelProps = {
   catalogProductId: string;
@@ -64,9 +66,7 @@ const GALLERY_COPY: Record<CatalogFileGallery, {
 };
 
 type PreviewState = {
-  url: string;
-  kind: CatalogMediaKind;
-  title: string;
+  file: CatalogMediaFile;
 } | null;
 
 function formatBytes(bytes: number): string {
@@ -102,6 +102,7 @@ export const ProductMediaPanel: React.FC<ProductMediaPanelProps> = ({
   const [editingCaptionId, setEditingCaptionId] = useState<string | null>(null);
   const [editCaptionText, setEditCaptionText] = useState('');
   const [preview, setPreview] = useState<PreviewState>(null);
+  const [sharingId, setSharingId] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const clearPendingUpload = () => {
@@ -227,11 +228,25 @@ export const ProductMediaPanel: React.FC<ProductMediaPanelProps> = ({
   };
 
   const openPreview = (file: CatalogMediaFile) => {
-    setPreview({
-      url: file.url,
-      kind: file.kind,
-      title: file.caption?.trim() || file.fileName,
-    });
+    setPreview({ file });
+  };
+
+  const handleShareFile = async (file: CatalogMediaFile) => {
+    setSharingId(file.id);
+    setError(null);
+    try {
+      await shareCatalogMediaFile({
+        url: file.url,
+        fileName: file.fileName,
+        contentType: file.contentType,
+        title: file.caption?.trim() || file.fileName,
+      });
+    } catch (err) {
+      if (err instanceof Error && err.name === 'AbortError') return;
+      setError(err instanceof Error ? err.message : 'Could not share file.');
+    } finally {
+      setSharingId(null);
+    }
   };
 
   return (
@@ -343,7 +358,7 @@ export const ProductMediaPanel: React.FC<ProductMediaPanelProps> = ({
                   <button
                     type="button"
                     className={
-                      file.kind === 'image'
+                      file.kind === 'image' || file.kind === 'video'
                         ? 'product-media-panel__thumb-btn'
                         : 'product-media-panel__file-icon'
                     }
@@ -352,6 +367,11 @@ export const ProductMediaPanel: React.FC<ProductMediaPanelProps> = ({
                   >
                     {file.kind === 'image' ? (
                       <img src={file.url} alt="" className="product-media-panel__thumb" />
+                    ) : file.kind === 'video' ? (
+                      <span className="product-media-panel__video-thumb">
+                        <CatalogVideoCover src={file.url} />
+                        <span className="product-media-panel__video-play" aria-hidden />
+                      </span>
                     ) : (
                       <FileKindIcon kind={file.kind} />
                     )}
@@ -426,6 +446,18 @@ export const ProductMediaPanel: React.FC<ProductMediaPanelProps> = ({
                       </>
                     )}
                   </div>
+                  <button
+                    type="button"
+                    className="btn btn-sm product-media-panel__file-share"
+                    disabled={sharingId === file.id}
+                    title="Share file"
+                    aria-label={`Share ${file.caption?.trim() || file.fileName}`}
+                    onClick={() => void handleShareFile(file)}
+                  >
+                    {sharingId === file.id
+                      ? <Loader2 size={14} className="spin-icon" aria-hidden />
+                      : <Share2 size={14} aria-hidden />}
+                  </button>
                   {canWrite && (
                     <button
                       type="button"
@@ -452,7 +484,7 @@ export const ProductMediaPanel: React.FC<ProductMediaPanelProps> = ({
           className="product-media-panel__lightbox"
           role="dialog"
           aria-modal="true"
-          aria-label={preview.title}
+          aria-label={preview.file.caption?.trim() || preview.file.fileName}
           onClick={() => setPreview(null)}
         >
           <button
@@ -463,34 +495,51 @@ export const ProductMediaPanel: React.FC<ProductMediaPanelProps> = ({
           >
             <X size={18} aria-hidden />
           </button>
+          <button
+            type="button"
+            className="product-media-panel__lightbox-share"
+            aria-label="Share file"
+            title="Share file"
+            disabled={sharingId === preview.file.id}
+            onClick={event => {
+              event.stopPropagation();
+              void handleShareFile(preview.file);
+            }}
+          >
+            {sharingId === preview.file.id
+              ? <Loader2 size={16} className="spin-icon" aria-hidden />
+              : <Share2 size={16} aria-hidden />}
+          </button>
           <div
             className="product-media-panel__lightbox-body"
             onClick={e => e.stopPropagation()}
           >
-            {preview.kind === 'image' && (
-              <img src={preview.url} alt={preview.title} />
+            {preview.file.kind === 'image' && (
+              <img src={preview.file.url} alt={preview.file.caption?.trim() || preview.file.fileName} />
             )}
-            {preview.kind === 'pdf' && (
+            {preview.file.kind === 'pdf' && (
               <iframe
-                title={preview.title}
-                src={preview.url}
+                title={preview.file.caption?.trim() || preview.file.fileName}
+                src={preview.file.url}
                 className="product-media-panel__lightbox-frame"
               />
             )}
-            {preview.kind === 'video' && (
+            {preview.file.kind === 'video' && (
               <video
-                src={preview.url}
+                src={preview.file.url}
                 controls
                 autoPlay
                 className="product-media-panel__lightbox-video"
               />
             )}
-            {preview.kind === 'other' && (
-              <a href={preview.url} target="_blank" rel="noreferrer" className="btn btn-primary">
+            {preview.file.kind === 'other' && (
+              <a href={preview.file.url} target="_blank" rel="noreferrer" className="btn btn-primary">
                 Open file
               </a>
             )}
-            <p className="product-media-panel__lightbox-caption">{preview.title}</p>
+            <p className="product-media-panel__lightbox-caption">
+              {preview.file.caption?.trim() || preview.file.fileName}
+            </p>
           </div>
         </div>
       )}
