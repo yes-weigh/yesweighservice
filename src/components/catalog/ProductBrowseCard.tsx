@@ -310,7 +310,6 @@ export const ProductBrowseCard: React.FC<ProductBrowseCardProps> = ({
             </span>
           )}
           <StockBadge status={product.stockStatus} overlay variant="tile" iconOnly />
-          <CatalogMerchBadges product={product} className="catalog-merch-badges--overlay" />
           {(showBottomLeft) && (
             <div className="catalog-product-card__media-bottom-left">
               {showPackageMissingIcon && (
@@ -364,6 +363,8 @@ export const ProductBrowseCard: React.FC<ProductBrowseCardProps> = ({
             <Package size={36} className="catalog-product-card__fallback" aria-hidden />
           )}
         </div>
+
+        <CatalogMerchBadges product={product} className="catalog-merch-badges--under-photo" />
 
         <div className="catalog-product-card__body">
           <h3 className="catalog-product-card__title">{formatProductTitle(product.name)}</h3>

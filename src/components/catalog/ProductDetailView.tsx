@@ -1887,12 +1887,6 @@ export const ProductDetailView: React.FC<{
                   )}
                 </div>
               )}
-              {currentSlide?.type !== 'video' && (
-                <CatalogMerchBadges
-                  product={product}
-                  className="catalog-merch-badges--overlay catalog-merch-badges--detail"
-                />
-              )}
               {currentSlide?.type !== 'video' && stampingChipLines.length > 0 && (
                 <div
                   className={[
@@ -2191,6 +2185,11 @@ export const ProductDetailView: React.FC<{
               <p className="product-detail-page__image-notice text-sm">{imageNotice}</p>
             )}
           </section>
+
+          <CatalogMerchBadges
+            product={product}
+            className="catalog-merch-badges--under-photo catalog-merch-badges--detail-under"
+          />
 
           <section className="product-detail-page__basics">
             {product.categoryName && (
@@ -2952,29 +2951,31 @@ export const ProductDetailView: React.FC<{
           aria-modal="true"
           aria-label="Brochure"
         >
-          <button
-            type="button"
-            className="product-brochure-popup__btn product-brochure-popup__btn--close"
-            aria-label="Close brochure"
-            onClick={() => setBrochurePreviewOpen(false)}
-          >
-            <X size={18} strokeWidth={2.6} aria-hidden />
-          </button>
-          <button
-            type="button"
-            className="product-brochure-popup__btn product-brochure-popup__btn--share"
-            aria-label="Share brochure"
-            title="Share brochure"
-            disabled={sharingMedia}
-            onClick={() => void handleShareBrochure()}
-          >
-            <Share2 size={16} strokeWidth={2.6} aria-hidden />
-          </button>
-          <img
-            className="product-brochure-popup__image"
-            src={brochureFile.url}
-            alt=""
-          />
+          <div className="product-brochure-popup__frame">
+            <img
+              className="product-brochure-popup__image"
+              src={brochureFile.url}
+              alt=""
+            />
+            <button
+              type="button"
+              className="product-brochure-popup__btn product-brochure-popup__btn--close"
+              aria-label="Close brochure"
+              onClick={() => setBrochurePreviewOpen(false)}
+            >
+              <X size={18} strokeWidth={2.6} aria-hidden />
+            </button>
+            <button
+              type="button"
+              className="product-brochure-popup__btn product-brochure-popup__btn--share"
+              aria-label="Share brochure"
+              title="Share brochure"
+              disabled={sharingMedia}
+              onClick={() => void handleShareBrochure()}
+            >
+              <Share2 size={16} strokeWidth={2.6} aria-hidden />
+            </button>
+          </div>
         </div>,
         document.body,
       )}
