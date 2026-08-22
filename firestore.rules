@@ -391,6 +391,10 @@ service cloud.firestore {
         && request.resource.data.diff(resource.data).affectedKeys()
             .hasOnly([
               'blContainerNumber',
+              'blShippingLine',
+              'blNumber',
+              'blVesselName',
+              'blDate',
               'blStoragePath',
               'blFileName',
               'blContentType',
@@ -398,6 +402,8 @@ service cloud.firestore {
               'blUploadedBy',
               'blLinkedFromPurchaseOrderId',
               'blLinkedFromPurchaseOrderNumber',
+              'wanHaiTrack',
+              'qcImages',
               'piStoragePath',
               'piFileName',
               'piContentType',

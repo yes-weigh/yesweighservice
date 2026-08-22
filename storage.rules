@@ -58,6 +58,16 @@ service firebase.storage {
         );
     }
 
+    function validPurchaseOrderQcMedia() {
+      return request.resource.size < 12 * 1024 * 1024
+        && (
+          request.resource.contentType == null
+          || request.resource.contentType == ''
+          || request.resource.contentType == 'application/octet-stream'
+          || request.resource.contentType.matches('image/.*')
+        );
+    }
+
     function isStaff() {
       return signedIn() && userExists() && role() == 'staff';
     }
@@ -202,6 +212,13 @@ service firebase.storage {
     match /purchaseOrderPi/{poId}/{fileName} {
       allow read: if isSuperAdmin();
       allow create, update: if isFullSuperAdmin() && validPurchaseOrderPiMedia();
+      allow delete: if isFullSuperAdmin();
+    }
+
+    // Client-uploaded QC photos (multi-image) linked to a purchase order.
+    match /purchaseOrderQc/{poId}/{fileName} {
+      allow read: if isSuperAdmin();
+      allow create, update: if isFullSuperAdmin() && validPurchaseOrderQcMedia();
       allow delete: if isFullSuperAdmin();
     }
 

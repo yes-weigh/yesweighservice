@@ -1,0 +1,47 @@
+{
+  "manifest_version": 3,
+  "name": "Yes Weigh · Wan Hai Live Track",
+  "description": "After you pass Wan Hai CAPTCHA, pastes the container number, runs Query, and sends results back to Yes Weigh.",
+  "version": "1.0.0",
+  "permissions": ["storage", "tabs"],
+  "host_permissions": [
+    "https://www.wanhai.com/*",
+    "https://*.wanhai.com/*",
+    "https://service.yesweigh.in/*",
+    "https://yesweigh-service.web.app/*",
+    "https://yesweigh-service.firebaseapp.com/*",
+    "http://localhost:5173/*",
+    "http://localhost:5174/*",
+    "http://127.0.0.1:5173/*",
+    "http://127.0.0.1:5174/*"
+  ],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "https://service.yesweigh.in/*",
+        "https://yesweigh-service.web.app/*",
+        "https://yesweigh-service.firebaseapp.com/*",
+        "http://localhost:5173/*",
+        "http://localhost:5174/*",
+        "http://127.0.0.1:5173/*",
+        "http://127.0.0.1:5174/*"
+      ],
+      "js": ["content-app.js"],
+      "run_at": "document_idle"
+    },
+    {
+      "matches": [
+        "https://www.wanhai.com/*",
+        "https://*.wanhai.com/*"
+      ],
+      "js": ["content-wanhai.js"],
+      "run_at": "document_idle"
+    }
+  ],
+  "action": {
+    "default_title": "Yes Weigh Wan Hai Live Track"
+  }
+}

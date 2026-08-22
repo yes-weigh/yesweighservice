@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { useOutletContext } from 'react-router-dom';
-import { Package, Plus, Trash2 } from 'lucide-react';
+import { Package, Plus, Radio } from 'lucide-react';
 import { DecimalAmountInput } from '../../components/DecimalAmountInput';
 import { QuantityStepper } from '../../components/QuantityStepper';
 import { CategoryThumbnail } from '../../components/catalog/CategoryThumbnail';
@@ -10,11 +10,17 @@ import { SoDetailCatalogAddSheet } from '../../components/salesOrders/SoDetailCa
 import type { DraftEditLine } from '../../components/salesOrders/SalesOrderDraftLineEditor';
 import { useAuth } from '../../context/AuthContext';
 import {
+  fetchAdminPurchaseOrderDetail,
+  openPurchaseOrderBlLiveTracking,
+  purchaseOrderBlLiveTrackingUrl,
+  purchaseOrderBlTrackingSummary,
   purchaseOrderHasBl,
   purchaseOrderHasVendorPi,
+  saveWanHaiLiveTrack,
   updateAdminPurchaseOrder,
   type AdminPurchaseOrderDetail,
   type PurchaseOrderTracking,
+  type WanHaiLiveTrackSnapshot,
 } from '../../lib/admin-purchase-orders';
 import { formatCurrency } from '../../lib/catalog';
 import { newCartLineId } from '../../lib/gatcCart';
@@ -187,8 +193,24 @@ function buildPoTrackingEvents(purchaseOrder: AdminPurchaseOrderDetail): PoTrack
     events.push({
       key: 'bl',
       title: 'Bill of lading',
-      location: purchaseOrder.bl?.containerNumber?.trim() || purchaseOrder.bl?.fileName || null,
+      location: purchaseOrderBlTrackingSummary(purchaseOrder.bl),
       at: purchaseOrder.bl?.uploadedAt || null,
+    });
+  }
+
+  const wh = purchaseOrder.wanHaiTrack;
+  if (wh) {
+    events.push({
+      key: 'wanhai-live',
+      title: 'Wan Hai live track',
+      location: [
+        wh.statusName,
+        wh.vesselName,
+        wh.voyage ? `Voy ${wh.voyage}` : null,
+        wh.depotName,
+        wh.containerNumber,
+      ].filter(Boolean).join(' · ') || wh.containerNumber,
+      at: wh.fetchedAt || wh.eventAt || null,
     });
   }
 
@@ -220,16 +242,34 @@ function buildPoTrackingEvents(purchaseOrder: AdminPurchaseOrderDetail): PoTrack
 
 function PurchaseOrderTrackingCard({
   purchaseOrder,
+  onLiveTrack,
 }: {
   purchaseOrder: AdminPurchaseOrderDetail;
+  onLiveTrack: () => void;
 }) {
   const events = buildPoTrackingEvents(purchaseOrder);
+  const liveTrackUrl = purchaseOrderBlLiveTrackingUrl(purchaseOrder.bl);
   if (!events.length) return null;
 
   return (
     <section className="panel glass mb-4 po-tracking" aria-label="Tracking history">
       <div className="po-tracking__head">
         <h2>Tracking history</h2>
+        {liveTrackUrl ? (
+          <button
+            type="button"
+            className="po-tracking__live-btn"
+            title={
+              purchaseOrder.bl?.shippingLine === 'Wan Hai'
+                ? 'Opens Wan Hai — pass CAPTCHA; extension pastes container and imports status'
+                : 'Open live container tracking'
+            }
+            onClick={onLiveTrack}
+          >
+            <Radio size={14} strokeWidth={2.4} aria-hidden />
+            Live track
+          </button>
+        ) : null}
       </div>
       <ol className="logistics-booking__track-timeline">
         {events.map((event, index) => {
@@ -272,6 +312,7 @@ export const AdminPurchaseOrderDocumentPage: React.FC = () => {
   const [baseline, setBaseline] = useState('');
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState('');
+  const [liveTrackNote, setLiveTrackNote] = useState('');
   const [catalogOpen, setCatalogOpen] = useState(false);
   const [catalogSession, setCatalogSession] = useState(0);
   const [vendorDirectory, setVendorDirectory] = useState<ZohoVendorOption | null>(null);
@@ -283,6 +324,59 @@ export const AdminPurchaseOrderDocumentPage: React.FC = () => {
     setBaseline(linesFingerprint(nextLines));
     setSaveError('');
   }, [purchaseOrder]);
+
+  useEffect(() => {
+    const onExtension = (event: Event) => {
+      const detail = (event as CustomEvent).detail as {
+        type?: string;
+        extensionInstalled?: boolean;
+        payload?: WanHaiLiveTrackSnapshot & { purchaseOrderId?: string };
+      } | null;
+      if (!detail) return;
+      if (detail.type === 'ready' || detail.type === 'queued') {
+        if (detail.type === 'queued' && detail.extensionInstalled) {
+          setLiveTrackNote('Pass Wan Hai CAPTCHA — extension will paste the container and import status.');
+        }
+        return;
+      }
+      if (detail.type !== 'result' || !detail.payload) return;
+      const payload = detail.payload;
+      const targetPoId = String(payload.purchaseOrderId || '').trim();
+      if (targetPoId && targetPoId !== purchaseOrderId) return;
+      void (async () => {
+        try {
+          setLiveTrackNote('Saving Wan Hai status…');
+          const saved = await saveWanHaiLiveTrack({
+            purchaseOrderId,
+            snapshot: {
+              containerNumber: payload.containerNumber,
+              blNumber: payload.blNumber ?? null,
+              statusName: payload.statusName ?? null,
+              depotName: payload.depotName ?? null,
+              voyage: payload.voyage ?? null,
+              vesselName: payload.vesselName ?? null,
+              eventAt: payload.eventAt ?? null,
+              bookingRef: payload.bookingRef ?? null,
+              rows: Array.isArray(payload.rows) ? payload.rows : [],
+              fetchedAt: payload.fetchedAt || new Date().toISOString(),
+              sourceUrl: payload.sourceUrl ?? null,
+            },
+          });
+          setPurchaseOrder(purchaseOrder ? {
+            ...purchaseOrder,
+            wanHaiTrack: saved.wanHaiTrack,
+            tracking: saved.tracking,
+            bl: saved.bl ?? purchaseOrder.bl,
+          } : null);
+          setLiveTrackNote('Wan Hai status saved.');
+        } catch (err) {
+          setLiveTrackNote(invoiceErrorMessage(err));
+        }
+      })();
+    };
+    window.addEventListener('YesWeighWanHaiExtension', onExtension);
+    return () => window.removeEventListener('YesWeighWanHaiExtension', onExtension);
+  }, [purchaseOrderId, setPurchaseOrder, purchaseOrder]);
 
   useEffect(() => {
     const vendorId = purchaseOrder?.vendorId?.trim();
@@ -337,6 +431,33 @@ export const AdminPurchaseOrderDocumentPage: React.FC = () => {
   const currency = purchaseOrder.currencyCode || 'INR';
   const vendorPlace = vendorPlaceParts(purchaseOrder, vendorDirectory);
   const poDate = purchaseOrder.tracking.poDate || purchaseOrder.date;
+  const liveTrackUrl = purchaseOrderBlLiveTrackingUrl(purchaseOrder.bl);
+
+  const startLiveTrack = () => {
+    setLiveTrackNote(
+      purchaseOrder.bl?.shippingLine === 'Wan Hai'
+        ? 'On phone: use YesOne app → pass CAPTCHA → tap Track now. Browser-only opens Wan Hai for manual paste.'
+        : '',
+    );
+    void (async () => {
+      try {
+        const result = await openPurchaseOrderBlLiveTracking(purchaseOrder.bl, { purchaseOrderId });
+        if (result === 'saved') {
+          const next = await fetchAdminPurchaseOrderDetail(purchaseOrderId);
+          setPurchaseOrder(next);
+          setLiveTrackNote('Wan Hai status saved.');
+        } else if (result === 'opened') {
+          setLiveTrackNote(
+            purchaseOrder.bl?.shippingLine === 'Wan Hai'
+              ? 'Wan Hai opened. Pass CAPTCHA, then use YesOne Android app for auto Track — or paste manually.'
+              : '',
+          );
+        }
+      } catch (err) {
+        setLiveTrackNote(invoiceErrorMessage(err));
+      }
+    })();
+  };
 
   const resetFromPo = () => {
     setLines(linesFromPurchaseOrder(purchaseOrder));
@@ -397,6 +518,21 @@ export const AdminPurchaseOrderDocumentPage: React.FC = () => {
           <div className="goods-receipt-detail__date goods-receipt-detail__date--sailed">
             <div className="text-muted text-sm">Sailed</div>
             <strong>{formatInvoiceDate(purchaseOrder.tracking.sailingDate)}</strong>
+            {liveTrackUrl ? (
+              <button
+                type="button"
+                className="po-tracking__live-btn po-tracking__live-btn--sailed"
+                title={
+                  purchaseOrder.bl?.shippingLine === 'Wan Hai'
+                    ? 'Opens Wan Hai — pass CAPTCHA; extension pastes container and imports status'
+                    : 'Open live container tracking'
+                }
+                onClick={startLiveTrack}
+              >
+                <Radio size={12} strokeWidth={2.4} aria-hidden />
+                Live track
+              </button>
+            ) : null}
           </div>
           <div className="goods-receipt-detail__date goods-receipt-detail__date--received">
             <div className="text-muted text-sm">Received</div>
@@ -411,7 +547,13 @@ export const AdminPurchaseOrderDocumentPage: React.FC = () => {
         )}
       </section>
 
-      <PurchaseOrderTrackingCard purchaseOrder={purchaseOrder} />
+      <PurchaseOrderTrackingCard
+        purchaseOrder={purchaseOrder}
+        onLiveTrack={startLiveTrack}
+      />
+      {liveTrackNote ? (
+        <p className="text-muted text-sm mb-3" role="status">{liveTrackNote}</p>
+      ) : null}
 
       {canEdit ? (
         <section className="panel glass staff-create-so-page__section">
@@ -452,15 +594,6 @@ export const AdminPurchaseOrderDocumentPage: React.FC = () => {
                       name={line.name}
                       sku={line.sku}
                     />
-                    <button
-                      type="button"
-                      className="btn btn-ghost btn-sm po-edit-line__remove"
-                      disabled={saving || lines.length <= 1}
-                      onClick={() => setLines(prev => prev.filter(row => row.lineId !== line.lineId))}
-                      aria-label={`Remove ${line.name}`}
-                    >
-                      <Trash2 size={16} aria-hidden />
-                    </button>
                   </div>
                   <div className="po-edit-line__fields">
                     <label className="po-edit-line__field">
@@ -491,6 +624,7 @@ export const AdminPurchaseOrderDocumentPage: React.FC = () => {
                       <span className="text-muted text-sm">Qty</span>
                       <QuantityStepper
                         value={line.quantity}
+                        min={0}
                         disabled={saving}
                         onChange={qty => {
                           setLines(prev => prev.map(row => (

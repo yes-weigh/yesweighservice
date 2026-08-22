@@ -128,6 +128,8 @@ export interface AdminFirestorePurchaseOrder {
   tracking: PurchaseOrderTracking;
   /** True when a Bill of Lading file is stored on the PO (counts as Shipped). */
   hasBl: boolean;
+  /** Shipping line + container/B/L set — BL can be live-tracked (Transit once sailed). */
+  blTrackable: boolean;
 }
 
 /** Portal pipeline chips under the Draft POs summary. */
@@ -153,15 +155,18 @@ export const PURCHASE_ORDER_PIPELINE_LABELS: Record<PurchaseOrderPipelineStage, 
 
 /**
  * Highest milestone wins:
- * Transit (arrived/received) → Shipped (BL uploaded or sailed)
+ * Transit (trackable BL + sailed date, or arrived/received)
+ * → Shipped (BL uploaded; sailed but not trackable stays here)
  * → Underproduction (paid/loading) → New PO.
  */
 export function purchaseOrderPipelineStage(
-  row: Pick<AdminFirestorePurchaseOrder, 'tracking' | 'hasBl'>,
+  row: Pick<AdminFirestorePurchaseOrder, 'tracking' | 'hasBl' | 'blTrackable'>,
 ): PurchaseOrderPipelineStage {
   const t = row.tracking;
   if (t.arrivalDate || t.receivedDate) return 'transit';
-  // BL uploaded = Shipped (same as sailing date).
+  // Trackable BL + sailed date → Transit (vessel has left).
+  if (row.blTrackable && t.sailingDate) return 'transit';
+  // Vendor BL received → Shipped.
   if (row.hasBl || t.sailingDate) return 'shipped';
   if (t.loadingDate || t.paymentDate) return 'underproduction';
   return 'new_po';
@@ -185,6 +190,14 @@ export function countPurchaseOrdersByPipeline(
 
 export interface PurchaseOrderBl {
   containerNumber: string;
+  /** Carrier used for live cargo tracking (e.g. Wan Hai). */
+  shippingLine: string;
+  /** Bill of lading / MBL number used for carrier tracking. */
+  blNumber: string;
+  /** Vessel name or voyage (optional; usually filled from tracking later). */
+  vesselName: string;
+  /** BL / shipped-on-board date (YYYY-MM-DD) — copied to tracking.sailingDate. */
+  blDate: string | null;
   storagePath: string;
   fileName: string;
   contentType: string;
@@ -192,6 +205,31 @@ export interface PurchaseOrderBl {
   /** When set, this PO reuses the BL file stored on another PO (same container). */
   linkedFromPurchaseOrderId: string | null;
   linkedFromPurchaseOrderNumber: string | null;
+}
+
+/** Known ocean carriers we can track (extend as integrations are added). */
+export const PURCHASE_ORDER_SHIPPING_LINES = [
+  'Wan Hai',
+  'Maersk',
+  'MSC',
+  'CMA CGM',
+  'COSCO',
+  'Hapag-Lloyd',
+  'ONE',
+  'Evergreen',
+  'Yang Ming',
+  'Other',
+] as const;
+
+export type PurchaseOrderShippingLine = (typeof PURCHASE_ORDER_SHIPPING_LINES)[number];
+
+export function normalizePurchaseOrderShippingLine(value: unknown): string {
+  const raw = String(value ?? '').trim();
+  if (!raw) return '';
+  const match = PURCHASE_ORDER_SHIPPING_LINES.find(
+    line => line.toLowerCase() === raw.toLowerCase(),
+  );
+  return match ?? raw;
 }
 
 export interface PurchaseOrderVendorPi {
@@ -260,9 +298,21 @@ export interface AdminPurchaseOrderDetail {
   lineItems: DealerInvoiceLineItem[];
   bl: PurchaseOrderBl | null;
   vendorPi: PurchaseOrderVendorPi | null;
+  /** Factory / vendor QC photos (multi-image). */
+  qcImages: PurchaseOrderQcImage[];
   kotakPayout: PurchaseOrderKotakPayout | null;
+  /** Latest Wan Hai site scrape (extension-assisted live track). */
+  wanHaiTrack: WanHaiLiveTrackSnapshot | null;
   tracking: PurchaseOrderTracking;
   activityLogs: PurchaseOrderActivityLog[];
+}
+
+export interface PurchaseOrderQcImage {
+  id: string;
+  storagePath: string;
+  fileName: string;
+  contentType: string;
+  uploadedAt: string;
 }
 
 export interface AdminPurchaseOrdersPageResult {
@@ -341,6 +391,14 @@ export function mapAdminPurchaseOrderDoc(
     categoryAmounts: normalizeInvoiceCategoryAmounts(data.categoryAmounts),
     tracking: parsePurchaseOrderTracking(data),
     hasBl: typeof data.blStoragePath === 'string' && Boolean(data.blStoragePath.trim()),
+    blTrackable: (() => {
+      const shippingLine = normalizePurchaseOrderShippingLine(data.blShippingLine);
+      const containerNumber = typeof data.blContainerNumber === 'string'
+        ? data.blContainerNumber.trim()
+        : '';
+      const blNumber = typeof data.blNumber === 'string' ? data.blNumber.trim() : '';
+      return Boolean(shippingLine && (containerNumber || blNumber));
+    })(),
   };
 }
 
@@ -743,7 +801,9 @@ export function mapAdminPurchaseOrderDetail(
       : [],
     bl: parsePurchaseOrderBl(data),
     vendorPi: parsePurchaseOrderVendorPi(data),
+    qcImages: parsePurchaseOrderQcImages(data),
     kotakPayout: parsePurchaseOrderKotakPayout(data),
+    wanHaiTrack: parseWanHaiLiveTrack(data),
     tracking: parsePurchaseOrderTracking(data),
     activityLogs: parsePurchaseOrderActivityLogs(data),
   };
@@ -754,9 +814,17 @@ export function parsePurchaseOrderBl(data: DocumentData): PurchaseOrderBl | null
   const containerNumber = typeof data.blContainerNumber === 'string'
     ? data.blContainerNumber.trim()
     : '';
-  if (!storagePath && !containerNumber) return null;
+  const shippingLine = normalizePurchaseOrderShippingLine(data.blShippingLine);
+  const blNumber = typeof data.blNumber === 'string' ? data.blNumber.trim() : '';
+  const vesselName = typeof data.blVesselName === 'string' ? data.blVesselName.trim() : '';
+  const blDate = parseYmd(data.blDate);
+  if (!storagePath && !containerNumber && !blNumber && !shippingLine && !blDate) return null;
   return {
     containerNumber,
+    shippingLine,
+    blNumber,
+    vesselName,
+    blDate,
     storagePath,
     fileName: typeof data.blFileName === 'string' ? data.blFileName.trim() : '',
     contentType: typeof data.blContentType === 'string' ? data.blContentType.trim() : '',
@@ -1001,6 +1069,404 @@ export function purchaseOrderHasBl(bl?: PurchaseOrderBl | null): boolean {
   return Boolean(bl?.storagePath);
 }
 
+/** Reference used for carrier live tracking (container preferred, else B/L). */
+export function purchaseOrderBlTrackingReference(bl?: PurchaseOrderBl | null): string {
+  if (!bl) return '';
+  return (bl.containerNumber || bl.blNumber || '').trim().toUpperCase();
+}
+
+const BL_LIVE_TRACK_SEALINES: Record<string, string> = {
+  'Wan Hai': 'whl',
+  Maersk: 'maeu',
+  MSC: 'mscu',
+  'CMA CGM': 'cmau',
+  COSCO: 'cosu',
+  'Hapag-Lloyd': 'hlcu',
+  ONE: 'oney',
+  Evergreen: 'eglv',
+  'Yang Ming': 'ymlu',
+};
+
+/**
+ * Public cargo-tracking URL for the BL’s shipping line + container/B/L.
+ * Wan Hai opens Quick Search; Chrome extension pastes container after CAPTCHA.
+ */
+export function purchaseOrderBlLiveTrackingUrl(bl?: PurchaseOrderBl | null): string | null {
+  if (!bl) return null;
+  const reference = purchaseOrderBlTrackingReference(bl);
+  const shippingLine = normalizePurchaseOrderShippingLine(bl.shippingLine);
+  if (!reference || !shippingLine) return null;
+
+  const encoded = encodeURIComponent(reference);
+  switch (shippingLine) {
+    case 'Wan Hai':
+      return 'https://www.wanhai.com/views/cargo_track_v2/tracking_query.xhtml';
+    case 'Maersk':
+      return `https://www.maersk.com/tracking/${encoded}`;
+    case 'MSC':
+      return `https://www.msc.com/en/track-a-shipment?query=${encoded}`;
+    case 'CMA CGM':
+      return `https://www.cma-cgm.com/ebusiness/tracking/search?SearchBy=Container&Reference=${encoded}`;
+    case 'COSCO':
+      return `https://elines.coscoshipping.com/ebusiness/cargoTracking?trackingType=CONTAINER&number=${encoded}`;
+    case 'Hapag-Lloyd':
+      return `https://www.hapag-lloyd.com/en/online-business/track/track-by-container-solution.html?container=${encoded}`;
+    case 'ONE':
+      return `https://ecomm.one-line.com/one-ecom/manage-shipment/cargo-tracking?trakNo=${encoded}`;
+    case 'Evergreen':
+      return `https://www.shipmentlink.com/servlet/TDB1_CargoTracking.do`;
+    case 'Yang Ming':
+      return `https://www.yangming.com/e-service/Track_Trace/track_trace_cargo_tracking.aspx`;
+    default: {
+      const sealine = BL_LIVE_TRACK_SEALINES[shippingLine] || 'auto';
+      return `https://www.searates.com/container/tracking/?number=${encoded}&sealine=${encodeURIComponent(sealine)}`;
+    }
+  }
+}
+
+export interface WanHaiLiveTrackSnapshot {
+  containerNumber: string;
+  blNumber: string | null;
+  statusName: string | null;
+  depotName: string | null;
+  voyage: string | null;
+  vesselName: string | null;
+  eventAt: string | null;
+  bookingRef: string | null;
+  rows: Array<Record<string, string>>;
+  fetchedAt: string;
+  sourceUrl: string | null;
+}
+
+export function parseWanHaiLiveTrack(data: DocumentData): WanHaiLiveTrackSnapshot | null {
+  const raw = data.wanHaiTrack;
+  if (!raw || typeof raw !== 'object') return null;
+  const row = raw as Record<string, unknown>;
+  const containerNumber = String(row.containerNumber ?? '').trim().toUpperCase();
+  if (!containerNumber) return null;
+  const rows = Array.isArray(row.rows)
+    ? row.rows.flatMap((item) => {
+      if (!item || typeof item !== 'object') return [];
+      const out: Record<string, string> = {};
+      for (const [key, value] of Object.entries(item as Record<string, unknown>)) {
+        out[String(key)] = String(value ?? '').trim();
+      }
+      return [out];
+    })
+    : [];
+  return {
+    containerNumber,
+    blNumber: row.blNumber ? String(row.blNumber).trim().toUpperCase() : null,
+    statusName: row.statusName ? String(row.statusName).trim() : null,
+    depotName: row.depotName ? String(row.depotName).trim() : null,
+    voyage: row.voyage ? String(row.voyage).trim() : null,
+    vesselName: row.vesselName ? String(row.vesselName).trim() : null,
+    eventAt: row.eventAt ? String(row.eventAt).trim() : null,
+    bookingRef: row.bookingRef ? String(row.bookingRef).trim() : null,
+    rows,
+    fetchedAt: row.fetchedAt ? String(row.fetchedAt) : new Date().toISOString(),
+    sourceUrl: row.sourceUrl ? String(row.sourceUrl).trim() : null,
+  };
+}
+
+/** Persist Wan Hai live-track scrape onto the PO (Wan Hai only). */
+export async function saveWanHaiLiveTrack(input: {
+  purchaseOrderId: string;
+  snapshot: WanHaiLiveTrackSnapshot;
+}): Promise<{
+  wanHaiTrack: WanHaiLiveTrackSnapshot;
+  tracking: PurchaseOrderTracking;
+  bl: PurchaseOrderBl | null;
+}> {
+  const purchaseOrderId = input.purchaseOrderId.trim();
+  if (!purchaseOrderId) throw new Error('Purchase order is required.');
+  const snap = input.snapshot;
+  if (!snap.containerNumber) throw new Error('Container number is required.');
+
+  const poRef = doc(db, 'purchaseOrders', purchaseOrderId);
+  const poSnap = await getDoc(poRef);
+  if (!poSnap.exists()) throw new Error('Purchase order not found.');
+  const data = poSnap.data();
+  const bl = parsePurchaseOrderBl(data);
+  const shippingLine = normalizePurchaseOrderShippingLine(bl?.shippingLine || data.blShippingLine);
+  if (shippingLine && shippingLine !== 'Wan Hai') {
+    throw new Error('Automatic live track import is only supported for Wan Hai.');
+  }
+
+  const tracking = parsePurchaseOrderTracking(data);
+  const vesselFromTrack = [snap.vesselName, snap.voyage].filter(Boolean).join(' / ');
+
+  const patch: Record<string, unknown> = {
+    wanHaiTrack: {
+      containerNumber: snap.containerNumber,
+      blNumber: snap.blNumber,
+      statusName: snap.statusName,
+      depotName: snap.depotName,
+      voyage: snap.voyage,
+      vesselName: snap.vesselName,
+      eventAt: snap.eventAt,
+      bookingRef: snap.bookingRef,
+      rows: snap.rows.slice(0, 20),
+      fetchedAt: snap.fetchedAt || new Date().toISOString(),
+      sourceUrl: snap.sourceUrl,
+    },
+  };
+
+  if (vesselFromTrack) {
+    patch.blVesselName = vesselFromTrack;
+  }
+
+  const eventDigits = String(snap.eventAt || '').replace(/\D/g, '');
+  const eventYmd = parseFlexibleBlDate(String(snap.eventAt || '').slice(0, 10))
+    || (eventDigits.length >= 8 ? parseFlexibleBlDate(eventDigits.slice(0, 8)) : null);
+  if (eventYmd && !tracking.sailingDate) {
+    patch.tracking = { ...tracking, sailingDate: eventYmd };
+  }
+  if (eventYmd && !bl?.blDate) {
+    patch.blDate = eventYmd;
+  }
+
+  await updateDoc(poRef, patch);
+  const nextSnap = await getDoc(poRef);
+  const nextData = nextSnap.data() || {};
+  return {
+    wanHaiTrack: parseWanHaiLiveTrack(nextData)!,
+    tracking: parsePurchaseOrderTracking(nextData),
+    bl: parsePurchaseOrderBl(nextData),
+  };
+}
+
+/** Open live tracking; Wan Hai on Android APK uses in-app WebView after CAPTCHA. */
+export async function openPurchaseOrderBlLiveTracking(
+  bl?: PurchaseOrderBl | null,
+  options?: { purchaseOrderId?: string | null },
+): Promise<'saved' | 'opened' | false> {
+  const url = purchaseOrderBlLiveTrackingUrl(bl);
+  if (!url || !bl) return false;
+  const reference = purchaseOrderBlTrackingReference(bl);
+  const shippingLine = normalizePurchaseOrderShippingLine(bl.shippingLine);
+  const purchaseOrderId = String(options?.purchaseOrderId ?? '').trim();
+  const containerNumber = (bl.containerNumber || reference).trim().toUpperCase();
+
+  if (reference && typeof navigator !== 'undefined' && navigator.clipboard?.writeText) {
+    try {
+      await navigator.clipboard.writeText(reference);
+    } catch {
+      // still open the site
+    }
+  }
+
+  // Phone (YesOne Android APK): in-app WebView — user CAPTCHA, then auto paste/query/save.
+  if (shippingLine === 'Wan Hai' && purchaseOrderId && containerNumber) {
+    try {
+      const { Capacitor } = await import('@capacitor/core');
+      if (Capacitor.isNativePlatform()) {
+        const { WanHaiTrack } = await import('wanhai-track');
+        const result = await WanHaiTrack.track({ url, containerNumber });
+        let rows: Array<Record<string, string>> = [];
+        try {
+          const parsed = JSON.parse(result.rowsJson || '[]');
+          if (Array.isArray(parsed)) {
+            rows = parsed.map((item) => {
+              const out: Record<string, string> = {};
+              if (item && typeof item === 'object') {
+                for (const [key, value] of Object.entries(item as Record<string, unknown>)) {
+                  out[String(key)] = String(value ?? '').trim();
+                }
+              }
+              return out;
+            });
+          }
+        } catch {
+          rows = [];
+        }
+        await saveWanHaiLiveTrack({
+          purchaseOrderId,
+          snapshot: {
+            containerNumber: result.containerNumber || containerNumber,
+            blNumber: bl.blNumber || null,
+            statusName: result.statusName ?? null,
+            depotName: result.depotName ?? null,
+            voyage: result.voyage ?? null,
+            vesselName: result.vesselName ?? null,
+            eventAt: result.eventAt ?? null,
+            bookingRef: result.bookingRef ?? null,
+            rows,
+            fetchedAt: new Date().toISOString(),
+            sourceUrl: result.sourceUrl ?? null,
+          },
+        });
+        return 'saved';
+      }
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err ?? '');
+      if (/cancel/i.test(message)) return false;
+      // Fall through to browser open when plugin missing.
+    }
+  }
+
+  if (shippingLine === 'Wan Hai' && purchaseOrderId && reference) {
+    window.dispatchEvent(new CustomEvent('YesWeighWanHaiTrackRequest', {
+      detail: {
+        purchaseOrderId,
+        containerNumber,
+        blNumber: bl.blNumber || null,
+      },
+    }));
+  }
+
+  window.open(url, '_blank', 'noopener,noreferrer');
+  return 'opened';
+}
+
+export function purchaseOrderBlTrackingSummary(bl?: PurchaseOrderBl | null): string | null {
+  if (!bl) return null;
+  const parts = [
+    bl.shippingLine?.trim() || null,
+    bl.containerNumber?.trim() || null,
+    bl.blNumber?.trim() ? `B/L ${bl.blNumber.trim()}` : null,
+    bl.blDate?.trim() || null,
+    bl.vesselName?.trim() || null,
+  ].filter(Boolean);
+  if (parts.length) return parts.join(' · ');
+  return bl.fileName?.trim() || null;
+}
+
+/** Normalize common BL date strings to YYYY-MM-DD. */
+export function parseFlexibleBlDate(value: unknown): string | null {
+  const raw = String(value ?? '').trim();
+  if (!raw) return null;
+  const ymd = parseYmd(raw);
+  if (ymd) return ymd;
+
+  const dmy = raw.match(/^(\d{1,2})[./\-](\d{1,2})[./\-](\d{2,4})$/);
+  if (dmy) {
+    const day = Number(dmy[1]);
+    const month = Number(dmy[2]);
+    let year = Number(dmy[3]);
+    if (year < 100) year += year >= 70 ? 1900 : 2000;
+    if (year >= 2000 && year <= 2100 && month >= 1 && month <= 12 && day >= 1 && day <= 31) {
+      return `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+    }
+  }
+
+  const mdy = raw.match(/^(\d{1,2})[./\-](\d{1,2})[./\-](\d{4})$/);
+  if (mdy) {
+    // Ambiguous with dmy when both parts <= 12 — prefer day-first already handled above.
+  }
+
+  const ymdCompact = raw.match(/^(\d{4})(\d{2})(\d{2})$/);
+  if (ymdCompact) {
+    return parseYmd(`${ymdCompact[1]}-${ymdCompact[2]}-${ymdCompact[3]}`);
+  }
+
+  const yymmdd = raw.match(/^(\d{2})(\d{2})(\d{2})$/);
+  if (yymmdd) {
+    const year = 2000 + Number(yymmdd[1]);
+    const month = Number(yymmdd[2]);
+    const day = Number(yymmdd[3]);
+    if (year >= 2020 && year <= 2100 && month >= 1 && month <= 12 && day >= 1 && day <= 31) {
+      return `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+    }
+  }
+
+  const monthName = raw.match(
+    /^(\d{1,2})\s+([A-Za-z]{3,9})\s+(\d{2,4})$|^([A-Za-z]{3,9})\s+(\d{1,2}),?\s+(\d{2,4})$/,
+  );
+  if (monthName) {
+    const months: Record<string, number> = {
+      jan: 1, january: 1, feb: 2, february: 2, mar: 3, march: 3,
+      apr: 4, april: 4, may: 5, jun: 6, june: 6, jul: 7, july: 7,
+      aug: 8, august: 8, sep: 9, sept: 9, september: 9,
+      oct: 10, october: 10, nov: 11, november: 11, dec: 12, december: 12,
+    };
+    let day: number;
+    let monthKey: string;
+    let yearRaw: string;
+    if (monthName[1]) {
+      day = Number(monthName[1]);
+      monthKey = monthName[2].toLowerCase();
+      yearRaw = monthName[3];
+    } else {
+      monthKey = monthName[4].toLowerCase();
+      day = Number(monthName[5]);
+      yearRaw = monthName[6];
+    }
+    const month = months[monthKey];
+    let year = Number(yearRaw);
+    if (year < 100) year += 2000;
+    if (month && year >= 2000 && year <= 2100 && day >= 1 && day <= 31) {
+      return `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+    }
+  }
+
+  return null;
+}
+
+function extractBlDateFromText(text: string): string | null {
+  const normalized = text.replace(/\s+/g, ' ');
+  const labeledPatterns = [
+    /(?:shipped\s+on\s+board(?:\s+date)?|on\s*board\s*date|装船日期)[:\s#-]*([0-9]{4}[./\-][0-9]{1,2}[./\-][0-9]{1,2}|[0-9]{1,2}[./\-][0-9]{1,2}[./\-][0-9]{2,4}|[0-9]{1,2}\s+[A-Za-z]{3,9}\s+[0-9]{2,4}|[A-Za-z]{3,9}\s+[0-9]{1,2},?\s+[0-9]{2,4}|[0-9]{6,8})/i,
+    /(?:date\s+of\s+issue|b\/?\s*l\s*date|bl\s*date|提单日期|签发日期|issue\s*date)[:\s#-]*([0-9]{4}[./\-][0-9]{1,2}[./\-][0-9]{1,2}|[0-9]{1,2}[./\-][0-9]{1,2}[./\-][0-9]{2,4}|[0-9]{1,2}\s+[A-Za-z]{3,9}\s+[0-9]{2,4}|[A-Za-z]{3,9}\s+[0-9]{1,2},?\s+[0-9]{2,4}|[0-9]{6,8})/i,
+  ];
+  for (const pattern of labeledPatterns) {
+    const match = normalized.match(pattern);
+    if (!match?.[1]) continue;
+    const parsed = parseFlexibleBlDate(match[1]);
+    if (parsed) return parsed;
+  }
+  return null;
+}
+
+function extractBlDateFromFileName(fileName: string): string | null {
+  const name = String(fileName || '');
+  const underscored = name.match(/(?:^|[_\-])(\d{6})(?:[_\-]|\.|$)/);
+  if (underscored?.[1]) {
+    const parsed = parseFlexibleBlDate(underscored[1]);
+    if (parsed) return parsed;
+  }
+  const eight = name.match(/(?:^|[_\-])(\d{8})(?:[_\-]|\.|$)/);
+  if (eight?.[1]) {
+    const parsed = parseFlexibleBlDate(eight[1]);
+    if (parsed) return parsed;
+  }
+  return null;
+}
+
+/** Read BL / shipped-on-board date from PDF text or filename. */
+export async function extractPurchaseOrderBlDate(input: {
+  file?: File | null;
+  fileName?: string | null;
+  pdfBytes?: Uint8Array | null;
+}): Promise<string | null> {
+  const fileName = input.file?.name || input.fileName || '';
+  if (input.pdfBytes?.length) {
+    try {
+      const { pdfjs } = await import('./pdfjsSetup');
+      const pdf = await pdfjs.getDocument({ data: input.pdfBytes.slice() }).promise;
+      const maxPages = Math.min(pdf.numPages, 3);
+      let text = '';
+      for (let pageNo = 1; pageNo <= maxPages; pageNo += 1) {
+        const page = await pdf.getPage(pageNo);
+        const content = await page.getTextContent();
+        text += ` ${content.items.map(item => ('str' in item ? item.str : '')).join(' ')}`;
+      }
+      const fromText = extractBlDateFromText(text);
+      if (fromText) return fromText;
+    } catch {
+      // fall through to filename
+    }
+  } else if (input.file && (input.file.type.includes('pdf') || /\.pdf$/i.test(input.file.name))) {
+    try {
+      const buf = new Uint8Array(await input.file.arrayBuffer());
+      return extractPurchaseOrderBlDate({ file: input.file, fileName, pdfBytes: buf });
+    } catch {
+      // fall through
+    }
+  }
+  return extractBlDateFromFileName(fileName);
+}
+
 export type PurchaseOrderBlSource = {
   purchaseOrderId: string;
   purchaseOrderNumber: string;
@@ -1044,12 +1510,30 @@ export async function listPurchaseOrderBlSources(options?: {
 export async function savePurchaseOrderBl(input: {
   purchaseOrderId: string;
   containerNumber: string;
+  shippingLine: string;
+  blNumber: string;
+  vesselName?: string | null;
+  blDate?: string | null;
   file?: File | null;
   existing?: PurchaseOrderBl | null;
 }): Promise<PurchaseOrderBl> {
-  const containerNumber = input.containerNumber.trim();
+  const containerNumber = input.containerNumber.trim().toUpperCase();
+  const shippingLine = normalizePurchaseOrderShippingLine(input.shippingLine);
+  const blNumber = String(input.blNumber ?? '').trim().toUpperCase();
+  const vesselName = String(input.vesselName ?? '').trim();
+  const blDate = parseFlexibleBlDate(input.blDate) || parseYmd(input.blDate);
+
+  if (!shippingLine) {
+    throw new Error('Select the shipping company (required for live tracking).');
+  }
   if (!containerNumber) {
-    throw new Error('Enter the container number.');
+    throw new Error('Enter the container number (required for live tracking).');
+  }
+  if (!blNumber) {
+    throw new Error('Enter the B/L number (required for live tracking).');
+  }
+  if (!blDate) {
+    throw new Error('Enter the BL date (used as Sailed date).');
   }
   if (!input.file && !input.existing?.storagePath) {
     throw new Error('Upload a PDF or JPG of the bill of lading.');
@@ -1093,8 +1577,20 @@ export async function savePurchaseOrderBl(input: {
   }
 
   const uploadedAt = new Date().toISOString();
-  await updateDoc(doc(db, 'purchaseOrders', input.purchaseOrderId), {
+  const poRef = doc(db, 'purchaseOrders', input.purchaseOrderId);
+  const poSnap = await getDoc(poRef);
+  const tracking = parsePurchaseOrderTracking(poSnap.exists() ? poSnap.data() : {});
+  const nextTracking: PurchaseOrderTracking = {
+    ...tracking,
+    sailingDate: blDate,
+  };
+
+  await updateDoc(poRef, {
     blContainerNumber: containerNumber,
+    blShippingLine: shippingLine,
+    blNumber,
+    blVesselName: vesselName || null,
+    blDate,
     blStoragePath: storagePath,
     blFileName: fileName,
     blContentType: contentType,
@@ -1102,10 +1598,15 @@ export async function savePurchaseOrderBl(input: {
     blUploadedBy: auth.currentUser?.uid ?? null,
     blLinkedFromPurchaseOrderId: null,
     blLinkedFromPurchaseOrderNumber: null,
+    tracking: nextTracking,
   });
 
   return {
     containerNumber,
+    shippingLine,
+    blNumber,
+    vesselName,
+    blDate,
     storagePath,
     fileName,
     contentType,
@@ -1159,8 +1660,20 @@ export async function linkPurchaseOrderBlFromSource(input: {
   }
 
   const uploadedAt = new Date().toISOString();
+  const targetTracking = parsePurchaseOrderTracking(targetSnap.exists() ? targetSnap.data() : {});
+  const sourceTracking = parsePurchaseOrderTracking(sourceData);
+  const blDate = sourceBl.blDate || sourceTracking.sailingDate;
+  const nextTracking: PurchaseOrderTracking = {
+    ...targetTracking,
+    sailingDate: blDate || targetTracking.sailingDate,
+  };
+
   await updateDoc(doc(db, 'purchaseOrders', targetId), {
     blContainerNumber: sourceBl.containerNumber,
+    blShippingLine: sourceBl.shippingLine || null,
+    blNumber: sourceBl.blNumber || null,
+    blVesselName: sourceBl.vesselName || null,
+    blDate: blDate || null,
     blStoragePath: sourceBl.storagePath,
     blFileName: sourceBl.fileName,
     blContentType: sourceBl.contentType,
@@ -1168,10 +1681,15 @@ export async function linkPurchaseOrderBlFromSource(input: {
     blUploadedBy: auth.currentUser?.uid ?? null,
     blLinkedFromPurchaseOrderId: primaryId,
     blLinkedFromPurchaseOrderNumber: primaryNumber,
+    tracking: nextTracking,
   });
 
   return {
     containerNumber: sourceBl.containerNumber,
+    shippingLine: sourceBl.shippingLine,
+    blNumber: sourceBl.blNumber,
+    vesselName: sourceBl.vesselName,
+    blDate: blDate || null,
     storagePath: sourceBl.storagePath,
     fileName: sourceBl.fileName,
     contentType: sourceBl.contentType,
@@ -1195,6 +1713,132 @@ export async function fetchPurchaseOrderBlPreview(storagePath: string): Promise<
     throw new Error('Could not open the bill of lading.');
   }
   return { url, bytes: new Uint8Array(await res.arrayBuffer()), isPdf: true };
+}
+
+const MAX_QC_BYTES = 12 * 1024 * 1024;
+const MAX_QC_IMAGES = 40;
+
+export function parsePurchaseOrderQcImages(data: DocumentData): PurchaseOrderQcImage[] {
+  const raw = data.qcImages;
+  if (!Array.isArray(raw)) return [];
+  const out: PurchaseOrderQcImage[] = [];
+  for (const item of raw) {
+    if (!item || typeof item !== 'object') continue;
+    const row = item as Record<string, unknown>;
+    const storagePath = typeof row.storagePath === 'string' ? row.storagePath.trim() : '';
+    if (!storagePath) continue;
+    const id = typeof row.id === 'string' && row.id.trim()
+      ? row.id.trim()
+      : storagePath.split('/').pop()?.replace(/\.[^.]+$/, '') || `qc-${out.length + 1}`;
+    out.push({
+      id,
+      storagePath,
+      fileName: typeof row.fileName === 'string' ? row.fileName.trim() : '',
+      contentType: typeof row.contentType === 'string' ? row.contentType.trim() : 'image/jpeg',
+      uploadedAt: typeof row.uploadedAt === 'string' ? row.uploadedAt : new Date(0).toISOString(),
+    });
+  }
+  return out.sort((a, b) => String(b.uploadedAt).localeCompare(String(a.uploadedAt)));
+}
+
+export function purchaseOrderHasQc(images?: PurchaseOrderQcImage[] | null): boolean {
+  return Array.isArray(images) && images.length > 0;
+}
+
+function isAllowedQcImage(file: File): boolean {
+  const type = (file.type || '').toLowerCase();
+  if (type.startsWith('image/')) return true;
+  const ext = file.name.split('.').pop()?.toLowerCase() ?? '';
+  return ['jpg', 'jpeg', 'png', 'webp', 'heic', 'heif'].includes(ext);
+}
+
+function qcExtension(file: File): string {
+  const fromName = file.name.split('.').pop()?.toLowerCase() ?? '';
+  if (fromName === 'png') return 'png';
+  if (fromName === 'webp') return 'webp';
+  if (fromName === 'heic' || fromName === 'heif') return 'heic';
+  if (file.type === 'image/png') return 'png';
+  if (file.type === 'image/webp') return 'webp';
+  if (file.type === 'image/heic' || file.type === 'image/heif') return 'heic';
+  return 'jpg';
+}
+
+export function purchaseOrderQcStoragePath(purchaseOrderId: string, imageId: string, ext: string): string {
+  const safeId = purchaseOrderId.replace(/[^\w\-]+/g, '-').slice(0, 80) || 'po';
+  const safeImage = imageId.replace(/[^\w\-]+/g, '-').slice(0, 40) || 'img';
+  const safeExt = ext.replace(/[^\w]+/g, '').slice(0, 8) || 'jpg';
+  return `purchaseOrderQc/${safeId}/${safeImage}.${safeExt}`;
+}
+
+export async function addPurchaseOrderQcImages(input: {
+  purchaseOrderId: string;
+  files: File[];
+  existing?: PurchaseOrderQcImage[] | null;
+}): Promise<PurchaseOrderQcImage[]> {
+  const files = (input.files ?? []).filter(Boolean);
+  if (!files.length) throw new Error('Choose one or more photos to upload.');
+  const existing = Array.isArray(input.existing) ? [...input.existing] : [];
+  if (existing.length + files.length > MAX_QC_IMAGES) {
+    throw new Error(`You can store up to ${MAX_QC_IMAGES} QC photos on a purchase order.`);
+  }
+
+  const uploaded: PurchaseOrderQcImage[] = [];
+  for (const file of files) {
+    if (file.size > MAX_QC_BYTES) {
+      throw new Error(`Each photo must be under 12 MB (${file.name}).`);
+    }
+    if (!isAllowedQcImage(file)) {
+      throw new Error(`Upload photos only (JPG / PNG / HEIC). Skipped ${file.name}.`);
+    }
+    const imageId = typeof crypto !== 'undefined' && 'randomUUID' in crypto
+      ? crypto.randomUUID().replace(/-/g, '').slice(0, 16)
+      : `qc${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`;
+    const ext = qcExtension(file);
+    const storagePath = purchaseOrderQcStoragePath(input.purchaseOrderId, imageId, ext);
+    const contentType = file.type || (ext === 'png' ? 'image/png' : 'image/jpeg');
+    try {
+      await uploadBytes(ref(storage, storagePath), file, { contentType });
+    } catch (err) {
+      throw new Error(formatStorageUploadError(err, `Could not upload ${file.name}.`));
+    }
+    uploaded.push({
+      id: imageId,
+      storagePath,
+      fileName: file.name,
+      contentType,
+      uploadedAt: new Date().toISOString(),
+    });
+  }
+
+  const next = [...uploaded, ...existing];
+  await updateDoc(doc(db, 'purchaseOrders', input.purchaseOrderId), {
+    qcImages: next,
+  });
+  return next;
+}
+
+export async function deletePurchaseOrderQcImage(input: {
+  purchaseOrderId: string;
+  imageId: string;
+  existing?: PurchaseOrderQcImage[] | null;
+}): Promise<PurchaseOrderQcImage[]> {
+  const existing = Array.isArray(input.existing) ? input.existing : [];
+  const target = existing.find(row => row.id === input.imageId);
+  if (!target) throw new Error('QC photo not found.');
+  const next = existing.filter(row => row.id !== input.imageId);
+  await updateDoc(doc(db, 'purchaseOrders', input.purchaseOrderId), {
+    qcImages: next,
+  });
+  try {
+    await deleteObject(ref(storage, target.storagePath));
+  } catch {
+    // ignore orphaned file
+  }
+  return next;
+}
+
+export async function fetchPurchaseOrderQcImageUrl(storagePath: string): Promise<string> {
+  return getDownloadURL(ref(storage, storagePath));
 }
 
 const MAX_PI_BYTES = 16 * 1024 * 1024;

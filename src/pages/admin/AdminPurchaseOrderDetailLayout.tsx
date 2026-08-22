@@ -1,9 +1,10 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import { Outlet, useLocation, useNavigate, useParams } from 'react-router-dom';
-import { AlertCircle, DollarSign, FileText, Ship, ShoppingBag } from 'lucide-react';
+import { AlertCircle, ClipboardCheck, DollarSign, FileText, Ship, ShoppingBag } from 'lucide-react';
 import { FetchingLoader } from '../../components/FetchingLoader';
 import { PurchaseOrderBlDialog } from '../../components/admin/PurchaseOrderBlDialog';
 import { PurchaseOrderPiDialog } from '../../components/admin/PurchaseOrderPiDialog';
+import { PurchaseOrderQcDialog } from '../../components/admin/PurchaseOrderQcDialog';
 import { KotakBankFeedsSheet } from '../../components/salesOrders/KotakBankFeedsSheet';
 import { useAuth } from '../../context/AuthContext';
 import { useCatalogPageHeader } from '../../context/PageHeaderContext';
@@ -12,6 +13,7 @@ import {
   fetchAdminPurchaseOrderDetail,
   formatPurchaseOrderVendorPiTotal,
   purchaseOrderHasBl,
+  purchaseOrderHasQc,
   purchaseOrderHasVendorPi,
   purchaseOrderVendorPiIsPdf,
   type AdminPurchaseOrderDetail,
@@ -38,6 +40,7 @@ export const AdminPurchaseOrderDetailLayout: React.FC = () => {
   const [error, setError] = useState('');
   const [blOpen, setBlOpen] = useState(false);
   const [piOpen, setPiOpen] = useState(false);
+  const [qcOpen, setQcOpen] = useState(false);
   const [payoutOpen, setPayoutOpen] = useState(false);
   const [payoutLoading, setPayoutLoading] = useState(false);
   const [payoutAssociating, setPayoutAssociating] = useState(false);
@@ -52,6 +55,10 @@ export const AdminPurchaseOrderDetailLayout: React.FC = () => {
 
   const openPi = useCallback(() => {
     setPiOpen(true);
+  }, []);
+
+  const openQc = useCallback(() => {
+    setQcOpen(true);
   }, []);
 
   const openPayoutSheet = useCallback(() => {
@@ -159,7 +166,7 @@ export const AdminPurchaseOrderDetailLayout: React.FC = () => {
             <>
             <div className="invoice-detail-top admin-invoice-detail-top">
               <div
-                className="invoice-detail-top__actions invoice-detail-top__actions--triple"
+                className="invoice-detail-top__actions invoice-detail-top__actions--quad"
                 role="group"
                 aria-label="Purchase order actions"
               >
@@ -195,33 +202,6 @@ export const AdminPurchaseOrderDetailLayout: React.FC = () => {
                   type="button"
                   className={[
                     'invoice-detail-top__card',
-                    'invoice-detail-top__card--amber',
-                    purchaseOrderHasBl(purchaseOrder.bl) || blOpen ? 'is-active' : '',
-                  ].filter(Boolean).join(' ')}
-                  onClick={openBl}
-                  aria-label="Upload or link bill of lading"
-                  title={purchaseOrder.bl?.containerNumber
-                    ? purchaseOrder.bl.linkedFromPurchaseOrderNumber
-                      ? `BL · ${purchaseOrder.bl.containerNumber} · linked from ${purchaseOrder.bl.linkedFromPurchaseOrderNumber}`
-                      : `Bill of lading · ${purchaseOrder.bl.containerNumber}`
-                    : 'Upload or link bill of lading (same container)'}
-                >
-                  <span className="invoice-detail-top__card-icon">
-                    <Ship size={28} strokeWidth={1.75} aria-hidden />
-                  </span>
-                  <span className="invoice-detail-top__card-label">BL</span>
-                  {purchaseOrder.bl?.containerNumber ? (
-                    <span className="invoice-detail-top__card-meta">
-                      {purchaseOrder.bl.linkedFromPurchaseOrderNumber
-                        ? `${purchaseOrder.bl.containerNumber} · linked`
-                        : purchaseOrder.bl.containerNumber}
-                    </span>
-                  ) : null}
-                </button>
-                <button
-                  type="button"
-                  className={[
-                    'invoice-detail-top__card',
                     'invoice-detail-top__card--green',
                     purchaseOrder.kotakPayout || payoutOpen ? 'is-active' : '',
                   ].filter(Boolean).join(' ')}
@@ -238,6 +218,86 @@ export const AdminPurchaseOrderDetailLayout: React.FC = () => {
                   {purchaseOrder.kotakPayout?.amountUsd ? (
                     <span className="invoice-detail-top__card-meta">
                       ${purchaseOrder.kotakPayout.amountUsd.toFixed(2)}
+                    </span>
+                  ) : null}
+                </button>
+                <button
+                  type="button"
+                  className={[
+                    'invoice-detail-top__card',
+                    'invoice-detail-top__card--qc',
+                    purchaseOrderHasQc(purchaseOrder.qcImages) || qcOpen ? 'is-active' : '',
+                  ].filter(Boolean).join(' ')}
+                  onClick={openQc}
+                  aria-label="Upload QC photos"
+                  title={
+                    purchaseOrderHasQc(purchaseOrder.qcImages)
+                      ? `QC · ${purchaseOrder.qcImages.length} photo${purchaseOrder.qcImages.length === 1 ? '' : 's'}`
+                      : 'Add QC photos from phone'
+                  }
+                >
+                  <span className="invoice-detail-top__card-icon">
+                    <ClipboardCheck size={28} strokeWidth={1.75} aria-hidden />
+                  </span>
+                  <span className="invoice-detail-top__card-label">QC</span>
+                  {purchaseOrderHasQc(purchaseOrder.qcImages) ? (
+                    <span className="invoice-detail-top__card-meta">
+                      {purchaseOrder.qcImages.length}
+                    </span>
+                  ) : null}
+                </button>
+                <button
+                  type="button"
+                  className={[
+                    'invoice-detail-top__card',
+                    'invoice-detail-top__card--amber',
+                    purchaseOrderHasBl(purchaseOrder.bl) ? 'invoice-detail-top__card--bl-filled' : '',
+                    purchaseOrderHasBl(purchaseOrder.bl) || blOpen ? 'is-active' : '',
+                  ].filter(Boolean).join(' ')}
+                  onClick={openBl}
+                  aria-label="Upload or link bill of lading"
+                  title={purchaseOrder.bl?.containerNumber
+                    ? [
+                        'BL',
+                        purchaseOrder.bl.shippingLine,
+                        purchaseOrder.bl.containerNumber,
+                        purchaseOrder.bl.blNumber ? `B/L ${purchaseOrder.bl.blNumber}` : null,
+                        purchaseOrder.bl.vesselName,
+                        purchaseOrder.bl.linkedFromPurchaseOrderNumber
+                          ? `linked from ${purchaseOrder.bl.linkedFromPurchaseOrderNumber}`
+                          : null,
+                      ].filter(Boolean).join(' · ')
+                    : purchaseOrder.bl?.fileName
+                      ? `Bill of lading · ${purchaseOrder.bl.fileName}`
+                      : 'Upload or link bill of lading (same container)'}
+                >
+                  <span className="invoice-detail-top__card-icon">
+                    <Ship size={28} strokeWidth={1.75} aria-hidden />
+                  </span>
+                  <span className="invoice-detail-top__card-label">BL</span>
+                  {purchaseOrderHasBl(purchaseOrder.bl) ? (
+                    <span className="invoice-detail-top__card-bl-details">
+                      {purchaseOrder.bl?.shippingLine ? (
+                        <span>{purchaseOrder.bl.shippingLine}</span>
+                      ) : null}
+                      {purchaseOrder.bl?.blNumber ? (
+                        <span>B/L {purchaseOrder.bl.blNumber}</span>
+                      ) : null}
+                      {purchaseOrder.bl?.containerNumber ? (
+                        <span>
+                          {purchaseOrder.bl.linkedFromPurchaseOrderNumber
+                            ? `${purchaseOrder.bl.containerNumber} · linked`
+                            : purchaseOrder.bl.containerNumber}
+                        </span>
+                      ) : null}
+                      {(purchaseOrder.bl?.blDate || purchaseOrder.tracking.sailingDate) ? (
+                        <span>
+                          Sailed {purchaseOrder.bl?.blDate || purchaseOrder.tracking.sailingDate}
+                        </span>
+                      ) : null}
+                      {purchaseOrder.bl?.vesselName ? (
+                        <span>{purchaseOrder.bl.vesselName}</span>
+                      ) : null}
                     </span>
                   ) : null}
                 </button>
@@ -262,8 +322,23 @@ export const AdminPurchaseOrderDetailLayout: React.FC = () => {
               canEdit={canEditBl}
               onClose={() => setBlOpen(false)}
               onSaved={bl => {
-                setPurchaseOrder({ ...purchaseOrder, bl });
-                setBlOpen(false);
+                setPurchaseOrder({
+                  ...purchaseOrder,
+                  bl,
+                  tracking: {
+                    ...purchaseOrder.tracking,
+                    sailingDate: bl.blDate || purchaseOrder.tracking.sailingDate,
+                  },
+                });
+              }}
+            />
+            <PurchaseOrderQcDialog
+              open={qcOpen}
+              purchaseOrder={purchaseOrder}
+              canEdit={canEditBl}
+              onClose={() => setQcOpen(false)}
+              onSaved={qcImages => {
+                setPurchaseOrder({ ...purchaseOrder, qcImages });
               }}
             />
             {payoutOpen ? (

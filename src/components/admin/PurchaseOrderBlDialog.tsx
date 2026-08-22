@@ -1,13 +1,17 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { Link2, Upload, X } from 'lucide-react';
+import { Capacitor } from '@capacitor/core';
+import { Link2, Share2, Upload } from 'lucide-react';
+import { WhatsAppShare } from 'whatsapp-share';
 import { ZoomableImagePreview } from '../logistics/ZoomableImagePreview';
 import { ZoomablePdfPreview } from '../logistics/ZoomablePdfPreview';
 import { FetchingLoader } from '../FetchingLoader';
 import {
+  extractPurchaseOrderBlDate,
   fetchPurchaseOrderBlPreview,
   linkPurchaseOrderBlFromSource,
   listPurchaseOrderBlSources,
+  PURCHASE_ORDER_SHIPPING_LINES,
   purchaseOrderHasBl,
   savePurchaseOrderBl,
   type AdminPurchaseOrderDetail,
@@ -26,6 +30,81 @@ type Props = {
 
 type Mode = 'upload' | 'link';
 
+const DEFAULT_SHIPPING_LINE = 'Wan Hai';
+
+async function blobToBase64(blob: Blob): Promise<string> {
+  const buffer = await blob.arrayBuffer();
+  const bytes = new Uint8Array(buffer);
+  let binary = '';
+  const chunk = 0x8000;
+  for (let i = 0; i < bytes.length; i += chunk) {
+    binary += String.fromCharCode(...bytes.subarray(i, i + chunk));
+  }
+  return btoa(binary);
+}
+
+async function shareBlFile(input: {
+  url?: string | null;
+  bytes?: Uint8Array | null;
+  file?: File | null;
+  fileName: string;
+  title: string;
+}): Promise<void> {
+  let blob: Blob;
+  let fileName = String(input.fileName || 'bill-of-lading').trim() || 'bill-of-lading';
+
+  if (input.file) {
+    blob = input.file;
+    fileName = input.file.name || fileName;
+  } else if (input.bytes?.length) {
+    const copy = new Uint8Array(input.bytes);
+    blob = new Blob([copy], { type: 'application/pdf' });
+    if (!/\.pdf$/i.test(fileName)) fileName = `${fileName}.pdf`;
+  } else if (input.url) {
+    const res = await fetch(input.url);
+    if (!res.ok) throw new Error('Could not load bill of lading to share.');
+    blob = await res.blob();
+  } else {
+    throw new Error('Nothing to share yet. Upload or open a bill of lading first.');
+  }
+
+  const mimeType = blob.type
+    || (/\.pdf$/i.test(fileName) ? 'application/pdf' : 'image/jpeg');
+  if (!/\.(pdf|jpe?g|png|webp)$/i.test(fileName)) {
+    fileName = `${fileName}${mimeType.includes('pdf') ? '.pdf' : '.jpg'}`;
+  }
+  const title = input.title;
+
+  if (Capacitor.isNativePlatform() && mimeType.startsWith('image/')) {
+    await WhatsAppShare.shareImage({
+      dataBase64: await blobToBase64(blob),
+      fileName,
+      mimeType,
+    });
+    return;
+  }
+
+  const shareFile = new File([blob], fileName, { type: mimeType });
+  const shareData: ShareData = { files: [shareFile], title, text: title };
+  if (typeof navigator.canShare === 'function' && navigator.canShare(shareData)) {
+    await navigator.share(shareData);
+    return;
+  }
+  if (typeof navigator.share === 'function' && input.url) {
+    await navigator.share({ title, text: title, url: input.url });
+    return;
+  }
+
+  const anchor = document.createElement('a');
+  const objectUrl = URL.createObjectURL(blob);
+  anchor.href = objectUrl;
+  anchor.download = fileName;
+  document.body.appendChild(anchor);
+  anchor.click();
+  anchor.remove();
+  URL.revokeObjectURL(objectUrl);
+}
+
 export const PurchaseOrderBlDialog: React.FC<Props> = ({
   open,
   purchaseOrder,
@@ -36,13 +115,23 @@ export const PurchaseOrderBlDialog: React.FC<Props> = ({
   const existing = purchaseOrder.bl;
   const hasFile = purchaseOrderHasBl(existing);
   const [mode, setMode] = useState<Mode>('upload');
+  const [shippingLine, setShippingLine] = useState(
+    existing?.shippingLine || DEFAULT_SHIPPING_LINE,
+  );
+  const [blNumber, setBlNumber] = useState(existing?.blNumber ?? '');
   const [containerNumber, setContainerNumber] = useState(existing?.containerNumber ?? '');
+  const [vesselName, setVesselName] = useState(existing?.vesselName ?? '');
+  const [blDate, setBlDate] = useState(
+    existing?.blDate || purchaseOrder.tracking.sailingDate || '',
+  );
   const [file, setFile] = useState<File | null>(null);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [localPreviewUrl, setLocalPreviewUrl] = useState<string | null>(null);
+  const [localPdfBytes, setLocalPdfBytes] = useState<Uint8Array | null>(null);
   const [pdfBytes, setPdfBytes] = useState<Uint8Array | null>(null);
   const [loadingPreview, setLoadingPreview] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [sharing, setSharing] = useState(false);
   const [error, setError] = useState('');
   const [sources, setSources] = useState<PurchaseOrderBlSource[]>([]);
   const [sourcesLoading, setSourcesLoading] = useState(false);
@@ -51,18 +140,28 @@ export const PurchaseOrderBlDialog: React.FC<Props> = ({
 
   useEffect(() => {
     if (!open) return;
+    setShippingLine(existing?.shippingLine || DEFAULT_SHIPPING_LINE);
+    setBlNumber(existing?.blNumber ?? '');
     setContainerNumber(existing?.containerNumber ?? '');
+    setVesselName(existing?.vesselName ?? '');
+    setBlDate(existing?.blDate || purchaseOrder.tracking.sailingDate || '');
     setFile(null);
     setError('');
     setSaving(false);
+    setSharing(false);
     setSourceSearch('');
     setSelectedSourceId(existing?.linkedFromPurchaseOrderId ?? null);
     setMode(existing?.linkedFromPurchaseOrderId ? 'link' : 'upload');
   }, [
     open,
+    existing?.shippingLine,
+    existing?.blNumber,
     existing?.containerNumber,
+    existing?.vesselName,
+    existing?.blDate,
     existing?.storagePath,
     existing?.linkedFromPurchaseOrderId,
+    purchaseOrder.tracking.sailingDate,
   ]);
 
   useEffect(() => {
@@ -132,28 +231,66 @@ export const PurchaseOrderBlDialog: React.FC<Props> = ({
   }, [open, existing?.storagePath, mode, selectedSourceId, sources, file]);
 
   useEffect(() => {
-    if (!file || file.type.includes('pdf')) {
+    if (!file) {
       setLocalPreviewUrl(null);
+      setLocalPdfBytes(null);
       return;
     }
+    if (file.type.includes('pdf') || /\.pdf$/i.test(file.name)) {
+      setLocalPreviewUrl(null);
+      let cancelled = false;
+      void file.arrayBuffer().then(buf => {
+        if (!cancelled) setLocalPdfBytes(new Uint8Array(buf));
+      });
+      return () => {
+        cancelled = true;
+      };
+    }
+    setLocalPdfBytes(null);
     const url = URL.createObjectURL(file);
     setLocalPreviewUrl(url);
     return () => URL.revokeObjectURL(url);
   }, [file]);
 
   useEffect(() => {
+    if (!open || !canEdit || mode !== 'upload') return;
+    let cancelled = false;
+    const run = async () => {
+      const detected = await extractPurchaseOrderBlDate({
+        file,
+        fileName: file?.name || existing?.fileName,
+        pdfBytes: file ? localPdfBytes : pdfBytes,
+      });
+      if (cancelled || !detected) return;
+      setBlDate(prev => prev || detected);
+    };
+    void run();
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    open,
+    canEdit,
+    mode,
+    file,
+    localPdfBytes,
+    pdfBytes,
+    existing?.fileName,
+  ]);
+
+  useEffect(() => {
     if (!open) return;
     const previousOverflow = document.body.style.overflow;
     document.body.style.overflow = 'hidden';
     const onKey = (event: KeyboardEvent) => {
-      if (event.key === 'Escape' && !saving) onClose();
+      if (event.key === 'Escape' && !saving && !sharing) onClose();
     };
     document.addEventListener('keydown', onKey);
     return () => {
       document.body.style.overflow = previousOverflow;
       document.removeEventListener('keydown', onKey);
     };
-  }, [open, onClose, saving]);
+  }, [open, onClose, saving, sharing]);
 
   const filteredSources = useMemo(() => {
     const needle = sourceSearch.trim().toLowerCase();
@@ -163,6 +300,8 @@ export const PurchaseOrderBlDialog: React.FC<Props> = ({
         row.purchaseOrderNumber,
         row.vendorName,
         row.bl.containerNumber,
+        row.bl.blNumber,
+        row.bl.shippingLine,
         row.bl.fileName,
       ].filter(Boolean).join(' ').toLowerCase();
       return hay.includes(needle);
@@ -175,9 +314,11 @@ export const PurchaseOrderBlDialog: React.FC<Props> = ({
 
   if (!open) return null;
 
-  const showPdf = !file && Boolean(pdfBytes);
+  const activePdfBytes = file ? localPdfBytes : pdfBytes;
+  const showPdf = Boolean(activePdfBytes);
   const showImage = Boolean(localPreviewUrl || (!file && previewUrl && !pdfBytes));
   const imageSrc = localPreviewUrl || previewUrl;
+  const canShare = Boolean(file || activePdfBytes || previewUrl || existing?.storagePath);
 
   const save = async () => {
     if (!canEdit) return;
@@ -192,15 +333,21 @@ export const PurchaseOrderBlDialog: React.FC<Props> = ({
           purchaseOrderId: purchaseOrder.id,
           sourcePurchaseOrderId: selectedSourceId,
         });
+        setFile(null);
         onSaved(next);
         return;
       }
       const next = await savePurchaseOrderBl({
         purchaseOrderId: purchaseOrder.id,
+        shippingLine,
+        blNumber,
         containerNumber,
+        vesselName,
+        blDate,
         file,
         existing,
       });
+      setFile(null);
       onSaved(next);
     } catch (err) {
       setError(invoiceErrorMessage(err));
@@ -209,10 +356,35 @@ export const PurchaseOrderBlDialog: React.FC<Props> = ({
     }
   };
 
+  const share = async () => {
+    setSharing(true);
+    setError('');
+    try {
+      const title = [
+        purchaseOrder.purchaseOrderNumber,
+        'BL',
+        shippingLine.trim() || existing?.shippingLine,
+        containerNumber.trim() || existing?.containerNumber,
+        blNumber.trim() || existing?.blNumber,
+      ].filter(Boolean).join(' · ');
+      await shareBlFile({
+        url: previewUrl,
+        bytes: activePdfBytes,
+        file,
+        fileName: file?.name || existing?.fileName || 'bill-of-lading',
+        title,
+      });
+    } catch (err) {
+      setError(invoiceErrorMessage(err));
+    } finally {
+      setSharing(false);
+    }
+  };
+
   return createPortal(
     <div
       className="dealers-modal-backdrop courier-slip-view-dialog__backdrop"
-      onClick={() => { if (!saving) onClose(); }}
+      onClick={() => { if (!saving && !sharing) onClose(); }}
     >
       <div
         className="dealers-modal panel glass courier-slip-view-dialog po-bl-dialog"
@@ -223,24 +395,58 @@ export const PurchaseOrderBlDialog: React.FC<Props> = ({
       >
         <div className="dealers-modal__header courier-slip-view-dialog__header">
           <div className="courier-slip-view-dialog__title-block">
-            <h2 id="po-bl-dialog-title">Bill of lading</h2>
-            <p className="text-muted text-sm">
-              {purchaseOrder.purchaseOrderNumber}
-              {existing?.fileName ? ` · ${existing.fileName}` : ''}
+            <h2 id="po-bl-dialog-title">
+              Bill of lading
+              <span className="text-muted"> · {purchaseOrder.purchaseOrderNumber}</span>
               {existing?.linkedFromPurchaseOrderNumber
-                ? ` · linked from ${existing.linkedFromPurchaseOrderNumber}`
-                : ''}
-            </p>
+                ? (
+                  <span className="text-muted">
+                    {' '}· linked from {existing.linkedFromPurchaseOrderNumber}
+                  </span>
+                )
+                : null}
+            </h2>
           </div>
           <button
             type="button"
-            className="dealers-modal__close"
+            className="btn po-bl-dialog__close"
             onClick={onClose}
-            disabled={saving}
-            aria-label="Close"
+            disabled={saving || sharing}
           >
-            <X size={18} />
+            Close
           </button>
+        </div>
+
+        <div className="dealers-modal__actions courier-slip-view-dialog__actions po-bl-dialog__actions">
+          <div className="po-bl-dialog__actions-end">
+            {canShare ? (
+              <button
+                type="button"
+                className="btn btn-secondary"
+                disabled={saving || sharing || loadingPreview}
+                onClick={() => { void share(); }}
+              >
+                <Share2 size={14} strokeWidth={2.2} aria-hidden />
+                {sharing ? 'Sharing…' : 'Share'}
+              </button>
+            ) : null}
+            {canEdit ? (
+              <button
+                type="button"
+                className="btn btn-primary"
+                disabled={saving || sharing || (mode === 'link' && !selectedSourceId)}
+                onClick={() => { void save(); }}
+              >
+                {saving
+                  ? 'Saving…'
+                  : mode === 'link'
+                    ? 'Link BL'
+                    : hasFile
+                      ? 'Update BL'
+                      : 'Save BL'}
+              </button>
+            ) : null}
+          </div>
         </div>
 
         {canEdit ? (
@@ -250,7 +456,7 @@ export const PurchaseOrderBlDialog: React.FC<Props> = ({
               role="tab"
               aria-selected={mode === 'upload'}
               className={`po-bl-dialog__mode${mode === 'upload' ? ' is-active' : ''}`}
-              disabled={saving}
+              disabled={saving || sharing}
               onClick={() => {
                 setMode('upload');
                 setError('');
@@ -264,7 +470,7 @@ export const PurchaseOrderBlDialog: React.FC<Props> = ({
               role="tab"
               aria-selected={mode === 'link'}
               className={`po-bl-dialog__mode${mode === 'link' ? ' is-active' : ''}`}
-              disabled={saving}
+              disabled={saving || sharing}
               onClick={() => {
                 setMode('link');
                 setFile(null);
@@ -277,8 +483,91 @@ export const PurchaseOrderBlDialog: React.FC<Props> = ({
           </div>
         ) : null}
 
+        {error ? <p className="dealers-modal__error">{error}</p> : null}
+
+        <div className="courier-slip-view-dialog__body po-bl-dialog__preview">
+          {loadingPreview || (file && file.type.includes('pdf') && !localPdfBytes) ? (
+            <FetchingLoader label="Loading bill of lading…" />
+          ) : showPdf && activePdfBytes ? (
+            <ZoomablePdfPreview data={activePdfBytes} />
+          ) : showImage && imageSrc ? (
+            <ZoomableImagePreview src={imageSrc} alt="Bill of lading" />
+          ) : (
+            <p className="text-muted text-sm courier-slip-view-dialog__status">
+              {canEdit
+                ? mode === 'link'
+                  ? 'Select another PO’s BL below to preview and link.'
+                  : 'Upload a PDF or JPG below, then enter shipping company, B/L, and container.'
+                : 'No bill of lading uploaded for this purchase order.'}
+            </p>
+          )}
+        </div>
+
         {mode === 'upload' ? (
           <div className="po-bl-dialog__fields">
+            {canEdit ? (
+              <label className="dealers-modal__field">
+                <span>{hasFile ? 'Replace PDF / JPG' : 'Upload PDF / JPG'}</span>
+                <input
+                  type="file"
+                  accept=".pdf,.jpg,.jpeg,.png,application/pdf,image/jpeg,image/png"
+                  disabled={saving || sharing}
+                  onChange={e => setFile(e.target.files?.[0] ?? null)}
+                />
+              </label>
+            ) : null}
+            <label className="dealers-modal__field">
+              <span>Shipping company</span>
+              {canEdit ? (
+                <select
+                  className="input-field"
+                  value={shippingLine || DEFAULT_SHIPPING_LINE}
+                  onChange={e => setShippingLine(e.target.value)}
+                  disabled={saving || sharing}
+                >
+                  {!PURCHASE_ORDER_SHIPPING_LINES.includes(
+                    shippingLine as (typeof PURCHASE_ORDER_SHIPPING_LINES)[number],
+                  ) && shippingLine ? (
+                    <option value={shippingLine}>{shippingLine}</option>
+                  ) : null}
+                  {PURCHASE_ORDER_SHIPPING_LINES.map(line => (
+                    <option key={line} value={line}>{line}</option>
+                  ))}
+                </select>
+              ) : (
+                <strong>{existing?.shippingLine || '—'}</strong>
+              )}
+            </label>
+            <label className="dealers-modal__field">
+              <span>B/L number</span>
+              {canEdit ? (
+                <input
+                  type="text"
+                  className="input-field"
+                  value={blNumber}
+                  onChange={e => setBlNumber(e.target.value)}
+                  disabled={saving || sharing}
+                  placeholder="e.g. WHLC0123456789"
+                  autoComplete="off"
+                />
+              ) : (
+                <strong>{existing?.blNumber || '—'}</strong>
+              )}
+            </label>
+            <label className="dealers-modal__field">
+              <span>BL date <span className="text-muted">(Sailed)</span></span>
+              {canEdit ? (
+                <input
+                  type="date"
+                  className="input-field"
+                  value={blDate}
+                  onChange={e => setBlDate(e.target.value)}
+                  disabled={saving || sharing}
+                />
+              ) : (
+                <strong>{existing?.blDate || purchaseOrder.tracking.sailingDate || '—'}</strong>
+              )}
+            </label>
             <label className="dealers-modal__field">
               <span>Container number</span>
               {canEdit ? (
@@ -287,7 +576,7 @@ export const PurchaseOrderBlDialog: React.FC<Props> = ({
                   className="input-field"
                   value={containerNumber}
                   onChange={e => setContainerNumber(e.target.value)}
-                  disabled={saving}
+                  disabled={saving || sharing}
                   placeholder="e.g. TEMU1234567"
                   autoComplete="off"
                 />
@@ -295,33 +584,38 @@ export const PurchaseOrderBlDialog: React.FC<Props> = ({
                 <strong>{existing?.containerNumber || '—'}</strong>
               )}
             </label>
-            {canEdit ? (
-              <label className="dealers-modal__field">
-                <span>{hasFile ? 'Replace PDF / JPG' : 'Upload PDF / JPG'}</span>
+            <label className="dealers-modal__field">
+              <span>Vessel / voyage <span className="text-muted">(optional)</span></span>
+              {canEdit ? (
                 <input
-                  type="file"
-                  accept=".pdf,.jpg,.jpeg,.png,application/pdf,image/jpeg,image/png"
-                  disabled={saving}
-                  onChange={e => setFile(e.target.files?.[0] ?? null)}
+                  type="text"
+                  className="input-field"
+                  value={vesselName}
+                  onChange={e => setVesselName(e.target.value)}
+                  disabled={saving || sharing}
+                  placeholder="e.g. WAN HAI 521 / 123E"
+                  autoComplete="off"
                 />
-              </label>
-            ) : null}
+              ) : (
+                <strong>{existing?.vesselName || '—'}</strong>
+              )}
+            </label>
           </div>
         ) : (
           <div className="po-bl-dialog__fields po-bl-dialog__link">
             <p className="text-muted text-sm po-bl-dialog__link-hint">
               Ship together: reuse a BL already uploaded on another PO for the same container.
-              This PO will count as Shipped without uploading again.
+              Tracking fields (line, B/L, container) copy from that PO.
             </p>
             <label className="dealers-modal__field">
-              <span>Search PO / vendor / container</span>
+              <span>Search PO / vendor / container / B/L</span>
               <input
                 type="search"
                 className="input-field"
                 value={sourceSearch}
                 onChange={e => setSourceSearch(e.target.value)}
-                disabled={saving || sourcesLoading}
-                placeholder="PO-00316 or container…"
+                disabled={saving || sharing || sourcesLoading}
+                placeholder="PO-00316, Wan Hai, or container…"
                 autoComplete="off"
               />
             </label>
@@ -342,7 +636,7 @@ export const PurchaseOrderBlDialog: React.FC<Props> = ({
                       role="option"
                       aria-selected={active}
                       className={`po-bl-dialog__source${active ? ' is-active' : ''}`}
-                      disabled={saving}
+                      disabled={saving || sharing}
                       onClick={() => setSelectedSourceId(row.purchaseOrderId)}
                     >
                       <span className="po-bl-dialog__source-main">
@@ -350,8 +644,11 @@ export const PurchaseOrderBlDialog: React.FC<Props> = ({
                         <span>{row.vendorName || '—'}</span>
                       </span>
                       <span className="po-bl-dialog__source-meta">
-                        <span>{row.bl.containerNumber || 'No container'}</span>
-                        <span>{row.bl.fileName || 'BL file'}</span>
+                        <span>
+                          {[row.bl.shippingLine, row.bl.containerNumber].filter(Boolean).join(' · ')
+                            || 'No container'}
+                        </span>
+                        <span>{row.bl.blNumber || row.bl.fileName || 'BL file'}</span>
                       </span>
                     </button>
                   );
@@ -360,58 +657,18 @@ export const PurchaseOrderBlDialog: React.FC<Props> = ({
             </div>
             {selectedSource ? (
               <p className="po-bl-dialog__link-selected text-sm">
-                Will link container <strong>{selectedSource.bl.containerNumber || '—'}</strong>
+                Will link{' '}
+                <strong>{selectedSource.bl.shippingLine || '—'}</strong>
+                {' · container '}
+                <strong>{selectedSource.bl.containerNumber || '—'}</strong>
+                {selectedSource.bl.blNumber
+                  ? <> · B/L <strong>{selectedSource.bl.blNumber}</strong></>
+                  : null}
                 {' '}from <strong>{selectedSource.purchaseOrderNumber}</strong>
               </p>
             ) : null}
           </div>
         )}
-
-        {error ? <p className="dealers-modal__error">{error}</p> : null}
-
-        <div className="courier-slip-view-dialog__body po-bl-dialog__preview">
-          {loadingPreview ? (
-            <FetchingLoader label="Loading bill of lading…" />
-          ) : showPdf && pdfBytes ? (
-            <ZoomablePdfPreview data={pdfBytes} />
-          ) : showImage && imageSrc ? (
-            <ZoomableImagePreview src={imageSrc} alt="Bill of lading" />
-          ) : file?.type === 'application/pdf' ? (
-            <p className="text-muted text-sm courier-slip-view-dialog__status">
-              {file.name} selected. Save to store it on this purchase order.
-            </p>
-          ) : (
-            <p className="text-muted text-sm courier-slip-view-dialog__status">
-              {canEdit
-                ? mode === 'link'
-                  ? 'Select another PO’s BL above to preview and link.'
-                  : 'No bill of lading yet. Upload a PDF or JPG and enter the container number.'
-                : 'No bill of lading uploaded for this purchase order.'}
-            </p>
-          )}
-        </div>
-
-        <div className="dealers-modal__actions courier-slip-view-dialog__actions">
-          <button type="button" className="btn btn-secondary" disabled={saving} onClick={onClose}>
-            Close
-          </button>
-          {canEdit ? (
-            <button
-              type="button"
-              className="btn btn-primary"
-              disabled={saving || (mode === 'link' && !selectedSourceId)}
-              onClick={() => { void save(); }}
-            >
-              {saving
-                ? 'Saving…'
-                : mode === 'link'
-                  ? 'Link BL'
-                  : hasFile
-                    ? 'Update BL'
-                    : 'Save BL'}
-            </button>
-          ) : null}
-        </div>
       </div>
     </div>,
     document.body,

@@ -9,7 +9,8 @@
     "build": "npm run build:tcp-print && tsc -b && vite build",
     "build:tcp-print": "npm install --prefix plugins/tcp-print --no-fund --no-audit && npm run build --prefix plugins/tcp-print",
     "build:whatsapp-share": "npm install --prefix plugins/whatsapp-share --no-fund --no-audit && npm run build --prefix plugins/whatsapp-share",
-    "build:plugins": "npm run build:tcp-print && npm run build:whatsapp-share",
+    "build:wanhai-track": "npm install --prefix plugins/wanhai-track --no-fund --no-audit && npm run build --prefix plugins/wanhai-track",
+    "build:plugins": "npm run build:tcp-print && npm run build:whatsapp-share && npm run build:wanhai-track",
     "cap:sync": "npm run build && npx cap sync android",
     "cap:open": "npx cap open android",
     "prepare": "npm run build:plugins",
@@ -55,6 +56,7 @@
     "react-dom": "^19.2.6",
     "react-router-dom": "^7.15.1",
     "tcp-print": "file:plugins/tcp-print",
+    "wanhai-track": "file:plugins/wanhai-track",
     "whatsapp-share": "file:plugins/whatsapp-share",
     "xlsx": "^0.18.5"
   },

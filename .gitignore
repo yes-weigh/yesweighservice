@@ -6,6 +6,9 @@ node_modules/
 functions/node_modules/
 plugins/tcp-print/node_modules/
 plugins/tcp-print/dist/
+plugins/wanhai-track/node_modules/
+plugins/wanhai-track/dist/
+plugins/wanhai-track/android/build/
 functions/.env
 functions/.env.*
 !functions/.env.example
@@ -19,3 +22,5 @@ secrets/
 *-firebase-adminsdk-*.json
 .DS_Store
 Thumbs.db
+.jdk/
+yesone-*.apk
