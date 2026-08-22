@@ -9,11 +9,18 @@ import {
   Package,
   Search,
 } from 'lucide-react';
-import { compareCatalogProductsInCategory, isHiddenCatalogCategory } from '../../lib/catalog';
+import {
+  compareCatalogProductsInCategory,
+  formatStockQuantity,
+  isCatalogSparePartProduct,
+  isHiddenCatalogCategory,
+} from '../../lib/catalog';
 import { catalogGridStockQty } from '../../lib/catalogProductAudit/display';
 import { buildProductNavState, buildSpareNavState, catalogOriginFromReturnView } from '../../lib/catalogNav';
 import type { CatalogNavState } from '../../lib/catalogNav';
 import { useCatalogPageHeader } from '../../context/PageHeaderContext';
+import { useDealerOrderStockGate, useDealerListedCatalogProducts } from '../../hooks/useDealerOrderStockGate';
+import { DEALER_ORDER_SCHEDULED_TITLE } from '../../lib/dealerOrderStock';
 import type { CatalogCategory, CatalogProduct } from '../../types/catalog';
 import { CategoryBrowseCard } from './CategoryBrowseCard';
 import { CategoryBrowseSection } from './CategoryBrowseSection';
@@ -25,7 +32,13 @@ import { ProductFolderGrid } from './ProductFolderGrid';
 import { ProductImageFrame } from './ProductImageFrame';
 import { fillSearchFromScan, SkuScanButton } from './SkuScanButton';
 import { StockBadge, StockQuantity } from './StockBadge';
-import { useDealerListedCatalogProducts } from '../../hooks/useDealerOrderStockGate';
+import { useAuth } from '../../context/AuthContext';
+import {
+  canSeeDealerUnitPrice,
+  dealerStaffTeam,
+} from '../../lib/dealerAccess';
+import { CatalogMrpLabel, DealerPriceDisplay } from './DealerPriceDisplay';
+import { useDealerUnitPrice } from '../../hooks/useDealerUnitPrice';
 
 export interface CatalogBrowseProps {
   products: CatalogProduct[];
@@ -108,13 +121,33 @@ function ProductListRow({
   product,
   onSelect,
   showStockQuantity = false,
+  dealerView = false,
   raisedPoQty = null,
 }: {
   product: CatalogProduct;
   onSelect: () => void;
   showStockQuantity?: boolean;
+  dealerView?: boolean;
   raisedPoQty?: number | null;
 }) {
+  const { user } = useAuth();
+  const dealerStock = useDealerOrderStockGate();
+  const dealerPricing = useDealerUnitPrice(dealerView ? product : null);
+  const inboundQty = dealerStock.scheduledQty(product.id);
+  const isSpareItem = isCatalogSparePartProduct(product);
+  const hideDealerSpareQty = dealerStock.gate && isSpareItem;
+  const hideTeamQty = dealerStaffTeam(user) != null;
+  const showQty = showStockQuantity && !hideDealerSpareQty && !hideTeamQty;
+  const showInboundQty = showQty && inboundQty > 0;
+  const catalogMrp = product.mrpOverride != null && Number(product.mrpOverride) > 0
+    ? Math.round(Number(product.mrpOverride) * 100) / 100
+    : null;
+  const showDealerCharge = dealerView && canSeeDealerUnitPrice(user, isSpareItem);
+  const showMrpOnly = dealerView && !showDealerCharge;
+  const showSpareMrpBeside = dealerView
+    && dealerStaffTeam(user) === 'service'
+    && isSpareItem
+    && catalogMrp != null;
   const gridStockQty = catalogGridStockQty(product);
   const gridStockStatus = gridStockQty <= 0
     ? 'out_of_stock' as const
@@ -132,7 +165,7 @@ function ProductListRow({
         {product.sku && <span className="catalog-card__sku">{product.sku}</span>}
         <h3>{product.name}</h3>
         <CatalogMerchBadges product={product} className="catalog-merch-badges--under-photo" />
-        {showStockQuantity && (
+        {showQty && (
           <StockQuantity
             stock={gridStockQty}
             unit={product.unit}
@@ -140,17 +173,36 @@ function ProductListRow({
             compact
           />
         )}
-        {raisedPoQty != null && raisedPoQty > 0 && (
+        {!hideDealerSpareQty && !hideTeamQty && raisedPoQty != null && raisedPoQty > 0 && (
           <CatalogOnOrderShipChip
             productId={product.id}
             quantity={raisedPoQty}
             unit={product.unit}
           />
         )}
+        {showInboundQty && (
+          <span
+            className="catalog-product-card__inbound-chip catalog-product-card__inbound-chip--qty"
+            title={DEALER_ORDER_SCHEDULED_TITLE}
+          >
+            {formatStockQuantity(inboundQty, product.unit)}
+          </span>
+        )}
       </div>
       <div className="catalog-row__price">
-        <IndianRupee size={16} strokeWidth={2.5} />
-        {product.rate.toLocaleString('en-IN')}
+        {showDealerCharge ? (
+          <>
+            <DealerPriceDisplay listRate={product.rate} pricing={dealerPricing} />
+            {showSpareMrpBeside ? <CatalogMrpLabel mrp={catalogMrp} iconSize={12} /> : null}
+          </>
+        ) : showMrpOnly ? (
+          <CatalogMrpLabel mrp={catalogMrp} iconSize={14} />
+        ) : (
+          <>
+            <IndianRupee size={16} strokeWidth={2.5} />
+            {product.rate.toLocaleString('en-IN')}
+          </>
+        )}
       </div>
     </button>
   );
@@ -607,6 +659,7 @@ export const CatalogBrowse: React.FC<CatalogBrowseProps> = ({
                   product={product}
                   onSelect={() => openProduct(product)}
                   showStockQuantity={showStockQuantity}
+                  dealerView={dealerView}
                   raisedPoQty={raisedPoQtyByProductId?.get(product.id)}
                 />
               ))}

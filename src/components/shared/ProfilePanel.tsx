@@ -7,9 +7,10 @@ import { useAuth } from '../../context/AuthContext';
 import type { FirestoreUserDoc } from '../../types';
 import { formatLoginIdDisplay, loginIdTypeLabel } from '../../lib/loginAuth';
 import { resolveProfileLogin } from '../../lib/profileLogin';
-import { DealerDetailReadView } from '../dealers/DealerDetailReadView';
+import { DealerPortalProfile } from '../dealers/DealerPortalProfile';
 import { FetchingLoader } from '../FetchingLoader';
-import { dealerErrorMessage, fetchMyDealerProfile } from '../../lib/dealers';
+import { dealerErrorMessage, fetchMyDealerProfile, updateMyDealerAddresses } from '../../lib/dealers';
+import { canEditDealerProfileAddresses } from '../../lib/dealerAccess';
 import type { ZohoDealer } from '../../types/dealers';
 
 export const ProfilePanel: React.FC<{
@@ -75,8 +76,14 @@ export const ProfilePanel: React.FC<{
     value: user.loginId,
   };
 
+  const panelClass = [
+    'profile-page__panel',
+    isDealerPortalUser ? 'profile-page__panel--dealer panel glass' : 'panel glass',
+    className,
+  ].filter(Boolean).join(' ');
+
   return (
-    <div className={`profile-page__panel panel glass ${className}`.trim()}>
+    <div className={panelClass}>
       {isDealerPortalUser ? (
         <>
           {dealerError && (
@@ -88,12 +95,19 @@ export const ProfilePanel: React.FC<{
           {dealerLoading && !dealer ? (
             <FetchingLoader label="Loading profile…" />
           ) : dealer ? (
-            <DealerDetailReadView
+            <DealerPortalProfile
               dealer={dealer}
-              portalAccount={{
-                loginLabel: `Login ID (${loginIdTypeLabel(login.type)})`,
-                loginValue: formatLoginIdDisplay(login.type, login.value),
+              personFallback={profile.displayName}
+              canEditAddresses={canEditDealerProfileAddresses(user)}
+              onSaveAddresses={async patch => {
+                try {
+                  const next = await updateMyDealerAddresses(patch);
+                  setDealer(next);
+                } catch (err) {
+                  throw new Error(dealerErrorMessage(err));
+                }
               }}
+              onSignOut={showSignOut ? () => void handleLogout() : undefined}
             />
           ) : (
             <div className="config-box">
@@ -105,30 +119,39 @@ export const ProfilePanel: React.FC<{
               {!dealerError && (
                 <p className="text-muted text-sm">Dealer details are not available for this account.</p>
               )}
+              {showSignOut && (
+                <div className="profile-page__signout">
+                  <button type="button" className="logout-btn" onClick={() => void handleLogout()}>
+                    <LogOut size={16} />
+                    Sign out
+                  </button>
+                </div>
+              )}
             </div>
           )}
         </>
       ) : (
-        <div className="config-box">
-          <p><span className="text-muted">Name:</span> <span className="highlight">{profile.displayName}</span></p>
-          <p>
-            <span className="text-muted">Login ID ({loginIdTypeLabel(login.type)}):</span>{' '}
-            {formatLoginIdDisplay(login.type, login.value)}
-          </p>
-          {profile.email && (
-            <p><span className="text-muted">Email:</span> {profile.email}</p>
+        <>
+          <div className="config-box">
+            <p><span className="text-muted">Name:</span> <span className="highlight">{profile.displayName}</span></p>
+            <p>
+              <span className="text-muted">Login ID ({loginIdTypeLabel(login.type)}):</span>{' '}
+              {formatLoginIdDisplay(login.type, login.value)}
+            </p>
+            {profile.email && (
+              <p><span className="text-muted">Email:</span> {profile.email}</p>
+            )}
+            <p><span className="text-muted">Phone:</span> {profile.phone || '—'}</p>
+          </div>
+          {showSignOut && (
+            <div className="profile-page__signout">
+              <button type="button" className="logout-btn" onClick={() => void handleLogout()}>
+                <LogOut size={16} />
+                Sign out
+              </button>
+            </div>
           )}
-          <p><span className="text-muted">Phone:</span> {profile.phone || '—'}</p>
-        </div>
-      )}
-
-      {showSignOut && (
-        <div className="profile-page__signout">
-          <button type="button" className="logout-btn" onClick={() => void handleLogout()}>
-            <LogOut size={16} />
-            Sign out
-          </button>
-        </div>
+        </>
       )}
     </div>
   );

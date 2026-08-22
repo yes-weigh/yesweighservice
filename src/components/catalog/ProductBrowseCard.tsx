@@ -4,6 +4,8 @@ import { getCategoryTheme } from '../../lib/category-display';
 import {
   catalogProductHasSingleBoxPackageInfo,
   expectsCatalogPackageInfo,
+  formatStockQuantity,
+  isCatalogSparePartProduct,
 } from '../../lib/catalog';
 import {
   catalogGridStockQty,
@@ -27,7 +29,12 @@ import { AuditedSealIcon } from './AuditedSealIcon';
 import { CatalogMerchBadges } from './CatalogMerchBadges';
 import { CategoryThumbnail } from './CategoryThumbnail';
 import { CatalogOnOrderShipChip } from './CatalogOnOrderShipChip';
-import { DealerPriceDisplay } from './DealerPriceDisplay';
+import { useAuth } from '../../context/AuthContext';
+import {
+  canSeeDealerUnitPrice,
+  dealerStaffTeam,
+} from '../../lib/dealerAccess';
+import { CatalogMrpLabel, DealerPriceDisplay } from './DealerPriceDisplay';
 import { StockBadge, StockQuantity } from './StockBadge';
 import { PackageInfoIcon } from './PackageInfoIcon';
 import { StampingShieldIcon } from './StampingShieldIcon';
@@ -118,10 +125,28 @@ export const ProductBrowseCard: React.FC<ProductBrowseCardProps> = ({
 }) => {
   const { addItem, isInCart } = useCart();
   const { flyToCart } = useCartFly();
+  const { user } = useAuth();
   const dealerStock = useDealerOrderStockGate();
   const dealerPricing = useDealerUnitPrice(dealerView ? product : null);
   const dealerCanAdd = dealerStock.canOrder(product);
   const dealerInboundOnly = dealerStock.usesScheduledInbound(product);
+  const inboundQty = dealerStock.scheduledQty(product.id);
+  const isSpareItem = isCatalogSparePartProduct(product);
+  const hideDealerSpareQty = dealerStock.gate && isSpareItem;
+  const hideTeamQty = dealerStaffTeam(user) != null;
+  /** Directors (owner) see finished-goods qty; Sales/Service staff never see qty. */
+  const showQty = showStockQuantity && !hideDealerSpareQty && !hideTeamQty;
+  const showInboundQty = showQty && inboundQty > 0;
+  const catalogMrp = product.mrpOverride != null && Number(product.mrpOverride) > 0
+    ? Math.round(Number(product.mrpOverride) * 100) / 100
+    : null;
+  const showDealerCharge = dealerView && canSeeDealerUnitPrice(user, isSpareItem);
+  const showMrpOnly = dealerView && !showDealerCharge;
+  const showSpareMrpBeside = dealerView
+    && dealerStaffTeam(user) === 'service'
+    && isSpareItem
+    && catalogMrp != null;
+  const hideDealerAuditMeta = dealerStock.gate;
   const [addedFlash, setAddedFlash] = useState(false);
   const [dragOver, setDragOver] = useState(false);
   const [gatcOptions, setGatcOptions] = useState<CatalogGatcStampingPriceEntry[]>([]);
@@ -218,16 +243,16 @@ export const ProductBrowseCard: React.FC<ProductBrowseCardProps> = ({
   };
 
   const auditDisplay = useMemo(() => {
-    if (!showStockQuantity || !product.auditSnapshot) return null;
+    if (!showQty || !product.auditSnapshot) return null;
     return resolveAdjustedAuditDisplay({
       currentZohoQty: product.stock,
       snapshot: product.auditSnapshot,
       livePhysicalQty: null,
     });
-  }, [showStockQuantity, product.auditSnapshot, product.stock]);
+  }, [showQty, product.auditSnapshot, product.stock]);
 
   /** Grid qty pill: audited stock (Zoho + Diff), same as the product detail Audited column. */
-  const gridStockQty = showStockQuantity ? catalogGridStockQty(product) : 0;
+  const gridStockQty = showQty ? catalogGridStockQty(product) : 0;
 
   const gridStockStatus = gridStockQty <= 0
     ? 'out_of_stock' as const
@@ -243,7 +268,10 @@ export const ProductBrowseCard: React.FC<ProductBrowseCardProps> = ({
           : 'match';
   const showAuditInfo = auditDisplay?.hasAuditSnapshot === true && auditDiff != null;
   const onOrderQty = Number(raisedPoQty);
-  const showOnOrderQty = Number.isFinite(onOrderQty) && onOrderQty > 0;
+  const showOnOrderQty = !hideDealerSpareQty
+    && !hideTeamQty
+    && Number.isFinite(onOrderQty)
+    && onOrderQty > 0;
 
   const cardStyle = {
     '--cat-accent': theme.accent,
@@ -272,6 +300,7 @@ export const ProductBrowseCard: React.FC<ProductBrowseCardProps> = ({
         editable ? 'catalog-product-card--editable' : '',
         dragOver ? 'catalog-product-card--drag-over' : '',
         onLongPress ? 'catalog-product-card--long-press' : '',
+        showCartButton ? 'catalog-product-card--has-cart' : '',
         highlighted ? 'is-focus' : '',
       ].filter(Boolean).join(' ')}
       data-product-id={product.id}
@@ -370,8 +399,15 @@ export const ProductBrowseCard: React.FC<ProductBrowseCardProps> = ({
           <h3 className="catalog-product-card__title">{formatProductTitle(product.name)}</h3>
           <div className="catalog-product-card__price-row">
             <div className="catalog-product-card__price">
-              {dealerView ? (
-                <DealerPriceDisplay listRate={product.rate} pricing={dealerPricing} />
+              {showDealerCharge ? (
+                <>
+                  <DealerPriceDisplay listRate={product.rate} pricing={dealerPricing} />
+                  {showSpareMrpBeside ? (
+                    <CatalogMrpLabel mrp={catalogMrp} iconSize={12} />
+                  ) : null}
+                </>
+              ) : showMrpOnly ? (
+                <CatalogMrpLabel mrp={catalogMrp} iconSize={14} />
               ) : (
                 <>
                   <IndianRupee size={14} strokeWidth={2.5} aria-hidden />
@@ -379,9 +415,9 @@ export const ProductBrowseCard: React.FC<ProductBrowseCardProps> = ({
                 </>
               )}
             </div>
-            {(showStockQuantity || showOnOrderQty) && (
+            {(showQty || showOnOrderQty || showInboundQty) && (
               <div className="catalog-product-card__stock-meta">
-                {showStockQuantity && (
+                {showQty && (
                   <StockQuantity
                     stock={gridStockQty}
                     unit={product.unit}
@@ -396,19 +432,19 @@ export const ProductBrowseCard: React.FC<ProductBrowseCardProps> = ({
                     unit={product.unit}
                   />
                 )}
-                {dealerInboundOnly && (
+                {showInboundQty && (
                   <span
-                    className="catalog-product-card__inbound-chip"
+                    className="catalog-product-card__inbound-chip catalog-product-card__inbound-chip--qty"
                     title={DEALER_ORDER_SCHEDULED_TITLE}
                   >
-                    Inbound
+                    {formatStockQuantity(inboundQty, product.unit)}
                   </span>
                 )}
               </div>
             )}
           </div>
 
-          {openNcCount != null && openNcCount > 0 ? (
+          {!hideDealerAuditMeta && openNcCount != null && openNcCount > 0 ? (
             <div className="catalog-product-card__tag-row">
               <span className="catalog-product-card__nc-badge">
                 NC {openNcCount}
@@ -416,7 +452,7 @@ export const ProductBrowseCard: React.FC<ProductBrowseCardProps> = ({
             </div>
           ) : null}
 
-          {showAuditInfo && (
+          {showAuditInfo && !hideDealerAuditMeta && (
             <div className="catalog-product-card__audit">
               <p className="catalog-product-card__audit-heading">
                 Stock difference (after last audit)

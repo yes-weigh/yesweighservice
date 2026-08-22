@@ -1,101 +1,13 @@
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { IndianRupee, Link2Off, Package, ShoppingCart } from 'lucide-react';
-import { useCart } from '../../context/useCart';
-import { useCartFly } from '../../context/useCartFly';
-import { useDealerListedCatalogProducts, useDealerOrderStockGate } from '../../hooks/useDealerOrderStockGate';
-import {
-  DEALER_ORDER_SCHEDULED_TITLE,
-  DEALER_ORDER_UNAVAILABLE_TITLE,
-} from '../../lib/dealerOrderStock';
+import { useAuth } from '../../context/AuthContext';
+import { useCanViewShipmentTracking } from '../../hooks/useCanViewShipmentTracking';
+import { useDealerListedCatalogProducts } from '../../hooks/useDealerOrderStockGate';
+import { useRaisedPoQtyByProductId } from '../../hooks/useRaisedPoQtyByProductId';
+import { isDealerPortalUser } from '../../lib/dealerAccess';
 import type { CatalogNavState } from '../../lib/catalogNav';
 import type { CatalogProduct } from '../../types/catalog';
-import { QuantityStepper } from '../QuantityStepper';
-import { CategoryThumbnail } from './CategoryThumbnail';
-import { StockQuantity } from './StockBadge';
-
-function formatProductTitle(name: string): string {
-  return name
-    .toLowerCase()
-    .split(/\s+/)
-    .map(word => word.charAt(0).toUpperCase() + word.slice(1))
-    .join(' ');
-}
-
-function RelatedCatalogCartControls({
-  item,
-  enableCart,
-}: {
-  item: CatalogProduct;
-  enableCart: boolean;
-}) {
-  const { items, addItem, getQuantity, setQuantity } = useCart();
-  const { flyToCart } = useCartFly();
-  const dealerStock = useDealerOrderStockGate();
-  const dealerCanAdd = dealerStock.canOrder(item);
-
-  if (!enableCart) {
-    return (
-      <div className="related-catalog__actions related-catalog__actions--muted">
-        <span className="related-catalog__cart-unavailable">New order needed</span>
-      </div>
-    );
-  }
-
-  const cartQty = getQuantity(item.id);
-  const primaryLine = items.find(line => line.productId === item.id && !line.gatcStampingPriceId)
-    ?? items.find(line => line.productId === item.id);
-
-  const handleAdd = (event: React.MouseEvent<HTMLButtonElement>) => {
-    event.stopPropagation();
-    if (!dealerCanAdd) return;
-    if (addItem(item, 1)) {
-      flyToCart(event.currentTarget, { imageUrl: item.imageUrl });
-    }
-  };
-
-  if (!dealerCanAdd) {
-    return (
-      <div className="related-catalog__actions related-catalog__actions--muted">
-        <span className="related-catalog__cart-unavailable" title={DEALER_ORDER_UNAVAILABLE_TITLE}>
-          Out of stock
-        </span>
-      </div>
-    );
-  }
-
-  if (cartQty === 0 || !primaryLine) {
-    return (
-      <div className="related-catalog__actions">
-        <button
-          type="button"
-          className="related-catalog__add-cart"
-          onClick={handleAdd}
-          title={dealerStock.usesScheduledInbound(item) ? DEALER_ORDER_SCHEDULED_TITLE : undefined}
-          aria-label={`Add ${item.name} to cart`}
-        >
-          <ShoppingCart size={16} aria-hidden />
-          <span>Add</span>
-        </button>
-      </div>
-    );
-  }
-
-  return (
-    <div className="related-catalog__actions" aria-label={`Quantity in cart: ${cartQty}`}>
-      <QuantityStepper
-        value={primaryLine.quantity}
-        onChange={next => {
-          setQuantity(primaryLine.cartLineId, next);
-        }}
-        className="related-catalog__qty"
-        buttonClassName="related-catalog__qty-btn"
-        inputClassName="related-catalog__qty-input"
-        stopPropagation
-      />
-    </div>
-  );
-}
+import { ProductBrowseCard } from './ProductBrowseCard';
 
 export const RelatedCatalogItems: React.FC<{
   items: CatalogProduct[];
@@ -132,8 +44,11 @@ export const RelatedCatalogItems: React.FC<{
   disableNavigation = false,
 }) => {
   const navigate = useNavigate();
+  const { user } = useAuth();
   const [unlinkMode, setUnlinkMode] = useState(false);
   const listedItems = useDealerListedCatalogProducts(items);
+  const dealerView = isDealerPortalUser(user);
+  const raisedPoQtyByProductId = useRaisedPoQtyByProductId(useCanViewShipmentTracking());
   const canNavigate = Boolean(detailBasePath) && !disableNavigation;
   const showUnlinkButtons = Boolean(onUnlink) && unlinkMode;
 
@@ -157,24 +72,44 @@ export const RelatedCatalogItems: React.FC<{
     </div>
   ) : null;
 
-  if (loading) {
-    return (
-      <div className={`related-catalog ${embedded ? '' : 'product-detail-page__section'}`}>
-        {!embedded && (
-          <div className="related-catalog__header">
-            <h2>{title}</h2>
-            {headerControls}
-          </div>
-        )}
-        {embedded && headerControls && (
-          <div className="related-catalog__header related-catalog__header--embedded">
-            {headerControls}
-          </div>
-        )}
-        <p className="text-muted text-sm">Loading…</p>
-      </div>
-    );
-  }
+  const openItem = (item: CatalogProduct) => {
+    if (!canNavigate) return;
+    navigate(`${detailBasePath}/${item.id}`, {
+      state: getLinkState?.(item) ?? { preview: item },
+    });
+  };
+
+  const body = loading ? (
+    <p className="text-muted text-sm">Loading…</p>
+  ) : listedItems.length === 0 ? (
+    <p className="related-catalog__empty text-muted text-sm">{emptyMessage}</p>
+  ) : (
+    <div className="catalog-grid catalog-grid--tiles related-catalog__grid">
+      {listedItems.map((item, idx) => (
+        <ProductBrowseCard
+          key={item.id}
+          product={item}
+          index={idx}
+          onSelect={() => openItem(item)}
+          enableCart={enableCart}
+          isCartable={isCartable}
+          showStockQuantity={showStockQuantity}
+          dealerView={dealerView}
+          raisedPoQty={raisedPoQtyByProductId.get(item.id)}
+          manageLabel={showUnlinkButtons ? (unlinkingId === item.id ? 'Unlinking…' : 'Unlink') : undefined}
+          onManage={
+            showUnlinkButtons && onUnlink
+              ? event => {
+                  event.stopPropagation();
+                  if (unlinkingId) return;
+                  onUnlink(item);
+                }
+              : undefined
+          }
+        />
+      ))}
+    </div>
+  );
 
   return (
     <div className={`related-catalog ${embedded ? '' : 'product-detail-page__section'}`}>
@@ -189,91 +124,7 @@ export const RelatedCatalogItems: React.FC<{
           {headerControls}
         </div>
       )}
-      {listedItems.length === 0 ? (
-        <p className="related-catalog__empty text-muted text-sm">{emptyMessage}</p>
-      ) : (
-        <ul className="related-catalog__list">
-          {listedItems.map(item => {
-            const unlinking = unlinkingId === item.id;
-            const itemCartable = !isCartable || isCartable(item);
-            const mainBody = (
-              <>
-                <div className="related-catalog__media">
-                  {item.imageUrl ? (
-                    <div className="related-catalog__visual" aria-hidden>
-                      <CategoryThumbnail src={item.imageUrl} knockout={false} />
-                    </div>
-                  ) : (
-                    <Package size={24} aria-hidden />
-                  )}
-                </div>
-                <div className="related-catalog__info">
-                  {item.sku && <span className="related-catalog__sku">{item.sku}</span>}
-                  <span className="related-catalog__name">{formatProductTitle(item.name)}</span>
-                  <div className="related-catalog__price">
-                    <IndianRupee size={13} strokeWidth={2.5} aria-hidden />
-                    <span>{item.rate.toLocaleString('en-IN')}</span>
-                  </div>
-                  {item.categoryName && (
-                    <span className="related-catalog__category text-muted text-sm">
-                      {item.categoryName}
-                    </span>
-                  )}
-                  {showStockQuantity && (
-                    <StockQuantity
-                      stock={item.stock}
-                      unit={item.unit}
-                      status={item.stockStatus}
-                      compact
-                    />
-                  )}
-                </div>
-              </>
-            );
-            return (
-              <li key={item.id}>
-                <div className={`related-catalog__item${enableCart ? ' related-catalog__item--cart' : ''}`}>
-                  {canNavigate ? (
-                    <button
-                      type="button"
-                      className="related-catalog__main"
-                      onClick={() =>
-                        navigate(`${detailBasePath}/${item.id}`, {
-                          state: getLinkState?.(item) ?? { preview: item },
-                        })
-                      }
-                    >
-                      {mainBody}
-                    </button>
-                  ) : (
-                    <div className="related-catalog__main related-catalog__main--static">
-                      {mainBody}
-                    </div>
-                  )}
-                  {showUnlinkButtons && onUnlink && (
-                    <button
-                      type="button"
-                      className="related-catalog__unlink"
-                      disabled={unlinking || Boolean(unlinkingId)}
-                      onClick={() => onUnlink(item)}
-                      aria-label={`Unlink ${item.name}`}
-                    >
-                      <Link2Off size={13} aria-hidden />
-                      {unlinking ? 'Unlinking…' : 'Unlink'}
-                    </button>
-                  )}
-                  {enableCart ? (
-                    <RelatedCatalogCartControls
-                      item={item}
-                      enableCart={itemCartable}
-                    />
-                  ) : null}
-                </div>
-              </li>
-            );
-          })}
-        </ul>
-      )}
+      {body}
     </div>
   );
 };

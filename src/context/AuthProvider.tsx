@@ -105,6 +105,9 @@ async function resolveUser(fbUser: FirebaseUser): Promise<User | null> {
       dealerId: readDealerId(data),
       zohoCustomerId,
       staffDepartment: data.staffDepartment,
+      dealerTeams: Array.isArray(data.dealerTeams)
+        ? data.dealerTeams.filter((team): team is 'sales' | 'service' => team === 'sales' || team === 'service')
+        : null,
       staffRoleId: data.staffRoleId ?? null,
       staffAccessMode: data.staffAccessMode,
       staffPermissions: data.staffPermissions,
@@ -121,6 +124,7 @@ async function resolveUser(fbUser: FirebaseUser): Promise<User | null> {
       hrResidentialAddress: data.hrResidentialAddress ?? null,
       hrPostalCode: data.hrPostalCode ?? null,
       hrBloodGroup: data.hrBloodGroup ?? null,
+      hrDateOfBirth: data.hrDateOfBirth ?? null,
       hrPoliceStation: data.hrPoliceStation ?? null,
       hrEmergencyContactName: data.hrEmergencyContactName ?? null,
       hrEmergencyContactRelationship: data.hrEmergencyContactRelationship ?? null,

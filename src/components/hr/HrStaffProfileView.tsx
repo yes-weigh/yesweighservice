@@ -68,6 +68,7 @@ export const HrStaffProfileView: React.FC<HrStaffProfileViewProps> = ({
       <div className="hr-profile__grid">
         <DetailRow label="Role" value={roleName ?? staffDepartmentLabel(record.staffDepartment)} />
         <DetailRow label="Employee ID" value={hr.hrEmployeeId} />
+        <DetailRow label="Date of birth" value={formatJoinDate(hr.hrDateOfBirth)} />
         <DetailRow label="Join date" value={formatJoinDate(hr.hrJoinDate)} />
         <DetailRow
           label="Login"

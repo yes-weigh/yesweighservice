@@ -22,10 +22,12 @@ import type { EvidencePhotoSlot } from '../../lib/supportAttachments';
 
 export type EvidenceSlotId = 'video' | EvidencePhotoSlot;
 
-const SLOT_TABS: Array<{ id: EvidenceSlotId; label: string }> = [
-  { id: 'video', label: 'Video' },
-  { id: 'serial', label: 'Serial' },
-  { id: 'label', label: 'Label' },
+export const EVIDENCE_SLOT_ORDER: EvidenceSlotId[] = ['video', 'serial', 'label'];
+
+const SLOT_TABS: Array<{ id: EvidenceSlotId; label: string; prompt: string; hint: string }> = [
+  { id: 'video', label: 'Video', prompt: 'Step 1 of 3 · Record video', hint: '30 seconds to 2 minutes' },
+  { id: 'serial', label: 'Serial', prompt: 'Step 2 of 3 · Serial / MAC ID', hint: 'Photo of the identification label' },
+  { id: 'label', label: 'Product', prompt: 'Step 3 of 3 · Product photo', hint: 'Photo of the product' },
 ];
 
 const MAX_RECORD_SECONDS = 120;
@@ -79,6 +81,7 @@ export function SupportEvidenceCamera({
 
   const isPhotoSlot = activeSlot === 'serial' || activeSlot === 'label';
   const filledSet = new Set(filledSlots);
+  const activeTab = SLOT_TABS.find(tab => tab.id === activeSlot) ?? SLOT_TABS[0];
   recordingRef.current = recording;
 
   const clearTimers = () => {
@@ -153,10 +156,13 @@ export function SupportEvidenceCamera({
   };
 
   const advanceAfterCapture = (capturedSlot: EvidenceSlotId) => {
-    const order: EvidenceSlotId[] = ['video', 'serial', 'label'];
     const nowFilled = new Set([...filledSlots, capturedSlot]);
-    const nextEmpty = order.find(slot => !nowFilled.has(slot));
-    if (nextEmpty) setActiveSlot(nextEmpty);
+    const nextEmpty = EVIDENCE_SLOT_ORDER.find(slot => !nowFilled.has(slot));
+    if (nextEmpty) {
+      setFrozenFrameUrl(null);
+      setPhotoSaved(false);
+      setActiveSlot(nextEmpty);
+    }
   };
 
   const capturePhoto = () => {
@@ -174,12 +180,14 @@ export function SupportEvidenceCamera({
       if (flashTimerRef.current != null) window.clearTimeout(flashTimerRef.current);
       flashTimerRef.current = window.setTimeout(() => setPhotoFlash(false), 200);
       setPhotoSaved(true);
-      advanceAfterCapture(slot);
 
       void frame.toFile()
         .then(file => {
           void pushRecentMedia(file);
           return onPhotoFile(slot, file);
+        })
+        .then(() => {
+          window.setTimeout(() => advanceAfterCapture(slot), 450);
         })
         .catch(err => {
           setFrozenFrameUrl(null);
@@ -216,7 +224,8 @@ export function SupportEvidenceCamera({
         const file = await prepareVideoFileForUpload(rawFile, durationMs);
         await pushRecentMedia(file);
         await onVideoFile(file);
-        advanceAfterCapture('video');
+        setPhotoSaved(true);
+        window.setTimeout(() => advanceAfterCapture('video'), 450);
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Could not save video.');
@@ -246,6 +255,7 @@ export function SupportEvidenceCamera({
     if (timeslice) recorder.start(timeslice);
     else recorder.start();
     setRecording(true);
+    setPhotoSaved(false);
     setRecordSeconds(0);
 
     tickRef.current = window.setInterval(() => {
@@ -288,10 +298,12 @@ export function SupportEvidenceCamera({
           return;
         }
         await onVideoFile(retained);
-        advanceAfterCapture('video');
+        setPhotoSaved(true);
+        window.setTimeout(() => advanceAfterCapture('video'), 450);
       } else if (isImageFile(retained)) {
         await onPhotoFile(activeSlot, retained);
-        advanceAfterCapture(activeSlot);
+        setPhotoSaved(true);
+        window.setTimeout(() => advanceAfterCapture(activeSlot), 450);
       } else {
         setPickError('Choose a photo for this slot.');
         return;
@@ -360,9 +372,13 @@ export function SupportEvidenceCamera({
             {photoSaved && !recording && (
               <span className="support-evidence-camera__saved-badge">
                 <Check size={14} aria-hidden />
-                Photo saved
+                {isPhotoSlot ? 'Photo saved' : 'Video saved'}
               </span>
             )}
+            <div className="support-evidence-camera__prompt">
+              <strong>{activeTab.prompt}</strong>
+              <span>{activeTab.hint}</span>
+            </div>
             {processing && (
               <div className="support-evidence-camera__processing" aria-live="polite">
                 <Loader2 size={28} className="spin-icon" aria-hidden />
@@ -415,21 +431,21 @@ export function SupportEvidenceCamera({
           </button>
         </div>
 
-        <div className="support-chat__camera-modes support-evidence-camera__slots" role="tablist" aria-label="Evidence type">
-          {SLOT_TABS.map(tab => (
-            <button
-              key={tab.id}
-              type="button"
-              role="tab"
-              aria-selected={activeSlot === tab.id}
-              className={`support-chat__camera-mode-tab${activeSlot === tab.id ? ' support-chat__camera-mode-tab--active' : ''}${filledSet.has(tab.id) ? ' support-evidence-camera__slot--done' : ''}`}
-              disabled={recording || processing}
-              onClick={() => setActiveSlot(tab.id)}
-            >
-              {filledSet.has(tab.id) && <Check size={14} aria-hidden />}
-              {tab.label}
-            </button>
-          ))}
+        <div className="support-chat__camera-modes support-evidence-camera__slots" aria-label="Evidence steps">
+          {SLOT_TABS.map(tab => {
+            const done = filledSet.has(tab.id);
+            const current = activeSlot === tab.id;
+            return (
+              <span
+                key={tab.id}
+                className={`support-chat__camera-mode-tab${current ? ' support-chat__camera-mode-tab--active' : ''}${done ? ' support-evidence-camera__slot--done' : ''}${!current && !done ? ' support-evidence-camera__slot--locked' : ''}`}
+                aria-current={current ? 'step' : undefined}
+              >
+                {done && !current && <Check size={14} aria-hidden />}
+                {tab.label}
+              </span>
+            );
+          })}
         </div>
       </div>
     </div>

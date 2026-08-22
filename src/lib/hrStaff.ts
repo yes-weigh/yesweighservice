@@ -94,7 +94,7 @@ export function hrPhotoStoragePathFromRecord(
   data: Pick<FirestoreUserDoc, 'hrPhotoStoragePath' | 'hrPhotoUrl'>,
 ): string | null {
   const stored = data.hrPhotoStoragePath?.trim();
-  if (stored?.startsWith('hr/')) return stored;
+  if (stored?.startsWith('hr/') || stored?.startsWith('dealerStaff/')) return stored;
 
   const legacy = data.hrPhotoUrl?.trim();
   if (legacy?.startsWith('hr/')) return legacy;
@@ -286,6 +286,9 @@ async function getHrFileUrlViaFunction(storagePath: string): Promise<string> {
 }
 
 export async function getHrFileUrl(storagePath: string): Promise<string> {
+  if (storagePath.startsWith('dealerStaff/')) {
+    return getDownloadURL(ref(storage, storagePath));
+  }
   try {
     return await getHrFileUrlViaFunction(storagePath);
   } catch (err) {
@@ -319,6 +322,7 @@ export function readHrProfileFromDoc(data: FirestoreUserDoc): StaffHrProfile {
     hrResidentialAddress: data.hrResidentialAddress ?? null,
     hrPostalCode: data.hrPostalCode ?? null,
     hrBloodGroup: data.hrBloodGroup ?? null,
+    hrDateOfBirth: data.hrDateOfBirth ?? null,
     hrPoliceStation: data.hrPoliceStation ?? null,
     hrEmergencyContactName: data.hrEmergencyContactName ?? null,
     hrEmergencyContactRelationship: data.hrEmergencyContactRelationship ?? null,
@@ -337,6 +341,7 @@ export function hrProfileToFirestorePatch(profile: StaffHrProfile): Record<strin
     hrResidentialAddress: profile.hrResidentialAddress?.trim() || null,
     hrPostalCode: profile.hrPostalCode?.trim() || null,
     hrBloodGroup: profile.hrBloodGroup || null,
+    hrDateOfBirth: profile.hrDateOfBirth || null,
     hrPoliceStation: profile.hrPoliceStation?.trim() || null,
     hrEmergencyContactName: profile.hrEmergencyContactName?.trim() || null,
     hrEmergencyContactRelationship: profile.hrEmergencyContactRelationship?.trim() || null,
@@ -363,4 +368,16 @@ export function formatJoinDate(value: string | null | undefined): string {
     month: 'short',
     year: 'numeric',
   }).format(new Date(d));
+}
+
+export function ageYearsFromDob(value: string | null | undefined): number | null {
+  const iso = String(value ?? '').slice(0, 10);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(iso)) return null;
+  const dob = new Date(`${iso}T00:00:00`);
+  if (Number.isNaN(dob.getTime())) return null;
+  const today = new Date();
+  let age = today.getFullYear() - dob.getFullYear();
+  const monthDelta = today.getMonth() - dob.getMonth();
+  if (monthDelta < 0 || (monthDelta === 0 && today.getDate() < dob.getDate())) age -= 1;
+  return age >= 0 && age < 130 ? age : null;
 }

@@ -147,7 +147,7 @@ export function validateEvidenceFiles(files: PendingSupportFile[]): string | nul
   for (const slot of REQUIRED_EVIDENCE_PHOTO_SLOTS) {
     if (!files.some(file => file.kind === 'image' && file.photoSlot === slot)) {
       if (slot === 'serial') return 'Add a serial number / MAC ID photo.';
-      return 'Add a product label photo.';
+      return 'Add a product photo.';
     }
   }
   return null;

@@ -68,6 +68,8 @@ export interface User {
   active: boolean;
   /** YesOne staff only */
   staffDepartment?: import('./types/staff-access').StaffDepartment;
+  /** Dealer staff: Sales, Service, or both. */
+  dealerTeams?: Array<'sales' | 'service'> | null;
   staffRoleId?: string | null;
   staffAccessMode?: import('./types/staff-access').StaffAccessMode;
   /** Full permission set when staffAccessMode is custom; ignored otherwise */
@@ -98,6 +100,7 @@ export interface User {
   hrResidentialAddress?: string | null;
   hrPostalCode?: string | null;
   hrBloodGroup?: string | null;
+  hrDateOfBirth?: string | null;
   hrPoliceStation?: string | null;
   hrEmergencyContactName?: string | null;
   hrEmergencyContactRelationship?: string | null;
@@ -125,6 +128,7 @@ export interface FirestoreUserDoc {
   aadhar?: string;
   active: boolean;
   staffDepartment?: import('./types/staff-access').StaffDepartment;
+  dealerTeams?: Array<'sales' | 'service'> | null;
   staffRoleId?: string | null;
   staffAccessMode?: import('./types/staff-access').StaffAccessMode;
   staffPermissions?: import('./types/staff-access').StaffPermission[];
@@ -144,6 +148,7 @@ export interface FirestoreUserDoc {
   hrResidentialAddress?: string | null;
   hrPostalCode?: string | null;
   hrBloodGroup?: string | null;
+  hrDateOfBirth?: string | null;
   hrPoliceStation?: string | null;
   hrEmergencyContactName?: string | null;
   hrEmergencyContactRelationship?: string | null;

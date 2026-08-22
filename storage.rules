@@ -76,6 +76,10 @@ service firebase.storage {
       return isSuperAdmin() || isStaff();
     }
 
+    function isDealer() {
+      return signedIn() && userExists() && (role() == 'dealer' || role() == 'director');
+    }
+
     function isActivePortalUser() {
       return signedIn() && userExists() && (
         isSuperAdmin()
@@ -249,6 +253,27 @@ service firebase.storage {
         isSuperAdmin()
         || (userDoc().active != false && staffHasHrManage())
       );
+    }
+
+    /** Dealer-uploaded photos for their Sales / Service staff. */
+    match /dealerStaff/{dealerId}/{staffUid}/{fileName} {
+      allow read: if isActivePortalUser() && (
+        isOpsUser()
+        || request.auth.uid == staffUid
+        || (isDealer() && dealerId == request.auth.uid)
+        || (
+          (role() == 'dealer_staff' || role() == 'director_staff')
+          && userDealerId(userDoc()) == dealerId
+        )
+      );
+      allow create, update: if isActivePortalUser()
+        && validHrMedia()
+        && (
+          isOpsUser()
+          || (isDealer() && dealerId == request.auth.uid)
+        );
+      allow delete: if isOpsUser()
+        || (isDealer() && dealerId == request.auth.uid);
     }
 
     function validYesStoreImage() {

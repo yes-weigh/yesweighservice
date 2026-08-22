@@ -14,6 +14,59 @@ export function isDealerPortalUser(user: Pick<User, 'role'> | null | undefined):
   return user?.role === 'dealer' || user?.role === 'dealer_staff';
 }
 
+export type DealerStaffTeam = 'sales' | 'service';
+
+/**
+ * Sales vs Service on dealer_staff. Missing department is treated as Sales
+ * (more restricted). Dealer owners and non-portal roles return null.
+ */
+export function dealerStaffTeam(
+  user: Pick<User, 'role' | 'staffDepartment' | 'dealerTeams'> | null | undefined,
+): DealerStaffTeam | null {
+  if (user?.role !== 'dealer_staff') return null;
+  if (user.dealerTeams?.includes('service') || user.staffDepartment === 'service') return 'service';
+  return 'sales';
+}
+
+/** Dealer unit (charge) price. Sales never; Service only on spares; owner always. */
+export function canSeeDealerUnitPrice(
+  user: Pick<User, 'role' | 'staffDepartment' | 'dealerTeams'> | null | undefined,
+  isSpare = false,
+): boolean {
+  const team = dealerStaffTeam(user);
+  if (!team) return true;
+  return team === 'service' && isSpare;
+}
+
+/** Create tickets and reply. Dealer owner + Service staff; Sales is view-only. */
+export function canMutateDealerSupport(
+  user: Pick<User, 'role' | 'staffDepartment' | 'dealerTeams'> | null | undefined,
+): boolean {
+  if (!user) return false;
+  if (user.role === 'dealer') return true;
+  return dealerStaffTeam(user) === 'service';
+}
+
+/** Billing / shipping on the dealer profile. Owner only — staff is view-only. */
+export function canEditDealerProfileAddresses(
+  user: Pick<User, 'role'> | null | undefined,
+): boolean {
+  return user?.role === 'dealer';
+}
+
+/** Firebase uid of the dealer account (parent for dealer_staff). */
+export function resolveDealerAccountUid(
+  user: Pick<User, 'uid' | 'role' | 'dealerId'> | null | undefined,
+): string | null {
+  if (!user) return null;
+  if (user.role === 'dealer') return user.uid;
+  if (user.role === 'dealer_staff') {
+    const parent = user.dealerId?.trim();
+    return parent || null;
+  }
+  return null;
+}
+
 export function readDealerAccessProfile(user: User | null | undefined): DealerAccessProfile {
   if (!user || !isDealerPortalUser(user)) return DEFAULT_DEALER_ACCESS;
   return {
@@ -47,7 +100,8 @@ export function hasDealerPermission(
 
 /**
  * Audited catalog stock qty (grid pill + last-audit footer).
- * Staff / super_admin always. Dealers only when their price level is Directors.
+ * Staff / super_admin always. Dealer owner when price level is Directors.
+ * Sales / Service dealer_staff never.
  */
 export function canViewCatalogStock(
   user: User | null | undefined,
@@ -55,6 +109,7 @@ export function canViewCatalogStock(
 ): boolean {
   if (!user) return false;
   if (user.role === 'super_admin' || user.role === 'staff') return true;
+  if (dealerStaffTeam(user)) return false;
   if (isDealerPortalUser(user)) {
     return isDirectorsPriceLevelName(priceLevelName);
   }
@@ -70,13 +125,15 @@ export function canViewWarehouseStock(user: User | null | undefined): boolean {
 /**
  * Catalog ship / live-tracking chip.
  * All internal users (staff, admin, warehouse, media).
- * Dealers only when their price level is Directors.
+ * Dealer owner when price level is Directors.
+ * Sales / Service dealer_staff never.
  */
 export function canViewShipmentTracking(
   user: User | null | undefined,
   priceLevelName?: string | null,
 ): boolean {
   if (!user) return false;
+  if (dealerStaffTeam(user)) return false;
   if (isDealerPortalUser(user)) {
     return isDirectorsPriceLevelName(priceLevelName);
   }

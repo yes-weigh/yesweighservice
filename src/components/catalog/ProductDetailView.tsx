@@ -73,9 +73,16 @@ import { useDealerOrderStockGate } from '../../hooks/useDealerOrderStockGate';
 import { useDealerUnitPrice } from '../../hooks/useDealerUnitPrice';
 import {
   DEALER_ORDER_SCHEDULED_MESSAGE,
+  DEALER_ORDER_SCHEDULED_TITLE,
   DEALER_ORDER_UNAVAILABLE_MESSAGE,
 } from '../../lib/dealerOrderStock';
-import { DealerPriceDisplay } from './DealerPriceDisplay';
+import { useDealerCatalogMrp } from '../../lib/dealerCatalogMrp';
+import {
+  canSeeDealerUnitPrice,
+  dealerStaffTeam,
+} from '../../lib/dealerAccess';
+import { CatalogMrpLabel, DealerPriceDisplay } from './DealerPriceDisplay';
+import { DealerMrpEditButton } from './DealerMrpEditButton';
 import { CatalogMerchBadges } from './CatalogMerchBadges';
 import { listItemsByCatalogProduct } from '../../lib/yesStore/data';
 import {
@@ -261,6 +268,11 @@ export const ProductDetailView: React.FC<{
   const [addedFlash, setAddedFlash] = useState(false);
   const [product, setProduct] = useState<CatalogProductDetail | CatalogProduct | null>(preview);
   const dealerPricing = useDealerUnitPrice(isDealerPortal ? product : null);
+  const dealerMrpState = useDealerCatalogMrp(isDealerPortal ? product?.id : null);
+  const catalogMrp = product?.mrpOverride != null && Number(product.mrpOverride) > 0
+    ? Math.round(Number(product.mrpOverride) * 100) / 100
+    : null;
+  const displayedMrp = dealerMrpState.mrp ?? catalogMrp;
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [relatedItems, setRelatedItems] = useState<CatalogProduct[]>([]);
@@ -434,6 +446,17 @@ export const ProductDetailView: React.FC<{
   const isSpareItem = product
     ? isCatalogSparePartProduct(product, spareClassificationCategories)
     : false;
+  const staffTeam = dealerStaffTeam(user);
+  const showDealerChargePrice = !isDealerPortal
+    || canSeeDealerUnitPrice(user, isSpareItem);
+  const canEditDealerMrp = user?.role === 'dealer';
+  const ownerSpareUsesMrpAsList = user?.role === 'dealer'
+    && isSpareItem
+    && dealerMrpState.mrp != null;
+  /** Directors (owner) may see finished-goods qty; Sales/Service staff never. */
+  const hideDealerSpareQty = isDealerPortal && isSpareItem;
+  const hideTeamQty = staffTeam != null;
+  const showDetailQty = showStockQuantity && !hideDealerSpareQty && !hideTeamQty;
   const expectsPackageInfo = Boolean(
     product && expectsCatalogPackageInfo(product, spareClassificationCategories),
   );
@@ -750,8 +773,8 @@ export const ProductDetailView: React.FC<{
 
   /** Top-left qty pill: audited stock, or ledger in/out closing for Software Keys 997331. */
   const detailGridStockQty = useMemo(
-    () => (product && showStockQuantity ? catalogGridStockQty(product) : 0),
-    [product, showStockQuantity],
+    () => (product && showDetailQty ? catalogGridStockQty(product) : 0),
+    [product, showDetailQty],
   );
 
   const detailGridStockStatus = useMemo(() => {
@@ -916,7 +939,7 @@ export const ProductDetailView: React.FC<{
       diffState?: 'over' | 'under' | 'match';
     }> = [];
 
-    if (showStockQuantity) {
+    if (showStockQuantity && !isDealerPortal) {
       cols.push({ key: 'zoho', label: 'Zoho stock', shortLabel: 'Zoho', tone: 'zoho' });
     }
     if (showAuditedStock) {
@@ -932,11 +955,11 @@ export const ProductDetailView: React.FC<{
         diffState: difference > 0 ? 'over' : difference < 0 ? 'under' : 'match',
       });
     }
-    if (showStockQuantity || showAuditedStock) {
+    if ((showStockQuantity || showAuditedStock) && !isDealerPortal) {
       cols.push({ key: 'nc', label: 'NC', shortLabel: 'NC', tone: 'nc' });
     }
     return cols;
-  }, [showStockQuantity, showAuditedStock, summaryDifference]);
+  }, [showStockQuantity, showAuditedStock, summaryDifference, isDealerPortal]);
 
   const renderStockValue = (key: string) => {
     if (!product) return null;
@@ -1072,6 +1095,7 @@ export const ProductDetailView: React.FC<{
   const cartQty = product ? getQuantity(product.id) : 0;
   const dealerCanAdd = dealerStock.canOrder(product);
   const dealerInboundOnly = dealerStock.usesScheduledInbound(product);
+  const dealerInboundQty = product ? dealerStock.scheduledQty(product.id) : 0;
 
   const parseQuantity = useCallback((value: string) => Math.max(1, parseInt(value, 10) || 1), []);
 
@@ -1864,14 +1888,14 @@ export const ProductDetailView: React.FC<{
                 productEditMode ? 'product-detail-page__image-stage--editing' : '',
               ].filter(Boolean).join(' ')}
             >
-              {currentSlide?.type !== 'video' && (product.sku?.trim() || showStockQuantity) && (
+              {currentSlide?.type !== 'video' && (product.sku?.trim() || showDetailQty) && (
                 <div className="product-detail-page__image-top-left">
                   {product.sku?.trim() && (
                     <span className="product-detail-page__sku-badge" title={product.sku.trim()}>
                       {product.sku.trim()}
                     </span>
                   )}
-                  {showStockQuantity && (
+                  {showDetailQty && (
                     <span
                       className="product-detail-page__zoho-stock-badge"
                       title={detailGridStockTitle}
@@ -1883,6 +1907,14 @@ export const ProductDetailView: React.FC<{
                         status={detailGridStockStatus}
                         compact
                       />
+                    </span>
+                  )}
+                  {isDealerPortal && showDetailQty && dealerInboundQty > 0 && (
+                    <span
+                      className="catalog-product-card__inbound-chip catalog-product-card__inbound-chip--qty"
+                      title={DEALER_ORDER_SCHEDULED_TITLE}
+                    >
+                      {formatStockQuantity(dealerInboundQty, product.unit)}
                     </span>
                   )}
                 </div>
@@ -2243,15 +2275,40 @@ export const ProductDetailView: React.FC<{
                 </button>
               )}
               {!productEditMode && (
-                <div className="product-detail-page__title-price" aria-label="Dealer price">
+                <div
+                  className="product-detail-page__title-price"
+                  aria-label={showDealerChargePrice ? 'Dealer price' : 'MRP'}
+                >
                   <div className="product-detail-page__title-price-amount">
                     {isDealerPortal ? (
-                      <DealerPriceDisplay
-                        listRate={product.rate}
-                        pricing={dealerPricing}
-                        iconSize={16}
-                        showSlabs
-                      />
+                      showDealerChargePrice ? (
+                        <DealerPriceDisplay
+                          listRate={
+                            ownerSpareUsesMrpAsList
+                              ? dealerMrpState.mrp!
+                              : product.rate
+                          }
+                          pricing={dealerPricing}
+                          iconSize={16}
+                          showSlabs
+                          trailing={
+                            isSpareItem && canEditDealerMrp ? (
+                              <DealerMrpEditButton
+                                productId={product.id}
+                                catalogMrp={
+                                  catalogMrp
+                                    ?? (Number(product.rate) > 0
+                                      ? Math.round(Number(product.rate) * 100) / 100
+                                      : null)
+                                }
+                                dealerMrp={dealerMrpState.mrp}
+                              />
+                            ) : null
+                          }
+                        />
+                      ) : (
+                        <CatalogMrpLabel mrp={displayedMrp} iconSize={16} />
+                      )
                     ) : (
                       <>
                         <IndianRupee size={16} strokeWidth={2.5} aria-hidden />
@@ -2261,16 +2318,35 @@ export const ProductDetailView: React.FC<{
                       </>
                     )}
                   </div>
-                  <span className="product-detail-page__title-price-gst">+GST</span>
-                  {product.mrpOverride != null && Number(product.mrpOverride) > 0 && (
+                  {showDealerChargePrice ? (
+                    <span className="product-detail-page__title-price-gst">+GST</span>
+                  ) : null}
+                  {(
+                    (!isSpareItem && showDealerChargePrice && (displayedMrp != null || isDealerPortal))
+                    || (isDealerPortal && staffTeam === 'service' && isSpareItem && displayedMrp != null)
+                    || (!isDealerPortal && displayedMrp != null)
+                  ) && (
                     <span className="product-detail-page__title-price-mrp">
                       <span className="product-detail-page__title-price-mrp-label">MRP</span>
-                      <span className="product-detail-page__title-price-mrp-amount">
-                        <IndianRupee size={14} strokeWidth={2.5} aria-hidden />
-                        {Number(product.mrpOverride).toLocaleString('en-IN', {
-                          maximumFractionDigits: 2,
-                        })}
-                      </span>
+                      {displayedMrp != null ? (
+                        <span className="product-detail-page__title-price-mrp-amount">
+                          <IndianRupee size={14} strokeWidth={2.5} aria-hidden />
+                          {displayedMrp.toLocaleString('en-IN', {
+                            maximumFractionDigits: 2,
+                          })}
+                        </span>
+                      ) : (
+                        <span className="product-detail-page__title-price-mrp-amount product-detail-page__title-price-mrp-amount--empty">
+                          Set
+                        </span>
+                      )}
+                      {canEditDealerMrp ? (
+                        <DealerMrpEditButton
+                          productId={product.id}
+                          catalogMrp={catalogMrp}
+                          dealerMrp={dealerMrpState.mrp}
+                        />
+                      ) : null}
                     </span>
                   )}
                 </div>
@@ -2632,7 +2708,7 @@ export const ProductDetailView: React.FC<{
                 </div>
               </div>
 
-              {loading && showStockQuantity && (
+              {loading && showStockQuantity && !isDealerPortal && (
                 <p className="product-detail-page__loading-note">Updating Zoho stock…</p>
               )}
             </div>
@@ -2934,7 +3010,11 @@ export const ProductDetailView: React.FC<{
 
       {whatsappShareOpen && product && (
         <ProductWhatsAppShareDialog
-          product={product}
+          product={
+            displayedMrp != null
+              ? { ...product, mrpOverride: displayedMrp }
+              : product
+          }
           imageUrl={currentGalleryUrl}
           imageIndex={activeGalleryIndex}
           imageCount={Math.max(1, productImageCount)}

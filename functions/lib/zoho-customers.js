@@ -293,38 +293,80 @@ function cleanStr(value) {
   return s || undefined;
 }
 
-function mapContactPersonForUpdate(person, primaryId, changes) {
-  const isPrimary = Boolean(person.is_primary_contact)
-    || (primaryId && String(person.contact_person_id) === String(primaryId));
+function omitEmpty(obj) {
+  const next = {};
+  for (const [key, value] of Object.entries(obj || {})) {
+    if (value === undefined || value === null || value === '') continue;
+    next[key] = value;
+  }
+  return next;
+}
 
-  const base = {
+function isZohoPrimaryPerson(person, primaryId) {
+  const flag = person?.is_primary_contact;
+  if (flag === true || flag === 1 || flag === 'true' || flag === '1') return true;
+  if (flag === false || flag === 0 || flag === 'false' || flag === '0') return false;
+  return Boolean(primaryId && String(person?.contact_person_id) === String(primaryId));
+}
+
+function writableZohoAddress(raw, addressLine) {
+  const src = raw && typeof raw === 'object' ? raw : {};
+  return omitEmpty({
+    attention: cleanStr(src.attention),
+    address: cleanStr(addressLine) ?? cleanStr(src.address),
+    street2: cleanStr(src.street2),
+    city: cleanStr(src.city),
+    state: cleanStr(src.state),
+    zip: cleanStr(src.zip),
+    country: cleanStr(src.country),
+    phone: cleanStr(src.phone),
+    fax: cleanStr(src.fax),
+  });
+}
+
+const CONTACT_PERSON_CHANGE_KEYS = [
+  'firstName',
+  'email',
+  'zoho_email',
+  'phone',
+  'zoho_phone',
+  'alternateMobile',
+  'designation',
+  'mobile',
+];
+
+function shouldUpdateContactPersons(changes) {
+  return CONTACT_PERSON_CHANGE_KEYS.some(key => cleanStr(changes?.[key]));
+}
+
+function mapContactPersonForUpdate(person, primaryId, changes) {
+  const isPrimary = isZohoPrimaryPerson(person, primaryId);
+  const base = omitEmpty({
     contact_person_id: person.contact_person_id,
-    salutation: person.salutation || undefined,
-    last_name: person.last_name || undefined,
-    department: person.department || undefined,
-    is_primary_contact: Boolean(person.is_primary_contact),
-  };
+    salutation: cleanStr(person.salutation),
+    last_name: cleanStr(person.last_name),
+    department: cleanStr(person.department),
+  });
 
   if (!isPrimary) {
-    return {
+    return omitEmpty({
       ...base,
-      first_name: person.first_name || undefined,
-      email: person.email || undefined,
-      phone: person.phone || undefined,
-      mobile: person.mobile || undefined,
-      designation: person.designation || undefined,
-    };
+      first_name: cleanStr(person.first_name),
+      email: cleanStr(person.email),
+      phone: cleanStr(person.phone),
+      mobile: cleanStr(person.mobile),
+      designation: cleanStr(person.designation),
+    });
   }
 
-  return {
+  return omitEmpty({
     ...base,
-    first_name: cleanStr(changes.firstName) ?? person.first_name ?? undefined,
-    email: cleanStr(changes.email) ?? person.email ?? undefined,
-    phone: cleanStr(changes.phone) ?? person.phone ?? undefined,
-    mobile: cleanStr(changes.alternateMobile) ?? person.mobile ?? undefined,
-    designation: cleanStr(changes.designation) ?? person.designation ?? undefined,
-    is_primary_contact: true,
-  };
+    first_name: cleanStr(changes.firstName) ?? cleanStr(person.first_name),
+    email: cleanStr(changes.email) ?? cleanStr(person.email),
+    phone: cleanStr(changes.phone) ?? cleanStr(person.phone),
+    mobile: cleanStr(changes.alternateMobile) ?? cleanStr(person.mobile),
+    designation: cleanStr(changes.designation) ?? cleanStr(person.designation),
+  });
 }
 
 export async function pushDealerChangesToZoho(id, changes, secrets, orgId) {
@@ -341,25 +383,27 @@ export async function pushDealerChangesToZoho(id, changes, secrets, orgId) {
   if (!contactName) throw new Error('Zoho contact is missing contact_name.');
 
   const primaryId = contact.primary_contact_id;
-  let contactPersons = (contact.contact_persons ?? []).map(p =>
-    mapContactPersonForUpdate(p, primaryId, changes),
-  );
+  const updatePersons = shouldUpdateContactPersons(changes);
+  let contactPersons = updatePersons
+    ? (contact.contact_persons ?? []).map(p => mapContactPersonForUpdate(p, primaryId, changes))
+    : [];
 
-  if (!contactPersons.length) {
-    contactPersons = [{
+  if (updatePersons && !contactPersons.length) {
+    contactPersons = [omitEmpty({
       first_name: cleanStr(changes.firstName),
+      last_name: cleanStr(contact.last_name) ?? cleanStr(contactName),
       email: cleanStr(changes.email ?? changes.zoho_email),
       phone: cleanStr(changes.phone ?? changes.zoho_phone),
       mobile: cleanStr(changes.alternateMobile),
       designation: cleanStr(changes.designation),
       is_primary_contact: true,
-    }];
-  } else if (cleanStr(changes.zoho_phone)) {
+    })];
+  } else if (updatePersons && cleanStr(changes.zoho_phone)) {
     contactPersons = contactPersons.map(p => {
-      const isPrimary = Boolean(p.is_primary_contact)
+      const isPrimary = isZohoPrimaryPerson(p, primaryId)
         || (primaryId && String(p.contact_person_id) === String(primaryId));
       if (!isPrimary) return p;
-      return { ...p, phone: cleanStr(changes.zoho_phone) };
+      return omitEmpty({ ...p, phone: cleanStr(changes.zoho_phone) });
     });
   }
 
@@ -369,31 +413,38 @@ export async function pushDealerChangesToZoho(id, changes, secrets, orgId) {
   const body = {
     contact_name: contactName,
     contact_type: contact.contact_type || 'customer',
-    email: contactEmail ?? contact.email ?? undefined,
-    phone: contactPhone ?? contact.phone ?? undefined,
-    first_name: cleanStr(changes.firstName) ?? contact.first_name ?? undefined,
-    mobile: cleanStr(changes.mobile) ?? cleanStr(changes.alternateMobile) ?? contact.mobile ?? undefined,
-    legal_name: cleanStr(changes.legal_name) ?? undefined,
-    customer_sub_type: cleanStr(changes.customer_sub_type) ?? undefined,
-    website: cleanStr(changes.website) ?? undefined,
-    gst_no: cleanStr(changes.gst_no) ?? undefined,
-    gst_treatment: cleanStr(changes.gst_treatment) ?? undefined,
-    pan_no: cleanStr(changes.pan_no) ?? undefined,
-    notes: cleanStr(changes.notes) ?? undefined,
-    contact_persons: contactPersons,
   };
 
+  if (updatePersons) {
+    body.email = contactEmail ?? cleanStr(contact.email);
+    body.phone = contactPhone ?? cleanStr(contact.phone);
+    body.first_name = cleanStr(changes.firstName) ?? cleanStr(contact.first_name);
+    body.mobile = cleanStr(changes.mobile)
+      ?? cleanStr(changes.alternateMobile)
+      ?? cleanStr(contact.mobile);
+    if (contactPersons.length) body.contact_persons = contactPersons;
+  } else {
+    if (contactEmail) body.email = contactEmail;
+    if (contactPhone) body.phone = contactPhone;
+    if (cleanStr(changes.firstName)) body.first_name = cleanStr(changes.firstName);
+    if (cleanStr(changes.mobile) || cleanStr(changes.alternateMobile)) {
+      body.mobile = cleanStr(changes.mobile) ?? cleanStr(changes.alternateMobile);
+    }
+  }
+
+  if (cleanStr(changes.legal_name)) body.legal_name = cleanStr(changes.legal_name);
+  if (cleanStr(changes.customer_sub_type)) body.customer_sub_type = cleanStr(changes.customer_sub_type);
+  if (cleanStr(changes.website)) body.website = cleanStr(changes.website);
+  if (cleanStr(changes.gst_no)) body.gst_no = cleanStr(changes.gst_no);
+  if (cleanStr(changes.gst_treatment)) body.gst_treatment = cleanStr(changes.gst_treatment);
+  if (cleanStr(changes.pan_no)) body.pan_no = cleanStr(changes.pan_no);
+  if (cleanStr(changes.notes)) body.notes = cleanStr(changes.notes);
+
   if (cleanStr(changes.billing_address)) {
-    body.billing_address = {
-      ...(contact.billing_address || {}),
-      address: cleanStr(changes.billing_address),
-    };
+    body.billing_address = writableZohoAddress(contact.billing_address, changes.billing_address);
   }
   if (cleanStr(changes.shipping_address)) {
-    body.shipping_address = {
-      ...(contact.shipping_address || {}),
-      address: cleanStr(changes.shipping_address),
-    };
+    body.shipping_address = writableZohoAddress(contact.shipping_address, changes.shipping_address);
   }
 
   Object.keys(body).forEach(key => {
@@ -423,6 +474,14 @@ export async function pushDealerChangesToZoho(id, changes, secrets, orgId) {
   if ('phone' in changes) localPatch.phone = cleanStr(changes.phone) ?? null;
   if ('designation' in changes) localPatch.designation = cleanStr(changes.designation) ?? null;
   if ('alternateMobile' in changes) localPatch.alternateMobile = cleanStr(changes.alternateMobile) ?? null;
+  if (cleanStr(changes.billing_address)) {
+    localPatch.zohoBillingAddress = cleanStr(changes.billing_address);
+    localPatch.billingAddress = cleanStr(changes.billing_address);
+  }
+  if (cleanStr(changes.shipping_address)) {
+    localPatch.zohoShippingAddress = cleanStr(changes.shipping_address);
+    localPatch.shippingAddress = cleanStr(changes.shipping_address);
+  }
   await ref.set(localPatch, { merge: true });
 
   return refreshDealerFromZoho(id, secrets, orgId, { force: true });

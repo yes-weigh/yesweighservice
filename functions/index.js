@@ -75,6 +75,7 @@ import {
   readDealerSetting,
   writeDealerSetting,
 } from './lib/dealers-api.js';
+import { setDealerCatalogMrp } from './lib/dealer-catalog-mrp.js';
 import {
   importCrmDealerOverlay,
   backfillDealerLocations,
@@ -174,7 +175,7 @@ import {
   completeDealerSignup as finalizeDealerSignup,
   completeDealerPasswordReset as finalizeDealerPasswordReset,
 } from './lib/dealer-otp.js';
-import { setManagedUserPassword as updateManagedUserPassword } from './lib/set-user-password.js';
+import { setManagedUserPassword as updateManagedUserPassword, resetDealerStaffPassword as resetOwnedDealerStaffPassword } from './lib/set-user-password.js';
 import { prepareSupportAttachmentUpload, uploadSupportAttachment } from './lib/support-attachments.js';
 import { appendSupportMessage } from './lib/support-messages.js';
 import { markSupportMessageReceipts } from './lib/support-message-receipts.js';
@@ -4021,6 +4022,22 @@ export const getDealers = onCall(
   },
 );
 
+/** Dealer portal: set or clear this dealer’s custom MRP for one catalog item. */
+export const setDealerCatalogMrpFn = onCall(
+  { region: 'asia-south1', timeoutSeconds: 30, memory: '256MiB' },
+  async request => {
+    const uid = request.auth?.uid;
+    await requireActiveUser(uid, new Set(['dealer', 'dealer_staff']));
+    try {
+      return await setDealerCatalogMrp(uid, request.data ?? {});
+    } catch (err) {
+      if (err instanceof HttpsError) throw err;
+      console.error('setDealerCatalogMrp failed:', err);
+      throw new HttpsError('internal', err?.message ?? 'Could not save MRP.');
+    }
+  },
+);
+
 /** Dealer's own Zoho customer record — dealer / dealer_staff. */
 export const getMyDealerProfile = onCall(
   {
@@ -4045,6 +4062,60 @@ export const getMyDealerProfile = onCall(
         throw new HttpsError('not-found', err.message);
       }
       throw new HttpsError('internal', err?.message ?? 'Could not load dealer profile.');
+    }
+  },
+);
+
+/**
+ * Dealer owner: push billing/shipping to Zoho first.
+ * Firestore is updated only after Zoho succeeds (via Zoho refresh).
+ */
+export const updateMyDealerAddresses = onCall(
+  {
+    region: 'asia-south1',
+    timeoutSeconds: 60,
+    memory: '256MiB',
+    secrets: [zohoClientId, zohoClientSecret, zohoRefreshToken],
+  },
+  async request => {
+    const uid = request.auth?.uid;
+    const role = await requireActiveUser(uid, new Set(['dealer']));
+    const payload = request.data && typeof request.data === 'object' ? request.data : {};
+    const billingProvided = Object.prototype.hasOwnProperty.call(payload, 'billingAddress');
+    const shippingProvided = Object.prototype.hasOwnProperty.call(payload, 'shippingAddress');
+    const billing = String(payload.billingAddress ?? '').trim();
+    const shipping = String(payload.shippingAddress ?? '').trim();
+
+    if (!billingProvided && !shippingProvided) {
+      throw new HttpsError('invalid-argument', 'Enter a billing or shipping address.');
+    }
+    if (billingProvided && billing.length < 8) {
+      throw new HttpsError('invalid-argument', 'Enter a complete billing address.');
+    }
+    if (shippingProvided && shipping.length < 8) {
+      throw new HttpsError('invalid-argument', 'Enter a complete shipping address.');
+    }
+
+    const changes = {};
+    if (billingProvided) changes.billing_address = billing;
+    if (shippingProvided) changes.shipping_address = shipping;
+
+    try {
+      const customerId = await resolveZohoCustomerIdForUser(uid, role);
+      const dealer = await pushDealerToZohoRecord(
+        customerId,
+        changes,
+        zohoSecrets(),
+        zohoOrganizationId.value(),
+      );
+      return { dealer };
+    } catch (err) {
+      if (err instanceof HttpsError) throw err;
+      if (err?.message === 'Dealer not found.') {
+        throw new HttpsError('not-found', err.message);
+      }
+      console.error('updateMyDealerAddresses failed:', err);
+      throw new HttpsError('internal', err?.message ?? 'Could not update address in Zoho.');
     }
   },
 );
@@ -4447,6 +4518,22 @@ export const setManagedUserPassword = onCall(
     } catch (err) {
       if (err instanceof HttpsError) throw err;
       throw new HttpsError('internal', err?.message ?? 'Could not update password.');
+    }
+  },
+);
+
+/** Dealer owner — reset Auth password for their own team staff. */
+export const resetDealerStaffPassword = onCall(
+  { region: 'asia-south1', timeoutSeconds: 60, memory: '256MiB' },
+  async request => {
+    await requireActiveUser(request.auth?.uid, new Set(['dealer']));
+    const targetUid = String(request.data?.uid ?? '').trim();
+    const password = String(request.data?.password ?? '');
+    try {
+      return await resetOwnedDealerStaffPassword(request.auth.uid, targetUid, password);
+    } catch (err) {
+      if (err instanceof HttpsError) throw err;
+      throw new HttpsError('internal', err?.message ?? 'Could not reset password.');
     }
   },
 );

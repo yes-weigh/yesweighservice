@@ -37,7 +37,7 @@ const TAB_DEFS: { id: ProductDetailTabId; label: string }[] = [
   { id: 'purchase', label: 'Purchase' },
   { id: 'support', label: 'Support' },
   { id: 'stock', label: 'Stock' },
-  { id: 'documents', label: 'Documents' },
+  { id: 'documents', label: 'Model approval' },
 ];
 
 export const DEALER_PRODUCT_DETAIL_TABS: ProductDetailTabId[] = ['spare', 'media', 'support', 'documents'];
@@ -128,7 +128,7 @@ export const ProductDetailTabs: React.FC<{
   mediaActorName?: string | null;
   onAuditSnapshotChange: (snapshot: NonNullable<CatalogProduct['auditSnapshot']>) => void;
   visibleTabs?: readonly ProductDetailTabId[];
-  /** Categorized products only — approval PDF for Documents tab. */
+  /** Categorized products only — approval PDF for Model approval tab. */
   approvalDocument?: ProductApprovalDocument | null;
 }> = ({
   product,

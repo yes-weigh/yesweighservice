@@ -66,3 +66,35 @@ export async function setManagedUserPassword(targetUid, password) {
 
   return { uid, ok: true };
 }
+
+/** Dealer owner: reset Auth password for their own dealer_staff only. */
+export async function resetDealerStaffPassword(callerUid, targetUid, password) {
+  const owner = String(callerUid ?? '').trim();
+  const uid = String(targetUid ?? '').trim();
+  if (!owner) {
+    throw new HttpsError('unauthenticated', 'Sign in required.');
+  }
+  if (!uid) {
+    throw new HttpsError('invalid-argument', 'User id is required.');
+  }
+  if (uid === owner) {
+    throw new HttpsError('failed-precondition', 'Use a different flow to change your own password.');
+  }
+
+  const db = getFirestore();
+  const snap = await db.doc(`users/${uid}`).get();
+  if (!snap.exists) {
+    throw new HttpsError('not-found', 'Staff not found.');
+  }
+  const data = snap.data() || {};
+  const role = data.role === 'director_staff' ? 'dealer_staff' : data.role;
+  if (role !== 'dealer_staff') {
+    throw new HttpsError('permission-denied', 'Only team staff passwords can be reset here.');
+  }
+  const dealerId = String(data.dealerId || data.directorId || '').trim();
+  if (dealerId !== owner) {
+    throw new HttpsError('permission-denied', 'This staff member is not on your team.');
+  }
+
+  return setManagedUserPassword(uid, password);
+}

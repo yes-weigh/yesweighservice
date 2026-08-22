@@ -6,6 +6,7 @@ import { useAuth } from '../../context/AuthContext';
 import { useTopBarAction } from '../../context/PageHeaderContext';
 import { fetchDealerSupportRequests, supportBasePath, supportDetailPath } from '../../lib/dealerSupport';
 import { StaffSupportQueue } from '../../components/support/StaffSupportQueue';
+import { canMutateDealerSupport } from '../../lib/dealerAccess';
 import { isInternalOpsUser, canCreateSupportOnBehalf } from '../../lib/staffAccess';
 import type {
   DealerSupportRequest,
@@ -33,13 +34,15 @@ export const WarrantySupportPage: React.FC = () => {
   const isOps = isInternalOpsUser(user);
   const canCreateOnBehalf = canCreateSupportOnBehalf(user);
   const canUseSupport = user?.role === 'dealer' || user?.role === 'dealer_staff';
+  const canMutateSupport = canMutateDealerSupport(user);
   const supportPath = user && canUseSupport ? supportBasePath(user.role) : '/dealer/warranty-support';
 
   const [requests, setRequests] = useState<DealerSupportRequest[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [showWizard, setShowWizard] = useState(
-    Boolean(state.draft || state.intent || state.resumeDraft || state.openWizard),
+    (canMutateSupport || canCreateOnBehalf)
+      && Boolean(state.draft || state.intent || state.resumeDraft || state.openWizard),
   );
   const [draftMessage, setDraftMessage] = useState('');
   const [resumeDraft, setResumeDraft] = useState<DealerSupportRequest | null>(
@@ -68,24 +71,29 @@ export const WarrantySupportPage: React.FC = () => {
   }, [load]);
 
   useEffect(() => {
+    if (!canMutateSupport && !canCreateOnBehalf) {
+      setShowWizard(false);
+      return;
+    }
     if (state.draft || state.intent || state.resumeDraft || state.openWizard) {
       setShowWizard(true);
     }
     if (state.resumeDraft) {
       setResumeDraft(state.resumeDraft);
     }
-  }, [state.draft, state.intent, state.resumeDraft, state.openWizard]);
+  }, [state.draft, state.intent, state.resumeDraft, state.openWizard, canMutateSupport, canCreateOnBehalf]);
 
   const openRequest = useCallback((request: DealerSupportRequest) => {
     if (!user) return;
     if (isSupportDraft(request)) {
+      if (!canMutateSupport) return;
       setResumeDraft(request);
       setShowWizard(true);
       setDraftMessage('');
       return;
     }
     navigate(supportDetailPath(user.role, request.id));
-  }, [user, navigate]);
+  }, [user, navigate, canMutateSupport]);
 
   const closeWizard = useCallback(() => {
     setShowWizard(false);
@@ -128,7 +136,7 @@ export const WarrantySupportPage: React.FC = () => {
     [startNewRequest],
   );
 
-  useTopBarAction(topBarNewRequest, (canUseSupport || canCreateOnBehalf) && !showWizard);
+  useTopBarAction(topBarNewRequest, (canMutateSupport || canCreateOnBehalf) && !showWizard);
 
   if (!canUseSupport && !isOps) {
     return (

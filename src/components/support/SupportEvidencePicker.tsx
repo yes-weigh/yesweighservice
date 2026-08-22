@@ -9,6 +9,7 @@ import {
 } from '../../lib/supportAttachments';
 import {
   SupportEvidenceCamera,
+  EVIDENCE_SLOT_ORDER,
   type EvidenceSlotId,
 } from './SupportEvidenceCamera';
 
@@ -40,8 +41,8 @@ const EVIDENCE_SLOTS: SlotMeta[] = [
   },
   {
     id: 'label',
-    label: 'Product label',
-    hint: 'YESWEIGH label',
+    label: 'Product photo',
+    hint: 'Real product',
     kind: 'image',
   },
 ];
@@ -68,11 +69,26 @@ function setSlotFile(
 }
 
 function firstMissingSlot(files: PendingSupportFile[]): EvidenceSlotId {
-  for (const slot of EVIDENCE_SLOTS) {
-    if (!getSlotFile(files, slot.id)) return slot.id;
+  for (const slotId of EVIDENCE_SLOT_ORDER) {
+    if (!getSlotFile(files, slotId)) return slotId;
   }
   return 'video';
 }
+
+function isSlotUnlocked(files: PendingSupportFile[], slotId: EvidenceSlotId): boolean {
+  if (getSlotFile(files, slotId)) return true;
+  for (const id of EVIDENCE_SLOT_ORDER) {
+    if (id === slotId) return true;
+    if (!getSlotFile(files, id)) return false;
+  }
+  return true;
+}
+
+const ADD_EVIDENCE_LABEL: Record<EvidenceSlotId, string> = {
+  video: 'Record video',
+  serial: 'Take serial / MAC photo',
+  label: 'Take product photo',
+};
 
 export const SupportEvidencePicker: React.FC<SupportEvidencePickerProps> = ({
   files,
@@ -95,6 +111,7 @@ export const SupportEvidencePicker: React.FC<SupportEvidencePickerProps> = ({
 
   const openCamera = (slotId: EvidenceSlotId) => {
     if (disabled) return;
+    if (!getSlotFile(files, slotId) && !isSlotUnlocked(files, slotId)) return;
     setCameraSlot(slotId);
     setCameraOpen(true);
     setSlotErrors(prev => ({ ...prev, [slotId]: undefined }));
@@ -124,6 +141,7 @@ export const SupportEvidencePicker: React.FC<SupportEvidencePickerProps> = ({
   };
 
   const allFilled = filledSlots.length === EVIDENCE_SLOTS.length;
+  const nextSlot = firstMissingSlot(files);
 
   useEffect(() => {
     if (cameraOpen && allFilled && !processing) {
@@ -139,19 +157,30 @@ export const SupportEvidencePicker: React.FC<SupportEvidencePickerProps> = ({
           <span className="form-label__required" aria-hidden> *</span>
         </h4>
         <p className="support-evidence-picker__subtitle text-muted text-sm">
-          One video and two photos — serial label and product label.
+          One by one: video, then serial / MAC ID, then product photo.
         </p>
       </div>
 
       <div className="support-evidence-picker__grid">
         {EVIDENCE_SLOTS.map(slot => {
           const file = getSlotFile(files, slot.id);
+          const unlocked = isSlotUnlocked(files, slot.id);
+          const locked = !file && !unlocked;
+          const current = !file && unlocked;
           return (
-            <div key={slot.id} className={`support-evidence-picker__cell${file ? ' support-evidence-picker__cell--filled' : ''}`}>
+            <div
+              key={slot.id}
+              className={[
+                'support-evidence-picker__cell',
+                file ? 'support-evidence-picker__cell--filled' : '',
+                locked ? 'support-evidence-picker__cell--locked' : '',
+                current ? 'support-evidence-picker__cell--current' : '',
+              ].filter(Boolean).join(' ')}
+            >
               <button
                 type="button"
                 className="support-evidence-picker__cell-main"
-                disabled={disabled}
+                disabled={disabled || locked}
                 onClick={() => openCamera(slot.id)}
               >
                 {file ? (
@@ -195,10 +224,10 @@ export const SupportEvidencePicker: React.FC<SupportEvidencePickerProps> = ({
           type="button"
           className="support-evidence-picker__open"
           disabled={disabled}
-          onClick={() => openCamera(firstMissingSlot(files))}
+          onClick={() => openCamera(nextSlot)}
         >
           <Camera size={20} aria-hidden />
-          Add evidence
+          {ADD_EVIDENCE_LABEL[nextSlot]}
         </button>
       )}
 

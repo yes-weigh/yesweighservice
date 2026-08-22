@@ -110,10 +110,34 @@ export const DealerMenuPages = {
     />
   ),
   Logistics: LogisticsPage,
+  Reports: () => (
+    <PagePlaceholder
+      title="Reports"
+      description="Sales, support, and operational reports for your dealership."
+    />
+  ),
+  PriceList: () => (
+    <PagePlaceholder
+      title="Price list"
+      description="Dealer price list for products and spare parts."
+    />
+  ),
   Loyalty: () => (
     <PagePlaceholder
       title="Loyalty"
       description="Dealer loyalty points, rewards, and tier benefits."
+    />
+  ),
+  RewardPoint: () => (
+    <PagePlaceholder
+      title="Reward point"
+      description="Reward points for your dealership."
+    />
+  ),
+  Scheme: () => (
+    <PagePlaceholder
+      title="Scheme"
+      description="Dealer schemes and offers."
     />
   ),
   Training: () => (

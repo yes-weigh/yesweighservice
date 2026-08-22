@@ -432,6 +432,15 @@ export const HrStaffFormPage: React.FC<HrStaffFormPageProps> = ({ basePath }) =>
                 />
               </label>
               <label className="hr-staff-form__field">
+                <span>Date of birth</span>
+                <input
+                  className="input-field"
+                  type="date"
+                  value={hr.hrDateOfBirth?.slice(0, 10) ?? ''}
+                  onChange={e => setHrField('hrDateOfBirth', e.target.value || null)}
+                />
+              </label>
+              <label className="hr-staff-form__field">
                 <span>Blood group</span>
                 <select
                   className="input-field"

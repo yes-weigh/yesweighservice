@@ -228,6 +228,8 @@ const dealerRoutes = (
   <>
     <Route index element={<Navigate to="products" replace />} />
     {portalMenuRoutes}
+    <Route path="reports" element={<DealerMenuPages.Reports />} />
+    <Route path="price-list" element={<DealerMenuPages.PriceList />} />
     <Route path="training" element={<DealerMenuPages.Training />} />
     {dealerInvoiceRoutes}
     {dealerSalesOrderRoutes}
@@ -447,6 +449,8 @@ const App: React.FC = () => (
               <Route path="warranty-support" element={<DealerMenuPages.WarrantySupport />} />
               <Route path="warranty-support/complaint-guidelines" element={<DealerMenuPages.ComplaintGuidelines />} />
               <Route path="warranty-support/:requestId" element={<DealerMenuPages.SupportRequestDetail />} />
+              <Route path="reports" element={<DealerMenuPages.Reports />} />
+              <Route path="price-list" element={<DealerMenuPages.PriceList />} />
               <Route path="invoices" element={<DealerMenuPages.Invoices />} />
               <Route path="invoices/:invoiceId" element={<DealerMenuPages.InvoiceDetail />}>
                 <Route index element={<Navigate to="invoice" replace />} />
@@ -463,10 +467,12 @@ const App: React.FC = () => (
               <Route path="verification" element={<DealerMenuPages.Verification />} />
               <Route path="advertisements" element={<DealerMenuPages.Advertisements />} />
               <Route path="logistics" element={<DealerMenuPages.Logistics />} />
-              <Route path="loyalty" element={<DealerMenuPages.Loyalty />} />
+              <Route path="loyalty" element={<DealerMenuPages.RewardPoint />} />
+              <Route path="scheme" element={<DealerMenuPages.Scheme />} />
               <Route path="ai-assistant" element={<DealerMenuPages.AiAssistant />} />
               <Route path="training" element={<DealerMenuPages.Training />} />
               <Route path="notifications" element={<DealerMenuPages.Notifications />} />
+              <Route path="team" element={<DealerTeamPage />} />
               <Route path="profile" element={<ProfilePage />} />
             </Route>
           </Route>

@@ -18,7 +18,8 @@ import { CART_REMARKS_MAX_LENGTH } from '../../context/CartProvider';
 import { useCart } from '../../context/useCart';
 import { useDealerPriceLevels } from '../../hooks/useDealerUnitPrice';
 import { useDealerOrderStockGate } from '../../hooks/useDealerOrderStockGate';
-import { cartLineIsOutOfStock, fetchCatalog, formatCurrency } from '../../lib/catalog';
+import { cartLineIsOutOfStock, fetchCatalog, formatCurrency, isCatalogSparePartProduct } from '../../lib/catalog';
+import { canSeeDealerUnitPrice, dealerStaffTeam } from '../../lib/dealerAccess';
 import {
   DEALER_ORDER_SCHEDULED_MESSAGE,
   DEALER_ORDER_UNAVAILABLE_MESSAGE,
@@ -260,6 +261,10 @@ const DealerCartPage: React.FC = () => {
     () => segmentPreview.length > 0 && segmentPreview.every(b => b.segment === 'spare'),
     [segmentPreview],
   );
+  const hideTeamQty = dealerStaffTeam(user) != null;
+  const showCartDealerMoney = items.every(item => (
+    canSeeDealerUnitPrice(user, isCatalogSparePartProduct(catalogById[item.productId] ?? item))
+  ));
 
   /** Checkout total: items + estimated freight (+ pending Diff) + GST (catalog tax %, freight default 18%). */
   const checkoutTotals = useMemo(() => {
@@ -522,6 +527,8 @@ const DealerCartPage: React.FC = () => {
               const canOrderLine = catalogProduct
                 ? dealerStock.canOrder(catalogProduct)
                 : scheduledQty > 0 || poQty > 0 || !cartLineIsOutOfStock(item);
+              const isSpareLine = isCatalogSparePartProduct(catalogProduct ?? item);
+              const showLineDealerPrice = canSeeDealerUnitPrice(user, isSpareLine);
               const inboundOnly = catalogProduct
                 ? dealerStock.usesScheduledInbound(catalogProduct)
                 : cartLineIsOutOfStock(item) && (scheduledQty > 0 || poQty > 0);
@@ -556,6 +563,8 @@ const DealerCartPage: React.FC = () => {
                     description={item.description || descByProductId[item.productId] || null}
                   >
                     <div className="orders-page__item-price">
+                      {showLineDealerPrice ? (
+                        <>
                       {(item.priceLevelMode === 'discount' || item.priceLevelMode === 'fixed')
                         && item.listRate != null
                         && item.listRate > item.baseRate ? (
@@ -597,19 +606,23 @@ const DealerCartPage: React.FC = () => {
                           {DIRECTORS_QTY_CLUB_LABEL}
                         </p>
                       ) : null}
+                        </>
+                      ) : (
+                        <span className="text-muted text-sm">/ {item.unit}</span>
+                      )}
                     </div>
-                    {item.gatcFeePerUnit > 0 ? (
+                    {showLineDealerPrice && item.gatcFeePerUnit > 0 ? (
                       <span className="orders-page__item-price-breakdown text-muted">
                         {item.baseRate.toLocaleString('en-IN')}
                         {' + '}
                         {item.gatcFeePerUnit.toLocaleString('en-IN')} stamping
                         {item.gatcStampingRange ? ` (${item.gatcStampingRange})` : ''}
                       </span>
-                    ) : canEditStamp ? null : (
+                    ) : showLineDealerPrice && canEditStamp ? null : showLineDealerPrice ? (
                       <span className="orders-page__item-price-breakdown text-muted">
                         Without stamping
                       </span>
-                    )}
+                    ) : null}
                     {canEditStamp && catalogProduct && (
                       <GatcStampingInlineControl
                         product={catalogProduct}
@@ -642,7 +655,7 @@ const DealerCartPage: React.FC = () => {
                         {DEALER_ORDER_UNAVAILABLE_MESSAGE}
                       </p>
                     )}
-                    {inboundOnly && (
+                    {inboundOnly && !hideTeamQty && (
                       <p className="orders-page__item-warning">
                         {DEALER_ORDER_SCHEDULED_MESSAGE}
                       </p>
@@ -659,8 +672,12 @@ const DealerCartPage: React.FC = () => {
                     />
 
                     <div className="orders-page__line-total">
-                      <IndianRupee size={14} strokeWidth={2.5} aria-hidden />
-                      <span>{lineTotal.toLocaleString('en-IN')}</span>
+                      {showLineDealerPrice ? (
+                        <>
+                          <IndianRupee size={14} strokeWidth={2.5} aria-hidden />
+                          <span>{lineTotal.toLocaleString('en-IN')}</span>
+                        </>
+                      ) : null}
                     </div>
 
                     <button
@@ -686,7 +703,7 @@ const DealerCartPage: React.FC = () => {
           <h3>Order summary</h3>
           <div className="orders-page__summary-row">
             <span>Subtotal ({itemCount} items)</span>
-            <strong>{formatCurrency(subtotal)}</strong>
+            <strong>{showCartDealerMoney ? formatCurrency(subtotal) : '—'}</strong>
           </div>
           <p className="orders-page__summary-note text-muted text-sm">
             {skipsOpsReview
@@ -783,7 +800,7 @@ const DealerCartPage: React.FC = () => {
           <div className="orders-page__checkout-total" aria-label="Order total">
             <div className="orders-page__summary-row">
               <span>Subtotal</span>
-              <span>{formatCurrency(subtotal)}</span>
+              <span>{showCartDealerMoney ? formatCurrency(subtotal) : '—'}</span>
             </div>
             <div className="orders-page__summary-row">
               <span>Freight</span>
@@ -791,7 +808,7 @@ const DealerCartPage: React.FC = () => {
                 {checkoutTotals.freightDeferred
                   ? 'Updated later'
                   : checkoutTotals.hasFreight
-                    ? formatCurrency(checkoutTotals.freight)
+                    ? (showCartDealerMoney ? formatCurrency(checkoutTotals.freight) : '—')
                     : '—'}
               </span>
             </div>
@@ -805,11 +822,11 @@ const DealerCartPage: React.FC = () => {
             ) : null}
             <div className="orders-page__summary-row">
               <span>GST</span>
-              <span>{formatCurrency(checkoutTotals.gst)}</span>
+              <span>{showCartDealerMoney ? formatCurrency(checkoutTotals.gst) : '—'}</span>
             </div>
             <div className="orders-page__summary-row orders-page__summary-row--total">
               <span>Total</span>
-              <strong>{formatCurrency(checkoutTotals.total)}</strong>
+              <strong>{showCartDealerMoney ? formatCurrency(checkoutTotals.total) : '—'}</strong>
             </div>
           </div>
           <label className="orders-page__freight-agree">

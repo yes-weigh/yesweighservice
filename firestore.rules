@@ -144,15 +144,42 @@ service cloud.firestore {
       return m == 'tier' || m == 'custom';
     }
 
+    function validDealerTeams(teams) {
+      return teams == null
+        || (teams is list
+            && teams.size() <= 2
+            && (teams.size() == 0 || teams[0] == 'sales' || teams[0] == 'service')
+            && (teams.size() < 2 || teams[1] == 'sales' || teams[1] == 'service'));
+    }
+
     function validDealerAccessFields(data) {
       return (!('dealerTier' in data) || validDealerTier(data.dealerTier))
         && (!('dealerAccessMode' in data) || validDealerAccessMode(data.dealerAccessMode))
-        && (!('dealerPermissions' in data) || data.dealerPermissions is list);
+        && (!('dealerPermissions' in data) || data.dealerPermissions is list)
+        && (!('dealerTeams' in data) || validDealerTeams(data.dealerTeams));
+    }
+
+    function validDealerStaffPhotoFields(data) {
+      return (!('hrPhotoStoragePath' in data)
+          || data.hrPhotoStoragePath == null
+          || data.hrPhotoStoragePath is string)
+        && (!('hrPhotoUrl' in data)
+          || data.hrPhotoUrl == null
+          || data.hrPhotoUrl is string)
+        && (!('hrBloodGroup' in data)
+          || data.hrBloodGroup == null
+          || data.hrBloodGroup is string)
+        && (!('hrDateOfBirth' in data)
+          || data.hrDateOfBirth == null
+          || data.hrDateOfBirth is string)
+        && (!('hrEmployeeId' in data)
+          || data.hrEmployeeId == null
+          || data.hrEmployeeId is string);
     }
 
     function validDealerPortalUserWrite(data) {
       return (data.role != 'dealer' && data.role != 'dealer_staff' && data.role != 'director' && data.role != 'director_staff')
-        || validDealerAccessFields(data);
+        || (validDealerAccessFields(data) && validDealerStaffPhotoFields(data));
     }
 
     function validStaffUserWrite(data) {
@@ -1031,6 +1058,28 @@ service cloud.firestore {
       allow update: if isActiveUser() && canWriteOpsLogistics() && validLogisticsBookingOpsUpdate();
 
       allow delete: if isFullSuperAdmin();
+    }
+
+    /**
+     * Per-dealer catalog MRP. Client reads own dealer’s docs;
+     * writes go through setDealerCatalogMrpFn (Admin SDK).
+     */
+    match /dealerCatalogMrp/{dealerId} {
+      allow read: if isActiveUser() && (
+        isOpsUser()
+        || (isDealer() && dealerId == request.auth.uid)
+        || (isDealerStaff() && dealerId == userDealerId(userDoc()))
+      );
+      allow write: if false;
+
+      match /products/{productId} {
+        allow read: if isActiveUser() && (
+          isOpsUser()
+          || (isDealer() && dealerId == request.auth.uid)
+          || (isDealerStaff() && dealerId == userDealerId(userDoc()))
+        );
+        allow write: if false;
+      }
     }
 
     /** Legacy portal orders — deprecated; purge via purgeDealerOrders callable. */

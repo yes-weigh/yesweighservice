@@ -53,7 +53,11 @@ function dealerErrorMessage(err: unknown): string {
       return 'Dealer functions are not deployed yet. Push to main or deploy Cloud Functions.';
     }
     if (code === 'functions/permission-denied') {
-      return 'You do not have permission to sync dealers.';
+      const clean = message.replace(/^FirebaseError:\s*/i, '').trim();
+      if (clean && clean !== 'permission-denied' && !/^INTERNAL$/i.test(clean)) {
+        return clean;
+      }
+      return 'You do not have permission to do this.';
     }
     // Prefer Zoho/server detail over a generic "deploy functions" hint.
     if (message && message !== 'internal' && !/^FirebaseError:/i.test(message)) {
@@ -113,6 +117,18 @@ export async function fetchMyDealerProfile(): Promise<ZohoDealer> {
   const fn = httpsCallable(functions, 'getMyDealerProfile', { timeout: 120_000 });
   const result = await fn();
   return (result.data as { dealer: ZohoDealer }).dealer;
+}
+
+export async function updateMyDealerAddresses(patch: {
+  billingAddress?: string;
+  shippingAddress?: string;
+}): Promise<ZohoDealer> {
+  const fn = httpsCallable<
+    { billingAddress?: string; shippingAddress?: string },
+    { dealer: ZohoDealer }
+  >(functions, 'updateMyDealerAddresses', { timeout: 120_000 });
+  const result = await fn(patch);
+  return result.data.dealer;
 }
 
 export async function refreshDealerFromZoho(id: string): Promise<ZohoDealer> {

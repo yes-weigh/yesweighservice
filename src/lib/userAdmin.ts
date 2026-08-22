@@ -53,6 +53,7 @@ export type UpdateUserProfilePatch = Partial<
     | 'dealerId'
     | 'superAdminAccess'
     | 'staffDepartment'
+    | 'dealerTeams'
     | 'staffRoleId'
     | 'staffAccessMode'
     | 'staffPermissions'
@@ -69,6 +70,7 @@ export type UpdateUserProfilePatch = Partial<
     | 'hrResidentialAddress'
     | 'hrPostalCode'
     | 'hrBloodGroup'
+    | 'hrDateOfBirth'
     | 'hrPoliceStation'
     | 'hrEmergencyContactName'
     | 'hrEmergencyContactRelationship'
@@ -87,6 +89,7 @@ export type CreateStaffHrInput = {
   hrResidentialAddress?: string | null;
   hrPostalCode?: string | null;
   hrBloodGroup?: string | null;
+  hrDateOfBirth?: string | null;
   hrPoliceStation?: string | null;
   hrEmergencyContactName?: string | null;
   hrEmergencyContactRelationship?: string | null;
@@ -109,6 +112,7 @@ export type CreateUserInput = {
   /** Super admin only; defaults to full. */
   superAdminAccess?: SuperAdminAccess;
   staffDepartment?: StaffDepartment;
+  dealerTeams?: Array<'sales' | 'service'> | null;
   staffRoleId?: string | null;
   staffAccessMode?: 'role' | 'department' | 'custom';
   staffPermissions?: StaffPermission[];
@@ -154,7 +158,10 @@ export async function createUserProfile(
       : undefined,
     dealerId: input.role === 'dealer_staff' ? input.dealerId?.trim() : undefined,
     zohoCustomerId: input.zohoCustomerId?.trim() || undefined,
-    staffDepartment: input.role === 'staff' ? input.staffDepartment : undefined,
+    staffDepartment: input.role === 'staff' || input.role === 'dealer_staff'
+      ? input.staffDepartment
+      : undefined,
+    dealerTeams: input.role === 'dealer_staff' ? input.dealerTeams ?? null : undefined,
     staffRoleId: input.role === 'staff' ? input.staffRoleId ?? null : undefined,
     staffAccessMode: input.role === 'staff' ? input.staffAccessMode ?? 'role' : undefined,
     staffPermissions: input.role === 'staff' ? input.staffPermissions ?? [] : undefined,
@@ -181,12 +188,13 @@ export async function createUserProfile(
     createdAt: new Date().toISOString(),
     createdByUid: input.createdByUid,
     clearTextPassword: input.password,
-    ...((input.role === 'staff' || input.role === 'super_admin') && input.hr ? {
+    ...((input.role === 'staff' || input.role === 'super_admin' || input.role === 'dealer_staff') && input.hr ? {
       hrPhotoUrl: input.hr.hrPhotoUrl ?? null,
       hrPhotoStoragePath: input.hr.hrPhotoStoragePath ?? null,
       hrResidentialAddress: input.hr.hrResidentialAddress ?? null,
       hrPostalCode: input.hr.hrPostalCode ?? null,
       hrBloodGroup: input.hr.hrBloodGroup ?? null,
+      hrDateOfBirth: input.hr.hrDateOfBirth ?? null,
       hrPoliceStation: input.hr.hrPoliceStation ?? null,
       hrEmergencyContactName: input.hr.hrEmergencyContactName ?? null,
       hrEmergencyContactRelationship: input.hr.hrEmergencyContactRelationship ?? null,
@@ -316,6 +324,30 @@ export async function setManagedUserPassword(uid: string, password: string): Pro
       }
     }
     throw new Error(authErrorMessage(err, 'Could not update password'));
+  }
+}
+
+/** Dealer owner: set a new Auth password for their own team staff. */
+export async function resetDealerStaffPassword(uid: string, password: string): Promise<void> {
+  const trimmed = password.trim();
+  if (trimmed.length < 6) {
+    throw new Error('Password must be at least 6 characters.');
+  }
+  const functions = getFunctions(app, 'asia-south1');
+  const callable = httpsCallable<{ uid: string; password: string }, { ok: boolean }>(
+    functions,
+    'resetDealerStaffPassword',
+  );
+  try {
+    await callable({ uid, password: trimmed });
+  } catch (err: unknown) {
+    if (typeof err === 'object' && err !== null && 'code' in err && 'message' in err) {
+      const fbErr = err as { code: string; message: string };
+      if (fbErr.code.startsWith('functions/') && fbErr.message) {
+        throw new Error(fbErr.message);
+      }
+    }
+    throw new Error(authErrorMessage(err, 'Could not reset password'));
   }
 }
 

@@ -10,7 +10,32 @@ type Props = {
   iconSize?: number;
   /** Show qty slab rows when the level defines them (grid / detail). */
   showSlabs?: boolean;
+  /** Optional control after the list / charge (e.g. dealer MRP pencil). */
+  trailing?: React.ReactNode;
 };
+
+/** Catalog MRP when dealer charge price is hidden from Sales / Service staff. */
+export function CatalogMrpLabel({
+  mrp,
+  iconSize = 14,
+  className = '',
+}: {
+  mrp: number | null | undefined;
+  iconSize?: number;
+  className?: string;
+}) {
+  if (mrp == null || !(Number(mrp) > 0)) return null;
+  const value = Math.round(Number(mrp) * 100) / 100;
+  return (
+    <span className={['catalog-mrp-label', className].filter(Boolean).join(' ')}>
+      <span className="catalog-mrp-label__tag">MRP</span>
+      <span className="catalog-mrp-label__amount">
+        <IndianRupee size={iconSize} strokeWidth={2.5} aria-hidden />
+        {value.toLocaleString('en-IN', { maximumFractionDigits: 2 })}
+      </span>
+    </span>
+  );
+}
 
 /**
  * Catalog / cart unit price for dealers:
@@ -25,17 +50,21 @@ export const DealerPriceDisplay: React.FC<Props> = ({
   className = '',
   iconSize = 15,
   showSlabs = true,
+  trailing,
 }) => {
   const mode = pricing?.mode ?? 'none';
   const list = Math.round((Number(listRate) || 0) * 100) / 100;
   const charge = Math.round((Number(pricing?.chargeRate ?? listRate) || 0) * 100) / 100;
-  const showDual = (mode === 'discount' || mode === 'fixed') && charge < list;
+  const showDual = list > charge && (
+    mode === 'discount' || mode === 'fixed' || trailing != null
+  );
   const slabRows = showSlabs && pricing?.slabs?.length
     ? formatPriceLevelSlabLabels(pricing.slabs)
     : [];
 
   const rootClass = [
     'dealer-price',
+    showDual ? 'dealer-price--dual' : '',
     !showDual && slabRows.length <= 1 ? 'dealer-price--single' : '',
     className,
   ].filter(Boolean).join(' ');
@@ -43,20 +72,24 @@ export const DealerPriceDisplay: React.FC<Props> = ({
   return (
     <div className={rootClass}>
       {showDual ? (
-        <>
-          <span className="dealer-price__list">
-            <IndianRupee size={iconSize - 2} strokeWidth={2.5} aria-hidden />
-            <span>{list.toLocaleString('en-IN')}</span>
-          </span>
+        <span className="dealer-price__pair">
           <span className="dealer-price__charge">
             <IndianRupee size={iconSize} strokeWidth={2.5} aria-hidden />
             <span>{charge.toLocaleString('en-IN')}</span>
           </span>
-        </>
+          <span className="dealer-price__list">
+            <IndianRupee size={Math.max(10, iconSize - 3)} strokeWidth={2.5} aria-hidden />
+            <span>{list.toLocaleString('en-IN')}</span>
+          </span>
+          {trailing}
+        </span>
       ) : (
-        <span className="dealer-price__charge">
-          <IndianRupee size={iconSize} strokeWidth={2.5} aria-hidden />
-          <span>{charge.toLocaleString('en-IN')}</span>
+        <span className="dealer-price__pair">
+          <span className="dealer-price__charge">
+            <IndianRupee size={iconSize} strokeWidth={2.5} aria-hidden />
+            <span>{charge.toLocaleString('en-IN')}</span>
+          </span>
+          {trailing}
         </span>
       )}
       {slabRows.length > 1 ? (

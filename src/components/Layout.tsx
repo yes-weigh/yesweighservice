@@ -44,6 +44,9 @@ import {
   PackageCheck,
   PackagePlus,
   RefreshCw,
+  Stamp,
+  List,
+  Percent,
 } from 'lucide-react';
 import { getAppVersionLabel } from '../lib/appVersion';
 import { refreshAppAndData } from '../lib/refreshApp';
@@ -105,6 +108,7 @@ function portalNavItems(
 ): NavItem[] {
   const items: Record<string, NavItem> = {
     catalog: { path: `${home}/products`, icon: <Package size={20} />, label: 'Products' },
+    priceList: { path: `${home}/price-list`, icon: <List size={20} />, label: 'Price list' },
     orders: {
       path: `${home}/sales-orders`,
       icon: <ClipboardList size={20} />,
@@ -116,10 +120,12 @@ function portalNavItems(
       icon: <LifeBuoy size={20} />,
       label: 'Warranty & Support',
     },
+    reports: { path: `${home}/reports`, icon: <BarChart3 size={20} />, label: 'Reports' },
     services: { path: `${home}/services`, icon: <Wrench size={20} />, label: 'Services' },
     returns: { path: `${home}/returns`, icon: <RotateCcw size={20} />, label: 'Returns' },
     advertisements: { path: `${home}/advertisements`, icon: <Megaphone size={20} />, label: 'Media Center' },
     invoices: { path: `${home}/invoices`, icon: <FileText size={20} />, label: 'Invoice' },
+    gatc: { path: `${home}/verification`, icon: <Stamp size={20} />, label: 'GATC' },
     goodsReceipts: {
       path: `${home}/goods-receipts`,
       icon: <PackageCheck size={20} />,
@@ -132,6 +138,8 @@ function portalNavItems(
     },
     logistics: { path: `${home}/logistics`, icon: <Truck size={20} />, label: 'Logistics' },
     loyalty: { path: `${home}/loyalty`, icon: <Gift size={20} />, label: 'Loyalty' },
+    rewardPoint: { path: `${home}/loyalty`, icon: <Gift size={20} />, label: 'Reward point' },
+    scheme: { path: `${home}/scheme`, icon: <Percent size={20} />, label: 'Scheme' },
     aiAssistant: { path: `${home}/ai-assistant`, icon: <Bot size={20} />, label: 'AI assistance' },
     training: { path: `${home}/training`, icon: <GraduationCap size={20} />, label: 'Trainings' },
   };
@@ -151,28 +159,38 @@ function portalNavItems(
       : order === 'dealer_staff'
         ? [
             'catalog',
-            'orders',
-            'invoices',
-            'logistics',
+            'priceList',
+            'gatc',
             'warrantySupport',
             'advertisements',
-            'loyalty',
-            'aiAssistant',
+            'scheme',
+            'rewardPoint',
             'training',
+            'aiAssistant',
           ]
         : [
           'catalog',
+          'priceList',
           'orders',
           'invoices',
+          'gatc',
           'logistics',
           'warrantySupport',
+          'reports',
           'advertisements',
           'loyalty',
           'training',
           'aiAssistant',
         ];
 
-  return sequence.map((key) => items[key]);
+  return sequence.map((key) => {
+    const item = items[key];
+    if (order !== 'dealer_staff') return item;
+    if (key === 'catalog') return { ...item, label: 'Product' };
+    if (key === 'training') return { ...item, label: 'Training' };
+    if (key === 'aiAssistant') return { ...item, label: 'AI' };
+    return item;
+  });
 }
 
 function staffPathToFeature(path: string): StaffNavFeature {
@@ -264,7 +282,8 @@ const LayoutShell: React.FC = () => {
 
   // Keep cart fly target even when pages inject topBarAction (e.g. spare filters/sync).
   const showCartFlyTarget = canUseOrderCart(user)
-    && !/\/warranty-support(\/|$)/.test(location.pathname);
+    && !/\/warranty-support(\/|$)/.test(location.pathname)
+    && !/\/team(\/|$)/.test(location.pathname);
 
   useEffect(() => {
     if (showCartFlyTarget) {
@@ -326,11 +345,12 @@ const LayoutShell: React.FC = () => {
       case 'dealer':
         return [
           ...portalNavItems('/dealer', 'dealer'),
-          { path: '/dealer/team', icon: <Users size={20} />, label: 'Staffs' },
+          { path: '/dealer/team', icon: <Users size={20} />, label: 'Team' },
         ];
       case 'dealer_staff':
         return [
           ...portalNavItems('/dealer-staff', 'dealer_staff'),
+          { path: '/dealer-staff/team', icon: <Users size={20} />, label: 'Team' },
         ];
       case 'media':
         return [

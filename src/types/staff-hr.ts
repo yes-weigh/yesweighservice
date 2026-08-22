@@ -23,6 +23,7 @@ export interface StaffHrProfile {
   hrResidentialAddress?: string | null;
   hrPostalCode?: string | null;
   hrBloodGroup?: string | null;
+  hrDateOfBirth?: string | null;
   hrPoliceStation?: string | null;
   hrEmergencyContactName?: string | null;
   hrEmergencyContactRelationship?: string | null;
@@ -42,6 +43,7 @@ export function emptyHrProfile(): StaffHrProfile {
     hrResidentialAddress: null,
     hrPostalCode: null,
     hrBloodGroup: null,
+    hrDateOfBirth: null,
     hrPoliceStation: null,
     hrEmergencyContactName: null,
     hrEmergencyContactRelationship: null,

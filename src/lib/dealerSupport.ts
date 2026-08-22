@@ -42,6 +42,7 @@ import type {
   SupportRequestType,
 } from '../types/dealer-support';
 import { uploadSupportAttachments, type SupportSubmitProgress } from './supportAttachments';
+import { canMutateDealerSupport } from './dealerAccess';
 import {
   canDealerCancelSupportRequest,
   isProductCourierType,
@@ -376,6 +377,13 @@ export function canUserAccessSupportRequest(user: User, request: DealerSupportRe
   return request.dealerId === dealerId;
 }
 
+function assertCanWriteDealerSupport(user: User) {
+  if (user.role !== 'dealer' && user.role !== 'dealer_staff') return;
+  if (!canMutateDealerSupport(user)) {
+    throw new Error('View-only access. You cannot create or reply to support requests.');
+  }
+}
+
 export async function getSupportRequest(requestId: string): Promise<DealerSupportRequest | null> {
   const current = await getDoc(doc(db, 'dealerSupportRequests', requestId));
   if (!current.exists()) return null;
@@ -524,6 +532,7 @@ async function sendSupportMessageOnce(
   if (!canUserAccessSupportRequest(user, request)) {
     throw new Error('You do not have permission to message this request.');
   }
+  assertCanWriteDealerSupport(user);
   if (!isInternalOpsUser(user) && isSupportDraft(request) && !input.isInitial) {
     throw new Error('Submit the draft before sending messages.');
   }
@@ -694,6 +703,7 @@ async function finalizeSupportSubmit(requestId: string, timelineAt?: string): Pr
 }
 
 export async function createSupportChatRequest(user: User): Promise<DealerSupportRequest> {
+  assertCanWriteDealerSupport(user);
   const now = new Date().toISOString();
   const data = buildSupportRequestDocument(user, {
     type: 'chat',
@@ -715,6 +725,7 @@ export async function saveSupportRequestDraft(
   user: User,
   input: SaveSupportRequestDraftInput,
 ): Promise<DealerSupportRequest> {
+  assertCanWriteDealerSupport(user);
   assertOnBehalfAccess(user, input.onBehalfOf);
   const now = resolveSupportTimelineAt(input.occurredAt);
 
@@ -776,6 +787,7 @@ export async function createSupportRequest(
   input: CreateSupportRequestInput,
   onProgress?: (progress: SupportSubmitProgress) => void,
 ): Promise<DealerSupportRequest> {
+  assertCanWriteDealerSupport(user);
   assertOnBehalfAccess(user, input.onBehalfOf);
   const timelineAt = resolveSupportTimelineAt(input.occurredAt);
   const description = input.description.trim();
@@ -1173,6 +1185,7 @@ export async function cancelSupportRequest(
   user: User,
   requestId: string,
 ): Promise<void> {
+  assertCanWriteDealerSupport(user);
   const request = await getSupportRequest(requestId);
   if (!request) throw new Error('Support request not found.');
 
@@ -1217,6 +1230,7 @@ export async function markSupportProductShipped(
   requestId: string,
   courierTracking?: string,
 ): Promise<void> {
+  assertCanWriteDealerSupport(user);
   const request = await getSupportRequest(requestId);
   if (!request) throw new Error('Support request not found.');
   if (!canUserAccessSupportRequest(user, request)) {
@@ -1246,6 +1260,7 @@ export async function deleteSupportRequestDraft(
   user: User,
   requestId: string,
 ): Promise<void> {
+  assertCanWriteDealerSupport(user);
   const request = await getSupportRequest(requestId);
   if (!request) throw new Error('Draft not found.');
   if (!isSupportDraft(request)) throw new Error('Only drafts can be discarded.');
