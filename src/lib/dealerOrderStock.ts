@@ -19,22 +19,43 @@ export function dealerCatalogAvailableQty(
   return Number.isFinite(stock) ? stock : 0;
 }
 
+/** Upcoming shipment qty (scheduled warehouse receipt and/or open PO). */
+export function dealerUpcomingShipmentQty(scheduledQty = 0, raisedPoQty = 0): number {
+  const inbound = Number(scheduledQty);
+  const po = Number(raisedPoQty);
+  const a = Number.isFinite(inbound) && inbound > 0 ? inbound : 0;
+  const b = Number.isFinite(po) && po > 0 ? po : 0;
+  return Math.max(a, b);
+}
+
 export function dealerCanOrderProduct(
   product: Pick<CatalogProduct, 'hsn' | 'stock' | 'auditSnapshot' | 'ledgerClosingStock' | 'categoryName' | 'categoryId'> | null | undefined,
   scheduledQty = 0,
+  raisedPoQty = 0,
 ): boolean {
-  if (!product) return Number(scheduledQty) > 0;
+  if (!product) return dealerUpcomingShipmentQty(scheduledQty, raisedPoQty) > 0;
   if (isSacHsn(product.hsn)) return true;
   if (dealerCatalogAvailableQty(product) > 0) return true;
-  return Number(scheduledQty) > 0;
+  return dealerUpcomingShipmentQty(scheduledQty, raisedPoQty) > 0;
+}
+
+/** Dealer browse: hide when audited/available stock is 0 and there is no upcoming shipment. */
+export function dealerShouldListCatalogProduct(
+  product: Pick<CatalogProduct, 'hsn' | 'stock' | 'auditSnapshot' | 'ledgerClosingStock' | 'categoryName' | 'categoryId'> | null | undefined,
+  scheduledQty = 0,
+  raisedPoQty = 0,
+): boolean {
+  return dealerCanOrderProduct(product, scheduledQty, raisedPoQty);
 }
 
 export function dealerOrderUsesScheduledInbound(
   product: Pick<CatalogProduct, 'hsn' | 'stock' | 'auditSnapshot' | 'ledgerClosingStock' | 'categoryName' | 'categoryId'> | null | undefined,
   scheduledQty = 0,
+  raisedPoQty = 0,
 ): boolean {
   if (!product || isSacHsn(product.hsn)) return false;
-  return dealerCatalogAvailableQty(product) <= 0 && Number(scheduledQty) > 0;
+  return dealerCatalogAvailableQty(product) <= 0
+    && dealerUpcomingShipmentQty(scheduledQty, raisedPoQty) > 0;
 }
 
 export const DEALER_ORDER_UNAVAILABLE_TITLE =
@@ -47,4 +68,4 @@ export const DEALER_ORDER_SCHEDULED_TITLE =
   'Inbound scheduled — you can order now';
 
 export const DEALER_ORDER_SCHEDULED_MESSAGE =
-  'Audited stock is 0. Inbound is scheduled — this order will be fulfilled when goods arrive.';
+  'Audited stock is 0. An upcoming shipment is scheduled — this order will be fulfilled when goods arrive.';

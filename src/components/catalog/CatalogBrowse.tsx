@@ -25,6 +25,7 @@ import { ProductFolderGrid } from './ProductFolderGrid';
 import { ProductImageFrame } from './ProductImageFrame';
 import { fillSearchFromScan, SkuScanButton } from './SkuScanButton';
 import { StockBadge, StockQuantity } from './StockBadge';
+import { useDealerListedCatalogProducts } from '../../hooks/useDealerOrderStockGate';
 
 export interface CatalogBrowseProps {
   products: CatalogProduct[];
@@ -288,6 +289,7 @@ export const CatalogBrowse: React.FC<CatalogBrowseProps> = ({
   }, [onActiveCategoryChange]);
   const [stockFilter, setStockFilter] = useState('');
   const [viewMode, setViewMode] = useState<'grid' | 'list'>('grid');
+  const listedProducts = useDealerListedCatalogProducts(products);
 
   useEffect(() => {
     if (!highlightedProductId) return;
@@ -298,7 +300,7 @@ export const CatalogBrowse: React.FC<CatalogBrowseProps> = ({
       el?.scrollIntoView({ behavior: 'smooth', block: 'center' });
     }, 120);
     return () => window.clearTimeout(timer);
-  }, [highlightedProductId, products]);
+  }, [highlightedProductId, listedProducts]);
   const openProduct = (product: CatalogProduct) => {
     if (onProductSelect) {
       onProductSelect(product);
@@ -334,19 +336,28 @@ export const CatalogBrowse: React.FC<CatalogBrowseProps> = ({
     }
   };
 
-  const filteredCategories = useMemo(
-    () => categories
-      .filter(c => c.id && c.productCount > 0 && !isHiddenCatalogCategory(c))
+  const filteredCategories = useMemo(() => {
+    const listedCounts = new Map<string, number>();
+    for (const product of listedProducts) {
+      if (!product.categoryId) continue;
+      listedCounts.set(product.categoryId, (listedCounts.get(product.categoryId) ?? 0) + 1);
+    }
+    return categories
+      .filter(c => c.id && (listedCounts.get(c.id) ?? 0) > 0 && !isHiddenCatalogCategory(c))
+      .map(c => {
+        const n = listedCounts.get(c.id) ?? 0;
+        if (n === c.productCount) return c;
+        return { ...c, productCount: n, totalProductCount: n };
+      })
       .sort((a, b) => {
         const orderDiff = a.displayOrder - b.displayOrder;
         if (orderDiff !== 0) return orderDiff;
         return a.name.localeCompare(b.name);
-      }),
-    [categories],
-  );
+      });
+  }, [categories, listedProducts]);
 
   const filteredProducts = useMemo(() => {
-    let list = products;
+    let list = listedProducts;
     if (search.trim()) {
       const q = search.trim().toLowerCase();
       list = list.filter(p =>
@@ -365,7 +376,7 @@ export const CatalogBrowse: React.FC<CatalogBrowseProps> = ({
       list = [...list].sort(compareCatalogProductsInCategory);
     }
     return list;
-  }, [products, search, activeCategory, stockFilter]);
+  }, [listedProducts, search, activeCategory, stockFilter]);
 
   const canReorderCategoryProducts = Boolean(
     manageCategories
@@ -493,7 +504,7 @@ export const CatalogBrowse: React.FC<CatalogBrowseProps> = ({
         </CategoryBrowseSection>
       )}
 
-      {showCategoryGrid && !flatBrowse && !showProducts && filteredCategories.length === 0 && products.length > 0 && (
+      {showCategoryGrid && !flatBrowse && !showProducts && filteredCategories.length === 0 && listedProducts.length > 0 && (
         <div className="catalog-empty panel glass">
           <FolderOpen size={40} />
           <p>No categories yet</p>

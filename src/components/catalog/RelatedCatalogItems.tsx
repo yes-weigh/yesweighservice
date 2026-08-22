@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { IndianRupee, Link2Off, Package, ShoppingCart } from 'lucide-react';
 import { useCart } from '../../context/useCart';
 import { useCartFly } from '../../context/useCartFly';
-import { useDealerOrderStockGate } from '../../hooks/useDealerOrderStockGate';
+import { useDealerListedCatalogProducts, useDealerOrderStockGate } from '../../hooks/useDealerOrderStockGate';
 import {
   DEALER_ORDER_SCHEDULED_TITLE,
   DEALER_ORDER_UNAVAILABLE_TITLE,
@@ -133,6 +133,7 @@ export const RelatedCatalogItems: React.FC<{
 }) => {
   const navigate = useNavigate();
   const [unlinkMode, setUnlinkMode] = useState(false);
+  const listedItems = useDealerListedCatalogProducts(items);
   const canNavigate = Boolean(detailBasePath) && !disableNavigation;
   const showUnlinkButtons = Boolean(onUnlink) && unlinkMode;
 
@@ -188,11 +189,11 @@ export const RelatedCatalogItems: React.FC<{
           {headerControls}
         </div>
       )}
-      {items.length === 0 ? (
+      {listedItems.length === 0 ? (
         <p className="related-catalog__empty text-muted text-sm">{emptyMessage}</p>
       ) : (
         <ul className="related-catalog__list">
-          {items.map(item => {
+          {listedItems.map(item => {
             const unlinking = unlinkingId === item.id;
             const itemCartable = !isCartable || isCartable(item);
             const mainBody = (

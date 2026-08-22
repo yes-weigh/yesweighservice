@@ -1,6 +1,7 @@
 import React, { useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Package } from 'lucide-react';
+import { useDealerListedCatalogProducts } from '../../hooks/useDealerOrderStockGate';
 import type { CatalogProduct } from '../../types/catalog';
 import { buildProductNavState, buildSpareNavState } from '../../lib/catalogNav';
 import { ProductBrowseCard } from './ProductBrowseCard';
@@ -47,17 +48,19 @@ export const CatalogUnifiedResults: React.FC<CatalogUnifiedResultsProps> = ({
   isLoading = false,
 }) => {
   const navigate = useNavigate();
+  const listedProducts = useDealerListedCatalogProducts(products);
+  const listedSpares = useDealerListedCatalogProducts(spares);
 
-  const spareIdSet = useMemo(() => new Set(spares.map(spare => spare.id)), [spares]);
+  const spareIdSet = useMemo(() => new Set(listedSpares.map(spare => spare.id)), [listedSpares]);
 
   const productHits = useMemo(
-    () => products.filter(p => matchesQuery(p, query) && !spareIdSet.has(p.id)),
-    [products, query, spareIdSet],
+    () => listedProducts.filter(p => matchesQuery(p, query) && !spareIdSet.has(p.id)),
+    [listedProducts, query, spareIdSet],
   );
 
   const spareHits = useMemo(
-    () => spares.filter(p => matchesQuery(p, query)),
-    [spares, query],
+    () => listedSpares.filter(p => matchesQuery(p, query)),
+    [listedSpares, query],
   );
 
   if (isLoading) {

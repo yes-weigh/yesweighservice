@@ -3,6 +3,7 @@ import { useLocation } from 'react-router-dom';
 import { AlertCircle, RefreshCw } from 'lucide-react';
 import { CatalogBrowse } from '../../components/catalog/CatalogBrowse';
 import { useAuth } from '../../context/AuthContext';
+import { useDealerListedCatalogProducts } from '../../hooks/useDealerOrderStockGate';
 import { useRaisedPoQtyByProductId } from '../../hooks/useRaisedPoQtyByProductId';
 import { useCanViewShipmentTracking, useCanViewCatalogStock } from '../../hooks/useCanViewShipmentTracking';
 import { isDealerPortalUser } from '../../lib/dealerAccess';
@@ -57,13 +58,14 @@ export const ProductsPage: React.FC = () => {
     void loadCatalog();
   }, [loadCatalog]);
 
-  const catalogProducts = useMemo(
+  const catalogProductsUnfiltered = useMemo(
     () => excludeHiddenCatalogProducts(
       getShopCatalogProducts(catalog?.items ?? [], catalog?.categories ?? []),
       catalog?.categories ?? [],
     ),
     [catalog?.items, catalog?.categories],
   );
+  const catalogProducts = useDealerListedCatalogProducts(catalogProductsUnfiltered);
 
   const catalogCategories = useMemo(
     () => getCategoriesForProducts(catalog?.categories ?? [], catalogProducts),

@@ -13,6 +13,7 @@ import { InventoryAuditBatchLinkModal } from '../../components/yesStore/Inventor
 import { useAuth } from '../../context/AuthContext';
 import { useConfirm } from '../../context/ConfirmContext';
 import { useCatalogPageHeader, usePageHeaderSlot, useTopBarAction } from '../../context/PageHeaderContext';
+import { useDealerListedCatalogProducts } from '../../hooks/useDealerOrderStockGate';
 import { useDealerPriceLevels } from '../../hooks/useDealerUnitPrice';
 import { useRaisedPoQtyByProductId } from '../../hooks/useRaisedPoQtyByProductId';
 import { useCanViewShipmentTracking, useCanViewCatalogStock } from '../../hooks/useCanViewShipmentTracking';
@@ -504,7 +505,7 @@ export const CatalogPage: React.FC = () => {
     void loadAuditItems();
   }, [showAuditedLocations, focus, loadAuditItems]);
 
-  const shopProducts = useMemo(() => {
+  const priceVisibleShopProducts = useMemo(() => {
     const base = excludeHiddenCatalogProducts(
       getShopCatalogProducts(catalog?.items ?? [], catalog?.categories ?? []),
       catalog?.categories ?? [],
@@ -513,11 +514,15 @@ export const CatalogPage: React.FC = () => {
     return base.filter(product => isProductVisible(product));
   }, [catalog?.items, catalog?.categories, dealerView, isProductVisible]);
 
-  const spareParts = useMemo(() => {
+  const shopProducts = useDealerListedCatalogProducts(priceVisibleShopProducts);
+
+  const priceVisibleSpareParts = useMemo(() => {
     const base = getCatalogSparePartsPool(catalog?.items ?? [], catalog?.categories ?? []);
     if (!dealerView) return base;
     return base.filter(product => isProductVisible(product));
   }, [catalog?.items, catalog?.categories, dealerView, isProductVisible]);
+
+  const spareParts = useDealerListedCatalogProducts(priceVisibleSpareParts);
 
   const hasMediaProductFilters = isMedia && mediaProductFilters.size > 0;
 

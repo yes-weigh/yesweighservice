@@ -22,8 +22,6 @@ import { cartLineIsOutOfStock, fetchCatalog, formatCurrency } from '../../lib/ca
 import {
   DEALER_ORDER_SCHEDULED_MESSAGE,
   DEALER_ORDER_UNAVAILABLE_MESSAGE,
-  dealerCanOrderProduct,
-  dealerOrderUsesScheduledInbound,
 } from '../../lib/dealerOrderStock';
 import {
   DIRECTORS_QTY_CLUB_LABEL,
@@ -318,14 +316,13 @@ const DealerCartPage: React.FC = () => {
     cartIsSpareOnly,
   ]);
 
-  const { inboundByProductId } = dealerStock;
+  const { inboundByProductId, raisedPoQty, canOrder } = dealerStock;
   const unorderableItems = useMemo(() => items.filter(item => {
     const product = catalogById[item.productId];
-    const inbound = inboundByProductId[item.productId] ?? 0;
-    if (product) return !dealerCanOrderProduct(product, inbound);
-    if (inbound > 0) return false;
+    if (product) return !canOrder(product);
+    if ((inboundByProductId[item.productId] ?? 0) > 0 || raisedPoQty(item.productId) > 0) return false;
     return cartLineIsOutOfStock(item);
-  }), [items, catalogById, inboundByProductId]);
+  }), [items, catalogById, inboundByProductId, raisedPoQty, canOrder]);
 
   const handlePlaceOrder = async () => {
     if (items.length === 0 || submitting) return;
@@ -521,12 +518,13 @@ const DealerCartPage: React.FC = () => {
               const lineTotal = item.rate * item.quantity;
               const catalogProduct = catalogById[item.productId];
               const scheduledQty = dealerStock.scheduledQty(item.productId);
+              const poQty = dealerStock.raisedPoQty(item.productId);
               const canOrderLine = catalogProduct
-                ? dealerCanOrderProduct(catalogProduct, scheduledQty)
-                : scheduledQty > 0 || !cartLineIsOutOfStock(item);
+                ? dealerStock.canOrder(catalogProduct)
+                : scheduledQty > 0 || poQty > 0 || !cartLineIsOutOfStock(item);
               const inboundOnly = catalogProduct
-                ? dealerOrderUsesScheduledInbound(catalogProduct, scheduledQty)
-                : cartLineIsOutOfStock(item) && scheduledQty > 0;
+                ? dealerStock.usesScheduledInbound(catalogProduct)
+                : cartLineIsOutOfStock(item) && (scheduledQty > 0 || poQty > 0);
               const canEditStamp = catalogProduct
                 ? productHasLinkedGatc(catalogProduct)
                 : Boolean(item.gatcStampingPriceId);

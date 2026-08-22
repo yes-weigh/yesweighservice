@@ -4,6 +4,7 @@ import { AlertCircle, Boxes, Link2, Package, RefreshCw, Search } from 'lucide-re
 import { CatalogBrowse } from '../../components/catalog/CatalogBrowse';
 import { SpareLinkEditor } from '../../components/catalog/SpareLinkEditor';
 import { useAuth } from '../../context/AuthContext';
+import { useDealerListedCatalogProducts } from '../../hooks/useDealerOrderStockGate';
 import { useRaisedPoQtyByProductId } from '../../hooks/useRaisedPoQtyByProductId';
 import { useCanViewShipmentTracking, useCanViewCatalogStock } from '../../hooks/useCanViewShipmentTracking';
 import { isDealerPortalUser } from '../../lib/dealerAccess';
@@ -99,10 +100,11 @@ export const SparesPage: React.FC = () => {
     void loadLinkedSpareIds();
   }, [loadLinkedSpareIds]);
 
-  const sparesProducts = useMemo(
+  const sparesProductsUnfiltered = useMemo(
     () => getCatalogSparePartsPool(catalog?.items ?? [], catalog?.categories ?? []),
     [catalog?.items, catalog?.categories],
   );
+  const sparesProducts = useDealerListedCatalogProducts(sparesProductsUnfiltered);
 
   const unlinkedSpares = useMemo(() => {
     if (!linkedSpareIds) return [];
@@ -113,10 +115,11 @@ export const SparesPage: React.FC = () => {
     );
   }, [catalog?.items, catalog?.categories, linkedSpareIds]);
 
-  const catalogProducts = useMemo(
+  const catalogProductsUnfiltered = useMemo(
     () => getFinishedGoodsForSpareMapping(catalog?.items ?? [], catalog?.categories ?? []),
     [catalog?.items, catalog?.categories],
   );
+  const catalogProducts = useDealerListedCatalogProducts(catalogProductsUnfiltered);
 
   const catalogCategories = useMemo(
     () => getCategoriesForProducts(catalog?.categories ?? [], catalogProducts)
