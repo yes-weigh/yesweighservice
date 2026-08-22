@@ -19,6 +19,7 @@ import { CategoryBrowseCard } from './CategoryBrowseCard';
 import { CategoryBrowseSection } from './CategoryBrowseSection';
 import { CategoryFolderGrid } from './CategoryFolderGrid';
 import { ProductBrowseCard } from './ProductBrowseCard';
+import { CatalogMerchBadges } from './CatalogMerchBadges';
 import { CatalogOnOrderShipChip } from './CatalogOnOrderShipChip';
 import { ProductFolderGrid } from './ProductFolderGrid';
 import { ProductImageFrame } from './ProductImageFrame';
@@ -129,6 +130,7 @@ function ProductListRow({
       <div className="catalog-row__main">
         {product.sku && <span className="catalog-card__sku">{product.sku}</span>}
         <h3>{product.name}</h3>
+        <CatalogMerchBadges product={product} />
         {showStockQuantity && (
           <StockQuantity
             stock={gridStockQty}

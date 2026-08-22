@@ -6203,12 +6203,33 @@ body:has(.confirm-inline-bar) .confirm-inline-bar {
   margin-top: 0.28rem;
 }
 
+.catalog-merch-badges--overlay {
+  position: absolute;
+  top: 0.4rem;
+  right: 0.4rem;
+  z-index: 4;
+  flex-direction: column;
+  align-items: flex-end;
+  margin: 0;
+  max-width: 46%;
+  pointer-events: none;
+}
+
+.catalog-product-card .catalog-merch-badges--overlay {
+  top: 2.2rem;
+}
+
+.catalog-merch-badges--detail {
+  top: 0.5rem;
+  right: 0.5rem;
+}
+
 .catalog-merch-badge {
   display: inline-flex;
   align-items: center;
-  padding: 0.12rem 0.42rem;
+  padding: 0.16rem 0.48rem;
   border-radius: 999px;
-  font-size: 0.58rem;
+  font-size: 0.625rem;
   font-weight: 800;
   letter-spacing: 0.03em;
   line-height: 1.2;
@@ -6229,6 +6250,19 @@ body:has(.confirm-inline-bar) .confirm-inline-bar {
 
 .product-detail-page__merch-badges {
   margin: -0.15rem 0 0.45rem;
+}
+
+.catalog-product-card__tag-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.28rem;
+  margin-top: 0.12rem;
+}
+
+.catalog-product-card__tag-row .catalog-merch-badges,
+.catalog-product-card__tag-row .catalog-product-card__nc-badge {
+  margin-top: 0;
 }
 
 .catalog-product-card__qty-stack,

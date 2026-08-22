@@ -2115,6 +2115,7 @@ export async function setCatalogProductMerchFlag(
   >(functions, 'setCatalogProductMerchFlag');
   try {
     const result = await callable({ productId, flag, enabled });
+    clearCatalogCache();
     patchCatalogCacheProduct(productId, {
       ...(flag === 'newArrival' ? { newArrival: result.data.newArrival === true } : {}),
       ...(flag === 'discontinuedSoon' ? { discontinuedSoon: result.data.discontinuedSoon === true } : {}),

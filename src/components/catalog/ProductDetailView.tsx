@@ -1676,7 +1676,7 @@ export const ProductDetailView: React.FC<{
     const ok = await confirm({
       title: enable ? `Mark as ${label.toLowerCase()}?` : `Remove ${label.toLowerCase()}?`,
       message: enable
-        ? `“${product.name}” will show a ${label.toLowerCase()} badge on the product card.`
+        ? `“${product.name}” will show a ${label.toLowerCase()} badge for every user, including all dealers.`
         : `The ${label.toLowerCase()} badge will be removed from “${product.name}”.`,
       confirmLabel: enable ? label : `Remove ${label.toLowerCase()}`,
     });
@@ -1779,6 +1779,10 @@ export const ProductDetailView: React.FC<{
                   )}
                 </div>
               )}
+              <CatalogMerchBadges
+                product={product}
+                className="catalog-merch-badges--overlay catalog-merch-badges--detail"
+              />
               {stampingChipLines.length > 0 && (
                 <div
                   className={[

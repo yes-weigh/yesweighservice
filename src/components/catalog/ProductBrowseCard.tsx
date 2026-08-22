@@ -310,6 +310,7 @@ export const ProductBrowseCard: React.FC<ProductBrowseCardProps> = ({
             </span>
           )}
           <StockBadge status={product.stockStatus} overlay variant="tile" iconOnly />
+          <CatalogMerchBadges product={product} className="catalog-merch-badges--overlay" />
           {(showBottomLeft) && (
             <div className="catalog-product-card__media-bottom-left">
               {showPackageMissingIcon && (
@@ -366,7 +367,6 @@ export const ProductBrowseCard: React.FC<ProductBrowseCardProps> = ({
 
         <div className="catalog-product-card__body">
           <h3 className="catalog-product-card__title">{formatProductTitle(product.name)}</h3>
-          <CatalogMerchBadges product={product} />
           <div className="catalog-product-card__price-row">
             <div className="catalog-product-card__price">
               {dealerView ? (
@@ -407,11 +407,16 @@ export const ProductBrowseCard: React.FC<ProductBrowseCardProps> = ({
             )}
           </div>
 
-          {openNcCount != null && openNcCount > 0 && (
-            <span className="catalog-product-card__nc-badge">
-              NC {openNcCount}
-            </span>
-          )}
+          {(openNcCount != null && openNcCount > 0) || product.newArrival === true || product.discontinuedSoon === true ? (
+            <div className="catalog-product-card__tag-row">
+              <CatalogMerchBadges product={product} />
+              {openNcCount != null && openNcCount > 0 ? (
+                <span className="catalog-product-card__nc-badge">
+                  NC {openNcCount}
+                </span>
+              ) : null}
+            </div>
+          ) : null}
 
           {showAuditInfo && (
             <div className="catalog-product-card__audit">
