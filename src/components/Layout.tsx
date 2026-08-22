@@ -7,6 +7,7 @@ import { useCartFly } from '../context/useCartFly';
 import { homePathForRole } from '../types';
 import { canUseOrderCart, orderCartPathForUser } from '../lib/salesOrderSegments';
 import { navigateBack } from '../lib/navigation';
+import { HrStaffPhoto } from './hr/HrStaffPhoto';
 import {
   canAccessNavFeature,
   canViewHr,
@@ -156,11 +157,12 @@ function portalNavItems(
           'loyalty',
           'aiAssistant',
         ]
-      : order === 'dealer_staff'
+        : order === 'dealer_staff'
         ? [
             'catalog',
             'priceList',
-            'gatc',
+            'orders',
+            'logistics',
             'warrantySupport',
             'advertisements',
             'scheme',
@@ -173,7 +175,6 @@ function portalNavItems(
           'priceList',
           'orders',
           'invoices',
-          'gatc',
           'logistics',
           'warrantySupport',
           'reports',
@@ -187,6 +188,8 @@ function portalNavItems(
     const item = items[key];
     if (order !== 'dealer_staff') return item;
     if (key === 'catalog') return { ...item, label: 'Product' };
+    if (key === 'orders') return { ...item, label: 'Sales order' };
+    if (key === 'logistics') return { ...item, label: 'Logistic' };
     if (key === 'training') return { ...item, label: 'Training' };
     if (key === 'aiAssistant') return { ...item, label: 'AI' };
     return item;
@@ -284,6 +287,7 @@ const LayoutShell: React.FC = () => {
   const showCartFlyTarget = canUseOrderCart(user)
     && !/\/warranty-support(\/|$)/.test(location.pathname)
     && !/\/team(\/|$)/.test(location.pathname);
+  const showProfileDp = false;
 
   useEffect(() => {
     if (showCartFlyTarget) {
@@ -435,7 +439,7 @@ const LayoutShell: React.FC = () => {
   const isDashboardHome = location.pathname === home;
   const showHeaderBack = Boolean(pageHeader.showBack && pageHeader.onBack);
   const mobileCompactHeader = Boolean(pageHeader.mobileCompactHeader && isMobile);
-  const showTrailing = Boolean(isDashboardHome || topBarAction || showCartFlyTarget);
+  const showTrailing = Boolean(isDashboardHome || topBarAction || showCartFlyTarget || showProfileDp);
 
   const handleNavClick = (path: string) => {
     const isProductsRoot = path.endsWith('/products');
@@ -698,6 +702,23 @@ const LayoutShell: React.FC = () => {
                 {itemCount > 0 && (
                   <span className="cart-header-btn__badge">{itemCount > 99 ? '99+' : itemCount}</span>
                 )}
+              </button>
+            ) : null}
+            {showProfileDp ? (
+              <button
+                type="button"
+                className={`top-bar__profile-dp${isFooterNavActive ? ' is-active' : ''}`}
+                onClick={() => handleNavClick(footerNavPath)}
+                aria-label="Open profile"
+                title="Profile"
+              >
+                <HrStaffPhoto
+                  userId={user.uid}
+                  photo={user}
+                  className="top-bar__profile-dp-img"
+                  placeholderClassName="top-bar__profile-dp-img top-bar__profile-dp-img--placeholder"
+                  iconSize={18}
+                />
               </button>
             ) : null}
           </div>

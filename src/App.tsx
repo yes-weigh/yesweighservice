@@ -201,7 +201,7 @@ const portalMenuRoutes = (
     <Route path="warranty-support/complaint-guidelines" element={<DealerMenuPages.ComplaintGuidelines />} />
     <Route path="warranty-support/:requestId" element={<DealerMenuPages.SupportRequestDetail />} />
     {catalogRoutes}
-    <Route path="verification" element={<DealerMenuPages.Verification />} />
+    <Route path="verification" element={<Navigate to="products" replace />} />
     <Route path="advertisements" element={<DealerMenuPages.Advertisements />} />
     <Route path="logistics" element={<DealerMenuPages.Logistics />} />
     <Route path="loyalty" element={<DealerMenuPages.Loyalty />} />
@@ -464,7 +464,7 @@ const App: React.FC = () => (
               </Route>
               {catalogRoutes}
               {dealerSalesOrderRoutes}
-              <Route path="verification" element={<DealerMenuPages.Verification />} />
+              <Route path="verification" element={<Navigate to="products" replace />} />
               <Route path="advertisements" element={<DealerMenuPages.Advertisements />} />
               <Route path="logistics" element={<DealerMenuPages.Logistics />} />
               <Route path="loyalty" element={<DealerMenuPages.RewardPoint />} />

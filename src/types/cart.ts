@@ -40,6 +40,10 @@ export interface CartItem {
   categoryId?: string | null;
   hsn?: string | null;
   quantity: number;
+  /** Who added this line on a shared dealer cart. */
+  addedByUid?: string | null;
+  addedByName?: string | null;
+  addedByTeam?: 'sales' | 'service' | 'dealer' | null;
 }
 
 export type AddCartItemOptions = {

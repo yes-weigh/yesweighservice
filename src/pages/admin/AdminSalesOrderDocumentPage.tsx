@@ -60,6 +60,7 @@ import {
   listProductsMissingFreightPackageInfo,
 } from '../../lib/stCourierCartFreight';
 import { canSuperAdminWrite, hasStaffPermission } from '../../lib/staffAccess';
+import { hideDealerStaffCommercials } from '../../lib/dealerAccess';
 import {
   submitSalesOrderPayment,
   canEditSalesOrderDraft,
@@ -111,7 +112,9 @@ function useIsMobile(breakpoint = 768) {
 export const AdminSalesOrderDocumentPage: React.FC = () => {
   const { user } = useAuth();
   const isMobile = useIsMobile();
-  const isDealer = user?.role === 'dealer' || user?.role === 'dealer_staff';
+  const isDealerOwner = user?.role === 'dealer';
+  const isDealer = isDealerOwner || user?.role === 'dealer_staff';
+  const hideCommercials = hideDealerStaffCommercials(user);
   const isOps = user?.role === 'staff' || user?.role === 'super_admin';
   const canManageOrders = isOps && (
     user?.role === 'super_admin' || hasStaffPermission(user, 'orders.manage')
@@ -173,7 +176,7 @@ export const AdminSalesOrderDocumentPage: React.FC = () => {
   });
   const canEditDraft = workflowEditable && (
     (isOps && (user?.role === 'super_admin' || canManageOrders))
-    || isDealer
+    || isDealerOwner
   );
   const canEditLines = canEditDraft;
   /** Staff/admin only — dealers keep the shipping chosen at order create. */
@@ -182,7 +185,7 @@ export const AdminSalesOrderDocumentPage: React.FC = () => {
     && Boolean(salesOrder?.customerId?.trim());
   const allowRateEdit = isOps && canEditLines;
   const canPay = (
-    (isDealer || canManageOrders)
+    ((isDealer && !hideCommercials) || canManageOrders)
     && (stage === 'ready_for_payment' || stage === 'payment_submitted')
   );
   const canUploadPayment = canPay && stage === 'ready_for_payment';
@@ -1012,7 +1015,9 @@ export const AdminSalesOrderDocumentPage: React.FC = () => {
       || salesOrder.paymentNotes
     ));
   const priceChanges = salesOrder.yesOnePriceChanges ?? [];
-  const showPriceChanges = Boolean(salesOrder.yesOnePriceCustomized && priceChanges.length);
+  const showPriceChanges = Boolean(
+    !hideCommercials && salesOrder.yesOnePriceCustomized && priceChanges.length,
+  );
 
   const paymentScreenshotUrl = salesOrder.paymentScreenshotUrl?.trim() || '';
   // Picking / order list is ops-only (super admin + staff) — never dealers.
@@ -1046,6 +1051,7 @@ export const AdminSalesOrderDocumentPage: React.FC = () => {
 
       {/* Compact header: PDF (+ order list / payment) + customer + shipping */}
       <header className="so-detail__header">
+        {hideCommercials ? null : (
         <div className="invoice-detail-top so-detail__top-actions" data-capture-ignore="1">
           <div className={topActionClass} role="group" aria-label="Sales order actions">
             <Link
@@ -1088,6 +1094,7 @@ export const AdminSalesOrderDocumentPage: React.FC = () => {
             ) : null}
           </div>
         </div>
+        )}
 
         <DocumentPartyBlock
           className="so-detail__party"
@@ -1388,6 +1395,7 @@ export const AdminSalesOrderDocumentPage: React.FC = () => {
           invoice={documentInvoice ?? salesOrder}
           itemClassName="admin-invoice-detail-item"
           totalsAfterItems
+          hideAmounts={hideCommercials}
           freightAlert={freightPackageAlert || freightEntryAlert}
           selectFreight={canEditLines}
           selectedLineItemId={canEditLines ? expandedLineId : null}

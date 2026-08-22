@@ -1082,6 +1082,43 @@ service cloud.firestore {
       }
     }
 
+    /** Shared dealer cart (owner + sales/service staff). Approvals are Cloud Function only. */
+    function ownsDealerCart(dealerUid) {
+      return (isDealer() && request.auth.uid == dealerUid)
+        || (isDealerStaff() && userDealerId(userDoc()) == dealerUid);
+    }
+
+    match /dealerCarts/{dealerUid} {
+      allow read: if isActiveUser() && ownsDealerCart(dealerUid);
+      allow create, update: if isActiveUser() && ownsDealerCart(dealerUid);
+      allow delete: if isActiveUser() && isDealer() && request.auth.uid == dealerUid;
+
+      match /items/{itemId} {
+        allow read: if isActiveUser() && ownsDealerCart(dealerUid);
+        allow create: if isActiveUser()
+          && ownsDealerCart(dealerUid)
+          && request.resource.data.productId is string
+          && request.resource.data.addedByUid == request.auth.uid;
+        allow update: if isActiveUser() && ownsDealerCart(dealerUid) && (
+          (isDealer() && request.auth.uid == dealerUid)
+          || (
+            isDealerStaff()
+            && resource.data.addedByUid == request.auth.uid
+            && request.resource.data.addedByUid == resource.data.addedByUid
+          )
+        );
+        allow delete: if isActiveUser() && ownsDealerCart(dealerUid) && (
+          (isDealer() && request.auth.uid == dealerUid)
+          || (isDealerStaff() && resource.data.addedByUid == request.auth.uid)
+        );
+      }
+
+      match /approvals/{approvalId} {
+        allow read: if isActiveUser() && ownsDealerCart(dealerUid);
+        allow create, update, delete: if false;
+      }
+    }
+
     /** Legacy portal orders — deprecated; purge via purgeDealerOrders callable. */
     match /dealerOrders/{orderId} {
       allow read, create, update, delete: if false;

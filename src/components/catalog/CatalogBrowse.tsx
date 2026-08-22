@@ -13,6 +13,7 @@ import {
   compareCatalogProductsInCategory,
   formatStockQuantity,
   isCatalogSparePartProduct,
+  isGenericSparePartsCategory,
   isHiddenCatalogCategory,
 } from '../../lib/catalog';
 import { catalogGridStockQty } from '../../lib/catalogProductAudit/display';
@@ -395,10 +396,15 @@ export const CatalogBrowse: React.FC<CatalogBrowseProps> = ({
       listedCounts.set(product.categoryId, (listedCounts.get(product.categoryId) ?? 0) + 1);
     }
     return categories
-      .filter(c => c.id && (listedCounts.get(c.id) ?? 0) > 0 && !isHiddenCatalogCategory(c))
+      .filter(c => {
+        if (!c.id || isHiddenCatalogCategory(c)) return false;
+        if ((listedCounts.get(c.id) ?? 0) > 0) return true;
+        // Spare-pool items are not in the shop product list used for this grid.
+        return isGenericSparePartsCategory(c) && c.productCount > 0;
+      })
       .map(c => {
         const n = listedCounts.get(c.id) ?? 0;
-        if (n === c.productCount) return c;
+        if (n === 0 || n === c.productCount) return c;
         return { ...c, productCount: n, totalProductCount: n };
       })
       .sort((a, b) => {

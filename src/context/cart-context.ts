@@ -13,6 +13,8 @@ export interface CartContextType {
   items: CartItem[];
   itemCount: number;
   subtotal: number;
+  /** False until localStorage or the shared dealer cart has loaded. */
+  cartReady: boolean;
   /** Order-level remarks → Zoho sales order notes. */
   remarks: string;
   addItem: (product: CatalogProduct, options?: number | AddCartItemOptions) => boolean;

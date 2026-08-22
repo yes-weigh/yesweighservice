@@ -64,6 +64,7 @@ import { loadLogisticsCourierRates } from '../../lib/logisticsCourierRates';
 import { loadLogisticsSettings } from '../../lib/logisticsSettings';
 import { resolveDestinationPlace } from '../../lib/shippingLabel';
 import { isInternalOpsUser } from '../../lib/staffAccess';
+import { hideDealerStaffCommercials } from '../../lib/dealerAccess';
 import { bookingStaffName } from '../../lib/dealerKamDisplay';
 import { useDealerStaffById } from '../../lib/useDealerStaffById';
 import { ListTileKam } from '../../components/list/ListTileKam';
@@ -369,6 +370,7 @@ export const LogisticsPage: React.FC = () => {
 
   const isMobile = useIsMobile();
   const isOps = user ? isInternalOpsUser(user) : false;
+  const hideCommercials = hideDealerStaffCommercials(user);
   const dealerStaffById = useDealerStaffById(isOps);
   const canCreate = user ? canCreateLogisticsBooking(user) : false;
   const canSuperDelete = user ? canDeleteLogisticsBooking(user) : false;
@@ -1327,6 +1329,7 @@ export const LogisticsPage: React.FC = () => {
                                 <span className="logistics-shipment__dealer">{booking.dealer.name}</span>
                                 {isOps ? <ListTileKam name={staffName} /> : null}
                                 {(() => {
+                                  if (hideCommercials) return null;
                                   if (!booking.invoiceId?.trim()) return null;
                                   const fromBooking = Number(booking.invoiceValueInr);
                                   const fromFreight = Number(freight?.invoiceTotalInclGst);
@@ -1345,7 +1348,7 @@ export const LogisticsPage: React.FC = () => {
                                   );
                                 })()}
                               </div>
-                              {(freight?.paidFreightInr != null
+                              {hideCommercials ? null : (freight?.paidFreightInr != null
                                 || freight?.actualFreightInr != null) && (
                                 <div className="logistics-shipment__freight">
                                   {freight.isFod ? (

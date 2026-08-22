@@ -704,6 +704,12 @@ async function reserveFreightDiffAfterCreate(zohoCustomerId, salesOrders, apply)
  */
 export async function submitDealerOrder(uid, role, payload = {}, secrets, orgId) {
   const user = await loadUser(uid);
+  if (user.role === 'dealer_staff') {
+    throw new HttpsError(
+      'permission-denied',
+      'Sales and service orders must be submitted to the dealer for approval.',
+    );
+  }
   if (!DEALER_ROLES.has(user.role)) {
     throw new HttpsError('permission-denied', 'Only dealers can submit orders.');
   }
@@ -837,6 +843,9 @@ export async function submitDealerOrder(uid, role, payload = {}, secrets, orgId)
         yesOneCreatedFromCart: true,
         yesOneCreatedByUid: uid,
         yesOneCreatedByName: displayName(user),
+        yesOneDealerStaffUid: payload.staffSubmitter?.uid || null,
+        yesOneDealerStaffName: payload.staffSubmitter?.name || null,
+        yesOneDealerStaffTeam: payload.staffSubmitter?.team || null,
         yesOnePriceCustomized: priceAudit.length > 0,
         yesOnePriceChanges: priceAudit,
         yesOneFreightZone: freightZoneMeta.zone,

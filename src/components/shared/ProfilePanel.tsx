@@ -8,6 +8,7 @@ import type { FirestoreUserDoc } from '../../types';
 import { formatLoginIdDisplay, loginIdTypeLabel } from '../../lib/loginAuth';
 import { resolveProfileLogin } from '../../lib/profileLogin';
 import { DealerPortalProfile } from '../dealers/DealerPortalProfile';
+import { DealerStaffPortalProfile } from '../dealers/DealerStaffPortalProfile';
 import { FetchingLoader } from '../FetchingLoader';
 import { dealerErrorMessage, fetchMyDealerProfile, updateMyDealerAddresses } from '../../lib/dealers';
 import { canEditDealerProfileAddresses } from '../../lib/dealerAccess';
@@ -24,7 +25,9 @@ export const ProfilePanel: React.FC<{
   const [dealerLoading, setDealerLoading] = useState(false);
   const [dealerError, setDealerError] = useState('');
 
-  const isDealerPortalUser = user?.role === 'dealer' || user?.role === 'dealer_staff';
+  const isDealerOwner = user?.role === 'dealer';
+  const isDealerStaff = user?.role === 'dealer_staff';
+  const isDealerPortalUser = isDealerOwner || isDealerStaff;
 
   useEffect(() => {
     if (!user) return;
@@ -84,7 +87,19 @@ export const ProfilePanel: React.FC<{
 
   return (
     <div className={panelClass}>
-      {isDealerPortalUser ? (
+      {isDealerStaff ? (
+        <DealerStaffPortalProfile
+          uid={user.uid}
+          profile={profile}
+          dealershipName={
+            dealer?.companyName
+            || dealer?.zohoLegalName
+            || dealer?.contactName
+            || null
+          }
+          onSignOut={showSignOut ? () => void handleLogout() : undefined}
+        />
+      ) : isDealerPortalUser ? (
         <>
           {dealerError && (
             <div className="products-inline-error profile-page__error">

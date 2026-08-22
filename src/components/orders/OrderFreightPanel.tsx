@@ -2,13 +2,9 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { createPortal } from 'react-dom';
 import {
   AlertTriangle,
-  Box,
-  ChevronDown,
   Eye,
-  IndianRupee,
   Info,
   Package,
-  Scale,
   X,
 } from 'lucide-react';
 import { formatCurrency } from '../../lib/catalog';
@@ -93,6 +89,30 @@ type ItemFreightCalcView = {
   isSpare: boolean;
   needsPackage: boolean;
 };
+
+function calcSummaryLine(calc: ItemFreightCalcView): string {
+  const boxTotal = calc.parcelGroups.reduce((sum, group) => sum + group.count, 0) || calc.boxCount;
+  const parts: string[] = [];
+  if (boxTotal > 0) {
+    parts.push(`${boxTotal} box${boxTotal === 1 ? '' : 'es'}`);
+  } else if (calc.quantity > 0 && !calc.isSpare) {
+    parts.push(`${calc.quantity} unit${calc.quantity === 1 ? '' : 's'}`);
+  }
+  if (calc.chargeableKg > 0) {
+    parts.push(`${formatKg(calc.chargeableKg)} kg chargeable`);
+  }
+  const amount = calc.isSpare ? calc.amountInr : calc.rawTotal;
+  if (amount > 0) {
+    parts.push(formatCurrency(amount));
+  }
+  if (calc.needsPackage && parts.length === 0) {
+    return calc.isSpare ? 'Enter box or L×B×H' : 'Package details needed';
+  }
+  if (calc.isSpare && parts.length === 0) {
+    return 'Spare freight';
+  }
+  return parts.join(' · ') || '—';
+}
 
 function packingSummary(b: FreightLineBreakdown): string {
   const parts: string[] = [];
@@ -432,368 +452,48 @@ function ItemFreightCalcTile({
   calc: ItemFreightCalcView;
   partnerId?: LogisticsPartnerId | null;
 }) {
-  const [expanded, setExpanded] = useState(true);
   const partnerLogo = partnerId ? logisticsPartnerImage(partnerId) : null;
   const partnerName = partnerId ? logisticsPartnerLabel(partnerId) : null;
-  const toggleId = `freight-calc-${calc.key}`;
-
-  const partnerBadge = partnerName ? (
-    <span className="order-freight-panel__calc-partner">
-      {partnerLogo ? (
-        <img
-          src={partnerLogo}
-          alt=""
-          className="order-freight-panel__calc-partner-logo"
-          loading="lazy"
-          decoding="async"
-        />
-      ) : null}
-      <em>{partnerName}</em>
-    </span>
-  ) : null;
-
-  if (calc.isSpare) {
-    const hasPackagingMath = calc.chargeableKg > 0
-      && (calc.actualKg > 0 || calc.volumetricKg > 0 || Boolean(calc.lbhLabel));
-    return (
-      <article
-        className={`order-freight-panel__calc-card${calc.needsPackage ? ' is-warn' : ''}${expanded ? '' : ' is-collapsed'}`}
-        aria-label={`Freight calculation · ${calc.title}`}
-      >
-        <header className="order-freight-panel__calc-head">
-          <button
-            type="button"
-            className="order-freight-panel__calc-toggle"
-            aria-expanded={expanded}
-            aria-controls={toggleId}
-            onClick={() => setExpanded(open => !open)}
-          >
-            <span className="order-freight-panel__calc-head-main">
-              <Package size={15} aria-hidden />
-              <span>Freight calculation</span>
-              {partnerBadge}
-            </span>
-            <ChevronDown
-              size={16}
-              className={`order-freight-panel__calc-chevron${expanded ? ' is-open' : ''}`}
-              aria-hidden
-            />
-          </button>
-        </header>
-        {expanded ? (
-          <div id={toggleId} className="order-freight-panel__calc-body">
-            <p className="order-freight-panel__calc-item-title">{calc.title}</p>
-            {calc.subtitle ? (
-              <p className="order-freight-panel__calc-item-sub">{calc.subtitle}</p>
-            ) : null}
-            {hasPackagingMath ? (
-              <>
-                <div className="order-freight-panel__calc-grid">
-                  {calc.lbhLabel ? (
-                    <div className="order-freight-panel__calc-cell">
-                      <span>L×B×H</span>
-                      <strong>{calc.lbhLabel}</strong>
-                      <em>cm</em>
-                    </div>
-                  ) : null}
-                  <div className="order-freight-panel__calc-cell">
-                    <span>Actual</span>
-                    <strong>{formatKg(calc.actualKg)}</strong>
-                    <em>kg</em>
-                  </div>
-                  <div className="order-freight-panel__calc-cell">
-                    <span>Volumetric</span>
-                    <strong>{formatKg(calc.volumetricKg)}</strong>
-                    <em>kg</em>
-                  </div>
-                  <div className="order-freight-panel__calc-cell">
-                    <span>Chargeable</span>
-                    <strong>{formatKg(calc.chargeableKg)}</strong>
-                    <em>kg</em>
-                  </div>
-                </div>
-                <div className="order-freight-panel__calc-formula">
-                  <div className="order-freight-panel__calc-formula-left">
-                    <span>Spare freight</span>
-                    <strong>
-                      {calc.ratePerKg != null
-                        ? `${formatCurrency(calc.ratePerKg)}/kg × ${formatKg(calc.chargeableKg)} kg`
-                        : (calc.rateLabel || 'Quoted')}
-                    </strong>
-                  </div>
-                  <span className="order-freight-panel__calc-formula-arrow" aria-hidden>→</span>
-                  <div className="order-freight-panel__calc-formula-right">
-                    <span>Total freight</span>
-                    <strong>{formatCurrency(calc.amountInr)}</strong>
-                  </div>
-                </div>
-              </>
-            ) : (
-              <div className="order-freight-panel__calc-formula order-freight-panel__calc-formula--simple">
-                <div className="order-freight-panel__calc-formula-left">
-                  <span>Spare freight</span>
-                  <strong>
-                    {calc.needsPackage || !(calc.amountInr > 0)
-                      ? 'Enter box or L×B×H'
-                      : 'Quoted'}
-                  </strong>
-                </div>
-                <span className="order-freight-panel__calc-formula-arrow" aria-hidden>→</span>
-                <div className="order-freight-panel__calc-formula-right">
-                  <span>Total freight</span>
-                  <strong>{formatCurrency(calc.amountInr)}</strong>
-                </div>
-              </div>
-            )}
-          </div>
-        ) : (
-          <p className="order-freight-panel__calc-item-title order-freight-panel__calc-item-title--truncated">
-            {calc.title}
-            <em>{formatCurrency(calc.amountInr)}</em>
-          </p>
-        )}
-      </article>
-    );
-  }
+  const amount = calc.isSpare ? calc.amountInr : calc.rawTotal;
 
   return (
     <article
-      className={`order-freight-panel__calc-card${calc.needsPackage ? ' is-warn' : ''}${expanded ? '' : ' is-collapsed'}`}
+      className={`order-freight-panel__calc-card is-summary${calc.needsPackage ? ' is-warn' : ''}`}
       aria-label={`Freight calculation · ${calc.title}`}
     >
       <header className="order-freight-panel__calc-head">
-        <button
-          type="button"
-          className="order-freight-panel__calc-toggle"
-          aria-expanded={expanded}
-          aria-controls={toggleId}
-          onClick={() => setExpanded(open => !open)}
-        >
-          <span className="order-freight-panel__calc-head-main">
-            <Package size={15} aria-hidden />
-            <span>Freight calculation</span>
-            {partnerBadge}
-          </span>
-          <ChevronDown
-            size={16}
-            className={`order-freight-panel__calc-chevron${expanded ? ' is-open' : ''}`}
-            aria-hidden
-          />
-        </button>
+        <span className="order-freight-panel__calc-head-main">
+          <Package size={15} aria-hidden />
+          <span>Freight calculation</span>
+          {partnerName ? (
+            <span className="order-freight-panel__calc-partner">
+              {partnerLogo ? (
+                <img
+                  src={partnerLogo}
+                  alt=""
+                  className="order-freight-panel__calc-partner-logo"
+                  loading="lazy"
+                  decoding="async"
+                />
+              ) : null}
+              <em>{partnerName}</em>
+            </span>
+          ) : null}
+        </span>
       </header>
-
-      {!expanded ? (
-        <p className="order-freight-panel__calc-item-title order-freight-panel__calc-item-title--collapsed">
-          {calc.title}
-          <em>{formatCurrency(calc.rawTotal)}</em>
+      <p className="order-freight-panel__calc-item-title order-freight-panel__calc-item-title--collapsed">
+        {calc.title}
+        <em>{formatCurrency(amount)}</em>
+      </p>
+      <p className="order-freight-panel__calc-inline-summary">
+        {calcSummaryLine(calc)}
+      </p>
+      {calc.needsPackage ? (
+        <p className="order-freight-panel__hint">
+          <AlertTriangle size={12} aria-hidden />
+          No LBH/weight — freight ₹0 for these units
         </p>
-      ) : (
-        <div id={toggleId} className="order-freight-panel__calc-body">
-          <p className="order-freight-panel__calc-item-title">{calc.title}</p>
-          {calc.subtitle ? (
-            <p className="order-freight-panel__calc-item-sub">{calc.subtitle}</p>
-          ) : null}
-
-          <div className="order-freight-panel__calc-grid">
-            <div className="order-freight-panel__calc-row">
-              <div className="order-freight-panel__calc-cell">
-                <Package size={16} aria-hidden />
-                <div>
-                  <span>Qty</span>
-                  <strong>{calc.quantity}</strong>
-                  <em>{calc.quantity === 1 ? 'unit' : 'units'}</em>
-                </div>
-              </div>
-              <div className="order-freight-panel__calc-cell">
-                <Box size={16} aria-hidden />
-                <div>
-                  <span>Master cartons</span>
-                  <strong>{calc.masterCartonCount}</strong>
-                  <em>
-                    {calc.masterCartonCount === 1 ? 'carton' : 'cartons'}
-                    {calc.boxCount > 0
-                      ? ` · ${calc.boxCount} total box${calc.boxCount === 1 ? '' : 'es'}`
-                      : ''}
-                  </em>
-                </div>
-              </div>
-              <div className="order-freight-panel__calc-cell">
-                <Box size={16} aria-hidden />
-                <div>
-                  <span>Single boxes</span>
-                  <strong>{calc.singleBoxCount}</strong>
-                  <em>{calc.singleBoxCount === 1 ? 'box' : 'boxes'}</em>
-                </div>
-              </div>
-            </div>
-
-            <div className="order-freight-panel__calc-row">
-              <div className="order-freight-panel__calc-cell">
-                <Package size={16} aria-hidden />
-                <div>
-                  <span>LBH (cm) (Per Box)</span>
-                  <strong>{calc.lbhLabel || '—'}</strong>
-                  {calc.lbhLabel ? <em>( L × B × H )</em> : null}
-                </div>
-              </div>
-              <div className="order-freight-panel__calc-cell">
-                <Scale size={16} aria-hidden />
-                <div>
-                  <span>Actual weight</span>
-                  <strong>
-                    {formatKg(calc.actualKg)}
-                    {' '}
-                    kg
-                  </strong>
-                </div>
-              </div>
-              <div className="order-freight-panel__calc-cell">
-                <Scale size={16} aria-hidden />
-                <div>
-                  <span>Volumetric weight</span>
-                  <strong>
-                    {formatKg(calc.volumetricKg)}
-                    {' '}
-                    kg
-                  </strong>
-                  {calc.volumetricDivisor
-                    ? (
-                      <em>
-                        ÷
-                        {calc.volumetricDivisor}
-                      </em>
-                    )
-                    : null}
-                </div>
-              </div>
-            </div>
-
-            <div className="order-freight-panel__calc-row">
-              <div className="order-freight-panel__calc-cell">
-                <Scale size={16} aria-hidden />
-                <div>
-                  <span>Chargeable weight</span>
-                  <strong>
-                    {formatKg(calc.chargeableKg)}
-                    {' '}
-                    kg
-                  </strong>
-                  <em>max(actual, volumetric)</em>
-                </div>
-              </div>
-              <div className="order-freight-panel__calc-cell">
-                <IndianRupee size={16} aria-hidden />
-                <div>
-                  <span>Rate</span>
-                  <strong>
-                    {calc.ratePerKg != null
-                      ? `${formatCurrency(calc.ratePerKg)} / kg`
-                      : (calc.rateLabel ?? '—')}
-                  </strong>
-                  {calc.zoneLabel ? <em>{calc.zoneLabel}</em> : null}
-                </div>
-              </div>
-              <div className="order-freight-panel__calc-cell">
-                <IndianRupee size={16} aria-hidden />
-                <div>
-                  <span>Line freight</span>
-                  <strong>{formatCurrency(calc.rawTotal)}</strong>
-                </div>
-              </div>
-            </div>
-          </div>
-
-          {calc.parcelGroups.length > 0 ? (
-            <div className="order-freight-panel__calc-packing">
-              <div className="order-freight-panel__calc-packing-head">
-                <p className="order-freight-panel__calc-packing-title">Packing detail</p>
-                <em className="order-freight-panel__calc-packing-summary">
-                  {calc.parcelGroups.reduce((sum, group) => sum + group.count, 0)}
-                  {' '}
-                  box
-                  {calc.parcelGroups.reduce((sum, group) => sum + group.count, 0) === 1 ? '' : 'es'}
-                  {' · '}
-                  {formatKg(calc.chargeableKg)}
-                  {' '}
-                  kg chargeable
-                  {calc.rawTotal > 0 ? ` · ${formatCurrency(calc.rawTotal)}` : ''}
-                </em>
-              </div>
-              <ul className="order-freight-panel__calc-packing-list">
-                {(() => {
-                  const groupAmounts = allocateParcelGroupAmounts(
-                    calc.parcelGroups,
-                    calc.rawTotal,
-                  );
-                  return calc.parcelGroups.map((group, index) => (
-                    <ParcelGroupDetailCard
-                      key={`${group.kind}:${group.lengthCm}:${group.breadthCm}:${group.heightCm}:${index}`}
-                      group={group}
-                      index={index}
-                      amountInr={groupAmounts[index] ?? 0}
-                    />
-                  ));
-                })()}
-              </ul>
-            </div>
-          ) : null}
-
-          {calc.needsPackage ? (
-            <p className="order-freight-panel__hint">
-              <AlertTriangle size={12} aria-hidden />
-              No LBH/weight — freight ₹0 for these units
-            </p>
-          ) : null}
-
-          {calc.calcSteps.length > 0 ? (
-            <div className="order-freight-panel__calc-stack">
-              <p className="order-freight-panel__calc-packing-title">Charge stack</p>
-              <ul className="order-freight-panel__calc-stack-list">
-                {calc.calcSteps.map(step => (
-                  <li key={`${step.label}:${step.detail ?? ''}`}>
-                    <span>
-                      {step.label}
-                      {step.detail ? <em>{step.detail}</em> : null}
-                    </span>
-                    <strong>{formatCurrency(step.amountInr)}</strong>
-                  </li>
-                ))}
-              </ul>
-              <div className="order-freight-panel__calc-stack-total">
-                <span>Total freight</span>
-                <strong>{formatCurrency(calc.rawTotal)}</strong>
-              </div>
-            </div>
-          ) : (
-            <div className="order-freight-panel__calc-formula">
-              <div className="order-freight-panel__calc-formula-labels">
-                <span>Chargeable Weight</span>
-                <span>×</span>
-                <span>Rate</span>
-              </div>
-              <div className="order-freight-panel__calc-formula-values">
-                <strong>
-                  {formatKg(calc.chargeableKg)}
-                  {' '}
-                  kg
-                </strong>
-                <strong>
-                  ×
-                  {' '}
-                  {calc.ratePerKg != null
-                    ? `${formatCurrency(calc.ratePerKg)} / kg`
-                    : (calc.rateLabel ?? '—')}
-                </strong>
-              </div>
-              <span className="order-freight-panel__calc-formula-arrow" aria-hidden>→</span>
-              <div className="order-freight-panel__calc-formula-right">
-                <span>Total freight</span>
-                <strong>{formatCurrency(calc.rawTotal)}</strong>
-              </div>
-            </div>
-          )}
-        </div>
-      )}
+      ) : null}
     </article>
   );
 }

@@ -16,6 +16,21 @@ export function isDealerPortalUser(user: Pick<User, 'role'> | null | undefined):
 
 export type DealerStaffTeam = 'sales' | 'service';
 
+export function dealerStaffTeams(
+  data: {
+    staffDepartment?: string | null;
+    dealerTeams?: Array<'sales' | 'service'> | null;
+  } | null | undefined,
+): DealerStaffTeam[] {
+  const stored = Array.isArray(data?.dealerTeams)
+    ? data.dealerTeams.filter((team): team is DealerStaffTeam => team === 'sales' || team === 'service')
+    : [];
+  if (stored.length) return [...new Set(stored)];
+  if (data?.staffDepartment === 'service') return ['service'];
+  if (data?.staffDepartment === 'sales') return ['sales'];
+  return ['sales'];
+}
+
 /**
  * Sales vs Service on dealer_staff. Missing department is treated as Sales
  * (more restricted). Dealer owners and non-portal roles return null.
@@ -24,8 +39,29 @@ export function dealerStaffTeam(
   user: Pick<User, 'role' | 'staffDepartment' | 'dealerTeams'> | null | undefined,
 ): DealerStaffTeam | null {
   if (user?.role !== 'dealer_staff') return null;
-  if (user.dealerTeams?.includes('service') || user.staffDepartment === 'service') return 'service';
-  return 'sales';
+  return dealerStaffTeams(user).includes('service') ? 'service' : 'sales';
+}
+
+/** Teams for dealer_staff only; null for owner and every other role. */
+export function dealerPortalStaffTeams(
+  user: Pick<User, 'role' | 'staffDepartment' | 'dealerTeams'> | null | undefined,
+): DealerStaffTeam[] | null {
+  if (user?.role !== 'dealer_staff') return null;
+  return dealerStaffTeams(user);
+}
+
+/** Hide ₹ / invoice commercials. Sales dealer_staff only. */
+export function hideDealerStaffCommercials(
+  user: Pick<User, 'role' | 'staffDepartment' | 'dealerTeams'> | null | undefined,
+): boolean {
+  return dealerStaffTeam(user) === 'sales';
+}
+
+/** Dealer owner places in YesOne. Staff must submit for dealer approval. */
+export function canPlaceDealerZohoOrder(
+  user: Pick<User, 'role'> | null | undefined,
+): boolean {
+  return user?.role === 'dealer';
 }
 
 /** Dealer unit (charge) price. Sales never; Service only on spares; owner always. */

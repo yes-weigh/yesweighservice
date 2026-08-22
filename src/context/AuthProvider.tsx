@@ -121,6 +121,7 @@ async function resolveUser(fbUser: FirebaseUser): Promise<User | null> {
       dealerAccessMode,
       dealerPermissions,
       hrPhotoUrl: data.hrPhotoUrl ?? null,
+      hrPhotoStoragePath: data.hrPhotoStoragePath ?? null,
       hrResidentialAddress: data.hrResidentialAddress ?? null,
       hrPostalCode: data.hrPostalCode ?? null,
       hrBloodGroup: data.hrBloodGroup ?? null,

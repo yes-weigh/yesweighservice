@@ -1,9 +1,11 @@
 import type { InvoiceCategory } from '../types/invoices';
 import {
   hasCatalogCategory,
+  isCatalogSparePartProduct,
   isGenericSparePartsCategory,
   isSoftwareKeysCategory,
 } from './catalog';
+import { dealerPortalStaffTeams } from './dealerAccess';
 import { isFreightProductId, isFreightSku } from '../constants/freightLines';
 import { isFullSuperAdmin } from './staffAccess';
 import { canUseCart, type Role, type User } from '../types';
@@ -381,12 +383,28 @@ export function canUseOrderCart(user: User | null | undefined): boolean {
   return canUseCart(user.role);
 }
 
+/** Sales staff cart products; service staff cart spares. Both teams may cart both. */
+export function dealerStaffCanCartProduct(
+  user: User | null | undefined,
+  product: { categoryId?: string | null; categoryName?: string | null },
+): boolean {
+  const teams = dealerPortalStaffTeams(user);
+  if (!teams) return true;
+  const spare = isCatalogSparePartProduct({
+    categoryId: product.categoryId ?? null,
+    categoryName: product.categoryName ?? null,
+  });
+  if (spare) return teams.includes('service');
+  return teams.includes('sales');
+}
+
 /** Show add-to-cart control for this product for the signed-in user. */
 export function isCatalogProductCartable(
   user: User | null | undefined,
   product: { categoryId?: string | null; categoryName?: string | null },
 ): boolean {
   if (!canUseOrderCart(user)) return false;
+  if (!dealerStaffCanCartProduct(user, product)) return false;
   return catalogProductAllowedForUser(user, product);
 }
 

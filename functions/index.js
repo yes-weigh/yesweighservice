@@ -269,6 +269,11 @@ import {
   voidMirroredSalesOrder as voidMirroredSalesOrderRecord,
   purgeAllDealerOrders as purgeAllDealerOrdersRecord,
 } from './lib/dealer-orders.js';
+import {
+  submitDealerStaffOrderForApproval as submitDealerStaffOrderForApprovalRecord,
+  approveDealerStaffOrder as approveDealerStaffOrderRecord,
+  rejectDealerStaffOrder as rejectDealerStaffOrderRecord,
+} from './lib/dealer-staff-orders.js';
 import { getPendingFreightDiffPreview } from './lib/freight-diff-settlement.js';
 import {
   updateDraftSalesOrderLines as updateDraftSalesOrderLinesRecord,
@@ -4714,7 +4719,7 @@ export const submitDealerOrder = onCall(
   },
   async request => {
     const uid = request.auth?.uid;
-    const role = await requireActiveUser(uid, new Set(['dealer', 'dealer_staff']));
+    const role = await requireActiveUser(uid, new Set(['dealer']));
     try {
       return await submitDealerOrderRecord(
         uid,
@@ -4726,6 +4731,66 @@ export const submitDealerOrder = onCall(
     } catch (err) {
       if (err instanceof HttpsError) throw err;
       throw new HttpsError('internal', err?.message ?? 'Could not submit order.');
+    }
+  },
+);
+
+export const submitDealerStaffOrderForApproval = onCall(
+  {
+    region: 'asia-south1',
+    timeoutSeconds: 60,
+    memory: '256MiB',
+  },
+  async request => {
+    const uid = request.auth?.uid;
+    await requireActiveUser(uid, new Set(['dealer_staff']));
+    try {
+      return await submitDealerStaffOrderForApprovalRecord(uid, request.data ?? {});
+    } catch (err) {
+      if (err instanceof HttpsError) throw err;
+      throw new HttpsError('internal', err?.message ?? 'Could not submit for approval.');
+    }
+  },
+);
+
+export const approveDealerStaffOrder = onCall(
+  {
+    region: 'asia-south1',
+    secrets: [zohoClientId, zohoClientSecret, zohoRefreshToken],
+    timeoutSeconds: 180,
+    memory: '512MiB',
+  },
+  async request => {
+    const uid = request.auth?.uid;
+    await requireActiveUser(uid, new Set(['dealer']));
+    try {
+      return await approveDealerStaffOrderRecord(
+        uid,
+        request.data?.approvalId,
+        zohoSecrets(),
+        zohoOrganizationId.value(),
+      );
+    } catch (err) {
+      if (err instanceof HttpsError) throw err;
+      throw new HttpsError('internal', err?.message ?? 'Could not approve order.');
+    }
+  },
+);
+
+export const rejectDealerStaffOrder = onCall(
+  {
+    region: 'asia-south1',
+    timeoutSeconds: 60,
+    memory: '256MiB',
+  },
+  async request => {
+    const uid = request.auth?.uid;
+    await requireActiveUser(uid, new Set(['dealer']));
+    try {
+      return await rejectDealerStaffOrderRecord(uid, request.data?.approvalId);
+    } catch (err) {
+      if (err instanceof HttpsError) throw err;
+      throw new HttpsError('internal', err?.message ?? 'Could not reject order.');
     }
   },
 );

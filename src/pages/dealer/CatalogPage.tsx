@@ -17,7 +17,7 @@ import { useDealerListedCatalogProducts } from '../../hooks/useDealerOrderStockG
 import { useDealerPriceLevels } from '../../hooks/useDealerUnitPrice';
 import { useRaisedPoQtyByProductId } from '../../hooks/useRaisedPoQtyByProductId';
 import { useCanViewShipmentTracking, useCanViewCatalogStock } from '../../hooks/useCanViewShipmentTracking';
-import { isDealerPortalUser } from '../../lib/dealerAccess';
+import { dealerPortalStaffTeams, isDealerPortalUser } from '../../lib/dealerAccess';
 import { syncDirectorsDealerIdsIndex } from '../../lib/priceLevels';
 import { SPARE_PRICE_LEVEL_CATEGORY_ID } from '../../types/priceLevels';
 import { canViewDealersInHr, hasStaffPermission } from '../../lib/staffAccess';
@@ -183,6 +183,9 @@ export const CatalogPage: React.FC = () => {
   const isStaff = user?.role === 'staff';
   const isMedia = user?.role === 'media';
   const dealerView = isDealerPortalUser(user);
+  const portalStaffTeams = dealerPortalStaffTeams(user);
+  const showProductCatalogTab = !portalStaffTeams || portalStaffTeams.includes('sales');
+  const showSpareCatalogTab = !portalStaffTeams || portalStaffTeams.includes('service');
   const { isProductVisible, restrictedCategoryIds } = useDealerPriceLevels();
   const orderCartEnabled = canUseOrderCart(user);
   const isCartable = useCallback(
@@ -330,6 +333,28 @@ export const CatalogPage: React.FC = () => {
       return params;
     }, { replace: true });
   }, [sectionParam, setSearchParams]);
+
+  useEffect(() => {
+    const teams = dealerPortalStaffTeams(user);
+    if (!teams) return;
+    const salesOnly = teams.includes('sales') && !teams.includes('service');
+    const serviceOnly = teams.includes('service') && !teams.includes('sales');
+    if (serviceOnly && sectionParam !== 'spares' && sectionParam !== 'price-levels') {
+      setSearchParams(prev => {
+        const params = new URLSearchParams(prev);
+        params.set('section', 'spares');
+        return params;
+      }, { replace: true });
+      return;
+    }
+    if (salesOnly && sectionParam === 'spares') {
+      setSearchParams(prev => {
+        const params = new URLSearchParams(prev);
+        params.delete('section');
+        return params;
+      }, { replace: true });
+    }
+  }, [user, sectionParam, setSearchParams]);
   const isFlatList = focus === 'all-spares' || focus === 'unlinked';
   const isMapBrowse = focus === 'map';
 
@@ -1625,6 +1650,7 @@ export const CatalogPage: React.FC = () => {
       {showDealerCatalogTabs && (
         <div className="catalog-section-tabs">
           <div className="spares-mode-toggle spares-mode-toggle--ops" role="tablist" aria-label="Product sections">
+            {showProductCatalogTab ? (
             <button
               type="button"
               role="tab"
@@ -1635,6 +1661,8 @@ export const CatalogPage: React.FC = () => {
               <LayoutGrid size={16} aria-hidden />
               <span className="spares-mode-toggle__label">Categories</span>
             </button>
+            ) : null}
+            {showSpareCatalogTab ? (
             <button
               type="button"
               role="tab"
@@ -1648,6 +1676,7 @@ export const CatalogPage: React.FC = () => {
                 <span className="spares-mode-toggle__badge">{spareParts.length}</span>
               ) : null}
             </button>
+            ) : null}
             {canManagePriceLevels ? (
               <button
                 type="button"

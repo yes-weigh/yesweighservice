@@ -19,6 +19,7 @@ import {
   type LucideIcon,
 } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
+import { hideDealerStaffCommercials } from '../../lib/dealerAccess';
 import { useConfirm } from '../../context/ConfirmContext';
 import { cancelDelhiveryShipment, createDelhiveryPickupRequest } from '../../lib/delhiveryB2b';
 import { getBlueDartWaybill, inferBlueDartUiStatus } from '../../lib/blueDartApi';
@@ -382,6 +383,7 @@ export const LogisticsBookingDetail: React.FC<LogisticsBookingDetailProps> = ({
   onDelete,
 }) => {
   const { user } = useAuth();
+  const hideCommercials = hideDealerStaffCommercials(user);
   const confirm = useConfirm();
   const finalPhotoInputRef = useRef<HTMLInputElement>(null);
   const [generating, setGenerating] = useState<LogisticsDocumentType | null>(null);
@@ -2542,12 +2544,16 @@ export const LogisticsBookingDetail: React.FC<LogisticsBookingDetailProps> = ({
                     </div>
                     <div className="logistics-booking__invoice-item-meta">
                       <span>Qty {item.quantity}</span>
-                      {Number.isFinite(item.rate) && item.rate > 0 ? (
-                        <span className="logistics-booking__invoice-item-rate">
-                          @ {formatCurrency(item.rate)}
-                        </span>
-                      ) : null}
-                      <span>{formatCurrency(item.total)}</span>
+                      {hideCommercials ? null : (
+                        <>
+                          {Number.isFinite(item.rate) && item.rate > 0 ? (
+                            <span className="logistics-booking__invoice-item-rate">
+                              @ {formatCurrency(item.rate)}
+                            </span>
+                          ) : null}
+                          <span>{formatCurrency(item.total)}</span>
+                        </>
+                      )}
                     </div>
                   </li>
                 ))}
@@ -2570,7 +2576,9 @@ export const LogisticsBookingDetail: React.FC<LogisticsBookingDetailProps> = ({
                     </div>
                     <div className="logistics-booking__invoice-item-meta">
                       <span>{item.isStampingFee ? 'Stamping' : 'Freight line'}</span>
-                      <span>{formatCurrency(item.total)}</span>
+                      {hideCommercials ? null : (
+                        <span>{formatCurrency(item.total)}</span>
+                      )}
                     </div>
                   </li>
                 ))}
@@ -2578,6 +2586,7 @@ export const LogisticsBookingDetail: React.FC<LogisticsBookingDetailProps> = ({
             )}
           </div>
 
+          {!hideCommercials ? (
           <div className="logistics-booking__card logistics-booking__card--wide">
             <h4 className="logistics-booking__section-head" data-section-label="Freight compare">
               <IndianRupee size={16} aria-hidden />
@@ -2867,10 +2876,11 @@ export const LogisticsBookingDetail: React.FC<LogisticsBookingDetailProps> = ({
               </p>
             )}
           </div>
+          ) : null}
         </section>
       )}
 
-      {booking.partnerId === 'delhivery' && booking.courierFreight && (
+      {!hideCommercials && booking.partnerId === 'delhivery' && booking.courierFreight && (
         <section className="logistics-booking__delhivery-freight" aria-label="Delhivery freight charges">
           <div className="logistics-booking__card logistics-booking__card--wide">
             <h4 className="logistics-booking__section-head" data-section-label="Delhivery freight charges">
@@ -3055,7 +3065,7 @@ export const LogisticsBookingDetail: React.FC<LogisticsBookingDetailProps> = ({
             <div><dt>Branch</dt><dd>{booking.branch || '—'}</dd></div>
             <div><dt>Service</dt><dd>{booking.serviceType || '—'}</dd></div>
             <div><dt>Booked on</dt><dd>{formatLogisticsDateTimeLabel(booking.bookingDate)}</dd></div>
-            {booking.courierFreight?.ok && delhiveryFreightExclGst(booking.courierFreight) != null && (
+            {hideCommercials ? null : booking.courierFreight?.ok && delhiveryFreightExclGst(booking.courierFreight) != null && (
               <div>
                 <dt>Freight (excl. GST)</dt>
                 <dd>{formatCurrency(delhiveryFreightExclGst(booking.courierFreight)!)}</dd>

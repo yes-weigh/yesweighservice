@@ -28,6 +28,7 @@ import type {
 import { toSalesOrderDateKey } from '../../lib/admin-sales-orders';
 import { formatCurrency } from '../../lib/catalog';
 import { listDealerSalesOrders } from '../../lib/dealer-sales-orders';
+import { hideDealerStaffCommercials } from '../../lib/dealerAccess';
 import {
   FROM_SALES_ORDER_LIST_STATE,
   clearSalesOrderListOpenedRow,
@@ -204,6 +205,7 @@ function DealerFilterSheet({
 export const DealerSalesOrdersPage: React.FC = () => {
   const navigate = useNavigate();
   const { user } = useAuth();
+  const hideCommercials = hideDealerStaffCommercials(user);
   const basePath = user ? homePathForRole(user.role) : '/dealer';
   const listKey = basePath;
   const pendingReturnRef = useRef(peekSalesOrderListReturn(listKey));
@@ -458,7 +460,9 @@ export const DealerSalesOrdersPage: React.FC = () => {
                     <tr>
                       <th>Order</th>
                       <th className="invoices-table__num">Qty</th>
-                      <th className="invoices-table__num">Total</th>
+                      {hideCommercials ? null : (
+                        <th className="invoices-table__num">Total</th>
+                      )}
                     </tr>
                   </thead>
                   <tbody>
@@ -494,7 +498,7 @@ export const DealerSalesOrdersPage: React.FC = () => {
                                 categories={row.categories}
                                 invoiceCategory={row.category}
                               />
-                              {row.priceCustomized ? (
+                              {row.priceCustomized && !hideCommercials ? (
                                 <span className="unified-so-price-badge" title="Custom prices on this order">
                                   Custom price
                                 </span>
@@ -509,14 +513,16 @@ export const DealerSalesOrdersPage: React.FC = () => {
                         <td className="invoices-table__num">
                           {formatInvoiceItemQuantity(row.qty)}
                         </td>
-                        <td className="invoices-table__num">
-                          {formatCurrency(
-                            category === 'all'
-                              ? row.amount
-                              : Number(row.categoryAmounts[category] ?? row.amount ?? 0),
-                            row.currencyCode,
-                          )}
-                        </td>
+                        {hideCommercials ? null : (
+                          <td className="invoices-table__num">
+                            {formatCurrency(
+                              category === 'all'
+                                ? row.amount
+                                : Number(row.categoryAmounts[category] ?? row.amount ?? 0),
+                              row.currencyCode,
+                            )}
+                          </td>
+                        )}
                       </tr>
                     ))}
                   </tbody>
@@ -526,7 +532,7 @@ export const DealerSalesOrdersPage: React.FC = () => {
               <div className="invoices-mobile-list admin-invoices-mobile-list">
                 <div className="invoices-mobile-list__head" aria-hidden>
                   <span>Order</span>
-                  <span>Amount</span>
+                  {hideCommercials ? <span>Qty</span> : <span>Amount</span>}
                 </div>
                 {pageRows.map(row => (
                   <button
@@ -550,14 +556,20 @@ export const DealerSalesOrdersPage: React.FC = () => {
                     <span className="invoices-mobile-row__body">
                       <span className="invoices-mobile-row__invoice">
                         <span className="invoices-mobile-row__pair">
-                          <strong className="invoices-mobile-row__amount-value">
-                            {formatCurrency(
-                              category === 'all'
-                                ? row.amount
-                                : Number(row.categoryAmounts[category] ?? row.amount ?? 0),
-                              row.currencyCode,
-                            )}
-                          </strong>
+                          {hideCommercials ? (
+                            <strong className="invoices-mobile-row__amount-value">
+                              Qty {formatInvoiceItemQuantity(row.qty)}
+                            </strong>
+                          ) : (
+                            <strong className="invoices-mobile-row__amount-value">
+                              {formatCurrency(
+                                category === 'all'
+                                  ? row.amount
+                                  : Number(row.categoryAmounts[category] ?? row.amount ?? 0),
+                                row.currencyCode,
+                              )}
+                            </strong>
+                          )}
                         </span>
                         <strong className="invoices-mobile-row__company unified-so-mobile-row__number">
                           {row.primaryNumber}
@@ -565,8 +577,9 @@ export const DealerSalesOrdersPage: React.FC = () => {
                         <span className="invoices-mobile-row__pair unified-so-mobile-row__footer">
                           <span className="invoices-mobile-row__meta">
                             {formatInvoiceDateTime(row.date, row.createdTime)}
-                            {' • '}
-                            Qty {formatInvoiceItemQuantity(row.qty)}
+                            {hideCommercials
+                              ? null
+                              : ` • Qty ${formatInvoiceItemQuantity(row.qty)}`}
                           </span>
                           <span className={row.statusClass}>{row.statusLabel}</span>
                         </span>

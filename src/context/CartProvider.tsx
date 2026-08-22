@@ -1,8 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { combinedCartRate, newCartLineId } from '../lib/gatcCart';
+import { combinedCartRate } from '../lib/gatcCart';
 import {
   applyDealerCartPricing,
-  normalizePriceLevelSlabs,
   resolveDealerUnitPrice,
   subscribePriceLevels,
 } from '../lib/priceLevels';
@@ -14,6 +13,20 @@ import {
   type AddCartItemOptions,
   type CartItem,
 } from '../types/cart';
+import {
+  applyCartAttribution,
+  cartAttributionForUser,
+  deleteDealerCartItem,
+  deleteDealerCartItems,
+  isStaffAttributedCartLine,
+  migrateLocalCartToDealerCart,
+  parseStoredCartItem,
+  sharedDealerCartUid,
+  subscribeDealerCartItems,
+  subscribeDealerCartRemarks,
+  upsertDealerCartItem,
+  writeDealerCartRemarks,
+} from '../lib/dealerSharedCart';
 import { useAuth } from './AuthContext';
 import { CartContext, type UpdateCartStampingInput } from './cart-context';
 
@@ -29,50 +42,12 @@ function sameGatcKey(a: string | null | undefined, b: string | null | undefined)
   return (a?.trim() || null) === (b?.trim() || null);
 }
 
+function sameAddedBy(a: string | null | undefined, b: string | null | undefined): boolean {
+  return (a?.trim() || null) === (b?.trim() || null);
+}
+
 function normalizeCartItem(raw: Partial<CartItem> & { productId?: string }): CartItem | null {
-  const productId = String(raw.productId ?? '').trim();
-  if (!productId) return null;
-
-  const baseRateRaw = raw.baseRate != null ? Number(raw.baseRate) : Number(raw.rate);
-  const baseRate = Number.isFinite(baseRateRaw) ? Math.round(baseRateRaw * 100) / 100 : 0;
-  const gatcStampingPriceId = String(raw.gatcStampingPriceId ?? '').trim() || null;
-  const feeRaw = Number(raw.gatcFeePerUnit ?? 0);
-  const gatcFeePerUnit = gatcStampingPriceId && Number.isFinite(feeRaw)
-    ? Math.round(feeRaw * 100) / 100
-    : 0;
-
-  return {
-    cartLineId: String(raw.cartLineId ?? '').trim() || newCartLineId(),
-    productId,
-    name: String(raw.name ?? 'Product'),
-    sku: raw.sku != null ? String(raw.sku) : null,
-    description: raw.description?.trim() || null,
-    imageUrl: raw.imageUrl != null ? String(raw.imageUrl) : null,
-    baseRate,
-    listRate: raw.listRate != null && Number.isFinite(Number(raw.listRate))
-      ? Math.round(Number(raw.listRate) * 100) / 100
-      : null,
-    priceLevelMode: raw.priceLevelMode === 'discount'
-      || raw.priceLevelMode === 'increment'
-      || raw.priceLevelMode === 'fixed'
-      ? raw.priceLevelMode
-      : (raw.priceLevelMode === 'none' ? 'none' : null),
-    priceLevelSlabs: Array.isArray(raw.priceLevelSlabs)
-      ? normalizePriceLevelSlabs(raw.priceLevelSlabs)
-      : null,
-    gatcFeePerUnit,
-    gatcStampingPriceId,
-    gatcStampingRange: gatcStampingPriceId
-      ? (raw.gatcStampingRange?.trim() || null)
-      : null,
-    rate: combinedCartRate(baseRate, gatcFeePerUnit),
-    unit: String(raw.unit ?? 'pcs'),
-    stockStatus: effectiveCatalogStockStatus(raw.stockStatus, raw.hsn),
-    categoryName: raw.categoryName != null ? String(raw.categoryName) : null,
-    categoryId: raw.categoryId != null ? String(raw.categoryId) : null,
-    hsn: raw.hsn ?? null,
-    quantity: Math.max(1, Math.floor(Number(raw.quantity) || 1)),
-  };
+  return parseStoredCartItem(raw);
 }
 
 function normalizeRemarks(raw: unknown): string {
@@ -146,6 +121,16 @@ function dealerPortalId(user: { role?: string; zohoCustomerId?: string } | null)
   return user.zohoCustomerId?.trim() || null;
 }
 
+function persistSharedItem(sharedUid: string | null, item: CartItem): void {
+  if (!sharedUid) return;
+  void upsertDealerCartItem(sharedUid, item);
+}
+
+function persistSharedDelete(sharedUid: string | null, cartLineId: string): void {
+  if (!sharedUid) return;
+  void deleteDealerCartItem(sharedUid, cartLineId);
+}
+
 export const CartProvider: React.FC<{
   children: React.ReactNode;
   /** When false, cart stays in-memory only (nested SO edit sheet). Default true. */
@@ -154,26 +139,68 @@ export const CartProvider: React.FC<{
   initialItems?: CartItem[];
 }> = ({ children, persist = true, initialItems }) => {
   const { user } = useAuth();
-  const [items, setItems] = useState<CartItem[]>(() => (
+  const sharedUid = persist ? sharedDealerCartUid(user) : null;
+  const [allItems, setAllItems] = useState<CartItem[]>(() => (
     !persist && initialItems ? initialItems : []
   ));
   const [remarks, setRemarksState] = useState('');
+  const [cartReady, setCartReady] = useState(!persist);
   const [priceLevels, setPriceLevels] = useState<PriceLevel[]>([]);
   const priceLevelsRef = useRef<PriceLevel[]>([]);
   priceLevelsRef.current = priceLevels;
+  const allItemsRef = useRef<CartItem[]>(allItems);
+  allItemsRef.current = allItems;
   const dealerId = dealerPortalId(user);
+  const migratedRef = useRef<string | null>(null);
+
+  const items = useMemo(() => {
+    if (user?.role === 'dealer_staff') {
+      return allItems.filter(item => (item.addedByUid || null) === user.uid);
+    }
+    return allItems;
+  }, [allItems, user?.role, user?.uid]);
 
   useEffect(() => {
     if (!persist) return;
+    if (sharedUid && user?.uid) {
+      setCartReady(false);
+      let cancelled = false;
+      const unsubItems = subscribeDealerCartItems(sharedUid, remoteItems => {
+        if (cancelled) return;
+        const priced = dealerId
+          ? applyDealerCartPricing(remoteItems, priceLevelsRef.current, dealerId)
+          : remoteItems;
+        setAllItems(priced);
+        setCartReady(true);
+        if (migratedRef.current === sharedUid) return;
+        migratedRef.current = sharedUid;
+        const local = readStoredCart(user.uid);
+        if (!local.items.length && !local.remarks.trim()) return;
+        const attribution = cartAttributionForUser(user, null);
+        void migrateLocalCartToDealerCart(sharedUid, local.items, local.remarks, attribution)
+          .then(() => writeStoredCart(user.uid, [], ''));
+      });
+      const unsubRemarks = subscribeDealerCartRemarks(sharedUid, next => {
+        if (!cancelled) setRemarksState(normalizeRemarks(next));
+      });
+      return () => {
+        cancelled = true;
+        unsubItems();
+        unsubRemarks();
+      };
+    }
+    migratedRef.current = null;
     if (user?.uid) {
       const stored = readStoredCart(user.uid);
-      setItems(stored.items);
+      setAllItems(stored.items);
       setRemarksState(stored.remarks);
     } else {
-      setItems([]);
+      setAllItems([]);
       setRemarksState('');
     }
-  }, [persist, user?.uid]);
+    setCartReady(true);
+    return undefined;
+  }, [persist, sharedUid, user?.uid, user?.role, dealerId]);
 
   useEffect(() => {
     if (!dealerId) {
@@ -185,16 +212,15 @@ export const CartProvider: React.FC<{
     });
   }, [dealerId]);
 
-  // Re-apply level rules when settings change (cart may have been filled earlier).
   useEffect(() => {
     if (!dealerId) return;
-    setItems(prev => applyDealerCartPricing(prev, priceLevels, dealerId));
+    setAllItems(prev => applyDealerCartPricing(prev, priceLevels, dealerId));
   }, [dealerId, priceLevels]);
 
   useEffect(() => {
-    if (!persist || !user?.uid) return;
-    writeStoredCart(user.uid, items, remarks);
-  }, [persist, items, remarks, user?.uid]);
+    if (!persist || !user?.uid || sharedUid) return;
+    writeStoredCart(user.uid, allItems, remarks);
+  }, [persist, allItems, remarks, user?.uid, sharedUid]);
 
   const addItem = useCallback((
     product: CatalogProduct,
@@ -204,6 +230,7 @@ export const CartProvider: React.FC<{
     const quantity = Math.floor(Number(opts.quantity) || 0);
     if (quantity < 1) return false;
     const stockStatus = effectiveCatalogStockStatus(product.stockStatus, product.hsn);
+    const attribution = cartAttributionForUser(user, product);
 
     const gatcStampingPriceId = opts.gatcStampingPriceId?.trim() || null;
     const gatcFeePerUnit = gatcStampingPriceId
@@ -219,7 +246,6 @@ export const CartProvider: React.FC<{
     let priceLevelMode = opts.priceLevelMode ?? null;
 
     let priceLevelSlabs: PriceLevelQtySlab[] | null = null;
-    // Initial resolve uses line qty only; applyDealerCartPricing below applies club qty.
     if (opts.baseRateOverride == null && dealerId) {
       const priced = resolveDealerUnitPrice(
         priceLevelsRef.current,
@@ -233,15 +259,16 @@ export const CartProvider: React.FC<{
       priceLevelSlabs = priced.slabs.length ? priced.slabs : null;
     }
 
-    setItems(prev => {
+    setAllItems(prev => {
       const existing = prev.find(
         item => item.productId === product.id
-          && sameGatcKey(item.gatcStampingPriceId, gatcStampingPriceId),
+          && sameGatcKey(item.gatcStampingPriceId, gatcStampingPriceId)
+          && sameAddedBy(item.addedByUid, attribution?.addedByUid),
       );
       let next: CartItem[];
       if (existing) {
         const nextQty = existing.quantity + quantity;
-        const nextItem: CartItem = {
+        const nextItem = applyCartAttribution({
           ...existing,
           baseRate,
           listRate,
@@ -259,10 +286,11 @@ export const CartProvider: React.FC<{
           description: product.description?.trim() || existing.description || null,
           sku: product.sku ?? existing.sku,
           quantity: nextQty,
-        };
+        }, attribution);
+        persistSharedItem(sharedUid, nextItem);
         next = prev.map(item => (item.cartLineId === existing.cartLineId ? nextItem : item));
       } else {
-        const nextItem = cartItemFromProduct(product, quantity, {
+        const nextItem = applyCartAttribution(cartItemFromProduct(product, quantity, {
           gatcStampingPriceId,
           gatcFeePerUnit,
           gatcStampingRange: opts.gatcStampingRange,
@@ -270,7 +298,8 @@ export const CartProvider: React.FC<{
           listRate,
           priceLevelMode,
           priceLevelSlabs,
-        });
+        }), attribution);
+        persistSharedItem(sharedUid, nextItem);
         const afterId = String(opts.insertAfterCartLineId ?? '').trim();
         if (afterId) {
           const afterIndex = prev.findIndex(item => item.cartLineId === afterId);
@@ -288,19 +317,21 @@ export const CartProvider: React.FC<{
       return applyDealerCartPricing(next, priceLevelsRef.current, dealerId);
     });
     return true;
-  }, [dealerId]);
+  }, [dealerId, sharedUid, user]);
 
   const removeItem = useCallback((cartLineId: string) => {
-    setItems(prev => {
+    persistSharedDelete(sharedUid, cartLineId);
+    setAllItems(prev => {
       const next = prev.filter(item => item.cartLineId !== cartLineId);
       if (!dealerId) return next;
       return applyDealerCartPricing(next, priceLevelsRef.current, dealerId);
     });
-  }, [dealerId]);
+  }, [dealerId, sharedUid]);
 
   const setQuantity = useCallback((cartLineId: string, quantity: number) => {
     if (quantity < 1) {
-      setItems(prev => {
+      persistSharedDelete(sharedUid, cartLineId);
+      setAllItems(prev => {
         const next = prev.filter(item => item.cartLineId !== cartLineId);
         if (!dealerId) return next;
         return applyDealerCartPricing(next, priceLevelsRef.current, dealerId);
@@ -308,17 +339,21 @@ export const CartProvider: React.FC<{
       return;
     }
     const qty = Math.max(1, Math.floor(quantity));
-    setItems(prev => {
+    setAllItems(prev => {
       const next = prev.map(item => (
         item.cartLineId === cartLineId ? { ...item, quantity: qty } : item
       ));
-      if (!dealerId) return next;
-      return applyDealerCartPricing(next, priceLevelsRef.current, dealerId);
+      const priced = dealerId
+        ? applyDealerCartPricing(next, priceLevelsRef.current, dealerId)
+        : next;
+      const updated = priced.find(item => item.cartLineId === cartLineId);
+      if (updated) persistSharedItem(sharedUid, updated);
+      return priced;
     });
-  }, [dealerId]);
+  }, [dealerId, sharedUid]);
 
   const updateStamping = useCallback((cartLineId: string, input: UpdateCartStampingInput) => {
-    setItems(prev => {
+    setAllItems(prev => {
       const target = prev.find(item => item.cartLineId === cartLineId);
       if (!target) return prev;
 
@@ -334,14 +369,15 @@ export const CartProvider: React.FC<{
         ? (input.gatcStampingRange?.trim() || null)
         : null;
 
-      // Merge into an existing row with the same product + stamping choice.
       const mergeInto = prev.find(
         item => item.cartLineId !== cartLineId
           && item.productId === target.productId
-          && sameGatcKey(item.gatcStampingPriceId, nextGatcId),
+          && sameGatcKey(item.gatcStampingPriceId, nextGatcId)
+          && sameAddedBy(item.addedByUid, target.addedByUid),
       );
 
       if (mergeInto) {
+        persistSharedDelete(sharedUid, cartLineId);
         const merged = prev
           .filter(item => item.cartLineId !== cartLineId)
           .map(item => (
@@ -357,34 +393,55 @@ export const CartProvider: React.FC<{
                 }
               : item
           ));
-        if (!dealerId) return merged;
-        return applyDealerCartPricing(merged, priceLevelsRef.current, dealerId);
+        const priced = dealerId
+          ? applyDealerCartPricing(merged, priceLevelsRef.current, dealerId)
+          : merged;
+        const updated = priced.find(item => item.cartLineId === mergeInto.cartLineId);
+        if (updated) persistSharedItem(sharedUid, updated);
+        return priced;
       }
 
       const stamped = prev.map(item => (
         item.cartLineId === cartLineId
           ? {
               ...item,
-              gatcStampingPriceId: nextGatcId,
               gatcFeePerUnit: nextFee,
+              gatcStampingPriceId: nextGatcId,
               gatcStampingRange: nextRange,
               rate: combinedCartRate(item.baseRate, nextFee),
             }
           : item
       ));
-      if (!dealerId) return stamped;
-      return applyDealerCartPricing(stamped, priceLevelsRef.current, dealerId);
+      const priced = dealerId
+        ? applyDealerCartPricing(stamped, priceLevelsRef.current, dealerId)
+        : stamped;
+      const updated = priced.find(item => item.cartLineId === cartLineId);
+      if (updated) persistSharedItem(sharedUid, updated);
+      return priced;
     });
-  }, [dealerId]);
+  }, [dealerId, sharedUid]);
 
   const setRemarks = useCallback((next: string) => {
-    setRemarksState(normalizeRemarks(next));
-  }, []);
+    const value = normalizeRemarks(next);
+    setRemarksState(value);
+    if (sharedUid) void writeDealerCartRemarks(sharedUid, value);
+  }, [sharedUid]);
 
   const clearCart = useCallback(() => {
-    setItems([]);
+    if (sharedUid) {
+      const ids = user?.role === 'dealer'
+        ? allItemsRef.current
+          .filter(item => !isStaffAttributedCartLine(item))
+          .map(item => item.cartLineId)
+        : items.map(item => item.cartLineId);
+      void deleteDealerCartItems(sharedUid, ids);
+      setAllItems(prev => prev.filter(item => !ids.includes(item.cartLineId)));
+      if (user?.role !== 'dealer_staff') setRemarksState('');
+      return;
+    }
+    setAllItems([]);
     setRemarksState('');
-  }, []);
+  }, [items, sharedUid, user?.role]);
 
   const isInCart = useCallback(
     (productId: string) => items.some(item => item.productId === productId),
@@ -413,6 +470,7 @@ export const CartProvider: React.FC<{
       items,
       itemCount,
       subtotal,
+      cartReady,
       remarks,
       addItem,
       removeItem,
@@ -427,6 +485,7 @@ export const CartProvider: React.FC<{
       items,
       itemCount,
       subtotal,
+      cartReady,
       remarks,
       addItem,
       removeItem,

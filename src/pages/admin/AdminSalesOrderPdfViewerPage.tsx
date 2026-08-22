@@ -1,7 +1,9 @@
 import React, { Suspense, lazy, useEffect, useMemo, useState } from 'react';
-import { useOutletContext } from 'react-router-dom';
+import { Navigate, useOutletContext } from 'react-router-dom';
 import { AlertCircle, Download, ExternalLink, Loader2 } from 'lucide-react';
 import { FetchingLoader } from '../../components/FetchingLoader';
+import { useAuth } from '../../context/AuthContext';
+import { hideDealerStaffCommercials } from '../../lib/dealerAccess';
 import {
   downloadSalesOrderDocument,
 } from '../../lib/admin-sales-orders';
@@ -29,7 +31,8 @@ function WhatsAppIcon({ size = 16 }: { size?: number }) {
 }
 
 export const AdminSalesOrderPdfViewerPage: React.FC = () => {
-  const { salesOrder, salesOrderId } = useOutletContext<AdminSalesOrderDetailOutletContext>();
+  const { user } = useAuth();
+  const { salesOrder, salesOrderId, listPath } = useOutletContext<AdminSalesOrderDetailOutletContext>();
   const useNativeViewer = useMemo(() => prefersNativePdfViewer(), []);
 
   const [document, setDocument] = useState<InvoiceDocumentDownload | null>(null);
@@ -41,7 +44,7 @@ export const AdminSalesOrderPdfViewerPage: React.FC = () => {
   const [shareError, setShareError] = useState('');
 
   useEffect(() => {
-    if (!salesOrderId) return;
+    if (!salesOrderId || hideDealerStaffCommercials(user)) return;
 
     let cancelled = false;
     let objectUrl: string | null = null;
@@ -81,7 +84,7 @@ export const AdminSalesOrderPdfViewerPage: React.FC = () => {
       cancelled = true;
       if (objectUrl) URL.revokeObjectURL(objectUrl);
     };
-  }, [salesOrderId, useNativeViewer]);
+  }, [salesOrderId, useNativeViewer, user]);
 
   const shareOnWhatsApp = async () => {
     if (!document || sharing) return;
@@ -99,6 +102,10 @@ export const AdminSalesOrderPdfViewerPage: React.FC = () => {
       setSharing(false);
     }
   };
+
+  if (hideDealerStaffCommercials(user)) {
+    return <Navigate to={`${listPath}/${salesOrderId}`} replace />;
+  }
 
   if (!salesOrder) return null;
 

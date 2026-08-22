@@ -13,13 +13,21 @@ import {
 import { GatcStampingInlineControl } from '../../components/catalog/GatcStampingInlineControl';
 import { DocumentLineItemSpec } from '../../components/invoices/DocumentLineItemSpec';
 import { MultiSalesOrderSuccess } from '../../components/salesOrders/MultiSalesOrderSuccess';
+import { DealerStaffApprovalQueue } from '../../components/dealers/DealerStaffApprovalQueue';
+import { FetchingLoader } from '../../components/FetchingLoader';
 import { useAuth } from '../../context/AuthContext';
 import { CART_REMARKS_MAX_LENGTH } from '../../context/CartProvider';
 import { useCart } from '../../context/useCart';
 import { useDealerPriceLevels } from '../../hooks/useDealerUnitPrice';
 import { useDealerOrderStockGate } from '../../hooks/useDealerOrderStockGate';
 import { cartLineIsOutOfStock, fetchCatalog, formatCurrency, isCatalogSparePartProduct } from '../../lib/catalog';
-import { canSeeDealerUnitPrice, dealerStaffTeam } from '../../lib/dealerAccess';
+import {
+  canPlaceDealerZohoOrder,
+  canSeeDealerUnitPrice,
+  dealerPortalStaffTeams,
+  dealerStaffTeam,
+  resolveDealerAccountUid,
+} from '../../lib/dealerAccess';
 import {
   DEALER_ORDER_SCHEDULED_MESSAGE,
   DEALER_ORDER_UNAVAILABLE_MESSAGE,
@@ -35,6 +43,13 @@ import {
   submitDealerOrder,
   type SegmentSalesOrderResult,
 } from '../../lib/dealerOrders';
+import {
+  approveDealerStaffOrder,
+  rejectDealerStaffOrder,
+  submitDealerStaffOrderForApproval,
+  subscribeDealerStaffApprovals,
+} from '../../lib/dealerStaffOrders';
+import { isStaffAttributedCartLine } from '../../lib/dealerSharedCart';
 import { selectedPartnerIsDelhivery } from '../../lib/delhiveryCartFreight';
 import {
   summarizeSegmentSiteBuckets,
@@ -66,6 +81,7 @@ import {
 import { isInternalOpsUser } from '../../lib/staffAccess';
 import { homePathForRole } from '../../types';
 import type { CatalogProduct } from '../../types/catalog';
+import type { DealerStaffOrderApproval } from '../../types/dealer-staff-orders';
 import type { LogisticsCourierRates } from '../../types/logistics-courier-rates';
 import type { LogisticsDeliveryRulesMatrix } from '../../types/logistics-delivery-rules';
 import type { LogisticsPartnerStatuses } from '../../types/logistics-partner-status';
@@ -89,7 +105,6 @@ const DealerCartPage: React.FC = () => {
   const {
     items,
     itemCount,
-    subtotal,
     remarks,
     setRemarks,
     setQuantity,
@@ -97,12 +112,25 @@ const DealerCartPage: React.FC = () => {
     addItem,
     updateStamping,
     clearCart,
+    cartReady,
   } = useCart();
+  const isDealerOwner = canPlaceDealerZohoOrder(user);
+  const isDealerStaffUser = user?.role === 'dealer_staff';
+  const staffTeams = dealerPortalStaffTeams(user) ?? [];
+  const teamItems = isDealerOwner ? items.filter(isStaffAttributedCartLine) : [];
+  const checkoutItems = isDealerOwner
+    ? items.filter(item => !isStaffAttributedCartLine(item))
+    : items;
+  const checkoutCount = checkoutItems.reduce((sum, item) => sum + item.quantity, 0);
+  const checkoutSubtotal = checkoutItems.reduce((sum, item) => sum + item.rate * item.quantity, 0);
   const { level: dealerPriceLevel } = useDealerPriceLevels();
   const dealerStock = useDealerOrderStockGate();
   const skipsOpsReview = priceLevelSkipsOpsReview(dealerPriceLevel);
   const [submitting, setSubmitting] = useState(false);
   const [createdOrders, setCreatedOrders] = useState<SegmentSalesOrderResult[] | null>(null);
+  const [submittedForApproval, setSubmittedForApproval] = useState(false);
+  const [pendingApprovals, setPendingApprovals] = useState<DealerStaffOrderApproval[]>([]);
+  const [approvalBusyId, setApprovalBusyId] = useState<string | null>(null);
   const [addresses, setAddresses] = useState<ShippingAddress[]>([]);
   const [addressesLoading, setAddressesLoading] = useState(true);
   const [addressesError, setAddressesError] = useState('');
@@ -120,6 +148,15 @@ const DealerCartPage: React.FC = () => {
 
   const base = user ? homePathForRole(user.role) : '/dealer';
   const productsPath = `${base}/products`;
+  const dealerAccountUid = resolveDealerAccountUid(user);
+
+  useEffect(() => {
+    if (!isDealerOwner || !dealerAccountUid) {
+      setPendingApprovals([]);
+      return undefined;
+    }
+    return subscribeDealerStaffApprovals(dealerAccountUid, setPendingApprovals);
+  }, [isDealerOwner, dealerAccountUid]);
 
   const shippingDestination = useMemo(
     () => resolveShippingDestination(shipping, addresses),
@@ -179,36 +216,36 @@ const DealerCartPage: React.FC = () => {
   }, [items]);
 
   const freightEstimateBase = useMemo((): StCourierCartFreightEstimate | null => {
-    if (!courierRates || !deliveryRules || !partnerStatuses || items.length === 0) return null;
+    if (!courierRates || !deliveryRules || !partnerStatuses || checkoutItems.length === 0) return null;
     if (!shippingDestination || !inferredFreightZone) return null;
     return estimateStCourierCartFreight({
-      lines: cartLinesForFreightEstimate(items, catalogById),
+      lines: cartLinesForFreightEstimate(checkoutItems, catalogById),
       destination: shippingDestination,
       rates: courierRates,
       deliveryRules,
       partnerStatuses,
       courierBySite,
       blueDartPin,
-      invoiceValueInr: subtotal,
+      invoiceValueInr: checkoutSubtotal,
     });
   }, [
     courierRates,
     deliveryRules,
     partnerStatuses,
-    items,
+    checkoutItems,
     shippingDestination,
     catalogById,
     courierBySite,
     inferredFreightZone,
     blueDartPin,
-    subtotal,
+    checkoutSubtotal,
   ]);
 
   const delhiveryLive = useDelhiveryLiveFreightQuote({
     estimate: freightEstimateBase,
     originAddress: fromAddresses.cochin || fromAddresses.head_office || '',
     destinationPin: shippingDestination?.zip,
-    invoiceValueInr: subtotal,
+    invoiceValueInr: checkoutSubtotal,
     freightBillingMode,
   });
 
@@ -233,17 +270,17 @@ const DealerCartPage: React.FC = () => {
   }, [loadAddresses]);
 
   const stampableWithoutStamping = useMemo(() => {
-    return items.filter(item => {
+    return checkoutItems.filter(item => {
       if (item.gatcStampingPriceId) return false;
       const catalogProduct = catalogById[item.productId];
       if (catalogProduct) return productHasLinkedGatc(catalogProduct);
       // Fallback when catalog not loaded yet: treat known stampable cart fields as linked.
       return false;
     });
-  }, [items, catalogById]);
+  }, [checkoutItems, catalogById]);
 
   const segmentPreview = useMemo(() => {
-    const lines = items.map(item => {
+    const lines = checkoutItems.map(item => {
       const catalog = catalogById[item.productId];
       return {
         categoryId: item.categoryId ?? catalog?.categoryId ?? null,
@@ -254,7 +291,7 @@ const DealerCartPage: React.FC = () => {
       };
     });
     return summarizeSegmentSiteBuckets(lines);
-  }, [items, catalogById]);
+  }, [checkoutItems, catalogById]);
 
   /** Spare-only cart: partner choice only; freight ₹ set later by staff. */
   const cartIsSpareOnly = useMemo(
@@ -262,7 +299,7 @@ const DealerCartPage: React.FC = () => {
     [segmentPreview],
   );
   const hideTeamQty = dealerStaffTeam(user) != null;
-  const showCartDealerMoney = items.every(item => (
+  const showCartDealerMoney = checkoutItems.every(item => (
     canSeeDealerUnitPrice(user, isCatalogSparePartProduct(catalogById[item.productId] ?? item))
   ));
 
@@ -271,7 +308,7 @@ const DealerCartPage: React.FC = () => {
     const round2 = (n: number) => Math.round(n * 100) / 100;
     const defaultGstPct = 18;
     let itemsGst = 0;
-    for (const item of items) {
+    for (const item of checkoutItems) {
       const line = round2(item.rate * item.quantity);
       const pct = catalogById[item.productId]?.taxPercentage;
       const taxPct = Number.isFinite(pct) && (pct as number) > 0 ? (pct as number) : defaultGstPct;
@@ -303,7 +340,7 @@ const DealerCartPage: React.FC = () => {
       freight,
       freightAdjust: adjust,
       gst,
-      total: round2(subtotal + freight + gst),
+      total: round2(checkoutSubtotal + freight + gst),
       hasFreight: Boolean(
         !cartIsSpareOnly
         && freightEstimate?.usable
@@ -312,25 +349,25 @@ const DealerCartPage: React.FC = () => {
       freightDeferred: cartIsSpareOnly,
     };
   }, [
-    items,
+    checkoutItems,
     catalogById,
     freightEstimate,
-    subtotal,
+    checkoutSubtotal,
     pendingFreightDiff,
     freightBillingMode,
     cartIsSpareOnly,
   ]);
 
   const { inboundByProductId, raisedPoQty, canOrder } = dealerStock;
-  const unorderableItems = useMemo(() => items.filter(item => {
+  const unorderableItems = useMemo(() => checkoutItems.filter(item => {
     const product = catalogById[item.productId];
     if (product) return !canOrder(product);
     if ((inboundByProductId[item.productId] ?? 0) > 0 || raisedPoQty(item.productId) > 0) return false;
     return cartLineIsOutOfStock(item);
-  }), [items, catalogById, inboundByProductId, raisedPoQty, canOrder]);
+  }), [checkoutItems, catalogById, inboundByProductId, raisedPoQty, canOrder]);
 
   const handlePlaceOrder = async () => {
-    if (items.length === 0 || submitting) return;
+    if (checkoutItems.length === 0 || submitting) return;
     if (unorderableItems.length > 0) {
       window.alert(
         unorderableItems.length === 1
@@ -340,7 +377,11 @@ const DealerCartPage: React.FC = () => {
       return;
     }
     if (!shipping) {
-      window.alert('Select or enter a complete shipping address before placing the order.');
+      window.alert(
+        isDealerStaffUser
+          ? 'Select or enter a complete shipping address before submitting for approval.'
+          : 'Select or enter a complete shipping address before placing the order.',
+      );
       return;
     }
     if (
@@ -373,12 +414,39 @@ const DealerCartPage: React.FC = () => {
             )
         )
         : undefined;
+      const submitLines = checkoutItems.map(item => ({
+        productId: item.productId,
+        quantity: item.quantity,
+        gatcStampingPriceId: item.gatcStampingPriceId ?? null,
+      }));
+
+      if (isDealerStaffUser) {
+        const kind = cartIsSpareOnly && staffTeams.includes('service') ? 'service' : 'sales';
+        const submittedByTeam = kind === 'service' || staffTeams[0] === 'service'
+          ? 'service'
+          : 'sales';
+        await submitDealerStaffOrderForApproval({
+          lines: submitLines,
+          displayLines: checkoutItems,
+          cartLineIds: checkoutItems.map(item => item.cartLineId),
+          shipping,
+          remarks,
+          submittedByTeam,
+          kind,
+          courierBySite: courierSelection,
+          freightZone: inferredFreightZone ?? undefined,
+          manualFreightAmountInr: delhiveryFreight,
+          freightBillingMode: selectedPartnerIsDelhivery(freightEstimate) && !cartIsSpareOnly
+            ? freightBillingMode
+            : undefined,
+        });
+        setFreightBillingMode('btc');
+        setSubmittedForApproval(true);
+        return;
+      }
+
       const order = await submitDealerOrder(
-        items.map(item => ({
-          productId: item.productId,
-          quantity: item.quantity,
-          gatcStampingPriceId: item.gatcStampingPriceId ?? null,
-        })),
+        submitLines,
         shipping,
         remarks,
         courierSelection,
@@ -423,6 +491,43 @@ const DealerCartPage: React.FC = () => {
     }
   };
 
+  const handleApproveStaffOrder = async (approvalId: string) => {
+    if (approvalBusyId) return;
+    setApprovalBusyId(approvalId);
+    try {
+      const order = await approveDealerStaffOrder(approvalId);
+      const salesOrders = Array.isArray(order.salesOrders) && order.salesOrders.length > 0
+        ? order.salesOrders
+        : [];
+      if (salesOrders.length > 1) {
+        setCreatedOrders(salesOrders);
+        return;
+      }
+      const soId = salesOrders[0]?.zohoSalesOrderId?.trim() || order.zohoSalesOrderId?.trim();
+      navigate(
+        soId ? `${base}/sales-orders/${soId}` : `${base}/sales-orders`,
+        { replace: true },
+      );
+    } catch (err) {
+      window.alert(dealerOrderErrorMessage(err));
+    } finally {
+      setApprovalBusyId(null);
+    }
+  };
+
+  const handleRejectStaffOrder = async (approvalId: string) => {
+    if (approvalBusyId) return;
+    if (!window.confirm('Reject this team order? Items will return to the cart.')) return;
+    setApprovalBusyId(approvalId);
+    try {
+      await rejectDealerStaffOrder(approvalId);
+    } catch (err) {
+      window.alert(dealerOrderErrorMessage(err));
+    } finally {
+      setApprovalBusyId(null);
+    }
+  };
+
   const applyLineStamping = (cartLineId: string, choice: GatcStampingChoice) => {
     updateStamping(cartLineId, {
       withStamping: choice.withStamping,
@@ -431,6 +536,39 @@ const DealerCartPage: React.FC = () => {
       gatcStampingRange: choice.gatcStampingRange,
     });
   };
+
+  if (!cartReady) {
+    return (
+      <div className="page-content fade-in orders-page">
+        <FetchingLoader label="Loading cart…" />
+      </div>
+    );
+  }
+
+  if (submittedForApproval) {
+    return (
+      <div className="page-content fade-in orders-page">
+        <div className="dealer-orders-page__header">
+          <div>
+            <h2 className="orders-page__title">Submitted for approval</h2>
+            <p className="text-muted text-sm">
+              {staffTeams.includes('service') && !staffTeams.includes('sales')
+                ? 'Your spare order was sent to the dealer. It will go to YesOne after they approve it.'
+                : 'Your order was sent to the dealer. It will go to YesOne after they approve it.'}
+            </p>
+          </div>
+        </div>
+        <div className="orders-page__empty panel glass">
+          <ShoppingCart size={48} />
+          <h2>Waiting for dealer approval</h2>
+          <p className="text-muted">You can keep browsing and add more items to a new cart.</p>
+          <Link to={productsPath} className="btn btn-primary">
+            Browse products
+          </Link>
+        </div>
+      </div>
+    );
+  }
 
   if (createdOrders && createdOrders.length > 0) {
     return (
@@ -450,13 +588,24 @@ const DealerCartPage: React.FC = () => {
     );
   }
 
-  if (items.length === 0) {
+  const listedItems = isDealerOwner ? [...teamItems, ...checkoutItems] : checkoutItems;
+  const checkoutSubtitle = isDealerStaffUser
+    ? (cartIsSpareOnly
+      ? 'Submit this spare order to your dealer for approval'
+      : 'Submit this order to your dealer for approval')
+    : '';
+
+  if (items.length === 0 && pendingApprovals.length === 0) {
     return (
       <div className="page-content fade-in orders-page">
         <div className="dealer-orders-page__header">
           <div>
             <h2 className="orders-page__title">Your cart</h2>
-            <p className="text-muted text-sm">Add products, then place a Zoho draft sales order.</p>
+            <p className="text-muted text-sm">
+              {isDealerStaffUser
+                ? 'Add products, then submit to your dealer for approval.'
+                : 'Add products, then place your order.'}
+            </p>
           </div>
           <Link to={`${base}/sales-orders`} className="btn btn-secondary btn-sm">
             Sales orders
@@ -481,28 +630,33 @@ const DealerCartPage: React.FC = () => {
           <h2 className="orders-page__title">Your cart</h2>
           <p className="text-muted text-sm">
             {itemCount} {itemCount === 1 ? 'item' : 'items'}
-            {skipsOpsReview
-              ? (segmentPreview.length > 1
-                ? ` · creates ${segmentPreview.length} sales orders (${segmentPreview.map(b => b.label).join(', ')})`
-                : segmentPreview[0]
-                  ? ` · creates a sales order (${segmentPreview[0].label})`
-                  : ' · creates a sales order')
-              : (segmentPreview.length > 1
-                ? ` · creates ${segmentPreview.length} Zoho Draft sales orders (${segmentPreview.map(b => b.label).join(', ')})`
-                : segmentPreview[0]
-                  ? ` · creates a Zoho Draft sales order (${segmentPreview[0].label})`
-                  : ' · creates a Zoho Draft sales order')}
+            {checkoutSubtitle ? ` · ${checkoutSubtitle}` : ''}
+            {teamItems.length > 0 ? ` · ${teamItems.length} from team` : ''}
+            {pendingApprovals.length > 0
+              ? ` · ${pendingApprovals.length} waiting for approval`
+              : ''}
           </p>
         </div>
         <div className="orders-page__header-actions">
           <Link to={`${base}/sales-orders`} className="btn btn-secondary btn-sm">
             Sales orders
           </Link>
+          {listedItems.length > 0 ? (
           <button type="button" className="btn btn-secondary btn-sm" onClick={clearCart}>
             Clear cart
           </button>
+          ) : null}
         </div>
       </div>
+
+      {isDealerOwner ? (
+        <DealerStaffApprovalQueue
+          approvals={pendingApprovals}
+          busyId={approvalBusyId}
+          onApprove={id => void handleApproveStaffOrder(id)}
+          onReject={id => void handleRejectStaffOrder(id)}
+        />
+      ) : null}
 
       {stampableWithoutStamping.length > 0 && (
         <div className="orders-page__stamp-reminder panel glass" role="status">
@@ -519,7 +673,7 @@ const DealerCartPage: React.FC = () => {
       <div className="orders-page__layout">
         <div className="orders-page__cart-column">
           <ul className="orders-page__items">
-            {items.map(item => {
+            {listedItems.map(item => {
               const lineTotal = item.rate * item.quantity;
               const catalogProduct = catalogById[item.productId];
               const scheduledQty = dealerStock.scheduledQty(item.productId);
@@ -536,11 +690,15 @@ const DealerCartPage: React.FC = () => {
                 ? productHasLinkedGatc(catalogProduct)
                 : Boolean(item.gatcStampingPriceId);
               const hasStamping = Boolean(item.gatcStampingPriceId);
-              const usedGatcIds = items
-                .filter(other => other.productId === item.productId && other.gatcStampingPriceId)
+              const usedGatcIds = listedItems
+                .filter(other => other.productId === item.productId
+                  && other.gatcStampingPriceId
+                  && (other.addedByUid || null) === (item.addedByUid || null))
                 .map(other => String(other.gatcStampingPriceId));
-              const hasUnstampedSibling = items.some(
-                other => other.productId === item.productId && !other.gatcStampingPriceId,
+              const hasUnstampedSibling = listedItems.some(
+                other => other.productId === item.productId
+                  && !other.gatcStampingPriceId
+                  && (other.addedByUid || null) === (item.addedByUid || null),
               );
 
               return (
@@ -562,6 +720,16 @@ const DealerCartPage: React.FC = () => {
                     sku={item.sku}
                     description={item.description || descByProductId[item.productId] || null}
                   >
+                    {isStaffAttributedCartLine(item) && item.addedByName ? (
+                      <p className="orders-page__added-by">
+                        Added by {item.addedByName}
+                        {item.addedByTeam === 'service'
+                          ? ' · Service'
+                          : item.addedByTeam === 'sales'
+                            ? ' · Sales'
+                            : ''}
+                      </p>
+                    ) : null}
                     <div className="orders-page__item-price">
                       {showLineDealerPrice ? (
                         <>
@@ -699,22 +867,27 @@ const DealerCartPage: React.FC = () => {
           </Link>
         </div>
 
+        {checkoutItems.length > 0 ? (
         <aside className="orders-page__summary panel glass">
           <h3>Order summary</h3>
           <div className="orders-page__summary-row">
-            <span>Subtotal ({itemCount} items)</span>
-            <strong>{showCartDealerMoney ? formatCurrency(subtotal) : '—'}</strong>
+            <span>Subtotal ({checkoutCount} {checkoutCount === 1 ? 'item' : 'items'})</span>
+            <strong>{showCartDealerMoney ? formatCurrency(checkoutSubtotal) : '—'}</strong>
           </div>
           <p className="orders-page__summary-note text-muted text-sm">
-            {skipsOpsReview
-              ? (segmentPreview.length > 1
-                ? `This cart will create ${segmentPreview.length} sales orders: ${segmentPreview.map(b => b.label).join(', ')}. Directors price level skips review — payment will be due as soon as you submit.`
-                : 'Directors price level skips review. After submit, payment is due (Awaiting payment). Staff can still change items or address until you pay.')
-              : (segmentPreview.length > 1
-                ? `This cart will create ${segmentPreview.length} draft sales orders: ${segmentPreview.map(b => b.label).join(', ')}. Each order type and branch uses its own Zoho salesperson.`
-                : segmentPreview[0]
-                  ? `Your order is created in Zoho Inventory as Draft (${segmentPreview[0].label}). After submit, only staff can change items or address.`
-                  : 'Your order is created in Zoho Inventory as Draft. After submit, only staff can change items or address.')}
+            {isDealerStaffUser
+              ? (cartIsSpareOnly
+                ? 'This spare order is sent to your dealer. It is not placed in YesOne until they approve it.'
+                : 'This order is sent to your dealer. It is not placed in YesOne until they approve it.')
+              : (skipsOpsReview
+                ? (segmentPreview.length > 1
+                  ? `This cart will create ${segmentPreview.length} sales orders: ${segmentPreview.map(b => b.label).join(', ')}. Directors price level skips review — payment will be due as soon as you submit.`
+                  : 'Directors price level skips review. After submit, payment is due (Awaiting payment). Staff can still change items or address until you pay.')
+                : (segmentPreview.length > 1
+                  ? `This cart will create ${segmentPreview.length} draft sales orders: ${segmentPreview.map(b => b.label).join(', ')}. Each order type and branch uses its own Zoho salesperson.`
+                  : segmentPreview[0]
+                    ? `Your order is created in Zoho Inventory as Draft (${segmentPreview[0].label}). After submit, only staff can change items or address.`
+                    : 'Your order is created in Zoho Inventory as Draft. After submit, only staff can change items or address.'))}
           </p>
           <label className="orders-page__remarks">
             <span className="orders-page__remarks-label">Remarks</span>
@@ -785,7 +958,7 @@ const DealerCartPage: React.FC = () => {
                   originPin={delhiveryLive.originPin || null}
                   destinationPin={delhiveryLive.destinationPin}
                   weightKg={freightEstimate.totalChargeableKg || 5}
-                  invAmount={subtotal}
+                  invAmount={checkoutSubtotal}
                   freightBillingMode={freightBillingMode}
                   includeEstimate={false}
                   compact
@@ -800,7 +973,7 @@ const DealerCartPage: React.FC = () => {
           <div className="orders-page__checkout-total" aria-label="Order total">
             <div className="orders-page__summary-row">
               <span>Subtotal</span>
-              <span>{showCartDealerMoney ? formatCurrency(subtotal) : '—'}</span>
+              <span>{showCartDealerMoney ? formatCurrency(checkoutSubtotal) : '—'}</span>
             </div>
             <div className="orders-page__summary-row">
               <span>Freight</span>
@@ -845,6 +1018,7 @@ const DealerCartPage: React.FC = () => {
             className="btn btn-primary orders-page__submit"
             disabled={
               submitting
+              || checkoutItems.length === 0
               || !shipping
               || addressesLoading
               || !freightAdjustAgreed
@@ -852,9 +1026,12 @@ const DealerCartPage: React.FC = () => {
             }
             onClick={() => void handlePlaceOrder()}
           >
-            {submitting ? 'Submitting…' : 'Place order'}
+            {submitting
+              ? (isDealerStaffUser ? 'Submitting…' : 'Placing…')
+              : (isDealerStaffUser ? 'Submit for approval' : 'Place order')}
           </button>
         </aside>
+        ) : null}
       </div>
     </div>
   );

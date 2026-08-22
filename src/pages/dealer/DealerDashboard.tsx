@@ -14,7 +14,6 @@ import {
   LifeBuoy,
   Package,
   Plus,
-  ShieldCheck,
   ShoppingCart,
   TrendingUp,
   Users,
@@ -117,14 +116,12 @@ function buildQuickActions(base: string, isDealerStaff: boolean): QuickAction[] 
   if (!isDealerStaff) {
     actions.push(
       { label: 'New Order', path: `${base}/products`, icon: <Boxes size={20} /> },
-      { label: 'Verification', path: `${base}/verification`, icon: <ShieldCheck size={20} /> },
       { label: 'View Invoices', path: `${base}/invoices`, icon: <FileText size={20} /> },
     );
   } else {
     actions.push(
-      { label: 'Verification', path: `${base}/verification`, icon: <ShieldCheck size={20} /> },
       { label: 'Products', path: `${base}/products`, icon: <Package size={20} /> },
-      { label: 'View Invoices', path: `${base}/invoices`, icon: <FileText size={20} /> },
+      { label: 'Sales order', path: `${base}/sales-orders`, icon: <ClipboardList size={20} /> },
     );
   }
   return actions;
@@ -166,13 +163,13 @@ function buildMiniStats(base: string): MiniStat[] {
       path: `${base}/products`,
     },
     {
-      label: 'Verifications Due',
+      label: 'Sales orders',
       value: '',
       trend: '',
       tone: 'orange',
       icon: <ClipboardList size={18} />,
-      actionLabel: 'View due list',
-      path: `${base}/verification`,
+      actionLabel: 'View orders',
+      path: `${base}/sales-orders`,
     },
     {
       label: 'Upcoming Trainings',

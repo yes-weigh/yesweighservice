@@ -1,6 +1,7 @@
 import React from 'react';
 import { PagePlaceholder } from '../../components/PagePlaceholder';
 import { useAuth } from '../../context/AuthContext';
+import { hideDealerStaffCommercials } from '../../lib/dealerAccess';
 import { homePathForRole } from '../../types';
 import { OrdersPage } from './OrdersPage';
 import { Navigate } from 'react-router-dom';
@@ -20,6 +21,9 @@ import { LogisticsPage } from './LogisticsPage';
 
 function DealerInvoicesRoute() {
   const { user } = useAuth();
+  if (hideDealerStaffCommercials(user) && user) {
+    return <Navigate to={`${homePathForRole(user.role)}/sales-orders`} replace />;
+  }
   if (user?.role === 'dealer' || user?.role === 'dealer_staff') {
     return <InvoicesPage />;
   }
@@ -33,6 +37,9 @@ function DealerInvoicesRoute() {
 
 function DealerInvoiceDetailRoute() {
   const { user } = useAuth();
+  if (hideDealerStaffCommercials(user) && user) {
+    return <Navigate to={`${homePathForRole(user.role)}/sales-orders`} replace />;
+  }
   if (user?.role === 'dealer' || user?.role === 'dealer_staff') {
     return <InvoiceDetailLayout />;
   }
