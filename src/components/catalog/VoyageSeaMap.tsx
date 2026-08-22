@@ -1,7 +1,7 @@
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
-import { CalendarDays, Clock, Gauge, MapPin, Route, Ship } from 'lucide-react';
+import { CalendarDays, Clock, Gauge, MapPin, RefreshCw, Route, Ship } from 'lucide-react';
 import { lookupPurchaseOrderVesselAis, type VesselAisSnapshot } from '../../lib/admin-purchase-orders';
 import { formatInvoiceDate } from '../../lib/invoices';
 import {
@@ -12,10 +12,10 @@ import {
   seaRouteWaypoints,
   splitRouteAtProgress,
   voyageDaysUntilEta,
-  voyageElapsedDays,
   voyageProgressBetweenDates,
-  voyageSteamingDays,
+  voyageTransitDays,
 } from '../../lib/sea-voyage-route';
+import { playVoyageAisSuccessSound, unlockVoyageAisAudio } from '../../lib/voyageAisSuccessSound';
 
 function escapeMapLabel(value: string): string {
   return value
@@ -27,6 +27,15 @@ function escapeMapLabel(value: string): string {
 
 function toLatLngs(points: { lat: number; lon: number }[]): L.LatLngExpression[] {
   return points.map(point => [point.lat, point.lon]);
+}
+
+function AisFetchingLabel({ compact = false }: { compact?: boolean }) {
+  return (
+    <strong className={`voyage-sea-map__fetching${compact ? ' voyage-sea-map__fetching--compact' : ''}`}>
+      <i className="voyage-sea-map__fetch-ring" aria-hidden />
+      Fetching data
+    </strong>
+  );
 }
 
 const SHIP_ICON_SVG = `<svg viewBox="0 0 64 64" width="48" height="48" xmlns="http://www.w3.org/2000/svg">
@@ -65,27 +74,52 @@ export function VoyageSeaMap({
   eta,
 }: Props) {
   const hostRef = useRef<HTMLDivElement | null>(null);
+  const aisRequestRef = useRef(0);
   const [ais, setAis] = useState<VesselAisSnapshot | null>(null);
+  const [aisReady, setAisReady] = useState(false);
+  const aisKeyword = useMemo(
+    () => [imo, mmsi, vesselName].map(value => String(value || '').trim()).find(Boolean) || '',
+    [imo, mmsi, vesselName],
+  );
 
-  useEffect(() => {
-    const keyword = [imo, mmsi, vesselName].map(value => String(value || '').trim()).find(Boolean) || '';
-    if (!keyword) {
+  const fetchLiveAis = useCallback((visible: boolean) => {
+    if (!aisKeyword) {
       setAis(null);
+      setAisReady(true);
       return;
     }
-    let cancelled = false;
-    const load = () => {
-      void lookupPurchaseOrderVesselAis(keyword).then(next => {
-        if (!cancelled) setAis(next);
+    const requestId = ++aisRequestRef.current;
+    if (visible) {
+      setAisReady(false);
+      unlockVoyageAisAudio();
+    }
+    void lookupPurchaseOrderVesselAis(aisKeyword)
+      .then(next => {
+        if (requestId !== aisRequestRef.current) return;
+        setAis(next);
+        setAisReady(true);
+        if (visible && next) playVoyageAisSuccessSound();
+      })
+      .catch(() => {
+        if (requestId !== aisRequestRef.current) return;
+        setAisReady(true);
       });
-    };
-    load();
-    const timer = window.setInterval(load, AIS_POLL_MS);
+  }, [aisKeyword]);
+
+  useEffect(() => {
+    if (!aisKeyword) {
+      setAis(null);
+      setAisReady(true);
+      return;
+    }
+    setAis(null);
+    fetchLiveAis(true);
+    const timer = window.setInterval(() => fetchLiveAis(false), AIS_POLL_MS);
     return () => {
-      cancelled = true;
+      aisRequestRef.current += 1;
       window.clearInterval(timer);
     };
-  }, [imo, mmsi, vesselName]);
+  }, [aisKeyword, fetchLiveAis]);
 
   useEffect(() => {
     const host = hostRef.current;
@@ -229,13 +263,13 @@ export function VoyageSeaMap({
   const split = splitRouteAtProgress(route, progress);
   const remainingNm = livePoint ? routeDistanceNm(split.remaining) : null;
   const liveSpeedKn = ais?.sog ?? null;
-  const daysUntil = voyageSteamingDays(remainingNm ?? 0, liveSpeedKn)
-    ?? voyageDaysUntilEta(eta);
-  const transitDays = voyageElapsedDays(etd);
+  const daysUntil = voyageDaysUntilEta(eta);
+  const transitDays = voyageTransitDays(etd, eta);
   const fromPort = prettyPortName(portOfLoading) || 'POL';
   const toPort = prettyPortName(portOfDischarge || 'Cochin');
   const nextPort = ais?.dest ? prettyPortName(ais.dest.split(',')[0]) : toPort;
   const liveEta = ais?.eta || null;
+  const fetchingAis = !aisReady;
 
   return (
     <div className="voyage-sea-map">
@@ -254,7 +288,12 @@ export function VoyageSeaMap({
           </div>
           {imo || ais?.imo ? <span>IMO Number: {imo || ais?.imo}</span> : null}
           <span>Next Port: {nextPort}</span>
-          {liveSpeedKn != null ? (
+          {fetchingAis ? (
+            <span className="voyage-sea-map__info-fetching" role="status" aria-live="polite">
+              <i className="voyage-sea-map__fetch-ring" aria-hidden />
+              Fetching data
+            </span>
+          ) : liveSpeedKn != null ? (
             <span className="voyage-sea-map__info-date">Live speed: {liveSpeedKn.toFixed(1)} kn</span>
           ) : null}
           <span className="voyage-sea-map__info-date">
@@ -278,16 +317,45 @@ export function VoyageSeaMap({
           </span>
         </div>
         <div ref={hostRef} className="voyage-sea-map__canvas" />
+        {fetchingAis ? (
+          <div className="voyage-sea-map__live-wait" role="status" aria-live="polite">
+            <div className="voyage-sea-map__clock" aria-hidden>
+              <span className="voyage-sea-map__clock-marks" />
+              <span className="voyage-sea-map__clock-hand voyage-sea-map__clock-hand--hour" />
+              <span className="voyage-sea-map__clock-hand voyage-sea-map__clock-hand--minute" />
+              <span className="voyage-sea-map__clock-hand voyage-sea-map__clock-hand--second" />
+              <span className="voyage-sea-map__clock-cap" />
+            </div>
+            <p>Fetching live data</p>
+          </div>
+        ) : null}
       </div>
+      <div className="voyage-sea-map__footer-wrap">
+        {aisKeyword ? (
+          <button
+            type="button"
+            className="voyage-sea-map__fetch-btn"
+            aria-label={aisReady ? 'Fetch live vessel data' : 'Fetching live vessel data'}
+            disabled={!aisReady}
+            onClick={() => fetchLiveAis(true)}
+          >
+            <RefreshCw size={13} strokeWidth={2.4} className={aisReady ? undefined : 'spin-icon'} aria-hidden />
+            {aisReady ? 'Fetch live' : 'Fetching…'}
+          </button>
+        ) : null}
       <footer className="voyage-sea-map__footer">
         <div className="voyage-sea-map__stat">
           <Ship size={18} strokeWidth={2.2} aria-hidden />
           <span>Distance</span>
-          <strong>
-            {remainingNm == null
-              ? '—'
-              : `${remainingNm.toLocaleString('en-US', { maximumFractionDigits: 0 })} NM`}
-          </strong>
+          {fetchingAis ? (
+            <AisFetchingLabel compact />
+          ) : (
+            <strong>
+              {remainingNm == null
+                ? '—'
+                : `${remainingNm.toLocaleString('en-US', { maximumFractionDigits: 0 })} NM`}
+            </strong>
+          )}
         </div>
         <div className="voyage-sea-map__stat voyage-sea-map__stat--dest">
           <Clock size={18} strokeWidth={2.2} aria-hidden />
@@ -299,10 +367,14 @@ export function VoyageSeaMap({
           <span>Transit days</span>
           <strong>{transitDays == null ? '—' : `${transitDays} Days`}</strong>
         </div>
-        <div className={`voyage-sea-map__stat${liveSpeedKn != null ? ' voyage-sea-map__stat--live' : ''}`}>
+        <div className={`voyage-sea-map__stat${liveSpeedKn != null ? ' voyage-sea-map__stat--live' : fetchingAis ? ' voyage-sea-map__stat--fetching' : ''}`}>
           <Gauge size={18} strokeWidth={2.2} aria-hidden />
           <span>Live Speed</span>
-          <strong>{liveSpeedKn == null ? '—' : `${liveSpeedKn.toFixed(1)} kn`}</strong>
+          {fetchingAis ? (
+            <AisFetchingLabel />
+          ) : (
+            <strong>{liveSpeedKn == null ? '—' : `${liveSpeedKn.toFixed(1)} kn`}</strong>
+          )}
         </div>
         <div className="voyage-sea-map__stat">
           <Route size={18} strokeWidth={2.2} aria-hidden />
@@ -313,6 +385,7 @@ export function VoyageSeaMap({
           </strong>
         </div>
       </footer>
+      </div>
     </div>
   );
 }

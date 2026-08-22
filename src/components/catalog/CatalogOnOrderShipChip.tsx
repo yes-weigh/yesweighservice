@@ -17,6 +17,7 @@ import {
   prettyPortName,
 } from '../../lib/sea-voyage-route';
 import { VoyageSeaMap } from './VoyageSeaMap';
+import { unlockVoyageAisAudio } from '../../lib/voyageAisSuccessSound';
 import { useCanViewShipmentTracking } from '../../hooks/useCanViewShipmentTracking';
 
 type ChipProps = {
@@ -43,6 +44,7 @@ export function CatalogOnOrderShipChip({
     event.preventDefault();
     event.stopPropagation();
     if (!allowed) return;
+    unlockVoyageAisAudio();
     setOpen(true);
   };
 

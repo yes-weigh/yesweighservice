@@ -27,6 +27,7 @@ import {
 import { formatCurrency } from '../../lib/catalog';
 import { newCartLineId } from '../../lib/gatcCart';
 import { formatInvoiceDate, invoiceErrorMessage } from '../../lib/invoices';
+import { unlockVoyageAisAudio } from '../../lib/voyageAisSuccessSound';
 import { formatLogisticsDateTime } from '../../lib/logisticsDateTime';
 import { canUpdatePurchaseOrders, isPlatformAdmin } from '../../lib/staffAccess';
 import type { DealerInvoiceLineItem } from '../../types/invoices';
@@ -521,6 +522,7 @@ export const AdminPurchaseOrderDocumentPage: React.FC = () => {
   const vendorPlace = vendorPlaceParts(purchaseOrder, vendorDirectory);
   const poDate = purchaseOrder.tracking.poDate || purchaseOrder.date;
   const startLiveMap = () => {
+    unlockVoyageAisAudio();
     setLiveTrackNote('');
     setLiveMapOpen(true);
   };
