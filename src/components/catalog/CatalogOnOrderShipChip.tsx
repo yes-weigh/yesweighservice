@@ -240,6 +240,7 @@ function CatalogOnOrderShipDialog({
               portOfDischarge={etaPort}
               vesselName={selected.vesselName || target?.name}
               imo={target?.imo}
+              mmsi={target?.mmsi}
               etd={selected.etd}
               eta={selected.eta}
             />

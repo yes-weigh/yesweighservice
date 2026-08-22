@@ -529,11 +529,7 @@ export async function syncCatalogToFirestore(secrets, configuredOrgId, options =
       doc.displayOrder = existing.displayOrder;
     }
 
-    if (existing?.hiddenFromCatalog === true) {
-      doc.hiddenFromCatalog = true;
-      if (existing.hiddenFromCatalogAt) doc.hiddenFromCatalogAt = existing.hiddenFromCatalogAt;
-      if (existing.hiddenFromCatalogByUid) doc.hiddenFromCatalogByUid = existing.hiddenFromCatalogByUid;
-    }
+    preserveFirestoreOnlyProductFlags(existing, doc);
 
     if (Number.isFinite(Number(existing?.ledgerClosingStock))) {
       doc.ledgerClosingStock = Number(existing.ledgerClosingStock);
@@ -906,6 +902,25 @@ export async function patchProductOverlays(productId, input) {
   };
 }
 
+function preserveFirestoreOnlyProductFlags(existing, doc) {
+  if (!existing) return;
+  if (existing.hiddenFromCatalog === true) {
+    doc.hiddenFromCatalog = true;
+    if (existing.hiddenFromCatalogAt) doc.hiddenFromCatalogAt = existing.hiddenFromCatalogAt;
+    if (existing.hiddenFromCatalogByUid) doc.hiddenFromCatalogByUid = existing.hiddenFromCatalogByUid;
+  }
+  if (existing.newArrival === true) {
+    doc.newArrival = true;
+    if (existing.newArrivalAt) doc.newArrivalAt = existing.newArrivalAt;
+    if (existing.newArrivalByUid) doc.newArrivalByUid = existing.newArrivalByUid;
+  }
+  if (existing.discontinuedSoon === true) {
+    doc.discontinuedSoon = true;
+    if (existing.discontinuedSoonAt) doc.discontinuedSoonAt = existing.discontinuedSoonAt;
+    if (existing.discontinuedSoonByUid) doc.discontinuedSoonByUid = existing.discontinuedSoonByUid;
+  }
+}
+
 /** Super admin — hide/unhide from dealer/public catalogue (Firestore only). */
 export async function patchProductCatalogVisibility(productId, hidden, actorUid) {
   const id = String(productId ?? '').trim();
@@ -925,6 +940,38 @@ export async function patchProductCatalogVisibility(productId, hidden, actorUid)
 
   await getFirestore().collection(PRODUCTS_COLLECTION).doc(id).set(payload, { merge: true });
   return { hiddenFromCatalog: payload.hiddenFromCatalog };
+}
+
+const MERCH_FLAGS = new Set(['newArrival', 'discontinuedSoon']);
+
+/** Super admin — new arrival / discontinued-soon badges (Firestore only). */
+export async function patchProductMerchFlag(productId, flag, enabled, actorUid) {
+  const id = String(productId ?? '').trim();
+  if (!id) throw new Error('productId is required.');
+  if (!MERCH_FLAGS.has(flag)) {
+    throw new Error('flag must be newArrival or discontinuedSoon.');
+  }
+
+  const existing = await getFirestore().collection(PRODUCTS_COLLECTION).doc(id).get();
+  if (!existing.exists) {
+    throw new Error('Catalog product not found.');
+  }
+
+  const now = new Date().toISOString();
+  const payload = {
+    [flag]: Boolean(enabled),
+    [`${flag}At`]: now,
+    [`${flag}ByUid`]: actorUid ? String(actorUid) : null,
+    syncedAt: now,
+  };
+
+  const db = getFirestore();
+  await db.collection(PRODUCTS_COLLECTION).doc(id).set(payload, { merge: true });
+  await db.doc(META_DOC).set({
+    lastContentChangeAt: now,
+    updatedAt: FieldValue.serverTimestamp(),
+  }, { merge: true });
+  return { [flag]: payload[flag] };
 }
 
 function parseOptionalPositiveNumber(value, { allowZero = false, integer = false } = {}) {
@@ -2317,11 +2364,7 @@ export async function mirrorCatalogItemFromZoho(secrets, configuredOrgId, itemId
     doc.displayOrder = existing.displayOrder;
   }
 
-  if (existing?.hiddenFromCatalog === true) {
-    doc.hiddenFromCatalog = true;
-    if (existing.hiddenFromCatalogAt) doc.hiddenFromCatalogAt = existing.hiddenFromCatalogAt;
-    if (existing.hiddenFromCatalogByUid) doc.hiddenFromCatalogByUid = existing.hiddenFromCatalogByUid;
-  }
+  preserveFirestoreOnlyProductFlags(existing, doc);
 
   await db.collection(PRODUCTS_COLLECTION).doc(id).set(doc, { merge: true });
   await db.doc(META_DOC).set({

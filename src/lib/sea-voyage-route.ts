@@ -103,6 +103,37 @@ export function splitRouteAtProgress(
   return { ship: end, traveled: points, remaining: [end] };
 }
 
+function closestPointOnSegment(p: LatLon, a: LatLon, b: LatLon): { t: number; distKm: number } {
+  const dx = b.lon - a.lon;
+  const dy = b.lat - a.lat;
+  const len2 = dx * dx + dy * dy;
+  const u = len2 <= 0
+    ? 0
+    : Math.max(0, Math.min(1, ((p.lon - a.lon) * dx + (p.lat - a.lat) * dy) / len2));
+  return {
+    t: u,
+    distKm: haversineKm(p, { lat: a.lat + u * dy, lon: a.lon + u * dx }),
+  };
+}
+
+/** 0–1 progress of the nearest point on the planned sea lane to a live AIS position. */
+export function nearestProgressOnRoute(points: LatLon[], live: LatLon): number {
+  if (points.length < 2) return 0;
+  const { lengths, totalKm } = routeLengths(points);
+  if (totalKm <= 0) return 0;
+  let bestDist = Number.POSITIVE_INFINITY;
+  let bestAlong = 0;
+  for (let i = 1; i < points.length; i += 1) {
+    const span = lengths[i] - lengths[i - 1];
+    const { t, distKm } = closestPointOnSegment(live, points[i - 1], points[i]);
+    if (distKm < bestDist) {
+      bestDist = distKm;
+      bestAlong = lengths[i - 1] + t * span;
+    }
+  }
+  return Math.max(0, Math.min(1, bestAlong / totalKm));
+}
+
 export function routeDistanceNm(points: LatLon[]): number {
   return routeLengths(points).totalKm / 1.852;
 }
@@ -149,6 +180,22 @@ export function voyageTransitDays(
   const end = ymdUtcMs(eta);
   if (start == null || end == null || end < start) return null;
   return Math.round((end - start) / 86_400_000);
+}
+
+/** Whole days from ETD until now (time already at sea). */
+export function voyageElapsedDays(
+  etd: string | null | undefined,
+  now = Date.now(),
+): number | null {
+  const start = ymdUtcMs(etd);
+  if (start == null) return null;
+  return Math.max(0, Math.round((now - start) / 86_400_000));
+}
+
+/** Remaining steaming days at the live speed. */
+export function voyageSteamingDays(remainingNm: number, sogKn: number | null | undefined): number | null {
+  if (!(remainingNm > 0) || sogKn == null || sogKn < 0.3) return null;
+  return Math.max(0, Math.round(remainingNm / sogKn / 24));
 }
 
 /** Whole local calendar days from today until ETA (0 if already due). */

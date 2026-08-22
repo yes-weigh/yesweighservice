@@ -17,12 +17,14 @@ import {
   Save,
   ShoppingCart,
   Star,
+  Sparkles,
   Tag,
   Trash2,
   Upload,
   Printer,
   Share2,
   X,
+  AlertTriangle,
 } from 'lucide-react';
 import {
   downloadCatalogProductImage,
@@ -41,6 +43,7 @@ import {
   saveCatalogProductSpareLinks,
   saveCatalogSpareProductLinks,
   setCatalogProductHidden,
+  setCatalogProductMerchFlag,
   setCatalogProductStatus,
   updateCatalogProductDetails,
   updateCatalogProductOverlays,
@@ -72,6 +75,7 @@ import {
   DEALER_ORDER_UNAVAILABLE_MESSAGE,
 } from '../../lib/dealerOrderStock';
 import { DealerPriceDisplay } from './DealerPriceDisplay';
+import { CatalogMerchBadges } from './CatalogMerchBadges';
 import { listItemsByCatalogProduct } from '../../lib/yesStore/data';
 import {
   calculateGroupTotals,
@@ -266,6 +270,7 @@ export const ProductDetailView: React.FC<{
   const [imageNotice, setImageNotice] = useState<string | null>(null);
   const [statusUpdating, setStatusUpdating] = useState(false);
   const [hiddenUpdating, setHiddenUpdating] = useState(false);
+  const [merchUpdating, setMerchUpdating] = useState<'newArrival' | 'discontinuedSoon' | null>(null);
   const [statusError, setStatusError] = useState<string | null>(null);
   const [productEditMode, setProductEditMode] = useState(false);
   const [editName, setEditName] = useState('');
@@ -1654,6 +1659,41 @@ export const ProductDetailView: React.FC<{
     }
   };
 
+  const handleToggleMerchFlag = async (flag: 'newArrival' | 'discontinuedSoon') => {
+    if (
+      !product
+      || !canSetInactive
+      || !productEditMode
+      || statusUpdating
+      || hiddenUpdating
+      || merchUpdating
+    ) {
+      return;
+    }
+
+    const enable = product[flag] !== true;
+    const label = flag === 'newArrival' ? 'New arrival' : 'Discontinued soon';
+    const ok = await confirm({
+      title: enable ? `Mark as ${label.toLowerCase()}?` : `Remove ${label.toLowerCase()}?`,
+      message: enable
+        ? `“${product.name}” will show a ${label.toLowerCase()} badge on the product card.`
+        : `The ${label.toLowerCase()} badge will be removed from “${product.name}”.`,
+      confirmLabel: enable ? label : `Remove ${label.toLowerCase()}`,
+    });
+    if (!ok) return;
+
+    setMerchUpdating(flag);
+    setStatusError(null);
+    try {
+      const result = await setCatalogProductMerchFlag(product.id, flag, enable);
+      setProduct(prev => (prev ? { ...prev, ...result } : prev));
+    } catch (err) {
+      setStatusError(err instanceof Error ? err.message : 'Could not update product flag.');
+    } finally {
+      setMerchUpdating(null);
+    }
+  };
+
   if (error && !product) {
     return (
       <div className={`product-detail-page product-detail-page--${variant}`}>
@@ -2082,6 +2122,10 @@ export const ProductDetailView: React.FC<{
                 </div>
               )}
             </div>
+            <CatalogMerchBadges
+              product={product}
+              className="product-detail-page__merch-badges"
+            />
 
             {productEditMode && canEditProductDetails ? (
               <div className="product-detail-page__edit-grid">
@@ -2324,7 +2368,7 @@ export const ProductDetailView: React.FC<{
                         type="button"
                         className="btn btn-sm product-detail-page__inactive-btn product-detail-page__details-edit-inactive"
                         onClick={() => void handleSetInactive()}
-                        disabled={statusUpdating || hiddenUpdating || detailsSaving || imageBusy}
+                        disabled={statusUpdating || hiddenUpdating || Boolean(merchUpdating) || detailsSaving || imageBusy}
                       >
                         {statusUpdating
                           ? <RefreshCw size={15} className="spin-icon" aria-hidden />
@@ -2335,7 +2379,7 @@ export const ProductDetailView: React.FC<{
                         type="button"
                         className="btn btn-sm product-detail-page__inactive-btn product-detail-page__details-edit-inactive"
                         onClick={() => void handleToggleHiddenFromCatalogue()}
-                        disabled={statusUpdating || hiddenUpdating || detailsSaving || imageBusy}
+                        disabled={statusUpdating || hiddenUpdating || Boolean(merchUpdating) || detailsSaving || imageBusy}
                       >
                         {hiddenUpdating
                           ? <RefreshCw size={15} className="spin-icon" aria-hidden />
@@ -2345,6 +2389,36 @@ export const ProductDetailView: React.FC<{
                         {product.hiddenFromCatalog === true
                           ? 'Show in products'
                           : 'Hide from products'}
+                      </button>
+                      <button
+                        type="button"
+                        className={[
+                          'btn btn-sm product-detail-page__details-edit-inactive product-detail-page__merch-btn product-detail-page__merch-btn--new',
+                          product.newArrival === true ? 'is-active' : '',
+                        ].filter(Boolean).join(' ')}
+                        onClick={() => void handleToggleMerchFlag('newArrival')}
+                        disabled={statusUpdating || hiddenUpdating || Boolean(merchUpdating) || detailsSaving || imageBusy}
+                      >
+                        {merchUpdating === 'newArrival'
+                          ? <RefreshCw size={15} className="spin-icon" aria-hidden />
+                          : <Sparkles size={15} aria-hidden />}
+                        {product.newArrival === true ? 'Remove new arrival' : 'New arrival'}
+                      </button>
+                      <button
+                        type="button"
+                        className={[
+                          'btn btn-sm product-detail-page__details-edit-inactive product-detail-page__merch-btn product-detail-page__merch-btn--soon',
+                          product.discontinuedSoon === true ? 'is-active' : '',
+                        ].filter(Boolean).join(' ')}
+                        onClick={() => void handleToggleMerchFlag('discontinuedSoon')}
+                        disabled={statusUpdating || hiddenUpdating || Boolean(merchUpdating) || detailsSaving || imageBusy}
+                      >
+                        {merchUpdating === 'discontinuedSoon'
+                          ? <RefreshCw size={15} className="spin-icon" aria-hidden />
+                          : <AlertTriangle size={15} aria-hidden />}
+                        {product.discontinuedSoon === true
+                          ? 'Remove discontinued soon'
+                          : 'Discontinued soon'}
                       </button>
                     </>
                   )}

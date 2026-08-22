@@ -1,18 +1,20 @@
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
 import { CalendarDays, Clock, Gauge, MapPin, Route, Ship } from 'lucide-react';
+import { lookupPurchaseOrderVesselAis, type VesselAisSnapshot } from '../../lib/admin-purchase-orders';
 import { formatInvoiceDate } from '../../lib/invoices';
 import {
+  nearestProgressOnRoute,
   prettyPortName,
   resolveVoyagePorts,
   routeDistanceNm,
   seaRouteWaypoints,
   splitRouteAtProgress,
   voyageDaysUntilEta,
-  voyagePlannedSpeedKnots,
+  voyageElapsedDays,
   voyageProgressBetweenDates,
-  voyageTransitDays,
+  voyageSteamingDays,
 } from '../../lib/sea-voyage-route';
 
 function escapeMapLabel(value: string): string {
@@ -46,19 +48,44 @@ type Props = {
   portOfDischarge: string;
   vesselName?: string | null;
   imo?: string | null;
+  mmsi?: string | null;
   etd?: string | null;
   eta?: string | null;
 };
+
+const AIS_POLL_MS = 120_000;
 
 export function VoyageSeaMap({
   portOfLoading,
   portOfDischarge,
   vesselName,
   imo,
+  mmsi,
   etd,
   eta,
 }: Props) {
   const hostRef = useRef<HTMLDivElement | null>(null);
+  const [ais, setAis] = useState<VesselAisSnapshot | null>(null);
+
+  useEffect(() => {
+    const keyword = [imo, mmsi, vesselName].map(value => String(value || '').trim()).find(Boolean) || '';
+    if (!keyword) {
+      setAis(null);
+      return;
+    }
+    let cancelled = false;
+    const load = () => {
+      void lookupPurchaseOrderVesselAis(keyword).then(next => {
+        if (!cancelled) setAis(next);
+      });
+    };
+    load();
+    const timer = window.setInterval(load, AIS_POLL_MS);
+    return () => {
+      cancelled = true;
+      window.clearInterval(timer);
+    };
+  }, [imo, mmsi, vesselName]);
 
   useEffect(() => {
     const host = hostRef.current;
@@ -66,8 +93,15 @@ export function VoyageSeaMap({
     if (!host || !ports) return;
 
     const route = seaRouteWaypoints(ports.load, ports.discharge);
-    const progress = voyageProgressBetweenDates(etd, eta);
-    const { ship, traveled, remaining } = splitRouteAtProgress(route, progress);
+    const livePoint = ais?.lat != null && ais?.lon != null
+      ? { lat: ais.lat, lon: ais.lon }
+      : null;
+    const progress = livePoint
+      ? nearestProgressOnRoute(route, livePoint)
+      : voyageProgressBetweenDates(etd, eta);
+    const split = splitRouteAtProgress(route, progress);
+    const ship = livePoint ?? split.ship;
+    const { traveled, remaining } = split;
 
     const map = L.map(host, {
       zoomControl: false,
@@ -146,6 +180,7 @@ export function VoyageSeaMap({
     }).addTo(map);
 
     const bounds = L.latLngBounds(toLatLngs(route));
+    bounds.extend([ship.lat, ship.lon]);
     let viewTimer = 0;
     const applyView = () => {
       window.clearTimeout(viewTimer);
@@ -173,7 +208,7 @@ export function VoyageSeaMap({
       observer.disconnect();
       map.remove();
     };
-  }, [portOfLoading, portOfDischarge, etd, eta]);
+  }, [portOfLoading, portOfDischarge, etd, eta, ais?.lat, ais?.lon]);
 
   const ports = resolveVoyagePorts(portOfLoading, portOfDischarge);
   if (!ports) {
@@ -185,12 +220,22 @@ export function VoyageSeaMap({
   }
 
   const route = seaRouteWaypoints(ports.load, ports.discharge);
-  const distanceNm = routeDistanceNm(route);
-  const daysUntil = voyageDaysUntilEta(eta);
-  const transitDays = voyageTransitDays(etd, eta);
-  const speedKn = voyagePlannedSpeedKnots(distanceNm, etd, eta);
+  const livePoint = ais?.lat != null && ais?.lon != null
+    ? { lat: ais.lat, lon: ais.lon }
+    : null;
+  const progress = livePoint
+    ? nearestProgressOnRoute(route, livePoint)
+    : voyageProgressBetweenDates(etd, eta);
+  const split = splitRouteAtProgress(route, progress);
+  const remainingNm = livePoint ? routeDistanceNm(split.remaining) : null;
+  const liveSpeedKn = ais?.sog ?? null;
+  const daysUntil = voyageSteamingDays(remainingNm ?? 0, liveSpeedKn)
+    ?? voyageDaysUntilEta(eta);
+  const transitDays = voyageElapsedDays(etd);
   const fromPort = prettyPortName(portOfLoading) || 'POL';
   const toPort = prettyPortName(portOfDischarge || 'Cochin');
+  const nextPort = ais?.dest ? prettyPortName(ais.dest.split(',')[0]) : toPort;
+  const liveEta = ais?.eta || null;
 
   return (
     <div className="voyage-sea-map">
@@ -207,14 +252,20 @@ export function VoyageSeaMap({
               <span className="voyage-sea-map__info-type">Container Ship</span>
             </div>
           </div>
-          {imo ? <span>IMO Number: {imo}</span> : null}
-          <span>Next Port: {toPort}</span>
+          {imo || ais?.imo ? <span>IMO Number: {imo || ais?.imo}</span> : null}
+          <span>Next Port: {nextPort}</span>
+          {liveSpeedKn != null ? (
+            <span className="voyage-sea-map__info-date">Live speed: {liveSpeedKn.toFixed(1)} kn</span>
+          ) : null}
           <span className="voyage-sea-map__info-date">
-            ETA {toPort}: {eta ? formatInvoiceDate(eta) : '—'}
+            ETA {nextPort}: {liveEta || (eta ? formatInvoiceDate(eta) : '—')}
           </span>
           <span className="voyage-sea-map__info-date">
             ETD {fromPort}: {etd ? formatInvoiceDate(etd) : '—'}
           </span>
+          {ais?.updated ? (
+            <span className="voyage-sea-map__info-live">AIS {ais.updated}</span>
+          ) : null}
         </aside>
         <div className="voyage-sea-map__legend" aria-hidden>
           <span className="voyage-sea-map__legend-item">
@@ -231,8 +282,12 @@ export function VoyageSeaMap({
       <footer className="voyage-sea-map__footer">
         <div className="voyage-sea-map__stat">
           <Ship size={18} strokeWidth={2.2} aria-hidden />
-          <span>Total Distance</span>
-          <strong>{distanceNm.toLocaleString('en-US', { maximumFractionDigits: 0 })} NM</strong>
+          <span>Distance</span>
+          <strong>
+            {remainingNm == null
+              ? '—'
+              : `${remainingNm.toLocaleString('en-US', { maximumFractionDigits: 0 })} NM`}
+          </strong>
         </div>
         <div className="voyage-sea-map__stat voyage-sea-map__stat--dest">
           <Clock size={18} strokeWidth={2.2} aria-hidden />
@@ -244,10 +299,10 @@ export function VoyageSeaMap({
           <span>Transit days</span>
           <strong>{transitDays == null ? '—' : `${transitDays} Days`}</strong>
         </div>
-        <div className="voyage-sea-map__stat">
+        <div className={`voyage-sea-map__stat${liveSpeedKn != null ? ' voyage-sea-map__stat--live' : ''}`}>
           <Gauge size={18} strokeWidth={2.2} aria-hidden />
-          <span>Avg. Speed</span>
-          <strong>{speedKn == null ? '—' : `${speedKn.toFixed(1)} kn`}</strong>
+          <span>Live Speed</span>
+          <strong>{liveSpeedKn == null ? '—' : `${liveSpeedKn.toFixed(1)} kn`}</strong>
         </div>
         <div className="voyage-sea-map__stat">
           <Route size={18} strokeWidth={2.2} aria-hidden />

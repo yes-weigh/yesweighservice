@@ -1300,12 +1300,22 @@ export function purchaseOrderShipFinderUrl(bl?: PurchaseOrderBl | null): string 
   return target?.embedUrl || target?.searchUrl || null;
 }
 
-export async function lookupPurchaseOrderVesselAis(keyword: string): Promise<{
+export type VesselAisSnapshot = {
   name: string;
   imo: string | null;
   mmsi: string | null;
   mapUrl: string | null;
-} | null> {
+  lat: number | null;
+  lon: number | null;
+  sog: number | null;
+  cog: number | null;
+  dest: string | null;
+  eta: string | null;
+  updated: string | null;
+  source: string | null;
+};
+
+export async function lookupPurchaseOrderVesselAis(keyword: string): Promise<VesselAisSnapshot | null> {
   const q = keyword.trim();
   if (!q) return null;
   const callable = httpsCallable<{ keyword: string }, {
@@ -1313,25 +1323,48 @@ export async function lookupPurchaseOrderVesselAis(keyword: string): Promise<{
     imo?: string;
     mmsi?: string;
     mapUrl?: string;
+    lat?: number | null;
+    lon?: number | null;
+    sog?: number | null;
+    cog?: number | null;
+    dest?: string | null;
+    eta?: string | null;
+    updated?: string | null;
+    source?: string | null;
   }>(functions, 'lookupVesselAisFn', { timeout: 30_000 });
   try {
     const result = await callable({ keyword: q });
     const imo = String(result.data?.imo ?? '').replace(/\D/g, '') || null;
     const mmsi = String(result.data?.mmsi ?? '').replace(/\D/g, '') || null;
+    const lat = Number(result.data?.lat);
+    const lon = Number(result.data?.lon);
+    const sog = Number(result.data?.sog);
+    const cog = Number(result.data?.cog);
     const mapUrl = purchaseOrderVesselFinderAisMapUrl({
       imo,
       mmsi,
       portOfLoading: null,
       portOfDischarge: 'Cochin',
-    }) || String(result.data?.mapUrl ?? '').trim();
-    if (!mapUrl) return null;
+    }) || String(result.data?.mapUrl ?? '').trim() || null;
+    const hasFix = Number.isFinite(lat) && Number.isFinite(lon);
+    const hasSpeed = Number.isFinite(sog);
+    if (!mapUrl && !hasFix && !hasSpeed) return null;
     return {
       name: String(result.data?.name ?? '').trim() || q,
       imo: imo && /^\d{7}$/.test(imo) ? imo : null,
       mmsi: mmsi && /^\d{9}$/.test(mmsi) ? mmsi : null,
       mapUrl,
+      lat: hasFix ? lat : null,
+      lon: hasFix ? lon : null,
+      sog: hasSpeed ? sog : null,
+      cog: Number.isFinite(cog) ? cog : null,
+      dest: String(result.data?.dest ?? '').replace(/\s+/g, ' ').trim() || null,
+      eta: String(result.data?.eta ?? '').replace(/\s+/g, ' ').trim() || null,
+      updated: String(result.data?.updated ?? '').trim() || null,
+      source: String(result.data?.source ?? '').trim() || null,
     };
-  } catch {
+  } catch (err) {
+    console.warn('Live AIS lookup failed', err);
     return null;
   }
 }

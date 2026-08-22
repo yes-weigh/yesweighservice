@@ -26,6 +26,7 @@ import {
   promoteGalleryImageToPrimary,
   deleteProductImage,
   patchProductCatalogVisibility,
+  patchProductMerchFlag,
 } from './catalog-sync.js';
 
 export const ZOHO_BACKED_CATALOG_PRODUCT_FIELDS = [
@@ -53,6 +54,12 @@ export const FIRESTORE_ONLY_CATALOG_PRODUCT_FIELDS = [
   'hiddenFromCatalog',
   'hiddenFromCatalogAt',
   'hiddenFromCatalogByUid',
+  'newArrival',
+  'newArrivalAt',
+  'newArrivalByUid',
+  'discontinuedSoon',
+  'discontinuedSoonAt',
+  'discontinuedSoonByUid',
 ];
 
 /** Update item details on Zoho, then mirror to Firestore (incl. Firestore-only overlays). */
@@ -141,6 +148,11 @@ export async function mutateCatalogProductOverlays(productId, input) {
 /** Firestore-only catalogue visibility — does not change Zoho item status. */
 export async function mutateCatalogProductCatalogVisibility(productId, hidden, actorUid) {
   return patchProductCatalogVisibility(productId, hidden, actorUid);
+}
+
+/** Firestore-only merch badges (new arrival / discontinued soon). */
+export async function mutateCatalogProductMerchFlag(productId, flag, enabled, actorUid) {
+  return patchProductMerchFlag(productId, flag, enabled, actorUid);
 }
 
 /** Set item active/inactive on Zoho, then mirror to Firestore. */

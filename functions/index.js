@@ -37,6 +37,7 @@ import {
   mutateCatalogProductDetails,
   mutateCatalogProductOverlays,
   mutateCatalogProductCatalogVisibility,
+  mutateCatalogProductMerchFlag,
   mutateCatalogProductStatus,
   mutateCatalogProductCategory,
   mutateCatalogProductImageUpload,
@@ -635,6 +636,12 @@ export const getCatalogProductDetail = onCall(
       }
       if (cachedData.hiddenFromCatalog === true) {
         detail.hiddenFromCatalog = true;
+      }
+      if (cachedData.newArrival === true) {
+        detail.newArrival = true;
+      }
+      if (cachedData.discontinuedSoon === true) {
+        detail.discontinuedSoon = true;
       }
       if (Number.isFinite(Number(cachedData.ledgerClosingStock))) {
         detail.ledgerClosingStock = Number(cachedData.ledgerClosingStock);
@@ -1251,6 +1258,42 @@ export const setCatalogProductHidden = onCall(
       return { ok: true, ...saved };
     } catch (err) {
       throw new HttpsError('internal', err?.message ?? 'Could not update catalogue visibility.');
+    }
+  },
+);
+
+/** New arrival / discontinued-soon badges — super admin only (Firestore). */
+export const setCatalogProductMerchFlag = onCall(
+  {
+    region: 'asia-south1',
+    timeoutSeconds: 60,
+    memory: '256MiB',
+  },
+  async request => {
+    await requireActiveUser(request.auth?.uid, SUPER_ADMIN_ROLES);
+
+    const productId = String(request.data?.productId ?? '').trim();
+    const flag = String(request.data?.flag ?? '').trim();
+    if (!productId) {
+      throw new HttpsError('invalid-argument', 'productId is required.');
+    }
+    if (flag !== 'newArrival' && flag !== 'discontinuedSoon') {
+      throw new HttpsError('invalid-argument', 'flag must be newArrival or discontinuedSoon.');
+    }
+    if (typeof request.data?.enabled !== 'boolean') {
+      throw new HttpsError('invalid-argument', 'enabled must be a boolean.');
+    }
+
+    try {
+      const saved = await mutateCatalogProductMerchFlag(
+        productId,
+        flag,
+        request.data.enabled,
+        request.auth?.uid ?? null,
+      );
+      return { ok: true, ...saved };
+    } catch (err) {
+      throw new HttpsError('internal', err?.message ?? 'Could not update product flag.');
     }
   },
 );

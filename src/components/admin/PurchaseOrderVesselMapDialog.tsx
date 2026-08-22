@@ -92,6 +92,7 @@ export function PurchaseOrderVesselMapDialog({ open, purchaseOrder, onClose }: P
               }
               vesselName={title}
               imo={target?.imo}
+              mmsi={target?.mmsi}
               etd={purchaseOrder.tracking.sailingDate}
               eta={purchaseOrder.tracking.arrivalDate}
             />

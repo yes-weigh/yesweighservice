@@ -24,6 +24,7 @@ import {
 } from '../../lib/dealerOrderStock';
 import type { CatalogProduct } from '../../types/catalog';
 import { AuditedSealIcon } from './AuditedSealIcon';
+import { CatalogMerchBadges } from './CatalogMerchBadges';
 import { CategoryThumbnail } from './CategoryThumbnail';
 import { CatalogOnOrderShipChip } from './CatalogOnOrderShipChip';
 import { DealerPriceDisplay } from './DealerPriceDisplay';
@@ -365,6 +366,7 @@ export const ProductBrowseCard: React.FC<ProductBrowseCardProps> = ({
 
         <div className="catalog-product-card__body">
           <h3 className="catalog-product-card__title">{formatProductTitle(product.name)}</h3>
+          <CatalogMerchBadges product={product} />
           <div className="catalog-product-card__price-row">
             <div className="catalog-product-card__price">
               {dealerView ? (

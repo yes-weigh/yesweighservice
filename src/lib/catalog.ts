@@ -905,6 +905,8 @@ function mapProduct(data: Record<string, unknown>): CatalogProduct {
       ? { binLabelPrintedAt: data.binLabelPrintedAt.trim() }
       : {}),
     ...(data.hiddenFromCatalog === true ? { hiddenFromCatalog: true } : {}),
+    ...(data.newArrival === true ? { newArrival: true } : {}),
+    ...(data.discontinuedSoon === true ? { discontinuedSoon: true } : {}),
     ...(Number.isFinite(Number(data.ledgerClosingStock))
       ? { ledgerClosingStock: Number(data.ledgerClosingStock) }
       : {}),
@@ -2094,6 +2096,35 @@ export async function setCatalogProductHidden(
     const result = await callable({ productId, hidden });
     clearCatalogCache();
     return { hiddenFromCatalog: result.data.hiddenFromCatalog === true };
+  } catch (err) {
+    throw new Error(catalogErrorMessage(err));
+  }
+}
+
+export type CatalogMerchFlag = 'newArrival' | 'discontinuedSoon';
+
+/** Super admin — toggle new-arrival or discontinued-soon badge. */
+export async function setCatalogProductMerchFlag(
+  productId: string,
+  flag: CatalogMerchFlag,
+  enabled: boolean,
+): Promise<{ newArrival?: boolean; discontinuedSoon?: boolean }> {
+  const callable = httpsCallable<
+    { productId: string; flag: CatalogMerchFlag; enabled: boolean },
+    { ok: boolean; newArrival?: boolean; discontinuedSoon?: boolean }
+  >(functions, 'setCatalogProductMerchFlag');
+  try {
+    const result = await callable({ productId, flag, enabled });
+    patchCatalogCacheProduct(productId, {
+      ...(flag === 'newArrival' ? { newArrival: result.data.newArrival === true } : {}),
+      ...(flag === 'discontinuedSoon' ? { discontinuedSoon: result.data.discontinuedSoon === true } : {}),
+    });
+    return {
+      ...(typeof result.data.newArrival === 'boolean' ? { newArrival: result.data.newArrival } : {}),
+      ...(typeof result.data.discontinuedSoon === 'boolean'
+        ? { discontinuedSoon: result.data.discontinuedSoon }
+        : {}),
+    };
   } catch (err) {
     throw new Error(catalogErrorMessage(err));
   }

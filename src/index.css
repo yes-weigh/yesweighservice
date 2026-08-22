@@ -6196,6 +6196,41 @@ body:has(.confirm-inline-bar) .confirm-inline-bar {
   letter-spacing: -0.015em;
 }
 
+.catalog-merch-badges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.28rem;
+  margin-top: 0.28rem;
+}
+
+.catalog-merch-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.12rem 0.42rem;
+  border-radius: 999px;
+  font-size: 0.58rem;
+  font-weight: 800;
+  letter-spacing: 0.03em;
+  line-height: 1.2;
+  text-transform: uppercase;
+}
+
+.catalog-merch-badge--new {
+  color: #047857;
+  background: #d1fae5;
+  border: 1px solid #6ee7b7;
+}
+
+.catalog-merch-badge--soon {
+  color: #9a3412;
+  background: #ffedd5;
+  border: 1px solid #fdba74;
+}
+
+.product-detail-page__merch-badges {
+  margin: -0.15rem 0 0.45rem;
+}
+
 .catalog-product-card__qty-stack,
 .catalog-row__qty-stack {
   display: flex;
@@ -6542,6 +6577,12 @@ body:has(.confirm-inline-bar) .confirm-inline-bar {
   font-weight: 700;
 }
 
+.voyage-sea-map__info-live {
+  color: #64748b;
+  font-size: 0.68rem;
+  font-weight: 600;
+}
+
 .voyage-sea-map__legend {
   position: absolute;
   left: 0.55rem;
@@ -6740,6 +6781,12 @@ body:has(.confirm-inline-bar) .confirm-inline-bar {
 .voyage-sea-map__stat--transit svg,
 .voyage-sea-map__stat--transit span,
 .voyage-sea-map__stat--transit strong {
+  color: #047857;
+}
+
+.voyage-sea-map__stat--live svg,
+.voyage-sea-map__stat--live span,
+.voyage-sea-map__stat--live strong {
   color: #047857;
 }
 
@@ -12492,6 +12539,41 @@ body:has(.confirm-inline-bar) .confirm-inline-bar {
   background: #fef2f2;
   border-color: rgba(220, 38, 38, 0.5);
   color: #991b1b;
+}
+
+.product-detail-page__merch-btn {
+  color: #334155;
+  border-color: #cbd5e1;
+}
+
+.product-detail-page__merch-btn:hover:not(:disabled) {
+  background: #f8fafc;
+  border-color: #94a3b8;
+  color: #0f172a;
+}
+
+.product-detail-page__merch-btn--new.is-active {
+  color: #047857;
+  background: #ecfdf5;
+  border-color: rgba(4, 120, 87, 0.35);
+}
+
+.product-detail-page__merch-btn--new.is-active:hover:not(:disabled) {
+  background: #d1fae5;
+  border-color: rgba(4, 120, 87, 0.5);
+  color: #065f46;
+}
+
+.product-detail-page__merch-btn--soon.is-active {
+  color: #9a3412;
+  background: #fff7ed;
+  border-color: rgba(234, 88, 12, 0.35);
+}
+
+.product-detail-page__merch-btn--soon.is-active:hover:not(:disabled) {
+  background: #ffedd5;
+  border-color: rgba(234, 88, 12, 0.5);
+  color: #7c2d12;
 }
 
 @media (min-width: 640px) {
