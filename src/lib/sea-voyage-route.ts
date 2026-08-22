@@ -140,6 +140,17 @@ export function voyageProgressBetweenDates(
   return (now - start) / (end - start);
 }
 
+/** Whole days from ETD to ETA (voyage duration). */
+export function voyageTransitDays(
+  etd: string | null | undefined,
+  eta: string | null | undefined,
+): number | null {
+  const start = ymdUtcMs(etd);
+  const end = ymdUtcMs(eta);
+  if (start == null || end == null || end < start) return null;
+  return Math.round((end - start) / 86_400_000);
+}
+
 /** Whole local calendar days from today until ETA (0 if already due). */
 export function voyageDaysUntilEta(
   eta: string | null | undefined,

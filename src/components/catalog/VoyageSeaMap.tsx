@@ -1,7 +1,7 @@
 import { useEffect, useRef } from 'react';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
-import { Clock, Gauge, MapPin, Route, Ship } from 'lucide-react';
+import { CalendarDays, Clock, Gauge, MapPin, Route, Ship } from 'lucide-react';
 import { formatInvoiceDate } from '../../lib/invoices';
 import {
   prettyPortName,
@@ -12,6 +12,7 @@ import {
   voyageDaysUntilEta,
   voyagePlannedSpeedKnots,
   voyageProgressBetweenDates,
+  voyageTransitDays,
 } from '../../lib/sea-voyage-route';
 
 function escapeMapLabel(value: string): string {
@@ -79,7 +80,7 @@ export function VoyageSeaMap({
 
     L.polyline(toLatLngs(traveled), {
       color: '#1e3a8a',
-      weight: 4.5,
+      weight: 2.5,
       opacity: 0.95,
       lineJoin: 'round',
       lineCap: 'round',
@@ -87,7 +88,7 @@ export function VoyageSeaMap({
 
     L.polyline(toLatLngs(remaining), {
       color: '#3b82f6',
-      weight: 4,
+      weight: 2.5,
       opacity: 0.95,
       dashArray: '2 10',
       lineJoin: 'round',
@@ -100,9 +101,9 @@ export function VoyageSeaMap({
     const etaLabel = eta ? escapeMapLabel(`ETA ${formatInvoiceDate(eta)}`) : 'ETA —';
 
     L.circleMarker([ports.load.lat, ports.load.lon], {
-      radius: 9,
-      color: '#fff',
-      weight: 2.5,
+      radius: 8,
+      color: '#1d4ed8',
+      weight: 2,
       fillColor: '#1d4ed8',
       fillOpacity: 1,
     }).addTo(map);
@@ -111,8 +112,8 @@ export function VoyageSeaMap({
       icon: L.divIcon({
         className: 'voyage-sea-map__port-label voyage-sea-map__port-label--pol',
         html: `<div class="voyage-sea-map__port-card"><strong>POL · ${polName}</strong><span>${etdLabel}</span></div>`,
-        iconSize: [0, 0],
-        iconAnchor: [-12, 10],
+        iconSize: [1, 1],
+        iconAnchor: [-10, 10],
       }),
     }).addTo(map);
 
@@ -130,8 +131,8 @@ export function VoyageSeaMap({
       icon: L.divIcon({
         className: 'voyage-sea-map__port-label voyage-sea-map__port-label--pod',
         html: `<div class="voyage-sea-map__port-card"><strong>POD · ${podName}</strong><span>${etaLabel}</span></div>`,
-        iconSize: [0, 0],
-        iconAnchor: [-14, 18],
+        iconSize: [1, 1],
+        iconAnchor: [-12, 16],
       }),
     }).addTo(map);
 
@@ -186,6 +187,7 @@ export function VoyageSeaMap({
   const route = seaRouteWaypoints(ports.load, ports.discharge);
   const distanceNm = routeDistanceNm(route);
   const daysUntil = voyageDaysUntilEta(eta);
+  const transitDays = voyageTransitDays(etd, eta);
   const speedKn = voyagePlannedSpeedKnots(distanceNm, etd, eta);
   const fromPort = prettyPortName(portOfLoading) || 'POL';
   const toPort = prettyPortName(portOfDischarge || 'Cochin');
@@ -232,10 +234,15 @@ export function VoyageSeaMap({
           <span>Total Distance</span>
           <strong>{distanceNm.toLocaleString('en-US', { maximumFractionDigits: 0 })} NM</strong>
         </div>
-        <div className="voyage-sea-map__stat">
+        <div className="voyage-sea-map__stat voyage-sea-map__stat--dest">
           <Clock size={18} strokeWidth={2.2} aria-hidden />
-          <span>No. of Days</span>
+          <span>Days to Destination</span>
           <strong>{daysUntil == null ? '—' : `${daysUntil} Days`}</strong>
+        </div>
+        <div className="voyage-sea-map__stat voyage-sea-map__stat--transit">
+          <CalendarDays size={18} strokeWidth={2.2} aria-hidden />
+          <span>Transit days</span>
+          <strong>{transitDays == null ? '—' : `${transitDays} Days`}</strong>
         </div>
         <div className="voyage-sea-map__stat">
           <Gauge size={18} strokeWidth={2.2} aria-hidden />
@@ -245,7 +252,10 @@ export function VoyageSeaMap({
         <div className="voyage-sea-map__stat">
           <Route size={18} strokeWidth={2.2} aria-hidden />
           <span>Route</span>
-          <strong>{fromPort} → {toPort}</strong>
+          <strong className="voyage-sea-map__route">
+            <b>{fromPort}</b>
+            <b>→ {toPort}</b>
+          </strong>
         </div>
       </footer>
     </div>
