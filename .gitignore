@@ -8,7 +8,9 @@ plugins/tcp-print/node_modules/
 plugins/tcp-print/dist/
 plugins/wanhai-track/node_modules/
 plugins/wanhai-track/dist/
-plugins/wanhai-track/android/build/
+plugins/whatsapp-share/node_modules/
+plugins/whatsapp-share/dist/
+plugins/*/android/build/
 functions/.env
 functions/.env.*
 !functions/.env.example
