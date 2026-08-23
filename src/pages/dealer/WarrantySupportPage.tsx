@@ -3,7 +3,6 @@ import { useLocation, useNavigate } from 'react-router-dom';
 import { AlertCircle, LifeBuoy, Plus } from 'lucide-react';
 import { SupportWizard } from '../../components/support/SupportWizard';
 import { useAuth } from '../../context/AuthContext';
-import { useTopBarAction } from '../../context/PageHeaderContext';
 import { fetchDealerSupportRequests, supportBasePath, supportDetailPath } from '../../lib/dealerSupport';
 import { StaffSupportQueue } from '../../components/support/StaffSupportQueue';
 import { canMutateDealerSupport } from '../../lib/dealerAccess';
@@ -121,7 +120,7 @@ export const WarrantySupportPage: React.FC = () => {
     setDraftMessage('');
   }, []);
 
-  const topBarNewRequest = useMemo(
+  const createAction = useMemo(
     () => (
       <button
         type="button"
@@ -135,8 +134,6 @@ export const WarrantySupportPage: React.FC = () => {
     ),
     [startNewRequest],
   );
-
-  useTopBarAction(topBarNewRequest, (canMutateSupport || canCreateOnBehalf) && !showWizard);
 
   if (!canUseSupport && !isOps) {
     return (
@@ -203,7 +200,8 @@ export const WarrantySupportPage: React.FC = () => {
           requests={requests}
           loading={loading}
           onOpenRequest={openRequest}
-          onRefresh={() => void load()}
+          onRefresh={load}
+          trailingAction={(canMutateSupport || canCreateOnBehalf) ? createAction : null}
         />
       )}
     </div>

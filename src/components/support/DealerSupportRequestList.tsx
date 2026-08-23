@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { RefreshCw, SlidersHorizontal, X } from 'lucide-react';
 import { FetchingLoader } from '../FetchingLoader';
+import { useTopBarAction } from '../../context/PageHeaderContext';
 import { SupportLifecycleFilterBlocks } from './SupportLifecycleFilterBlocks';
 import { SupportRequestCard } from './SupportRequestCard';
 import { fetchCatalogImagesForItemIds } from '../../lib/invoiceLineItemImages';
@@ -22,16 +23,18 @@ interface DealerSupportRequestListProps {
   loading: boolean;
   onOpenRequest: (request: DealerSupportRequest) => void;
   onRefresh?: () => void;
+  trailingAction?: React.ReactNode;
 }
 
 const TYPE_OPTIONS = ['all', 'service', 'return', 'complaint', 'chat'] as const;
-const DEFAULT_LIFECYCLE_FILTER: SupportLifecycleFilter = 'all';
+const DEFAULT_LIFECYCLE_FILTER: SupportLifecycleFilter = 'open';
 
 export const DealerSupportRequestList: React.FC<DealerSupportRequestListProps> = ({
   requests,
   loading,
   onOpenRequest,
   onRefresh,
+  trailingAction,
 }) => {
   const [lifecycleFilter, setLifecycleFilter] = useState<SupportLifecycleFilter>(DEFAULT_LIFECYCLE_FILTER);
   const [sort, setSort] = useState<SupportSortOption>('newest');
@@ -137,8 +140,132 @@ export const DealerSupportRequestList: React.FC<DealerSupportRequestListProps> =
     };
   }, [showFilterSheet]);
 
+  const headerActions = useMemo(
+    () => (
+      <div className="catalog-header-actions">
+        {onRefresh && (
+          <button
+            type="button"
+            className="catalog-header-filter-btn"
+            aria-label="Refresh"
+            title="Refresh"
+            disabled={loading}
+            onClick={onRefresh}
+          >
+            <RefreshCw size={18} className={loading ? 'spin-icon' : undefined} />
+          </button>
+        )}
+        <button
+          type="button"
+          className={[
+            'catalog-header-filter-btn',
+            showFilterSheet ? 'catalog-header-filter-btn--open' : '',
+            activeFilterCount > 0 ? 'catalog-header-filter-btn--active' : '',
+          ].filter(Boolean).join(' ')}
+          aria-label={activeFilterCount > 0 ? `Filters (${activeFilterCount} active)` : 'Filters'}
+          title="Filters"
+          aria-expanded={showFilterSheet}
+          aria-haspopup="dialog"
+          onClick={() => setShowFilterSheet(open => !open)}
+        >
+          <SlidersHorizontal size={18} aria-hidden />
+          {activeFilterCount > 0 && (
+            <span className="support-request-list__filter-pill">{activeFilterCount}</span>
+          )}
+        </button>
+        {trailingAction}
+      </div>
+    ),
+    [activeFilterCount, loading, onRefresh, showFilterSheet, trailingAction],
+  );
+
+  useTopBarAction(headerActions, true);
+
+  const filterSheet = showFilterSheet ? (
+        <>
+          <button
+            type="button"
+            className="support-filter-sheet__backdrop"
+            aria-label="Close filters"
+            onClick={() => setShowFilterSheet(false)}
+          />
+          <div
+            className="support-filter-sheet"
+            role="dialog"
+            aria-modal="true"
+            aria-label="Filter support requests"
+          >
+            <header className="support-filter-sheet__header">
+              <h3 className="support-filter-sheet__title">Filters</h3>
+              <div className="support-filter-sheet__header-actions">
+                <button
+                  type="button"
+                  className="btn btn-secondary btn-sm support-filter-sheet__reset"
+                  onClick={resetFilters}
+                  disabled={activeFilterCount === 0}
+                >
+                  Reset
+                </button>
+                <button
+                  type="button"
+                  className="btn btn-primary btn-sm support-filter-sheet__apply"
+                  onClick={() => setShowFilterSheet(false)}
+                >
+                  Show {visibleRequests.length}
+                </button>
+                <button
+                  type="button"
+                  className="support-filter-sheet__close"
+                  aria-label="Close"
+                  onClick={() => setShowFilterSheet(false)}
+                >
+                  <X size={18} />
+                </button>
+              </div>
+            </header>
+
+            <section className="support-filter-sheet__section">
+              <h4 className="support-filter-sheet__section-title">Request type</h4>
+              <div className="support-filter-sheet__options">
+                {TYPE_OPTIONS.map(value => (
+                  <button
+                    key={value}
+                    type="button"
+                    className={`support-filter-sheet__option ${typeFilter === value ? 'is-active' : ''}`}
+                    onClick={() => setTypeFilter(value)}
+                  >
+                    {value === 'all' ? 'All types' : SUPPORT_TYPE_LABELS[value]}
+                  </button>
+                ))}
+              </div>
+            </section>
+
+            <section className="support-filter-sheet__section">
+              <h4 className="support-filter-sheet__section-title">Sort by</h4>
+              <div className="support-filter-sheet__options">
+                {(['newest', 'oldest'] as const).map(value => (
+                  <button
+                    key={value}
+                    type="button"
+                    className={`support-filter-sheet__option ${sort === value ? 'is-active' : ''}`}
+                    onClick={() => setSort(value)}
+                  >
+                    {value === 'newest' ? 'Newest first' : 'Oldest first'}
+                  </button>
+                ))}
+              </div>
+            </section>
+          </div>
+        </>
+  ) : null;
+
   if (loading && requests.length === 0) {
-    return <FetchingLoader label="Loading support requests…" />;
+    return (
+      <>
+        <FetchingLoader label="Loading support requests…" />
+        {filterSheet}
+      </>
+    );
   }
 
   return (
@@ -151,32 +278,6 @@ export const DealerSupportRequestList: React.FC<DealerSupportRequestListProps> =
             loading={loading && requests.length === 0}
             onChange={setLifecycleFilter}
           />
-
-          <div className="support-request-list__filter-head-actions">
-            {onRefresh && (
-              <button
-                type="button"
-                className="support-request-list__refresh"
-                aria-label="Refresh"
-                disabled={loading}
-                onClick={onRefresh}
-              >
-                <RefreshCw size={16} className={loading ? 'spin-icon' : undefined} />
-              </button>
-            )}
-
-            <button
-              type="button"
-              className={`support-request-list__filters-mobile support-request-list__filters-mobile--head ${activeFilterCount > 0 ? 'is-active' : ''}`}
-              aria-label={activeFilterCount > 0 ? `Filters (${activeFilterCount} active)` : 'Filters'}
-              onClick={() => setShowFilterSheet(true)}
-            >
-              <SlidersHorizontal size={16} aria-hidden />
-              {activeFilterCount > 0 && (
-                <span className="support-request-list__filter-pill">{activeFilterCount}</span>
-              )}
-            </button>
-          </div>
         </div>
 
         {activeSummaryParts.length > 0 && (
@@ -186,18 +287,6 @@ export const DealerSupportRequestList: React.FC<DealerSupportRequestListProps> =
         )}
 
         <div className="support-request-list__toolbar support-request-list__toolbar--desktop">
-          <button
-            type="button"
-            className={`support-request-list__filters-mobile ${activeFilterCount > 0 ? 'is-active' : ''}`}
-            onClick={() => setShowFilterSheet(true)}
-          >
-            <SlidersHorizontal size={16} aria-hidden />
-            Filters
-            {activeFilterCount > 0 && (
-              <span className="support-request-list__filter-pill">{activeFilterCount}</span>
-            )}
-          </button>
-
           <div className="support-request-list__toolbar-desktop">
             <div className="support-request-list__filter-wrap" ref={typeFilterRef}>
               <button
@@ -274,84 +363,7 @@ export const DealerSupportRequestList: React.FC<DealerSupportRequestListProps> =
         </ul>
       )}
 
-      {showFilterSheet && (
-        <>
-          <button
-            type="button"
-            className="support-filter-sheet__backdrop"
-            aria-label="Close filters"
-            onClick={() => setShowFilterSheet(false)}
-          />
-          <div
-            className="support-filter-sheet panel glass"
-            role="dialog"
-            aria-modal="true"
-            aria-label="Filter support requests"
-          >
-            <header className="support-filter-sheet__header">
-              <h3 className="support-filter-sheet__title">Filters</h3>
-              <button
-                type="button"
-                className="support-filter-sheet__close"
-                aria-label="Close"
-                onClick={() => setShowFilterSheet(false)}
-              >
-                <X size={20} />
-              </button>
-            </header>
-
-            <section className="support-filter-sheet__section">
-              <h4 className="support-filter-sheet__section-title">Request type</h4>
-              <div className="support-filter-sheet__options">
-                {TYPE_OPTIONS.map(value => (
-                  <button
-                    key={value}
-                    type="button"
-                    className={`support-filter-sheet__option ${typeFilter === value ? 'is-active' : ''}`}
-                    onClick={() => setTypeFilter(value)}
-                  >
-                    {value === 'all' ? 'All types' : SUPPORT_TYPE_LABELS[value]}
-                  </button>
-                ))}
-              </div>
-            </section>
-
-            <section className="support-filter-sheet__section">
-              <h4 className="support-filter-sheet__section-title">Sort by</h4>
-              <div className="support-filter-sheet__options">
-                {(['newest', 'oldest'] as const).map(value => (
-                  <button
-                    key={value}
-                    type="button"
-                    className={`support-filter-sheet__option ${sort === value ? 'is-active' : ''}`}
-                    onClick={() => setSort(value)}
-                  >
-                    {value === 'newest' ? 'Newest first' : 'Oldest first'}
-                  </button>
-                ))}
-              </div>
-            </section>
-
-            <footer className="support-filter-sheet__footer">
-              <button
-                type="button"
-                className="btn btn-secondary btn-sm support-filter-sheet__reset"
-                onClick={resetFilters}
-                disabled={activeFilterCount === 0}
-              >
-                Reset all
-              </button>
-              <button
-                type="button"
-                className="btn btn-primary btn-sm"
-                onClick={() => setShowFilterSheet(false)}
-              >
-                Show {visibleRequests.length} result{visibleRequests.length === 1 ? '' : 's'}
-              </button>
-            </footer>
-          </div>
-        </>
-      )}
+      {filterSheet}
     </div>
   );
 };

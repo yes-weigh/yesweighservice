@@ -158,13 +158,20 @@ async function listDealerInvoicesIndexed(customerId, {
   page,
   limit,
   replacementWindow,
+  warrantyWindow,
 }) {
+  const fullWindow = Boolean(replacementWindow || warrantyWindow);
   const dateFrom = istCalendarDateDaysAgo(replacementWindow ? PRODUCT_REPLACEMENT_WINDOW_DAYS : 365);
   const indexed = await readCustomerInvoicesFromFirestoreIndexed(customerId, {
     dateFrom,
-    page: replacementWindow ? 1 : page,
-    limit: replacementWindow ? Math.max(Number(limit) || 80, 250) : limit,
+    page: fullWindow ? 1 : page,
+    limit: replacementWindow
+      ? Math.max(Number(limit) || 80, 250)
+      : warrantyWindow
+        ? Math.max(Number(limit) || 200, 800)
+        : limit,
     includeLineItems: true,
+    fetchAll: Boolean(warrantyWindow),
   });
 
   const portalStamping = await loadPortalStampingForCustomer(customerId);
@@ -199,7 +206,7 @@ async function listDealerInvoicesIndexed(customerId, {
     ? await filterReplacementEligibleInvoices(customerId, categorized)
     : categorized;
 
-  if (replacementWindow) {
+  if (fullWindow) {
     const byDate = [...listed].sort((a, b) => {
       const left = String(b.date ?? '');
       const right = String(a.date ?? '');
@@ -256,12 +263,15 @@ export async function listDealerInvoices(_secrets, _orgId, uid, role, query = {}
   const sortDir = query.sortDir === 'asc' ? 'asc' : 'desc';
   const page = Number(query.page ?? 1);
   const includeLineItems = Boolean(query.includeLineItems);
-  const replacementWindow = Boolean(query.replacementWindow || query.replacementWindow);
+  const replacementWindow = Boolean(query.replacementWindow);
+  const warrantyWindow = Boolean(query.warrantyWindow);
   const limit = replacementWindow
     ? Math.min(Math.max(Number(query.limit ?? 80), 1), 80)
-    : includeLineItems
-      ? Math.min(Math.max(Number(query.limit ?? 40), 1), 50)
-      : Number(query.limit ?? 25);
+    : warrantyWindow
+      ? Math.min(Math.max(Number(query.limit ?? 200), 1), 800)
+      : includeLineItems
+        ? Math.min(Math.max(Number(query.limit ?? 40), 1), 50)
+        : Number(query.limit ?? 25);
 
   const useIndexedPickerQuery = includeLineItems && !searchText;
   if (useIndexedPickerQuery) {
@@ -274,6 +284,7 @@ export async function listDealerInvoices(_secrets, _orgId, uid, role, query = {}
         page,
         limit,
         replacementWindow,
+        warrantyWindow,
       });
     } catch (err) {
       console.warn('indexed invoice picker query failed, using full scan:', err?.message ?? err);
@@ -322,9 +333,11 @@ export async function listDealerInvoices(_secrets, _orgId, uid, role, query = {}
 
   const listed = replacementWindow
     ? await filterReplacementEligibleInvoices(customerId, categorized)
-    : categorized;
+    : warrantyWindow
+      ? categorized.filter(inv => String(inv.date ?? '') >= istCalendarDateDaysAgo(365))
+      : categorized;
 
-  if (replacementWindow) {
+  if (replacementWindow || warrantyWindow) {
     const byDate = [...listed].sort((a, b) => {
       const left = String(b.date ?? '');
       const right = String(a.date ?? '');

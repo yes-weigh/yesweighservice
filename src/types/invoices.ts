@@ -233,6 +233,8 @@ export interface InvoiceListParams {
   includeLineItems?: boolean;
   /** Only invoices dated in the last 10 days (full product replacement / DOA). */
   replacementWindow?: boolean;
+  /** Last 365 days of invoices in one response (warranty / complaint picker). */
+  warrantyWindow?: boolean;
 }
 
 export const INVOICE_CATEGORY_FILTER_OPTIONS: Array<{

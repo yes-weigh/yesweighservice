@@ -1207,6 +1207,30 @@ export function istCalendarDateDaysAgo(days) {
   return utc.toISOString().slice(0, 10);
 }
 
+function indexedInvoiceRowFromDoc(docSnap, includeLineItems) {
+  const data = docSnap.data() ?? {};
+  const row = firestoreDocToListInvoice({ ...data, id: docSnap.id });
+  if (includeLineItems) {
+    const lines = data.lineItems ?? data.line_items;
+    if (Array.isArray(lines) && lines.length) row.lineItems = lines;
+  }
+  return row;
+}
+
+async function lastSyncedAtFromCustomerMeta(customerId) {
+  const metaSnap = await customerInvoiceMetaRef(String(customerId)).get();
+  const meta = metaSnap.exists ? metaSnap.data() : null;
+  let lastSyncedAt = null;
+  const timestamps = [meta?.lastFullSyncAt, meta?.lastWebhookAt, meta?.updatedAt];
+  for (const ts of timestamps) {
+    if (ts instanceof Timestamp) {
+      const iso = ts.toDate().toISOString();
+      if (!lastSyncedAt || iso > lastSyncedAt) lastSyncedAt = iso;
+    }
+  }
+  return lastSyncedAt;
+}
+
 /**
  * Indexed invoice page: date DESC (+ optional date >= from).
  * Uses the invoices.date collection index instead of reading every dealer invoice.
@@ -1218,16 +1242,45 @@ export async function readCustomerInvoicesFromFirestoreIndexed(
     page = 1,
     limit = 40,
     includeLineItems = false,
+    fetchAll = false,
   } = {},
 ) {
   const col = invoicesCollection(String(customerId));
   const fields = includeLineItems
     ? [...INVOICE_LIST_SELECT_FIELDS, 'lineItems', 'line_items']
     : INVOICE_LIST_SELECT_FIELDS;
+  const from = String(dateFrom || '').trim();
+
+  if (fetchAll) {
+    const pageSize = 100;
+    const maxRows = Math.max(100, Math.min(Number(limit) || 800, 800));
+    const invoices = [];
+    let lastDoc = null;
+    while (invoices.length < maxRows) {
+      let listQuery = col.select(...fields);
+      if (from) listQuery = listQuery.where('date', '>=', from);
+      listQuery = listQuery.orderBy('date', 'desc');
+      if (lastDoc) listQuery = listQuery.startAfter(lastDoc);
+      listQuery = listQuery.limit(Math.min(pageSize, maxRows - invoices.length));
+      const snap = await listQuery.get();
+      if (snap.empty) break;
+      snap.forEach(docSnap => {
+        invoices.push(indexedInvoiceRowFromDoc(docSnap, includeLineItems));
+      });
+      lastDoc = snap.docs[snap.docs.length - 1];
+      if (snap.size < pageSize) break;
+    }
+    return {
+      invoices,
+      searchBlobById: new Map(),
+      lastSyncedAt: await lastSyncedAtFromCustomerMeta(customerId),
+      total: invoices.length,
+    };
+  }
+
   const safePage = Math.max(1, Number(page) || 1);
   const safeLimit = Math.max(1, Number(limit) || 40);
   const offset = (safePage - 1) * safeLimit;
-  const from = String(dateFrom || '').trim();
 
   let listQuery = col.select(...fields);
   let countQuery = col;
@@ -1240,32 +1293,16 @@ export async function readCustomerInvoicesFromFirestoreIndexed(
   if (offset) listQuery = listQuery.offset(offset);
   listQuery = listQuery.limit(safeLimit);
 
-  const [snap, countSnap, metaSnap] = await Promise.all([
+  const [snap, countSnap, lastSyncedAt] = await Promise.all([
     listQuery.get(),
     countQuery.count().get(),
-    customerInvoiceMetaRef(String(customerId)).get(),
+    lastSyncedAtFromCustomerMeta(customerId),
   ]);
 
   const invoices = [];
   snap.forEach(docSnap => {
-    const data = docSnap.data() ?? {};
-    const row = firestoreDocToListInvoice({ ...data, id: docSnap.id });
-    if (includeLineItems) {
-      const lines = data.lineItems ?? data.line_items;
-      if (Array.isArray(lines) && lines.length) row.lineItems = lines;
-    }
-    invoices.push(row);
+    invoices.push(indexedInvoiceRowFromDoc(docSnap, includeLineItems));
   });
-
-  const meta = metaSnap.exists ? metaSnap.data() : null;
-  let lastSyncedAt = null;
-  const timestamps = [meta?.lastFullSyncAt, meta?.lastWebhookAt, meta?.updatedAt];
-  for (const ts of timestamps) {
-    if (ts instanceof Timestamp) {
-      const iso = ts.toDate().toISOString();
-      if (!lastSyncedAt || iso > lastSyncedAt) lastSyncedAt = iso;
-    }
-  }
 
   return {
     invoices,

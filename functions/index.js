@@ -2522,6 +2522,7 @@ export const getDealerInvoices = onCall(
     const uid = request.auth?.uid;
     const role = await requireActiveUser(uid, DEALER_INVOICE_ROLES, { allowViewOnly: true });
     try {
+      // warrantyWindow: last 365 days of invoices in one picker response
       return await listDealerInvoices(
         null,
         null,

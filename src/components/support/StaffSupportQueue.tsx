@@ -22,7 +22,7 @@ import {
 } from '../../lib/supportRequestDisplay';
 import type { DealerSupportRequest, SupportOpenStage } from '../../types/dealer-support';
 
-const DEFAULT_LIFECYCLE_FILTER: SupportLifecycleFilter = 'all';
+const DEFAULT_LIFECYCLE_FILTER: SupportLifecycleFilter = 'open';
 
 export const StaffSupportQueue: React.FC = () => {
   const { user } = useAuth();

@@ -111,16 +111,22 @@ function supportPickerInvoiceParams(
   q: string,
   customerId: string | undefined,
   replacementMode: boolean,
+  warrantyMode = false,
 ) {
   return {
     customerId,
     q: q.trim() || undefined,
-    page,
-    limit: replacementMode ? SUPPORT_REPLACEMENT_LIST_LIMIT : SUPPORT_PICKER_INVOICE_FETCH,
+    page: warrantyMode ? 1 : page,
+    limit: replacementMode
+      ? SUPPORT_REPLACEMENT_LIST_LIMIT
+      : warrantyMode
+        ? 200
+        : SUPPORT_PICKER_INVOICE_FETCH,
     sortField: 'date' as const,
     sortDir: 'desc' as const,
     includeLineItems: true,
     replacementWindow: replacementMode,
+    warrantyWindow: warrantyMode,
   };
 }
 
@@ -343,6 +349,8 @@ export const SupportInvoiceAutocomplete: React.FC<InvoiceAutocompleteProps> = ({
   const rootRef = useRef<HTMLDivElement>(null);
   const menuRef = useRef<HTMLUListElement>(null);
   const fillingRef = useRef(false);
+  const fillGenRef = useRef(0);
+  const detailsAttemptedRef = useRef(new Set<string>());
   const [query, setQuery] = useState(value?.invoiceNumber ?? '');
   const replacementMode = requestType === 'return';
   const warrantyListingMode = requestType === 'service';
@@ -373,12 +381,13 @@ export const SupportInvoiceAutocomplete: React.FC<InvoiceAutocompleteProps> = ({
     setInvoiceTotalPages(1);
     setLoadError('');
     setLoading(true);
+    detailsAttemptedRef.current = new Set();
 
     const load = async () => {
       try {
         const res = await fetchDealerInvoicesWithCache(
           cacheKey,
-          supportPickerInvoiceParams(1, debouncedQuery, customerId, replacementMode),
+          supportPickerInvoiceParams(1, debouncedQuery, customerId, replacementMode, warrantyListingMode),
         );
         const next = await withCatalogMetaOnInvoices(res.data);
         if (!cancelled) {
@@ -400,7 +409,7 @@ export const SupportInvoiceAutocomplete: React.FC<InvoiceAutocompleteProps> = ({
     return () => {
       cancelled = true;
     };
-  }, [cacheKey, customerId, debouncedQuery, disabled, open, replacementMode]);
+  }, [cacheKey, customerId, debouncedQuery, disabled, open, replacementMode, warrantyListingMode]);
 
   useEffect(() => {
     if (!open || disabled || invoices.length === 0) return;
@@ -408,6 +417,7 @@ export const SupportInvoiceAutocomplete: React.FC<InvoiceAutocompleteProps> = ({
     const missing = invoices.filter(invoice => (
       (!Array.isArray(invoice.lineItems) || invoice.lineItems.length === 0)
       && !detailsById[invoice.id]
+      && !detailsAttemptedRef.current.has(invoice.id)
     ));
     if (!missing.length) return;
 
@@ -438,6 +448,7 @@ export const SupportInvoiceAutocomplete: React.FC<InvoiceAutocompleteProps> = ({
       setDetailsById(prev => {
         const next = { ...prev };
         for (const [id, detail] of rows) {
+          detailsAttemptedRef.current.add(id);
           if (detail) next[id] = detail;
         }
         return next;
@@ -449,12 +460,13 @@ export const SupportInvoiceAutocomplete: React.FC<InvoiceAutocompleteProps> = ({
     return () => {
       cancelled = true;
     };
-  }, [cacheKey, customerId, detailsById, disabled, open, invoices]);
+  }, [cacheKey, customerId, disabled, open, invoices]);
 
   const pendingDetails = invoices.some(
     invoice => (
       (!Array.isArray(invoice.lineItems) || invoice.lineItems.length === 0)
       && !detailsById[invoice.id]
+      && !detailsAttemptedRef.current.has(invoice.id)
     ),
   );
   const maxInvoicePages = invoiceTotalPages;
@@ -484,15 +496,26 @@ export const SupportInvoiceAutocomplete: React.FC<InvoiceAutocompleteProps> = ({
   );
 
   useEffect(() => {
-    if (replacementMode) return;
-    if (!open || disabled || loading || pendingDetails) return;
+    if (replacementMode) {
+      fillingRef.current = false;
+      setLoadingMore(false);
+      return;
+    }
+    if (!open || disabled || loading) {
+      fillingRef.current = false;
+      setLoadingMore(false);
+      return;
+    }
+    if (pendingDetails) return;
     const needed = page * SUPPORT_PICKER_PAGE_SIZE;
-    if (productRows.length >= needed) return;
-    if (loadedInvoicePage >= maxInvoicePages) return;
-    if (pastWarrantyWindow) return;
-    if (fillingRef.current) return;
+    if (productRows.length >= needed || loadedInvoicePage >= maxInvoicePages || pastWarrantyWindow) {
+      fillingRef.current = false;
+      setLoadingMore(false);
+      return;
+    }
 
     let cancelled = false;
+    const fillGen = ++fillGenRef.current;
     fillingRef.current = true;
     setLoadingMore(true);
 
@@ -506,10 +529,11 @@ export const SupportInvoiceAutocomplete: React.FC<InvoiceAutocompleteProps> = ({
             debouncedQuery,
             customerId,
             replacementMode,
+            warrantyListingMode,
           ),
         );
         const extra = await withCatalogMetaOnInvoices(res.data);
-        if (cancelled) return;
+        if (cancelled || fillGenRef.current !== fillGen) return;
         setInvoices(prev => {
           const seen = new Set(prev.map(invoice => invoice.id));
           return [...prev, ...extra.filter(invoice => !seen.has(invoice.id))];
@@ -517,16 +541,19 @@ export const SupportInvoiceAutocomplete: React.FC<InvoiceAutocompleteProps> = ({
         setLoadedInvoicePage(nextInvoicePage);
         setInvoiceTotalPages(Math.max(1, res.pagination?.totalPages ?? 1));
       } catch {
-        if (!cancelled) setInvoiceTotalPages(loadedInvoicePage);
+        if (!cancelled && fillGenRef.current === fillGen) {
+          setInvoiceTotalPages(loadedInvoicePage);
+        }
       } finally {
         fillingRef.current = false;
-        if (!cancelled) setLoadingMore(false);
+        if (fillGenRef.current === fillGen) setLoadingMore(false);
       }
     };
 
     void fill();
     return () => {
       cancelled = true;
+      fillingRef.current = false;
     };
   }, [
     cacheKey,
@@ -542,6 +569,7 @@ export const SupportInvoiceAutocomplete: React.FC<InvoiceAutocompleteProps> = ({
     pastWarrantyWindow,
     productRows.length,
     replacementMode,
+    warrantyListingMode,
   ]);
 
   useEffect(() => {

@@ -28,10 +28,10 @@ export type SupportTypeFilter = 'all' | import('../types/dealer-support').Suppor
 export type SupportLifecycleFilter = 'all' | 'open' | 'resolved' | 'cancelled';
 
 export const SUPPORT_LIFECYCLE_FILTERS: Array<{ value: SupportLifecycleFilter; label: string }> = [
-  { value: 'all', label: 'all' },
   { value: 'open', label: 'open' },
   { value: 'resolved', label: 'resolved' },
   { value: 'cancelled', label: 'cancelled' },
+  { value: 'all', label: 'all' },
 ];
 
 export const SUPPORT_STAGE_FILTERS: Array<{
@@ -81,10 +81,10 @@ export function splitStatusFilter(filter: SupportStatusFilter): {
 
 /** @deprecated Use SUPPORT_STATUS_FILTERS */
 export const SUPPORT_STATUS_TABS: Array<{ value: SupportStatusTab; label: string }> = [
-  { value: 'all', label: 'All' },
   { value: 'open', label: 'Open' },
   { value: 'resolved', label: 'Resolved' },
   { value: 'cancelled', label: 'Cancelled' },
+  { value: 'all', label: 'All' },
 ];
 
 const SLA_DAYS = 3;
