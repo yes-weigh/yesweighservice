@@ -477,7 +477,7 @@ export const SupportChat: React.FC<SupportChatProps> = ({ request, readOnly }) =
   });
   const [dockHeight, setDockHeight] = useState(0);
 
-  const chatDisabled = readOnly;
+  const chatDisabled = Boolean(readOnly) && !isInternalOpsUser(user);
 
   const outgoingRef = useRef<OutgoingChatMessage[]>([]);
 

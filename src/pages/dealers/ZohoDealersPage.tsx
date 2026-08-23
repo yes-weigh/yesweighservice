@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import {
   Ban,
@@ -68,6 +68,7 @@ export function ZohoDealersPage() {
   const tabParam = searchParams.get('tab');
   const mainTab = parseDealersTab(tabParam);
   const setMainTab = (tab: DealersMainTab) => {
+    setFiltersOpen(false);
     if (tab === 'roster') {
       setSearchParams({}, { replace: true });
       return;
@@ -120,6 +121,8 @@ export function ZohoDealersPage() {
   const [assignableStaff, setAssignableStaff] = useState<AssignableStaffOption[]>([]);
   const [categories, setCategories] = useState<string[]>([]);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [filtersOpen, setFiltersOpen] = useState(false);
+  const filtersWrapRef = useRef<HTMLDivElement>(null);
 
   const queryParams = useMemo((): DealerListParams => ({
     page: effectivePaginationOn ? page : 1,
@@ -192,6 +195,17 @@ export function ZohoDealersPage() {
   useEffect(() => {
     setDistrictFilter([]);
   }, [stateFilter]);
+
+  useEffect(() => {
+    if (!filtersOpen) return;
+    const onPointerDown = (event: MouseEvent) => {
+      if (filtersWrapRef.current && !filtersWrapRef.current.contains(event.target as Node)) {
+        setFiltersOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', onPointerDown);
+    return () => document.removeEventListener('mousedown', onPointerDown);
+  }, [filtersOpen]);
 
   const handleSync = async () => {
     setSyncing(true);
@@ -302,6 +316,53 @@ export function ZohoDealersPage() {
     categoryFilter,
   ].filter(f => f.length > 0).length;
 
+  const resetDealerFilters = () => {
+    setStaffFilter([]);
+    setStatusFilter([]);
+    setStateFilter([]);
+    setDistrictFilter([]);
+    setCategoryFilter([]);
+  };
+
+  const dealerFilterFields = (
+    <div className="dealers-filters">
+      <MultiSelect
+        placeholder="Assigned staff"
+        value={staffFilter}
+        onChange={setStaffFilter}
+        options={[
+          { value: 'unassigned', label: 'Unassigned' },
+          ...assignableStaff.map(s => ({ value: s.uid, label: s.displayName })),
+        ]}
+      />
+      <MultiSelect
+        placeholder="Status"
+        value={statusFilter}
+        onChange={setStatusFilter}
+        options={DEALER_STATUS_LEGEND.map(item => ({ value: item.key, label: item.symbol }))}
+      />
+      <MultiSelect
+        className="dealers-filter--state"
+        placeholder="State"
+        value={stateFilter}
+        onChange={setStateFilter}
+        options={states.map(s => ({ value: s, label: s }))}
+      />
+      <MultiSelect
+        placeholder="District"
+        value={districtFilter}
+        onChange={setDistrictFilter}
+        options={districts.map(d => ({ value: d, label: d }))}
+      />
+      <MultiSelect
+        placeholder="Category"
+        value={categoryFilter}
+        onChange={setCategoryFilter}
+        options={categories.map(c => ({ value: c, label: c }))}
+      />
+    </div>
+  );
+
   const renderPaginationBar = (position: 'top' | 'bottom') => (
     <div
       className={`dealers-pagination dealers-pagination--inset dealers-pagination--${position}`}
@@ -359,35 +420,89 @@ export function ZohoDealersPage() {
 
   return (
     <div className="page-content fade-in dealers-page">
-      <div className="dealers-page-tabs" role="tablist" aria-label="Dealers sections">
-        <button
-          type="button"
-          role="tab"
-          className={`dealers-page-tabs__tab${mainTab === 'roster' ? ' dealers-page-tabs__tab--active' : ''}`}
-          aria-selected={mainTab === 'roster'}
-          onClick={() => setMainTab('roster')}
-        >
-          Dealer
-        </button>
-        <button
-          type="button"
-          role="tab"
-          className={`dealers-page-tabs__tab${mainTab === 'salespersons' ? ' dealers-page-tabs__tab--active' : ''}`}
-          aria-selected={mainTab === 'salespersons'}
-          onClick={() => setMainTab('salespersons')}
-        >
-          Salesperson
-        </button>
-        {canManageDealerLevels ? (
+      <div className="dealers-page-tabs">
+        <div className="dealers-page-tabs__list" role="tablist" aria-label="Dealers sections">
           <button
             type="button"
             role="tab"
-            className={`dealers-page-tabs__tab${mainTab === 'dealer-level' ? ' dealers-page-tabs__tab--active' : ''}`}
-            aria-selected={mainTab === 'dealer-level'}
-            onClick={() => setMainTab('dealer-level')}
+            className={`dealers-page-tabs__tab${mainTab === 'roster' ? ' dealers-page-tabs__tab--active' : ''}`}
+            aria-selected={mainTab === 'roster'}
+            onClick={() => setMainTab('roster')}
           >
-            Dealer level
+            Dealer
           </button>
+          <button
+            type="button"
+            role="tab"
+            className={`dealers-page-tabs__tab${mainTab === 'salespersons' ? ' dealers-page-tabs__tab--active' : ''}`}
+            aria-selected={mainTab === 'salespersons'}
+            onClick={() => setMainTab('salespersons')}
+          >
+            Salesperson
+          </button>
+          {canManageDealerLevels ? (
+            <button
+              type="button"
+              role="tab"
+              className={`dealers-page-tabs__tab${mainTab === 'dealer-level' ? ' dealers-page-tabs__tab--active' : ''}`}
+              aria-selected={mainTab === 'dealer-level'}
+              onClick={() => setMainTab('dealer-level')}
+            >
+              Dealer level
+            </button>
+          ) : null}
+        </div>
+        {mainTab === 'roster' ? (
+          <div className="dealers-page-tabs__filter" ref={filtersWrapRef}>
+            <button
+              type="button"
+              className={[
+                'catalog-header-filter-btn',
+                filtersOpen ? 'catalog-header-filter-btn--open' : '',
+                activeFilterCount > 0 ? 'catalog-header-filter-btn--active' : '',
+              ].filter(Boolean).join(' ')}
+              aria-label={activeFilterCount > 0 ? `Filters (${activeFilterCount} active)` : 'Filters'}
+              title="Filters"
+              aria-expanded={filtersOpen}
+              aria-haspopup="dialog"
+              onClick={() => setFiltersOpen(open => !open)}
+            >
+              <SlidersHorizontal size={18} aria-hidden />
+              {activeFilterCount > 0 ? (
+                <span className="support-request-list__filter-pill">{activeFilterCount}</span>
+              ) : null}
+            </button>
+            {filtersOpen ? (
+              <div
+                className="dealers-page-tabs__filter-panel"
+                role="dialog"
+                aria-label="Filter dealers"
+              >
+                <header className="dealers-page-tabs__filter-head">
+                  <h3>Filters</h3>
+                  <div className="dealers-page-tabs__filter-head-actions">
+                    <button
+                      type="button"
+                      className="btn btn-secondary btn-sm"
+                      onClick={resetDealerFilters}
+                      disabled={activeFilterCount === 0}
+                    >
+                      Reset
+                    </button>
+                    <button
+                      type="button"
+                      className="dealers-page-tabs__filter-close"
+                      aria-label="Close filters"
+                      onClick={() => setFiltersOpen(false)}
+                    >
+                      <X size={18} />
+                    </button>
+                  </div>
+                </header>
+                {dealerFilterFields}
+              </div>
+            ) : null}
+          </div>
         ) : null}
       </div>
 
@@ -433,61 +548,6 @@ export function ZohoDealersPage() {
             </button>
           </div>
         </div>
-        <div className="dealers-filters-mobile">
-          <MultiSelect
-            className="dealers-filter--state dealers-multiselect--state-cta"
-            placeholder="State"
-            value={stateFilter}
-            onChange={setStateFilter}
-            options={states.map(s => ({ value: s, label: s }))}
-            menuPortal
-          />
-        </div>
-        <details className="dealers-filters-drawer">
-          <summary className="dealers-filters-drawer__summary">
-            <SlidersHorizontal size={15} />
-            <span>Filters</span>
-            {activeFilterCount > 0 && (
-              <span className="dealers-filters-drawer__count">{activeFilterCount}</span>
-            )}
-          </summary>
-          <div className="dealers-filters">
-          <MultiSelect
-            placeholder="Assigned staff"
-            value={staffFilter}
-            onChange={setStaffFilter}
-            options={[
-              { value: 'unassigned', label: 'Unassigned' },
-              ...assignableStaff.map(s => ({ value: s.uid, label: s.displayName })),
-            ]}
-          />
-          <MultiSelect
-            placeholder="Status"
-            value={statusFilter}
-            onChange={setStatusFilter}
-            options={DEALER_STATUS_LEGEND.map(item => ({ value: item.key, label: item.symbol }))}
-          />
-          <MultiSelect
-            className="dealers-filter--state"
-            placeholder="State"
-            value={stateFilter}
-            onChange={setStateFilter}
-            options={states.map(s => ({ value: s, label: s }))}
-          />
-          <MultiSelect
-            placeholder="District"
-            value={districtFilter}
-            onChange={setDistrictFilter}
-            options={districts.map(d => ({ value: d, label: d }))}
-          />
-          <MultiSelect
-            placeholder="Category"
-            value={categoryFilter}
-            onChange={setCategoryFilter}
-            options={categories.map(c => ({ value: c, label: c }))}
-          />
-          </div>
-        </details>
       </div>
 
       <div className="dealers-table-panel">

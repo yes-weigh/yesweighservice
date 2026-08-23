@@ -25,7 +25,7 @@ import {
   updateSupportOpenStage,
 } from '../../lib/dealerSupport';
 import { canManageSupportOps, isInternalOpsUser } from '../../lib/staffAccess';
-import { canMutateDealerSupport } from '../../lib/dealerAccess';
+import { canMutateDealerSupport, canReplyToDealerSupportChat } from '../../lib/dealerAccess';
 import {
   canDealerCancelSupportRequest,
   isProductCourierType,
@@ -314,7 +314,7 @@ export const SupportRequestDetailContent: React.FC<SupportRequestDetailContentPr
           aria-labelledby="support-detail-tab-chat"
           className="support-detail-page__tab-panel"
         >
-          <SupportChat request={request} readOnly={!canMutateDealerSupport(user)} />
+          <SupportChat request={request} readOnly={!canReplyToDealerSupportChat(user)} />
         </div>
       )}
 

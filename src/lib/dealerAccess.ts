@@ -118,6 +118,15 @@ export function canMutateDealerSupport(
   return dealerStaffTeam(user) === 'service';
 }
 
+/** Reply on a ticket thread: dealer mutators plus company staff / super-admin. */
+export function canReplyToDealerSupportChat(
+  user: Pick<User, 'role' | 'staffDepartment' | 'dealerTeams'> | null | undefined,
+): boolean {
+  if (!user) return false;
+  if (user.role === 'super_admin' || user.role === 'staff') return true;
+  return canMutateDealerSupport(user);
+}
+
 /** Billing / shipping on the dealer profile. Owner and admin staff. */
 export function canEditDealerProfileAddresses(
   user: Pick<User, 'role' | 'staffDepartment' | 'dealerTeams'> | null | undefined,

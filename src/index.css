@@ -33370,7 +33370,9 @@ body:has(.confirm-inline-bar) .confirm-inline-bar {
 
 .dealers-page-tabs {
   display: flex;
-  gap: 0.25rem;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.35rem;
   padding: 0;
   border-radius: 0;
   background: transparent;
@@ -33378,6 +33380,69 @@ body:has(.confirm-inline-bar) .confirm-inline-bar {
   border-bottom: 1px solid rgba(255, 255, 255, 0.08);
   width: 100%;
   max-width: 100%;
+}
+
+.dealers-page-tabs__list {
+  display: flex;
+  gap: 0.25rem;
+  min-width: 0;
+  overflow-x: auto;
+}
+
+.dealers-page-tabs__filter {
+  position: relative;
+  flex-shrink: 0;
+  margin-left: auto;
+}
+
+.dealers-page-tabs__filter-panel {
+  position: absolute;
+  top: calc(100% + 0.4rem);
+  right: 0;
+  z-index: 40;
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  width: min(22rem, calc(100vw - 1.5rem));
+  max-height: min(70vh, 28rem);
+  overflow: auto;
+  padding: 0.85rem 0.9rem 1rem;
+  border-radius: 14px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  background: #12161d;
+  box-shadow: 0 16px 40px rgba(3, 7, 18, 0.62);
+}
+
+.dealers-page-tabs__filter-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+}
+
+.dealers-page-tabs__filter-head h3 {
+  margin: 0;
+  font-size: 0.95rem;
+  font-weight: 800;
+}
+
+.dealers-page-tabs__filter-head-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+}
+
+.dealers-page-tabs__filter-close {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 2.1rem;
+  height: 2.1rem;
+  border: none;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--text-main);
+  cursor: pointer;
 }
 
 .dealers-page-tabs__tab {
