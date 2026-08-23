@@ -1,4 +1,21 @@
 import { freightSkuFromInvoiceLines } from './freight-lines.js';
+import { Timestamp } from 'firebase-admin/firestore';
+
+function serializeInvoiceDate(value) {
+  if (value == null || value === '') return null;
+  if (typeof value === 'string') return value;
+  if (value instanceof Timestamp) return value.toDate().toISOString().slice(0, 10);
+  if (typeof value.toDate === 'function') {
+    try {
+      return value.toDate().toISOString().slice(0, 10);
+    } catch {
+      return null;
+    }
+  }
+  const seconds = Number(value.seconds ?? value._seconds);
+  if (Number.isFinite(seconds)) return new Date(seconds * 1000).toISOString().slice(0, 10);
+  return String(value);
+}
 
 function formatAddressObject(addr) {
   if (!addr || typeof addr !== 'object') return null;
@@ -522,7 +539,7 @@ export function firestoreDocToListInvoice(data) {
   return {
     id: String(data.id ?? ''),
     invoiceNumber: String(data.invoiceNumber ?? ''),
-    date: data.date ?? null,
+    date: serializeInvoiceDate(data.date),
     createdTime: data.createdTime ?? data.zohoLastModified ?? null,
     dueDate: data.dueDate ?? null,
     status: String(data.status ?? 'draft'),
@@ -556,6 +573,9 @@ export function firestoreDocToListInvoice(data) {
       : null,
     manualDeliveredAt: data.manualDeliveredAt
       ? String(data.manualDeliveredAt)
+      : null,
+    goodsReceivedAt: data.goodsReceivedAt
+      ? serializeInvoiceDate(data.goodsReceivedAt) || String(data.goodsReceivedAt)
       : null,
   };
 }

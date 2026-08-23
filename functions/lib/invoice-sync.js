@@ -1094,12 +1094,8 @@ function compactInvoiceLineItemPreview(item, catalogMap) {
     serialNumbers: Array.isArray(item?.serialNumbers)
       ? item.serialNumbers.map(value => String(value).trim()).filter(Boolean)
       : [],
-    categoryId: catalog && catalog.categoryId != null
-      ? String(catalog.categoryId)
-      : (catalog ? null : undefined),
-    categoryName: catalog && catalog.categoryName != null
-      ? String(catalog.categoryName)
-      : (catalog ? null : undefined),
+    ...(catalog?.categoryId != null ? { categoryId: String(catalog.categoryId) } : {}),
+    ...(catalog?.categoryName != null ? { categoryName: String(catalog.categoryName) } : {}),
   };
 }
 
@@ -1113,19 +1109,22 @@ export async function attachInvoiceLineItemPreviews(customerId, invoices) {
   const snaps = await Promise.all(
     invoices.map(inv => col.doc(String(inv.id)).select(
       'lineItems',
+      'line_items',
       'customerPickup',
       'customerPickupMarkedAt',
       'manualDelivery',
       'manualDeliveredAt',
+      'goodsReceivedAt',
     ).get()),
   );
   const linesByInvoice = snaps.map(snap => {
     const data = snap.exists ? snap.data() ?? {} : {};
-    const lines = data.lineItems;
-    return Array.isArray(lines) ? lines : [];
+    const lines = data.lineItems ?? data.line_items;
+    return Array.isArray(lines) && lines.length ? lines : null;
   });
   const catalogItemIds = [];
   for (const lines of linesByInvoice) {
+    if (!Array.isArray(lines)) continue;
     for (const item of lines) {
       if (item?.itemId) catalogItemIds.push(String(item.itemId));
     }
@@ -1135,7 +1134,9 @@ export async function attachInvoiceLineItemPreviews(customerId, invoices) {
     const extra = snaps[index]?.exists ? snaps[index].data() ?? {} : {};
     return {
       ...inv,
-      lineItems: linesByInvoice[index].map(item => compactInvoiceLineItemPreview(item, catalogMap)),
+      lineItems: Array.isArray(linesByInvoice[index])
+        ? linesByInvoice[index].map(item => compactInvoiceLineItemPreview(item, catalogMap))
+        : undefined,
       customerPickup: extra.customerPickup ?? inv.customerPickup ?? null,
       customerPickupMarkedAt: extra.customerPickupMarkedAt ?? inv.customerPickupMarkedAt ?? null,
       manualDelivery: extra.manualDelivery ?? inv.manualDelivery ?? null,
@@ -1164,6 +1165,7 @@ const INVOICE_LIST_SELECT_FIELDS = [
   'invoiceUrl',
   'invoiceCategory',
   'freightSku',
+  'goodsReceivedAt',
   'customerPickup',
   'customerPickupMarkedAt',
   'manualDelivery',

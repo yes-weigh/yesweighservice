@@ -139,7 +139,7 @@ function invoiceAgeDays(date: string | null | undefined, now = new Date()): numb
 
 function isInvoiceWithinWarrantyListing(date: string | null | undefined, now = new Date()): boolean {
   const age = invoiceAgeDays(date, now);
-  return age != null && age <= PRODUCT_WARRANTY_LISTING_DAYS;
+  return age == null || age <= PRODUCT_WARRANTY_LISTING_DAYS;
 }
 
 type SupportPickerProductRow = {
@@ -356,6 +356,7 @@ export const SupportInvoiceAutocomplete: React.FC<InvoiceAutocompleteProps> = ({
   const [loading, setLoading] = useState(false);
   const [loadingMore, setLoadingMore] = useState(false);
   const [loadingDetails, setLoadingDetails] = useState(false);
+  const [loadError, setLoadError] = useState('');
   const debouncedQuery = useDebounce(query, 250);
 
   useEffect(() => {
@@ -370,6 +371,7 @@ export const SupportInvoiceAutocomplete: React.FC<InvoiceAutocompleteProps> = ({
     setInvoices([]);
     setLoadedInvoicePage(0);
     setInvoiceTotalPages(1);
+    setLoadError('');
     setLoading(true);
 
     const load = async () => {
@@ -384,8 +386,11 @@ export const SupportInvoiceAutocomplete: React.FC<InvoiceAutocompleteProps> = ({
           setLoadedInvoicePage(1);
           setInvoiceTotalPages(Math.max(1, res.pagination?.totalPages ?? 1));
         }
-      } catch {
-        if (!cancelled) setInvoices([]);
+      } catch (err) {
+        if (!cancelled) {
+          setInvoices([]);
+          setLoadError(err instanceof Error ? err.message : 'Could not load invoices.');
+        }
       } finally {
         if (!cancelled) setLoading(false);
       }
@@ -400,7 +405,10 @@ export const SupportInvoiceAutocomplete: React.FC<InvoiceAutocompleteProps> = ({
   useEffect(() => {
     if (!open || disabled || invoices.length === 0) return;
 
-    const missing = invoices.filter(invoice => !Array.isArray(invoice.lineItems));
+    const missing = invoices.filter(invoice => (
+      (!Array.isArray(invoice.lineItems) || invoice.lineItems.length === 0)
+      && !detailsById[invoice.id]
+    ));
     if (!missing.length) return;
 
     let cancelled = false;
@@ -441,10 +449,13 @@ export const SupportInvoiceAutocomplete: React.FC<InvoiceAutocompleteProps> = ({
     return () => {
       cancelled = true;
     };
-  }, [cacheKey, customerId, disabled, open, invoices]);
+  }, [cacheKey, customerId, detailsById, disabled, open, invoices]);
 
   const pendingDetails = invoices.some(
-    invoice => !Array.isArray(invoice.lineItems) && !detailsById[invoice.id],
+    invoice => (
+      (!Array.isArray(invoice.lineItems) || invoice.lineItems.length === 0)
+      && !detailsById[invoice.id]
+    ),
   );
   const maxInvoicePages = invoiceTotalPages;
   const pastWarrantyWindow = warrantyListingMode
@@ -692,13 +703,15 @@ export const SupportInvoiceAutocomplete: React.FC<InvoiceAutocompleteProps> = ({
         >
           {invoices.length === 0 && !loading ? (
             <li className="support-invoice-field__empty text-muted text-sm">
-              {screenList
-                ? emptyCopy
-                : (debouncedQuery.trim() ? 'No matching invoices' : 'Type to search your invoices')}
+              {loadError
+                ? loadError
+                : screenList
+                  ? emptyCopy
+                  : (debouncedQuery.trim() ? 'No matching invoices' : 'Type to search your invoices')}
             </li>
           ) : pageRows.length === 0 && !waitingForProducts ? (
             <li className="support-invoice-field__empty text-muted text-sm">
-              {emptyCopy}
+              {loadError || emptyCopy}
             </li>
           ) : (
             <>

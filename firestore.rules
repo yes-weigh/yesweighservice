@@ -61,6 +61,16 @@ service cloud.firestore {
       return signedIn() && (role() == 'dealer' || role() == 'director');
     }
 
+    function dealerOwnsZohoCustomer(customerId) {
+      return signedIn()
+        && userExists()
+        && (role() == 'dealer' || role() == 'director'
+          || role() == 'dealer_staff' || role() == 'director_staff')
+        && customerId is string
+        && customerId.size() > 0
+        && userDoc().get('zohoCustomerId', '') == customerId;
+    }
+
     function isActiveUser() {
       return signedIn() && userExists() && (
         isSuperAdmin()
@@ -311,11 +321,11 @@ service cloud.firestore {
     }
 
     match /zohoCustomers/{customerId} {
-      allow read: if isOpsUser();
+      allow read: if isOpsUser() || dealerOwnsZohoCustomer(customerId);
       allow write: if false;
 
       match /invoices/{invoiceId} {
-        allow read: if isOpsUser();
+        allow read: if isOpsUser() || dealerOwnsZohoCustomer(customerId);
         allow write: if false;
       }
 
@@ -345,7 +355,9 @@ service cloud.firestore {
 
     // Required for admin collectionGroup(db, 'invoices') live queries.
     match /{path=**}/invoices/{invoiceId} {
-      allow read: if isOpsUser();
+      allow read: if isOpsUser()
+        || (resource.data.customerId is string
+            && dealerOwnsZohoCustomer(resource.data.customerId));
       allow write: if false;
     }
 

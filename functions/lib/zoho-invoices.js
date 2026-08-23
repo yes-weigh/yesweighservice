@@ -241,7 +241,11 @@ export async function listDealerInvoices(_secrets, _orgId, uid, role, query = {}
   const paged = paginateInvoices(sorted, page, limit);
 
   if (includeLineItems) {
-    paged.data = await attachInvoiceLineItemPreviews(customerId, paged.data);
+    try {
+      paged.data = await attachInvoiceLineItemPreviews(customerId, paged.data);
+    } catch (err) {
+      console.warn('attachInvoiceLineItemPreviews failed:', err?.message ?? err);
+    }
   }
 
   return {

@@ -2515,7 +2515,7 @@ export const updateCustomerPickupEwayPartBFn = onCall(
 export const getDealerInvoices = onCall(
   {
     region: 'asia-south1',
-    timeoutSeconds: 120,
+    timeoutSeconds: 180,
     memory: '512MiB',
   },
   async request => {
@@ -2530,6 +2530,7 @@ export const getDealerInvoices = onCall(
         request.data ?? {},
       );
     } catch (err) {
+      if (err instanceof HttpsError) throw err;
       throw new HttpsError('internal', err?.message ?? 'Could not load invoices.');
     }
   },

@@ -88,7 +88,7 @@ export async function fetchDealerInvoices(params: InvoiceListParams = {}): Promi
   const callable = httpsCallable<InvoiceListParams, InvoiceListResponse>(
     functions,
     'getDealerInvoices',
-    { timeout: 60_000 },
+    { timeout: 180_000 },
   );
   try {
     const result = await callable(params);
@@ -1140,6 +1140,28 @@ export function isSpareInvoiceLineItem(
   return false;
 }
 
+/**
+ * Support picker spare check — only explicit spare names/categories.
+ * Do not treat “uncategorized catalog” as a spare: invoice line items often
+ * have categoryId null, which would hide every product under warranty.
+ */
+export function isSupportSpareLineItem(
+  item: Pick<DealerInvoiceLineItem, 'name'> & {
+    categoryName?: string | null;
+  },
+): boolean {
+  if (isGenericSpareCategoryName(item.categoryName)) return true;
+  const categoryName = String(item.categoryName ?? '').trim().toLowerCase();
+  if (categoryName.includes('spare')) return true;
+  const name = String(item.name ?? '').trim().toLowerCase();
+  if (name.includes('generic spare') || name.includes('spare part') || name.includes('spares')) {
+    return true;
+  }
+  if (name.includes('motherboard') || name.includes('mother board')) return true;
+  if (/\bpcb\b/.test(name)) return true;
+  return false;
+}
+
 /** Complaint / service picker: finished shop products only (no software, spares, freight, fees). */
 export function isSupportMainProductLineItem(
   item: DealerInvoiceLineItem,
@@ -1148,7 +1170,7 @@ export function isSupportMainProductLineItem(
   if (isStampingInvoiceLineItem(item)) return false;
   if (isGatcFeeInvoiceLineItem(item)) return false;
   if (isSoftwareInvoiceLineItem(item)) return false;
-  if (isSpareInvoiceLineItem(item)) return false;
+  if (isSupportSpareLineItem(item)) return false;
   if (isSacHsn(item.hsn)) return false;
   return true;
 }
