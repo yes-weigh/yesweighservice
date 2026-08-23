@@ -27,7 +27,7 @@ import {
   canPlaceDealerZohoOrder,
   canSeeDealerUnitPrice,
   dealerPortalStaffTeams,
-  dealerStaffTeam,
+  isLimitedDealerStaff,
   resolveDealerAccountUid,
 } from '../../lib/dealerAccess';
 import {
@@ -35,6 +35,7 @@ import {
   DEALER_ORDER_UNAVAILABLE_MESSAGE,
 } from '../../lib/dealerOrderStock';
 import {
+  formatExtraPriceLevelSlabLabels,
   priceLevelSkipsOpsReview,
 } from '../../lib/priceLevels';
 import { productHasLinkedGatc } from '../../lib/gatcCart';
@@ -298,7 +299,7 @@ const DealerCartPage: React.FC = () => {
     () => segmentPreview.length > 0 && segmentPreview.every(b => b.segment === 'spare'),
     [segmentPreview],
   );
-  const hideTeamQty = dealerStaffTeam(user) != null;
+  const hideTeamQty = isLimitedDealerStaff(user);
   const showCartDealerMoney = checkoutItems.every(item => (
     canSeeDealerUnitPrice(user, isCatalogSparePartProduct(catalogById[item.productId] ?? item))
   ));
@@ -768,22 +769,22 @@ const DealerCartPage: React.FC = () => {
                         </>
                       )}
                       <span className="text-muted text-sm">/ {item.unit}</span>
-                      {item.priceLevelSlabs && item.priceLevelSlabs.length > 1 ? (
+                      {(() => {
+                        const extraSlabs = item.priceLevelSlabs?.length
+                          ? formatExtraPriceLevelSlabLabels(item.priceLevelSlabs, item.rate)
+                          : [];
+                        if (!extraSlabs.length) return null;
+                        return (
                         <ul className="orders-page__item-slabs" aria-label="Quantity rates">
-                          {item.priceLevelSlabs.map((slab, idx) => {
-                            const next = item.priceLevelSlabs![idx + 1];
-                            const label = next
-                              ? `Qty ${slab.minQty}–${next.minQty - 1}`
-                              : `Qty ${slab.minQty}+`;
-                            return (
-                              <li key={`${slab.minQty}-${slab.rate}`}>
-                                <span>{label}</span>
-                                <span>₹{slab.rate.toLocaleString('en-IN')}</span>
-                              </li>
-                            );
-                          })}
+                          {extraSlabs.map(row => (
+                            <li key={`${row.minQty}-${row.rate}`}>
+                              <span>₹{row.rate.toLocaleString('en-IN')}</span>
+                              <span>{row.label}</span>
+                            </li>
+                          ))}
                         </ul>
-                      ) : null}
+                        );
+                      })()}
                         </>
                       ) : (
                         <span className="text-muted text-sm">/ {item.unit}</span>

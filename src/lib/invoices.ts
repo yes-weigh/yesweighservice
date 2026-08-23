@@ -26,6 +26,8 @@ import {
 } from './invoice-cache';
 import { enrichInvoiceDetailImages } from './invoiceLineItemImages';
 import { isFreightProductId, isFreightSku, freightOptionFromLine } from '../constants/freightLines';
+import { SOFTWARE_KEYS_LEDGER_HSN } from './softwareKeysLedgerStock';
+import { isSacHsn } from './sacCatalog';
 
 const functions = getFunctions(app, 'asia-south1');
 
@@ -1093,6 +1095,62 @@ export function isServiceExcludedLineItem(
   item: Pick<DealerInvoiceLineItem, 'name' | 'sku'>,
 ): boolean {
   return isFreightInvoiceLineItem(item) || isStampingInvoiceLineItem(item);
+}
+
+export function isSoftwareInvoiceLineItem(
+  item: Pick<DealerInvoiceLineItem, 'name' | 'sku'> & {
+    hsn?: string | null;
+    categoryName?: string | null;
+  },
+): boolean {
+  const hsn = normalizeCategoryHsn(item.hsn);
+  if (hsnMatchesCategory(hsn, INVOICE_CATEGORY_HSN.software_key)) return true;
+  if (hsn === SOFTWARE_KEYS_LEDGER_HSN) return true;
+  if (isSoftwareSegmentCategoryName(item.categoryName)) return true;
+  const name = String(item.name ?? '').trim().toLowerCase();
+  const sku = item.sku?.trim().toLowerCase() ?? '';
+  if (name.includes('subscription') || name.includes('software key')) return true;
+  if (/\bsoftware\b/.test(name) || name.includes('additional sales')) return true;
+  if (sku.includes('sposelt') || sku.includes('sanoft')) return true;
+  return false;
+}
+
+export function isSpareInvoiceLineItem(
+  item: Pick<DealerInvoiceLineItem, 'name'> & {
+    categoryId?: string | null;
+    categoryName?: string | null;
+  },
+): boolean {
+  const catalogKnown = item.categoryId !== undefined || item.categoryName !== undefined;
+  if (catalogKnown && isSpareCatalogItem({
+    categoryId: item.categoryId,
+    categoryName: item.categoryName,
+  })) {
+    return true;
+  }
+  const categoryName = String(item.categoryName ?? '').trim().toLowerCase();
+  if (categoryName.includes('spare')) return true;
+
+  const name = String(item.name ?? '').trim().toLowerCase();
+  if (name.includes('generic spare') || name.includes('spare part') || name.includes('spares')) {
+    return true;
+  }
+  if (name.includes('motherboard') || name.includes('mother board')) return true;
+  if (/\bpcb\b/.test(name)) return true;
+  return false;
+}
+
+/** Complaint / service picker: finished shop products only (no software, spares, freight, fees). */
+export function isSupportMainProductLineItem(
+  item: DealerInvoiceLineItem,
+): boolean {
+  if (isFreightInvoiceLineItem(item)) return false;
+  if (isStampingInvoiceLineItem(item)) return false;
+  if (isGatcFeeInvoiceLineItem(item)) return false;
+  if (isSoftwareInvoiceLineItem(item)) return false;
+  if (isSpareInvoiceLineItem(item)) return false;
+  if (isSacHsn(item.hsn)) return false;
+  return true;
 }
 
 export function sumInvoiceProductQuantity(lineItems: DealerInvoiceLineItem[]): number {

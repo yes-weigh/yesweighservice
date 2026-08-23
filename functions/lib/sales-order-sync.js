@@ -23,6 +23,7 @@ import { freightSkuFromInvoiceLines } from './freight-lines.js';
 import { reconcileSalesOrderStats } from './sales-order-stats.js';
 import { resolveZohoCustomerIdForUser } from './zoho-invoices.js';
 import { formatZohoAddress } from './zoho-contact-fields.js';
+import { isDealerAdminStaff } from './dealer-staff-team.js';
 import { extractWebhookEvent } from './invoice-sync.js';
 import { HttpsError } from 'firebase-functions/v2/https';
 
@@ -1166,6 +1167,12 @@ function salesOrderVisibleToDealerStaff(row, uid) {
   return staffUid === uid || createdBy === uid;
 }
 
+async function dealerStaffSeesAllSalesOrders(uid, role) {
+  if (role !== 'dealer_staff') return true;
+  const snap = await getFirestore().doc(`users/${uid}`).get();
+  return isDealerAdminStaff({ role, data: snap.data() || {} });
+}
+
 /**
  * Dealer / dealer_staff: list Zoho sales orders for their linked customer.
  * Mirrors admin visibility: date-ordered pagination for the customer (no 400-cap slice).
@@ -1207,7 +1214,7 @@ export async function listDealerSalesOrders(uid, role, query = {}, context = {})
     }
   }
 
-  if (role === 'dealer_staff') {
+  if (role === 'dealer_staff' && !(await dealerStaffSeesAllSalesOrders(uid, role))) {
     rows = rows.filter(row => salesOrderVisibleToDealerStaff(row, uid));
   }
 
@@ -1280,7 +1287,8 @@ export async function getDealerSalesOrderDetail(uid, role, salesOrderId) {
   if (String(data.customerId ?? '') !== String(customerId)) {
     throw new HttpsError('permission-denied', 'You do not have access to this sales order.');
   }
-  if (role === 'dealer_staff' && !salesOrderVisibleToDealerStaff(data, uid)) {
+  if (role === 'dealer_staff' && !(await dealerStaffSeesAllSalesOrders(uid, role))
+    && !salesOrderVisibleToDealerStaff(data, uid)) {
     throw new HttpsError('permission-denied', 'You do not have access to this sales order.');
   }
   const mapped = await withResolvedShippingAddress(mapSalesOrderDoc(snap.id, data));

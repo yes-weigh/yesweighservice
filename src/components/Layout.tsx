@@ -6,6 +6,7 @@ import { useCart } from '../context/useCart';
 import { useCartFly } from '../context/useCartFly';
 import { homePathForRole } from '../types';
 import { canUseOrderCart, orderCartPathForUser } from '../lib/salesOrderSegments';
+import { dealerStaffTeam } from '../lib/dealerAccess';
 import { navigateBack } from '../lib/navigation';
 import { HrStaffPhoto } from './hr/HrStaffPhoto';
 import {
@@ -353,7 +354,10 @@ const LayoutShell: React.FC = () => {
         ];
       case 'dealer_staff':
         return [
-          ...portalNavItems('/dealer-staff', 'dealer_staff'),
+          ...portalNavItems(
+            '/dealer-staff',
+            dealerStaffTeam(user) === 'admin' ? 'dealer' : 'dealer_staff',
+          ),
           { path: '/dealer-staff/team', icon: <Users size={20} />, label: 'Team' },
         ];
       case 'media':

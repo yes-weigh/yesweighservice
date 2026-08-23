@@ -1,6 +1,6 @@
 import React from 'react';
 import { IndianRupee } from 'lucide-react';
-import { formatPriceLevelSlabLabels } from '../../lib/priceLevels';
+import { formatExtraPriceLevelSlabLabels } from '../../lib/priceLevels';
 import type { DealerUnitPrice } from '../../types/priceLevels';
 
 type Props = {
@@ -59,13 +59,13 @@ export const DealerPriceDisplay: React.FC<Props> = ({
     mode === 'discount' || mode === 'fixed' || trailing != null
   );
   const slabRows = showSlabs && pricing?.slabs?.length
-    ? formatPriceLevelSlabLabels(pricing.slabs)
+    ? formatExtraPriceLevelSlabLabels(pricing.slabs, charge)
     : [];
 
   const rootClass = [
     'dealer-price',
     showDual ? 'dealer-price--dual' : '',
-    !showDual && slabRows.length <= 1 ? 'dealer-price--single' : '',
+    !showDual && slabRows.length === 0 ? 'dealer-price--single' : '',
     className,
   ].filter(Boolean).join(' ');
 
@@ -92,15 +92,15 @@ export const DealerPriceDisplay: React.FC<Props> = ({
           {trailing}
         </span>
       )}
-      {slabRows.length > 1 ? (
+      {slabRows.length > 0 ? (
         <ul className="dealer-price__slabs" aria-label="Quantity rates">
           {slabRows.map(row => (
             <li key={`${row.minQty}-${row.rate}`}>
-              <span>{row.label}</span>
               <span className="dealer-price__slabs-rate">
                 <IndianRupee size={10} strokeWidth={2.5} aria-hidden />
                 {row.rate.toLocaleString('en-IN')}
               </span>
+              <span>{row.label}</span>
             </li>
           ))}
         </ul>

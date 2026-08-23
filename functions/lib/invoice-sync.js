@@ -1071,6 +1071,80 @@ export async function reconcileCustomerInvoices(secrets, orgId, customerId, opti
   return { zohoCount: zohoIds.size, localRemoved: removed };
 }
 
+function compactInvoiceLineItemPreview(item, catalogMap) {
+  const itemId = item?.itemId != null && String(item.itemId).trim()
+    ? String(item.itemId)
+    : null;
+  const catalog = itemId ? catalogMap.get(itemId) : null;
+  return {
+    id: String(item?.id ?? ''),
+    itemId,
+    name: String(item?.name ?? 'Item'),
+    description: null,
+    sku: item?.sku != null && String(item.sku).trim() ? String(item.sku) : null,
+    quantity: Number(item?.quantity ?? 0),
+    rate: 0,
+    total: 0,
+    imageUrl: item?.imageUrl
+      ? String(item.imageUrl)
+      : (catalog?.imageUrl ? String(catalog.imageUrl) : null),
+    hsn: item?.hsn != null && String(item.hsn).trim()
+      ? String(item.hsn)
+      : (catalog?.hsn ?? null),
+    serialNumbers: Array.isArray(item?.serialNumbers)
+      ? item.serialNumbers.map(value => String(value).trim()).filter(Boolean)
+      : [],
+    categoryId: catalog && catalog.categoryId != null
+      ? String(catalog.categoryId)
+      : (catalog ? null : undefined),
+    categoryName: catalog && catalog.categoryName != null
+      ? String(catalog.categoryName)
+      : (catalog ? null : undefined),
+  };
+}
+
+/**
+ * Attach compact product rows to a small page of invoices (support picker).
+ * Avoids loading lineItems for every invoice in the dealer list.
+ */
+export async function attachInvoiceLineItemPreviews(customerId, invoices) {
+  if (!Array.isArray(invoices) || !invoices.length) return invoices;
+  const col = invoicesCollection(String(customerId));
+  const snaps = await Promise.all(
+    invoices.map(inv => col.doc(String(inv.id)).select(
+      'lineItems',
+      'customerPickup',
+      'customerPickupMarkedAt',
+      'manualDelivery',
+      'manualDeliveredAt',
+    ).get()),
+  );
+  const linesByInvoice = snaps.map(snap => {
+    const data = snap.exists ? snap.data() ?? {} : {};
+    const lines = data.lineItems;
+    return Array.isArray(lines) ? lines : [];
+  });
+  const catalogItemIds = [];
+  for (const lines of linesByInvoice) {
+    for (const item of lines) {
+      if (item?.itemId) catalogItemIds.push(String(item.itemId));
+    }
+  }
+  const catalogMap = await getCatalogMetaForItems(catalogItemIds);
+  return invoices.map((inv, index) => {
+    const extra = snaps[index]?.exists ? snaps[index].data() ?? {} : {};
+    return {
+      ...inv,
+      lineItems: linesByInvoice[index].map(item => compactInvoiceLineItemPreview(item, catalogMap)),
+      customerPickup: extra.customerPickup ?? inv.customerPickup ?? null,
+      customerPickupMarkedAt: extra.customerPickupMarkedAt ?? inv.customerPickupMarkedAt ?? null,
+      manualDelivery: extra.manualDelivery ?? inv.manualDelivery ?? null,
+      manualDeliveredAt: extra.manualDeliveredAt ?? inv.manualDeliveredAt ?? null,
+      goodsReceivedAt: inv.goodsReceivedAt ?? extra.goodsReceivedAt ?? null,
+    };
+  });
+}
+
 /** List fields only — omit lineItems / PDF paths so large dealers stay under memory caps. */
 const INVOICE_LIST_SELECT_FIELDS = [
   'invoiceNumber',
@@ -1090,6 +1164,10 @@ const INVOICE_LIST_SELECT_FIELDS = [
   'invoiceUrl',
   'invoiceCategory',
   'freightSku',
+  'customerPickup',
+  'customerPickupMarkedAt',
+  'manualDelivery',
+  'manualDeliveredAt',
 ];
 
 export async function readCustomerInvoicesFromFirestore(

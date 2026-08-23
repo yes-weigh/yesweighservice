@@ -38,6 +38,7 @@ import { useAuth } from '../../context/AuthContext';
 import {
   canSeeDealerUnitPrice,
   dealerStaffTeam,
+  isLimitedDealerStaff,
 } from '../../lib/dealerAccess';
 import { CatalogMrpLabel, DealerPriceDisplay } from './DealerPriceDisplay';
 import { useDealerUnitPrice } from '../../hooks/useDealerUnitPrice';
@@ -140,7 +141,7 @@ function ProductListRow({
   const inboundQty = dealerStock.scheduledQty(product.id);
   const isSpareItem = isCatalogSparePartProduct(product);
   const hideDealerSpareQty = dealerStock.gate && isSpareItem;
-  const hideTeamQty = dealerStaffTeam(user) != null;
+  const hideTeamQty = isLimitedDealerStaff(user);
   const showQty = showStockQuantity && !hideDealerSpareQty && !hideTeamQty;
   const showInboundQty = showQty && inboundQty > 0;
   const catalogMrp = product.mrpOverride != null && Number(product.mrpOverride) > 0

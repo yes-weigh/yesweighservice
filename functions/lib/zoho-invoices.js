@@ -11,7 +11,12 @@ import {
   readCustomerInvoicesFromFirestore,
   readInvoiceDetailFromFirestore,
   ensureInvoiceDocumentPdf,
+  attachInvoiceLineItemPreviews,
 } from './invoice-sync.js';
+import {
+  attachGoodsReceivedAtToInvoice,
+  filterReplacementEligibleInvoices,
+} from './invoice-replacement.js';
 
 export {
   mapInvoice,
@@ -86,7 +91,7 @@ export async function getDealerInvoiceDetail(_secrets, _orgId, uid, role, invoic
   if (!detail) {
     throw new Error('Invoice not found.');
   }
-  return detail;
+  return attachGoodsReceivedAtToInvoice(detail);
 }
 
 export async function downloadDealerInvoiceDocument(secrets, orgId, uid, role, invoiceId, documentType) {
@@ -157,7 +162,13 @@ export async function listDealerInvoices(_secrets, _orgId, uid, role, query = {}
   const sortField = String(query.sortField ?? 'date').trim();
   const sortDir = query.sortDir === 'asc' ? 'asc' : 'desc';
   const page = Number(query.page ?? 1);
-  const limit = Number(query.limit ?? 25);
+  const includeLineItems = Boolean(query.includeLineItems);
+  const replacementWindow = Boolean(query.replacementWindow);
+  const limit = replacementWindow
+    ? Math.min(Math.max(Number(query.limit ?? 80), 1), 80)
+    : includeLineItems
+      ? Math.min(Number(query.limit ?? 12), 20)
+      : Number(query.limit ?? 25);
 
   const { invoices, searchBlobById, lastSyncedAt } = await readCustomerInvoicesFromFirestore(
     customerId,
@@ -199,8 +210,39 @@ export async function listDealerInvoices(_secrets, _orgId, uid, role, query = {}
     categorized = filterInvoices(filtered, { category });
   }
 
-  const sorted = sortInvoices(categorized, sortField, sortDir);
+  const listed = replacementWindow
+    ? await filterReplacementEligibleInvoices(customerId, categorized)
+    : categorized;
+
+  if (replacementWindow) {
+    const byReceived = [...listed].sort((a, b) => {
+      const left = String(b.goodsReceivedAt ?? b.date ?? '');
+      const right = String(a.goodsReceivedAt ?? a.date ?? '');
+      return left.localeCompare(right);
+    });
+    const withLines = await attachInvoiceLineItemPreviews(customerId, byReceived);
+    return {
+      data: withLines,
+      pagination: {
+        total: withLines.length,
+        page: 1,
+        limit: withLines.length || 1,
+        totalPages: 1,
+      },
+      categoryCounts,
+      customerId,
+      lastSyncedAt,
+      portalStampingFeeTotal: portalStamping.feeTotal,
+      portalStampingInvoiceIds: [...portalStamping.invoiceIds],
+    };
+  }
+
+  const sorted = sortInvoices(listed, sortField, sortDir);
   const paged = paginateInvoices(sorted, page, limit);
+
+  if (includeLineItems) {
+    paged.data = await attachInvoiceLineItemPreviews(customerId, paged.data);
+  }
 
   return {
     ...paged,

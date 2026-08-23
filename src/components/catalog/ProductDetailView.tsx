@@ -83,6 +83,8 @@ import { useDealerCatalogMrp } from '../../lib/dealerCatalogMrp';
 import {
   canSeeDealerUnitPrice,
   dealerStaffTeam,
+  isDealerAdminStaff,
+  isLimitedDealerStaff,
 } from '../../lib/dealerAccess';
 import { CatalogMrpLabel, DealerPriceDisplay } from './DealerPriceDisplay';
 import { DealerMrpEditButton } from './DealerMrpEditButton';
@@ -457,13 +459,13 @@ export const ProductDetailView: React.FC<{
   const staffTeam = dealerStaffTeam(user);
   const showDealerChargePrice = !isDealerPortal
     || canSeeDealerUnitPrice(user, isSpareItem);
-  const canEditDealerMrp = user?.role === 'dealer';
-  const ownerSpareUsesMrpAsList = user?.role === 'dealer'
+  const canEditDealerMrp = user?.role === 'dealer' || isDealerAdminStaff(user);
+  const ownerSpareUsesMrpAsList = (user?.role === 'dealer' || isDealerAdminStaff(user))
     && isSpareItem
     && dealerMrpState.mrp != null;
   /** Directors (owner) may see finished-goods qty; Sales/Service staff never. */
   const hideDealerSpareQty = isDealerPortal && isSpareItem;
-  const hideTeamQty = staffTeam != null;
+  const hideTeamQty = isLimitedDealerStaff(user);
   const showDetailQty = showStockQuantity && !hideDealerSpareQty && !hideTeamQty;
   const expectsPackageInfo = Boolean(
     product && expectsCatalogPackageInfo(product, spareClassificationCategories),

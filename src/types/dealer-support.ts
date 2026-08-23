@@ -113,6 +113,8 @@ export interface SupportMessage {
 export interface SendSupportMessageInput {
   text: string;
   files?: File[];
+  /** When set, reuse a background upload keyed by this pending file id. */
+  pendingIds?: string[];
   isInitial?: boolean;
 }
 
@@ -125,6 +127,9 @@ export interface SupportProductDraft {
   itemName: string;
   itemSku: string | null;
   quantity: number;
+  imageUrl?: string | null;
+  invoiceDate?: string | null;
+  serialNumbers?: string[];
 }
 
 export interface SupportAssignee {
@@ -159,6 +164,7 @@ export interface CreateSupportRequestInput {
   description: string;
   notes?: string;
   attachmentFiles?: File[];
+  pendingFileIds?: string[];
 }
 
 export interface SaveSupportRequestDraftInput {
@@ -221,9 +227,9 @@ export const SUPPORT_INTENT_OPTIONS: Array<{
 }> = [
   {
     value: 'service',
-    title: 'Repair / Technical Support',
-    description: 'Product is faulty, needs calibration, spare parts, or warranty repair.',
-    hint: 'Our workshop will diagnose and repair it.',
+    title: 'Product complaint — faulty',
+    description: 'Product is faulty, not working properly, or a spare replacement is needed.',
+    hint: 'Our technical team will diagnose and find a solution.',
   },
   {
     value: 'return',
@@ -244,7 +250,6 @@ export const SERVICE_ISSUE_OPTIONS = [
   { value: 'calibration', label: 'Calibration or stamping' },
   { value: 'configuration', label: 'Setup or configuration issue' },
   { value: 'spare_parts', label: 'Spare parts required' },
-  { value: 'warranty', label: 'Warranty repair' },
   { value: 'other', label: 'Other technical issue' },
 ] as const;
 
@@ -316,6 +321,9 @@ export function supportCategoryValueFromStored(
           : SERVICE_ISSUE_OPTIONS;
   const match = options.find(option => option.label === stored || option.value === stored);
   if (match) return match.value;
+  if (type === 'service' && (stored === 'warranty' || stored === 'Warranty repair')) {
+    return 'repair';
+  }
   if (type === 'complaint') {
     const legacy = COMPLAINT_CATEGORY_OPTIONS.find(
       option => stored.includes(option.label),

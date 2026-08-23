@@ -35,6 +35,7 @@ import { useAuth } from '../../context/AuthContext';
 import {
   canSeeDealerUnitPrice,
   dealerStaffTeam,
+  isLimitedDealerStaff,
 } from '../../lib/dealerAccess';
 import { CatalogMrpLabel, DealerPriceDisplay } from './DealerPriceDisplay';
 import { StockBadge, StockQuantity } from './StockBadge';
@@ -137,7 +138,7 @@ export const ProductBrowseCard: React.FC<ProductBrowseCardProps> = ({
   const inboundQty = dealerStock.scheduledQty(product.id);
   const isSpareItem = isCatalogSparePartProduct(product);
   const hideDealerSpareQty = dealerStock.gate && isSpareItem;
-  const hideTeamQty = dealerStaffTeam(user) != null;
+  const hideTeamQty = isLimitedDealerStaff(user);
   /** Directors (owner) see finished-goods qty; Sales/Service staff never see qty. */
   const showQty = showStockQuantity && !hideDealerSpareQty && !hideTeamQty;
   const showInboundQty = showQty && inboundQty > 0;

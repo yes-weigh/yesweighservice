@@ -72,6 +72,7 @@ import {
 } from './gatc-stamping.js';
 import { staffUserHasPermission } from './staff-permissions.js';
 import { assertDealerGoodsLinesOrderable } from './dealer-order-stock.js';
+import { isDealerAdminStaff } from './dealer-staff-team.js';
 import { assertLinesNotRestrictedForBillingState } from './catalog-sales-restriction.js';
 
 const PRODUCTS = 'catalogProducts';
@@ -706,7 +707,7 @@ async function reserveFreightDiffAfterCreate(zohoCustomerId, salesOrders, apply)
  */
 export async function submitDealerOrder(uid, role, payload = {}, secrets, orgId) {
   const user = await loadUser(uid);
-  if (user.role === 'dealer_staff') {
+  if (user.role === 'dealer_staff' && !isDealerAdminStaff(user)) {
     throw new HttpsError(
       'permission-denied',
       'Sales and service orders must be submitted to the dealer for approval.',

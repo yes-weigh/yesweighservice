@@ -277,6 +277,17 @@ export function formatPriceLevelSlabLabels(
   });
 }
 
+/** Qty bands whose unit rate differs from the already-shown charge price. */
+export function formatExtraPriceLevelSlabLabels(
+  slabs: PriceLevelQtySlab[],
+  displayedRate: number,
+): ReturnType<typeof formatPriceLevelSlabLabels> {
+  const charge = Math.round((Number(displayedRate) || 0) * 100) / 100;
+  return formatPriceLevelSlabLabels(slabs).filter(
+    row => Math.round((Number(row.rate) || 0) * 100) / 100 !== charge,
+  );
+}
+
 function normalizeItemRule(raw: unknown): PriceLevelItemRule | null {
   if (!raw || typeof raw !== 'object') return null;
   const row = raw as Record<string, unknown>;

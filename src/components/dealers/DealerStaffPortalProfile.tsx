@@ -98,7 +98,7 @@ export const DealerStaffPortalProfile: React.FC<{
                   key={team}
                   className={`dealer-team__badge dealer-team__badge--${team}`}
                 >
-                  {team === 'service' ? 'Service' : 'Sales'}
+                  {team === 'admin' ? 'Admin' : team === 'service' ? 'Service' : 'Sales'}
                 </span>
               ))}
             </div>

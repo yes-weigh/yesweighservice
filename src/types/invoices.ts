@@ -57,6 +57,19 @@ export interface DealerInvoice {
   categoryAmounts?: Partial<Record<InvoiceCategory, number>>;
   /** Courier freight SKU when the invoice includes a delivery-partner line. */
   freightSku?: string | null;
+  /** Compact product rows when the list is fetched with `includeLineItems`. */
+  lineItems?: DealerInvoiceLineItem[];
+  /** Customer collected goods — used for replacement receiving date. */
+  customerPickup?: InvoiceCustomerPickup | null;
+  customerPickupMarkedAt?: string | null;
+  /** Ops marked delivered from the invoice (with or without a logistics booking). */
+  manualDelivery?: InvoiceManualDelivery | null;
+  manualDeliveredAt?: string | null;
+  /**
+   * When the dealer received the goods (courier POD, ops delivered, or pickup).
+   * Set by getDealerInvoices / getDealerInvoiceDetail for the 7-day replacement window.
+   */
+  goodsReceivedAt?: string | null;
 }
 
 export interface DealerInvoiceLineItem {
@@ -72,6 +85,9 @@ export interface DealerInvoiceLineItem {
   /** HSN / SAC from Zoho line or catalog (used to exclude freight SAC). */
   hsn?: string | null;
   serialNumbers?: string[];
+  /** Catalog Zoho category when resolved (support picker filters software/spares). */
+  categoryId?: string | null;
+  categoryName?: string | null;
 }
 
 export interface DealerInvoiceDetail extends DealerInvoice {
@@ -102,6 +118,8 @@ export interface DealerInvoiceDetail extends DealerInvoice {
   /** Ops marked delivered from the invoice (with or without a logistics booking). */
   manualDelivery?: InvoiceManualDelivery | null;
   manualDeliveredAt?: string | null;
+  /** Courier POD / pickup / ops delivered — used for the 7-day replacement window. */
+  goodsReceivedAt?: string | null;
   /**
    * Super-admin local courier switch (e.g. Delhivery → Blue Dart when service
    * is unavailable). Never written to Zoho — e-invoice invoices cannot change.
@@ -206,6 +224,10 @@ export interface InvoiceListParams {
   sortDir?: 'asc' | 'desc';
   /** Ops only — load invoices for a specific Zoho customer. */
   customerId?: string;
+  /** Attach compact product rows for the current page (support invoice picker). */
+  includeLineItems?: boolean;
+  /** Only invoices received in the last 7 days (full product replacement). */
+  replacementWindow?: boolean;
 }
 
 export const INVOICE_CATEGORY_FILTER_OPTIONS: Array<{

@@ -17,33 +17,49 @@ import { authErrorMessage } from '../../lib/authErrors';
 import { useCatalogPageHeader, useTopBarAction } from '../../context/PageHeaderContext';
 import type { FirestoreUserDoc, UserRecord } from '../../types';
 import { BLOOD_GROUPS, normalizeRole } from '../../types';
-import type { StaffDepartment } from '../../types/staff-access';
+import { isDealerAdminStaff } from '../../lib/dealerAccess';
 
-const LEVELS: Array<{ id: Extract<StaffDepartment, 'sales' | 'service'>; label: string }> = [
+type DealerTeamId = 'sales' | 'service' | 'admin';
+
+const LEVELS: Array<{ id: DealerTeamId; label: string }> = [
   { id: 'sales', label: 'Sales' },
   { id: 'service', label: 'Service' },
+  { id: 'admin', label: 'Admin' },
 ];
-
-type DealerTeamId = 'sales' | 'service';
 
 function teamsFromRecord(record: UserRecord): DealerTeamId[] {
   const stored = Array.isArray(record.dealerTeams)
-    ? record.dealerTeams.filter((team): team is DealerTeamId => team === 'sales' || team === 'service')
+    ? record.dealerTeams.filter(
+      (team): team is DealerTeamId => team === 'sales' || team === 'service' || team === 'admin',
+    )
     : [];
-  if (stored.length) return [...new Set(stored)];
+  if (stored.includes('admin') || record.staffDepartment === 'admin') return ['admin'];
+  if (stored.length) return [...new Set(stored.filter(team => team !== 'admin'))];
   if (record.staffDepartment === 'service') return ['service'];
   if (record.staffDepartment === 'sales') return ['sales'];
   return ['sales'];
 }
 
-function primaryDepartment(teams: DealerTeamId[]): 'sales' | 'service' {
+function primaryDepartment(teams: DealerTeamId[]): 'sales' | 'service' | 'admin' {
+  if (teams.includes('admin')) return 'admin';
   return teams.includes('service') ? 'service' : 'sales';
 }
 
 function levelLabel(department: string | undefined): string | null {
   if (department === 'sales') return 'Sales';
   if (department === 'service') return 'Service';
+  if (department === 'admin') return 'Admin';
   return null;
+}
+
+function toggleDealerTeam(current: DealerTeamId[], id: DealerTeamId): DealerTeamId[] {
+  if (id === 'admin') {
+    return current.includes('admin') ? [] : ['admin'];
+  }
+  const withoutAdmin = current.filter(team => team !== 'admin');
+  return withoutAdmin.includes(id)
+    ? withoutAdmin.filter(team => team !== id)
+    : [...withoutAdmin, id];
 }
 
 function revokePreview(url: string | null) {
@@ -82,7 +98,7 @@ export const DealerTeamPage: React.FC = () => {
   const dealerAccountUid = user?.role === 'dealer'
     ? user.uid
     : (user?.dealerId?.trim() || null);
-  const canCreate = user?.role === 'dealer';
+  const canCreate = user?.role === 'dealer' || isDealerAdminStaff(user);
   const isEditing = Boolean(editingUid);
   const today = useMemo(() => new Date().toISOString().slice(0, 10), []);
   const age = ageYearsFromDob(dob);
@@ -206,7 +222,7 @@ export const DealerTeamPage: React.FC = () => {
 
   const handleSubmit = async (event: React.FormEvent) => {
     event.preventDefault();
-    if (!user || !canCreate) return;
+    if (!user || !canCreate || !dealerAccountUid) return;
     setError('');
 
     const displayName = name.trim();
@@ -215,7 +231,7 @@ export const DealerTeamPage: React.FC = () => {
       return;
     }
     if (!teams.length) {
-      setError('Select Sales, Service, or both.');
+      setError('Select Sales, Service, or Admin.');
       return;
     }
     const phone = normalizePhone(mobile);
@@ -272,7 +288,7 @@ export const DealerTeamPage: React.FC = () => {
           hrBloodGroup: bloodGroup,
         });
         if (photoFile) {
-          const uploaded = await uploadDealerStaffPhoto(user.uid, editingUid, photoFile);
+          const uploaded = await uploadDealerStaffPhoto(dealerAccountUid, editingUid, photoFile);
           await updateUserProfile(db, editingUid, {
             hrPhotoStoragePath: uploaded.storagePath,
             hrPhotoUrl: uploaded.url,
@@ -288,7 +304,7 @@ export const DealerTeamPage: React.FC = () => {
           displayName,
           role: 'dealer_staff',
           phone,
-          dealerId: user.uid,
+          dealerId: dealerAccountUid,
           staffDepartment: primaryDepartment(teams),
           dealerTeams: teams,
           dealerTier: user.dealerTier ?? 'standard',
@@ -300,7 +316,7 @@ export const DealerTeamPage: React.FC = () => {
             hrBloodGroup: bloodGroup,
           },
         });
-        const uploaded = await uploadDealerStaffPhoto(user.uid, uid, photoFile!);
+        const uploaded = await uploadDealerStaffPhoto(dealerAccountUid, uid, photoFile!);
         await updateUserProfile(db, uid, {
           hrPhotoStoragePath: uploaded.storagePath,
           hrPhotoUrl: uploaded.url,
@@ -441,8 +457,8 @@ export const DealerTeamPage: React.FC = () => {
         </label>
 
         <div className="dealer-team__field">
-          <span>Sales / Service</span>
-          <div className="dealer-team__levels" role="group" aria-label="Sales and Service">
+          <span>Type</span>
+          <div className="dealer-team__levels" role="group" aria-label="Sales, Service, or Admin">
             {LEVELS.map(item => {
               const on = teams.includes(item.id);
               return (
@@ -452,11 +468,7 @@ export const DealerTeamPage: React.FC = () => {
                   className={`dealer-team__level${on ? ' is-on' : ''}`}
                   aria-pressed={on}
                   onClick={() => {
-                    setTeams(current => (
-                      current.includes(item.id)
-                        ? current.filter(team => team !== item.id)
-                        : [...current, item.id]
-                    ));
+                    setTeams(current => toggleDealerTeam(current, item.id));
                     setError('');
                   }}
                   disabled={submitting}

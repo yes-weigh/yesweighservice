@@ -14,39 +14,60 @@ export function isDealerPortalUser(user: Pick<User, 'role'> | null | undefined):
   return user?.role === 'dealer' || user?.role === 'dealer_staff';
 }
 
-export type DealerStaffTeam = 'sales' | 'service';
+export type DealerStaffTeam = 'sales' | 'service' | 'admin';
+
+function isDealerStaffTeamValue(value: unknown): value is DealerStaffTeam {
+  return value === 'sales' || value === 'service' || value === 'admin';
+}
 
 export function dealerStaffTeams(
   data: {
     staffDepartment?: string | null;
-    dealerTeams?: Array<'sales' | 'service'> | null;
+    dealerTeams?: Array<'sales' | 'service' | 'admin'> | null;
   } | null | undefined,
 ): DealerStaffTeam[] {
   const stored = Array.isArray(data?.dealerTeams)
-    ? data.dealerTeams.filter((team): team is DealerStaffTeam => team === 'sales' || team === 'service')
+    ? data.dealerTeams.filter(isDealerStaffTeamValue)
     : [];
-  if (stored.length) return [...new Set(stored)];
+  if (stored.includes('admin') || data?.staffDepartment === 'admin') return ['admin'];
+  if (stored.length) return [...new Set(stored.filter(team => team !== 'admin'))];
   if (data?.staffDepartment === 'service') return ['service'];
   if (data?.staffDepartment === 'sales') return ['sales'];
   return ['sales'];
 }
 
 /**
- * Sales vs Service on dealer_staff. Missing department is treated as Sales
+ * Sales vs Service vs Admin on dealer_staff. Missing department is treated as Sales
  * (more restricted). Dealer owners and non-portal roles return null.
  */
 export function dealerStaffTeam(
   user: Pick<User, 'role' | 'staffDepartment' | 'dealerTeams'> | null | undefined,
 ): DealerStaffTeam | null {
   if (user?.role !== 'dealer_staff') return null;
-  return dealerStaffTeams(user).includes('service') ? 'service' : 'sales';
+  const teams = dealerStaffTeams(user);
+  if (teams.includes('admin')) return 'admin';
+  return teams.includes('service') ? 'service' : 'sales';
 }
 
-/** Teams for dealer_staff only; null for owner and every other role. */
+export function isDealerAdminStaff(
+  user: Pick<User, 'role' | 'staffDepartment' | 'dealerTeams'> | null | undefined,
+): boolean {
+  return dealerStaffTeam(user) === 'admin';
+}
+
+/** Sales / Service staff with the restricted portal. Admin staff is not limited. */
+export function isLimitedDealerStaff(
+  user: Pick<User, 'role' | 'staffDepartment' | 'dealerTeams'> | null | undefined,
+): boolean {
+  const team = dealerStaffTeam(user);
+  return team === 'sales' || team === 'service';
+}
+
+/** Teams for limited dealer_staff only; null for owner, admin staff, and every other role. */
 export function dealerPortalStaffTeams(
   user: Pick<User, 'role' | 'staffDepartment' | 'dealerTeams'> | null | undefined,
 ): DealerStaffTeam[] | null {
-  if (user?.role !== 'dealer_staff') return null;
+  if (!isLimitedDealerStaff(user)) return null;
   return dealerStaffTeams(user);
 }
 
@@ -57,51 +78,51 @@ export function hideDealerStaffCommercials(
   return dealerStaffTeam(user) === 'sales';
 }
 
-/** Dealer owner places in YesOne. Staff must submit for dealer approval. */
+/** Dealer owner and admin staff place in YesOne. Sales / Service must submit for approval. */
 export function canPlaceDealerZohoOrder(
-  user: Pick<User, 'role'> | null | undefined,
+  user: Pick<User, 'role' | 'staffDepartment' | 'dealerTeams'> | null | undefined,
 ): boolean {
-  return user?.role === 'dealer';
+  return user?.role === 'dealer' || isDealerAdminStaff(user);
 }
 
-/** Sales / service staff only see SOs they submitted or created. Owner sees all. */
+/** Sales / service staff only see SOs they submitted or created. Owner and admin see all. */
 export function dealerStaffOwnsSalesOrder(
-  user: Pick<User, 'uid' | 'role'> | null | undefined,
+  user: Pick<User, 'uid' | 'role' | 'staffDepartment' | 'dealerTeams'> | null | undefined,
   order: {
     yesOneDealerStaffUid?: string | null;
     yesOneCreatedByUid?: string | null;
   } | null | undefined,
 ): boolean {
-  if (!user || user.role !== 'dealer_staff') return true;
+  if (!user || user.role !== 'dealer_staff' || isDealerAdminStaff(user)) return true;
   const uid = user.uid;
   return String(order?.yesOneDealerStaffUid ?? '').trim() === uid
     || String(order?.yesOneCreatedByUid ?? '').trim() === uid;
 }
 
-/** Dealer unit (charge) price. Sales never; Service only on spares; owner always. */
+/** Dealer unit (charge) price. Sales never; Service only on spares; owner and admin always. */
 export function canSeeDealerUnitPrice(
   user: Pick<User, 'role' | 'staffDepartment' | 'dealerTeams'> | null | undefined,
   isSpare = false,
 ): boolean {
   const team = dealerStaffTeam(user);
-  if (!team) return true;
+  if (!team || team === 'admin') return true;
   return team === 'service' && isSpare;
 }
 
-/** Create tickets and reply. Dealer owner + Service staff; Sales is view-only. */
+/** Create tickets and reply. Dealer owner, admin staff, and Service; Sales is view-only. */
 export function canMutateDealerSupport(
   user: Pick<User, 'role' | 'staffDepartment' | 'dealerTeams'> | null | undefined,
 ): boolean {
   if (!user) return false;
-  if (user.role === 'dealer') return true;
+  if (user.role === 'dealer' || isDealerAdminStaff(user)) return true;
   return dealerStaffTeam(user) === 'service';
 }
 
-/** Billing / shipping on the dealer profile. Owner only — staff is view-only. */
+/** Billing / shipping on the dealer profile. Owner and admin staff. */
 export function canEditDealerProfileAddresses(
-  user: Pick<User, 'role'> | null | undefined,
+  user: Pick<User, 'role' | 'staffDepartment' | 'dealerTeams'> | null | undefined,
 ): boolean {
-  return user?.role === 'dealer';
+  return user?.role === 'dealer' || isDealerAdminStaff(user);
 }
 
 /** Firebase uid of the dealer account (parent for dealer_staff). */
@@ -159,7 +180,7 @@ export function canViewCatalogStock(
 ): boolean {
   if (!user) return false;
   if (user.role === 'super_admin' || user.role === 'staff') return true;
-  if (dealerStaffTeam(user)) return false;
+  if (isLimitedDealerStaff(user)) return false;
   if (isDealerPortalUser(user)) {
     return isDirectorsPriceLevelName(priceLevelName);
   }
@@ -183,7 +204,7 @@ export function canViewShipmentTracking(
   priceLevelName?: string | null,
 ): boolean {
   if (!user) return false;
-  if (dealerStaffTeam(user)) return false;
+  if (isLimitedDealerStaff(user)) return false;
   if (isDealerPortalUser(user)) {
     return isDirectorsPriceLevelName(priceLevelName);
   }

@@ -41,7 +41,7 @@ import type {
   SupportReopenEvent,
   SupportRequestType,
 } from '../types/dealer-support';
-import { uploadSupportAttachments, type SupportSubmitProgress } from './supportAttachments';
+import { uploadSupportAttachments, getSupportFileUploadJob, type SupportSubmitProgress } from './supportAttachments';
 import { canMutateDealerSupport } from './dealerAccess';
 import {
   canDealerCancelSupportRequest,
@@ -443,6 +443,30 @@ function buildReopenRequestUpdates(
   };
 }
 
+function sliceSubmitProgress(
+  onProgress: ((progress: SupportSubmitProgress) => void) | undefined,
+  fileIndex: number,
+  fileCount: number,
+  fileName: string,
+): (progress: SupportSubmitProgress) => void {
+  return progress => {
+    if (!onProgress) return;
+    const span = 100 / Math.max(1, fileCount);
+    const mapped = progress.percent == null
+      ? null
+      : Math.min(99, Math.round(fileIndex * span + (progress.percent * span) / 100));
+    onProgress({
+      ...progress,
+      label: progress.phase === 'uploading'
+        ? `Uploading ${fileName} (${fileIndex + 1} of ${fileCount})…`
+        : progress.label,
+      percent: mapped,
+      fileIndex: fileIndex + 1,
+      fileCount,
+    });
+  };
+}
+
 export async function sendSupportMessage(
   user: User,
   requestId: string,
@@ -454,16 +478,21 @@ export async function sendSupportMessage(
   const files = input.files ?? [];
 
   if (input.isInitial === true && files.length > 0) {
-    let lastMessage: SupportMessage | null = null;
-    for (let index = 0; index < files.length; index += 1) {
-      lastMessage = await sendSupportMessageOnce(
+    const lastMessages = await Promise.all(
+      files.map((file, index) => sendSupportMessageOnce(
         user,
         requestId,
-        { text: '', files: [files[index]], isInitial: true },
-        onProgress,
+        {
+          text: '',
+          files: [file],
+          pendingIds: input.pendingIds?.[index] ? [input.pendingIds[index]] : undefined,
+          isInitial: true,
+        },
+        sliceSubmitProgress(onProgress, index, files.length, file.name),
         { updateRequestMeta: false, createdAtOffsetMs: index, timelineAt: options?.timelineAt },
-      );
-    }
+      )),
+    );
+    let lastMessage = lastMessages[lastMessages.length - 1] ?? null;
     if (text) {
       lastMessage = await sendSupportMessageOnce(
         user,
@@ -543,11 +572,16 @@ async function sendSupportMessageOnce(
     throw new Error('Enter a message or attach a file.');
   }
 
-  const messageRef = doc(collection(db, 'dealerSupportRequests', requestId, 'messages'));
+  const pendingId = input.pendingIds?.[0]?.trim() || '';
+  const messageId = pendingId
+    || doc(collection(db, 'dealerSupportRequests', requestId, 'messages')).id;
+  const existingJob = pendingId ? getSupportFileUploadJob(pendingId) : undefined;
   const attachments = files.length
-    ? await uploadSupportAttachments(requestId, messageRef.id, files, onProgress, {
-        isInitial: input.isInitial === true,
-      })
+    ? (existingJob
+      ? await existingJob
+      : await uploadSupportAttachments(requestId, messageId, files, onProgress, {
+          isInitial: input.isInitial === true,
+        }))
     : [];
 
   onProgress?.({
@@ -593,9 +627,9 @@ async function sendSupportMessageOnce(
     isInitial,
   };
 
-  await persistSupportMessage(user, requestId, messageRef.id, payload, updates);
+  await persistSupportMessage(user, requestId, messageId, payload, updates);
 
-  return mapMessage(messageRef.id, {
+  return mapMessage(messageId, {
     ...payload,
     authorUid: user.uid,
     authorName: user.displayName,
@@ -841,6 +875,7 @@ export async function createSupportRequest(
     await sendSupportMessage(user, input.requestId, {
       text: description,
       files: input.attachmentFiles,
+      pendingIds: input.pendingFileIds,
       isInitial: true,
     }, onProgress, { timelineAt });
     await finalizeSupportSubmit(input.requestId, timelineAt);
@@ -876,6 +911,7 @@ export async function createSupportRequest(
     await sendSupportMessage(user, docRef.id, {
       text: description,
       files: input.attachmentFiles,
+      pendingIds: input.pendingFileIds,
       isInitial: true,
     }, onProgress, { timelineAt });
     await finalizeSupportSubmit(docRef.id, timelineAt);

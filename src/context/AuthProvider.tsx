@@ -106,7 +106,11 @@ async function resolveUser(fbUser: FirebaseUser): Promise<User | null> {
       zohoCustomerId,
       staffDepartment: data.staffDepartment,
       dealerTeams: Array.isArray(data.dealerTeams)
-        ? data.dealerTeams.filter((team): team is 'sales' | 'service' => team === 'sales' || team === 'service')
+        ? data.dealerTeams.filter(
+          (team): team is 'sales' | 'service' | 'admin' => (
+            team === 'sales' || team === 'service' || team === 'admin'
+          ),
+        )
         : null,
       staffRoleId: data.staffRoleId ?? null,
       staffAccessMode: data.staffAccessMode,

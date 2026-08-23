@@ -1,7 +1,10 @@
-function drawVideoFrameToCanvas(video: HTMLVideoElement): HTMLCanvasElement {
+function drawVideoFrameToCanvas(video: HTMLVideoElement, maxEdge = 1280): HTMLCanvasElement {
+  const srcW = video.videoWidth || 1280;
+  const srcH = video.videoHeight || 720;
+  const scale = Math.min(1, maxEdge / Math.max(srcW, srcH));
   const canvas = document.createElement('canvas');
-  canvas.width = video.videoWidth || 1280;
-  canvas.height = video.videoHeight || 720;
+  canvas.width = Math.max(1, Math.round(srcW * scale));
+  canvas.height = Math.max(1, Math.round(srcH * scale));
   const ctx = canvas.getContext('2d');
   if (!ctx) throw new Error('Could not capture photo.');
   ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
@@ -11,12 +14,12 @@ function drawVideoFrameToCanvas(video: HTMLVideoElement): HTMLCanvasElement {
 /** Instant preview URL plus async file from the same frozen frame. */
 export function freezeVideoFrame(video: HTMLVideoElement): { dataUrl: string; toFile: () => Promise<File> } {
   const canvas = drawVideoFrameToCanvas(video);
-  const dataUrl = canvas.toDataURL('image/jpeg', 0.92);
+  const dataUrl = canvas.toDataURL('image/jpeg', 0.8);
   return {
     dataUrl,
     toFile: async () => {
       const blob = await new Promise<Blob | null>(resolve => {
-        canvas.toBlob(resolve, 'image/jpeg', 0.92);
+        canvas.toBlob(resolve, 'image/jpeg', 0.8);
       });
       if (!blob) throw new Error('Could not capture photo.');
       return new File([blob], `photo-${Date.now()}.jpg`, {
@@ -99,8 +102,8 @@ export function createVideoMediaRecorder(stream: MediaStream): MediaRecorder {
 
   return new MediaRecorder(stream, {
     mimeType,
-    videoBitsPerSecond: 2_500_000,
-    audioBitsPerSecond: 128_000,
+    videoBitsPerSecond: 1_000_000,
+    audioBitsPerSecond: 64_000,
   });
 }
 
@@ -231,7 +234,7 @@ export function videoFileExtension(mimeType: string): string {
   return 'webm';
 }
 
-export async function captureVideoPoster(file: File, timeoutMs = 12_000): Promise<Blob | null> {
+export async function captureVideoPoster(file: File, timeoutMs = 4_000): Promise<Blob | null> {
   const objectUrl = URL.createObjectURL(file);
 
   try {
@@ -262,15 +265,17 @@ export async function captureVideoPoster(file: File, timeoutMs = 12_000): Promis
 
     if (!video.videoWidth || !video.videoHeight) return null;
 
+    const maxEdge = 640;
+    const scale = Math.min(1, maxEdge / Math.max(video.videoWidth, video.videoHeight));
     const canvas = document.createElement('canvas');
-    canvas.width = video.videoWidth;
-    canvas.height = video.videoHeight;
+    canvas.width = Math.max(1, Math.round(video.videoWidth * scale));
+    canvas.height = Math.max(1, Math.round(video.videoHeight * scale));
     const ctx = canvas.getContext('2d');
     if (!ctx) return null;
     ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
 
     return await new Promise<Blob | null>(resolve => {
-      canvas.toBlob(resolve, 'image/jpeg', 0.82);
+      canvas.toBlob(resolve, 'image/jpeg', 0.72);
     });
   } catch {
     return null;

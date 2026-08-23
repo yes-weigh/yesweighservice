@@ -58,6 +58,8 @@ function stableListParams(params: InvoiceListParams): string {
     category: params.category ?? 'all',
     sortField: params.sortField ?? 'date',
     sortDir: params.sortDir ?? 'desc',
+    includeLineItems: params.includeLineItems === true,
+    replacementWindow: params.replacementWindow === true,
   });
 }
 

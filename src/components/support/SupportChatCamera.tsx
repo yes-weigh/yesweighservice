@@ -15,6 +15,7 @@ import {
   stopMediaStream,
 } from '../../lib/captureMedia';
 import { getRecentMedia, pushRecentMedia, subscribeRecentMedia } from '../../lib/recentMediaCache';
+import { cameraPermissionErrorMessage, getEvidenceCameraStream } from '../../lib/mediaPermissions';
 import { validateSupportFile } from '../../lib/supportAttachments';
 
 interface SupportChatCameraProps {
@@ -93,12 +94,7 @@ export function SupportChatCamera({ onClose, onSendFiles, onPickGallery }: Suppo
     setError('');
     stopStream();
 
-    const constraints: MediaStreamConstraints = {
-      video: { facingMode: { ideal: facingMode } },
-      audio: true,
-    };
-
-    void navigator.mediaDevices.getUserMedia(constraints)
+    void getEvidenceCameraStream(facingMode, true)
       .then(stream => {
         if (cancelled) {
           stopMediaStream(stream);
@@ -113,9 +109,9 @@ export function SupportChatCamera({ onClose, onSendFiles, onPickGallery }: Suppo
         }
         setLoading(false);
       })
-      .catch(() => {
+      .catch(err => {
         if (!cancelled) {
-          setError('Could not open camera. Check permissions and try again.');
+          setError(cameraPermissionErrorMessage(err, 'Could not open camera. Check permissions and try again.'));
           setLoading(false);
         }
       });

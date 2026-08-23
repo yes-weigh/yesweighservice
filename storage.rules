@@ -119,6 +119,7 @@ service firebase.storage {
           || request.resource.contentType == ''
           || request.resource.contentType.matches('image/.*')
           || request.resource.contentType.matches('video/.*')
+          || request.resource.contentType.matches('audio/.*')
           || request.resource.contentType == 'application/octet-stream'
         );
     }

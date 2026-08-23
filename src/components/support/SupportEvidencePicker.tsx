@@ -3,6 +3,7 @@ import { Camera, Film, ImageIcon, Plus, X } from 'lucide-react';
 import {
   createPendingEvidencePhoto,
   createPendingSupportFile,
+  prepareSupportUploadFile,
   validateSupportFile,
   type EvidencePhotoSlot,
   type PendingSupportFile,
@@ -17,6 +18,9 @@ interface SupportEvidencePickerProps {
   files: PendingSupportFile[];
   onChange: React.Dispatch<React.SetStateAction<PendingSupportFile[]>>;
   disabled?: boolean;
+  videoOnly?: boolean;
+  onFileReady?: (file: PendingSupportFile) => void;
+  onCaptureStart?: () => void;
 }
 
 interface SlotMeta {
@@ -68,16 +72,23 @@ function setSlotFile(
   return [...without, file];
 }
 
-function firstMissingSlot(files: PendingSupportFile[]): EvidenceSlotId {
-  for (const slotId of EVIDENCE_SLOT_ORDER) {
+function firstMissingSlot(
+  files: PendingSupportFile[],
+  order: EvidenceSlotId[] = EVIDENCE_SLOT_ORDER,
+): EvidenceSlotId {
+  for (const slotId of order) {
     if (!getSlotFile(files, slotId)) return slotId;
   }
-  return 'video';
+  return order[0] ?? 'video';
 }
 
-function isSlotUnlocked(files: PendingSupportFile[], slotId: EvidenceSlotId): boolean {
+function isSlotUnlocked(
+  files: PendingSupportFile[],
+  slotId: EvidenceSlotId,
+  order: EvidenceSlotId[] = EVIDENCE_SLOT_ORDER,
+): boolean {
   if (getSlotFile(files, slotId)) return true;
-  for (const id of EVIDENCE_SLOT_ORDER) {
+  for (const id of order) {
     if (id === slotId) return true;
     if (!getSlotFile(files, id)) return false;
   }
@@ -94,14 +105,21 @@ export const SupportEvidencePicker: React.FC<SupportEvidencePickerProps> = ({
   files,
   onChange,
   disabled,
+  videoOnly = false,
+  onFileReady,
+  onCaptureStart,
 }) => {
   const [cameraOpen, setCameraOpen] = useState(false);
   const [cameraSlot, setCameraSlot] = useState<EvidenceSlotId>('video');
   const [processing, setProcessing] = useState(false);
   const [processingLabel, setProcessingLabel] = useState('Processing…');
   const [slotErrors, setSlotErrors] = useState<Partial<Record<EvidenceSlotId, string>>>({});
+  const visibleSlots = videoOnly
+    ? EVIDENCE_SLOTS.filter(slot => slot.id === 'video')
+    : EVIDENCE_SLOTS;
+  const slotOrder = visibleSlots.map(slot => slot.id);
 
-  const filledSlots = EVIDENCE_SLOTS
+  const filledSlots = visibleSlots
     .map(slot => slot.id)
     .filter(id => Boolean(getSlotFile(files, id)));
 
@@ -111,7 +129,8 @@ export const SupportEvidencePicker: React.FC<SupportEvidencePickerProps> = ({
 
   const openCamera = (slotId: EvidenceSlotId) => {
     if (disabled) return;
-    if (!getSlotFile(files, slotId) && !isSlotUnlocked(files, slotId)) return;
+    if (!getSlotFile(files, slotId) && !isSlotUnlocked(files, slotId, slotOrder)) return;
+    onCaptureStart?.();
     setCameraSlot(slotId);
     setCameraOpen(true);
     setSlotErrors(prev => ({ ...prev, [slotId]: undefined }));
@@ -123,7 +142,10 @@ export const SupportEvidencePicker: React.FC<SupportEvidencePickerProps> = ({
     setProcessingLabel('Saving video…');
     setProcessing(true);
     try {
-      updateSlotFile('video', createPendingSupportFile(raw));
+      const prepared = await prepareSupportUploadFile(raw);
+      const pending = createPendingSupportFile(prepared);
+      updateSlotFile('video', pending);
+      onFileReady?.(pending);
     } finally {
       setProcessing(false);
     }
@@ -132,7 +154,10 @@ export const SupportEvidencePicker: React.FC<SupportEvidencePickerProps> = ({
   const handlePhotoFile = async (slot: EvidencePhotoSlot, raw: File) => {
     const err = validateSupportFile(raw);
     if (err) throw new Error(err);
-    updateSlotFile(slot, createPendingEvidencePhoto(raw, slot));
+    const prepared = await prepareSupportUploadFile(raw);
+    const pending = createPendingEvidencePhoto(prepared, slot);
+    updateSlotFile(slot, pending);
+    onFileReady?.(pending);
   };
 
   const removeSlot = (slotId: EvidenceSlotId) => {
@@ -140,8 +165,8 @@ export const SupportEvidencePicker: React.FC<SupportEvidencePickerProps> = ({
     setSlotErrors(prev => ({ ...prev, [slotId]: undefined }));
   };
 
-  const allFilled = filledSlots.length === EVIDENCE_SLOTS.length;
-  const nextSlot = firstMissingSlot(files);
+  const allFilled = filledSlots.length === visibleSlots.length;
+  const nextSlot = firstMissingSlot(files, slotOrder);
 
   useEffect(() => {
     if (cameraOpen && allFilled && !processing) {
@@ -153,18 +178,20 @@ export const SupportEvidencePicker: React.FC<SupportEvidencePickerProps> = ({
     <div className="support-evidence-picker">
       <div className="support-evidence-picker__header">
         <h4 className="support-evidence-picker__title">
-          Evidence
+          {videoOnly ? 'Complaint video' : 'Evidence'}
           <span className="form-label__required" aria-hidden> *</span>
         </h4>
         <p className="support-evidence-picker__subtitle text-muted text-sm">
-          One by one: video, then serial / MAC ID, then product photo.
+          {videoOnly
+            ? 'Upload a complaint video showing the fault.'
+            : 'One by one: video, then serial / MAC ID, then product photo.'}
         </p>
       </div>
 
       <div className="support-evidence-picker__grid">
-        {EVIDENCE_SLOTS.map(slot => {
+        {visibleSlots.map(slot => {
           const file = getSlotFile(files, slot.id);
-          const unlocked = isSlotUnlocked(files, slot.id);
+          const unlocked = isSlotUnlocked(files, slot.id, slotOrder);
           const locked = !file && !unlocked;
           const current = !file && unlocked;
           return (
@@ -227,7 +254,7 @@ export const SupportEvidencePicker: React.FC<SupportEvidencePickerProps> = ({
           onClick={() => openCamera(nextSlot)}
         >
           <Camera size={20} aria-hidden />
-          {ADD_EVIDENCE_LABEL[nextSlot]}
+          {videoOnly ? 'Record complaint video' : ADD_EVIDENCE_LABEL[nextSlot]}
         </button>
       )}
 
@@ -235,6 +262,7 @@ export const SupportEvidencePicker: React.FC<SupportEvidencePickerProps> = ({
         <SupportEvidenceCamera
           initialSlot={cameraSlot}
           filledSlots={filledSlots}
+          videoOnly={videoOnly}
           processing={processing}
           processingLabel={processingLabel}
           onClose={() => setCameraOpen(false)}

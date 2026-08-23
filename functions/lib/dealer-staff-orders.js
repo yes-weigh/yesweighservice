@@ -5,6 +5,7 @@ import { FieldValue, getFirestore } from 'firebase-admin/firestore';
 import { HttpsError } from 'firebase-functions/v2/https';
 import { submitDealerOrder } from './dealer-orders.js';
 import { assertLinesNotRestrictedForBillingState } from './catalog-sales-restriction.js';
+import { isDealerAdminStaff } from './dealer-staff-team.js';
 
 const DEALER_CARTS = 'dealerCarts';
 
@@ -110,7 +111,7 @@ function staffTeam(user, fallback) {
 
 export async function submitDealerStaffOrderForApproval(uid, payload = {}) {
   const user = await loadUser(uid);
-  if (user.role !== 'dealer_staff') {
+  if (user.role !== 'dealer_staff' || isDealerAdminStaff(user)) {
     throw new HttpsError('permission-denied', 'Only sales and service staff can submit for dealer approval.');
   }
   const dealerUid = resolveDealerUid(user);
@@ -188,25 +189,29 @@ export async function submitDealerStaffOrderForApproval(uid, payload = {}) {
 
 export async function approveDealerStaffOrder(uid, approvalId, secrets, orgId) {
   const user = await loadUser(uid);
-  if (user.role !== 'dealer') {
+  if (user.role !== 'dealer' && !isDealerAdminStaff(user)) {
     throw new HttpsError('permission-denied', 'Only the dealer can approve team orders.');
+  }
+  const dealerUid = user.role === 'dealer' ? uid : resolveDealerUid(user);
+  if (!dealerUid) {
+    throw new HttpsError('failed-precondition', 'This account is not linked to a dealer.');
   }
   const id = String(approvalId ?? '').trim();
   if (!id) throw new HttpsError('invalid-argument', 'Approval is required.');
 
   const db = getFirestore();
-  const ref = db.collection(DEALER_CARTS).doc(uid).collection('approvals').doc(id);
+  const ref = db.collection(DEALER_CARTS).doc(dealerUid).collection('approvals').doc(id);
   const snap = await ref.get();
   if (!snap.exists) throw new HttpsError('not-found', 'This approval is no longer available.');
   const data = snap.data() || {};
   if (data.status !== 'pending_approval') {
     throw new HttpsError('failed-precondition', 'This order is no longer waiting for approval.');
   }
-  if (String(data.dealerUid ?? '') !== uid) {
+  if (String(data.dealerUid ?? '') !== dealerUid) {
     throw new HttpsError('permission-denied', 'This approval belongs to another dealer.');
   }
 
-  const result = await submitDealerOrder(uid, 'dealer', {
+  const result = await submitDealerOrder(dealerUid, 'dealer', {
     lines: data.lines,
     shipping: data.shipping,
     remarks: data.remarks,
@@ -237,26 +242,30 @@ export async function approveDealerStaffOrder(uid, approvalId, secrets, orgId) {
 
 export async function rejectDealerStaffOrder(uid, approvalId) {
   const user = await loadUser(uid);
-  if (user.role !== 'dealer') {
+  if (user.role !== 'dealer' && !isDealerAdminStaff(user)) {
     throw new HttpsError('permission-denied', 'Only the dealer can reject team orders.');
+  }
+  const dealerUid = user.role === 'dealer' ? uid : resolveDealerUid(user);
+  if (!dealerUid) {
+    throw new HttpsError('failed-precondition', 'This account is not linked to a dealer.');
   }
   const id = String(approvalId ?? '').trim();
   if (!id) throw new HttpsError('invalid-argument', 'Approval is required.');
 
   const db = getFirestore();
-  const ref = db.collection(DEALER_CARTS).doc(uid).collection('approvals').doc(id);
+  const ref = db.collection(DEALER_CARTS).doc(dealerUid).collection('approvals').doc(id);
   const snap = await ref.get();
   if (!snap.exists) throw new HttpsError('not-found', 'This approval is no longer available.');
   const data = snap.data() || {};
   if (data.status !== 'pending_approval') {
     throw new HttpsError('failed-precondition', 'This order is no longer waiting for approval.');
   }
-  if (String(data.dealerUid ?? '') !== uid) {
+  if (String(data.dealerUid ?? '') !== dealerUid) {
     throw new HttpsError('permission-denied', 'This approval belongs to another dealer.');
   }
 
   const displayLines = parseDisplayLines(data.displayLines);
-  const itemsCol = db.collection(DEALER_CARTS).doc(uid).collection('items');
+  const itemsCol = db.collection(DEALER_CARTS).doc(dealerUid).collection('items');
   for (let i = 0; i < displayLines.length; i += 400) {
     const batch = db.batch();
     for (const line of displayLines.slice(i, i + 400)) {

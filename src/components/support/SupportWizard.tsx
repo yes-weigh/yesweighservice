@@ -5,7 +5,6 @@ import {
   ChevronRight,
   HelpCircle,
   MessageSquareWarning,
-  Package,
   RotateCcw,
   Wrench,
 } from 'lucide-react';
@@ -39,13 +38,12 @@ import {
   pendingFilesToUpload,
 } from './SupportEvidencePicker';
 import { SupportAttachmentPicker } from './SupportAttachmentPicker';
-import { validateEvidenceFiles, supportUploadErrorMessage, type SupportSubmitProgress } from '../../lib/supportAttachments';
+import { validateEvidenceFiles, startSupportFileUploadJob, supportUploadErrorMessage, type SupportSubmitProgress, type PendingSupportFile } from '../../lib/supportAttachments';
 import { SupportWizardSubmitProgress } from './SupportWizardSubmitProgress';
-import { SupportInvoiceProductPicker } from './SupportInvoiceFields';
+import { SupportInvoiceProductPicker, SupportProductLineCard } from './SupportInvoiceFields';
 import { SupportDeclarationStep } from './SupportDeclarationStep';
 import { dateInputValueFromIso, isoFromDateInput, SupportDealerPicker } from './SupportDealerPicker';
 import { SUPPORT_DECLARATION_TITLE } from '../../constants/supportDeclaration';
-import type { PendingSupportFile } from '../../lib/supportAttachments';
 import type { SupportOnBehalfDealer } from '../../types/dealer-support';
 
 type WizardStep = 'dealer' | 'intent' | 'product' | 'details' | 'declaration' | 'success';
@@ -175,6 +173,9 @@ export const SupportWizard: React.FC<SupportWizardProps> = ({
   );
   const confirm = useConfirm();
   const formRef = useRef<HTMLFormElement>(null);
+  const draftRequestIdRef = useRef(draftRequestId);
+  draftRequestIdRef.current = draftRequestId;
+  const ensureDraftInflight = useRef<Promise<string> | null>(null);
 
   const isBusy = submitting || savingDraft || discarding || startingChat;
 
@@ -255,12 +256,16 @@ export const SupportWizard: React.FC<SupportWizardProps> = ({
 
   const handleProductNext = useCallback(() => {
     if (needsProduct && !hasProductLink && !proceedWithoutInvoice) {
-      setError('Select an invoice and product, or choose to continue without an invoice.');
+      setError(
+        intent === 'return'
+          ? 'Select a product received in the last 7 days.'
+          : 'Select an invoice and product, or choose to continue without an invoice.',
+      );
       return;
     }
     setError('');
     setStep('details');
-  }, [needsProduct, hasProductLink, proceedWithoutInvoice]);
+  }, [intent, needsProduct, hasProductLink, proceedWithoutInvoice]);
 
   const buildRequestPayload = () => {
     const selection = productDraft ?? productSelection;
@@ -288,6 +293,36 @@ export const SupportWizard: React.FC<SupportWizardProps> = ({
     };
   };
 
+  const ensureDraftId = useCallback(async () => {
+    if (draftRequestIdRef.current) return draftRequestIdRef.current;
+    if (ensureDraftInflight.current) return ensureDraftInflight.current;
+
+    const work = saveSupportRequestDraft(user, buildRequestPayload()).then(saved => {
+      draftRequestIdRef.current = saved.id;
+      setDraftRequestId(saved.id);
+      return saved.id;
+    });
+    ensureDraftInflight.current = work;
+    try {
+      return await work;
+    } finally {
+      if (ensureDraftInflight.current === work) ensureDraftInflight.current = null;
+    }
+  }, [user]);
+
+  const handleEvidenceFileReady = useCallback((file: PendingSupportFile) => {
+    void ensureDraftId()
+      .then(requestId => {
+        startSupportFileUploadJob(requestId, file.id, file.file, {
+          isInitial: true,
+          alreadyPrepared: true,
+        });
+      })
+      .catch(() => {
+        // Submit still uploads if the draft could not be created yet.
+      });
+  }, [ensureDraftId]);
+
   const handleSaveDraft = async () => {
     if (!intent) return;
 
@@ -301,6 +336,7 @@ export const SupportWizard: React.FC<SupportWizardProps> = ({
     setError('');
     try {
       const saved = await saveSupportRequestDraft(user, buildRequestPayload());
+      draftRequestIdRef.current = saved.id;
       setDraftRequestId(saved.id);
       setSubmitProgress({ phase: 'finalizing', label: 'Draft saved', percent: 100 });
       onDraftSaved?.(saved.requestNumber, saved.id);
@@ -344,12 +380,14 @@ export const SupportWizard: React.FC<SupportWizardProps> = ({
       setError('Please describe the issue.');
       return false;
     }
-    if (needsProduct && !serialNumber.trim()) {
+    if (needsProduct && !(intent === 'service' && proceedWithoutInvoice) && !serialNumber.trim()) {
       setError('Enter the serial number or MAC ID.');
       return false;
     }
     if (!isGeneralSupport && !opsCreateMode) {
-      const evidenceError = validateEvidenceFiles(pendingFiles);
+      const evidenceError = validateEvidenceFiles(pendingFiles, {
+        videoOnly: intent === 'service' && proceedWithoutInvoice,
+      });
       if (evidenceError) {
         setError(evidenceError);
         return false;
@@ -381,6 +419,7 @@ export const SupportWizard: React.FC<SupportWizardProps> = ({
       const created = await createSupportRequest(user, {
         ...buildRequestPayload(),
         attachmentFiles: pendingFilesToUpload(pendingFiles),
+        pendingFileIds: pendingFiles.map(file => file.id),
       }, setSubmitProgress);
       cleanupPendingFiles(pendingFiles);
       setPendingFiles([]);
@@ -400,7 +439,9 @@ export const SupportWizard: React.FC<SupportWizardProps> = ({
       setError('You must agree to the Warranty & Service Declaration to continue.');
       return;
     }
-    const evidenceError = validateEvidenceFiles(pendingFiles);
+    const evidenceError = validateEvidenceFiles(pendingFiles, {
+      videoOnly: intent === 'service' && proceedWithoutInvoice,
+    });
     if (evidenceError) {
       setError(evidenceError);
       setStep('details');
@@ -408,7 +449,7 @@ export const SupportWizard: React.FC<SupportWizardProps> = ({
     }
     setError('');
     void submitRequestRef.current();
-  }, [declarationAgreed, pendingFiles]);
+  }, [declarationAgreed, pendingFiles, intent, proceedWithoutInvoice]);
 
   const wizardTitle = useMemo(() => {
     if (step === 'success') {
@@ -417,10 +458,10 @@ export const SupportWizard: React.FC<SupportWizardProps> = ({
     if (step === 'declaration') return SUPPORT_DECLARATION_TITLE;
     if (step === 'dealer') return 'Dealer & date';
     if (step === 'intent') return opsCreateMode ? 'Request type' : 'New request';
-    if (step === 'product') return needsProduct ? 'Invoice & product' : 'Link invoice';
+    if (step === 'product') return intent === 'service' ? 'Product complaint' : needsProduct ? 'Invoice & product' : 'Link invoice';
     if (isGeneralSupport) return 'General support';
     return 'Request details';
-  }, [step, needsProduct, isGeneralSupport, submittedRequest, submittedRequestNumber]);
+  }, [step, intent, needsProduct, isGeneralSupport, submittedRequest, submittedRequestNumber]);
 
   const wizardSubtitle = useMemo(() => {
     if (step !== 'success' || !submittedRequest) return null;
@@ -587,7 +628,7 @@ export const SupportWizard: React.FC<SupportWizardProps> = ({
   const selectedProduct = productDraft ?? productSelection;
 
   return (
-    <div className="support-wizard">
+    <div className={['support-wizard', step === 'product' ? 'support-wizard--product' : ''].filter(Boolean).join(' ')}>
       <div
         className={`support-wizard__progress support-wizard__progress--three${
           step === 'dealer'
@@ -741,55 +782,92 @@ export const SupportWizard: React.FC<SupportWizardProps> = ({
       )}
 
       {step === 'product' && intent && needsProduct && (
-        <section className="support-wizard__step support-wizard__step--details panel glass">
+        <section className="support-wizard__step support-wizard__step--details support-wizard__step--product-picker">
           <div className="support-wizard__step-body">
-            <h3 className="support-wizard__question">
-              {needsProduct ? 'Select invoice & product' : 'Link invoice'}
-            </h3>
+            {intent === 'return' && (
+              <>
+                <h3 className="support-wizard__question">
+                  Select a product received in the last 7 days
+                </h3>
+                {!productDraft && (
+                  <p className="support-wizard__lede text-muted text-sm">
+                    Full product replacement is only for new goods still inside 7 days of the
+                    receiving date. If you purchased on 1 Jul and received on 5 Jul, you can
+                    replace until 12 Jul.
+                  </p>
+                )}
+              </>
+            )}
 
             {productDraft && (
-              <div className="support-wizard__product panel glass">
-                <Package size={18} aria-hidden />
-                <div>
-                  <strong>{productDraft.itemName}</strong>
-                  <span className="text-muted text-sm">
-                    Invoice {productDraft.invoiceNumber}
-                    {productDraft.salesOrderNumber && ` · SO ${productDraft.salesOrderNumber}`}
-                  </span>
-                </div>
-              </div>
+              <SupportProductLineCard
+                invoiceNumber={productDraft.invoiceNumber}
+                invoiceDate={productDraft.invoiceDate}
+                name={productDraft.itemName}
+                sku={productDraft.itemSku}
+                quantity={productDraft.quantity}
+                imageUrl={productDraft.imageUrl}
+                serials={productDraft.serialNumbers}
+                staticCard
+              />
             )}
 
             {!productDraft && (
               <>
-                <SupportInvoiceProductPicker
-                  key={proceedWithoutInvoice ? 'no-invoice' : 'with-invoice'}
-                  cacheKey={invoiceCacheKey}
-                  customerId={invoiceCustomerId}
-                  value={productSelection}
-                  onChange={handleProductSelectionChange}
-                  onNext={handleProductNext}
-                  onMatchedSerial={setSerialNumber}
-                  disabled={isBusy || proceedWithoutInvoice}
-                  invoiceRequired={!proceedWithoutInvoice}
-                  requestType={intent === 'service' || intent === 'return' ? intent : undefined}
-                />
+                {intent === 'service' && (
+                  <>
+                    <label className="support-wizard__no-invoice support-wizard__no-invoice--priority">
+                      <input
+                        type="checkbox"
+                        checked={proceedWithoutInvoice}
+                        disabled={isBusy}
+                        onChange={e => handleProceedWithoutInvoiceChange(e.target.checked)}
+                      />
+                      <span>
+                        Continue without an invoice
+                        <span className="support-wizard__no-invoice-hint">
+                          Use this when the product is out of warranty or the invoice is not available.
+                        </span>
+                        {proceedWithoutInvoice && (
+                          <span className="support-wizard__out-of-warranty-disclaimer">
+                            This request will be treated as an out of warranty service.
+                          </span>
+                        )}
+                      </span>
+                    </label>
+                    {proceedWithoutInvoice && (
+                      <button
+                        type="button"
+                        className="btn btn-primary support-wizard__out-of-warranty-next"
+                        disabled={isBusy}
+                        onClick={handleProductNext}
+                      >
+                        Next
+                        <ArrowRight size={16} />
+                      </button>
+                    )}
+                  </>
+                )}
 
-                <label className="support-wizard__no-invoice">
-                  <input
-                    type="checkbox"
-                    checked={proceedWithoutInvoice}
-                    disabled={isBusy}
-                    onChange={e => handleProceedWithoutInvoiceChange(e.target.checked)}
-                  />
-                  <span>
-                    Continue without an invoice
-                    <span className="support-wizard__no-invoice-hint">
-                      Use when the invoice is unavailable (e.g. out of warranty). You can still
-                      enter the serial number and describe the product on the next step.
-                    </span>
-                  </span>
-                </label>
+                {!(intent === 'service' && proceedWithoutInvoice) && (
+                  <>
+                    {intent === 'service' && (
+                      <h4 className="support-wizard__warranty-heading">Products under warranty</h4>
+                    )}
+                    <SupportInvoiceProductPicker
+                      key={proceedWithoutInvoice ? 'no-invoice' : 'with-invoice'}
+                      cacheKey={invoiceCacheKey}
+                      customerId={invoiceCustomerId}
+                      value={productSelection}
+                      onChange={handleProductSelectionChange}
+                      onNext={handleProductNext}
+                      onMatchedSerial={setSerialNumber}
+                      disabled={isBusy || proceedWithoutInvoice}
+                      invoiceRequired={!proceedWithoutInvoice}
+                      requestType={intent === 'service' || intent === 'return' ? intent : undefined}
+                    />
+                  </>
+                )}
               </>
             )}
           </div>
@@ -806,32 +884,33 @@ export const SupportWizard: React.FC<SupportWizardProps> = ({
           onSubmit={e => handleDetailsNext(e)}
         >
           <div className="support-wizard__step-body">
-          <h3 className="support-wizard__question">
-            {intent === 'service' && 'Service / repair details'}
-            {intent === 'return' && 'Replacement request details'}
-            {isGeneralSupport && 'What do you need help with?'}
-          </h3>
+          {(intent === 'return' || isGeneralSupport) && (
+            <h3 className="support-wizard__question">
+              {intent === 'return' && 'Replacement request details'}
+              {isGeneralSupport && 'What do you need help with?'}
+            </h3>
+          )}
 
           {selectedProduct ? (
-            <div className="support-wizard__product panel glass">
-              <Package size={18} aria-hidden />
-              <div>
-                <strong>{selectedProduct.itemName}</strong>
-                <span className="text-muted text-sm">
-                  Invoice {selectedProduct.invoiceNumber}
-                  {selectedProduct.salesOrderNumber && ` · SO ${selectedProduct.salesOrderNumber}`}
-                </span>
-              </div>
-            </div>
+            <SupportProductLineCard
+              invoiceNumber={selectedProduct.invoiceNumber}
+              invoiceDate={selectedProduct.invoiceDate}
+              name={selectedProduct.itemName}
+              sku={selectedProduct.itemSku}
+              quantity={selectedProduct.quantity}
+              imageUrl={selectedProduct.imageUrl}
+              serials={selectedProduct.serialNumbers}
+              staticCard
+            />
           ) : (
             needsProduct && proceedWithoutInvoice && (
               <p className="text-sm text-muted support-wizard__no-invoice-banner">
-                Continuing without an invoice — include product details and serial number below.
+                This request will be treated as an out of warranty service. Upload a complaint video below.
               </p>
             )
           )}
 
-          {needsProduct && (
+          {needsProduct && !(intent === 'service' && proceedWithoutInvoice) && (
             <div className="form-group">
               <label htmlFor="support-serial">
                 Serial number / MAC ID
@@ -934,6 +1013,9 @@ export const SupportWizard: React.FC<SupportWizardProps> = ({
                 files={pendingFiles}
                 onChange={setPendingFiles}
                 disabled={isBusy}
+                videoOnly={intent === 'service' && proceedWithoutInvoice}
+                onFileReady={handleEvidenceFileReady}
+                onCaptureStart={() => { void ensureDraftId(); }}
               />
             )}
           </div>

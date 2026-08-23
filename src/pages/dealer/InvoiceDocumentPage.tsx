@@ -11,6 +11,9 @@ import {
   buildInvoiceBookingDraftPatch,
   canBookCourierForInvoice,
 } from '../../lib/logisticsPrefill';
+import {
+  serialNumbersFromLineItem,
+} from '../../lib/invoices';
 import type { DealerInvoiceLineItem } from '../../types/invoices';
 import type { SupportProductDraft } from '../../types/dealer-support';
 import type { InvoiceDetailOutletContext } from './invoiceDetailContext';
@@ -32,6 +35,9 @@ export const InvoiceDocumentPage: React.FC = () => {
       itemName: item.name,
       itemSku: item.sku,
       quantity: item.quantity,
+      imageUrl: item.imageUrl,
+      invoiceDate: invoice.date,
+      serialNumbers: serialNumbersFromLineItem(item),
     };
     navigate(supportBasePath(user.role), { state: { draft, intent: 'service' as const } });
   };

@@ -2515,7 +2515,7 @@ export const updateCustomerPickupEwayPartBFn = onCall(
 export const getDealerInvoices = onCall(
   {
     region: 'asia-south1',
-    timeoutSeconds: 60,
+    timeoutSeconds: 120,
     memory: '512MiB',
   },
   async request => {
@@ -4653,7 +4653,7 @@ export const markSupportMessageReceiptsFn = onCall(
 
 /** Direct support evidence upload via Admin SDK (photos and shorter videos). */
 export const uploadSupportAttachmentFn = onCall(
-  { region: 'asia-south1', timeoutSeconds: 120, memory: '512MiB' },
+  { region: 'asia-south1', timeoutSeconds: 180, memory: '1GiB' },
   async request => {
     if (!request.auth?.uid) {
       throw new HttpsError('unauthenticated', 'Sign in required.');

@@ -68,8 +68,8 @@ export interface User {
   active: boolean;
   /** YesOne staff only */
   staffDepartment?: import('./types/staff-access').StaffDepartment;
-  /** Dealer staff: Sales, Service, or both. */
-  dealerTeams?: Array<'sales' | 'service'> | null;
+  /** Dealer staff: Sales, Service, Admin, or Sales+Service. */
+  dealerTeams?: Array<'sales' | 'service' | 'admin'> | null;
   staffRoleId?: string | null;
   staffAccessMode?: import('./types/staff-access').StaffAccessMode;
   /** Full permission set when staffAccessMode is custom; ignored otherwise */
@@ -128,7 +128,7 @@ export interface FirestoreUserDoc {
   aadhar?: string;
   active: boolean;
   staffDepartment?: import('./types/staff-access').StaffDepartment;
-  dealerTeams?: Array<'sales' | 'service'> | null;
+  dealerTeams?: Array<'sales' | 'service' | 'admin'> | null;
   staffRoleId?: string | null;
   staffAccessMode?: import('./types/staff-access').StaffAccessMode;
   staffPermissions?: import('./types/staff-access').StaffPermission[];

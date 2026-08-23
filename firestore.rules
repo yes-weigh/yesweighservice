@@ -1005,7 +1005,11 @@ service cloud.firestore {
           || (userDoc().keys().hasAny(['zohoCustomerId'])
               && data.zohoCustomerId == userDoc().zohoCustomerId)
         ))
-        || (isDealerStaff() && data.dealerId == userDealerId(userDoc()));
+        || (isDealerStaff() && (
+          data.dealerId == userDealerId(userDoc())
+          || (userDoc().keys().hasAny(['zohoCustomerId'])
+              && data.zohoCustomerId == userDoc().zohoCustomerId)
+        ));
     }
 
     function validLogisticsBookingCreate() {

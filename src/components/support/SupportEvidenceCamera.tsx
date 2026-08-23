@@ -16,6 +16,7 @@ import {
   recommendedRecorderTimeslice,
   stopMediaStream,
 } from '../../lib/captureMedia';
+import { cameraPermissionErrorMessage, getEvidenceCameraStream } from '../../lib/mediaPermissions';
 import { pushRecentMedia } from '../../lib/recentMediaCache';
 import { isImageFile, isVideoFile, retainFileCopy, validateSupportFile } from '../../lib/supportAttachments';
 import type { EvidencePhotoSlot } from '../../lib/supportAttachments';
@@ -30,6 +31,13 @@ const SLOT_TABS: Array<{ id: EvidenceSlotId; label: string; prompt: string; hint
   { id: 'label', label: 'Product', prompt: 'Step 3 of 3 · Product photo', hint: 'Photo of the product' },
 ];
 
+const VIDEO_ONLY_TAB: (typeof SLOT_TABS)[number] = {
+  id: 'video',
+  label: 'Video',
+  prompt: 'Record complaint video',
+  hint: '30 seconds to 2 minutes',
+};
+
 const MAX_RECORD_SECONDS = 120;
 
 interface SupportEvidenceCameraProps {
@@ -37,6 +45,7 @@ interface SupportEvidenceCameraProps {
   filledSlots: EvidenceSlotId[];
   processing?: boolean;
   processingLabel?: string;
+  videoOnly?: boolean;
   onClose: () => void;
   onVideoFile: (file: File) => Promise<void>;
   onPhotoFile: (slot: EvidencePhotoSlot, file: File) => Promise<void>;
@@ -53,6 +62,7 @@ export function SupportEvidenceCamera({
   filledSlots,
   processing = false,
   processingLabel = 'Processing…',
+  videoOnly = false,
   onClose,
   onVideoFile,
   onPhotoFile,
@@ -81,7 +91,8 @@ export function SupportEvidenceCamera({
 
   const isPhotoSlot = activeSlot === 'serial' || activeSlot === 'label';
   const filledSet = new Set(filledSlots);
-  const activeTab = SLOT_TABS.find(tab => tab.id === activeSlot) ?? SLOT_TABS[0];
+  const visibleTabs = videoOnly ? [VIDEO_ONLY_TAB] : SLOT_TABS;
+  const activeTab = visibleTabs.find(tab => tab.id === activeSlot) ?? visibleTabs[0];
   recordingRef.current = recording;
 
   const clearTimers = () => {
@@ -115,12 +126,7 @@ export function SupportEvidenceCamera({
     setError('');
     stopStream();
 
-    const constraints: MediaStreamConstraints = {
-      video: { facingMode: { ideal: facingMode } },
-      audio: activeSlot === 'video',
-    };
-
-    void navigator.mediaDevices.getUserMedia(constraints)
+    void getEvidenceCameraStream(facingMode, activeSlot === 'video')
       .then(stream => {
         if (cancelled) {
           stopMediaStream(stream);
@@ -137,9 +143,12 @@ export function SupportEvidenceCamera({
         setPhotoSaved(false);
         setLoading(false);
       })
-      .catch(() => {
+      .catch(err => {
         if (!cancelled) {
-          setError('Could not open camera. Tap the gallery button to choose a file.');
+          setError(cameraPermissionErrorMessage(
+            err,
+            'Could not open camera. Tap the gallery button to choose a file.',
+          ));
           setLoading(false);
         }
       });
@@ -156,6 +165,7 @@ export function SupportEvidenceCamera({
   };
 
   const advanceAfterCapture = (capturedSlot: EvidenceSlotId) => {
+    if (videoOnly) return;
     const nowFilled = new Set([...filledSlots, capturedSlot]);
     const nextEmpty = EVIDENCE_SLOT_ORDER.find(slot => !nowFilled.has(slot));
     if (nextEmpty) {
@@ -431,8 +441,9 @@ export function SupportEvidenceCamera({
           </button>
         </div>
 
+        {!videoOnly && (
         <div className="support-chat__camera-modes support-evidence-camera__slots" aria-label="Evidence steps">
-          {SLOT_TABS.map(tab => {
+          {visibleTabs.map(tab => {
             const done = filledSet.has(tab.id);
             const current = activeSlot === tab.id;
             return (
@@ -447,6 +458,7 @@ export function SupportEvidenceCamera({
             );
           })}
         </div>
+        )}
       </div>
     </div>
   );

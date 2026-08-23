@@ -9,7 +9,7 @@ import {
 } from 'firebase/firestore';
 import { db } from '../firebase';
 import { combinedCartRate, newCartLineId } from './gatcCart';
-import { dealerPortalStaffTeams, resolveDealerAccountUid } from './dealerAccess';
+import { dealerPortalStaffTeams, dealerStaffTeam, resolveDealerAccountUid } from './dealerAccess';
 import { isCatalogSparePartProduct } from './catalog';
 import { normalizePriceLevelSlabs } from './priceLevels';
 import { effectiveCatalogStockStatus } from './sacCatalog';
@@ -38,10 +38,10 @@ export function cartAttributionForUser(
   product: Pick<CatalogProduct, 'categoryId' | 'categoryName'> | null | undefined,
 ): CartAttribution | null {
   if (!user?.uid) return null;
-  if (user.role === 'dealer') {
+  if (user.role === 'dealer' || dealerStaffTeam(user) === 'admin') {
     return {
       addedByUid: user.uid,
-      addedByName: user.displayName?.trim() || 'Dealer',
+      addedByName: user.displayName?.trim() || (user.role === 'dealer' ? 'Dealer' : 'Admin'),
       addedByTeam: 'dealer',
     };
   }
@@ -50,9 +50,7 @@ export function cartAttributionForUser(
   const spare = product ? isCatalogSparePartProduct(product) : false;
   const team: CartAddedByTeam = spare && teams.includes('service')
     ? 'service'
-    : teams.includes('sales')
-      ? 'sales'
-      : (teams[0] ?? 'sales');
+    : 'sales';
   return {
     addedByUid: user.uid,
     addedByName: user.displayName?.trim() || 'Staff',

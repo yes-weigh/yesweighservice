@@ -3,18 +3,36 @@ import { db } from '../firebase';
 import { withCatalogImageCacheBust } from './catalog';
 import type { DealerInvoiceDetail, DealerInvoiceLineItem } from '../types/invoices';
 
-function imageFromCatalogData(data: Record<string, unknown> | undefined): string | null {
-  if (!data) return null;
-  const raw = (data.imageUrl as string | null)
-    ?? (Array.isArray(data.imageUrls) ? (data.imageUrls[0] as string | null) : null)
-    ?? null;
-  return withCatalogImageCacheBust(raw, data.imageUpdatedAt as string | number | null | undefined);
+export type LineItemCatalogMeta = {
+  imageUrl: string | null;
+  hsn: string | null;
+  categoryId: string | null;
+  categoryName: string | null;
+};
+
+function metaFromCatalogData(data: Record<string, unknown> | undefined): LineItemCatalogMeta {
+  const raw = data
+    ? (data.imageUrl as string | null)
+      ?? (Array.isArray(data.imageUrls) ? (data.imageUrls[0] as string | null) : null)
+      ?? null
+    : null;
+  return {
+    imageUrl: withCatalogImageCacheBust(raw, data?.imageUpdatedAt as string | number | null | undefined),
+    hsn: data?.hsn != null ? String(data.hsn) : null,
+    categoryId: data?.categoryId != null ? String(data.categoryId) : null,
+    categoryName: data?.categoryName != null ? String(data.categoryName) : null,
+  };
+}
+
+async function catalogMetaByItemId(itemId: string): Promise<LineItemCatalogMeta | null> {
+  const snap = await getDoc(doc(db, 'catalogProducts', itemId));
+  if (!snap.exists()) return null;
+  return metaFromCatalogData(snap.data() as Record<string, unknown>);
 }
 
 async function catalogImageByItemId(itemId: string): Promise<string | null> {
-  const snap = await getDoc(doc(db, 'catalogProducts', itemId));
-  if (!snap.exists()) return null;
-  return imageFromCatalogData(snap.data() as Record<string, unknown>);
+  const meta = await catalogMetaByItemId(itemId);
+  return meta?.imageUrl ?? null;
 }
 
 async function catalogImageBySku(sku: string): Promise<string | null> {
@@ -24,7 +42,52 @@ async function catalogImageBySku(sku: string): Promise<string | null> {
     query(collection(db, 'catalogProducts'), where('sku', '==', trimmed), limit(1)),
   );
   if (snap.empty) return null;
-  return imageFromCatalogData(snap.docs[0].data() as Record<string, unknown>);
+  return metaFromCatalogData(snap.docs[0].data() as Record<string, unknown>).imageUrl;
+}
+
+export async function fetchCatalogMetaForItemIds(
+  itemIds: string[],
+): Promise<Map<string, LineItemCatalogMeta>> {
+  const unique = [...new Set(itemIds.filter(Boolean))];
+  const map = new Map<string, LineItemCatalogMeta>();
+  if (!unique.length) return map;
+
+  await Promise.all(
+    unique.map(async id => {
+      const meta = await catalogMetaByItemId(id);
+      if (meta) map.set(id, meta);
+    }),
+  );
+  return map;
+}
+
+export function applyCatalogMetaToLineItems(
+  lineItems: DealerInvoiceLineItem[],
+  metaByItemId: Map<string, LineItemCatalogMeta>,
+): DealerInvoiceLineItem[] {
+  if (!metaByItemId.size) return lineItems;
+  return lineItems.map(item => {
+    const meta = item.itemId ? metaByItemId.get(item.itemId) : undefined;
+    if (!meta) return item;
+    return {
+      ...item,
+      imageUrl: item.imageUrl || meta.imageUrl,
+      hsn: item.hsn || meta.hsn,
+      categoryId: item.categoryId ?? meta.categoryId,
+      categoryName: item.categoryName ?? meta.categoryName,
+    };
+  });
+}
+
+export async function enrichInvoiceLineItemsCatalog(
+  lineItems: DealerInvoiceLineItem[],
+): Promise<DealerInvoiceLineItem[]> {
+  const ids = [...new Set(
+    lineItems.map(item => item.itemId).filter((id): id is string => Boolean(id)),
+  )];
+  if (!ids.length) return lineItems;
+  const meta = await fetchCatalogMetaForItemIds(ids);
+  return applyCatalogMetaToLineItems(lineItems, meta);
 }
 
 export async function fetchCatalogImagesForItemIds(
@@ -79,7 +142,8 @@ export async function enrichInvoiceLineItemImages(
 export async function enrichInvoiceDetailImages(
   detail: DealerInvoiceDetail,
 ): Promise<DealerInvoiceDetail> {
-  const lineItems = await enrichInvoiceLineItemImages(detail.lineItems);
+  const withImages = await enrichInvoiceLineItemImages(detail.lineItems);
+  const lineItems = await enrichInvoiceLineItemsCatalog(withImages);
   if (lineItems === detail.lineItems) return detail;
   return { ...detail, lineItems };
 }

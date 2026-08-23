@@ -15,6 +15,13 @@ export const MAX_VIDEO_BYTES = 50 * 1024 * 1024;
 /** Must match functions/lib/support-attachments.js MAX_SERVER_UPLOAD_BYTES */
 const MAX_SERVER_UPLOAD_BYTES = 20 * 1024 * 1024;
 
+export const EVIDENCE_IMAGE_COMPRESS = {
+  maxWidth: 1280,
+  maxHeight: 1280,
+  quality: 0.78,
+  maxBytes: 420_000,
+} as const;
+
 export type SupportSubmitProgress = {
   phase: 'preparing' | 'uploading' | 'finalizing';
   label: string;
@@ -140,10 +147,14 @@ export function hasEvidenceVideo(files: PendingSupportFile[]): boolean {
   return files.some(file => file.kind === 'video');
 }
 
-export function validateEvidenceFiles(files: PendingSupportFile[]): string | null {
+export function validateEvidenceFiles(
+  files: PendingSupportFile[],
+  options?: { videoOnly?: boolean },
+): string | null {
   if (!hasEvidenceVideo(files)) {
-    return 'Record a video for evidence.';
+    return options?.videoOnly ? 'Upload a complaint video.' : 'Record a video for evidence.';
   }
+  if (options?.videoOnly) return null;
   for (const slot of REQUIRED_EVIDENCE_PHOTO_SLOTS) {
     if (!files.some(file => file.kind === 'image' && file.photoSlot === slot)) {
       if (slot === 'serial') return 'Add a serial number / MAC ID photo.';
@@ -250,6 +261,62 @@ interface PreparedSupportUpload {
 
 export interface UploadSupportAttachmentsOptions {
   isInitial?: boolean;
+  alreadyPrepared?: boolean;
+  posterFile?: File | Blob | null;
+}
+
+export async function prepareSupportUploadFile(file: File): Promise<File> {
+  if (isImageFile(file)) {
+    return compressImageForUpload(file, EVIDENCE_IMAGE_COMPRESS);
+  }
+  if (isVideoFile(file)) {
+    return prepareVideoFileForUpload(file);
+  }
+  return file;
+}
+
+const supportUploadJobs = new Map<string, Promise<SupportAttachment[]>>();
+
+export function startSupportFileUploadJob(
+  requestId: string,
+  pendingId: string,
+  file: File,
+  options?: UploadSupportAttachmentsOptions,
+): Promise<SupportAttachment[]> {
+  const existing = supportUploadJobs.get(pendingId);
+  if (existing) return existing;
+
+  const job = uploadSupportAttachments(
+    requestId,
+    pendingId,
+    [file],
+    undefined,
+    { isInitial: true, ...options },
+  );
+  supportUploadJobs.set(pendingId, job);
+  void job.catch(() => {
+    supportUploadJobs.delete(pendingId);
+  });
+  return job;
+}
+
+export function getSupportFileUploadJob(pendingId: string): Promise<SupportAttachment[]> | undefined {
+  return supportUploadJobs.get(pendingId);
+}
+
+export async function awaitSupportFileUploadJobs(
+  pendingIds: string[],
+): Promise<Map<string, SupportAttachment[]>> {
+  const entries = await Promise.all(pendingIds.map(async id => {
+    const job = supportUploadJobs.get(id);
+    if (!job) return [id, null] as const;
+    return [id, await job] as const;
+  }));
+  const map = new Map<string, SupportAttachment[]>();
+  for (const [id, attachments] of entries) {
+    if (attachments) map.set(id, attachments);
+  }
+  return map;
 }
 
 function isStorageUnauthorized(err: unknown): boolean {
@@ -617,6 +684,11 @@ export async function uploadSupportAttachments(
     const err = validateSupportFile(original);
     if (err) throw new Error(err);
 
+    if (options?.alreadyPrepared) {
+      preparedFiles.push(original);
+      continue;
+    }
+
     emitProgress({
       phase: 'uploading',
       label: isImageFile(original)
@@ -627,12 +699,7 @@ export async function uploadSupportAttachments(
       fileCount: files.length,
     });
 
-    const file = isImageFile(original)
-      ? await compressImageForUpload(original)
-      : isVideoFile(original)
-        ? await prepareVideoFileForUpload(original)
-        : original;
-    preparedFiles.push(file);
+    preparedFiles.push(await prepareSupportUploadFile(original));
   }
 
   const fileSizes = preparedFiles.map(file => file.size);
@@ -666,35 +733,49 @@ export async function uploadSupportAttachments(
       });
     };
 
-    const uploaded = await uploadSingleSupportFile(
-      requestId,
-      messageId,
-      file,
-      contentType,
-      options,
-      onFileProgress,
-      onStatus,
-    );
+    const posterPrep = isVideo
+      ? Promise.resolve(options?.posterFile ?? null)
+        .then(existing => existing ?? captureVideoPoster(file))
+        .catch(() => null)
+      : Promise.resolve(null);
+
+    const [uploaded, posterSource] = await Promise.all([
+      uploadSingleSupportFile(
+        requestId,
+        messageId,
+        file,
+        contentType,
+        options,
+        onFileProgress,
+        onStatus,
+      ),
+      posterPrep,
+    ]);
 
     let posterUrl: string | null = null;
-    if (isVideo) {
-      emitProgress({
-        phase: 'uploading',
-        label: 'Creating thumbnail…',
-        percent: 86,
-        fileIndex: index + 1,
-        fileCount: preparedFiles.length,
-      });
-
+    if (isVideo && posterSource) {
       try {
-        const posterBlob = await captureVideoPoster(file);
-        if (posterBlob) {
-          const posterFile = new File(
-            [posterBlob],
+        emitProgress({
+          phase: 'uploading',
+          label: 'Uploading thumbnail…',
+          percent: 86,
+          fileIndex: index + 1,
+          fileCount: preparedFiles.length,
+        });
+        const posterFile = posterSource instanceof File
+          ? posterSource
+          : new File(
+            [posterSource],
             `${safeFileName(file.name)}.poster.jpg`,
             { type: 'image/jpeg', lastModified: Date.now() },
           );
-          const onPosterProgress = (filePercent: number) => {
+        const posterUpload = await uploadSingleSupportFile(
+          requestId,
+          messageId,
+          posterFile,
+          'image/jpeg',
+          options,
+          filePercent => {
             emitProgress({
               phase: 'uploading',
               label: 'Uploading thumbnail…',
@@ -702,17 +783,9 @@ export async function uploadSupportAttachments(
               fileIndex: index + 1,
               fileCount: preparedFiles.length,
             });
-          };
-          const posterUpload = await uploadSingleSupportFile(
-            requestId,
-            messageId,
-            posterFile,
-            'image/jpeg',
-            options,
-            onPosterProgress,
-          );
-          posterUrl = posterUpload.url;
-        }
+          },
+        );
+        posterUrl = posterUpload.url;
       } catch {
         // Video can still be sent without a poster thumbnail.
       }

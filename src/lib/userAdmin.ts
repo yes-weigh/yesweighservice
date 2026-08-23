@@ -112,7 +112,7 @@ export type CreateUserInput = {
   /** Super admin only; defaults to full. */
   superAdminAccess?: SuperAdminAccess;
   staffDepartment?: StaffDepartment;
-  dealerTeams?: Array<'sales' | 'service'> | null;
+  dealerTeams?: Array<'sales' | 'service' | 'admin'> | null;
   staffRoleId?: string | null;
   staffAccessMode?: 'role' | 'department' | 'custom';
   staffPermissions?: StaffPermission[];
