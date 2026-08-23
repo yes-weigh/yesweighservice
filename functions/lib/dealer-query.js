@@ -44,10 +44,21 @@ export function filterDealers(dealers, query = {}) {
 
   if (query.q?.trim()) {
     const q = query.q.trim().toLowerCase();
-    list = list.filter(d =>
-      String(d.contactName ?? '').toLowerCase().includes(q)
-      || String(d.companyName ?? '').toLowerCase().includes(q),
-    );
+    const qDigits = q.replace(/\D/g, '');
+    list = list.filter(d => {
+      const nameHit = String(d.contactName ?? '').toLowerCase().includes(q)
+        || String(d.companyName ?? '').toLowerCase().includes(q)
+        || String(d.email ?? '').toLowerCase().includes(q);
+      if (nameHit) return true;
+      if (qDigits.length < 4) return false;
+      const phones = [d.phone, d.mobile, d.alternateMobile, d.whatsappNumber]
+        .map(value => String(value ?? '').replace(/\D/g, ''))
+        .filter(Boolean);
+      return phones.some(phone => (
+        phone.includes(qDigits)
+        || (qDigits.length >= 10 && phone.slice(-10) === qDigits.slice(-10))
+      ));
+    });
   }
 
   if (query.status && query.status !== 'all') {

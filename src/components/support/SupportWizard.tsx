@@ -657,10 +657,6 @@ export const SupportWizard: React.FC<SupportWizardProps> = ({
       {step === 'dealer' && opsCreateMode && (
         <section className="support-wizard__step support-wizard__step--details panel glass">
           <div className="support-wizard__step-body">
-            <h3 className="support-wizard__question">Who is this request for?</h3>
-            <p className="text-sm text-muted support-wizard__ops-note">
-              Create a backdated service request for any Zoho dealer — they do not need a portal login.
-            </p>
             <SupportDealerPicker
               value={onBehalfDealer}
               onChange={setOnBehalfDealer}

@@ -36,8 +36,10 @@ type NavState = {
 };
 
 function periodFromDashboard(period?: DashboardPeriodPreset): SalesMapPeriod {
-  if (period === 'custom') return 'custom';
+  if (period === 'custom' || period === 'today' || period === 'lifetime') return 'custom';
   if (period === 'year') return 'financial_year';
+  if (period === 'last_year') return 'previous_financial_year';
+  if (period === 'last_month') return 'previous_month';
   return 'current_month';
 }
 

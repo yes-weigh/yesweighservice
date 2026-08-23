@@ -188,8 +188,8 @@ export const SupportDealerPicker: React.FC<SupportDealerPickerProps> = ({
 
   return (
     <div className="support-dealer-picker" ref={rootRef}>
-      <label className="support-dealer-picker__label" htmlFor="support-dealer-search">
-        Dealer (Zoho customer)
+      <label className="sr-only" htmlFor="support-dealer-search">
+        Dealer
       </label>
       <div className={`support-dealer-picker__search${open ? ' is-open' : ''}`}>
         <div className="support-dealer-picker__field">
@@ -198,7 +198,7 @@ export const SupportDealerPicker: React.FC<SupportDealerPickerProps> = ({
             id="support-dealer-search"
             type="search"
             className="support-dealer-picker__input"
-            placeholder="Search dealer name, company, email…"
+            placeholder="Search by dealer name or phone number"
             value={query}
             disabled={disabled}
             autoComplete="off"

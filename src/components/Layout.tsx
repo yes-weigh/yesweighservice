@@ -443,7 +443,32 @@ const LayoutShell: React.FC = () => {
   const isDashboardHome = location.pathname === home;
   const showHeaderBack = Boolean(pageHeader.showBack && pageHeader.onBack);
   const mobileCompactHeader = Boolean(pageHeader.mobileCompactHeader && isMobile);
-  const showTrailing = Boolean(isDashboardHome || topBarAction || showCartFlyTarget || showProfileDp);
+  const showTrailing = Boolean(topBarAction || showCartFlyTarget || showProfileDp);
+
+  const versionControl = (
+    <span className="top-bar__version-group">
+      <button
+        type="button"
+        className="top-bar__sync-btn"
+        onClick={() => {
+          if (appSyncing) return;
+          setAppSyncing(true);
+          void refreshAppAndData().finally(() => setAppSyncing(false));
+        }}
+        disabled={appSyncing}
+        aria-label="Update app and data"
+        title="Update app and data"
+      >
+        <RefreshCw size={16} className={appSyncing ? 'spin-icon' : undefined} />
+      </button>
+      <span
+        className="top-bar__version"
+        title="App version. If a feature looks outdated, tap sync to update."
+      >
+        {getAppVersionLabel()}
+      </span>
+    </span>
+  );
 
   const handleNavClick = (path: string) => {
     const isProductsRoot = path.endsWith('/products');
@@ -586,6 +611,8 @@ const LayoutShell: React.FC = () => {
             <div className="top-bar__slot top-bar__slot--compact">
               {headerSlot}
             </div>
+          ) : isDashboardHome ? (
+            versionControl
           ) : dealerListPath ? (
             <button
               type="button"
@@ -667,30 +694,6 @@ const LayoutShell: React.FC = () => {
           )}
           {showTrailing && (
           <div className="top-bar__trailing">
-            {isDashboardHome ? (
-              <span className="top-bar__version-group">
-                <button
-                  type="button"
-                  className="top-bar__sync-btn"
-                  onClick={() => {
-                    if (appSyncing) return;
-                    setAppSyncing(true);
-                    void refreshAppAndData().finally(() => setAppSyncing(false));
-                  }}
-                  disabled={appSyncing}
-                  aria-label="Update app and data"
-                  title="Update app and data"
-                >
-                  <RefreshCw size={16} className={appSyncing ? 'spin-icon' : undefined} />
-                </button>
-                <span
-                  className="top-bar__version"
-                  title="App version. If a feature looks outdated, tap sync to update."
-                >
-                  {getAppVersionLabel()}
-                </span>
-              </span>
-            ) : null}
             {topBarAction}
             {showCartFlyTarget ? (
               <button

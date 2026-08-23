@@ -1,40 +1,21 @@
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
+  AlertTriangle,
   Ban,
-  Bell,
-  Briefcase,
   Building2,
   ChevronRight,
   ClipboardList,
   Clock,
-  AlertTriangle,
-  FileText,
-  IndianRupee,
-  LifeBuoy,
-  Package,
-  Shield,
   PackagePlus,
-  Plus,
-  RefreshCw,
-  ShieldCheck,
-  TrendingUp,
+  Shield,
   Truck,
   UserCheck,
   UserMinus,
-  Users,
 } from 'lucide-react';
-import { collection, getDocs } from 'firebase/firestore';
 import { DashboardPeriodFilter } from '../../components/dashboard/DashboardPeriodFilter';
-import { SalesChart } from '../../components/dashboard/SalesChart';
-import { useHorizontalSwipe } from '../../hooks/useHorizontalSwipe';
-import {
-  buildAdminDailySales,
-  countAdminInvoicesByStatus,
-  fetchAdminInvoicesPage,
-  loadAdminInvoiceKpis,
-  sumAdminOutstanding,
-} from '../../lib/admin-invoices';
+import { useTopBarAction } from '../../context/PageHeaderContext';
+import { loadAdminInvoiceKpis } from '../../lib/admin-invoices';
 import { countAdminPurchaseOrders } from '../../lib/admin-purchase-orders';
 import { countAdminSalesOrdersByYesOneStages } from '../../lib/admin-sales-orders';
 import {
@@ -44,117 +25,23 @@ import {
   type DashboardPeriodPreset,
 } from '../../lib/dashboardPeriod';
 import { dealerErrorMessage, fetchDealerStats } from '../../lib/dealers';
-import { countOpsSupportRequestsInRange, fetchOpsSupportRequests } from '../../lib/dealerSupport';
-import { supportDisplayLabel } from '../../lib/supportStatus';
-import { db } from '../../firebase';
-import { formatCurrency } from '../../lib/catalog';
-import {
-  formatInvoiceRelativeTime,
-  getInvoicePeriodBounds,
-  invoiceStatusLabel,
-  toDateInputValue,
-} from '../../lib/invoices';
-import { prefetchSalesByState } from '../../lib/salesByState';
-import type { FirestoreUserDoc } from '../../types';
-import { normalizeRole } from '../../types';
+import { countOpsSupportRequestsInRange } from '../../lib/dealerSupport';
 import type { DealerStats } from '../../types/dealers';
-import type { DealerSupportRequest } from '../../types/dealer-support';
-import type { AdminFirestoreInvoice } from '../../lib/admin-invoices';
 
 const BASE = '/super-admin';
 
 const EMPTY_OPS_COUNTS = {
-  totalSales: 0,
   newOrders: 0,
   pendingApproval: 0,
   toDispatch: 0,
-  inTransit: 0,
   warrantySupport: 0,
-  openSupport: 0,
+  openComplaints: 0,
   purchaseOrders: 0,
 };
 
-interface ActivityItem {
-  id: string;
-  title: string;
-  description: string;
-  time: string;
-  tone: 'blue' | 'green' | 'red' | 'orange' | 'purple';
-  icon: React.ReactNode;
-  path: string;
-  sortAt: number;
-}
-
-function supportActivityTone(request: DealerSupportRequest): ActivityItem['tone'] {
-  if (request.lifecycle === 'cancelled') return 'red';
-  if (request.type === 'complaint') return 'red';
-  if (request.type === 'return') return 'orange';
-  if (request.lifecycle === 'resolved') return 'green';
-  return 'blue';
-}
-
-function invoiceActivityTone(status: string): ActivityItem['tone'] {
-  const s = status.toLowerCase();
-  if (s === 'overdue' || s === 'void') return 'red';
-  if (s === 'paid') return 'green';
-  if (s === 'unpaid' || s === 'partially_paid') return 'orange';
-  return 'blue';
-}
-
-function buildActivities(
-  invoices: AdminFirestoreInvoice[],
-  support: DealerSupportRequest[],
-): ActivityItem[] {
-  const items: ActivityItem[] = [];
-
-  const seenInvoiceKeys = new Set<string>();
-  for (const inv of invoices) {
-    const key = `inv-${inv.customerId}-${inv.id}`;
-    if (seenInvoiceKeys.has(key)) continue;
-    seenInvoiceKeys.add(key);
-    const statusLabel = invoiceStatusLabel(inv.status);
-    items.push({
-      id: key,
-      title: `Invoice ${inv.invoiceNumber || inv.id}`,
-      description: `${inv.customerName ?? 'Dealer'} — ${statusLabel}`,
-      time: formatInvoiceRelativeTime(inv.date),
-      tone: invoiceActivityTone(inv.status),
-      icon: <FileText size={16} />,
-      path: `${BASE}/invoices`,
-      sortAt: inv.date ? Date.parse(inv.date) : 0,
-    });
-    if (seenInvoiceKeys.size >= 8) break;
-  }
-
-  const seenSupportKeys = new Set<string>();
-  for (const req of support) {
-    if (seenSupportKeys.has(req.id)) continue;
-    seenSupportKeys.add(req.id);
-    items.push({
-      id: `sup-${req.id}`,
-      title: `${req.requestNumber} — ${req.dealerName ?? 'Dealer'}`,
-      description: `${req.type} · ${supportDisplayLabel(req, 'staff')}`,
-      time: formatInvoiceRelativeTime(req.updatedAt),
-      tone: supportActivityTone(req),
-      icon: <LifeBuoy size={16} />,
-      path: `${BASE}/warranty-support/${req.id}`,
-      sortAt: Date.parse(req.updatedAt) || 0,
-    });
-    if (seenSupportKeys.size >= 8) break;
-  }
-
-  return items
-    .sort((a, b) => b.sortAt - a.sortAt)
-    .slice(0, 8);
-}
-
 export const SuperAdminDashboard: React.FC = () => {
   const navigate = useNavigate();
-  const pageRef = useRef<HTMLDivElement>(null);
   const [dealerStats, setDealerStats] = useState<DealerStats | null>(null);
-  const [invoices, setInvoices] = useState<AdminFirestoreInvoice[]>([]);
-  const [supportRequests, setSupportRequests] = useState<DealerSupportRequest[]>([]);
-  const [staffCount, setStaffCount] = useState(0);
   const [loading, setLoading] = useState(true);
   const [opsLoading, setOpsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -164,25 +51,12 @@ export const SuperAdminDashboard: React.FC = () => {
 
   useEffect(() => {
     let cancelled = false;
-
     const load = async () => {
       setLoading(true);
       setError(null);
       try {
-        const [stats, invoiceRows, support, usersSnap] = await Promise.all([
-          fetchDealerStats(),
-          fetchAdminInvoicesPage('date', 200),
-          fetchOpsSupportRequests(),
-          getDocs(collection(db, 'users')),
-        ]);
-        if (cancelled) return;
-
-        setDealerStats(stats);
-        setInvoices(invoiceRows);
-        setSupportRequests(support);
-        setStaffCount(
-          usersSnap.docs.filter(d => normalizeRole(String((d.data() as FirestoreUserDoc).role ?? '')) === 'staff').length,
-        );
+        const stats = await fetchDealerStats();
+        if (!cancelled) setDealerStats(stats);
       } catch (err) {
         if (!cancelled) {
           setError(err instanceof Error ? err.message : dealerErrorMessage(err));
@@ -191,7 +65,6 @@ export const SuperAdminDashboard: React.FC = () => {
         if (!cancelled) setLoading(false);
       }
     };
-
     void load();
     return () => {
       cancelled = true;
@@ -200,7 +73,7 @@ export const SuperAdminDashboard: React.FC = () => {
 
   const periodBounds = useMemo(
     () => resolveDashboardPeriodBounds(opsPeriod, customRange.start, customRange.end),
-    [opsPeriod, customRange.end, customRange.start],
+    [customRange.end, customRange.start, opsPeriod],
   );
   const periodLabel = useMemo(
     () => formatDashboardPeriodLabel(periodBounds.start, periodBounds.end),
@@ -209,11 +82,10 @@ export const SuperAdminDashboard: React.FC = () => {
 
   useEffect(() => {
     let cancelled = false;
-
     const loadOps = async () => {
       setOpsLoading(true);
       try {
-        const [stages, invoiceKpi, warrantySupport, openSupport, purchaseOrders] = await Promise.all([
+        const [stages, invoiceKpi, warrantySupport, openComplaints, purchaseOrders] = await Promise.all([
           countAdminSalesOrdersByYesOneStages({
             dateStart: periodBounds.start,
             dateEnd: periodBounds.end,
@@ -238,13 +110,11 @@ export const SuperAdminDashboard: React.FC = () => {
         if (cancelled) return;
         const invoiceStatuses = invoiceKpi.byFilterStatus ?? {};
         setOpsCounts({
-          totalSales: Number(invoiceKpi.totalAmount) || 0,
           newOrders: stages.review,
           pendingApproval: stages.payment_submitted,
           toDispatch: invoiceStatuses.to_dispatch ?? 0,
-          inTransit: invoiceStatuses.in_transit ?? 0,
           warrantySupport,
-          openSupport,
+          openComplaints,
           purchaseOrders,
         });
       } catch (err) {
@@ -255,61 +125,35 @@ export const SuperAdminDashboard: React.FC = () => {
         if (!cancelled) setOpsLoading(false);
       }
     };
-
     void loadOps();
     return () => {
       cancelled = true;
     };
   }, [periodBounds.end, periodBounds.start]);
 
-  const dailySales = useMemo(() => buildAdminDailySales(invoices, 30), [invoices]);
-
-  const activities = useMemo(
-    () => buildActivities(invoices, supportRequests),
-    [invoices, supportRequests],
+  const periodFilter = useMemo(
+    () => (
+      <DashboardPeriodFilter
+        preset={opsPeriod}
+        customFrom={customRange.start}
+        customTo={customRange.end}
+        rangeLabel={periodLabel}
+        onPresetChange={next => {
+          setOpsPeriod(next);
+          if (next === 'custom' && (!customRange.start || !customRange.end)) {
+            setCustomRange(defaultDashboardCustomRange());
+          }
+        }}
+        onCustomFromChange={start => setCustomRange(prev => ({ ...prev, start }))}
+        onCustomToChange={end => setCustomRange(prev => ({ ...prev, end }))}
+      />
+    ),
+    [customRange.end, customRange.start, opsPeriod, periodLabel],
   );
 
-  const outstanding = useMemo(() => sumAdminOutstanding(invoices), [invoices]);
-  const overdueCount = useMemo(() => countAdminInvoicesByStatus(invoices, 'overdue'), [invoices]);
+  useTopBarAction(periodFilter);
 
-  const openSalesMap = useCallback((mapLevel: 'india' | 'kerala' = 'india') => {
-    navigate(`${BASE}/sales-by-state`, {
-      state: { period: opsPeriod, customRange, mapLevel },
-    });
-  }, [customRange, navigate, opsPeriod]);
-
-  const [dashDragX, setDashDragX] = useState(0);
-  const [dashDragging, setDashDragging] = useState(false);
-
-  useEffect(() => {
-    const bounds = opsPeriod === 'custom'
-      ? resolveDashboardPeriodBounds('custom', customRange.start, customRange.end)
-      : (() => {
-        const next = getInvoicePeriodBounds(opsPeriod === 'year' ? 'financial_year' : 'current_month');
-        if (!next) return defaultDashboardCustomRange();
-        return { start: toDateInputValue(next.start), end: toDateInputValue(next.end) };
-      })();
-    const timer = window.setTimeout(() => {
-      prefetchSalesByState({ dateStart: bounds.start, dateEnd: bounds.end });
-    }, 160);
-    return () => window.clearTimeout(timer);
-  }, [customRange.end, customRange.start, opsPeriod]);
-
-  useHorizontalSwipe(pageRef, {
-    onSwipeRight: () => openSalesMap('india'),
-    onSwipeLeft: () => openSalesMap('kerala'),
-    onSwipeProgress: (dx) => {
-      setDashDragging(true);
-      setDashDragX(dx);
-    },
-    onSwipeEnd: (committed) => {
-      setDashDragging(false);
-      if (!committed) setDashDragX(0);
-    },
-    enabled: true,
-  });
-
-  const periodKpis = [
+  const opsKpis = [
     {
       id: 'to-dispatch',
       label: 'To dispatch',
@@ -317,14 +161,6 @@ export const SuperAdminDashboard: React.FC = () => {
       path: `${BASE}/invoices`,
       tone: 'orange' as const,
       icon: <Truck size={22} strokeWidth={2.5} />,
-    },
-    {
-      id: 'in-transit',
-      label: 'In transit',
-      value: opsLoading ? '…' : String(opsCounts.inTransit),
-      path: `${BASE}/invoices`,
-      tone: 'purple' as const,
-      icon: <Package size={22} strokeWidth={2.5} />,
     },
     {
       id: 'pending-approval',
@@ -343,6 +179,14 @@ export const SuperAdminDashboard: React.FC = () => {
       icon: <PackagePlus size={22} strokeWidth={2.5} />,
     },
     {
+      id: 'purchase-orders',
+      label: 'Purchase orders',
+      value: opsLoading ? '…' : String(opsCounts.purchaseOrders),
+      path: `${BASE}/purchase-orders`,
+      tone: 'blue' as const,
+      icon: <ClipboardList size={22} strokeWidth={2.5} />,
+    },
+    {
       id: 'warranty-support',
       label: 'Warranty support',
       value: opsLoading ? '…' : String(opsCounts.warrantySupport),
@@ -351,24 +195,16 @@ export const SuperAdminDashboard: React.FC = () => {
       icon: <Shield size={22} strokeWidth={2.5} />,
     },
     {
-      id: 'logistic-complaint',
-      label: 'Logistic complaint',
-      value: opsLoading ? '…' : String(opsCounts.openSupport),
+      id: 'open-complaints',
+      label: 'Open complaints',
+      value: opsLoading ? '…' : String(opsCounts.openComplaints),
       path: `${BASE}/warranty-support`,
       tone: 'red' as const,
       icon: <AlertTriangle size={22} strokeWidth={2.5} />,
     },
-    {
-      id: 'purchase-orders',
-      label: 'Purchase orders',
-      value: opsLoading ? '…' : String(opsCounts.purchaseOrders),
-      path: `${BASE}/purchase-orders`,
-      tone: 'blue' as const,
-      icon: <ClipboardList size={22} strokeWidth={2.5} />,
-    },
   ];
 
-  const secondaryKpis = [
+  const dealerKpis = [
     {
       id: 'dealers-total',
       label: 'Total Dealers',
@@ -401,61 +237,10 @@ export const SuperAdminDashboard: React.FC = () => {
       tone: 'red' as const,
       icon: <Ban size={22} strokeWidth={2.5} />,
     },
-    {
-      id: 'dealers-unstaged',
-      label: 'Unstaged Dealers',
-      value: loading ? '…' : dealerStats ? String(dealerStats.unstaged) : '—',
-      path: `${BASE}/dealers`,
-      tone: 'purple' as const,
-      icon: <Users size={22} strokeWidth={2.5} />,
-    },
-  ];
-
-  const quickActions = [
-    { label: 'Manage Dealers', path: `${BASE}/dealers`, icon: <Building2 size={20} /> },
-    { label: 'HR', path: `${BASE}/settings/hr`, icon: <Users size={20} /> },
-    { label: 'Invoices', path: `${BASE}/invoices`, icon: <FileText size={20} /> },
-    { label: 'Products', path: `${BASE}/products`, icon: <Package size={20} /> },
-    { label: 'Warranty & Support', path: `${BASE}/warranty-support`, icon: <LifeBuoy size={20} /> },
-    { label: 'Verification', path: `${BASE}/verification`, icon: <ShieldCheck size={20} /> },
-  ];
-
-  const miniStats = [
-    {
-      label: 'Staff',
-      value: loading ? '…' : String(staffCount),
-      trend: 'Company team',
-      tone: 'purple' as const,
-      icon: <Users size={18} />,
-      actionLabel: 'Open HR',
-      path: `${BASE}/settings/hr`,
-    },
-    {
-      label: 'Unassigned staff',
-      value: loading ? '…' : dealerStats ? String(dealerStats.unassignedStaff) : '—',
-      trend: 'Needs assignment',
-      tone: 'orange' as const,
-      icon: <Briefcase size={18} />,
-      actionLabel: 'Assign staff',
-      path: `${BASE}/dealers`,
-    },
-    {
-      label: 'Overdue Invoices',
-      value: loading ? '…' : String(overdueCount),
-      trend: outstanding > 0 ? `${formatCurrency(outstanding)} outstanding` : 'All clear',
-      tone: 'blue' as const,
-      icon: <ClipboardList size={18} />,
-      actionLabel: 'View invoices',
-      path: `${BASE}/invoices`,
-    },
   ];
 
   return (
-    <div
-      ref={pageRef}
-      className={`page-content fade-in dealer-dashboard${dashDragging ? ' is-swiping' : ''}`}
-      style={dashDragX ? { transform: `translate3d(${dashDragX}px, 0, 0)` } : undefined}
-    >
+    <div className="page-content fade-in dealer-dashboard">
       {error && (
         <p className="dealer-dash__error" role="alert">
           {error}
@@ -463,49 +248,9 @@ export const SuperAdminDashboard: React.FC = () => {
       )}
 
       <section className="dealer-dash__kpis-layout" aria-label="Key metrics">
-        <DashboardPeriodFilter
-          preset={opsPeriod}
-          customFrom={customRange.start}
-          customTo={customRange.end}
-          rangeLabel={periodLabel}
-          onPresetChange={next => {
-            setOpsPeriod(next);
-            if (next === 'custom' && (!customRange.start || !customRange.end)) {
-              setCustomRange(defaultDashboardCustomRange());
-            }
-          }}
-          onCustomFromChange={start => setCustomRange(prev => ({ ...prev, start }))}
-          onCustomToChange={end => setCustomRange(prev => ({ ...prev, end }))}
-        />
-
-        <div className="dealer-dash-kpi dealer-dash-kpi--blue dealer-dash-kpi--featured">
-          <div className="dealer-dash-kpi__featured-main">
-            <div className="dealer-dash-kpi__icon dealer-dash-kpi__icon--featured">
-              <IndianRupee strokeWidth={2.5} />
-            </div>
-            <div className="dealer-dash-kpi__body dealer-dash-kpi__body--featured">
-              <span className="dealer-dash-kpi__label">Total Sales</span>
-              <span className="dealer-dash-kpi__period text-muted text-sm">
-                excl. GST · {periodLabel}
-              </span>
-            </div>
-          </div>
-          <strong className="dealer-dash-kpi__value dealer-dash-kpi__value--featured">
-            {opsLoading ? '…' : formatCurrency(opsCounts.totalSales)}
-          </strong>
-          <button
-            type="button"
-            className="dealer-dash-kpi__chevron-btn"
-            onClick={() => navigate(`${BASE}/invoices`)}
-            aria-label="View invoices"
-          >
-            <ChevronRight size={18} className="dealer-dash-kpi__chevron" aria-hidden />
-          </button>
-        </div>
-
-        <section className="dealer-dash-period-panel" aria-label="Orders and fulfillment">
+        <section className="dealer-dash-period-panel" aria-label="Orders and support">
           <div className="dealer-dash__kpis-grid dealer-dash__kpis-grid--pairs">
-            {periodKpis.map(card => (
+            {opsKpis.map(card => (
               <button
                 key={card.id}
                 type="button"
@@ -524,7 +269,7 @@ export const SuperAdminDashboard: React.FC = () => {
         </section>
 
         <div className="dealer-dash__kpis-grid dealer-dash__kpis-grid--dealer-stages">
-          {secondaryKpis.map(card => (
+          {dealerKpis.map(card => (
             <button
               key={card.id}
               type="button"
@@ -540,111 +285,6 @@ export const SuperAdminDashboard: React.FC = () => {
             </button>
           ))}
         </div>
-      </section>
-
-      <section className="dealer-dash__chart-panel" data-no-swipe>
-        <div className="dealer-dash__chart-head">
-          <div>
-            <h3 className="dealer-dash__section-title">
-              <TrendingUp size={18} />
-              Sales Overview
-            </h3>
-            <p className="dealer-dash__section-sub">Daily invoice totals across all dealers (last 30 days)</p>
-          </div>
-          {loading && (
-            <span className="dealer-dash__placeholder-badge">
-              <RefreshCw size={12} className="spin-icon" aria-hidden />
-              Loading
-            </span>
-          )}
-        </div>
-        <SalesChart dailySales={dailySales} />
-      </section>
-
-      <section className="dealer-dash__quick-actions">
-        <h3 className="dealer-dash__section-title">Quick Actions</h3>
-        <div className="dealer-dash__quick-scroll">
-          {quickActions.map(action => (
-            <button
-              key={action.label}
-              type="button"
-              className="dealer-dash-quick"
-              onClick={() => navigate(action.path)}
-            >
-              <span className="dealer-dash-quick__icon">{action.icon}</span>
-              <span className="dealer-dash-quick__plus" aria-hidden>
-                <Plus size={10} strokeWidth={3} />
-              </span>
-              <span className="dealer-dash-quick__label">{action.label}</span>
-            </button>
-          ))}
-        </div>
-      </section>
-
-      <section className="dealer-dash__activities">
-        <div className="dealer-dash__activities-head">
-          <h3 className="dealer-dash__section-title">
-            <Bell size={18} />
-            Recent Activities
-          </h3>
-        </div>
-        {loading && !activities.length ? (
-          <p className="dealer-dash__empty-note">Loading recent activity…</p>
-        ) : activities.length ? (
-          <ul className="dealer-dash-activity-list">
-            {activities.map(item => (
-              <li key={item.id}>
-                <button
-                  type="button"
-                  className={`dealer-dash-activity dealer-dash-activity--${item.tone}`}
-                  onClick={() => navigate(item.path)}
-                >
-                  <span className="dealer-dash-activity__icon">{item.icon}</span>
-                  <span className="dealer-dash-activity__main">
-                    <strong>{item.title}</strong>
-                    <span>{item.description}</span>
-                  </span>
-                  {item.time && (
-                    <time className="dealer-dash-activity__time">{item.time}</time>
-                  )}
-                </button>
-              </li>
-            ))}
-          </ul>
-        ) : (
-          <p className="dealer-dash__empty-note">No recent invoices or support tickets.</p>
-        )}
-        {activities.length > 0 && (
-          <button
-            type="button"
-            className="dealer-dash__view-all"
-            onClick={() => navigate(`${BASE}/invoices`)}
-          >
-            View all invoices
-          </button>
-        )}
-      </section>
-
-      <section className="dealer-dash__mini-stats" aria-label="Summary stats">
-        {miniStats.map(stat => (
-          <div key={stat.label} className={`dealer-dash-mini dealer-dash-mini--${stat.tone}`}>
-            <div className="dealer-dash-mini__icon">{stat.icon}</div>
-            <div className="dealer-dash-mini__body">
-              <span className="dealer-dash-mini__label">{stat.label}</span>
-              <strong className="dealer-dash-mini__value">{stat.value}</strong>
-              <span className="dealer-dash-mini__trend">{stat.trend}</span>
-              {stat.actionLabel && stat.path && (
-                <button
-                  type="button"
-                  className="dealer-dash-mini__link"
-                  onClick={() => navigate(stat.path)}
-                >
-                  {stat.actionLabel}
-                </button>
-              )}
-            </div>
-          </div>
-        ))}
       </section>
     </div>
   );
