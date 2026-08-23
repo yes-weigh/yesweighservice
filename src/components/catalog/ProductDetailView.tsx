@@ -36,6 +36,7 @@ import {
   assignProductCategory,
   expectsCatalogPackageInfo,
   formatCurrencyWhole,
+  formatProductTitle,
   formatStockQuantity,
   getFinishedGoodsForSpareMapping,
   getSparesForSpareMapping,
@@ -155,14 +156,6 @@ import { SpareLinkEditor } from './SpareLinkEditor';
 import { StockBadge, StockQuantity } from './StockBadge';
 import { StampingShieldIcon } from './StampingShieldIcon';
 import { useCatalogPageHeader } from '../../context/PageHeaderContext';
-
-function formatProductTitle(name: string): string {
-  return name
-    .toLowerCase()
-    .split(/\s+/)
-    .map(word => word.charAt(0).toUpperCase() + word.slice(1))
-    .join(' ');
-}
 
 function themeIndexFromId(id: string): number {
   let hash = 0;

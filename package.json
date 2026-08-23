@@ -51,7 +51,7 @@
     "leaflet": "^1.9.4",
     "lucide-react": "^1.16.0",
     "pdf-lib": "^1.17.1",
-    "pdfjs-dist": "^6.0.227",
+    "pdfjs-dist": "6.2.108",
     "qrcode": "^1.5.4",
     "react": "^19.2.6",
     "react-dom": "^19.2.6",
@@ -80,6 +80,7 @@
   },
   "overrides": {
     "@emnapi/core": "1.11.0",
-    "@emnapi/runtime": "1.11.0"
+    "@emnapi/runtime": "1.11.0",
+    "pdfjs-dist": "6.2.108"
   }
 }

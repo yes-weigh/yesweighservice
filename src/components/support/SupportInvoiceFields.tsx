@@ -104,6 +104,7 @@ function selectableInvoiceProducts(
 }
 
 const SUPPORT_PICKER_PAGE_SIZE = 10;
+const SUPPORT_PICKER_INVOICE_FETCH = 40;
 const SUPPORT_REPLACEMENT_LIST_LIMIT = 80;
 const PRODUCT_WARRANTY_LISTING_DAYS = 365;
 
@@ -117,7 +118,7 @@ function supportPickerInvoiceParams(
     customerId,
     q: q.trim() || undefined,
     page,
-    limit: replacementMode ? SUPPORT_REPLACEMENT_LIST_LIMIT : SUPPORT_PICKER_PAGE_SIZE,
+    limit: replacementMode ? SUPPORT_REPLACEMENT_LIST_LIMIT : SUPPORT_PICKER_INVOICE_FETCH,
     sortField: 'date' as const,
     sortDir: 'desc' as const,
     includeLineItems: true,
@@ -177,7 +178,9 @@ function flattenSupportPickerRows(
 async function withCatalogMetaOnInvoices(invoices: DealerInvoice[]): Promise<DealerInvoice[]> {
   const ids = invoices.flatMap(invoice => (
     invoice.lineItems ?? []
-  ).map(item => item.itemId).filter((id): id is string => Boolean(id)));
+  ).filter(item => item.isCatalogSpare === undefined && item.itemId)
+    .map(item => item.itemId)
+    .filter((id): id is string => Boolean(id)));
   if (!ids.length) return invoices;
   const meta = await fetchCatalogMetaForItemIds(ids);
   return invoices.map(invoice => ({

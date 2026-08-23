@@ -73,6 +73,34 @@ function catalogImageBustVersion(
 
 const SPARES_EXCLUDED_CATEGORY_NAMES = new Set(['software keys', 'sanoft']);
 
+const PRODUCT_TITLE_ACRONYMS = new Set([
+  'atm', 'pc', 'ss', 'ms', 'led', 'lcd', 'pcb', 'pos', 'usb', 'gst', 'hsn',
+  'sku', 'ups', 'ac', 'dc', 'rf', 'qr', 'gps', 'api', 'pdf', 'iot', 'nfc',
+]);
+
+/** Shop card / detail titles: keep ATM, PC, SS, model codes; title-case the rest. */
+export function formatProductTitle(name: string): string {
+  return String(name ?? '')
+    .trim()
+    .split(/\s+/)
+    .filter(Boolean)
+    .map(word => {
+      const letters = word.replace(/[^A-Za-z]/g, '');
+      if (letters && PRODUCT_TITLE_ACRONYMS.has(letters.toLowerCase())) {
+        return word.replace(/[A-Za-z]+/g, chunk => (
+          PRODUCT_TITLE_ACRONYMS.has(chunk.toLowerCase())
+            ? chunk.toUpperCase()
+            : chunk.charAt(0).toUpperCase() + chunk.slice(1).toLowerCase()
+        ));
+      }
+      if (/^[A-Z0-9]+(?:[-/][A-Z0-9]+)*$/.test(word) && word.length >= 2) {
+        return word;
+      }
+      return word.charAt(0).toUpperCase() + word.slice(1).toLowerCase();
+    })
+    .join(' ');
+}
+
 /** Categories excluded from the browse grid (still in catalog data). */
 export function isHiddenCatalogCategory(category: Pick<CatalogCategory, 'name'>): boolean {
   return HIDDEN_CATEGORY_NAMES.has(category.name.trim().toLowerCase());
@@ -121,18 +149,19 @@ export function isCatalogFreightChargeProduct(product: {
 
 /** True when a Zoho item belongs on the Spare parts tab (not shop Categories). */
 export function isCatalogSparePartProduct(
-  product: Pick<CatalogProduct, 'categoryId' | 'categoryName'> & Partial<Pick<CatalogProduct, 'id' | 'sku'>>,
+  product: Pick<CatalogProduct, 'categoryId' | 'categoryName'> & Partial<Pick<CatalogProduct, 'id' | 'sku' | 'modelNumber'>>,
   categories: CatalogCategory[] = [],
 ): boolean {
   if (isCatalogFreightChargeProduct(product)) return false;
   const genericCategoryIds = new Set(
     categories.filter(isGenericSparePartsCategory).map(c => c.id),
   );
-  if (!hasCatalogCategory(product)) return true;
   if (product.categoryId && genericCategoryIds.has(product.categoryId)) return true;
   if (product.categoryName && isGenericSparePartsCategory({ name: product.categoryName })) {
     return true;
   }
+  if (String(product.modelNumber ?? '').trim()) return false;
+  if (!hasCatalogCategory(product)) return true;
   return false;
 }
 

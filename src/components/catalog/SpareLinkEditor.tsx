@@ -1,15 +1,8 @@
 import React, { useMemo, useState } from 'react';
 import { Link2, Search, X } from 'lucide-react';
 import type { CatalogProduct } from '../../types/catalog';
+import { formatProductTitle } from '../../lib/catalog';
 import { fillSearchFromScan, SkuScanButton } from './SkuScanButton';
-
-function formatProductTitle(name: string): string {
-  return name
-    .toLowerCase()
-    .split(/\s+/)
-    .map(word => word.charAt(0).toUpperCase() + word.slice(1))
-    .join(' ');
-}
 
 export const SpareLinkEditor: React.FC<{
   mode: 'product' | 'spare';

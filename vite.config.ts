@@ -1,9 +1,40 @@
-import { defineConfig } from 'vite';
+import { copyFileSync, mkdirSync } from 'node:fs';
+import { createRequire } from 'node:module';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { defineConfig, type Plugin } from 'vite';
 import react from '@vitejs/plugin-react';
 import { VitePWA } from 'vite-plugin-pwa';
 
+const require = createRequire(import.meta.url);
+const projectRoot = dirname(fileURLToPath(import.meta.url));
+
+/** Copy the pdf.js worker next to the app so API and worker cannot drift versions. */
+function syncPdfjsWorker(): Plugin {
+  const sync = () => {
+    const workerSrc = require.resolve('pdfjs-dist/legacy/build/pdf.worker.min.mjs');
+    const destDir = join(projectRoot, 'public', 'pdfjs');
+    mkdirSync(destDir, { recursive: true });
+    copyFileSync(workerSrc, join(destDir, 'pdf.worker.min.mjs'));
+  };
+  return {
+    name: 'sync-pdfjs-worker',
+    buildStart: sync,
+    configureServer: sync,
+  };
+}
+
 export default defineConfig({
+  optimizeDeps: {
+    // Keep pdf.js out of the prebundle so the API and worker resolve from the
+    // same package copy. A stale dep cache was serving API 6.2.108 with worker 6.0.227.
+    exclude: ['pdfjs-dist'],
+  },
+  worker: {
+    format: 'es',
+  },
   plugins: [
+    syncPdfjsWorker(),
     react(),
     VitePWA({
       registerType: 'autoUpdate',
@@ -15,6 +46,7 @@ export default defineConfig({
         'icons/favicon-32.png',
         'icons/favicon-48.png',
         'icons/apple-touch-icon.png',
+        'pdfjs/pdf.worker.min.mjs',
       ],
       manifest: {
         name: 'YesOne Platform',

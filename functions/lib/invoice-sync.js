@@ -19,6 +19,7 @@ import { formatZohoAddress } from './zoho-contact-fields.js';
 import {
   classifyInvoiceCategoryBreakdown,
   classifyInvoiceFromLineItems,
+  isGenericSpareCategoryName,
   parseInvoiceCategory,
 } from './invoice-category.js';
 import {
@@ -340,6 +341,7 @@ async function getCatalogMetaForItems(itemIds) {
       hsn: data.hsn != null ? String(data.hsn) : null,
       categoryId: data.categoryId != null ? String(data.categoryId) : null,
       categoryName: data.categoryName != null ? String(data.categoryName) : null,
+      modelNumber: data.modelNumber != null ? String(data.modelNumber).trim() || null : null,
     });
   }
   return map;
@@ -1071,6 +1073,15 @@ export async function reconcileCustomerInvoices(secrets, orgId, customerId, opti
   return { zohoCount: zohoIds.size, localRemoved: removed };
 }
 
+function isCatalogSpareMeta(catalog) {
+  if (!catalog) return false;
+  if (isGenericSpareCategoryName(catalog.categoryName)) return true;
+  if (String(catalog.modelNumber ?? '').trim()) return false;
+  const categoryId = String(catalog.categoryId ?? '').trim();
+  if (!categoryId || categoryId === '-1') return true;
+  return false;
+}
+
 function compactInvoiceLineItemPreview(item, catalogMap) {
   const itemId = item?.itemId != null && String(item.itemId).trim()
     ? String(item.itemId)
@@ -1096,32 +1107,41 @@ function compactInvoiceLineItemPreview(item, catalogMap) {
       : [],
     ...(catalog?.categoryId != null ? { categoryId: String(catalog.categoryId) } : {}),
     ...(catalog?.categoryName != null ? { categoryName: String(catalog.categoryName) } : {}),
+    ...(catalog ? { isCatalogSpare: isCatalogSpareMeta(catalog) } : {}),
   };
 }
 
 /**
  * Attach compact product rows to a small page of invoices (support picker).
- * Avoids loading lineItems for every invoice in the dealer list.
+ * Reuses lineItems already loaded by an indexed list query.
  */
 export async function attachInvoiceLineItemPreviews(customerId, invoices) {
   if (!Array.isArray(invoices) || !invoices.length) return invoices;
   const col = invoicesCollection(String(customerId));
-  const snaps = await Promise.all(
-    invoices.map(inv => col.doc(String(inv.id)).select(
-      'lineItems',
-      'line_items',
-      'customerPickup',
-      'customerPickupMarkedAt',
-      'manualDelivery',
-      'manualDeliveredAt',
-      'goodsReceivedAt',
-    ).get()),
-  );
-  const linesByInvoice = snaps.map(snap => {
-    const data = snap.exists ? snap.data() ?? {} : {};
-    const lines = data.lineItems ?? data.line_items;
-    return Array.isArray(lines) && lines.length ? lines : null;
-  });
+  const extraByIndex = invoices.map(() => null);
+  const linesByInvoice = invoices.map(inv => (
+    Array.isArray(inv.lineItems) && inv.lineItems.length ? inv.lineItems : null
+  ));
+  const missingIndexes = invoices
+    .map((inv, index) => (linesByInvoice[index] ? -1 : index))
+    .filter(index => index >= 0);
+
+  if (missingIndexes.length) {
+    const db = getFirestore();
+    const refs = missingIndexes.map(index => col.doc(String(invoices[index].id)));
+    const snaps = [];
+    for (let i = 0; i < refs.length; i += 100) {
+      snaps.push(...await db.getAll(...refs.slice(i, i + 100)));
+    }
+    snaps.forEach((snap, i) => {
+      const index = missingIndexes[i];
+      const data = snap.exists ? snap.data() ?? {} : {};
+      extraByIndex[index] = data;
+      const lines = data.lineItems ?? data.line_items;
+      linesByInvoice[index] = Array.isArray(lines) && lines.length ? lines : null;
+    });
+  }
+
   const catalogItemIds = [];
   for (const lines of linesByInvoice) {
     if (!Array.isArray(lines)) continue;
@@ -1131,7 +1151,7 @@ export async function attachInvoiceLineItemPreviews(customerId, invoices) {
   }
   const catalogMap = await getCatalogMetaForItems(catalogItemIds);
   return invoices.map((inv, index) => {
-    const extra = snaps[index]?.exists ? snaps[index].data() ?? {} : {};
+    const extra = extraByIndex[index] ?? {};
     return {
       ...inv,
       lineItems: Array.isArray(linesByInvoice[index])
@@ -1171,6 +1191,89 @@ const INVOICE_LIST_SELECT_FIELDS = [
   'manualDelivery',
   'manualDeliveredAt',
 ];
+
+/** IST calendar date `days` ago as YYYY-MM-DD — matches Zoho invoice `date` strings. */
+export function istCalendarDateDaysAgo(days) {
+  const parts = new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'Asia/Kolkata',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).formatToParts(new Date());
+  const year = Number(parts.find(part => part.type === 'year')?.value);
+  const month = Number(parts.find(part => part.type === 'month')?.value);
+  const day = Number(parts.find(part => part.type === 'day')?.value);
+  const utc = new Date(Date.UTC(year, month - 1, day - Number(days || 0)));
+  return utc.toISOString().slice(0, 10);
+}
+
+/**
+ * Indexed invoice page: date DESC (+ optional date >= from).
+ * Uses the invoices.date collection index instead of reading every dealer invoice.
+ */
+export async function readCustomerInvoicesFromFirestoreIndexed(
+  customerId,
+  {
+    dateFrom = '',
+    page = 1,
+    limit = 40,
+    includeLineItems = false,
+  } = {},
+) {
+  const col = invoicesCollection(String(customerId));
+  const fields = includeLineItems
+    ? [...INVOICE_LIST_SELECT_FIELDS, 'lineItems', 'line_items']
+    : INVOICE_LIST_SELECT_FIELDS;
+  const safePage = Math.max(1, Number(page) || 1);
+  const safeLimit = Math.max(1, Number(limit) || 40);
+  const offset = (safePage - 1) * safeLimit;
+  const from = String(dateFrom || '').trim();
+
+  let listQuery = col.select(...fields);
+  let countQuery = col;
+  if (from) {
+    listQuery = listQuery.where('date', '>=', from);
+    countQuery = countQuery.where('date', '>=', from);
+  }
+  listQuery = listQuery.orderBy('date', 'desc');
+  countQuery = countQuery.orderBy('date', 'desc');
+  if (offset) listQuery = listQuery.offset(offset);
+  listQuery = listQuery.limit(safeLimit);
+
+  const [snap, countSnap, metaSnap] = await Promise.all([
+    listQuery.get(),
+    countQuery.count().get(),
+    customerInvoiceMetaRef(String(customerId)).get(),
+  ]);
+
+  const invoices = [];
+  snap.forEach(docSnap => {
+    const data = docSnap.data() ?? {};
+    const row = firestoreDocToListInvoice({ ...data, id: docSnap.id });
+    if (includeLineItems) {
+      const lines = data.lineItems ?? data.line_items;
+      if (Array.isArray(lines) && lines.length) row.lineItems = lines;
+    }
+    invoices.push(row);
+  });
+
+  const meta = metaSnap.exists ? metaSnap.data() : null;
+  let lastSyncedAt = null;
+  const timestamps = [meta?.lastFullSyncAt, meta?.lastWebhookAt, meta?.updatedAt];
+  for (const ts of timestamps) {
+    if (ts instanceof Timestamp) {
+      const iso = ts.toDate().toISOString();
+      if (!lastSyncedAt || iso > lastSyncedAt) lastSyncedAt = iso;
+    }
+  }
+
+  return {
+    invoices,
+    searchBlobById: new Map(),
+    lastSyncedAt,
+    total: countSnap.data().count,
+  };
+}
 
 export async function readCustomerInvoicesFromFirestore(
   customerId,

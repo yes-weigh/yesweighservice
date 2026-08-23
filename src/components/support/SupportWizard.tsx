@@ -781,18 +781,9 @@ export const SupportWizard: React.FC<SupportWizardProps> = ({
         <section className="support-wizard__step support-wizard__step--details support-wizard__step--product-picker">
           <div className="support-wizard__step-body">
             {intent === 'return' && (
-              <>
-                <h3 className="support-wizard__question">
-                  Select a product received in the last 7 days
-                </h3>
-                {!productDraft && (
-                  <p className="support-wizard__lede text-muted text-sm">
-                    Full product replacement is only for new goods still inside 7 days of the
-                    receiving date. If you purchased on 1 Jul and received on 5 Jul, you can
-                    replace until 12 Jul.
-                  </p>
-                )}
-              </>
+              <h3 className="support-wizard__question">
+                Select a product received in the last 7 days
+              </h3>
             )}
 
             {productDraft && (

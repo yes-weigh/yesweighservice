@@ -26,3 +26,4 @@ secrets/
 Thumbs.db
 .jdk/
 yesone-*.apk
+public/pdfjs/pdf.worker.min.mjs

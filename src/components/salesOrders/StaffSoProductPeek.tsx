@@ -11,19 +11,12 @@ import {
   fetchCatalogProductDetail,
   fetchCatalogSpareLinks,
   formatCurrency,
+  formatProductTitle,
   hasCatalogCategory,
   isCatalogSparePartProduct,
 } from '../../lib/catalog';
 import { catalogGridStockQty } from '../../lib/catalogProductAudit/display';
 import type { CatalogCategory, CatalogProduct, CatalogProductDetail } from '../../types/catalog';
-
-function formatProductTitle(name: string): string {
-  return name
-    .toLowerCase()
-    .split(/\s+/)
-    .map(word => word.charAt(0).toUpperCase() + word.slice(1))
-    .join(' ');
-}
 
 function PeekCartControls({
   product,

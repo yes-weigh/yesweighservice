@@ -460,6 +460,14 @@
       "collectionGroup": "invoices",
       "queryScope": "COLLECTION",
       "fields": [
+        { "fieldPath": "invoiceCategory", "order": "ASCENDING" },
+        { "fieldPath": "date", "order": "DESCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "invoices",
+      "queryScope": "COLLECTION",
+      "fields": [
         { "fieldPath": "syncedAt", "order": "DESCENDING" },
         { "fieldPath": "invoiceNumber", "order": "DESCENDING" }
       ]
@@ -844,8 +852,17 @@
       "fieldPath": "date",
       "ttl": false,
       "indexes": [
+        { "order": "ASCENDING", "queryScope": "COLLECTION" },
         { "order": "DESCENDING", "queryScope": "COLLECTION" },
         { "order": "DESCENDING", "queryScope": "COLLECTION_GROUP" }
+      ]
+    },
+    {
+      "collectionGroup": "catalogProducts",
+      "fieldPath": "sku",
+      "ttl": false,
+      "indexes": [
+        { "order": "ASCENDING", "queryScope": "COLLECTION" }
       ]
     },
     {

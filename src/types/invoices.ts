@@ -88,6 +88,11 @@ export interface DealerInvoiceLineItem {
   /** Catalog Zoho category when resolved (support picker filters software/spares). */
   categoryId?: string | null;
   categoryName?: string | null;
+  /**
+   * Set when catalogProducts was looked up: true = Spare parts tab item
+   * (uncategorized or Generic spare parts). Missing means catalog was not resolved.
+   */
+  isCatalogSpare?: boolean;
 }
 
 export interface DealerInvoiceDetail extends DealerInvoice {

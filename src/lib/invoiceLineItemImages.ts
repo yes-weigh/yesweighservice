@@ -1,6 +1,6 @@
-import { collection, doc, getDoc, getDocs, limit, query, where } from 'firebase/firestore';
+import { collection, doc, documentId, getDoc, getDocs, limit, query, where } from 'firebase/firestore';
 import { db } from '../firebase';
-import { withCatalogImageCacheBust } from './catalog';
+import { isCatalogSparePartProduct, withCatalogImageCacheBust } from './catalog';
 import type { DealerInvoiceDetail, DealerInvoiceLineItem } from '../types/invoices';
 
 export type LineItemCatalogMeta = {
@@ -8,6 +8,7 @@ export type LineItemCatalogMeta = {
   hsn: string | null;
   categoryId: string | null;
   categoryName: string | null;
+  modelNumber: string | null;
 };
 
 function metaFromCatalogData(data: Record<string, unknown> | undefined): LineItemCatalogMeta {
@@ -21,6 +22,7 @@ function metaFromCatalogData(data: Record<string, unknown> | undefined): LineIte
     hsn: data?.hsn != null ? String(data.hsn) : null,
     categoryId: data?.categoryId != null ? String(data.categoryId) : null,
     categoryName: data?.categoryName != null ? String(data.categoryName) : null,
+    modelNumber: data?.modelNumber != null ? String(data.modelNumber).trim() || null : null,
   };
 }
 
@@ -45,6 +47,8 @@ async function catalogImageBySku(sku: string): Promise<string | null> {
   return metaFromCatalogData(snap.docs[0].data() as Record<string, unknown>).imageUrl;
 }
 
+const catalogMetaMemo = new Map<string, LineItemCatalogMeta>();
+
 export async function fetchCatalogMetaForItemIds(
   itemIds: string[],
 ): Promise<Map<string, LineItemCatalogMeta>> {
@@ -52,12 +56,24 @@ export async function fetchCatalogMetaForItemIds(
   const map = new Map<string, LineItemCatalogMeta>();
   if (!unique.length) return map;
 
-  await Promise.all(
-    unique.map(async id => {
-      const meta = await catalogMetaByItemId(id);
-      if (meta) map.set(id, meta);
-    }),
-  );
+  const missing: string[] = [];
+  for (const id of unique) {
+    const cached = catalogMetaMemo.get(id);
+    if (cached) map.set(id, cached);
+    else missing.push(id);
+  }
+  if (!missing.length) return map;
+
+  const col = collection(db, 'catalogProducts');
+  for (let i = 0; i < missing.length; i += 10) {
+    const chunk = missing.slice(i, i + 10);
+    const snap = await getDocs(query(col, where(documentId(), 'in', chunk)));
+    for (const docSnap of snap.docs) {
+      const meta = metaFromCatalogData(docSnap.data() as Record<string, unknown>);
+      catalogMetaMemo.set(docSnap.id, meta);
+      map.set(docSnap.id, meta);
+    }
+  }
   return map;
 }
 
@@ -69,12 +85,18 @@ export function applyCatalogMetaToLineItems(
   return lineItems.map(item => {
     const meta = item.itemId ? metaByItemId.get(item.itemId) : undefined;
     if (!meta) return item;
+    const catalogSpare = isCatalogSparePartProduct({
+      categoryId: meta.categoryId,
+      categoryName: meta.categoryName,
+      modelNumber: meta.modelNumber,
+    });
     return {
       ...item,
       imageUrl: item.imageUrl || meta.imageUrl,
       hsn: item.hsn || meta.hsn,
-      categoryId: item.categoryId ?? meta.categoryId,
-      categoryName: item.categoryName ?? meta.categoryName,
+      ...(meta.categoryId ? { categoryId: item.categoryId || meta.categoryId } : {}),
+      ...(meta.categoryName ? { categoryName: item.categoryName || meta.categoryName } : {}),
+      isCatalogSpare: catalogSpare,
     };
   });
 }

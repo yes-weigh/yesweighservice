@@ -16,6 +16,7 @@ import {
   fetchCatalogProductDetail,
   fetchCatalogSpareLinks,
   formatCurrency,
+  formatProductTitle,
   getFinishedGoodsForSpareMapping,
   getSparesForSpareMapping,
   saveCatalogProductSpareLinks,
@@ -25,14 +26,6 @@ import { buildSpareNavState } from '../../lib/catalogNav';
 import { CategoryThumbnail } from './CategoryThumbnail';
 import { fillSearchFromScan, SkuScanButton } from './SkuScanButton';
 import { StockBadge } from './StockBadge';
-
-function formatProductTitle(name: string): string {
-  return name
-    .toLowerCase()
-    .split(/\s+/)
-    .map(word => word.charAt(0).toUpperCase() + word.slice(1))
-    .join(' ');
-}
 
 function idsKey(ids: Iterable<string>): string {
   return [...ids].sort().join('|');

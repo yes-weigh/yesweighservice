@@ -1141,15 +1141,18 @@ export function isSpareInvoiceLineItem(
 }
 
 /**
- * Support picker spare check — only explicit spare names/categories.
- * Do not treat “uncategorized catalog” as a spare: invoice line items often
- * have categoryId null, which would hide every product under warranty.
+ * Support picker spare check.
+ * Catalog-resolved uncategorized / Generic spare parts items are spares.
+ * Do not treat a missing categoryId as a spare unless catalog was looked up
+ * (`isCatalogSpare`): compact invoice rows often omit category.
  */
 export function isSupportSpareLineItem(
   item: Pick<DealerInvoiceLineItem, 'name'> & {
     categoryName?: string | null;
+    isCatalogSpare?: boolean;
   },
 ): boolean {
+  if (item.isCatalogSpare) return true;
   if (isGenericSpareCategoryName(item.categoryName)) return true;
   const categoryName = String(item.categoryName ?? '').trim().toLowerCase();
   if (categoryName.includes('spare')) return true;

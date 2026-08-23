@@ -4,6 +4,7 @@ import { getCategoryTheme } from '../../lib/category-display';
 import {
   catalogProductHasSingleBoxPackageInfo,
   expectsCatalogPackageInfo,
+  formatProductTitle,
   formatStockQuantity,
   isCatalogSparePartProduct,
 } from '../../lib/catalog';
@@ -96,14 +97,6 @@ export interface ProductBrowseCardProps {
     onDrop: React.DragEventHandler;
     onDragEnd: React.DragEventHandler;
   };
-}
-
-function formatProductTitle(name: string): string {
-  return name
-    .toLowerCase()
-    .split(/\s+/)
-    .map(word => word.charAt(0).toUpperCase() + word.slice(1))
-    .join(' ');
 }
 
 export const ProductBrowseCard: React.FC<ProductBrowseCardProps> = ({

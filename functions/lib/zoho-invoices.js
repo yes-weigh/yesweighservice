@@ -9,6 +9,8 @@ import {
 } from './invoice-mappers.js';
 import {
   readCustomerInvoicesFromFirestore,
+  readCustomerInvoicesFromFirestoreIndexed,
+  istCalendarDateDaysAgo,
   readInvoiceDetailFromFirestore,
   ensureInvoiceDocumentPdf,
   attachInvoiceLineItemPreviews,
@@ -147,6 +149,96 @@ async function loadPortalStampingForCustomer(customerId) {
   return { invoiceIds, feeByInvoiceId, feeTotal };
 }
 
+async function listDealerInvoicesIndexed(customerId, {
+  status,
+  category,
+  sortField,
+  sortDir,
+  page,
+  limit,
+  replacementWindow,
+}) {
+  const dateFrom = istCalendarDateDaysAgo(replacementWindow ? 120 : 365);
+  const indexed = await readCustomerInvoicesFromFirestoreIndexed(customerId, {
+    dateFrom,
+    page: replacementWindow ? 1 : page,
+    limit: replacementWindow ? Math.max(Number(limit) || 80, 250) : limit,
+    includeLineItems: true,
+  });
+
+  const portalStamping = await loadPortalStampingForCustomer(customerId);
+  let filtered = filterInvoices(indexed.invoices, { status, category: 'all' });
+  const categoryCounts = countInvoicesByCategory(filtered);
+  categoryCounts.gatc = portalStamping.invoiceIds.size;
+
+  let categorized;
+  if (category === 'gatc') {
+    categorized = filtered
+      .filter(inv => portalStamping.invoiceIds.has(String(inv.id)))
+      .map(inv => {
+        const fee = portalStamping.feeByInvoiceId.get(String(inv.id)) ?? 0;
+        const categories = Array.isArray(inv.categories) ? [...inv.categories] : [];
+        if (!categories.includes('gatc')) categories.push('gatc');
+        return {
+          ...inv,
+          categories,
+          categoryAmounts: {
+            ...(inv.categoryAmounts && typeof inv.categoryAmounts === 'object'
+              ? inv.categoryAmounts
+              : {}),
+            gatc: fee,
+          },
+        };
+      });
+  } else {
+    categorized = filterInvoices(filtered, { category });
+  }
+
+  const listed = replacementWindow
+    ? await filterReplacementEligibleInvoices(customerId, categorized)
+    : categorized;
+
+  if (replacementWindow) {
+    const byReceived = [...listed].sort((a, b) => {
+      const left = String(b.goodsReceivedAt ?? b.date ?? '');
+      const right = String(a.goodsReceivedAt ?? a.date ?? '');
+      return left.localeCompare(right);
+    });
+    const withLines = await attachInvoiceLineItemPreviews(customerId, byReceived);
+    return {
+      data: withLines,
+      pagination: {
+        total: withLines.length,
+        page: 1,
+        limit: withLines.length || 1,
+        totalPages: 1,
+      },
+      categoryCounts,
+      customerId,
+      lastSyncedAt: indexed.lastSyncedAt,
+      portalStampingFeeTotal: portalStamping.feeTotal,
+      portalStampingInvoiceIds: [...portalStamping.invoiceIds],
+    };
+  }
+
+  const sorted = sortInvoices(listed, sortField, sortDir);
+  const withLines = await attachInvoiceLineItemPreviews(customerId, sorted);
+  return {
+    data: withLines,
+    pagination: {
+      total: indexed.total,
+      page,
+      limit,
+      totalPages: Math.max(1, Math.ceil((indexed.total || 0) / (limit || 1))),
+    },
+    categoryCounts,
+    customerId,
+    lastSyncedAt: indexed.lastSyncedAt,
+    portalStampingFeeTotal: portalStamping.feeTotal,
+    portalStampingInvoiceIds: [...portalStamping.invoiceIds],
+  };
+}
+
 export async function listDealerInvoices(_secrets, _orgId, uid, role, query = {}) {
   const requestedCustomerId = String(query.customerId ?? '').trim();
   let customerId;
@@ -163,12 +255,29 @@ export async function listDealerInvoices(_secrets, _orgId, uid, role, query = {}
   const sortDir = query.sortDir === 'asc' ? 'asc' : 'desc';
   const page = Number(query.page ?? 1);
   const includeLineItems = Boolean(query.includeLineItems);
-  const replacementWindow = Boolean(query.replacementWindow);
+  const replacementWindow = Boolean(query.replacementWindow || query.replacementWindow);
   const limit = replacementWindow
     ? Math.min(Math.max(Number(query.limit ?? 80), 1), 80)
     : includeLineItems
-      ? Math.min(Number(query.limit ?? 12), 20)
+      ? Math.min(Math.max(Number(query.limit ?? 40), 1), 50)
       : Number(query.limit ?? 25);
+
+  const useIndexedPickerQuery = includeLineItems && !searchText;
+  if (useIndexedPickerQuery) {
+    try {
+      return await listDealerInvoicesIndexed(customerId, {
+        status,
+        category,
+        sortField,
+        sortDir,
+        page,
+        limit,
+        replacementWindow,
+      });
+    } catch (err) {
+      console.warn('indexed invoice picker query failed, using full scan:', err?.message ?? err);
+    }
+  }
 
   const { invoices, searchBlobById, lastSyncedAt } = await readCustomerInvoicesFromFirestore(
     customerId,
