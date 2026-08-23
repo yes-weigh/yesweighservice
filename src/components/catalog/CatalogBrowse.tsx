@@ -23,6 +23,7 @@ import { useCatalogPageHeader } from '../../context/PageHeaderContext';
 import { useDealerOrderStockGate, useDealerListedCatalogProducts } from '../../hooks/useDealerOrderStockGate';
 import { DEALER_ORDER_SCHEDULED_TITLE } from '../../lib/dealerOrderStock';
 import type { CatalogCategory, CatalogProduct } from '../../types/catalog';
+import { prefetchFastImages } from '../../lib/fastImageCache';
 import { CategoryBrowseCard } from './CategoryBrowseCard';
 import { CategoryBrowseSection } from './CategoryBrowseSection';
 import { CategoryFolderGrid } from './CategoryFolderGrid';
@@ -124,12 +125,14 @@ function ProductListRow({
   showStockQuantity = false,
   dealerView = false,
   raisedPoQty = null,
+  priority = false,
 }: {
   product: CatalogProduct;
   onSelect: () => void;
   showStockQuantity?: boolean;
   dealerView?: boolean;
   raisedPoQty?: number | null;
+  priority?: boolean;
 }) {
   const { user } = useAuth();
   const dealerStock = useDealerOrderStockGate();
@@ -160,7 +163,7 @@ function ProductListRow({
     <button type="button" className="catalog-row panel glass" onClick={onSelect}>
       <div className="catalog-row__media">
         <StockBadge status={product.stockStatus} overlay />
-        <ProductImageFrame src={product.imageUrl} alt={product.name} variant="row" />
+        <ProductImageFrame src={product.imageUrl} alt={product.name} variant="row" priority={priority} />
       </div>
       <div className="catalog-row__main">
         {product.sku && <span className="catalog-card__sku">{product.sku}</span>}
@@ -448,6 +451,15 @@ export const CatalogBrowse: React.FC<CatalogBrowseProps> = ({
   const showProducts = flatBrowse || Boolean(activeCategory || search.trim() || stockFilter);
   const activeCategoryName = filteredCategories.find(c => c.id === activeCategory)?.name;
 
+  useEffect(() => {
+    if (showProducts) {
+      if (search.trim()) return;
+      prefetchFastImages(filteredProducts.map(product => product.imageUrl));
+      return;
+    }
+    prefetchFastImages(filteredCategories.map(category => category.thumbnailUrl));
+  }, [activeCategory, filteredCategories, filteredProducts, search, showProducts]);
+
   const clearFilters = useCallback(() => {
     setActiveCategory('');
     setSearch('');
@@ -659,7 +671,7 @@ export const CatalogBrowse: React.FC<CatalogBrowseProps> = ({
             </div>
           ) : (
             <div className="catalog-list">
-              {filteredProducts.map(product => (
+              {filteredProducts.map((product, idx) => (
                 <ProductListRow
                   key={product.id}
                   product={product}
@@ -667,6 +679,7 @@ export const CatalogBrowse: React.FC<CatalogBrowseProps> = ({
                   showStockQuantity={showStockQuantity}
                   dealerView={dealerView}
                   raisedPoQty={raisedPoQtyByProductId?.get(product.id)}
+                  priority={idx < 12}
                 />
               ))}
             </div>

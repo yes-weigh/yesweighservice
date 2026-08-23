@@ -44,7 +44,10 @@ export interface FetchCatalogOptions {
 
 const HIDDEN_CATEGORY_NAMES = new Set(['stamping gj', 'stamping kl', 'inactive']);
 
-/** Replaced product images keep the same Storage path with a long cache TTL — bust with syncedAt. */
+/**
+ * Replaced product images keep the same Storage path with a long cache TTL.
+ * Bust only when the image itself changes (`imageUpdatedAt`) — never on stock/sync.
+ */
 export function withCatalogImageCacheBust(
   url: string | null | undefined,
   version?: string | number | null,
@@ -57,6 +60,15 @@ export function withCatalogImageCacheBust(
   const params = new URLSearchParams(qIndex === -1 ? '' : url.slice(qIndex + 1));
   params.set('v', String(v));
   return `${base}?${params.toString()}`;
+}
+
+function catalogImageBustVersion(
+  data: { imageUpdatedAt?: unknown },
+): string | number | null {
+  const raw = data.imageUpdatedAt;
+  if (typeof raw === 'string' && raw.trim()) return raw.trim();
+  if (typeof raw === 'number' && Number.isFinite(raw)) return raw;
+  return null;
 }
 
 const SPARES_EXCLUDED_CATEGORY_NAMES = new Set(['software keys', 'sanoft']);
@@ -808,31 +820,32 @@ function mapImageDocs(data: unknown): CatalogProduct['imageDocs'] {
 function mapProductImageUrls(
   data: Record<string, unknown>,
   primaryUrl: string | null,
-  syncedAt: string | undefined,
+  imageVersion: string | number | null,
 ): string[] | undefined {
   const docs = mapImageDocs(data.imageDocs);
   if (Array.isArray(data.imageUrls)) {
     const urls = data.imageUrls
-      .map(url => withCatalogImageCacheBust(String(url ?? '').trim() || null, syncedAt))
+      .map(url => withCatalogImageCacheBust(String(url ?? '').trim() || null, imageVersion))
       .filter((url): url is string => Boolean(url));
     if (urls.length) return urls;
   }
   if (primaryUrl) {
-    const gallery = (docs ?? []).map(doc => withCatalogImageCacheBust(doc.url, syncedAt) ?? doc.url);
+    const gallery = (docs ?? []).map(doc => withCatalogImageCacheBust(doc.url, imageVersion) ?? doc.url);
     return [primaryUrl, ...gallery.filter(url => url !== primaryUrl)];
   }
   if (docs?.length) {
-    return docs.map(doc => withCatalogImageCacheBust(doc.url, syncedAt) ?? doc.url);
+    return docs.map(doc => withCatalogImageCacheBust(doc.url, imageVersion) ?? doc.url);
   }
   return undefined;
 }
 
 function mapProduct(data: Record<string, unknown>): CatalogProduct {
   const syncedAt = data.syncedAt as string | undefined;
+  const imageVersion = catalogImageBustVersion(data);
   const rawImageUrl = (data.imageUrl as string | null) ?? null;
-  const imageUrl = withCatalogImageCacheBust(rawImageUrl, syncedAt);
+  const imageUrl = withCatalogImageCacheBust(rawImageUrl, imageVersion);
   const imageDocs = mapImageDocs(data.imageDocs);
-  const imageUrls = mapProductImageUrls(data, imageUrl, syncedAt);
+  const imageUrls = mapProductImageUrls(data, imageUrl, imageVersion);
   const warehouses = mapWarehouse(data.warehouses);
   const packageInfo = mapPackageInfo(data.packageInfo);
   const auditSnapshot = mapAuditSnapshot(data.auditSnapshot);
@@ -852,6 +865,7 @@ function mapProduct(data: Record<string, unknown>): CatalogProduct {
     imageUrl,
     ...(imageUrls?.length ? { imageUrls } : {}),
     ...(imageDocs?.length ? { imageDocs } : {}),
+    ...(imageVersion != null ? { imageUpdatedAt: String(imageVersion) } : {}),
     categoryId: (data.categoryId as string | null) ?? null,
     categoryName: (data.categoryName as string | null) ?? null,
     status: String(data.status ?? 'active'),
@@ -1438,15 +1452,15 @@ export async function fetchCatalogProductDetail(productId: string): Promise<Cata
   try {
     const result = await callable({ productId });
     const detail = result.data;
-    const syncedAt = detail.syncedAt;
-    const imageUrl = withCatalogImageCacheBust(detail.imageUrl, syncedAt);
+    const imageVersion = catalogImageBustVersion(detail);
+    const imageUrl = withCatalogImageCacheBust(detail.imageUrl, imageVersion);
     const imageDocs = detail.imageDocs?.map(doc => ({
       ...doc,
-      url: withCatalogImageCacheBust(doc.url, syncedAt) ?? doc.url,
+      url: withCatalogImageCacheBust(doc.url, imageVersion) ?? doc.url,
     }));
     const imageUrls = detail.imageUrls?.length
       ? detail.imageUrls
-        .map(url => withCatalogImageCacheBust(url, syncedAt))
+        .map(url => withCatalogImageCacheBust(url, imageVersion))
         .filter((url): url is string => Boolean(url))
       : undefined;
     const supplemented = await supplementCatalogProductLedgerStock(productId, {
@@ -2309,7 +2323,7 @@ export async function fetchCatalogSpareLinks(
       kind: result.data.kind,
       items: result.data.items.map(item => ({
         ...item,
-        imageUrl: withCatalogImageCacheBust(item.imageUrl, item.syncedAt),
+        imageUrl: withCatalogImageCacheBust(item.imageUrl, catalogImageBustVersion(item)),
       })),
     };
   } catch (err) {

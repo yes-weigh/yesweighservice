@@ -4,6 +4,7 @@ import { Headphones, Package } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import { BookCourierEntryButton } from '../../components/logistics/BookCourierEntryButton';
 import { DocumentLineItemSpec } from '../../components/invoices/DocumentLineItemSpec';
+import { FastRemoteImage } from '../../components/media/FastRemoteImage';
 import { formatCurrency } from '../../lib/catalog';
 import { supportBasePath } from '../../lib/dealerSupport';
 import {
@@ -76,7 +77,7 @@ export const InvoiceDocumentPage: React.FC = () => {
               <li key={item.id} className="invoice-detail-item">
                 <div className="invoice-detail-item__image-wrap">
                   {item.imageUrl ? (
-                    <img src={item.imageUrl} alt="" className="invoice-detail-item__image" />
+                    <FastRemoteImage src={item.imageUrl} alt="" className="invoice-detail-item__image" />
                   ) : (
                     <span className="invoice-detail-item__placeholder" aria-hidden>
                       <Package size={22} />

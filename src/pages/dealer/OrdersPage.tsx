@@ -35,8 +35,6 @@ import {
   DEALER_ORDER_UNAVAILABLE_MESSAGE,
 } from '../../lib/dealerOrderStock';
 import {
-  DIRECTORS_QTY_CLUB_LABEL,
-  isDirectorsQtyClubSku,
   priceLevelSkipsOpsReview,
 } from '../../lib/priceLevels';
 import { productHasLinkedGatc } from '../../lib/gatcCart';
@@ -785,13 +783,6 @@ const DealerCartPage: React.FC = () => {
                             );
                           })}
                         </ul>
-                      ) : null}
-                      {isDirectorsQtyClubSku(item.sku)
-                        && item.priceLevelSlabs
-                        && item.priceLevelSlabs.length > 1 ? (
-                        <p className="orders-page__item-club-note">
-                          {DIRECTORS_QTY_CLUB_LABEL}
-                        </p>
                       ) : null}
                         </>
                       ) : (

@@ -1,6 +1,6 @@
 import type { CatalogCategory, CatalogProduct, CatalogStats } from '../types/catalog';
 
-const CACHE_VERSION = 'v2';
+const CACHE_VERSION = 'v3';
 const SESSION_KEY = `yws.catalog.${CACHE_VERSION}`;
 /** Soft TTL — within this window we skip Firestore entirely. */
 const TTL_MS = 10 * 60 * 1000;

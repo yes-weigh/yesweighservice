@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { useAuth } from '../../context/AuthContext';
 import { resolveYesStorePhotoUrl } from '../../lib/yesStore/photos';
+import { FastRemoteImage } from '../media/FastRemoteImage';
 import type { YesStorePhoto } from '../../types/yes-store';
 
 export const YesStorePhotoImg: React.FC<{
@@ -42,12 +43,10 @@ export const YesStorePhotoImg: React.FC<{
   }
 
   return (
-    <img
+    <FastRemoteImage
       src={src}
       alt={alt}
-      loading="lazy"
       className={className}
-      onError={() => setFailed(true)}
     />
   );
 };

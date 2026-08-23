@@ -391,7 +391,7 @@ export const ProductBrowseCard: React.FC<ProductBrowseCardProps> = ({
           )}
           {product.imageUrl ? (
             <div className="catalog-product-card__visual" aria-hidden>
-              <CategoryThumbnail src={product.imageUrl} />
+              <CategoryThumbnail src={product.imageUrl} priority={index < 10} />
             </div>
           ) : (
             <Package size={36} className="catalog-product-card__fallback" aria-hidden />

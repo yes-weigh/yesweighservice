@@ -88,7 +88,27 @@ export default defineConfig({
           },
           {
             urlPattern: /^https:\/\/firebasestorage\.googleapis\.com\/.*/i,
-            handler: 'NetworkOnly',
+            handler: 'CacheFirst',
+            options: {
+              cacheName: 'storage-images',
+              expiration: {
+                maxEntries: 500,
+                maxAgeSeconds: 60 * 60 * 24 * 30,
+              },
+              cacheableResponse: { statuses: [0, 200] },
+            },
+          },
+          {
+            urlPattern: /^https:\/\/storage\.googleapis\.com\/.*/i,
+            handler: 'CacheFirst',
+            options: {
+              cacheName: 'storage-images-gcs',
+              expiration: {
+                maxEntries: 200,
+                maxAgeSeconds: 60 * 60 * 24 * 30,
+              },
+              cacheableResponse: { statuses: [0, 200] },
+            },
           },
           {
             urlPattern: /^https:\/\/fonts\.googleapis\.com\/.*/i,

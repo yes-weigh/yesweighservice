@@ -1,3 +1,7 @@
+import React from 'react';
+import { FastRemoteImage } from '../media/FastRemoteImage';
+import type { FastImageSize } from '../../lib/fastImageCache';
+
 interface CategoryThumbnailProps {
   src: string;
   className?: string;
@@ -6,6 +10,9 @@ interface CategoryThumbnailProps {
    * `false` — plain image for products, spares, detail, orders, etc.
    */
   knockout?: 'category' | false;
+  /** First-screen tiles — skip viewport delay. */
+  priority?: boolean;
+  size?: FastImageSize;
 }
 
 /** Category tile vs product/spare image rendering. */
@@ -13,11 +20,13 @@ export const CategoryThumbnail: React.FC<CategoryThumbnailProps> = ({
   src,
   className = '',
   knockout = false,
+  priority = false,
+  size = 'thumb',
 }) => {
   const useKnockout = knockout === 'category';
 
   return (
-    <img
+    <FastRemoteImage
       src={src}
       alt=""
       className={[
@@ -25,8 +34,8 @@ export const CategoryThumbnail: React.FC<CategoryThumbnailProps> = ({
         useKnockout ? 'catalog-category-card__img--blend' : '',
         className,
       ].filter(Boolean).join(' ')}
-      loading="lazy"
-      decoding="async"
+      priority={priority}
+      size={size}
     />
   );
 };

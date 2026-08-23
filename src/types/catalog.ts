@@ -40,6 +40,8 @@ export interface CatalogProduct {
   stock: number;
   stockStatus: StockStatus;
   imageUrl: string | null;
+  /** Set when the product photo bytes change — used to bust Storage cache, not stock sync. */
+  imageUpdatedAt?: string | null;
   /** Ordered gallery including primary; imageUrls[0] matches imageUrl when set. */
   imageUrls?: string[];
   /** Zoho document metadata for non-primary gallery images. */

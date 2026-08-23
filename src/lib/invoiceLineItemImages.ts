@@ -8,7 +8,7 @@ function imageFromCatalogData(data: Record<string, unknown> | undefined): string
   const raw = (data.imageUrl as string | null)
     ?? (Array.isArray(data.imageUrls) ? (data.imageUrls[0] as string | null) : null)
     ?? null;
-  return withCatalogImageCacheBust(raw, data.syncedAt as string | number | null | undefined);
+  return withCatalogImageCacheBust(raw, data.imageUpdatedAt as string | number | null | undefined);
 }
 
 async function catalogImageByItemId(itemId: string): Promise<string | null> {

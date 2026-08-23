@@ -2066,7 +2066,12 @@ export const ProductDetailView: React.FC<{
                         ].filter(Boolean).join(' ')}
                       >
                         {slide.type === 'image' ? (
-                          <CategoryThumbnail src={slide.url} knockout={false} />
+                          <CategoryThumbnail
+                            src={slide.url}
+                            knockout={false}
+                            priority={index === 0}
+                            size="detail"
+                          />
                         ) : (
                           <CatalogVideoPlayer
                             src={slide.file.url}
@@ -2114,7 +2119,7 @@ export const ProductDetailView: React.FC<{
                   />
                 </div>
               ) : galleryUrls.length === 1 ? (
-                <CategoryThumbnail src={galleryUrls[0]} knockout={false} />
+                <CategoryThumbnail src={galleryUrls[0]} knockout={false} priority size="detail" />
               ) : (
                 <Package size={72} className="product-detail-page__placeholder" aria-hidden />
               )}

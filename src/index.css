@@ -6305,6 +6305,26 @@ body:has(.confirm-inline-bar) .confirm-inline-bar {
   object-position: bottom center;
 }
 
+.fast-remote-image--pending {
+  background: linear-gradient(90deg, #f1f5f9 0%, #e8eef5 45%, #f1f5f9 100%);
+  background-size: 200% 100%;
+  animation: fast-remote-image-shimmer 1.15s ease-in-out infinite;
+}
+
+.fast-remote-image--network {
+  animation: fast-remote-image-in 0.16s ease-out;
+}
+
+@keyframes fast-remote-image-shimmer {
+  0% { background-position: 100% 0; }
+  100% { background-position: -100% 0; }
+}
+
+@keyframes fast-remote-image-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
 /* Category tiles only â€“ knock white/gray photo backgrounds into the tint */
 .catalog-category-card .catalog-category-card__img--blend {
   mix-blend-mode: darken;
@@ -7770,19 +7790,6 @@ body:has(.confirm-inline-bar) .confirm-inline-bar {
   color: #dc2626;
 }
 
-.dealer-price__club-note {
-  margin: 0.35rem 0 0;
-  padding: 0.3rem 0.45rem;
-  border-radius: 6px;
-  font-size: 0.75rem;
-  line-height: 1.4;
-  font-weight: 750;
-  letter-spacing: 0.01em;
-  color: #7c2d12;
-  background: #ffedd5;
-  border: 1px solid #fb923c;
-}
-
 .catalog-product-card__price .dealer-price__slabs {
   max-width: 100%;
 }
@@ -7812,19 +7819,6 @@ body:has(.confirm-inline-bar) .confirm-inline-bar {
   font-size: 0.6875rem;
   font-weight: 650;
   color: #94a3b8;
-}
-
-.orders-page__item-club-note {
-  margin: 0.35rem 0 0;
-  padding: 0.3rem 0.45rem;
-  border-radius: 6px;
-  font-size: 0.75rem;
-  line-height: 1.4;
-  font-weight: 750;
-  letter-spacing: 0.01em;
-  color: #ffedd5;
-  background: rgba(154, 52, 18, 0.55);
-  border: 1px solid rgba(251, 146, 60, 0.55);
 }
 
 .catalog-product-card__audit {
@@ -9445,6 +9439,11 @@ body:has(.confirm-inline-bar) .confirm-inline-bar {
   gap: 0.75rem;
   width: 100%;
   min-width: 0;
+}
+
+.catalog-grid--tiles .catalog-product-card {
+  content-visibility: auto;
+  contain-intrinsic-size: auto 320px;
 }
 
 @media (min-width: 768px) {

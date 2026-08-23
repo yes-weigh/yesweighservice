@@ -174,7 +174,7 @@ async function cacheProductImage(accessToken, orgId, productId, existingImageUrl
   });
   await file.makePublic();
 
-  return publicStorageUrl(bucket.name, storagePath);
+  return versionedPublicStorageUrl(bucket.name, storagePath, new Date().toISOString());
 }
 
 function normaliseProductCategory(product) {
@@ -442,6 +442,12 @@ export async function syncCatalogToFirestore(secrets, configuredOrgId, options =
       organizationId,
       contentFingerprint: fingerprint,
     };
+
+    if (imageDownloaded || (imageUrl && imageUrl !== (existing?.imageUrl ?? null))) {
+      doc.imageUpdatedAt = now;
+    } else if (existing?.imageUpdatedAt) {
+      doc.imageUpdatedAt = existing.imageUpdatedAt;
+    }
 
     // Keep intentional local deletes from being re-pulled while Zoho still has the image.
     if (suppressZohoImageImport && !imageUrl) {
@@ -1275,6 +1281,7 @@ export async function uploadCategoryThumbnail(categoryId, categoryName, buffer, 
     name: categoryName || 'Category',
     thumbnailUrl,
     updatedAt: now,
+    thumbnailUpdatedAt: now,
   }, { merge: true });
 
   return { thumbnailUrl };
@@ -1318,6 +1325,7 @@ export async function uploadProductImage(productId, buffer, contentType, accessT
     imageDocs,
     suppressZohoImageImport: FieldValue.delete(),
     syncedAt: now,
+    imageUpdatedAt: now,
   }, { merge: true });
 
   return { imageUrl, imageUrls, imageDocs };
@@ -2173,6 +2181,7 @@ export async function deleteProductImage(productId, accessToken, organizationId,
           imageDocs: rest,
           suppressZohoImageImport: FieldValue.delete(),
           syncedAt: new Date().toISOString(),
+          imageUpdatedAt: new Date().toISOString(),
         }, { merge: true });
         return {
           ok: true,
@@ -2321,6 +2330,12 @@ export async function mirrorCatalogItemFromZoho(secrets, configuredOrgId, itemId
     organizationId,
     contentFingerprint: fingerprint,
   };
+
+  if (imageDownloaded || (imageUrl && imageUrl !== (existing?.imageUrl ?? null))) {
+    doc.imageUpdatedAt = now;
+  } else if (existing?.imageUpdatedAt) {
+    doc.imageUpdatedAt = existing.imageUpdatedAt;
+  }
 
   if (suppressZohoImageImport && !imageUrl) {
     doc.suppressZohoImageImport = true;

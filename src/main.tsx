@@ -22,7 +22,11 @@ if (isNative) {
     });
     if ('caches' in window) {
       void caches.keys().then(keys => {
-        for (const key of keys) void caches.delete(key);
+        for (const key of keys) {
+          if (/workbox|precache|vite-pwa|google-fonts/i.test(key)) {
+            void caches.delete(key);
+          }
+        }
       });
     }
   }

@@ -105,9 +105,6 @@ export const DealerPriceDisplay: React.FC<Props> = ({
           ))}
         </ul>
       ) : null}
-      {pricing?.directorsQtyClubLabel ? (
-        <p className="dealer-price__club-note">{pricing.directorsQtyClubLabel}</p>
-      ) : null}
     </div>
   );
 };

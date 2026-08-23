@@ -4,6 +4,7 @@ import { formatCurrency } from '../../lib/catalog';
 import { isFreightInvoiceLineItem, moveFreightLinesToEnd } from '../../lib/invoices';
 import type { DealerInvoiceDetail, DealerInvoiceLineItem } from '../../types/invoices';
 import { DocumentLineItemSpec } from './DocumentLineItemSpec';
+import { FastRemoteImage } from '../media/FastRemoteImage';
 
 interface InvoiceDocumentBodyProps {
   invoice: Pick<DealerInvoiceDetail, 'subtotal' | 'taxTotal' | 'total' | 'lineItems'>;
@@ -202,7 +203,7 @@ function ItemContent({
     <>
       <div className="invoice-detail-item__image-wrap">
         {item.imageUrl ? (
-          <img src={item.imageUrl} alt="" className="invoice-detail-item__image" loading="lazy" decoding="async" />
+          <FastRemoteImage src={item.imageUrl} alt="" className="invoice-detail-item__image" />
         ) : (
           <span className="invoice-detail-item__placeholder" aria-hidden>
             <Package size={22} />
