@@ -1,12 +1,12 @@
 import type { DealerInvoice } from '../types/invoices';
 import type { LogisticsBooking } from '../types/logistics-dispatch';
 
-/** Dead-on-arrival / full product replacement window from goods received date. */
-export const PRODUCT_REPLACEMENT_WINDOW_DAYS = 7;
+/** Dead-on-arrival / full product replacement window from the invoice date. */
+export const PRODUCT_REPLACEMENT_WINDOW_DAYS = 10;
 
 const IST = 'Asia/Kolkata';
 
-export type ReceivingInvoice = Pick<DealerInvoice, 'id'> & {
+export type ReceivingInvoice = Pick<DealerInvoice, 'id' | 'date'> & {
   customerPickup?: { markedAt?: string | null } | null;
   customerPickupMarkedAt?: string | null;
   manualDelivery?: { markedAt?: string | null } | null;
@@ -120,39 +120,39 @@ export function invoiceGoodsReceivedAtIso(
   );
 }
 
-export function productReplacementDeadlineYmd(receivedAtIso: string): string | null {
-  const receivedDay = calendarDateIst(receivedAtIso);
-  if (!receivedDay) return null;
-  return addCalendarDays(receivedDay, PRODUCT_REPLACEMENT_WINDOW_DAYS);
+export function productReplacementDeadlineYmd(invoiceDateIso: string): string | null {
+  const invoiceDay = calendarDateIst(invoiceDateIso);
+  if (!invoiceDay) return null;
+  return addCalendarDays(invoiceDay, PRODUCT_REPLACEMENT_WINDOW_DAYS);
 }
 
 export function isWithinProductReplacementWindow(
-  receivedAtIso: string,
+  invoiceDateIso: string,
   now: Date = new Date(),
 ): boolean {
   const today = calendarDateIst(now);
-  const deadline = productReplacementDeadlineYmd(receivedAtIso);
+  const deadline = productReplacementDeadlineYmd(invoiceDateIso);
   if (!today || !deadline) return false;
   return today <= deadline;
 }
 
-/** Courier-delivered / picked up within 7 days — Full Product Replacement only. */
+/** Invoiced within the last 10 days — Full Product Replacement (DOA) only. */
 export function isInvoiceEligibleForProductReplacement(
   invoice: ReceivingInvoice | null | undefined,
-  booking?: ReceivingBooking,
+  _booking?: ReceivingBooking,
   now: Date = new Date(),
 ): boolean {
-  const receivedAt = invoiceGoodsReceivedAtIso(invoice, booking);
-  if (!receivedAt) return false;
-  return isWithinProductReplacementWindow(receivedAt, now);
+  const invoicedAt = invoice?.date;
+  if (!invoicedAt) return false;
+  return isWithinProductReplacementWindow(invoicedAt, now);
 }
 
 export function productReplacementWindowLabel(
-  receivedAtIso: string | null | undefined,
+  invoiceDateIso: string | null | undefined,
 ): string | null {
-  if (!receivedAtIso) return null;
-  const receivedDay = calendarDateIst(receivedAtIso);
-  const deadline = productReplacementDeadlineYmd(receivedAtIso);
-  if (!receivedDay || !deadline) return null;
-  return `Received ${formatIstCalendarDate(receivedDay)} · Replace by ${formatIstCalendarDate(deadline)}`;
+  if (!invoiceDateIso) return null;
+  const invoiceDay = calendarDateIst(invoiceDateIso);
+  const deadline = productReplacementDeadlineYmd(invoiceDateIso);
+  if (!invoiceDay || !deadline) return null;
+  return `Invoiced ${formatIstCalendarDate(invoiceDay)} · Return by ${formatIstCalendarDate(deadline)}`;
 }

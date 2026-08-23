@@ -1,10 +1,10 @@
 /**
- * Full product replacement window: 7 IST calendar days from goods received
- * (courier POD, ops delivered, or customer pickup) — not the invoice date.
+ * Full product replacement (DOA): 10 IST calendar days from the invoice date.
+ * Shipping / delivery dates are not used.
  */
 import { getFirestore } from 'firebase-admin/firestore';
 
-export const PRODUCT_REPLACEMENT_WINDOW_DAYS = 7;
+export const PRODUCT_REPLACEMENT_WINDOW_DAYS = 10;
 
 const IST = 'Asia/Kolkata';
 const BOOKINGS = 'logisticsBookings';
@@ -152,13 +152,13 @@ export function invoiceGoodsReceivedAt(invoice, booking) {
   );
 }
 
-export function isInvoiceEligibleForProductReplacement(invoice, booking, now = new Date()) {
-  const receivedAt = invoiceGoodsReceivedAt(invoice, booking);
-  if (!receivedAt) return false;
+export function isInvoiceEligibleForProductReplacement(invoice, _booking, now = new Date()) {
+  const invoicedAt = invoice?.date;
+  if (!invoicedAt) return false;
   const today = calendarDateIst(now);
-  const receivedDay = calendarDateIst(receivedAt);
-  if (!today || !receivedDay) return false;
-  const deadline = addCalendarDays(receivedDay, PRODUCT_REPLACEMENT_WINDOW_DAYS);
+  const invoiceDay = calendarDateIst(invoicedAt);
+  if (!today || !invoiceDay) return false;
+  const deadline = addCalendarDays(invoiceDay, PRODUCT_REPLACEMENT_WINDOW_DAYS);
   return today <= deadline;
 }
 
@@ -180,8 +180,9 @@ export async function attachGoodsReceivedAtToInvoice(invoice) {
   };
 }
 
-/** Keep only invoices received in the last 7 days, with goodsReceivedAt set. */
-export async function filterReplacementEligibleInvoices(customerId, invoices) {
-  const withReceiving = await attachGoodsReceivedAtToInvoices(customerId, invoices);
-  return withReceiving.filter(invoice => isInvoiceEligibleForProductReplacement(invoice));
+/** Keep only invoices dated in the last 10 days. */
+export async function filterReplacementEligibleInvoices(_customerId, invoices) {
+  return (Array.isArray(invoices) ? invoices : []).filter(invoice =>
+    isInvoiceEligibleForProductReplacement(invoice),
+  );
 }

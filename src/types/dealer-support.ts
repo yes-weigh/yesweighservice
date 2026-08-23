@@ -234,8 +234,8 @@ export const SUPPORT_INTENT_OPTIONS: Array<{
   {
     value: 'return',
     title: 'Full Product Replacement',
-    description: 'Unit must be swapped under warranty — dead on arrival, beyond repair, or wrong item.',
-    hint: `Courier the unit to ${FIRM_NAME}.`,
+    description: 'Unit must be swapped under warranty — dead on arrival, beyond repair, or wrong item. DOA replacements must be returned within 10 days of the invoice date.',
+    hint: `Return within 10 days of the invoice date. Courier the unit to ${FIRM_NAME}.`,
   },
   {
     value: 'complaint',

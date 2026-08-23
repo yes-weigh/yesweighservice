@@ -67,7 +67,7 @@ export interface DealerInvoice {
   manualDeliveredAt?: string | null;
   /**
    * When the dealer received the goods (courier POD, ops delivered, or pickup).
-   * Set by getDealerInvoices / getDealerInvoiceDetail for the 7-day replacement window.
+   * Set by getDealerInvoices / getDealerInvoiceDetail when a receiving date is known.
    */
   goodsReceivedAt?: string | null;
 }
@@ -123,7 +123,7 @@ export interface DealerInvoiceDetail extends DealerInvoice {
   /** Ops marked delivered from the invoice (with or without a logistics booking). */
   manualDelivery?: InvoiceManualDelivery | null;
   manualDeliveredAt?: string | null;
-  /** Courier POD / pickup / ops delivered — used for the 7-day replacement window. */
+  /** Courier POD / pickup / ops delivered. */
   goodsReceivedAt?: string | null;
   /**
    * Super-admin local courier switch (e.g. Delhivery → Blue Dart when service
@@ -231,7 +231,7 @@ export interface InvoiceListParams {
   customerId?: string;
   /** Attach compact product rows for the current page (support invoice picker). */
   includeLineItems?: boolean;
-  /** Only invoices received in the last 7 days (full product replacement). */
+  /** Only invoices dated in the last 10 days (full product replacement / DOA). */
   replacementWindow?: boolean;
 }
 

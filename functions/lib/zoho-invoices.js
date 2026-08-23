@@ -18,6 +18,7 @@ import {
 import {
   attachGoodsReceivedAtToInvoice,
   filterReplacementEligibleInvoices,
+  PRODUCT_REPLACEMENT_WINDOW_DAYS,
 } from './invoice-replacement.js';
 
 export {
@@ -158,7 +159,7 @@ async function listDealerInvoicesIndexed(customerId, {
   limit,
   replacementWindow,
 }) {
-  const dateFrom = istCalendarDateDaysAgo(replacementWindow ? 120 : 365);
+  const dateFrom = istCalendarDateDaysAgo(replacementWindow ? PRODUCT_REPLACEMENT_WINDOW_DAYS : 365);
   const indexed = await readCustomerInvoicesFromFirestoreIndexed(customerId, {
     dateFrom,
     page: replacementWindow ? 1 : page,
@@ -199,12 +200,12 @@ async function listDealerInvoicesIndexed(customerId, {
     : categorized;
 
   if (replacementWindow) {
-    const byReceived = [...listed].sort((a, b) => {
-      const left = String(b.goodsReceivedAt ?? b.date ?? '');
-      const right = String(a.goodsReceivedAt ?? a.date ?? '');
+    const byDate = [...listed].sort((a, b) => {
+      const left = String(b.date ?? '');
+      const right = String(a.date ?? '');
       return left.localeCompare(right);
     });
-    const withLines = await attachInvoiceLineItemPreviews(customerId, byReceived);
+    const withLines = await attachInvoiceLineItemPreviews(customerId, byDate);
     return {
       data: withLines,
       pagination: {
@@ -324,12 +325,12 @@ export async function listDealerInvoices(_secrets, _orgId, uid, role, query = {}
     : categorized;
 
   if (replacementWindow) {
-    const byReceived = [...listed].sort((a, b) => {
-      const left = String(b.goodsReceivedAt ?? b.date ?? '');
-      const right = String(a.goodsReceivedAt ?? a.date ?? '');
+    const byDate = [...listed].sort((a, b) => {
+      const left = String(b.date ?? '');
+      const right = String(a.date ?? '');
       return left.localeCompare(right);
     });
-    const withLines = await attachInvoiceLineItemPreviews(customerId, byReceived);
+    const withLines = await attachInvoiceLineItemPreviews(customerId, byDate);
     return {
       data: withLines,
       pagination: {

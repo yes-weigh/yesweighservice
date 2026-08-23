@@ -258,7 +258,7 @@ export const SupportWizard: React.FC<SupportWizardProps> = ({
     if (needsProduct && !hasProductLink && !proceedWithoutInvoice) {
       setError(
         intent === 'return'
-          ? 'Select a product received in the last 7 days.'
+          ? 'Select a product invoiced in the last 10 days.'
           : 'Select an invoice and product, or choose to continue without an invoice.',
       );
       return;
@@ -782,7 +782,7 @@ export const SupportWizard: React.FC<SupportWizardProps> = ({
           <div className="support-wizard__step-body">
             {intent === 'return' && (
               <h3 className="support-wizard__question">
-                Select a product received in the last 7 days
+                Select a product invoiced in the last 10 days
               </h3>
             )}
 

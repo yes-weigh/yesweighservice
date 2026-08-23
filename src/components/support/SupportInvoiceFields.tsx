@@ -16,8 +16,6 @@ import {
   serialNumbersFromLineItem,
 } from '../../lib/invoices';
 import {
-  invoiceGoodsReceivedAtIso,
-  invoiceWithReceivingFields,
   isInvoiceEligibleForProductReplacement,
   productReplacementWindowLabel,
   calendarDateIst,
@@ -159,9 +157,8 @@ function flattenSupportPickerRows(
     let note: string | null = null;
     if (requestType === 'service' && !isInvoiceWithinWarrantyListing(invoice.date)) continue;
     if (requestType === 'return') {
-      const receiving = invoiceWithReceivingFields(invoice, detailsById[invoice.id]);
-      if (!isInvoiceEligibleForProductReplacement(receiving)) continue;
-      note = productReplacementWindowLabel(invoiceGoodsReceivedAtIso(receiving));
+      if (!isInvoiceEligibleForProductReplacement(invoice)) continue;
+      note = productReplacementWindowLabel(invoice.date);
     }
     const products = selectableInvoiceProducts(
       invoice.lineItems ?? detailsById[invoice.id]?.lineItems,
@@ -478,8 +475,8 @@ export const SupportInvoiceAutocomplete: React.FC<InvoiceAutocompleteProps> = ({
       );
       if (requestType !== 'return') return rows;
       return [...rows].sort((a, b) => {
-        const left = invoiceGoodsReceivedAtIso(a.invoice) ?? a.invoice.date ?? '';
-        const right = invoiceGoodsReceivedAtIso(b.invoice) ?? b.invoice.date ?? '';
+        const left = a.invoice.date ?? '';
+        const right = b.invoice.date ?? '';
         return String(right).localeCompare(String(left));
       });
     },
@@ -598,8 +595,8 @@ export const SupportInvoiceAutocomplete: React.FC<InvoiceAutocompleteProps> = ({
     ? `Page ${page} of ${loadedProductPages}`
     : `Page ${page} of ${minProductPages}+`;
   const replacementEmptyCopy = debouncedQuery.trim()
-    ? 'No matching products are still inside the 7-day replacement window from the receiving date.'
-    : 'Only new goods received in the last 7 days can be replaced here. The window starts on courier delivery or pickup, not the invoice date.';
+    ? 'No matching products were invoiced in the last 10 days.'
+    : 'Only products invoiced in the last 10 days can be replaced here. Dead-on-arrival units must be returned within 10 days of the invoice date.';
   const emptyCopy = warrantyOverSearch
     ? 'Warranty over.'
     : replacementMode
@@ -635,7 +632,7 @@ export const SupportInvoiceAutocomplete: React.FC<InvoiceAutocompleteProps> = ({
   };
 
   const hintCopy = replacementMode
-    ? 'Only products received in the last 7 days are listed. The clock starts on delivery or pickup, not the invoice date.'
+    ? 'Only products invoiced in the last 10 days are listed. Return the unit within 10 days of the invoice date.'
     : warrantyListingMode
       ? 'Products invoiced in the last 365 days are listed.'
       : 'Pick an invoice or product from the suggestions — free text is not accepted.';
@@ -744,7 +741,7 @@ export const SupportInvoiceAutocomplete: React.FC<InvoiceAutocompleteProps> = ({
               })}
               {waitingForProducts && pageRows.length === 0 && (
                 <li className="support-invoice-field__empty text-muted text-sm">
-                  {replacementMode ? 'Loading products received in the last 7 days…' : 'Loading products…'}
+                  {replacementMode ? 'Loading products invoiced in the last 10 days…' : 'Loading products…'}
                 </li>
               )}
               {!replacementMode && (page > 1 || (hasNextPage && pageRows.length > 0)) && (
@@ -842,16 +839,15 @@ export const SupportInvoiceProductPicker: React.FC<SupportInvoiceProductPickerPr
         if (cancelled) return;
         const next = { ...detail, lineItems };
         if (replacementMode) {
-          const receivedAt = invoiceGoodsReceivedAtIso(next);
           if (!isInvoiceEligibleForProductReplacement(next)) {
             setInvoiceDetail(null);
             setReplacementNote(null);
             setItemsError(
-              'This invoice is outside the 7-day replacement window. The window starts on the receiving date (courier delivery or pickup), not the invoice date.',
+              'This invoice is outside the 10-day replacement window. Dead-on-arrival units must be returned within 10 days of the invoice date.',
             );
             return;
           }
-          setReplacementNote(productReplacementWindowLabel(receivedAt));
+          setReplacementNote(productReplacementWindowLabel(next.date));
         }
         setInvoiceDetail(next);
         if (!next.lineItems.some(item => !isExcludedSupportLineItem(item, requestType))) {
@@ -950,7 +946,7 @@ export const SupportInvoiceProductPicker: React.FC<SupportInvoiceProductPickerPr
         }
         placeholder={
           replacementMode
-            ? 'Search a product received in the last 7 days…'
+            ? 'Search a product invoiced in the last 10 days…'
             : 'Search by serial number or invoice number'
         }
         requestType={requestType}
