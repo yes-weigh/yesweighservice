@@ -1,22 +1,29 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import {
   Ban,
+  Clock,
   Download,
+  LayoutGrid,
+  LayoutList,
+  Plus,
   RefreshCw,
   Search,
   SlidersHorizontal,
+  UserCheck,
+  Users,
   X,
 } from 'lucide-react';
+import { CreateDealerModal } from '../../components/dealers/CreateDealerModal';
 import { MultiSelect } from '../../components/dealers/MultiSelect';
 import { FetchingLoader } from '../../components/FetchingLoader';
-import { DealerStatusCell } from '../../components/dealers/DealerStatusCell';
 import { DealerTile } from '../../components/dealers/DealerTile';
 import { DealerStatusLegend } from '../../components/dealers/DealerStatusLegend';
 import { DealerLevelDefinitionsPanel } from '../../components/dealers/DealerLevelDefinitionsPanel';
 import { ZohoSalespersonsPanel } from '../../components/dealers/ZohoSalespersonsPanel';
 import { useAuth } from '../../context/AuthContext';
 import { useConfirm } from '../../context/ConfirmContext';
+import { useCatalogPageHeader, usePageHeaderSlot } from '../../context/PageHeaderContext';
 import { DEALER_STATUS_LEGEND } from '../../lib/dealerStatus';
 import {
   dealerContactPhone,
@@ -24,13 +31,14 @@ import {
   exportDealersCsv,
   fetchDealerCategories,
   fetchDealerLocations,
+  fetchDealerStats,
   fetchDealers,
   listAssignableDealerStaff,
   dealerStaffSelectOptions,
   patchDealer,
   syncZohoCustomers,
 } from '../../lib/dealers';
-import { type AssignableStaffOption, type DealerListParams, type ZohoDealer } from '../../types/dealers';
+import { type AssignableStaffOption, type DealerListParams, type DealerStats, type ZohoDealer } from '../../types/dealers';
 import { homePathForRole, type Role } from '../../types';
 import { canViewDealersInHr, hasStaffPermission } from '../../lib/staffAccess';
 
@@ -68,7 +76,7 @@ export function ZohoDealersPage() {
   const tabParam = searchParams.get('tab');
   const mainTab = parseDealersTab(tabParam);
   const setMainTab = (tab: DealersMainTab) => {
-    setFiltersOpen(false);
+    if (tab !== 'roster') setFiltersOpen(false);
     if (tab === 'roster') {
       setSearchParams({}, { replace: true });
       return;
@@ -122,7 +130,9 @@ export function ZohoDealersPage() {
   const [categories, setCategories] = useState<string[]>([]);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [filtersOpen, setFiltersOpen] = useState(false);
-  const filtersWrapRef = useRef<HTMLDivElement>(null);
+  const [createOpen, setCreateOpen] = useState(false);
+  const [viewMode, setViewMode] = useState<'list' | 'grid'>('list');
+  const [stats, setStats] = useState<DealerStats | null>(null);
 
   const queryParams = useMemo((): DealerListParams => ({
     page: effectivePaginationOn ? page : 1,
@@ -150,15 +160,17 @@ export function ZohoDealersPage() {
 
   const loadMeta = useCallback(async () => {
     try {
-      const [locRes, staffRes, catsRes] = await Promise.all([
+      const [locRes, staffRes, catsRes, statsRes] = await Promise.all([
         fetchDealerLocations(),
         listAssignableDealerStaff(),
         fetchDealerCategories(),
+        fetchDealerStats().catch(() => null),
       ]);
       setStates(locRes.states);
       setDistrictsByState(locRes.districtsByState);
       setAssignableStaff(staffRes);
       setCategories(catsRes);
+      if (statsRes) setStats(statsRes);
     } catch (err) {
       console.error('Dealer meta load failed:', err);
       setError(dealerErrorMessage(err));
@@ -196,17 +208,6 @@ export function ZohoDealersPage() {
     setDistrictFilter([]);
   }, [stateFilter]);
 
-  useEffect(() => {
-    if (!filtersOpen) return;
-    const onPointerDown = (event: MouseEvent) => {
-      if (filtersWrapRef.current && !filtersWrapRef.current.contains(event.target as Node)) {
-        setFiltersOpen(false);
-      }
-    };
-    document.addEventListener('mousedown', onPointerDown);
-    return () => document.removeEventListener('mousedown', onPointerDown);
-  }, [filtersOpen]);
-
   const handleSync = async () => {
     setSyncing(true);
     setError('');
@@ -243,15 +244,6 @@ export function ZohoDealersPage() {
     }
   };
 
-  const handleSort = (field: string) => {
-    if (sortField === field) {
-      setSortDir(d => (d === 'asc' ? 'desc' : 'asc'));
-    } else {
-      setSortField(field);
-      setSortDir('asc');
-    }
-  };
-
   const handleBulkDeactivate = async () => {
     const ok = await confirm({
       title: 'Blacklist dealers?',
@@ -284,28 +276,6 @@ export function ZohoDealersPage() {
     await loadDealers();
   };
 
-  const updateField = async (id: string, patch: Partial<ZohoDealer>) => {
-    await patchDealer(id, patch);
-    await loadDealers();
-  };
-
-  const toggleSelectAll = (checked: boolean) => {
-    setSelectedIds(checked ? new Set(dealers.map(d => d.id)) : new Set());
-  };
-
-  const toggleRow = (id: string) => {
-    setSelectedIds(prev => {
-      const next = new Set(prev);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
-      return next;
-    });
-  };
-
-  const SortMark = ({ field }: { field: string }) => (
-    <span className="dealers-sort-mark">{sortField === field ? (sortDir === 'asc' ? '↑' : '↓') : ''}</span>
-  );
-
   const totalPages = Math.max(1, Math.ceil(total / limit));
 
   const activeFilterCount = [
@@ -322,7 +292,18 @@ export function ZohoDealersPage() {
     setStateFilter([]);
     setDistrictFilter([]);
     setCategoryFilter([]);
+    setMainTab('roster');
   };
+
+  const applyStatusPreset = (keys: string[]) => {
+    setStatusFilter(keys);
+    setPage(1);
+  };
+
+  const statusPreset = statusFilter.slice().sort().join(',');
+  const kpiActive = (keys: string[]) => statusPreset === keys.slice().sort().join(',');
+
+  const filterBadgeCount = activeFilterCount + (mainTab === 'roster' ? 0 : 1);
 
   const dealerFilterFields = (
     <div className="dealers-filters">
@@ -362,6 +343,71 @@ export function ZohoDealersPage() {
       />
     </div>
   );
+
+  const headerFilter = useMemo(
+    () => (
+      <button
+        type="button"
+        className={[
+          'catalog-header-filter-btn',
+          'dealers-header-filter',
+          filtersOpen ? 'catalog-header-filter-btn--open' : '',
+          filterBadgeCount > 0 ? 'catalog-header-filter-btn--active' : '',
+        ].filter(Boolean).join(' ')}
+        aria-label={filterBadgeCount > 0 ? `Filters (${filterBadgeCount} active)` : 'Filters'}
+        title="Filters"
+        aria-expanded={filtersOpen}
+        aria-haspopup="dialog"
+        onClick={() => setFiltersOpen(open => !open)}
+      >
+        <SlidersHorizontal size={18} aria-hidden />
+        {filterBadgeCount > 0 ? (
+          <span className="support-request-list__filter-pill">{filterBadgeCount}</span>
+        ) : null}
+      </button>
+    ),
+    [filterBadgeCount, filtersOpen],
+  );
+
+  const headerTools = useMemo(
+    () => (
+      <div className="dealers-header-tools invoices-header-tools">
+        {canEditDealers ? (
+          <button
+            type="button"
+            className="catalog-header-filter-btn create-po-header-btn dealers-add-btn"
+            onClick={() => setCreateOpen(true)}
+            aria-label="Add dealer"
+            title="Add dealer"
+          >
+            <Plus size={20} strokeWidth={2.5} />
+            <span className="dealers-add-btn__label">Add Dealer</span>
+          </button>
+        ) : null}
+        {mainTab === 'roster' ? (
+          <div className="catalog-search dealers-search invoices-header-search">
+            <Search size={16} aria-hidden />
+            <input
+              type="search"
+              placeholder="Search dealers…"
+              value={searchTerm}
+              onChange={e => setSearchTerm(e.target.value)}
+              aria-label="Search dealers"
+            />
+          </div>
+        ) : null}
+        {headerFilter}
+      </div>
+    ),
+    [canEditDealers, headerFilter, mainTab, searchTerm],
+  );
+
+  useCatalogPageHeader({
+    title: isMobileViewport ? null : 'Dealer List',
+    subtitle: isMobileViewport || total <= 0 ? null : `${total.toLocaleString('en-IN')} Dealers`,
+    mobileCompactHeader: isMobileViewport,
+  }, true);
+  usePageHeaderSlot(headerTools);
 
   const renderPaginationBar = (position: 'top' | 'bottom') => (
     <div
@@ -420,91 +466,75 @@ export function ZohoDealersPage() {
 
   return (
     <div className="page-content fade-in dealers-page">
-      <div className="dealers-page-tabs">
-        <div className="dealers-page-tabs__list" role="tablist" aria-label="Dealers sections">
+      {filtersOpen ? (
+        <>
           <button
             type="button"
-            role="tab"
-            className={`dealers-page-tabs__tab${mainTab === 'roster' ? ' dealers-page-tabs__tab--active' : ''}`}
-            aria-selected={mainTab === 'roster'}
-            onClick={() => setMainTab('roster')}
+            className="support-filter-sheet__backdrop"
+            aria-label="Close filters"
+            onClick={() => setFiltersOpen(false)}
+          />
+          <div
+            className="support-filter-sheet"
+            role="dialog"
+            aria-modal="true"
+            aria-label="Filter dealers"
           >
-            Dealer
-          </button>
-          <button
-            type="button"
-            role="tab"
-            className={`dealers-page-tabs__tab${mainTab === 'salespersons' ? ' dealers-page-tabs__tab--active' : ''}`}
-            aria-selected={mainTab === 'salespersons'}
-            onClick={() => setMainTab('salespersons')}
-          >
-            Salesperson
-          </button>
-          {canManageDealerLevels ? (
-            <button
-              type="button"
-              role="tab"
-              className={`dealers-page-tabs__tab${mainTab === 'dealer-level' ? ' dealers-page-tabs__tab--active' : ''}`}
-              aria-selected={mainTab === 'dealer-level'}
-              onClick={() => setMainTab('dealer-level')}
-            >
-              Dealer level
-            </button>
-          ) : null}
-        </div>
-        {mainTab === 'roster' ? (
-          <div className="dealers-page-tabs__filter" ref={filtersWrapRef}>
-            <button
-              type="button"
-              className={[
-                'catalog-header-filter-btn',
-                filtersOpen ? 'catalog-header-filter-btn--open' : '',
-                activeFilterCount > 0 ? 'catalog-header-filter-btn--active' : '',
-              ].filter(Boolean).join(' ')}
-              aria-label={activeFilterCount > 0 ? `Filters (${activeFilterCount} active)` : 'Filters'}
-              title="Filters"
-              aria-expanded={filtersOpen}
-              aria-haspopup="dialog"
-              onClick={() => setFiltersOpen(open => !open)}
-            >
-              <SlidersHorizontal size={18} aria-hidden />
-              {activeFilterCount > 0 ? (
-                <span className="support-request-list__filter-pill">{activeFilterCount}</span>
-              ) : null}
-            </button>
-            {filtersOpen ? (
-              <div
-                className="dealers-page-tabs__filter-panel"
-                role="dialog"
-                aria-label="Filter dealers"
-              >
-                <header className="dealers-page-tabs__filter-head">
-                  <h3>Filters</h3>
-                  <div className="dealers-page-tabs__filter-head-actions">
-                    <button
-                      type="button"
-                      className="btn btn-secondary btn-sm"
-                      onClick={resetDealerFilters}
-                      disabled={activeFilterCount === 0}
-                    >
-                      Reset
-                    </button>
-                    <button
-                      type="button"
-                      className="dealers-page-tabs__filter-close"
-                      aria-label="Close filters"
-                      onClick={() => setFiltersOpen(false)}
-                    >
-                      <X size={18} />
-                    </button>
-                  </div>
-                </header>
-                {dealerFilterFields}
+            <header className="support-filter-sheet__header">
+              <h3 className="support-filter-sheet__title">Filters</h3>
+              <div className="support-filter-sheet__header-actions">
+                <button
+                  type="button"
+                  className="btn btn-secondary btn-sm support-filter-sheet__reset"
+                  onClick={resetDealerFilters}
+                  disabled={filterBadgeCount === 0}
+                >
+                  Reset
+                </button>
+                <button
+                  type="button"
+                  className="support-filter-sheet__close"
+                  aria-label="Close"
+                  onClick={() => setFiltersOpen(false)}
+                >
+                  <X size={18} />
+                </button>
               </div>
-            ) : null}
+            </header>
+
+            <section className="support-filter-sheet__section">
+              <h4 className="support-filter-sheet__section-title">View</h4>
+              <div className="support-filter-sheet__options">
+                <button
+                  type="button"
+                  className={`support-filter-sheet__option${mainTab === 'roster' ? ' is-active' : ''}`}
+                  onClick={() => setMainTab('roster')}
+                >
+                  Dealer
+                </button>
+                <button
+                  type="button"
+                  className={`support-filter-sheet__option${mainTab === 'salespersons' ? ' is-active' : ''}`}
+                  onClick={() => setMainTab('salespersons')}
+                >
+                  Salesperson
+                </button>
+                {canManageDealerLevels ? (
+                  <button
+                    type="button"
+                    className={`support-filter-sheet__option${mainTab === 'dealer-level' ? ' is-active' : ''}`}
+                    onClick={() => setMainTab('dealer-level')}
+                  >
+                    Dealer level
+                  </button>
+                ) : null}
+              </div>
+            </section>
+
+            {mainTab === 'roster' ? dealerFilterFields : null}
           </div>
-        ) : null}
-      </div>
+        </>
+      ) : null}
 
       {mainTab === 'salespersons' ? (
         <ZohoSalespersonsPanel />
@@ -526,15 +556,6 @@ export function ZohoDealersPage() {
 
       <div className="dealers-toolbar">
         <div className="dealers-toolbar__row">
-          <div className="catalog-search dealers-search">
-            <Search size={16} />
-            <input
-              type="search"
-              placeholder="Search dealers…"
-              value={searchTerm}
-              onChange={e => setSearchTerm(e.target.value)}
-            />
-          </div>
           <div className="dealers-toolbar__actions">
             {canSyncDealers && (
               <button type="button" className="btn btn-primary btn-sm zoho-sync-btn" disabled={syncing} onClick={() => void handleSync()}>
@@ -550,101 +571,100 @@ export function ZohoDealersPage() {
         </div>
       </div>
 
-      <div className="dealers-table-panel">
-        {renderPaginationBar('top')}
-        <div className="dealers-table-wrap dealers-table-wrap--desktop">
-        <table className="dealers-table">
-          <thead>
-            <tr>
-              <th>
-                <input
-                  type="checkbox"
-                  aria-label="Select all"
-                  checked={dealers.length > 0 && selectedIds.size === dealers.length}
-                  onChange={e => toggleSelectAll(e.target.checked)}
-                />
-              </th>
-              <th>#</th>
-              <th><button type="button" onClick={() => handleSort('contactName')}>Dealer <SortMark field="contactName" /></button></th>
-              <th><button type="button" onClick={() => handleSort('firstName')}>Contact <SortMark field="firstName" /></button></th>
-              <th><button type="button" onClick={() => handleSort('phone')}>Phone <SortMark field="phone" /></button></th>
-              <th>Staff</th>
-              <th><button type="button" onClick={() => handleSort('billingState')}>State <SortMark field="billingState" /></button></th>
-              <th><button type="button" onClick={() => handleSort('district')}>District <SortMark field="district" /></button></th>
-              <th>Categories</th>
-              <th className="dealers-table__status-col"><button type="button" onClick={() => handleSort('dealerStage')}>Status <SortMark field="dealerStage" /></button></th>
-            </tr>
-          </thead>
-          <tbody>
-            {loading ? (
-              <tr>
-                <td colSpan={10} className="dealers-table__empty">
-                  <FetchingLoader label="Fetching dealers" />
-                </td>
-              </tr>
-            ) : dealers.length === 0 ? (
-              <tr><td colSpan={10} className="dealers-table__empty">No dealers found. Sync from Zoho to get started.</td></tr>
-            ) : (
-              dealers.map((dealer, idx) => (
-                <tr key={dealer.id}>
-                  <td>
-                    <input
-                      type="checkbox"
-                      checked={selectedIds.has(dealer.id)}
-                      onChange={() => toggleRow(dealer.id)}
-                      aria-label={`Select ${dealer.contactName}`}
-                    />
-                  </td>
-                  <td>{effectivePaginationOn ? (page - 1) * limit + idx + 1 : idx + 1}</td>
-                  <td>{dealer.companyName || dealer.contactName}</td>
-                  <td>{dealer.firstName || '—'}</td>
-                  <td>{dealerContactPhone(dealer) || '—'}</td>
-                  <td>
-                    <select
-                      className="catalog-select dealers-inline-select"
-                      value={dealer.assignedStaffUid ?? ''}
-                      onChange={e => void updateField(dealer.id, {
-                        assignedStaffUid: e.target.value || null,
-                      })}
-                      aria-label="Assigned staff"
-                      disabled={!canEditDealers}
-                      title="Only staff with a linked Zoho salesperson can be assigned"
-                    >
-                      <option value="">Unassigned</option>
-                      {dealerStaffSelectOptions(assignableStaff, {
-                        uid: dealer.assignedStaffUid,
-                        name: dealer.assignedStaffName,
-                      }).map(s => (
-                        <option key={s.uid} value={s.uid}>{s.displayName}</option>
-                      ))}
-                    </select>
-                  </td>
-                  <td>{dealer.billingState || '—'}</td>
-                  <td>{dealer.district || '—'}</td>
-                  <td>
-                    <MultiSelect
-                      className="dealers-multiselect--inline"
-                      placeholder="—"
-                      menuPortal
-                      value={dealer.categories}
-                      options={categories.map(c => ({ value: c, label: c }))}
-                      onChange={next => void updateField(dealer.id, { categories: next })}
-                    />
-                  </td>
-                  <td className="dealers-table__status-col">
-                    <DealerStatusCell
-                      dealer={dealer}
-                      onStageChange={stage => void updateField(dealer.id, { dealerStage: stage })}
-                    />
-                  </td>
-                </tr>
-              ))
-            )}
-          </tbody>
-        </table>
-        </div>
+      <div className="dealers-kpis dealers-kpis--roster" role="group" aria-label="Dealer counts">
+        <button
+          type="button"
+          className={`dealers-kpi dealers-kpi--roster${statusFilter.length === 0 ? ' is-active' : ''}`}
+          onClick={() => applyStatusPreset([])}
+        >
+          <Users size={16} />
+          <div>
+            <h3>Total Dealers</h3>
+            <div className="stat-value">{(stats?.total ?? total).toLocaleString('en-IN')}</div>
+          </div>
+        </button>
+        <button
+          type="button"
+          className={`dealers-kpi dealers-kpi--roster dealers-kpi--active${kpiActive(['active-yes', 'active-no']) ? ' is-active' : ''}`}
+          onClick={() => applyStatusPreset(['active-yes', 'active-no'])}
+        >
+          <UserCheck size={16} />
+          <div>
+            <h3>Active Dealers</h3>
+            <div className="stat-value">{(stats?.active ?? 0).toLocaleString('en-IN')}</div>
+          </div>
+        </button>
+        <button
+          type="button"
+          className={`dealers-kpi dealers-kpi--roster dealers-kpi--inactive${kpiActive(['non-active-yes', 'non-active-no']) ? ' is-active' : ''}`}
+          onClick={() => applyStatusPreset(['non-active-yes', 'non-active-no'])}
+        >
+          <Clock size={16} />
+          <div>
+            <h3>Inactive Dealers</h3>
+            <div className="stat-value">{(stats?.nonActive ?? 0).toLocaleString('en-IN')}</div>
+          </div>
+        </button>
+        <button
+          type="button"
+          className={`dealers-kpi dealers-kpi--roster dealers-kpi--blacklisted${kpiActive(['blacklisted-yes', 'blacklisted-no']) ? ' is-active' : ''}`}
+          onClick={() => applyStatusPreset(['blacklisted-yes', 'blacklisted-no'])}
+        >
+          <Ban size={16} />
+          <div>
+            <h3>Blacklisted</h3>
+            <div className="stat-value">{(stats?.blacklisted ?? 0).toLocaleString('en-IN')}</div>
+          </div>
+        </button>
+      </div>
 
-        <div className="dealers-tiles dealers-tiles--mobile" aria-label="Dealer list">
+      <div className="dealers-roster-bar">
+        <label className="dealers-sort">
+          Sort by:
+          <select
+            value={sortField}
+            onChange={e => {
+              setSortField(e.target.value);
+              setSortDir('asc');
+              setPage(1);
+            }}
+            aria-label="Sort dealers"
+          >
+            <option value="contactName">Dealer name</option>
+            <option value="firstName">Contact</option>
+            <option value="billingState">State</option>
+            <option value="district">District</option>
+            <option value="dealerStage">Status</option>
+          </select>
+        </label>
+        <div className="dealers-view-toggle">
+          <span className="dealers-view-toggle__label">View:</span>
+          <button
+            type="button"
+            className={`dealers-view-toggle__btn${viewMode === 'list' ? ' is-active' : ''}`}
+            aria-label="List view"
+            aria-pressed={viewMode === 'list'}
+            onClick={() => setViewMode('list')}
+          >
+            <LayoutList size={16} />
+          </button>
+          <button
+            type="button"
+            className={`dealers-view-toggle__btn${viewMode === 'grid' ? ' is-active' : ''}`}
+            aria-label="Grid view"
+            aria-pressed={viewMode === 'grid'}
+            onClick={() => setViewMode('grid')}
+          >
+            <LayoutGrid size={16} />
+          </button>
+        </div>
+      </div>
+
+      <div className="dealers-table-panel">
+        <div
+          className={`dealers-roster${viewMode === 'grid' ? ' dealers-roster--grid' : ''}`}
+          aria-label="Dealer list"
+        >
           {loading ? (
             <FetchingLoader label="Fetching dealers" className="dealers-tiles__loading" />
           ) : dealers.length === 0 ? (
@@ -696,6 +716,16 @@ export function ZohoDealersPage() {
       )}
       </>
       )}
+
+      {createOpen && canEditDealers ? (
+        <CreateDealerModal
+          onClose={() => setCreateOpen(false)}
+          onCreated={dealer => {
+            setCreateOpen(false);
+            navigate(`${dealersBase}/${dealer.id}`, { state: { dealer } });
+          }}
+        />
+      ) : null}
 
     </div>
   );

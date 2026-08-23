@@ -1,10 +1,9 @@
 import React from 'react';
-import { MapPin, Phone, Store } from 'lucide-react';
+import { MapPin, Phone, UserRound } from 'lucide-react';
 import type { ZohoDealer } from '../../types/dealers';
 import { dealerContactPhone } from '../../lib/dealers';
 import { getDealerStatusMeta } from '../../lib/dealerStatus';
 import { buildContactLinks } from '../../lib/phoneLinks';
-import { DealerStatusIndicator } from './DealerStatusIndicator';
 
 function WhatsAppIcon() {
   return (
@@ -14,28 +13,56 @@ function WhatsAppIcon() {
   );
 }
 
+function dealerInitial(name: string): string {
+  const letter = name.trim().charAt(0);
+  return letter ? letter.toUpperCase() : '?';
+}
+
+function formatDealerPhone(phone: string): string {
+  const digits = phone.replace(/\D/g, '');
+  const local = digits.length === 12 && digits.startsWith('91') ? digits.slice(2) : digits;
+  if (local.length === 10) return `${local.slice(0, 5)} ${local.slice(5)}`;
+  return phone;
+}
+
+function formatInr(amount: number): string {
+  return new Intl.NumberFormat('en-IN', {
+    style: 'currency',
+    currency: 'INR',
+    maximumFractionDigits: 2,
+  }).format(amount || 0);
+}
+
+function statusTone(stageLabel: string): string {
+  const stage = stageLabel.toLowerCase();
+  if (stage.includes('black')) return 'blacklisted';
+  if (stage.includes('non')) return 'inactive';
+  if (stage.includes('active')) return 'active';
+  return 'unset';
+}
+
 interface DealerTileProps {
   dealer: ZohoDealer;
   onOpen: () => void;
 }
 
-export const DealerTile: React.FC<DealerTileProps> = ({
-  dealer,
-  onOpen,
-}) => {
-  const name = dealer.companyName || dealer.contactName;
+export const DealerTile: React.FC<DealerTileProps> = ({ dealer, onOpen }) => {
+  const businessName = dealer.companyName || dealer.contactName || 'Dealer';
+  const contactName = dealer.firstName || dealer.zohoPrimaryContact?.name || '';
   const phone = dealerContactPhone(dealer);
   const contactLinks = phone ? buildContactLinks(phone) : null;
   const location = [dealer.district, dealer.billingState].filter(Boolean).join(', ');
   const statusMeta = getDealerStatusMeta(dealer);
+  const tone = statusTone(statusMeta.stageLabel);
+  const kam = dealer.assignedStaffName?.trim() || 'Unassigned';
 
-  const stopBubble = (e: React.MouseEvent | React.ChangeEvent) => {
+  const stopBubble = (e: React.MouseEvent) => {
     e.stopPropagation();
   };
 
   return (
     <article
-      className="dealers-tile panel glass"
+      className="dealers-card"
       onClick={onOpen}
       onKeyDown={e => {
         if (e.key === 'Enter' || e.key === ' ') {
@@ -45,62 +72,58 @@ export const DealerTile: React.FC<DealerTileProps> = ({
       }}
       role="button"
       tabIndex={0}
-      aria-label={`Open ${name}`}
+      aria-label={`Open ${businessName}`}
     >
-      <div className="dealers-tile__header">
-        <div className="dealers-tile__main">
-          <div className="dealers-tile__avatar" aria-hidden>
-            <Store size={22} strokeWidth={1.75} />
-          </div>
-
-          <div className="dealers-tile__body">
-            <h3 className="dealers-tile__name">{name}</h3>
-
-            {dealer.firstName && (
-              <p className="dealers-tile__contact">{dealer.firstName}</p>
-            )}
-
-            {phone && (
-              <p className="dealers-tile__line">
-                <Phone size={14} className="dealers-tile__line-icon" strokeWidth={2} />
-                <span>{phone}</span>
-              </p>
-            )}
-
-            {location && (
-              <p className="dealers-tile__line">
-                <MapPin size={14} className="dealers-tile__line-icon" strokeWidth={2} />
-                <span>{location}</span>
-              </p>
-            )}
-          </div>
-        </div>
-
-        <DealerStatusIndicator meta={statusMeta} className="dealers-tile__status" />
+      <div className="dealers-card__avatar" aria-hidden>
+        {dealerInitial(businessName)}
       </div>
 
-      {contactLinks && (
-        <div className="dealers-tile__actions" onClick={stopBubble}>
-          <a
-            href={contactLinks.tel}
-            className="dealers-tile__action dealers-tile__action--call"
-            aria-label={`Call ${name}`}
-          >
-            <Phone size={16} strokeWidth={2.25} />
-            Call
-          </a>
-          <a
-            href={contactLinks.whatsapp}
-            className="dealers-tile__action dealers-tile__action--whatsapp"
-            target="_blank"
-            rel="noopener noreferrer"
-            aria-label={`WhatsApp ${name}`}
-          >
-            <WhatsAppIcon />
-            WhatsApp
-          </a>
-        </div>
-      )}
+      <div className="dealers-card__main">
+        <h3 className="dealers-card__firm">{businessName}</h3>
+        {contactName ? <p className="dealers-card__person">{contactName}</p> : null}
+        {location ? (
+          <p className="dealers-card__meta">
+            <MapPin size={13} strokeWidth={2.25} />
+            <span>{location}</span>
+          </p>
+        ) : null}
+        <p className="dealers-card__meta">
+          <UserRound size={13} strokeWidth={2.25} />
+          <span>KAM: {kam}</span>
+        </p>
+      </div>
+
+      <div className="dealers-card__side">
+        <span className={`dealers-card__badge dealers-card__badge--${tone}`}>
+          {tone === 'inactive' ? 'Inactive' : statusMeta.stageLabel}
+        </span>
+        {contactLinks ? (
+          <div className="dealers-card__icons" onClick={stopBubble}>
+            <a
+              href={contactLinks.tel}
+              className="dealers-card__icon-btn"
+              aria-label={`Call ${businessName}`}
+            >
+              <Phone size={15} strokeWidth={2.25} />
+            </a>
+            <a
+              href={contactLinks.whatsapp}
+              className="dealers-card__icon-btn"
+              target="_blank"
+              rel="noopener noreferrer"
+              aria-label={`WhatsApp ${businessName}`}
+            >
+              <WhatsAppIcon />
+            </a>
+          </div>
+        ) : null}
+      </div>
+
+      <div className="dealers-card__finance">
+        <strong>{formatInr(dealer.outstandingReceivable)}</strong>
+        <span>Outstanding</span>
+        {phone ? <em>{formatDealerPhone(phone)}</em> : null}
+      </div>
     </article>
   );
 };

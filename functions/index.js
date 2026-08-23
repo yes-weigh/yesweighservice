@@ -69,6 +69,7 @@ import {
   getDealerStatsSummary,
   getDealerLocationsSummary,
   getDealerRecord,
+  createDealerRecord,
   patchDealerRecord,
   linkDealerPortalUser,
   refreshDealerZohoRecord,
@@ -4301,6 +4302,30 @@ export const lookupDealerPincode = onCall(
       throw new HttpsError('not-found', 'Could not find state and district for this PIN code.');
     }
     return location;
+  },
+);
+
+/** Create a Zoho customer (dealer) — staff / super admin. */
+export const createDealer = onCall(
+  {
+    region: 'asia-south1',
+    secrets: [zohoClientId, zohoClientSecret, zohoRefreshToken],
+    timeoutSeconds: 120,
+    memory: '256MiB',
+  },
+  async request => {
+    await requireActiveUser(request.auth?.uid, SYNC_ROLES);
+    try {
+      const dealer = await createDealerRecord(
+        request.data ?? {},
+        zohoSecrets(),
+        zohoOrganizationId.value(),
+      );
+      return { dealer };
+    } catch (err) {
+      if (err instanceof HttpsError) throw err;
+      throw new HttpsError('internal', err?.message ?? 'Could not create dealer.');
+    }
   },
 );
 

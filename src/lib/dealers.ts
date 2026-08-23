@@ -188,6 +188,17 @@ export async function exportDealersCsv(params: DealerListParams): Promise<string
   return String((result.data as { csv?: string }).csv ?? '');
 }
 
+export async function createDealer(input: {
+  companyName: string;
+  contactName?: string;
+  phone?: string;
+  email?: string;
+}): Promise<ZohoDealer> {
+  const fn = httpsCallable<typeof input, { dealer: ZohoDealer }>(functions, 'createDealer');
+  const result = await fn(input);
+  return result.data.dealer;
+}
+
 export async function patchDealer(
   id: string,
   patch: Partial<ZohoDealer>,

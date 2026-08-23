@@ -369,6 +369,57 @@ function mapContactPersonForUpdate(person, primaryId, changes) {
   });
 }
 
+export async function createZohoCustomer(input, secrets, orgId) {
+  const companyName = cleanStr(input?.companyName);
+  if (!companyName) throw new Error('Company name is required.');
+
+  const accessToken = await getAccessToken(secrets);
+  const organizationId = await resolveOrganizationId(accessToken, orgId);
+  const personName = cleanStr(input?.contactName) ?? companyName;
+  const email = cleanStr(input?.email);
+  const phone = cleanStr(input?.phone);
+
+  const contactPerson = omitEmpty({
+    first_name: personName,
+    email,
+    phone,
+    mobile: phone,
+    is_primary_contact: true,
+  });
+
+  const body = omitEmpty({
+    contact_name: companyName,
+    company_name: companyName,
+    contact_type: 'customer',
+    customer_sub_type: 'business',
+    email,
+    phone,
+    mobile: phone,
+    first_name: personName,
+    contact_persons: [contactPerson],
+  });
+
+  const url = `${ZOHO_API_BASE}/contacts?organization_id=${organizationId}`;
+  const res = await fetch(url, {
+    method: 'POST',
+    headers: {
+      ...authHeaders(accessToken, organizationId),
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(body),
+  });
+
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok || data.code !== 0) {
+    throw new Error(data.message || `Zoho contact create failed (${res.status}).`);
+  }
+
+  const contactId = String(data.contact?.contact_id ?? '').trim();
+  if (!contactId) throw new Error('Zoho did not return a contact id.');
+  await upsertCustomerFromZoho(secrets, orgId, contactId);
+  return contactId;
+}
+
 export async function pushDealerChangesToZoho(id, changes, secrets, orgId) {
   const db = getFirestore();
   const ref = db.collection(CUSTOMERS_COLLECTION).doc(id);

@@ -6,6 +6,7 @@ import {
   writeDealerSetting,
   refreshDealerFromZoho,
   pushDealerChangesToZoho,
+  createZohoCustomer,
 } from './zoho-customers.js';
 import {
   filterDealers,
@@ -145,6 +146,29 @@ export async function getDealerRecord(id, { refreshFromZoho, secrets, orgId } = 
   const raw = { id: snap.id, ...snap.data() };
   const usersById = await loadUserMap([raw.portalUserId, raw.assignedStaffUid]);
   return mapDealerDetailForClient(raw, null, usersById);
+}
+
+export async function createDealerRecord(input, secrets, orgId) {
+  const companyName = String(input?.companyName ?? '').trim();
+  if (!companyName) {
+    throw new HttpsError('invalid-argument', 'Company name is required.');
+  }
+  const contactName = String(input?.contactName ?? '').trim();
+  const phone = String(input?.phone ?? '').replace(/\D/g, '').slice(0, 10);
+  const email = String(input?.email ?? '').trim().toLowerCase();
+  if (phone && phone.length !== 10) {
+    throw new HttpsError('invalid-argument', 'Enter a valid 10-digit mobile number.');
+  }
+  if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+    throw new HttpsError('invalid-argument', 'Enter a valid email address.');
+  }
+  const id = await createZohoCustomer({
+    companyName,
+    contactName: contactName || undefined,
+    phone: phone || undefined,
+    email: email || undefined,
+  }, secrets, orgId);
+  return getDealerRecord(id);
 }
 
 export async function patchDealerRecord(id, body = {}) {
