@@ -19,7 +19,8 @@ import { formatQtyDifference } from '../../lib/yesStore/inventoryAudit';
 import { useCart } from '../../context/useCart';
 import { useCartFly } from '../../context/useCartFly';
 import { useDealerOrderStockGate } from '../../hooks/useDealerOrderStockGate';
-import { useDealerUnitPrice } from '../../hooks/useDealerUnitPrice';
+import { useDealerPriceLevels, useDealerUnitPrice } from '../../hooks/useDealerUnitPrice';
+import { isCatalogProductSalesRestricted } from '../../lib/catalogSalesRestriction';
 import {
   DEALER_ORDER_SCHEDULED_TITLE,
   DEALER_ORDER_UNAVAILABLE_TITLE,
@@ -27,6 +28,7 @@ import {
 import type { CatalogProduct } from '../../types/catalog';
 import { AuditedSealIcon } from './AuditedSealIcon';
 import { CatalogMerchBadges } from './CatalogMerchBadges';
+import { RestrictedItemBadge } from './RestrictedItemBadge';
 import { CategoryThumbnail } from './CategoryThumbnail';
 import { CatalogOnOrderShipChip } from './CatalogOnOrderShipChip';
 import { useAuth } from '../../context/AuthContext';
@@ -127,8 +129,10 @@ export const ProductBrowseCard: React.FC<ProductBrowseCardProps> = ({
   const { flyToCart } = useCartFly();
   const { user } = useAuth();
   const dealerStock = useDealerOrderStockGate();
+  const { billingState } = useDealerPriceLevels();
   const dealerPricing = useDealerUnitPrice(dealerView ? product : null);
   const dealerCanAdd = dealerStock.canOrder(product);
+  const salesRestricted = dealerView && isCatalogProductSalesRestricted(product, billingState);
   const dealerInboundOnly = dealerStock.usesScheduledInbound(product);
   const inboundQty = dealerStock.scheduledQty(product.id);
   const isSpareItem = isCatalogSparePartProduct(product);
@@ -155,7 +159,8 @@ export const ProductBrowseCard: React.FC<ProductBrowseCardProps> = ({
   const longPressFired = useRef(false);
   const theme = getCategoryTheme(index);
   const inCart = isInCart(product.id);
-  const showCartButton = enableCart && (!isCartable || isCartable(product));
+  const showCartButton = enableCart && !salesRestricted && (!isCartable || isCartable(product));
+  const showRestrictedBadge = enableCart && salesRestricted && (!isCartable || isCartable(product));
   const hasStamping = productHasLinkedGatc(product);
   // Grid badge: only single-box counts — master carton alone is not enough.
   const hasSingleBoxPackageInfo = catalogProductHasSingleBoxPackageInfo(product);
@@ -300,7 +305,7 @@ export const ProductBrowseCard: React.FC<ProductBrowseCardProps> = ({
         editable ? 'catalog-product-card--editable' : '',
         dragOver ? 'catalog-product-card--drag-over' : '',
         onLongPress ? 'catalog-product-card--long-press' : '',
-        showCartButton ? 'catalog-product-card--has-cart' : '',
+        showCartButton || showRestrictedBadge ? 'catalog-product-card--has-cart' : '',
         highlighted ? 'is-focus' : '',
       ].filter(Boolean).join(' ')}
       data-product-id={product.id}
@@ -533,6 +538,8 @@ export const ProductBrowseCard: React.FC<ProductBrowseCardProps> = ({
           <Link2 size={14} />
         </button>
       )}
+
+      {showRestrictedBadge && <RestrictedItemBadge compact />}
 
       {showCartButton && (
         <button

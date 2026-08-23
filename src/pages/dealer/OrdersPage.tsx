@@ -19,6 +19,8 @@ import { useAuth } from '../../context/AuthContext';
 import { CART_REMARKS_MAX_LENGTH } from '../../context/CartProvider';
 import { useCart } from '../../context/useCart';
 import { useDealerPriceLevels } from '../../hooks/useDealerUnitPrice';
+import { isCatalogProductSalesRestricted } from '../../lib/catalogSalesRestriction';
+import { RestrictedItemBadge } from '../../components/catalog/RestrictedItemBadge';
 import { useDealerOrderStockGate } from '../../hooks/useDealerOrderStockGate';
 import { cartLineIsOutOfStock, fetchCatalog, formatCurrency, isCatalogSparePartProduct } from '../../lib/catalog';
 import {
@@ -123,7 +125,7 @@ const DealerCartPage: React.FC = () => {
     : items;
   const checkoutCount = checkoutItems.reduce((sum, item) => sum + item.quantity, 0);
   const checkoutSubtotal = checkoutItems.reduce((sum, item) => sum + item.rate * item.quantity, 0);
-  const { level: dealerPriceLevel } = useDealerPriceLevels();
+  const { level: dealerPriceLevel, billingState } = useDealerPriceLevels();
   const dealerStock = useDealerOrderStockGate();
   const skipsOpsReview = priceLevelSkipsOpsReview(dealerPriceLevel);
   const [submitting, setSubmitting] = useState(false);
@@ -366,6 +368,12 @@ const DealerCartPage: React.FC = () => {
     return cartLineIsOutOfStock(item);
   }), [checkoutItems, catalogById, inboundByProductId, raisedPoQty, canOrder]);
 
+  const restrictedCartItems = useMemo(() => checkoutItems.filter(item => {
+    const product = catalogById[item.productId];
+    if (!product) return false;
+    return isCatalogProductSalesRestricted(product, billingState);
+  }), [checkoutItems, catalogById, billingState]);
+
   const handlePlaceOrder = async () => {
     if (checkoutItems.length === 0 || submitting) return;
     if (unorderableItems.length > 0) {
@@ -373,6 +381,14 @@ const DealerCartPage: React.FC = () => {
         unorderableItems.length === 1
           ? `${unorderableItems[0].name} is out of stock and is not scheduled on a goods receipt.`
           : `${unorderableItems.length} items are out of stock and not scheduled on a goods receipt.`,
+      );
+      return;
+    }
+    if (restrictedCartItems.length > 0) {
+      window.alert(
+        restrictedCartItems.length === 1
+          ? `${restrictedCartItems[0].name} is restricted in your state and cannot be ordered.`
+          : `${restrictedCartItems.length} items are restricted in your state and cannot be ordered.`,
       );
       return;
     }
@@ -686,6 +702,9 @@ const DealerCartPage: React.FC = () => {
               const inboundOnly = catalogProduct
                 ? dealerStock.usesScheduledInbound(catalogProduct)
                 : cartLineIsOutOfStock(item) && (scheduledQty > 0 || poQty > 0);
+              const lineRestricted = Boolean(
+                catalogProduct && isCatalogProductSalesRestricted(catalogProduct, billingState),
+              );
               const canEditStamp = catalogProduct
                 ? productHasLinkedGatc(catalogProduct)
                 : Boolean(item.gatcStampingPriceId);
@@ -818,10 +837,15 @@ const DealerCartPage: React.FC = () => {
                         }}
                       />
                     )}
-                    {!canOrderLine && (
+                    {!canOrderLine && !lineRestricted && (
                       <p className="orders-page__item-warning orders-page__item-warning--blocked">
                         {DEALER_ORDER_UNAVAILABLE_MESSAGE}
                       </p>
+                    )}
+                    {lineRestricted && (
+                      <div className="orders-page__item-restricted">
+                        <RestrictedItemBadge />
+                      </div>
                     )}
                     {inboundOnly && !hideTeamQty && (
                       <p className="orders-page__item-warning">
@@ -837,6 +861,7 @@ const DealerCartPage: React.FC = () => {
                       className="orders-page__qty"
                       buttonClassName="orders-page__qty-btn"
                       inputClassName="orders-page__qty-input"
+                      disabled={lineRestricted}
                     />
 
                     <div className="orders-page__line-total">
@@ -1023,6 +1048,7 @@ const DealerCartPage: React.FC = () => {
               || addressesLoading
               || !freightAdjustAgreed
               || unorderableItems.length > 0
+              || restrictedCartItems.length > 0
             }
             onClick={() => void handlePlaceOrder()}
           >

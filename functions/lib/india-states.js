@@ -1,8 +1,49 @@
-import { INDIA_STATE_PATHS } from '../data/indiaStatePaths';
+/** Canonical India state/UT names — keep in sync with src/lib/indiaStates.ts picker. */
 
-const CANONICAL = new Map(INDIA_STATE_PATHS.map(s => [normKey(s.name), s.name]));
+const INDIA_STATE_NAMES = [
+  'Andaman and Nicobar Islands',
+  'Andhra Pradesh',
+  'Arunachal Pradesh',
+  'Assam',
+  'Bihar',
+  'Chandigarh',
+  'Chhattisgarh',
+  'Dadra and Nagar Haveli',
+  'Daman and Diu',
+  'Delhi',
+  'Goa',
+  'Gujarat',
+  'Haryana',
+  'Himachal Pradesh',
+  'Jammu and Kashmir',
+  'Jharkhand',
+  'Karnataka',
+  'Kerala',
+  'Lakshadweep',
+  'Madhya Pradesh',
+  'Maharashtra',
+  'Manipur',
+  'Meghalaya',
+  'Mizoram',
+  'Nagaland',
+  'Odisha',
+  'Puducherry',
+  'Punjab',
+  'Rajasthan',
+  'Sikkim',
+  'Tamil Nadu',
+  'Telangana',
+  'Tripura',
+  'Uttar Pradesh',
+  'Uttarakhand',
+  'West Bengal',
+];
 
-const ALIASES: Record<string, string> = {
+const ALLOWED = new Set(INDIA_STATE_NAMES);
+
+const UNSPECIFIED_STATE = 'Unspecified';
+
+const ALIASES = {
   orissa: 'Odisha',
   uttaranchal: 'Uttarakhand',
   uttarakhand: 'Uttarakhand',
@@ -66,23 +107,33 @@ const ALIASES: Record<string, string> = {
   ga: 'Goa',
 };
 
-export const UNSPECIFIED_STATE = 'Unspecified';
-
-/** Unique picker names from the India map (states + UTs). Sorted A–Z. */
-export const INDIA_STATE_NAMES: readonly string[] = [
-  ...new Set(INDIA_STATE_PATHS.map(s => s.name)),
-].sort((a, b) => a.localeCompare(b));
-
-export function normKey(value: string): string {
-  return value
+function normKey(value) {
+  return String(value ?? '')
     .toLowerCase()
     .replace(/&/g, 'and')
     .replace(/[^a-z0-9]+/g, ' ')
     .trim();
 }
 
-export function canonicalIndiaState(raw: string | null | undefined): string {
-  const key = normKey(String(raw ?? ''));
+const CANONICAL = new Map(INDIA_STATE_NAMES.map(name => [normKey(name), name]));
+
+export { INDIA_STATE_NAMES, UNSPECIFIED_STATE };
+
+export function canonicalIndiaState(raw) {
+  const key = normKey(raw);
   if (!key) return UNSPECIFIED_STATE;
   return ALIASES[key] ?? CANONICAL.get(key) ?? UNSPECIFIED_STATE;
+}
+
+export function sanitizeRestrictedSalesStates(raw) {
+  if (!Array.isArray(raw)) return [];
+  const seen = new Set();
+  const out = [];
+  for (const item of raw) {
+    const name = canonicalIndiaState(item);
+    if (name === UNSPECIFIED_STATE || !ALLOWED.has(name) || seen.has(name)) continue;
+    seen.add(name);
+    out.push(name);
+  }
+  return out.sort((a, b) => a.localeCompare(b));
 }

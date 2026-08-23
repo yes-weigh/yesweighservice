@@ -13,6 +13,7 @@ export function useDealerPriceLevels(): {
   dealerId: string | null;
   ready: boolean;
   restrictedCategoryIds: ReadonlySet<string>;
+  billingState: string | null;
   isProductVisible: (
     product: Pick<CatalogProduct, 'categoryId' | 'categoryName'> | null | undefined,
   ) => boolean;
@@ -25,6 +26,7 @@ export function useDealerPriceLevels(): {
       dealerId: null,
       ready: true,
       restrictedCategoryIds: new Set<string>(),
+      billingState: null,
       isProductVisible: () => true,
     };
   }
@@ -34,6 +36,7 @@ export function useDealerPriceLevels(): {
     dealerId: ctx.dealerId,
     ready: ctx.ready,
     restrictedCategoryIds: ctx.restrictedCategoryIds,
+    billingState: ctx.billingState,
     isProductVisible: ctx.isProductVisible,
   };
 }

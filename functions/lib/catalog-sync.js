@@ -21,6 +21,7 @@ import {
 import { buildZohoSyncAuditAdjustment } from './catalog-product-audit.js';
 import { syncLedgerClosingStockForProducts } from './zoho-stock-movements.js';
 import { extractWebhookEvent } from './invoice-sync.js';
+import { sanitizeRestrictedSalesStates } from './india-states.js';
 
 const PRODUCTS_COLLECTION = 'catalogProducts';
 const CATEGORIES_COLLECTION = 'catalogCategories';
@@ -919,6 +920,13 @@ function preserveFirestoreOnlyProductFlags(existing, doc) {
     if (existing.discontinuedSoonAt) doc.discontinuedSoonAt = existing.discontinuedSoonAt;
     if (existing.discontinuedSoonByUid) doc.discontinuedSoonByUid = existing.discontinuedSoonByUid;
   }
+  if (Array.isArray(existing.restrictedSalesStates)) {
+    doc.restrictedSalesStates = existing.restrictedSalesStates;
+    if (existing.restrictedSalesStatesAt) doc.restrictedSalesStatesAt = existing.restrictedSalesStatesAt;
+    if (existing.restrictedSalesStatesByUid) {
+      doc.restrictedSalesStatesByUid = existing.restrictedSalesStatesByUid;
+    }
+  }
 }
 
 /** Super admin — hide/unhide from dealer/public catalogue (Firestore only). */
@@ -972,6 +980,34 @@ export async function patchProductMerchFlag(productId, flag, enabled, actorUid) 
     updatedAt: FieldValue.serverTimestamp(),
   }, { merge: true });
   return { [flag]: payload[flag] };
+}
+
+/** Super admin — block sales in selected Indian states (Firestore only). */
+export async function patchProductRestrictedSalesStates(productId, states, actorUid) {
+  const id = String(productId ?? '').trim();
+  if (!id) throw new Error('productId is required.');
+
+  const existing = await getFirestore().collection(PRODUCTS_COLLECTION).doc(id).get();
+  if (!existing.exists) {
+    throw new Error('Catalog product not found.');
+  }
+
+  const now = new Date().toISOString();
+  const restrictedSalesStates = sanitizeRestrictedSalesStates(states);
+  const payload = {
+    restrictedSalesStates,
+    restrictedSalesStatesAt: now,
+    restrictedSalesStatesByUid: actorUid ? String(actorUid) : null,
+    syncedAt: now,
+  };
+
+  const db = getFirestore();
+  await db.collection(PRODUCTS_COLLECTION).doc(id).set(payload, { merge: true });
+  await db.doc(META_DOC).set({
+    lastContentChangeAt: now,
+    updatedAt: FieldValue.serverTimestamp(),
+  }, { merge: true });
+  return { restrictedSalesStates };
 }
 
 function parseOptionalPositiveNumber(value, { allowZero = false, integer = false } = {}) {

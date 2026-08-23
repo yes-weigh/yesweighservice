@@ -12,6 +12,7 @@ import {
   EyeOff,
   ImagePlus,
   IndianRupee,
+  MapPin,
   Package,
   Pencil,
   RefreshCw,
@@ -45,6 +46,7 @@ import {
   saveCatalogSpareProductLinks,
   setCatalogProductHidden,
   setCatalogProductMerchFlag,
+  setCatalogProductRestrictedSalesStates,
   setCatalogProductStatus,
   updateCatalogProductDetails,
   updateCatalogProductOverlays,
@@ -70,7 +72,8 @@ import { useCart } from '../../context/useCart';
 import { useCartFly } from '../../context/useCartFly';
 import { useConfirm } from '../../context/ConfirmContext';
 import { useDealerOrderStockGate } from '../../hooks/useDealerOrderStockGate';
-import { useDealerUnitPrice } from '../../hooks/useDealerUnitPrice';
+import { useDealerPriceLevels, useDealerUnitPrice } from '../../hooks/useDealerUnitPrice';
+import { isCatalogProductSalesRestricted } from '../../lib/catalogSalesRestriction';
 import {
   DEALER_ORDER_SCHEDULED_MESSAGE,
   DEALER_ORDER_SCHEDULED_TITLE,
@@ -84,6 +87,8 @@ import {
 import { CatalogMrpLabel, DealerPriceDisplay } from './DealerPriceDisplay';
 import { DealerMrpEditButton } from './DealerMrpEditButton';
 import { CatalogMerchBadges } from './CatalogMerchBadges';
+import { ProductSalesRestrictionSheet } from './ProductSalesRestrictionSheet';
+import { RestrictedItemBadge, RestrictedItemWhyBox } from './RestrictedItemBadge';
 import { listItemsByCatalogProduct } from '../../lib/yesStore/data';
 import {
   calculateGroupTotals,
@@ -263,6 +268,7 @@ export const ProductDetailView: React.FC<{
   const { addItem, getQuantity } = useCart();
   const { flyToCart } = useCartFly();
   const dealerStock = useDealerOrderStockGate();
+  const { billingState } = useDealerPriceLevels();
   const confirm = useConfirm();
   const [quantityText, setQuantityText] = useState('1');
   const [addedFlash, setAddedFlash] = useState(false);
@@ -291,6 +297,8 @@ export const ProductDetailView: React.FC<{
   const [statusUpdating, setStatusUpdating] = useState(false);
   const [hiddenUpdating, setHiddenUpdating] = useState(false);
   const [merchUpdating, setMerchUpdating] = useState<'newArrival' | 'discontinuedSoon' | null>(null);
+  const [restrictionUpdating, setRestrictionUpdating] = useState(false);
+  const [restrictionSheetOpen, setRestrictionSheetOpen] = useState(false);
   const [statusError, setStatusError] = useState<string | null>(null);
   const [productEditMode, setProductEditMode] = useState(false);
   const [editName, setEditName] = useState('');
@@ -1093,7 +1101,8 @@ export const ProductDetailView: React.FC<{
     [detail?.warehouses],
   );
   const cartQty = product ? getQuantity(product.id) : 0;
-  const dealerCanAdd = dealerStock.canOrder(product);
+  const salesRestricted = isDealerPortal && isCatalogProductSalesRestricted(product, billingState);
+  const dealerCanAdd = dealerStock.canOrder(product) && !salesRestricted;
   const dealerInboundOnly = dealerStock.usesScheduledInbound(product);
   const dealerInboundQty = product ? dealerStock.scheduledQty(product.id) : 0;
 
@@ -1820,6 +1829,32 @@ export const ProductDetailView: React.FC<{
       setStatusError(err instanceof Error ? err.message : 'Could not update product flag.');
     } finally {
       setMerchUpdating(null);
+    }
+  };
+
+  const handleSaveRestrictedSalesStates = async (states: string[]) => {
+    if (
+      !product
+      || !canSetInactive
+      || !productEditMode
+      || statusUpdating
+      || hiddenUpdating
+      || merchUpdating
+      || restrictionUpdating
+    ) {
+      return;
+    }
+
+    setRestrictionUpdating(true);
+    setStatusError(null);
+    try {
+      const result = await setCatalogProductRestrictedSalesStates(product.id, states);
+      setProduct(prev => (prev ? { ...prev, restrictedSalesStates: result.restrictedSalesStates } : prev));
+      setRestrictionSheetOpen(false);
+    } catch (err) {
+      setStatusError(err instanceof Error ? err.message : 'Could not update sales restrictions.');
+    } finally {
+      setRestrictionUpdating(false);
     }
   };
 
@@ -2594,7 +2629,7 @@ export const ProductDetailView: React.FC<{
                         type="button"
                         className="btn btn-sm product-detail-page__inactive-btn product-detail-page__details-edit-inactive"
                         onClick={() => void handleSetInactive()}
-                        disabled={statusUpdating || hiddenUpdating || Boolean(merchUpdating) || detailsSaving || imageBusy}
+                        disabled={statusUpdating || hiddenUpdating || Boolean(merchUpdating) || restrictionUpdating || detailsSaving || imageBusy}
                       >
                         {statusUpdating
                           ? <RefreshCw size={15} className="spin-icon" aria-hidden />
@@ -2605,7 +2640,7 @@ export const ProductDetailView: React.FC<{
                         type="button"
                         className="btn btn-sm product-detail-page__inactive-btn product-detail-page__details-edit-inactive"
                         onClick={() => void handleToggleHiddenFromCatalogue()}
-                        disabled={statusUpdating || hiddenUpdating || Boolean(merchUpdating) || detailsSaving || imageBusy}
+                        disabled={statusUpdating || hiddenUpdating || Boolean(merchUpdating) || restrictionUpdating || detailsSaving || imageBusy}
                       >
                         {hiddenUpdating
                           ? <RefreshCw size={15} className="spin-icon" aria-hidden />
@@ -2623,7 +2658,7 @@ export const ProductDetailView: React.FC<{
                           product.newArrival === true ? 'is-active' : '',
                         ].filter(Boolean).join(' ')}
                         onClick={() => void handleToggleMerchFlag('newArrival')}
-                        disabled={statusUpdating || hiddenUpdating || Boolean(merchUpdating) || detailsSaving || imageBusy}
+                        disabled={statusUpdating || hiddenUpdating || Boolean(merchUpdating) || restrictionUpdating || detailsSaving || imageBusy}
                       >
                         {merchUpdating === 'newArrival'
                           ? <RefreshCw size={15} className="spin-icon" aria-hidden />
@@ -2637,7 +2672,7 @@ export const ProductDetailView: React.FC<{
                           product.discontinuedSoon === true ? 'is-active' : '',
                         ].filter(Boolean).join(' ')}
                         onClick={() => void handleToggleMerchFlag('discontinuedSoon')}
-                        disabled={statusUpdating || hiddenUpdating || Boolean(merchUpdating) || detailsSaving || imageBusy}
+                        disabled={statusUpdating || hiddenUpdating || Boolean(merchUpdating) || restrictionUpdating || detailsSaving || imageBusy}
                       >
                         {merchUpdating === 'discontinuedSoon'
                           ? <RefreshCw size={15} className="spin-icon" aria-hidden />
@@ -2645,6 +2680,22 @@ export const ProductDetailView: React.FC<{
                         {product.discontinuedSoon === true
                           ? 'Remove discontinued soon'
                           : 'Discontinued soon'}
+                      </button>
+                      <button
+                        type="button"
+                        className={[
+                          'btn btn-sm product-detail-page__details-edit-inactive product-detail-page__merch-btn product-detail-page__restriction-btn',
+                          (product.restrictedSalesStates?.length ?? 0) > 0 ? 'is-active' : '',
+                        ].filter(Boolean).join(' ')}
+                        onClick={() => setRestrictionSheetOpen(true)}
+                        disabled={statusUpdating || hiddenUpdating || Boolean(merchUpdating) || restrictionUpdating || detailsSaving || imageBusy}
+                      >
+                        {restrictionUpdating
+                          ? <RefreshCw size={15} className="spin-icon" aria-hidden />
+                          : <MapPin size={15} aria-hidden />}
+                        {(product.restrictedSalesStates?.length ?? 0) > 0
+                          ? `Restriction (${product.restrictedSalesStates?.length})`
+                          : 'Restriction'}
                       </button>
                     </>
                   )}
@@ -2805,6 +2856,7 @@ export const ProductDetailView: React.FC<{
           )}
 
           {showCartActions && product && (!isCartable || isCartable(product)) && (
+            <>
             <div className="product-detail-page__cart">
               <div className="product-detail-page__qty" aria-label="Quantity">
                 <button
@@ -2843,16 +2895,20 @@ export const ProductDetailView: React.FC<{
                   +
                 </button>
               </div>
-              <button
-                type="button"
-                className={`btn btn-primary product-detail-page__add-cart ${addedFlash ? 'product-detail-page__add-cart--added' : ''}`}
-                onClick={handleAddToCart}
-                disabled={!dealerCanAdd}
-              >
-                <ShoppingCart size={18} />
-                {addedFlash ? 'Added to cart' : 'Add to cart'}
-              </button>
-              {cartQty > 0 && (
+              {salesRestricted ? (
+                <RestrictedItemBadge />
+              ) : (
+                <button
+                  type="button"
+                  className={`btn btn-primary product-detail-page__add-cart ${addedFlash ? 'product-detail-page__add-cart--added' : ''}`}
+                  onClick={handleAddToCart}
+                  disabled={!dealerCanAdd}
+                >
+                  <ShoppingCart size={18} />
+                  {addedFlash ? 'Added to cart' : 'Add to cart'}
+                </button>
+              )}
+              {cartQty > 0 && !salesRestricted && (
                 <button
                   type="button"
                   className="product-detail-page__view-cart"
@@ -2861,15 +2917,17 @@ export const ProductDetailView: React.FC<{
                   View cart ({cartQty})
                 </button>
               )}
-              {dealerStock.gate && !dealerCanAdd && (
+              {dealerStock.gate && !dealerCanAdd && !salesRestricted && (
                 <p className="product-detail-page__stock-gate">{DEALER_ORDER_UNAVAILABLE_MESSAGE}</p>
               )}
-              {dealerInboundOnly && (
+              {dealerInboundOnly && !salesRestricted && (
                 <p className="product-detail-page__stock-gate product-detail-page__stock-gate--scheduled">
                   {DEALER_ORDER_SCHEDULED_MESSAGE}
                 </p>
               )}
             </div>
+            {salesRestricted && <RestrictedItemWhyBox />}
+            </>
           )}
 
           {showAuditedStock && (
@@ -3059,6 +3117,17 @@ export const ProductDetailView: React.FC<{
         </div>,
         document.body,
       )}
+
+      <ProductSalesRestrictionSheet
+        open={restrictionSheetOpen && Boolean(product)}
+        productName={product?.name ?? ''}
+        selectedStates={product?.restrictedSalesStates ?? []}
+        saving={restrictionUpdating}
+        onClose={() => {
+          if (!restrictionUpdating) setRestrictionSheetOpen(false);
+        }}
+        onSave={states => void handleSaveRestrictedSalesStates(states)}
+      />
 
     </div>
   );

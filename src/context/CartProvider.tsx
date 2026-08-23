@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import { combinedCartRate } from '../lib/gatcCart';
 import {
   applyDealerCartPricing,
@@ -29,6 +29,9 @@ import {
 } from '../lib/dealerSharedCart';
 import { useAuth } from './AuthContext';
 import { CartContext, type UpdateCartStampingInput } from './cart-context';
+import { DealerPriceLevelContext } from './dealer-price-level-context';
+import { isDealerPortalUser } from '../lib/dealerAccess';
+import { isCatalogProductSalesRestricted } from '../lib/catalogSalesRestriction';
 
 const STORAGE_PREFIX = 'yesweigh-cart';
 /** Zoho SO notes max is 5000; keep a practical portal limit. */
@@ -139,6 +142,7 @@ export const CartProvider: React.FC<{
   initialItems?: CartItem[];
 }> = ({ children, persist = true, initialItems }) => {
   const { user } = useAuth();
+  const dealerPriceLevels = useContext(DealerPriceLevelContext);
   const sharedUid = persist ? sharedDealerCartUid(user) : null;
   const [allItems, setAllItems] = useState<CartItem[]>(() => (
     !persist && initialItems ? initialItems : []
@@ -229,6 +233,12 @@ export const CartProvider: React.FC<{
     const opts = parseAddOptions(options);
     const quantity = Math.floor(Number(opts.quantity) || 0);
     if (quantity < 1) return false;
+    if (
+      isDealerPortalUser(user)
+      && isCatalogProductSalesRestricted(product, dealerPriceLevels?.billingState)
+    ) {
+      return false;
+    }
     const stockStatus = effectiveCatalogStockStatus(product.stockStatus, product.hsn);
     const attribution = cartAttributionForUser(user, product);
 
@@ -317,7 +327,7 @@ export const CartProvider: React.FC<{
       return applyDealerCartPricing(next, priceLevelsRef.current, dealerId);
     });
     return true;
-  }, [dealerId, sharedUid, user]);
+  }, [dealerId, sharedUid, user, dealerPriceLevels?.billingState]);
 
   const removeItem = useCallback((cartLineId: string) => {
     persistSharedDelete(sharedUid, cartLineId);

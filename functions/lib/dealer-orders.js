@@ -72,6 +72,7 @@ import {
 } from './gatc-stamping.js';
 import { staffUserHasPermission } from './staff-permissions.js';
 import { assertDealerGoodsLinesOrderable } from './dealer-order-stock.js';
+import { assertLinesNotRestrictedForBillingState } from './catalog-sales-restriction.js';
 
 const PRODUCTS = 'catalogProducts';
 const CUSTOMERS = 'zohoCustomers';
@@ -454,6 +455,7 @@ async function loadDealerProfile(dealerId, zohoCustomerId) {
     dealerCode: customer?.customerCode || customer?.cfDealerCode || null,
     canBuySpares: customer?.canBuySpares !== false,
     maxOrderLimit: customer?.maxOrderLimit != null ? Number(customer.maxOrderLimit) : null,
+    billingState: customer?.billingState != null ? String(customer.billingState) : null,
   };
 }
 
@@ -726,6 +728,7 @@ export async function submitDealerOrder(uid, role, payload = {}, secrets, orgId)
     );
   }
   const profile = await loadDealerProfile(dealerId, zohoCustomerId);
+  await assertLinesNotRestrictedForBillingState(payload.lines, profile.billingState);
   const { lines: builtLines, priceChanges, priceLevel } = await buildLinesFromInput(payload.lines, {
     priceLevelDealerId: zohoCustomerId,
   });

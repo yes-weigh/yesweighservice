@@ -91,6 +91,11 @@ export interface CatalogProduct {
   /** Super admin merch badge — product will be discontinued soon. Firestore only. */
   discontinuedSoon?: boolean;
   /**
+   * Canonical India state names where dealers cannot purchase this product.
+   * Firestore only — super admin sets via Restriction on product edit.
+   */
+  restrictedSalesStates?: string[];
+  /**
    * Lifetime ledger closing stock (Software Keys + HSN 997331 only).
    * Mirrors Stock tab closing qty — Firestore only, synced from Zoho movements.
    */

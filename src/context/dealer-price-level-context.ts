@@ -11,6 +11,8 @@ export type DealerPriceLevelContextValue = {
   ready: boolean;
   /** Category ids hidden for this dealer’s price level (empty when none / not a dealer). */
   restrictedCategoryIds: ReadonlySet<string>;
+  /** Billing state from the linked Zoho customer (dealer portal only). */
+  billingState: string | null;
   resolveProductPrice: (
     product: Pick<CatalogProduct, 'id' | 'rate' | 'categoryId' | 'categoryName'> & {
       sku?: string | null;

@@ -4,6 +4,7 @@
 import { FieldValue, getFirestore } from 'firebase-admin/firestore';
 import { HttpsError } from 'firebase-functions/v2/https';
 import { submitDealerOrder } from './dealer-orders.js';
+import { assertLinesNotRestrictedForBillingState } from './catalog-sales-restriction.js';
 
 const DEALER_CARTS = 'dealerCarts';
 
@@ -142,6 +143,14 @@ export async function submitDealerStaffOrderForApproval(uid, payload = {}) {
   const db = getFirestore();
   const approvalRef = db.collection(DEALER_CARTS).doc(dealerUid).collection('approvals').doc();
   const createdAtMs = Date.now();
+
+  const zohoCustomerId = String(user.data?.zohoCustomerId ?? '').trim();
+  let billingState = null;
+  if (zohoCustomerId) {
+    const customerSnap = await db.doc(`zohoCustomers/${zohoCustomerId}`).get();
+    billingState = customerSnap.exists ? (customerSnap.data()?.billingState ?? null) : null;
+  }
+  await assertLinesNotRestrictedForBillingState(lines, billingState);
 
   await approvalRef.set({
     dealerUid,

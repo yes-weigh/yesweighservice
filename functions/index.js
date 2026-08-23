@@ -38,6 +38,7 @@ import {
   mutateCatalogProductOverlays,
   mutateCatalogProductCatalogVisibility,
   mutateCatalogProductMerchFlag,
+  mutateCatalogProductRestrictedSalesStates,
   mutateCatalogProductStatus,
   mutateCatalogProductCategory,
   mutateCatalogProductImageUpload,
@@ -648,6 +649,11 @@ export const getCatalogProductDetail = onCall(
       }
       if (cachedData.discontinuedSoon === true) {
         detail.discontinuedSoon = true;
+      }
+      if (Array.isArray(cachedData.restrictedSalesStates) && cachedData.restrictedSalesStates.length) {
+        detail.restrictedSalesStates = cachedData.restrictedSalesStates
+          .map(name => String(name ?? '').trim())
+          .filter(Boolean);
       }
       if (Number.isFinite(Number(cachedData.ledgerClosingStock))) {
         detail.ledgerClosingStock = Number(cachedData.ledgerClosingStock);
@@ -1300,6 +1306,37 @@ export const setCatalogProductMerchFlag = onCall(
       return { ok: true, ...saved };
     } catch (err) {
       throw new HttpsError('internal', err?.message ?? 'Could not update product flag.');
+    }
+  },
+);
+
+/** Block sales in selected Indian states — super admin only (Firestore). */
+export const setCatalogProductRestrictedSalesStates = onCall(
+  {
+    region: 'asia-south1',
+    timeoutSeconds: 60,
+    memory: '256MiB',
+  },
+  async request => {
+    await requireActiveUser(request.auth?.uid, SUPER_ADMIN_ROLES);
+
+    const productId = String(request.data?.productId ?? '').trim();
+    if (!productId) {
+      throw new HttpsError('invalid-argument', 'productId is required.');
+    }
+    if (!Array.isArray(request.data?.states)) {
+      throw new HttpsError('invalid-argument', 'states must be an array.');
+    }
+
+    try {
+      const saved = await mutateCatalogProductRestrictedSalesStates(
+        productId,
+        request.data.states,
+        request.auth?.uid ?? null,
+      );
+      return { ok: true, ...saved };
+    } catch (err) {
+      throw new HttpsError('internal', err?.message ?? 'Could not update sales restrictions.');
     }
   },
 );

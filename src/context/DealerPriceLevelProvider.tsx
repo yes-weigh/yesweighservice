@@ -7,6 +7,7 @@ import {
   resolveDealerUnitPrice,
   subscribePriceLevels,
 } from '../lib/priceLevels';
+import { fetchMyDealerProfile } from '../lib/dealers';
 import type { CatalogProduct } from '../types/catalog';
 import type { DealerUnitPrice, PriceLevel } from '../types/priceLevels';
 import { useAuth } from './AuthContext';
@@ -29,6 +30,25 @@ export const DealerPriceLevelProvider: React.FC<{ children: React.ReactNode }> =
     : null;
   const [levels, setLevels] = useState<PriceLevel[]>([]);
   const [ready, setReady] = useState(!dealerId);
+  const [billingState, setBillingState] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!dealerId) {
+      setBillingState(null);
+      return;
+    }
+    let cancelled = false;
+    void fetchMyDealerProfile()
+      .then(dealer => {
+        if (!cancelled) setBillingState(dealer.billingState?.trim() || null);
+      })
+      .catch(() => {
+        if (!cancelled) setBillingState(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [dealerId]);
 
   useEffect(() => {
     if (!dealerId) {
@@ -60,6 +80,7 @@ export const DealerPriceLevelProvider: React.FC<{ children: React.ReactNode }> =
       dealerId,
       ready,
       restrictedCategoryIds,
+      billingState,
       resolveProductPrice: (
         product: Pick<CatalogProduct, 'id' | 'rate' | 'categoryId' | 'categoryName'> & {
           sku?: string | null;
@@ -75,7 +96,7 @@ export const DealerPriceLevelProvider: React.FC<{ children: React.ReactNode }> =
         return isProductVisibleOnPriceLevel(level, product);
       },
     };
-  }, [levels, dealerId, ready]);
+  }, [levels, dealerId, ready, billingState]);
 
   return (
     <DealerPriceLevelContext.Provider value={value}>

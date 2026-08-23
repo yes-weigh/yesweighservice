@@ -8,6 +8,7 @@
  * Firestore-only overlays (never push to Zoho):
  *   packageInfo, modelNumber, approvalNumber (shop/categorized products only),
  *   gatcStampingPriceIds (categorized non-spare), spareGroupId (spares),
+ *   hiddenFromCatalog, merch flags, restrictedSalesStates,
  *   spare-link maps, catalogSiteInventory, yesStore audit links, displayOrder
  */
 import {
@@ -27,6 +28,7 @@ import {
   deleteProductImage,
   patchProductCatalogVisibility,
   patchProductMerchFlag,
+  patchProductRestrictedSalesStates,
 } from './catalog-sync.js';
 
 export const ZOHO_BACKED_CATALOG_PRODUCT_FIELDS = [
@@ -60,6 +62,9 @@ export const FIRESTORE_ONLY_CATALOG_PRODUCT_FIELDS = [
   'discontinuedSoon',
   'discontinuedSoonAt',
   'discontinuedSoonByUid',
+  'restrictedSalesStates',
+  'restrictedSalesStatesAt',
+  'restrictedSalesStatesByUid',
 ];
 
 /** Update item details on Zoho, then mirror to Firestore (incl. Firestore-only overlays). */
@@ -153,6 +158,11 @@ export async function mutateCatalogProductCatalogVisibility(productId, hidden, a
 /** Firestore-only merch badges (new arrival / discontinued soon). */
 export async function mutateCatalogProductMerchFlag(productId, flag, enabled, actorUid) {
   return patchProductMerchFlag(productId, flag, enabled, actorUid);
+}
+
+/** Firestore-only state sales restrictions. */
+export async function mutateCatalogProductRestrictedSalesStates(productId, states, actorUid) {
+  return patchProductRestrictedSalesStates(productId, states, actorUid);
 }
 
 /** Set item active/inactive on Zoho, then mirror to Firestore. */

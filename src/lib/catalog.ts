@@ -907,6 +907,17 @@ function mapProduct(data: Record<string, unknown>): CatalogProduct {
     ...(data.hiddenFromCatalog === true ? { hiddenFromCatalog: true } : {}),
     ...(data.newArrival === true ? { newArrival: true } : {}),
     ...(data.discontinuedSoon === true ? { discontinuedSoon: true } : {}),
+    ...(Array.isArray(data.restrictedSalesStates) && data.restrictedSalesStates.length
+      ? {
+          restrictedSalesStates: [
+            ...new Set(
+              data.restrictedSalesStates
+                .map((name: unknown) => String(name ?? '').trim())
+                .filter(Boolean),
+            ),
+          ],
+        }
+      : {}),
     ...(Number.isFinite(Number(data.ledgerClosingStock))
       ? { ledgerClosingStock: Number(data.ledgerClosingStock) }
       : {}),
@@ -2126,6 +2137,28 @@ export async function setCatalogProductMerchFlag(
         ? { discontinuedSoon: result.data.discontinuedSoon }
         : {}),
     };
+  } catch (err) {
+    throw new Error(catalogErrorMessage(err));
+  }
+}
+
+/** Super admin — block sales in selected Indian states. */
+export async function setCatalogProductRestrictedSalesStates(
+  productId: string,
+  states: string[],
+): Promise<{ restrictedSalesStates: string[] }> {
+  const callable = httpsCallable<
+    { productId: string; states: string[] },
+    { ok: boolean; restrictedSalesStates?: string[] }
+  >(functions, 'setCatalogProductRestrictedSalesStates');
+  try {
+    const result = await callable({ productId, states });
+    const restrictedSalesStates = Array.isArray(result.data.restrictedSalesStates)
+      ? result.data.restrictedSalesStates.map(name => String(name ?? '').trim()).filter(Boolean)
+      : [];
+    clearCatalogCache();
+    patchCatalogCacheProduct(productId, { restrictedSalesStates });
+    return { restrictedSalesStates };
   } catch (err) {
     throw new Error(catalogErrorMessage(err));
   }
