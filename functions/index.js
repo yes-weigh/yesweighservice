@@ -4305,22 +4305,17 @@ export const lookupDealerPincode = onCall(
   },
 );
 
-/** Create a Zoho customer (dealer) — staff / super admin. */
+/** Create a dealer in Firestore — staff / super admin. Zoho webhooks update the record later. */
 export const createDealer = onCall(
   {
     region: 'asia-south1',
-    secrets: [zohoClientId, zohoClientSecret, zohoRefreshToken],
-    timeoutSeconds: 120,
+    timeoutSeconds: 60,
     memory: '256MiB',
   },
   async request => {
     await requireActiveUser(request.auth?.uid, SYNC_ROLES);
     try {
-      const dealer = await createDealerRecord(
-        request.data ?? {},
-        zohoSecrets(),
-        zohoOrganizationId.value(),
-      );
+      const dealer = await createDealerRecord(request.data ?? {});
       return { dealer };
     } catch (err) {
       if (err instanceof HttpsError) throw err;

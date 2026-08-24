@@ -1,7 +1,10 @@
+import { collection, getDocs } from 'firebase/firestore';
+import { db } from '../firebase';
 import { fetchDealers } from './dealers';
+import { mapZohoCustomerDoc } from './dealerRosterQuery';
 import type { ZohoDealer } from '../types/dealers';
 
-const CACHE_VERSION = 'v2';
+const CACHE_VERSION = 'v3';
 const SESSION_KEY = `yws.dealers.${CACHE_VERSION}`;
 const TTL_MS = 30 * 60 * 1000;
 const PAGE_SIZE = 150;
@@ -123,31 +126,38 @@ export async function ensureDealersCached(options?: { force?: boolean }): Promis
   if (inflight) return inflight;
 
   inflight = (async () => {
-    let page = 1;
-    let all: ZohoDealer[] = [];
-    let totalPages = 1;
+    try {
+      const snap = await getDocs(collection(db, 'zohoCustomers'));
+      const all = snap.docs.map(docSnap => mapZohoCustomerDoc(docSnap.id, docSnap.data()));
+      commit(all, true);
+      return all;
+    } catch {
+      let page = 1;
+      let all: ZohoDealer[] = [];
+      let totalPages = 1;
 
-    do {
-      const res = await fetchDealers({
-        page,
-        limit: PAGE_SIZE,
-        sortField: 'companyName',
-        sortDir: 'asc',
-      });
-      if (page === 1) {
-        all = res.data;
-        totalPages = Math.max(1, res.pagination.totalPages || 1);
-      } else {
-        const seen = new Set(all.map(d => d.id));
-        for (const dealer of res.data) {
-          if (!seen.has(dealer.id)) all.push(dealer);
+      do {
+        const res = await fetchDealers({
+          page,
+          limit: PAGE_SIZE,
+          sortField: 'companyName',
+          sortDir: 'asc',
+        });
+        if (page === 1) {
+          all = res.data;
+          totalPages = Math.max(1, res.pagination.totalPages || 1);
+        } else {
+          const seen = new Set(all.map(d => d.id));
+          for (const dealer of res.data) {
+            if (!seen.has(dealer.id)) all.push(dealer);
+          }
         }
-      }
-      commit(all, page >= totalPages);
-      page += 1;
-    } while (page <= totalPages);
+        commit(all, page >= totalPages);
+        page += 1;
+      } while (page <= totalPages);
 
-    return all;
+      return all;
+    }
   })();
 
   try {

@@ -4,8 +4,6 @@ import {
   Ban,
   Clock,
   Download,
-  LayoutGrid,
-  LayoutList,
   Plus,
   RefreshCw,
   Search,
@@ -26,19 +24,27 @@ import { useConfirm } from '../../context/ConfirmContext';
 import { useCatalogPageHeader, usePageHeaderSlot } from '../../context/PageHeaderContext';
 import { DEALER_STATUS_LEGEND } from '../../lib/dealerStatus';
 import {
-  dealerContactPhone,
   dealerErrorMessage,
   exportDealersCsv,
   fetchDealerCategories,
-  fetchDealerLocations,
-  fetchDealerStats,
-  fetchDealers,
   listAssignableDealerStaff,
-  dealerStaffSelectOptions,
   patchDealer,
   syncZohoCustomers,
 } from '../../lib/dealers';
-import { type AssignableStaffOption, type DealerListParams, type DealerStats, type ZohoDealer } from '../../types/dealers';
+import {
+  clearDealerCache,
+  ensureDealersCached,
+  peekCachedDealers,
+  subscribeDealerCache,
+} from '../../lib/dealer-cache';
+import {
+  computeDealerLocations,
+  computeDealerStats,
+  filterDealerRoster,
+  paginateDealers,
+  sortDealers,
+} from '../../lib/dealerRosterQuery';
+import { type AssignableStaffOption, type DealerListParams, type ZohoDealer } from '../../types/dealers';
 import { homePathForRole, type Role } from '../../types';
 import { canViewDealersInHr, hasStaffPermission } from '../../lib/staffAccess';
 
@@ -53,15 +59,6 @@ function parseDealersTab(value: string | null): DealersMainTab {
 
 function dealersListBase(role: Role): string {
   return `${homePathForRole(role)}/dealers`;
-}
-
-function useDebounce<T>(value: T, delay: number): T {
-  const [debounced, setDebounced] = useState(value);
-  useEffect(() => {
-    const t = setTimeout(() => setDebounced(value), delay);
-    return () => clearTimeout(t);
-  }, [value, delay]);
-  return debounced;
 }
 
 export function ZohoDealersPage() {
@@ -96,14 +93,11 @@ export function ZohoDealersPage() {
   }, [mainTab, canManageDealerLevels, setSearchParams]);
 
   const [searchTerm, setSearchTerm] = useState('');
-  const debouncedSearch = useDebounce(searchTerm, 500);
   const [statusFilter, setStatusFilter] = useState<string[]>([]);
   const [staffFilter, setStaffFilter] = useState<string[]>([]);
   const [stateFilter, setStateFilter] = useState<string[]>([]);
   const [districtFilter, setDistrictFilter] = useState<string[]>([]);
   const [categoryFilter, setCategoryFilter] = useState<string[]>([]);
-  const [sortField, setSortField] = useState('contactName');
-  const [sortDir, setSortDir] = useState<'asc' | 'desc'>('asc');
   const [page, setPage] = useState(1);
   const [paginationOn, setPaginationOn] = useState(true);
   const [isMobileViewport, setIsMobileViewport] = useState(
@@ -118,38 +112,54 @@ export function ZohoDealersPage() {
     return () => window.removeEventListener('resize', onResize);
   }, []);
 
-  const [dealers, setDealers] = useState<ZohoDealer[]>([]);
-  const [total, setTotal] = useState(0);
-  const [loading, setLoading] = useState(true);
+  const [roster, setRoster] = useState<ZohoDealer[]>(() => peekCachedDealers() ?? []);
+  const [rosterReady, setRosterReady] = useState(() => Boolean(peekCachedDealers()?.length));
   const [syncing, setSyncing] = useState(false);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
-  const [states, setStates] = useState<string[]>([]);
-  const [districtsByState, setDistrictsByState] = useState<Record<string, string[]>>({});
   const [assignableStaff, setAssignableStaff] = useState<AssignableStaffOption[]>([]);
   const [categories, setCategories] = useState<string[]>([]);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [filtersOpen, setFiltersOpen] = useState(false);
   const [createOpen, setCreateOpen] = useState(false);
-  const [viewMode, setViewMode] = useState<'list' | 'grid'>('list');
-  const [stats, setStats] = useState<DealerStats | null>(null);
 
   const queryParams = useMemo((): DealerListParams => ({
     page: effectivePaginationOn ? page : 1,
     limit: effectivePaginationOn ? limit : 99999,
     status: 'all',
-    ...(debouncedSearch ? { q: debouncedSearch } : {}),
+    ...(searchTerm.trim() ? { q: searchTerm.trim() } : {}),
     ...(staffFilter.length ? { assignedStaffUid: staffFilter.join(',') } : {}),
     ...(statusFilter.length ? { dealerStatus: statusFilter.join(',') } : {}),
     ...(stateFilter.length ? { billingState: stateFilter.join(',') } : {}),
     ...(districtFilter.length ? { district: districtFilter.join(',') } : {}),
     ...(categoryFilter.length ? { categories: categoryFilter.join(',') } : {}),
-    sortField,
-    sortDir,
+    sortField: 'contactName',
+    sortDir: 'asc',
   }), [
-    effectivePaginationOn, page, debouncedSearch, staffFilter, statusFilter, stateFilter,
-    districtFilter, categoryFilter, sortField, sortDir,
+    effectivePaginationOn, page, searchTerm, staffFilter, statusFilter, stateFilter,
+    districtFilter, categoryFilter,
   ]);
+
+  const stats = useMemo(() => computeDealerStats(roster), [roster]);
+  const locations = useMemo(() => computeDealerLocations(roster), [roster]);
+  const states = locations.states;
+  const districtsByState = locations.districtsByState;
+
+  const filteredDealers = useMemo(
+    () => sortDealers(filterDealerRoster(roster, queryParams), 'contactName', 'asc'),
+    [roster, queryParams],
+  );
+  const paged = useMemo(
+    () => paginateDealers(
+      filteredDealers,
+      effectivePaginationOn ? page : 1,
+      effectivePaginationOn ? limit : 99999,
+    ),
+    [filteredDealers, effectivePaginationOn, page],
+  );
+  const dealers = paged.data;
+  const total = paged.pagination.total;
+  const loading = !rosterReady && roster.length === 0;
 
   const districts = useMemo(() => {
     if (!stateFilter.length) {
@@ -160,49 +170,37 @@ export function ZohoDealersPage() {
 
   const loadMeta = useCallback(async () => {
     try {
-      const [locRes, staffRes, catsRes, statsRes] = await Promise.all([
-        fetchDealerLocations(),
+      const [staffRes, catsRes] = await Promise.all([
         listAssignableDealerStaff(),
         fetchDealerCategories(),
-        fetchDealerStats().catch(() => null),
       ]);
-      setStates(locRes.states);
-      setDistrictsByState(locRes.districtsByState);
       setAssignableStaff(staffRes);
       setCategories(catsRes);
-      if (statsRes) setStats(statsRes);
     } catch (err) {
       console.error('Dealer meta load failed:', err);
       setError(dealerErrorMessage(err));
     }
   }, []);
 
-  const loadDealers = useCallback(async () => {
-    setLoading(true);
-    setError('');
-    try {
-      const res = await fetchDealers(queryParams);
-      setDealers(res.data);
-      setTotal(res.pagination.total);
-    } catch (err) {
-      setError(dealerErrorMessage(err));
-    } finally {
-      setLoading(false);
-    }
-  }, [queryParams]);
-
   useEffect(() => {
     void loadMeta();
   }, [loadMeta]);
 
   useEffect(() => {
-    void loadDealers();
-  }, [loadDealers]);
+    const unsub = subscribeDealerCache((dealers, complete) => {
+      setRoster(dealers);
+      if (dealers.length || complete) setRosterReady(true);
+    });
+    void ensureDealersCached()
+      .catch(err => setError(dealerErrorMessage(err)))
+      .finally(() => setRosterReady(true));
+    return unsub;
+  }, []);
 
   useEffect(() => {
     setPage(1);
     setSelectedIds(new Set());
-  }, [debouncedSearch, statusFilter, staffFilter, stateFilter, districtFilter, categoryFilter]);
+  }, [searchTerm, statusFilter, staffFilter, stateFilter, districtFilter, categoryFilter]);
 
   useEffect(() => {
     setDistrictFilter([]);
@@ -214,8 +212,9 @@ export function ZohoDealersPage() {
     setSuccess('');
     try {
       const count = await syncZohoCustomers();
+      clearDealerCache();
+      await ensureDealersCached({ force: true });
       await loadMeta();
-      await loadDealers();
       if (count === 0) {
         setError('Sync finished but Zoho returned 0 customers. Check Zoho Inventory contacts and API scopes.');
       } else {
@@ -262,7 +261,7 @@ export function ZohoDealersPage() {
       ),
     );
     setSelectedIds(new Set());
-    await loadDealers();
+    await ensureDealersCached({ force: true });
     await loadMeta();
   };
 
@@ -273,7 +272,7 @@ export function ZohoDealersPage() {
       })),
     );
     setSelectedIds(new Set());
-    await loadDealers();
+    await ensureDealersCached({ force: true });
   };
 
   const totalPages = Math.max(1, Math.ceil(total / limit));
@@ -618,53 +617,8 @@ export function ZohoDealersPage() {
         </button>
       </div>
 
-      <div className="dealers-roster-bar">
-        <label className="dealers-sort">
-          Sort by:
-          <select
-            value={sortField}
-            onChange={e => {
-              setSortField(e.target.value);
-              setSortDir('asc');
-              setPage(1);
-            }}
-            aria-label="Sort dealers"
-          >
-            <option value="contactName">Dealer name</option>
-            <option value="firstName">Contact</option>
-            <option value="billingState">State</option>
-            <option value="district">District</option>
-            <option value="dealerStage">Status</option>
-          </select>
-        </label>
-        <div className="dealers-view-toggle">
-          <span className="dealers-view-toggle__label">View:</span>
-          <button
-            type="button"
-            className={`dealers-view-toggle__btn${viewMode === 'list' ? ' is-active' : ''}`}
-            aria-label="List view"
-            aria-pressed={viewMode === 'list'}
-            onClick={() => setViewMode('list')}
-          >
-            <LayoutList size={16} />
-          </button>
-          <button
-            type="button"
-            className={`dealers-view-toggle__btn${viewMode === 'grid' ? ' is-active' : ''}`}
-            aria-label="Grid view"
-            aria-pressed={viewMode === 'grid'}
-            onClick={() => setViewMode('grid')}
-          >
-            <LayoutGrid size={16} />
-          </button>
-        </div>
-      </div>
-
       <div className="dealers-table-panel">
-        <div
-          className={`dealers-roster${viewMode === 'grid' ? ' dealers-roster--grid' : ''}`}
-          aria-label="Dealer list"
-        >
+        <div className="dealers-roster" aria-label="Dealer list">
           {loading ? (
             <FetchingLoader label="Fetching dealers" className="dealers-tiles__loading" />
           ) : dealers.length === 0 ? (

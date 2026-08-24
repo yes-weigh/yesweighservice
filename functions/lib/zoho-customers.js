@@ -233,6 +233,10 @@ export async function refreshDealerFromZoho(id, secrets, orgId, { force = false 
   if (!snap.exists) throw new Error('Dealer not found.');
 
   const existing = snap.data();
+  if (existing.source === 'app' || !/^\d+$/.test(String(id))) {
+    return { id: snap.id, ...existing };
+  }
+
   const syncedAt = existing.zohoDetailSyncedAt;
   if (!force && syncedAt) {
     const age = Date.now() - new Date(syncedAt).getTime();

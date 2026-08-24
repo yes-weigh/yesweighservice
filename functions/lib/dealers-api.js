@@ -6,7 +6,6 @@ import {
   writeDealerSetting,
   refreshDealerFromZoho,
   pushDealerChangesToZoho,
-  createZohoCustomer,
 } from './zoho-customers.js';
 import {
   filterDealers,
@@ -148,7 +147,7 @@ export async function getDealerRecord(id, { refreshFromZoho, secrets, orgId } = 
   return mapDealerDetailForClient(raw, null, usersById);
 }
 
-export async function createDealerRecord(input, secrets, orgId) {
+export async function createDealerRecord(input) {
   const companyName = String(input?.companyName ?? '').trim();
   if (!companyName) {
     throw new HttpsError('invalid-argument', 'Company name is required.');
@@ -162,13 +161,30 @@ export async function createDealerRecord(input, secrets, orgId) {
   if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
     throw new HttpsError('invalid-argument', 'Enter a valid email address.');
   }
-  const id = await createZohoCustomer({
+
+  const db = getFirestore();
+  const ref = db.collection('zohoCustomers').doc();
+  await ref.set({
+    contactName: companyName,
     companyName,
-    contactName: contactName || undefined,
-    phone: phone || undefined,
-    email: email || undefined,
-  }, secrets, orgId);
-  return getDealerRecord(id);
+    firstName: contactName || null,
+    phone: phone || null,
+    mobile: phone || null,
+    email: email || null,
+    status: 'active',
+    outstandingReceivable: 0,
+    unusedCredits: 0,
+    isFiltered: false,
+    filterReason: null,
+    assignedStaffUid: null,
+    assignedStaffName: null,
+    dealerStage: null,
+    source: 'app',
+    createdAt: FieldValue.serverTimestamp(),
+    updatedAt: FieldValue.serverTimestamp(),
+    syncedAt: new Date().toISOString(),
+  });
+  return getDealerRecord(ref.id);
 }
 
 export async function patchDealerRecord(id, body = {}) {

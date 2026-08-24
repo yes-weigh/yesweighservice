@@ -25,15 +25,7 @@ function formatDealerPhone(phone: string): string {
   return phone;
 }
 
-function formatInr(amount: number): string {
-  return new Intl.NumberFormat('en-IN', {
-    style: 'currency',
-    currency: 'INR',
-    maximumFractionDigits: 2,
-  }).format(amount || 0);
-}
-
-function statusTone(stageLabel: string): string {
+function statusTone(stageLabel: string): 'active' | 'inactive' | 'blacklisted' | 'unset' {
   const stage = stageLabel.toLowerCase();
   if (stage.includes('black')) return 'blacklisted';
   if (stage.includes('non')) return 'inactive';
@@ -49,6 +41,9 @@ interface DealerTileProps {
 export const DealerTile: React.FC<DealerTileProps> = ({ dealer, onOpen }) => {
   const businessName = dealer.companyName || dealer.contactName || 'Dealer';
   const contactName = dealer.firstName || dealer.zohoPrimaryContact?.name || '';
+  const showContact = Boolean(
+    contactName && contactName.trim().toLowerCase() !== businessName.trim().toLowerCase(),
+  );
   const phone = dealerContactPhone(dealer);
   const contactLinks = phone ? buildContactLinks(phone) : null;
   const location = [dealer.district, dealer.billingState].filter(Boolean).join(', ');
@@ -80,7 +75,7 @@ export const DealerTile: React.FC<DealerTileProps> = ({ dealer, onOpen }) => {
 
       <div className="dealers-card__main">
         <h3 className="dealers-card__firm">{businessName}</h3>
-        {contactName ? <p className="dealers-card__person">{contactName}</p> : null}
+        {showContact ? <p className="dealers-card__person">{contactName}</p> : null}
         {location ? (
           <p className="dealers-card__meta">
             <MapPin size={13} strokeWidth={2.25} />
@@ -94,9 +89,11 @@ export const DealerTile: React.FC<DealerTileProps> = ({ dealer, onOpen }) => {
       </div>
 
       <div className="dealers-card__side">
-        <span className={`dealers-card__badge dealers-card__badge--${tone}`}>
-          {tone === 'inactive' ? 'Inactive' : statusMeta.stageLabel}
-        </span>
+        {tone !== 'unset' ? (
+          <span className={`dealers-card__badge dealers-card__badge--${tone}`}>
+            {tone === 'inactive' ? 'Inactive' : statusMeta.stageLabel}
+          </span>
+        ) : null}
         {contactLinks ? (
           <div className="dealers-card__icons" onClick={stopBubble}>
             <a
@@ -117,12 +114,7 @@ export const DealerTile: React.FC<DealerTileProps> = ({ dealer, onOpen }) => {
             </a>
           </div>
         ) : null}
-      </div>
-
-      <div className="dealers-card__finance">
-        <strong>{formatInr(dealer.outstandingReceivable)}</strong>
-        <span>Outstanding</span>
-        {phone ? <em>{formatDealerPhone(phone)}</em> : null}
+        {phone ? <em className="dealers-card__phone">{formatDealerPhone(phone)}</em> : null}
       </div>
     </article>
   );

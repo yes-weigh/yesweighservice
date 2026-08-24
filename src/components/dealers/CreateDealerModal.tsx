@@ -70,7 +70,7 @@ export const CreateDealerModal: React.FC<CreateDealerModalProps> = ({
         <div className="dealers-modal__header">
           <div>
             <h2 id="create-dealer-title">Add dealer</h2>
-            <p className="text-muted text-sm">Creates a customer in Zoho Inventory.</p>
+            <p className="text-muted text-sm">Saves the dealer in Firestore. Zoho webhooks will update it when the customer exists in Inventory.</p>
           </div>
           <button type="button" className="dealers-modal__close" onClick={onClose} aria-label="Close">
             <X size={18} />
