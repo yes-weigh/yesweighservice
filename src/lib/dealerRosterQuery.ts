@@ -1,6 +1,12 @@
 import type { DocumentData } from 'firebase/firestore';
 import type { DealerListParams, DealerStats, ZohoContactPerson, ZohoDealer } from '../types/dealers';
 import { getDealerStatusKey } from './dealerStatus';
+import {
+  canonicalKeralaDistrict,
+  isKeralaBillingState,
+  KERALA_DISTRICTS,
+  UNSPECIFIED_DISTRICT,
+} from './keralaDistricts';
 
 function parseList(value: unknown): string[] {
   if (!value || value === 'all') return [];
@@ -151,7 +157,14 @@ export function filterDealerRoster(dealers: ZohoDealer[], query: DealerListParam
 
   const districts = parseList(query.district);
   if (districts.length > 0) {
-    list = list.filter(d => d.district && districts.includes(d.district));
+    const wanted = new Set(districts);
+    list = list.filter(d => {
+      const raw = String(d.district ?? '').trim();
+      if (!raw) return false;
+      if (wanted.has(raw)) return true;
+      const canon = canonicalKeralaDistrict(raw);
+      return canon !== UNSPECIFIED_DISTRICT && wanted.has(canon);
+    });
   }
 
   const cats = parseList(query.categories);
@@ -239,9 +252,13 @@ export function computeDealerLocations(dealers: ZohoDealer[]): {
   const states = Array.from(new Set(active.map(d => d.billingState).filter((s): s is string => Boolean(s)))).sort();
   const districtsByState: Record<string, string[]> = {};
   for (const state of states) {
+    if (isKeralaBillingState(state)) {
+      districtsByState[state] = [...KERALA_DISTRICTS];
+      continue;
+    }
     districtsByState[state] = Array.from(new Set(
       active.filter(d => d.billingState === state && d.district).map(d => d.district as string),
-    )).sort();
+    )).sort((a, b) => a.localeCompare(b));
   }
   return { states, districtsByState };
 }

@@ -34492,22 +34492,65 @@ body:has(.confirm-inline-bar) .confirm-inline-bar {
   right: 0;
   z-index: 30;
   max-height: 220px;
-  overflow: auto;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
   padding: 0.35rem;
+}
+
+.dealers-multiselect__options {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: auto;
+}
+
+.dealers-multiselect__search {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  flex-shrink: 0;
+  margin: 0 0 0.2rem;
+  padding: 0.32rem 0.5rem;
+  border-radius: 8px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: rgba(255, 255, 255, 0.04);
+  color: var(--text-muted);
+}
+
+.dealers-multiselect__search input {
+  width: 100%;
+  min-width: 0;
+  border: 0;
+  outline: none;
+  background: transparent;
+  color: #fff;
+  font-size: 0.82rem;
+}
+
+.dealers-multiselect__search input::placeholder {
+  color: var(--text-muted);
+}
+
+.dealers-multiselect__empty {
+  margin: 0;
+  padding: 0.65rem 0.45rem;
+  font-size: 0.78rem;
+  color: var(--text-muted);
 }
 
 .dealers-multiselect__option {
   display: flex;
   align-items: center;
-  gap: 0.45rem;
-  padding: 0.35rem 0.45rem;
-  font-size: 0.8125rem;
+  gap: 0.4rem;
+  min-height: 1.75rem;
+  padding: 0.22rem 0.4rem;
+  font-size: 0.8rem;
   cursor: pointer;
 }
 
 .dealers-multiselect__menu--portal {
   z-index: 1300;
-  max-height: min(50vh, 320px);
+  max-height: min(72vh, 28rem);
   box-shadow: 0 16px 40px rgba(0, 0, 0, 0.55);
   background: #0c1222;
   backdrop-filter: none;

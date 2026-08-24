@@ -1,3 +1,69 @@
+const KERALA_DISTRICTS = [
+  'Kasaragod',
+  'Kannur',
+  'Wayanad',
+  'Kozhikode',
+  'Malappuram',
+  'Palakkad',
+  'Thrissur',
+  'Ernakulam',
+  'Idukki',
+  'Kottayam',
+  'Alappuzha',
+  'Pathanamthitta',
+  'Kollam',
+  'Thiruvananthapuram',
+];
+
+const KERALA_DISTRICT_ALIASES = {
+  trivandrum: 'Thiruvananthapuram',
+  tvm: 'Thiruvananthapuram',
+  calicut: 'Kozhikode',
+  koozhikode: 'Kozhikode',
+  clt: 'Kozhikode',
+  cochin: 'Ernakulam',
+  kochi: 'Ernakulam',
+  ekm: 'Ernakulam',
+  quilon: 'Kollam',
+  kottarakkara: 'Kollam',
+  kottarakara: 'Kollam',
+  cannanore: 'Kannur',
+  palghat: 'Palakkad',
+  trichur: 'Thrissur',
+  allepey: 'Alappuzha',
+  alleppey: 'Alappuzha',
+  wynad: 'Wayanad',
+  kasargod: 'Kasaragod',
+  pta: 'Pathanamthitta',
+  thiruvalla: 'Pathanamthitta',
+  malapuram: 'Malappuram',
+  thodupuzha: 'Idukki',
+};
+
+function normLocationKey(value) {
+  return String(value ?? '')
+    .toLowerCase()
+    .replace(/&/g, 'and')
+    .replace(/[^a-z0-9]+/g, ' ')
+    .trim();
+}
+
+function isKeralaBillingState(state) {
+  const key = normLocationKey(state);
+  return key === 'kerala' || key === 'kl';
+}
+
+function canonicalKeralaDistrict(raw) {
+  const stripped = String(raw ?? '')
+    .replace(/^[\s\u00a0\u2060]*\d+[\s\u00a0\u2060]*[.)][\s\u00a0\u2060]*/u, '')
+    .trim();
+  const key = normLocationKey(stripped);
+  if (!key) return '';
+  if (KERALA_DISTRICT_ALIASES[key]) return KERALA_DISTRICT_ALIASES[key];
+  const exact = KERALA_DISTRICTS.find(name => normLocationKey(name) === key);
+  return exact || '';
+}
+
 function parseListParam(value) {
   if (!value || value === 'all') return [];
   if (Array.isArray(value)) return value.map(String).filter(Boolean);
@@ -94,7 +160,14 @@ export function filterDealers(dealers, query = {}) {
 
   const districts = parseListParam(query.district);
   if (districts.length > 0) {
-    list = list.filter(d => d.district && districts.includes(d.district));
+    const wanted = new Set(districts);
+    list = list.filter(d => {
+      const raw = String(d.district ?? '').trim();
+      if (!raw) return false;
+      if (wanted.has(raw)) return true;
+      const canon = canonicalKeralaDistrict(raw);
+      return Boolean(canon) && wanted.has(canon);
+    });
   }
 
   const cats = parseListParam(query.categories);
@@ -181,9 +254,13 @@ export function dealerLocations(dealers) {
   const states = Array.from(new Set(active.map(d => d.billingState).filter(Boolean))).sort();
   const districtsByState = {};
   for (const state of states) {
+    if (isKeralaBillingState(state)) {
+      districtsByState[state] = [...KERALA_DISTRICTS];
+      continue;
+    }
     districtsByState[state] = Array.from(new Set(
       active.filter(d => d.billingState === state && d.district).map(d => d.district),
-    )).sort();
+    )).sort((a, b) => String(a).localeCompare(String(b)));
   }
   return { states, districtsByState };
 }

@@ -1,11 +1,15 @@
-import React, { useEffect, useLayoutEffect, useRef, useState } from 'react';
+import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { ChevronDown, X } from 'lucide-react';
+import { ChevronDown, Search, X } from 'lucide-react';
 
 export interface MultiSelectOption {
   value: string;
   label: string;
 }
+
+const OPTION_ROW_PX = 28;
+const SEARCH_ROW_PX = 44;
+const MENU_PAD_PX = 10;
 
 interface MultiSelectProps {
   options: MultiSelectOption[];
@@ -17,6 +21,12 @@ interface MultiSelectProps {
   disabled?: boolean;
   /** Compact trigger with a count; chips render below instead of inside the box. */
   variant?: 'chips' | 'summary';
+  searchable?: boolean;
+  searchPlaceholder?: string;
+  /** How many options to show before the list scrolls. */
+  visibleCount?: number;
+  /** Close the menu after adding a value so fields below stay visible. */
+  closeOnSelect?: boolean;
 }
 
 export const MultiSelect: React.FC<MultiSelectProps> = ({
@@ -28,23 +38,37 @@ export const MultiSelect: React.FC<MultiSelectProps> = ({
   menuPortal = false,
   disabled = false,
   variant = 'chips',
+  searchable = false,
+  searchPlaceholder = 'Search…',
+  visibleCount = 7,
+  closeOnSelect = false,
 }) => {
   const [open, setOpen] = useState(false);
+  const [query, setQuery] = useState('');
   const [menuStyle, setMenuStyle] = useState<React.CSSProperties>({});
   const rootRef = useRef<HTMLDivElement>(null);
   const triggerRef = useRef<HTMLDivElement>(null);
+  const searchRef = useRef<HTMLInputElement>(null);
+
+  const filteredOptions = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    if (!q) return options;
+    return options.filter(opt => opt.label.toLowerCase().includes(q));
+  }, [options, query]);
 
   const updateMenuPosition = () => {
     const trigger = triggerRef.current;
     if (!trigger) return;
     const rect = trigger.getBoundingClientRect();
-    const footer = document.querySelector('.dealers-filter-sheet__footer');
-    const footerTop = footer?.getBoundingClientRect().top ?? window.innerHeight;
     const gap = 8;
-    const spaceBelow = footerTop - rect.bottom - gap;
+    const spaceBelow = window.innerHeight - rect.bottom - gap;
     const spaceAbove = rect.top - gap;
-    const openUp = spaceBelow < 180 && spaceAbove > spaceBelow;
-    const maxHeight = Math.min(220, Math.max(120, openUp ? spaceAbove : spaceBelow));
+    const target = (searchable ? SEARCH_ROW_PX : 0)
+      + visibleCount * OPTION_ROW_PX
+      + MENU_PAD_PX;
+    const openUp = spaceBelow < target && spaceAbove > spaceBelow;
+    const available = openUp ? spaceAbove : spaceBelow;
+    const maxHeight = Math.min(target, Math.max(160, available));
     setMenuStyle({
       position: 'fixed',
       top: openUp ? undefined : rect.bottom + 4,
@@ -59,7 +83,17 @@ export const MultiSelect: React.FC<MultiSelectProps> = ({
   useLayoutEffect(() => {
     if (!open || !menuPortal) return;
     updateMenuPosition();
-  }, [open, menuPortal, value]);
+  }, [open, menuPortal, value, searchable, visibleCount, filteredOptions.length]);
+
+  useEffect(() => {
+    if (!open) {
+      setQuery('');
+      return;
+    }
+    if (searchable) {
+      window.requestAnimationFrame(() => searchRef.current?.focus());
+    }
+  }, [open, searchable]);
 
   useEffect(() => {
     const onDoc = (e: MouseEvent) => {
@@ -88,9 +122,10 @@ export const MultiSelect: React.FC<MultiSelectProps> = ({
   const toggle = (val: string) => {
     if (value.includes(val)) {
       onChange(value.filter(v => v !== val));
-    } else {
-      onChange([...value, val]);
+      return;
     }
+    onChange([...value, val]);
+    if (closeOnSelect) setOpen(false);
   };
 
   const removeChip = (val: string, e: React.SyntheticEvent) => {
@@ -151,19 +186,44 @@ export const MultiSelect: React.FC<MultiSelectProps> = ({
 
   const menu = open ? (
     <div
-      className={`dealers-multiselect__menu panel glass${menuPortal ? ' dealers-multiselect__menu--portal' : ''}`}
+      className={`dealers-multiselect__menu panel glass${menuPortal ? ' dealers-multiselect__menu--portal' : ''}${searchable ? ' dealers-multiselect__menu--search' : ''}`}
       style={menuPortal ? menuStyle : undefined}
     >
-      {options.map(opt => (
-        <label key={opt.value} className="dealers-multiselect__option">
+      {searchable ? (
+        <label className="dealers-multiselect__search">
+          <Search size={14} aria-hidden />
           <input
-            type="checkbox"
-            checked={value.includes(opt.value)}
-            onChange={() => toggle(opt.value)}
+            ref={searchRef}
+            type="search"
+            value={query}
+            placeholder={searchPlaceholder}
+            aria-label={searchPlaceholder}
+            onMouseDown={e => e.stopPropagation()}
+            onClick={e => e.stopPropagation()}
+            onChange={e => setQuery(e.target.value)}
+            onKeyDown={e => {
+              e.stopPropagation();
+              if (e.key === 'Escape') setOpen(false);
+            }}
           />
-          <span>{opt.label}</span>
         </label>
-      ))}
+      ) : null}
+      <div className="dealers-multiselect__options">
+        {filteredOptions.length === 0 ? (
+          <p className="dealers-multiselect__empty">No matches</p>
+        ) : (
+          filteredOptions.map(opt => (
+            <label key={opt.value} className="dealers-multiselect__option">
+              <input
+                type="checkbox"
+                checked={value.includes(opt.value)}
+                onChange={() => toggle(opt.value)}
+              />
+              <span>{opt.label}</span>
+            </label>
+          ))
+        )}
+      </div>
     </div>
   ) : null;
 
@@ -193,7 +253,11 @@ export const MultiSelect: React.FC<MultiSelectProps> = ({
         <span className="dealers-multiselect__value">
           {variant === 'summary' ? (
             <span className={`dealers-multiselect__summary${value.length === 0 ? ' dealers-multiselect__summary--empty' : ''}`}>
-              {value.length === 0 ? placeholder : `${value.length} selected`}
+              {value.length === 0
+                ? placeholder
+                : value.length === 1
+                  ? (options.find(o => o.value === value[0])?.label ?? '1 selected')
+                  : `${value.length} selected`}
             </span>
           ) : value.length === 0 ? (
             <span className="dealers-multiselect__placeholder">{placeholder}</span>
@@ -216,7 +280,7 @@ export const MultiSelect: React.FC<MultiSelectProps> = ({
           </span>
         </div>
       </div>
-      {variant === 'summary' && value.length > 0 ? chips : null}
+      {variant === 'summary' && value.length > 0 && !closeOnSelect ? chips : null}
       {menu && (menuPortal ? createPortal(menu, document.body) : menu)}
     </div>
   );

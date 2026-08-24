@@ -106,12 +106,20 @@ function FilterMultiDropdown({
   options,
   placeholder,
   onChange,
+  searchable,
+  searchPlaceholder,
+  visibleCount,
+  closeOnSelect,
 }: {
   label: string;
   values: string[];
   options: FilterChip[];
   placeholder: string;
   onChange: (next: string[]) => void;
+  searchable?: boolean;
+  searchPlaceholder?: string;
+  visibleCount?: number;
+  closeOnSelect?: boolean;
 }) {
   return (
     <section className="support-filter-sheet__section dealers-filter-field" aria-label={label}>
@@ -123,6 +131,10 @@ function FilterMultiDropdown({
         placeholder={placeholder}
         variant="summary"
         menuPortal
+        searchable={searchable}
+        searchPlaceholder={searchPlaceholder}
+        visibleCount={visibleCount}
+        closeOnSelect={closeOnSelect}
       />
     </section>
   );
@@ -558,6 +570,10 @@ export function ZohoDealersPage() {
         options={states.map(state => ({ value: state, label: state }))}
         placeholder="All States"
         onChange={handleDraftStateChange}
+        searchable
+        searchPlaceholder="Search state"
+        visibleCount={12}
+        closeOnSelect
       />
       {filterDraft.stateFilter.length > 0 ? (
         <FilterMultiDropdown
@@ -566,6 +582,10 @@ export function ZohoDealersPage() {
           options={draftDistricts.map(district => ({ value: district, label: district }))}
           placeholder="All Districts"
           onChange={next => setFilterDraft(prev => ({ ...prev, districtFilter: next }))}
+          searchable
+          searchPlaceholder="Search district"
+          visibleCount={10}
+          closeOnSelect
         />
       ) : (
         <p className="dealers-filter-hint">Select a state to see districts where you have dealers.</p>
