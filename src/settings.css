@@ -150,15 +150,20 @@
   cursor: not-allowed;
 }
 
-.gatc-report__filters-end {
-  display: flex;
-  align-items: center;
-  gap: 0.85rem;
-  flex-shrink: 0;
-}
-
 .incentive-report__skip-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  margin: 0.15rem 0 0.35rem;
+  padding: 0;
+  border: 0;
+  background: none;
   color: #f87171;
+  font-size: 0.8125rem;
+  font-weight: 700;
+  letter-spacing: 0.01em;
+  line-height: 1.15;
+  cursor: pointer;
 }
 
 .incentive-report__skip-btn:hover:not(:disabled) {

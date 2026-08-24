@@ -374,30 +374,15 @@ export const IncentiveReportTab: React.FC = () => {
                 </select>
               </label>
             </div>
-            <div className="gatc-report__filters-end">
-              {isSuperAdmin ? (
-                <button
-                  type="button"
-                  className={`gatc-report__export-btn incentive-report__skip-btn${
-                    excludeDiscounts ? ' is-active' : ''
-                  }`}
-                  aria-pressed={excludeDiscounts}
-                  onClick={() => setExcludeDiscounts(current => !current)}
-                >
-                  <Ban size={15} aria-hidden />
-                  {excludeDiscounts ? 'Discounts off' : 'Skip discounts'}
-                </button>
-              ) : null}
-              <button
-                type="button"
-                className="gatc-report__export-btn"
-                disabled={loading || listed.length === 0}
-                onClick={handleExport}
-              >
-                <Upload size={15} aria-hidden />
-                Export
-              </button>
-            </div>
+            <button
+              type="button"
+              className="gatc-report__export-btn"
+              disabled={loading || listed.length === 0}
+              onClick={handleExport}
+            >
+              <Upload size={15} aria-hidden />
+              Export
+            </button>
           </div>
 
           {listed.length === 0 ? (
@@ -418,6 +403,17 @@ export const IncentiveReportTab: React.FC = () => {
             </div>
           ) : (
             <>
+              {isSuperAdmin && kamRows.some(row => row.discountAmount > 0) ? (
+                <button
+                  type="button"
+                  className={`incentive-report__skip-btn${excludeDiscounts ? ' is-active' : ''}`}
+                  aria-pressed={excludeDiscounts}
+                  onClick={() => setExcludeDiscounts(current => !current)}
+                >
+                  <Ban size={15} aria-hidden />
+                  {excludeDiscounts ? 'Discounts off' : 'Skip discounts'}
+                </button>
+              ) : null}
               <div className="gatc-report__list" aria-label="Incentive invoices">
                 {pageRows.map(row => {
                   const open = expandedId === row.id;
