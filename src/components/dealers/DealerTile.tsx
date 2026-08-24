@@ -1,8 +1,9 @@
 import React from 'react';
-import { MapPin, Phone, UserRound } from 'lucide-react';
+import { Crown, MapPin, Phone, UserRound } from 'lucide-react';
 import type { ZohoDealer } from '../../types/dealers';
 import { dealerContactPhone } from '../../lib/dealers';
 import { getDealerStatusMeta } from '../../lib/dealerStatus';
+import { isTopperDealer } from '../../lib/dealerToppers';
 import { buildContactLinks } from '../../lib/phoneLinks';
 
 function WhatsAppIcon() {
@@ -50,6 +51,7 @@ export const DealerTile: React.FC<DealerTileProps> = ({ dealer, onOpen }) => {
   const statusMeta = getDealerStatusMeta(dealer);
   const tone = statusTone(statusMeta.stageLabel);
   const kam = dealer.assignedStaffName?.trim() || 'Unassigned';
+  const topper = isTopperDealer(dealer);
 
   const stopBubble = (e: React.MouseEvent) => {
     e.stopPropagation();
@@ -57,7 +59,7 @@ export const DealerTile: React.FC<DealerTileProps> = ({ dealer, onOpen }) => {
 
   return (
     <article
-      className="dealers-card"
+      className={`dealers-card${topper ? ' dealers-card--topper' : ''}`}
       onClick={onOpen}
       onKeyDown={e => {
         if (e.key === 'Enter' || e.key === ' ') {
@@ -69,12 +71,19 @@ export const DealerTile: React.FC<DealerTileProps> = ({ dealer, onOpen }) => {
       tabIndex={0}
       aria-label={`Open ${businessName}`}
     >
-      <div className="dealers-card__avatar" aria-hidden>
-        {dealerInitial(businessName)}
+      <div className={`dealers-card__avatar${topper ? ' dealers-card__avatar--crown' : ''}`} aria-hidden>
+        {topper ? (
+          <Crown className="dealers-card__crown" size={18} strokeWidth={2.2} />
+        ) : (
+          dealerInitial(businessName)
+        )}
       </div>
 
       <div className="dealers-card__main">
-        <h3 className="dealers-card__firm">{businessName}</h3>
+        <h3 className="dealers-card__firm">
+          {topper ? <Crown className="dealers-card__crown-prefix" size={14} strokeWidth={2.4} /> : null}
+          {businessName}
+        </h3>
         {showContact ? <p className="dealers-card__person">{contactName}</p> : null}
         {location ? (
           <p className="dealers-card__meta">

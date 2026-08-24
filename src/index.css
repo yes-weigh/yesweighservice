@@ -34873,6 +34873,56 @@ body:has(.confirm-inline-bar) .confirm-inline-bar {
   justify-content: center;
 }
 
+.dealers-card--topper {
+  border-color: rgba(240, 193, 75, 0.38);
+}
+
+.dealers-card__avatar--crown {
+  background: radial-gradient(circle at 32% 28%, #ffe7a3 0%, #e8b84a 58%, #a87412 100%);
+  color: #5a3a00;
+  box-shadow: 0 0 0 1px rgba(255, 214, 90, 0.55), 0 0 12px rgba(255, 196, 60, 0.38);
+}
+
+.dealers-card__crown {
+  color: #6b4300;
+  fill: #ffd24a;
+  animation: dealers-crown-shine 1.7s ease-in-out infinite;
+}
+
+.dealers-card--topper .dealers-card__firm {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.28rem;
+}
+
+.dealers-card__crown-prefix {
+  flex-shrink: 0;
+  margin-top: 0.08rem;
+  color: #f0c14b;
+  fill: #ffd76a;
+  filter: drop-shadow(0 0 4px rgba(255, 214, 90, 0.7));
+  animation: dealers-crown-shine 1.7s ease-in-out infinite;
+}
+
+@keyframes dealers-crown-shine {
+  0%,
+  100% {
+    transform: translateY(1px) scale(1);
+    filter: drop-shadow(0 0 2px rgba(255, 210, 80, 0.4));
+  }
+  50% {
+    transform: translateY(-2px) scale(1.12);
+    filter: drop-shadow(0 0 8px rgba(255, 230, 130, 0.95));
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .dealers-card__crown,
+  .dealers-card__crown-prefix {
+    animation: none;
+  }
+}
+
 .dealers-card__main {
   grid-area: main;
   min-width: 0;
