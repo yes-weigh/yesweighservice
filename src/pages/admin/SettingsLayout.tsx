@@ -7,6 +7,7 @@ import {
   Hash,
   Layers,
   Package,
+  Percent,
   Printer,
   Scale,
   Tag,
@@ -16,7 +17,7 @@ import {
 } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import { isLocalhostDev } from '../../lib/isLocalhost';
-import { canAccessNavFeature, canViewHr } from '../../lib/staffAccess';
+import { canAccessNavFeature, canViewDealersInHr, canViewHr } from '../../lib/staffAccess';
 
 type SettingsTab = {
   id: string;
@@ -38,6 +39,7 @@ export const SettingsLayout: React.FC = () => {
   const showSkuCorrection = isSuperAdmin && isLocalhostDev();
   const showHr = Boolean(user && (isSuperAdmin || canViewHr(user)));
   const showTraining = Boolean(user && (isSuperAdmin || canAccessNavFeature(user, 'training')));
+  const showPriceLevel = Boolean(user && (isSuperAdmin || canViewDealersInHr(user)));
 
   const tabs = useMemo((): SettingsTab[] => {
     const profile: SettingsTab = {
@@ -65,6 +67,14 @@ export const SettingsLayout: React.FC = () => {
     }
 
     if (!isSuperAdmin) {
+      if (showPriceLevel) {
+        people.push({
+          id: 'price-level',
+          label: 'Price level',
+          path: `${home}/settings/price-level`,
+          icon: <Percent size={16} />,
+        });
+      }
       return [profile, ...people];
     }
 
@@ -73,6 +83,7 @@ export const SettingsLayout: React.FC = () => {
       { id: 'store-room', label: 'Store room', path: `${home}/settings/store-room`, icon: <Box size={16} /> },
       { id: 'audit-cycles', label: 'Audit', path: `${home}/settings/audit-cycles`, icon: <CalendarRange size={16} /> },
       { id: 'product', label: 'Product settings', path: `${home}/settings/product`, icon: <Package size={16} /> },
+      { id: 'price-level', label: 'Price level', path: `${home}/settings/price-level`, icon: <Percent size={16} /> },
       { id: 'sanoft', label: 'Sanoft', path: `${home}/settings/sanoft`, icon: <Scale size={16} /> },
       { id: 'serial-numbers', label: 'Serial numbers', path: `${home}/settings/serial-numbers`, icon: <Hash size={16} /> },
     ];
@@ -89,7 +100,7 @@ export const SettingsLayout: React.FC = () => {
       { id: 'local-printers', label: 'Label printing', path: `${home}/settings/local-printers`, icon: <Printer size={16} /> },
     );
     return [profile, ...people, ...ops];
-  }, [home, isSuperAdmin, showHr, showSkuCorrection, showTraining]);
+  }, [home, isSuperAdmin, showHr, showPriceLevel, showSkuCorrection, showTraining]);
 
   useEffect(() => {
     if (location.pathname === `${home}/settings` || location.pathname === `${home}/settings/`) {
@@ -109,12 +120,13 @@ export const SettingsLayout: React.FC = () => {
 
   const subtitle = isSuperAdmin
     ? (showSkuCorrection
-      ? 'Account profile, HR, trainings, warehouse zones, store room layout, audit, product settings, Sanoft, serial numbers, SKU correction, logistics, and label printing.'
-      : 'Account profile, HR, trainings, warehouse zones, store room layout, audit, product settings, Sanoft, serial numbers, logistics, and label printing.')
+      ? 'Account profile, HR, trainings, warehouse zones, store room layout, audit, product settings, price level, Sanoft, serial numbers, SKU correction, logistics, and label printing.'
+      : 'Account profile, HR, trainings, warehouse zones, store room layout, audit, product settings, price level, Sanoft, serial numbers, logistics, and label printing.')
     : [
       'Account profile',
       showHr ? 'HR' : null,
       showTraining ? 'trainings' : null,
+      showPriceLevel ? 'price level' : null,
     ].filter(Boolean).join(', ') + '.';
 
   return (

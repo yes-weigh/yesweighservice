@@ -1,5 +1,9 @@
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import { ExternalLink } from 'lucide-react';
+import { dealerAddressFromDealer, dealerAddressesMatch } from '../../lib/dealerAddress';
+import { findPriceLevelForDealer, subscribePriceLevels } from '../../lib/priceLevels';
+import type { PriceLevel } from '../../types/priceLevels';
+import { DealerAddressBox } from './DealerAddressBox';
 import { DealerStatusIndicator } from './DealerStatusIndicator';
 import {
   topZohoContactFields,
@@ -93,6 +97,8 @@ export const DealerDetailReadView: React.FC<{
     loginValue: string;
   };
 }> = ({ dealer, portalAccount }) => {
+  const [priceLevels, setPriceLevels] = useState<PriceLevel[]>([]);
+  useEffect(() => subscribePriceLevels(docData => setPriceLevels(docData.levels)), []);
   const name = dealer.companyName || dealer.contactName;
   const statusMeta = getDealerStatusMeta({ dealerStage: dealer.dealerStage, signedIn: dealer.signedIn });
   const contactPersonName = contactPersonDisplayName(dealer);
@@ -131,11 +137,6 @@ export const DealerDetailReadView: React.FC<{
       )}
 
       <ReadOnlyField label="Status" value={dealer.dealerStage} />
-      <ReadOnlyField
-        label="Categories"
-        full
-        value={dealer.categories.length ? dealer.categories.join(', ') : null}
-      />
       <ReadOnlyField label="Assigned staff" value={dealer.assignedStaffName} />
 
       {visibleFillableFields(dealer).map(field => {
@@ -186,10 +187,40 @@ export const DealerDetailReadView: React.FC<{
         return <ReadOnlyField key={`${label}-${index}`} label={label} value={value} />;
       })}
 
-      <ReadOnlyField label="Price level" value={dealer.priceLevel} />
-      <ReadOnlyField label="PIN code" value={dealer.zipCode} />
-      <ReadOnlyField label="State" value={dealer.billingState} />
-      <ReadOnlyField label="District" value={dealer.district} />
+      {dealerAddressesMatch(
+        dealerAddressFromDealer(dealer, 'billing'),
+        dealerAddressFromDealer(dealer, 'shipping'),
+      ) ? (
+        <DealerAddressBox
+          idPrefix="billing-read"
+          title="Billing and shipping address is same"
+          value={dealerAddressFromDealer(dealer, 'billing')}
+          disabled
+          onChange={() => undefined}
+        />
+      ) : (
+        <>
+          <DealerAddressBox
+            idPrefix="billing-read"
+            title="Billing address"
+            value={dealerAddressFromDealer(dealer, 'billing')}
+            disabled
+            onChange={() => undefined}
+          />
+          <DealerAddressBox
+            idPrefix="shipping-read"
+            title="Shipping address"
+            value={dealerAddressFromDealer(dealer, 'shipping')}
+            disabled
+            onChange={() => undefined}
+          />
+        </>
+      )}
+
+      <ReadOnlyField
+        label="Price level"
+        value={findPriceLevelForDealer(priceLevels, dealer.id)?.name}
+      />
 
       <div className="dealers-detail__field dealers-detail__field--full">
         <span>Google Maps link</span>

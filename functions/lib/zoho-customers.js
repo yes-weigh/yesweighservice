@@ -4,6 +4,7 @@ import {
   extractZohoCoreFields,
   extractZohoDetailFields,
   extractZohoListFields,
+  formatZohoAddress,
 } from './zoho-contact-fields.js';
 import { classifyZohoHttpError, recordZohoApiFailure } from './zoho-api-usage.js';
 import { extractWebhookEvent } from './invoice-sync.js';
@@ -328,6 +329,28 @@ function writableZohoAddress(raw, addressLine) {
   });
 }
 
+function addressChangeProvided(value) {
+  if (value && typeof value === 'object' && !Array.isArray(value)) return true;
+  return Boolean(cleanStr(value));
+}
+
+function writableZohoAddressFromChange(raw, change) {
+  if (change && typeof change === 'object' && !Array.isArray(change)) {
+    return omitEmpty({
+      attention: cleanStr(change.attention),
+      address: cleanStr(change.address),
+      street2: cleanStr(change.street2),
+      city: cleanStr(change.city),
+      state: cleanStr(change.state),
+      zip: cleanStr(change.zip),
+      country: cleanStr(change.country) || 'India',
+      phone: cleanStr(change.phone),
+      fax: cleanStr(change.fax),
+    });
+  }
+  return writableZohoAddress(raw, change);
+}
+
 const CONTACT_PERSON_CHANGE_KEYS = [
   'firstName',
   'email',
@@ -495,11 +518,11 @@ export async function pushDealerChangesToZoho(id, changes, secrets, orgId) {
   if (cleanStr(changes.pan_no)) body.pan_no = cleanStr(changes.pan_no);
   if (cleanStr(changes.notes)) body.notes = cleanStr(changes.notes);
 
-  if (cleanStr(changes.billing_address)) {
-    body.billing_address = writableZohoAddress(contact.billing_address, changes.billing_address);
+  if (addressChangeProvided(changes.billing_address)) {
+    body.billing_address = writableZohoAddressFromChange(contact.billing_address, changes.billing_address);
   }
-  if (cleanStr(changes.shipping_address)) {
-    body.shipping_address = writableZohoAddress(contact.shipping_address, changes.shipping_address);
+  if (addressChangeProvided(changes.shipping_address)) {
+    body.shipping_address = writableZohoAddressFromChange(contact.shipping_address, changes.shipping_address);
   }
 
   Object.keys(body).forEach(key => {
@@ -529,13 +552,27 @@ export async function pushDealerChangesToZoho(id, changes, secrets, orgId) {
   if ('phone' in changes) localPatch.phone = cleanStr(changes.phone) ?? null;
   if ('designation' in changes) localPatch.designation = cleanStr(changes.designation) ?? null;
   if ('alternateMobile' in changes) localPatch.alternateMobile = cleanStr(changes.alternateMobile) ?? null;
-  if (cleanStr(changes.billing_address)) {
-    localPatch.zohoBillingAddress = cleanStr(changes.billing_address);
-    localPatch.billingAddress = cleanStr(changes.billing_address);
+  if (addressChangeProvided(changes.billing_address)) {
+    const formatted = typeof changes.billing_address === 'object'
+      ? formatZohoAddress(changes.billing_address)
+      : cleanStr(changes.billing_address);
+    localPatch.zohoBillingAddress = formatted ?? null;
+    localPatch.billingAddress = formatted ?? null;
+    if (typeof changes.billing_address === 'object') {
+      localPatch.zohoBillingAddressRaw = changes.billing_address;
+      localPatch.zipCode = cleanStr(changes.billing_address.zip) ?? null;
+      localPatch.billingState = cleanStr(changes.billing_address.state) ?? null;
+    }
   }
-  if (cleanStr(changes.shipping_address)) {
-    localPatch.zohoShippingAddress = cleanStr(changes.shipping_address);
-    localPatch.shippingAddress = cleanStr(changes.shipping_address);
+  if (addressChangeProvided(changes.shipping_address)) {
+    const formatted = typeof changes.shipping_address === 'object'
+      ? formatZohoAddress(changes.shipping_address)
+      : cleanStr(changes.shipping_address);
+    localPatch.zohoShippingAddress = formatted ?? null;
+    localPatch.shippingAddress = formatted ?? null;
+    if (typeof changes.shipping_address === 'object') {
+      localPatch.zohoShippingAddressRaw = changes.shipping_address;
+    }
   }
   await ref.set(localPatch, { merge: true });
 

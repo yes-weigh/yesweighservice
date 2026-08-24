@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
+  Copy,
   ExternalLink,
   Lock,
   Phone,
@@ -10,17 +11,21 @@ import {
 import { useLocation, useNavigate, useParams } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
 import { homePathForRole } from '../../types';
+import { DealerAddressBox } from '../../components/dealers/DealerAddressBox';
 import { DealerStatusIndicator } from '../../components/dealers/DealerStatusIndicator';
-import { DecimalAmountInput } from '../../components/DecimalAmountInput';
 import { FetchingLoader } from '../../components/FetchingLoader';
-import { MultiSelect } from '../../components/dealers/MultiSelect';
+import {
+  dealerAddressFromDealer,
+  dealerAddressesMatch,
+  dealerAddressToZoho,
+  formatDealerAddress,
+  type DealerAddress,
+} from '../../lib/dealerAddress';
 import {
   dealerErrorMessage,
   dealerStaffSelectOptions,
   fetchDealerById,
-  fetchDealerCategories,
   listAssignableDealerStaff,
-  lookupDealerPincode,
   patchDealer,
   pushDealerChangesToZoho,
   refreshDealerFromZoho,
@@ -43,11 +48,15 @@ import {
 } from '../../lib/dealerZohoFillable';
 import { getDealerStatusMeta } from '../../lib/dealerStatus';
 import { buildContactLinks } from '../../lib/phoneLinks';
-import type { AssignableStaffOption, ZohoDealer } from '../../types/dealers';
 import {
-  DEALER_STAGES,
-  PRICE_LEVELS,
-} from '../../types/dealers';
+  assignDealerToPriceLevel,
+  findPriceLevelForDealer,
+  savePriceLevels,
+  subscribePriceLevels,
+} from '../../lib/priceLevels';
+import type { PriceLevel } from '../../types/priceLevels';
+import type { AssignableStaffOption, ZohoDealer } from '../../types/dealers';
+import { DEALER_STAGES } from '../../types/dealers';
 
 function WhatsAppIcon() {
   return (
@@ -81,7 +90,10 @@ type OverlayDraft = Pick<
   | 'orderPayOnline'
   | 'adminApprovalRequired'
   | 'maxOrderLimit'
-> & ZohoFillableDraft;
+> & ZohoFillableDraft & {
+  billing: DealerAddress;
+  shipping: DealerAddress;
+};
 
 function dealerToDraft(dealer: ZohoDealer): OverlayDraft {
   return {
@@ -107,6 +119,8 @@ function dealerToDraft(dealer: ZohoDealer): OverlayDraft {
     orderPayOnline: Boolean(dealer.orderPayOnline),
     adminApprovalRequired: Boolean(dealer.adminApprovalRequired),
     maxOrderLimit: dealer.maxOrderLimit ?? null,
+    billing: dealerAddressFromDealer(dealer, 'billing'),
+    shipping: dealerAddressFromDealer(dealer, 'shipping'),
     ...fillableFieldsToDraft(dealer),
   };
 }
@@ -355,11 +369,17 @@ export const DealerDetailPage: React.FC = () => {
     preview && preview.id === dealerId ? dealerToDraft(preview) : null,
   );
   const [assignableStaff, setAssignableStaff] = useState<AssignableStaffOption[]>([]);
-  const [categories, setCategories] = useState<string[]>([]);
   const [loading, setLoading] = useState(!dealer);
   const [error, setError] = useState('');
-  const [pincodeError, setPincodeError] = useState('');
-  const [pincodeLookup, setPincodeLookup] = useState(false);
+  const [priceLevels, setPriceLevels] = useState<PriceLevel[]>([]);
+  const [savingPriceLevel, setSavingPriceLevel] = useState(false);
+  const [separateShipping, setSeparateShipping] = useState(() => {
+    if (preview && preview.id === dealerId) {
+      const next = dealerToDraft(preview);
+      return !dealerAddressesMatch(next.billing, next.shipping);
+    }
+    return false;
+  });
   const [saving, setSaving] = useState(false);
   const [refreshingZoho, setRefreshingZoho] = useState(false);
   const [zohoBaseline, setZohoBaseline] = useState<ZohoPushableFields | null>(
@@ -371,6 +391,15 @@ export const DealerDetailPage: React.FC = () => {
   const [pullOffset, setPullOffset] = useState(0);
   const pullStateRef = useRef({ startY: 0, pulling: false, distance: 0 });
 
+  const applyLoadedDealer = useCallback((data: ZohoDealer) => {
+    const next = dealerToDraft(data);
+    setDealer(data);
+    setDraft(next);
+    setZohoBaseline(zohoPushableBaseline(data));
+    setBlankFillableKeys(blankFillableFieldKeys(data));
+    setSeparateShipping(!dealerAddressesMatch(next.billing, next.shipping));
+  }, []);
+
   const loadDealer = useCallback(async () => {
     if (!dealerId) return;
     setError('');
@@ -380,10 +409,7 @@ export const DealerDetailPage: React.FC = () => {
     });
     try {
       const data = await fetchDealerById(dealerId);
-      setDealer(data);
-      setDraft(dealerToDraft(data));
-      setZohoBaseline(zohoPushableBaseline(data));
-      setBlankFillableKeys(blankFillableFieldKeys(data));
+      applyLoadedDealer(data);
       setError('');
     } catch (err) {
       setDealer(prev => {
@@ -393,7 +419,7 @@ export const DealerDetailPage: React.FC = () => {
     } finally {
       setLoading(false);
     }
-  }, [dealerId]);
+  }, [applyLoadedDealer, dealerId]);
 
   const refreshZoho = useCallback(async () => {
     if (!dealerId) return;
@@ -401,16 +427,13 @@ export const DealerDetailPage: React.FC = () => {
     setError('');
     try {
       const data = await refreshDealerFromZoho(dealerId);
-      setDealer(data);
-      setDraft(dealerToDraft(data));
-      setZohoBaseline(zohoPushableBaseline(data));
-      setBlankFillableKeys(blankFillableFieldKeys(data));
+      applyLoadedDealer(data);
     } catch (err) {
       setError(dealerErrorMessage(err));
     } finally {
       setRefreshingZoho(false);
     }
-  }, [dealerId]);
+  }, [applyLoadedDealer, dealerId]);
 
   const refreshZohoRef = useRef(refreshZoho);
   refreshZohoRef.current = refreshZoho;
@@ -467,67 +490,72 @@ export const DealerDetailPage: React.FC = () => {
   }, [loadDealer]);
 
   useEffect(() => {
-    void Promise.all([
-      listAssignableDealerStaff().then(setAssignableStaff),
-      fetchDealerCategories().then(setCategories),
-    ]).catch(err => console.error('Dealer detail meta load failed:', err));
+    void listAssignableDealerStaff()
+      .then(setAssignableStaff)
+      .catch(err => console.error('Dealer detail meta load failed:', err));
   }, []);
 
-  const handlePincodeChange = useCallback(async (raw: string) => {
-    const pin = raw.replace(/\D/g, '').slice(0, 6);
+  useEffect(() => subscribePriceLevels(docData => setPriceLevels(docData.levels)), []);
+
+  const applyBillingAddress = (billing: DealerAddress, keepSeparate = separateShipping) => {
     setDraft(d => {
       if (!d) return d;
-      if (!pin) {
-        return { ...d, zipCode: null, billingState: null, district: null };
-      }
-      return { ...d, zipCode: pin };
-    });
-    setPincodeError('');
-
-    if (pin.length !== 6) return;
-
-    setPincodeLookup(true);
-    try {
-      const location = await lookupDealerPincode(pin);
-      setDraft(d => d ? {
+      const shipping = keepSeparate ? d.shipping : { ...billing };
+      return {
         ...d,
-        zipCode: pin,
-        billingState: location.state,
-        district: location.district,
-      } : d);
-    } catch (err) {
-      setPincodeError(err instanceof Error ? err.message : 'PIN code lookup failed.');
-    } finally {
-      setPincodeLookup(false);
-    }
-  }, []);
+        billing,
+        shipping,
+        zipCode: billing.zip || null,
+        billingState: billing.state || null,
+        district: billing.district || null,
+        billingAddress: formatDealerAddress(billing) || null,
+        shippingAddress: formatDealerAddress(shipping) || null,
+      };
+    });
+  };
+
+  const applyShippingAddress = (shipping: DealerAddress) => {
+    setDraft(d => d ? {
+      ...d,
+      shipping,
+      shippingAddress: formatDealerAddress(shipping) || null,
+    } : d);
+  };
 
   const dirty = useMemo(() => {
     if (!dealer || !draft) return false;
     return JSON.stringify(dealerToDraft(dealer)) !== JSON.stringify(draft);
   }, [dealer, draft]);
 
-  const zohoDirty = useMemo(() => {
-    if (!dealer || !draft || !zohoBaseline) return false;
-    const payload = buildZohoPushPayload(draft, dealer, zohoBaseline, blankFillableKeys);
-    return hasZohoPushChanges(payload);
-  }, [dealer, draft, zohoBaseline, blankFillableKeys]);
-
   const saveDraft = async () => {
     if (!dealer || !draft || !dirty) return;
     setSaving(true);
     setError('');
     try {
-      if (zohoDirty && zohoBaseline) {
-        const payload = buildZohoPushPayload(draft, dealer, zohoBaseline, blankFillableKeys);
+      const payload = zohoBaseline
+        ? buildZohoPushPayload(draft, dealer, zohoBaseline, blankFillableKeys)
+        : {};
+      const billingChanged = !dealerAddressesMatch(draft.billing, dealerAddressFromDealer(dealer, 'billing'));
+      const nextShipping = separateShipping ? draft.shipping : draft.billing;
+      const shippingChanged = !dealerAddressesMatch(
+        nextShipping,
+        dealerAddressFromDealer(dealer, 'shipping'),
+      );
+      if (billingChanged) payload.billing_address = dealerAddressToZoho(draft.billing);
+      if (shippingChanged) payload.shipping_address = dealerAddressToZoho(nextShipping);
+      if (hasZohoPushChanges(payload)) {
         await pushDealerChangesToZoho(dealer.id, payload);
       }
-      await patchDealer(dealer.id, draft);
+      await patchDealer(dealer.id, {
+        ...draft,
+        zipCode: draft.billing.zip || null,
+        billingState: draft.billing.state || null,
+        district: draft.billing.district || null,
+        billingAddress: formatDealerAddress(draft.billing) || null,
+        shippingAddress: formatDealerAddress(nextShipping) || null,
+      });
       const refreshed = await fetchDealerById(dealer.id);
-      setDealer(refreshed);
-      setDraft(dealerToDraft(refreshed));
-      setZohoBaseline(zohoPushableBaseline(refreshed));
-      setBlankFillableKeys(blankFillableFieldKeys(refreshed));
+      applyLoadedDealer(refreshed);
     } catch (err) {
       setError(dealerErrorMessage(err));
     } finally {
@@ -535,10 +563,27 @@ export const DealerDetailPage: React.FC = () => {
     }
   };
 
+  const assignPriceLevel = async (levelId: string) => {
+    if (!dealer || !levelId || savingPriceLevel) return;
+    const currentId = findPriceLevelForDealer(priceLevels, dealer.id)?.id ?? '';
+    if (currentId === levelId) return;
+    setSavingPriceLevel(true);
+    setError('');
+    try {
+      await savePriceLevels(
+        assignDealerToPriceLevel(priceLevels, dealer.id, levelId),
+        user?.uid ?? null,
+      );
+    } catch (err) {
+      setError(dealerErrorMessage(err));
+    } finally {
+      setSavingPriceLevel(false);
+    }
+  };
+
   const revertDraft = () => {
     if (!dealer || !dirty) return;
-    setDraft(dealerToDraft(dealer));
-    setPincodeError('');
+    applyLoadedDealer(dealer);
     setError('');
   };
 
@@ -678,16 +723,6 @@ export const DealerDetailPage: React.FC = () => {
               {DEALER_STAGES.map(s => <option key={s} value={s}>{s}</option>)}
             </select>
           </label>
-          <div className="dealers-detail__field dealers-detail__field--full">
-            <FieldLabel label="Categories" source="local" />
-            <MultiSelect
-              placeholder="Select categories"
-              menuPortal
-              value={draft.categories}
-              options={categories.map(c => ({ value: c, label: c }))}
-              onChange={next => setDraft(d => d ? { ...d, categories: next } : d)}
-            />
-          </div>
           <label className="dealers-detail__field dealers-detail__field--full">
             <FieldLabel label="Assigned staff" source="local" />
             <select
@@ -707,7 +742,7 @@ export const DealerDetailPage: React.FC = () => {
                 <option key={s.uid} value={s.uid}>{s.displayName}</option>
               ))}
             </select>
-            <span className="text-muted text-sm">
+            <span className="dealers-detail__staff-hint">
               Only staff with at least one linked Zoho salesperson can be assigned.
             </span>
           </label>
@@ -757,39 +792,74 @@ export const DealerDetailPage: React.FC = () => {
             );
           })}
 
+          {!separateShipping ? (
+            <DealerAddressBox
+              idPrefix="billing"
+              title="Billing and shipping address is same"
+              value={draft.billing}
+              disabled={saving}
+              onChange={billing => applyBillingAddress(billing, false)}
+              extra={(
+                <button
+                  type="button"
+                  className="btn btn-secondary btn-sm"
+                  disabled={saving}
+                  onClick={() => setSeparateShipping(true)}
+                >
+                  Different shipping
+                </button>
+              )}
+            />
+          ) : (
+            <>
+              <DealerAddressBox
+                idPrefix="billing"
+                title="Billing address"
+                value={draft.billing}
+                disabled={saving}
+                onChange={billing => applyBillingAddress(billing, true)}
+              />
+              <DealerAddressBox
+                idPrefix="shipping"
+                title="Shipping address"
+                value={draft.shipping}
+                disabled={saving}
+                onChange={applyShippingAddress}
+                extra={(
+                  <button
+                    type="button"
+                    className="btn btn-secondary btn-sm"
+                    disabled={saving}
+                    onClick={() => {
+                      applyBillingAddress(draft.billing, false);
+                      setSeparateShipping(false);
+                    }}
+                  >
+                    <Copy size={14} />
+                    Same as billing
+                  </button>
+                )}
+              />
+            </>
+          )}
+
           <label className="dealers-detail__field">
             <FieldLabel label="Price level" source="local" />
             <select
               className="catalog-select"
-              value={draft.priceLevel ?? ''}
-              disabled={saving}
-              onChange={e => setDraft(d => d ? { ...d, priceLevel: e.target.value || null } : d)}
+              value={findPriceLevelForDealer(priceLevels, dealer.id)?.id ?? ''}
+              disabled={saving || savingPriceLevel || priceLevels.length === 0}
+              onChange={e => void assignPriceLevel(e.target.value)}
             >
-              <option value="">—</option>
-              {PRICE_LEVELS.map(t => <option key={t} value={t}>{t}</option>)}
+              {priceLevels.length === 0 ? (
+                <option value="">Loading…</option>
+              ) : (
+                priceLevels.map(level => (
+                  <option key={level.id} value={level.id}>{level.name}</option>
+                ))
+              )}
             </select>
           </label>
-
-          <label className="dealers-detail__field">
-            <span>PIN code</span>
-            <input
-              className="input-field"
-              inputMode="numeric"
-              maxLength={6}
-              value={draft.zipCode ?? ''}
-              disabled={saving || pincodeLookup}
-              onChange={e => void handlePincodeChange(e.target.value)}
-              placeholder="6-digit PIN"
-            />
-            {pincodeLookup && (
-              <span className="dealers-detail__pincode-hint">Looking up state and district…</span>
-            )}
-            {pincodeError && (
-              <span className="dealers-detail__pincode-error">{pincodeError}</span>
-            )}
-          </label>
-          <FlatReadOnlyField label="State" value={draft.billingState} />
-          <FlatReadOnlyField label="District" value={draft.district} />
           <label className="dealers-detail__field dealers-detail__field--full">
             <span>Google Maps link</span>
             <div className="dealers-detail__link-field">
@@ -832,22 +902,6 @@ export const DealerDetailPage: React.FC = () => {
             disabled={saving}
             onChange={v => setDraft(d => d ? { ...d, orderPayOnline: v } : d)}
           />
-          <label className="dealers-detail__field">
-            <FieldLabel label="Max order limit (₹)" source="local" />
-            <DecimalAmountInput
-              className="input-field"
-              min={0}
-              decimals={0}
-              allowEmpty
-              disabled={saving}
-              value={draft.maxOrderLimit ?? null}
-              placeholder="No limit"
-              aria-label="Max order limit in rupees"
-              onChange={next => {
-                setDraft(d => (d ? { ...d, maxOrderLimit: next } : d));
-              }}
-            />
-          </label>
 
           <div className="dealers-detail__field dealers-detail__field--full dealers-detail__actions-row">
             <button

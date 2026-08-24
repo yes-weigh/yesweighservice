@@ -115,6 +115,13 @@ export const ZOHO_FILLABLE_FIELDS: ZohoFillableFieldDef[] = [
   },
 ];
 
+const HIDDEN_DEALER_DETAIL_FIELDS = new Set<ZohoFillableFieldKey>([
+  'zohoWebsite',
+  'zohoNotes',
+  'zohoBillingAddress',
+  'zohoShippingAddress',
+]);
+
 export const TOP_ZOHO_CONTACT_FIELD_KEYS: ZohoFillableFieldKey[] = ['mobile', 'zohoContactPhone'];
 
 export function topZohoEmailField(): ZohoFillableFieldDef | undefined {
@@ -131,6 +138,7 @@ export function zohoAddressesMatch(dealer: ZohoDealer): boolean {
 export function visibleFillableFields(dealer: ZohoDealer): ZohoFillableFieldDef[] {
   const sameAddress = zohoAddressesMatch(dealer);
   return ZOHO_FILLABLE_FIELDS.flatMap(field => {
+    if (HIDDEN_DEALER_DETAIL_FIELDS.has(field.key)) return [];
     if (TOP_ZOHO_CONTACT_FIELD_KEYS.includes(field.key) || field.key === 'zohoEmail') return [];
     if (field.key === 'zohoShippingAddress' && sameAddress) return [];
     if (field.key === 'zohoBillingAddress' && sameAddress) {
@@ -176,7 +184,7 @@ export function isFillableFieldDirty(
   });
 }
 
-export type ZohoPushPayload = Record<string, string | null | undefined>;
+export type ZohoPushPayload = Record<string, string | Record<string, string> | null | undefined>;
 
 export function buildZohoPushPayload(
   draft: ZohoFillableDraft & Parameters<typeof zohoPushableFromDraft>[0],

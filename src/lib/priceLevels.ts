@@ -519,6 +519,27 @@ export function applyPriceLevelPercent(
   return roundMoney(list * (1 - pct / 100));
 }
 
+/** Move a dealer onto one price level. Default Dealers clears explicit assignments. */
+export function assignDealerToPriceLevel(
+  levels: PriceLevel[],
+  dealerId: string | null | undefined,
+  levelId: string | null | undefined,
+): PriceLevel[] {
+  const id = String(dealerId ?? '').trim();
+  const nextLevelId = String(levelId ?? '').trim();
+  if (!id) return levels;
+  return enforceUniqueDealerAssignments(levels).map(level => {
+    if (isDefaultDealerPriceLevel(level)) {
+      return { ...level, dealerIds: [] };
+    }
+    const without = level.dealerIds.filter(existing => existing !== id);
+    if (!nextLevelId || isDefaultDealerPriceLevel(nextLevelId) || level.id !== nextLevelId) {
+      return { ...level, dealerIds: without };
+    }
+    return { ...level, dealerIds: [...without, id] };
+  });
+}
+
 export function findPriceLevelForDealer(
   levels: PriceLevel[],
   dealerId: string | null | undefined,
@@ -822,7 +843,7 @@ export function subscribePriceLevels(
   return onSnapshot(
     doc(db, 'appSettings', PRICE_LEVELS_DOC_ID),
     snap => {
-      onData(snap.exists() ? normalizePriceLevelsDoc(snap.data()) : emptyPriceLevelsDoc());
+      onData(normalizePriceLevelsDoc(snap.exists() ? snap.data() : {}));
     },
     err => {
       onError?.(err instanceof Error ? err : new Error(String(err)));

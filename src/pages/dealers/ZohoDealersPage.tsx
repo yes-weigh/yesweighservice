@@ -15,7 +15,6 @@ import {
 import { CreateDealerModal } from '../../components/dealers/CreateDealerModal';
 import { DealerTile } from '../../components/dealers/DealerTile';
 import { DealerStatusLegend } from '../../components/dealers/DealerStatusLegend';
-import { DealerLevelDefinitionsPanel } from '../../components/dealers/DealerLevelDefinitionsPanel';
 import { MultiSelect } from '../../components/dealers/MultiSelect';
 import { ZohoSalespersonsPanel } from '../../components/dealers/ZohoSalespersonsPanel';
 import { useAuth } from '../../context/AuthContext';
@@ -49,14 +48,12 @@ import {
 import { type AssignableStaffOption, type DealerListParams, type ZohoDealer } from '../../types/dealers';
 import type { PriceLevel } from '../../types/priceLevels';
 import { homePathForRole, type Role } from '../../types';
-import { canViewDealersInHr, hasStaffPermission } from '../../lib/staffAccess';
+import { hasStaffPermission } from '../../lib/staffAccess';
 
-type DealersMainTab = 'roster' | 'salespersons' | 'dealer-level';
+type DealersMainTab = 'roster' | 'salespersons';
 
 function parseDealersTab(value: string | null): DealersMainTab {
-  if (value === 'salespersons' || value === 'dealer-level') return value;
-  // Legacy query from when levels lived under Products.
-  if (value === 'price-levels') return 'dealer-level';
+  if (value === 'salespersons') return value;
   return 'roster';
 }
 
@@ -83,11 +80,11 @@ function FilterSelect({
 }) {
   const id = slugifyFilterId(label);
   return (
-    <section className="support-filter-sheet__section">
-      <label className="support-filter-sheet__section-title" htmlFor={id}>{label}</label>
+    <section className="support-filter-sheet__section dealers-filter-field">
       <select
         id={id}
-        className="catalog-select dealers-filter-select"
+        aria-label={label}
+        className={`catalog-select dealers-filter-select${value ? ' is-selected' : ''}`}
         value={value}
         onChange={e => onChange(e.target.value)}
       >
@@ -115,8 +112,7 @@ function FilterMultiDropdown({
   onChange: (next: string[]) => void;
 }) {
   return (
-    <section className="support-filter-sheet__section">
-      <h4 className="support-filter-sheet__section-title">{label}</h4>
+    <section className="support-filter-sheet__section dealers-filter-field" aria-label={label}>
       {options.length === 0 ? (
         <p className="dealers-filter-empty">No options yet</p>
       ) : (
@@ -127,7 +123,6 @@ function FilterMultiDropdown({
           onChange={onChange}
           placeholder={placeholder}
           variant="summary"
-          menuPortal
         />
       )}
     </section>
@@ -139,32 +134,54 @@ function isHiddenKamName(name: string) {
 }
 
 const ZOHO_STATUS_CHIPS: FilterChip[] = [
-  { value: '', label: 'All' },
+  { value: '', label: 'All Zoho Status' },
   { value: 'Active', label: 'Active' },
   { value: 'Non Active', label: 'Inactive' },
   { value: 'Black listed', label: 'Blacklisted' },
 ];
 
 const APP_STATUS_CHIPS: FilterChip[] = [
-  { value: '', label: 'All' },
+  { value: '', label: 'All App status' },
   { value: 'logged-in', label: 'Logged in' },
   { value: 'not-logged-in', label: 'Not logged in' },
 ];
 
 const ASSIGNMENT_CHIPS: FilterChip[] = [
-  { value: '', label: 'All' },
+  { value: '', label: 'Assigned+Unassigned' },
   { value: 'assigned', label: 'Assigned' },
   { value: 'unassigned', label: 'Unassigned' },
 ];
 
 const PRICE_LEVEL_FILTER_OPTIONS: FilterChip[] = [
-  { value: '', label: 'all' },
-  { value: 'directors', label: 'directors' },
+  { value: '', label: 'All Price level' },
+  { value: 'directors', label: 'Directors' },
   { value: 'dealers', label: 'Dealers' },
   { value: 'subdealer', label: 'Subdealer' },
-  { value: 'reseller', label: 'reseller' },
-  { value: 'spareonly', label: 'spareonly' },
+  { value: 'reseller', label: 'Reseller' },
+  { value: 'spareonly', label: 'Spareonly' },
 ];
+
+type DealerFilters = {
+  zohoStatus: string;
+  appStatus: string;
+  assignment: string;
+  staffFilter: string[];
+  stateFilter: string[];
+  districtFilter: string[];
+  priceLevelFilter: string;
+};
+
+function emptyDealerFilters(): DealerFilters {
+  return {
+    zohoStatus: '',
+    appStatus: '',
+    assignment: '',
+    staffFilter: [],
+    stateFilter: [],
+    districtFilter: [],
+    priceLevelFilter: '',
+  };
+}
 
 function compactPriceLevelName(name: string) {
   return name.trim().toLowerCase().replace(/[\s_-]+/g, '');
@@ -188,7 +205,6 @@ export function ZohoDealersPage() {
   const dealersBase = user ? dealersListBase(user.role) : '/staff/dealers';
   const canSyncDealers = hasStaffPermission(user, 'dealers.sync');
   const canEditDealers = hasStaffPermission(user, 'dealers.edit');
-  const canManageDealerLevels = canViewDealersInHr(user);
   const tabParam = searchParams.get('tab');
   const mainTab = parseDealersTab(tabParam);
   const setMainTab = (tab: DealersMainTab) => {
@@ -200,16 +216,11 @@ export function ZohoDealersPage() {
     setSearchParams({ tab }, { replace: true });
   };
 
-  /** Normalize legacy ?tab=price-levels → dealer-level. */
   useEffect(() => {
-    if (tabParam !== 'price-levels') return;
-    setSearchParams({ tab: 'dealer-level' }, { replace: true });
-  }, [tabParam, setSearchParams]);
-
-  useEffect(() => {
-    if (mainTab !== 'dealer-level' || canManageDealerLevels) return;
-    setSearchParams({}, { replace: true });
-  }, [mainTab, canManageDealerLevels, setSearchParams]);
+    if (tabParam !== 'dealer-level' && tabParam !== 'price-levels') return;
+    const settingsHome = user?.role === 'staff' ? '/staff' : '/super-admin';
+    navigate(`${settingsHome}/settings/price-level`, { replace: true });
+  }, [tabParam, navigate, user?.role]);
 
   const [searchTerm, setSearchTerm] = useState('');
   const [zohoStatus, setZohoStatus] = useState('');
@@ -242,6 +253,7 @@ export function ZohoDealersPage() {
   const [assignableStaff, setAssignableStaff] = useState<AssignableStaffOption[]>([]);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [filtersOpen, setFiltersOpen] = useState(false);
+  const [filterDraft, setFilterDraft] = useState<DealerFilters>(emptyDealerFilters);
   const [createOpen, setCreateOpen] = useState(false);
 
   const queryParams = useMemo((): DealerListParams => ({
@@ -289,13 +301,6 @@ export function ZohoDealersPage() {
   const total = paged.pagination.total;
   const loading = !rosterReady && roster.length === 0;
 
-  const districts = useMemo(() => {
-    if (!stateFilter.length) {
-      return Array.from(new Set(Object.values(districtsByState).flat())).sort();
-    }
-    return stateFilter.flatMap(s => districtsByState[s] ?? []);
-  }, [districtsByState, stateFilter]);
-
   const loadMeta = useCallback(async () => {
     try {
       setAssignableStaff(await listAssignableDealerStaff());
@@ -338,19 +343,49 @@ export function ZohoDealersPage() {
     setSelectedIds(new Set());
   }, [searchTerm, zohoStatus, appStatus, assignment, staffFilter, stateFilter, districtFilter, priceLevelFilter]);
 
-  const handleStateFilterChange = (next: string[]) => {
-    setStateFilter(next);
-    if (!next.length) {
-      setDistrictFilter([]);
-      return;
-    }
-    const allowed = new Set(next.flatMap(state => districtsByState[state] ?? []));
-    setDistrictFilter(prev => prev.filter(district => allowed.has(district)));
+  const snapshotDealerFilters = (): DealerFilters => ({
+    zohoStatus,
+    appStatus,
+    assignment,
+    staffFilter,
+    stateFilter,
+    districtFilter,
+    priceLevelFilter,
+  });
+
+  const applyDealerFilters = (next: DealerFilters) => {
+    setZohoStatus(next.zohoStatus);
+    setAppStatus(next.appStatus);
+    setAssignment(next.assignment);
+    setStaffFilter(next.staffFilter);
+    setStateFilter(next.stateFilter);
+    setDistrictFilter(next.districtFilter);
+    setPriceLevelFilter(next.priceLevelFilter);
   };
 
-  const handleAssignmentChange = (next: string) => {
-    setAssignment(next);
-    if (next === 'unassigned') setStaffFilter([]);
+  const openDealerFilters = () => {
+    setFilterDraft(snapshotDealerFilters());
+    setFiltersOpen(true);
+  };
+
+  const handleDraftStateChange = (next: string[]) => {
+    setFilterDraft(prev => {
+      if (!next.length) return { ...prev, stateFilter: [], districtFilter: [] };
+      const allowed = new Set(next.flatMap(state => districtsByState[state] ?? []));
+      return {
+        ...prev,
+        stateFilter: next,
+        districtFilter: prev.districtFilter.filter(district => allowed.has(district)),
+      };
+    });
+  };
+
+  const handleDraftAssignmentChange = (next: string) => {
+    setFilterDraft(prev => ({
+      ...prev,
+      assignment: next,
+      staffFilter: next === 'unassigned' ? [] : prev.staffFilter,
+    }));
   };
 
   const handleSync = async () => {
@@ -435,14 +470,16 @@ export function ZohoDealersPage() {
   ].filter(Boolean).length;
 
   const resetDealerFilters = () => {
-    setZohoStatus('');
-    setAppStatus('');
-    setAssignment('');
-    setStaffFilter([]);
-    setStateFilter([]);
-    setDistrictFilter([]);
-    setPriceLevelFilter('');
+    const next = emptyDealerFilters();
+    setFilterDraft(next);
+    applyDealerFilters(next);
     setMainTab('roster');
+  };
+
+  const applyDraftDealerFilters = () => {
+    applyDealerFilters(filterDraft);
+    setMainTab('roster');
+    setFiltersOpen(false);
   };
 
   const applyZohoStatus = (next: string) => {
@@ -459,53 +496,66 @@ export function ZohoDealersPage() {
     [assignableStaff],
   );
 
+  const draftDistricts = useMemo(() => {
+    if (!filterDraft.stateFilter.length) {
+      return Array.from(new Set(Object.values(districtsByState).flat())).sort();
+    }
+    return filterDraft.stateFilter.flatMap(state => districtsByState[state] ?? []);
+  }, [districtsByState, filterDraft.stateFilter]);
+
   const dealerFilterFields = (
     <div className="dealers-filter-groups">
-      <FilterSelect
-        label="Zoho status"
-        value={zohoStatus}
-        options={ZOHO_STATUS_CHIPS}
-        onChange={setZohoStatus}
-      />
-      <FilterSelect
-        label="App status"
-        value={appStatus}
-        options={APP_STATUS_CHIPS}
-        onChange={setAppStatus}
-      />
-      <FilterSelect
-        label="Assigned"
-        value={assignment}
-        options={ASSIGNMENT_CHIPS}
-        onChange={handleAssignmentChange}
-      />
-      {assignment !== 'unassigned' ? (
-        <FilterMultiDropdown
-          label="KAM"
-          values={staffFilter}
-          options={kamOptions}
-          placeholder="All KAMs"
-          onChange={setStaffFilter}
-        />
-      ) : null}
       <FilterMultiDropdown
         label="State"
-        values={stateFilter}
+        values={filterDraft.stateFilter}
         options={states.map(state => ({ value: state, label: state }))}
-        placeholder="All states"
-        onChange={handleStateFilterChange}
+        placeholder="All States"
+        onChange={handleDraftStateChange}
       />
-      {stateFilter.length > 0 ? (
+      {filterDraft.stateFilter.length > 0 ? (
         <FilterMultiDropdown
           label="District"
-          values={districtFilter}
-          options={districts.map(district => ({ value: district, label: district }))}
-          placeholder="All districts"
-          onChange={setDistrictFilter}
+          values={filterDraft.districtFilter}
+          options={draftDistricts.map(district => ({ value: district, label: district }))}
+          placeholder="All Districts"
+          onChange={next => setFilterDraft(prev => ({ ...prev, districtFilter: next }))}
         />
       ) : (
         <p className="dealers-filter-hint">Select a state to see districts where you have dealers.</p>
       )}
+      <FilterSelect
+        label="Price level"
+        value={filterDraft.priceLevelFilter}
+        options={PRICE_LEVEL_FILTER_OPTIONS}
+        onChange={next => setFilterDraft(prev => ({ ...prev, priceLevelFilter: next }))}
+      />
+      <FilterSelect
+        label="Zoho status"
+        value={filterDraft.zohoStatus}
+        options={ZOHO_STATUS_CHIPS}
+        onChange={next => setFilterDraft(prev => ({ ...prev, zohoStatus: next }))}
+      />
+      <FilterSelect
+        label="App status"
+        value={filterDraft.appStatus}
+        options={APP_STATUS_CHIPS}
+        onChange={next => setFilterDraft(prev => ({ ...prev, appStatus: next }))}
+      />
+      <FilterSelect
+        label="Assigned"
+        value={filterDraft.assignment}
+        options={ASSIGNMENT_CHIPS}
+        onChange={handleDraftAssignmentChange}
+      />
+      {filterDraft.assignment !== 'unassigned' ? (
+        <FilterMultiDropdown
+          label="KAM"
+          values={filterDraft.staffFilter}
+          options={kamOptions}
+          placeholder="All KAMs"
+          onChange={next => setFilterDraft(prev => ({ ...prev, staffFilter: next }))}
+        />
+      ) : null}
     </div>
   );
 
@@ -523,7 +573,13 @@ export function ZohoDealersPage() {
         title="Filters"
         aria-expanded={filtersOpen}
         aria-haspopup="dialog"
-        onClick={() => setFiltersOpen(open => !open)}
+        onClick={() => {
+          if (filtersOpen) {
+            setFiltersOpen(false);
+            return;
+          }
+          openDealerFilters();
+        }}
       >
         <SlidersHorizontal size={18} aria-hidden />
         {filterBadgeCount > 0 ? (
@@ -650,14 +706,6 @@ export function ZohoDealersPage() {
               <div className="support-filter-sheet__header-actions">
                 <button
                   type="button"
-                  className="btn btn-secondary btn-sm support-filter-sheet__reset"
-                  onClick={resetDealerFilters}
-                  disabled={filterBadgeCount === 0}
-                >
-                  Reset
-                </button>
-                <button
-                  type="button"
                   className="support-filter-sheet__close"
                   aria-label="Close"
                   onClick={() => setFiltersOpen(false)}
@@ -667,34 +715,39 @@ export function ZohoDealersPage() {
               </div>
             </header>
 
-            <FilterSelect
-              label="Price level"
-              value={priceLevelFilter}
-              options={PRICE_LEVEL_FILTER_OPTIONS}
-              onChange={next => {
-                setPriceLevelFilter(next);
-                if (mainTab !== 'roster') setMainTab('roster');
-              }}
-            />
-            {canManageDealerLevels ? (
+            <div className="dealers-filter-sheet__body">
+              {mainTab === 'roster' ? dealerFilterFields : (
+                <FilterSelect
+                  label="Price level"
+                  value={filterDraft.priceLevelFilter}
+                  options={PRICE_LEVEL_FILTER_OPTIONS}
+                  onChange={next => setFilterDraft(prev => ({ ...prev, priceLevelFilter: next }))}
+                />
+              )}
+            </div>
+
+            <footer className="support-filter-sheet__footer dealers-filter-sheet__footer">
               <button
                 type="button"
-                className="dealers-filter-manage-levels"
-                onClick={() => setMainTab('dealer-level')}
+                className="btn btn-secondary dealers-filter-sheet__clear"
+                onClick={resetDealerFilters}
               >
-                Manage price levels
+                Clear all
               </button>
-            ) : null}
-
-            {mainTab === 'roster' ? dealerFilterFields : null}
+              <button
+                type="button"
+                className="btn btn-primary dealers-filter-sheet__apply"
+                onClick={applyDraftDealerFilters}
+              >
+                Apply
+              </button>
+            </footer>
           </div>
         </>
       ) : null}
 
       {mainTab === 'salespersons' ? (
         <ZohoSalespersonsPanel />
-      ) : mainTab === 'dealer-level' && canManageDealerLevels ? (
-        <DealerLevelDefinitionsPanel />
       ) : (
       <>
       {success && (

@@ -77,6 +77,7 @@ import {
   readDealerSetting,
   writeDealerSetting,
 } from './lib/dealers-api.js';
+import { lookupGstinDetails } from './lib/gstin-lookup.js';
 import { setDealerCatalogMrp } from './lib/dealer-catalog-mrp.js';
 import {
   importCrmDealerOverlay,
@@ -4302,6 +4303,28 @@ export const lookupDealerPincode = onCall(
       throw new HttpsError('not-found', 'Could not find state and district for this PIN code.');
     }
     return location;
+  },
+);
+
+/** Look up GST taxpayer details for Add dealer via Zoho GSTIN APIs. */
+export const fetchGstinDetails = onCall(
+  {
+    region: 'asia-south1',
+    secrets: [zohoClientId, zohoClientSecret, zohoRefreshToken],
+    timeoutSeconds: 45,
+    memory: '256MiB',
+  },
+  async request => {
+    await requireActiveUser(request.auth?.uid, SYNC_ROLES);
+    try {
+      const accessToken = await getAccessToken(zohoSecrets());
+      const organizationId = await resolveOrganizationId(accessToken, zohoOrganizationId.value());
+      const details = await lookupGstinDetails(request.data ?? {}, { accessToken, organizationId });
+      return { details };
+    } catch (err) {
+      if (err instanceof HttpsError) throw err;
+      throw new HttpsError('not-found', err?.message ?? 'Could not fetch GSTIN details.');
+    }
   },
 );
 

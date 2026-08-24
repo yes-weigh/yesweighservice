@@ -147,6 +147,51 @@ export async function getDealerRecord(id, { refreshFromZoho, secrets, orgId } = 
   return mapDealerDetailForClient(raw, null, usersById);
 }
 
+function textValue(value) {
+  return String(value ?? '').replace(/\s+/g, ' ').trim();
+}
+
+function normalizeDealerAddress(value) {
+  if (!value || typeof value !== 'object') return null;
+  const addr = {
+    attention: textValue(value.attention),
+    phone: textValue(value.phone),
+    address: textValue(value.address),
+    street2: textValue(value.street2),
+    city: textValue(value.city),
+    zip: String(value.zip ?? '').replace(/\D/g, '').slice(0, 6),
+    state: textValue(value.state),
+    country: textValue(value.country) || 'India',
+    district: textValue(value.district),
+  };
+  if (!addr.address && !addr.city && !addr.zip && !addr.state && !addr.attention && !addr.district) {
+    return null;
+  }
+  return addr;
+}
+
+function formatDealerAddress(addr) {
+  if (!addr) return '';
+  return [addr.attention, addr.address, addr.street2, addr.city, addr.state, addr.zip, addr.country]
+    .map(textValue)
+    .filter(Boolean)
+    .join(', ');
+}
+
+function zohoAddressRaw(addr) {
+  if (!addr) return null;
+  return {
+    attention: addr.attention,
+    phone: addr.phone,
+    address: addr.address,
+    street2: addr.street2,
+    city: addr.city,
+    zip: addr.zip,
+    state: addr.state,
+    country: addr.country,
+  };
+}
+
 export async function createDealerRecord(input) {
   const companyName = String(input?.companyName ?? '').trim();
   if (!companyName) {
@@ -154,31 +199,82 @@ export async function createDealerRecord(input) {
   }
   const contactName = String(input?.contactName ?? '').trim();
   const phone = String(input?.phone ?? '').replace(/\D/g, '').slice(0, 10);
+  const mobile = String(input?.mobile ?? input?.alternateMobile ?? '').replace(/\D/g, '').slice(0, 10);
   const email = String(input?.email ?? '').trim().toLowerCase();
+  const gstin = String(input?.gstin ?? input?.zohoGstNo ?? '').replace(/[\s-]/g, '').toUpperCase();
+  const pan = String(input?.pan ?? input?.zohoPanNo ?? '').replace(/[^A-Za-z0-9]/g, '').toUpperCase();
   if (phone && phone.length !== 10) {
+    throw new HttpsError('invalid-argument', 'Enter a valid 10-digit mobile number.');
+  }
+  if (mobile && mobile.length !== 10) {
     throw new HttpsError('invalid-argument', 'Enter a valid 10-digit mobile number.');
   }
   if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
     throw new HttpsError('invalid-argument', 'Enter a valid email address.');
   }
+  if (gstin && !/^[0-9]{2}[A-Z]{5}[0-9]{4}[A-Z][1-9A-Z]Z[0-9A-Z]$/.test(gstin)) {
+    throw new HttpsError('invalid-argument', 'Enter a valid 15-character GSTIN.');
+  }
+  if (pan && !/^[A-Z]{5}[0-9]{4}[A-Z]$/.test(pan)) {
+    throw new HttpsError('invalid-argument', 'Enter a valid 10-character PAN.');
+  }
+
+  const billing = normalizeDealerAddress(input?.billing) || normalizeDealerAddress({
+    address: input?.billingAddress,
+    state: input?.billingState,
+    district: input?.district,
+    zip: input?.zipCode,
+  });
+  const shipping = input?.sameShipping === false
+    ? (normalizeDealerAddress(input?.shipping) || billing)
+    : billing;
 
   const db = getFirestore();
+  let assignedStaffUid = null;
+  let assignedStaffName = null;
+  const staffUid = String(input?.assignedStaffUid ?? '').trim();
+  if (staffUid) {
+    const userSnap = await db.doc(`users/${staffUid}`).get();
+    const userData = assertAssignableDealerStaff(userSnap);
+    assignedStaffUid = staffUid;
+    assignedStaffName = String(userData.displayName ?? 'Staff').trim() || 'Staff';
+  }
+
   const ref = db.collection('zohoCustomers').doc();
   await ref.set({
     contactName: companyName,
     companyName,
     firstName: contactName || null,
     phone: phone || null,
-    mobile: phone || null,
+    mobile: mobile || phone || null,
+    alternateMobile: mobile && mobile !== phone ? mobile : null,
     email: email || null,
+    zohoGstNo: gstin || null,
+    zohoGstTreatment: String(input?.gstTreatment ?? input?.zohoGstTreatment ?? '').trim() || null,
+    zohoLegalName: String(input?.legalName ?? input?.zohoLegalName ?? '').trim() || null,
+    zohoTaxpayerType: String(input?.taxpayerType ?? input?.zohoTaxpayerType ?? '').trim() || null,
+    zohoConstitutionOfBusiness: String(input?.constitutionOfBusiness ?? input?.zohoConstitutionOfBusiness ?? '').trim() || null,
+    zohoPanNo: pan || null,
+    firmType: String(input?.constitutionOfBusiness ?? input?.firmType ?? '').trim() || null,
+    billingState: billing?.state || String(input?.billingState ?? '').trim() || null,
+    district: billing?.district || String(input?.district ?? '').trim() || null,
+    zipCode: billing?.zip || String(input?.zipCode ?? '').replace(/\D/g, '').slice(0, 6) || null,
+    billingAddress: formatDealerAddress(billing) || String(input?.billingAddress ?? '').trim() || null,
+    shippingAddress: formatDealerAddress(shipping) || String(input?.shippingAddress ?? '').trim() || null,
+    zohoBillingAddressRaw: zohoAddressRaw(billing),
+    zohoShippingAddressRaw: zohoAddressRaw(shipping),
+    googleMapsUrl: String(input?.googleMapsUrl ?? '').trim() || null,
+    canBuySpares: input?.canBuySpares !== false,
+    orderPayOffline: input?.orderPayOffline !== false,
+    orderPayOnline: Boolean(input?.orderPayOnline),
     status: 'active',
     outstandingReceivable: 0,
     unusedCredits: 0,
     isFiltered: false,
     filterReason: null,
-    assignedStaffUid: null,
-    assignedStaffName: null,
-    dealerStage: null,
+    assignedStaffUid,
+    assignedStaffName,
+    dealerStage: String(input?.dealerStage ?? '').trim() || null,
     source: 'app',
     createdAt: FieldValue.serverTimestamp(),
     updatedAt: FieldValue.serverTimestamp(),
@@ -229,6 +325,9 @@ export async function patchDealerRecord(id, body = {}) {
   if ('priceLevel' in body) data.priceLevel = body.priceLevel || null;
   if ('billingAddress' in body) data.billingAddress = body.billingAddress || null;
   if ('shippingAddress' in body) data.shippingAddress = body.shippingAddress || null;
+  if ('zohoBillingAddressRaw' in body) data.zohoBillingAddressRaw = body.zohoBillingAddressRaw || null;
+  if ('zohoShippingAddressRaw' in body) data.zohoShippingAddressRaw = body.zohoShippingAddressRaw || null;
+  if ('zohoPanNo' in body) data.zohoPanNo = body.zohoPanNo || null;
   if ('googleMapsUrl' in body) data.googleMapsUrl = body.googleMapsUrl || null;
   if ('canBuySpares' in body) data.canBuySpares = Boolean(body.canBuySpares);
   if ('orderPayOffline' in body) data.orderPayOffline = Boolean(body.orderPayOffline);

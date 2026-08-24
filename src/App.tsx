@@ -62,6 +62,7 @@ import { SerialNumberAllotmentTab } from './pages/admin/settings/SerialNumberAll
 import { SkuCorrectionTab } from './pages/admin/settings/SkuCorrectionTab';
 import { LogisticsSettingsTab } from './pages/admin/settings/LogisticsSettingsTab';
 import { LocalPrintersTab } from './pages/admin/settings/LocalPrintersTab';
+import { DealerLevelDefinitionsPanel } from './components/dealers/DealerLevelDefinitionsPanel';
 import { AuditCyclesTab } from './pages/admin/settings/AuditCyclesTab';
 import { AuditReportTab } from './pages/admin/settings/AuditReportTab';
 import { GatcReportTab } from './pages/admin/settings/GatcReportTab';
@@ -372,12 +373,13 @@ const App: React.FC = () => (
                   element={<Navigate to="/super-admin/reports/audit-report" replace />}
                 />
                 <Route path="product" element={<ProductSettingsTab />} />
-                <Route path="sanoft" element={<SanoftSettingsTab />} />
-                <Route path="serial-numbers" element={<SerialNumberAllotmentTab />} />
+                <Route path="price-level" element={<DealerLevelDefinitionsPanel />} />
                 <Route
                   path="price-levels"
-                  element={<Navigate to="/super-admin/products?section=price-levels" replace />}
+                  element={<Navigate to="/super-admin/settings/price-level" replace />}
                 />
+                <Route path="sanoft" element={<SanoftSettingsTab />} />
+                <Route path="serial-numbers" element={<SerialNumberAllotmentTab />} />
                 <Route path="sku-correction" element={<SkuCorrectionTab />} />
                 <Route path="logistics" element={<LogisticsSettingsTab />} />
                 <Route path="local-printers" element={<LocalPrintersTab />} />
@@ -417,6 +419,7 @@ const App: React.FC = () => (
                 <Route path="profile" element={<SettingsProfileTab />} />
                 {hrNestedRoutes('/staff/settings', false)}
                 <Route path="training" element={<DealerMenuPages.Training />} />
+                <Route path="price-level" element={<DealerLevelDefinitionsPanel />} />
               </Route>
               <Route path="profile" element={<StaffProfileEntry />} />
             </Route>

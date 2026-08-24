@@ -38,12 +38,21 @@ export const MultiSelect: React.FC<MultiSelectProps> = ({
     const trigger = triggerRef.current;
     if (!trigger) return;
     const rect = trigger.getBoundingClientRect();
+    const footer = document.querySelector('.dealers-filter-sheet__footer');
+    const footerTop = footer?.getBoundingClientRect().top ?? window.innerHeight;
+    const gap = 8;
+    const spaceBelow = footerTop - rect.bottom - gap;
+    const spaceAbove = rect.top - gap;
+    const openUp = spaceBelow < 180 && spaceAbove > spaceBelow;
+    const maxHeight = Math.min(220, Math.max(120, openUp ? spaceAbove : spaceBelow));
     setMenuStyle({
       position: 'fixed',
-      top: rect.bottom + 4,
+      top: openUp ? undefined : rect.bottom + 4,
+      bottom: openUp ? window.innerHeight - rect.top + 4 : undefined,
       left: rect.left,
       width: rect.width,
-      zIndex: 1300,
+      maxHeight,
+      zIndex: 120,
     });
   };
 

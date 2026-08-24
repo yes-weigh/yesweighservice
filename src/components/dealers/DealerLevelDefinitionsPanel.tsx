@@ -1,5 +1,5 @@
 /**
- * Dealers → Dealer level: create/rename/delete price levels and assign dealers.
+ * Settings → Price level: create/rename/delete price levels and assign dealers.
  * Pricing rules stay on Products → Price level.
  */
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';

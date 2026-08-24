@@ -733,7 +733,7 @@ export const PriceLevelSettingsTab: React.FC = () => {
           <h3>Price level setting</h3>
           <p className="text-muted text-sm">
             Set category discount or hike % and item overrides per dealer level.
-            Create levels and assign dealers under Dealers → Dealer level.
+            Create levels and assign dealers under Settings → Price level.
             Visibility is set per category; item pricing uses a tab per level
             (Dealers first). Changes save automatically.
           </p>
@@ -758,7 +758,7 @@ export const PriceLevelSettingsTab: React.FC = () => {
       <section className="price-levels-tab__detail">
           {levels.length === 0 ? (
             <p className="text-muted">
-              No levels yet — create them under Dealers → Dealer level.
+              No levels yet — create them under Settings → Price level.
             </p>
           ) : (
             <>

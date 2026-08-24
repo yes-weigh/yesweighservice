@@ -14,6 +14,7 @@ export interface ZohoContactPerson {
 }
 
 export interface ZohoAddressRaw {
+  attention?: string;
   address?: string;
   street2?: string;
   city?: string;
@@ -71,6 +72,8 @@ export interface ZohoDealer {
   /** Read-only fields synced from Zoho Inventory */
   zohoGstNo?: string | null;
   zohoGstTreatment?: string | null;
+  zohoTaxpayerType?: string | null;
+  zohoConstitutionOfBusiness?: string | null;
   zohoPanNo?: string | null;
   zohoPlaceOfContact?: string | null;
   zohoPlaceOfContactLabel?: string | null;

@@ -9,6 +9,7 @@ import type {
   ZohoDealer,
 } from '../types/dealers';
 import { DEFAULT_DEALER_CATEGORIES } from '../types/dealers';
+import type { DealerAddress } from './dealerAddress';
 
 const functions = getFunctions(app, 'asia-south1');
 
@@ -139,7 +140,7 @@ export async function refreshDealerFromZoho(id: string): Promise<ZohoDealer> {
 
 export async function pushDealerChangesToZoho(
   id: string,
-  changes: Record<string, string | null | undefined>,
+  changes: Record<string, string | Record<string, string> | null | undefined>,
 ): Promise<ZohoDealer> {
   const fn = httpsCallable(functions, 'pushDealerToZoho', { timeout: 120_000 });
   const result = await fn({ id, changes });
@@ -188,11 +189,58 @@ export async function exportDealersCsv(params: DealerListParams): Promise<string
   return String((result.data as { csv?: string }).csv ?? '');
 }
 
+export type GstinLookupDetails = {
+  gstin: string;
+  companyName: string;
+  legalName: string;
+  tradeName: string;
+  gstTreatment: string;
+  taxpayerType: string;
+  constitutionOfBusiness: string;
+  state: string;
+  district: string;
+  city?: string;
+  zip: string;
+  address: string;
+  phone: string;
+};
+
+export async function fetchGstinDetails(gstin: string): Promise<GstinLookupDetails> {
+  const fn = httpsCallable<{ gstin: string }, { details: GstinLookupDetails }>(
+    functions,
+    'fetchGstinDetails',
+    { timeout: 45_000 },
+  );
+  const result = await fn({ gstin });
+  return result.data.details;
+}
+
 export async function createDealer(input: {
   companyName: string;
   contactName?: string;
   phone?: string;
+  mobile?: string;
   email?: string;
+  gstin?: string;
+  gstTreatment?: string;
+  legalName?: string;
+  taxpayerType?: string;
+  constitutionOfBusiness?: string;
+  pan?: string;
+  dealerStage?: string;
+  assignedStaffUid?: string;
+  googleMapsUrl?: string;
+  canBuySpares?: boolean;
+  orderPayOffline?: boolean;
+  orderPayOnline?: boolean;
+  billingState?: string;
+  district?: string;
+  zipCode?: string;
+  billingAddress?: string;
+  shippingAddress?: string;
+  billing?: DealerAddress;
+  shipping?: DealerAddress;
+  sameShipping?: boolean;
 }): Promise<ZohoDealer> {
   const fn = httpsCallable<typeof input, { dealer: ZohoDealer }>(functions, 'createDealer');
   const result = await fn(input);
