@@ -36983,6 +36983,56 @@ body:has(.confirm-inline-bar) .confirm-inline-bar {
   background: var(--accent-primary, #f58220);
 }
 
+@media (min-width: 768px) {
+  .dealers-page .dealers-toolbar {
+    display: none;
+  }
+
+  .dealers-create-modal {
+    padding: 1.15rem 1.5rem calc(1.15rem + env(safe-area-inset-bottom));
+  }
+
+  .dealers-create-modal .dealers-modal__form {
+    width: min(100%, 56rem);
+    margin: 0 auto;
+    gap: 0.9rem;
+  }
+
+  .dealers-create-details {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    gap: 0.6rem 0.85rem;
+    align-items: start;
+  }
+
+  .dealers-create-details > h3,
+  .dealers-create-details > .dealers-create-phone-hint,
+  .dealers-create-details > .dealers-address-box {
+    grid-column: 1 / -1;
+  }
+
+  .dealers-create-details:not(.dealers-create-more) > h3 + .dealers-modal__field {
+    grid-column: 1 / -1;
+  }
+
+  .dealers-create-modal .dealers-address-box__grid {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  }
+
+  .dealers-create-gstin__row input,
+  .dealers-create-details .dealers-modal__field input,
+  .dealers-create-details .dealers-modal__field select,
+  .dealers-create-modal .dealers-address-box .input-field {
+    padding: 0.58rem 0.7rem;
+  }
+
+  .dealers-create-submit {
+    width: min(100%, 56rem);
+    margin-left: auto;
+    margin-right: auto;
+  }
+}
+
 .dealer-create-status {
   position: absolute;
   inset: 0;
