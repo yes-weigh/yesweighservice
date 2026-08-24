@@ -1,8 +1,8 @@
 /**
  * Live vessel AIS for catalog / PO maps.
- * Identity: Shipxy / ShipFinder public search (searchv3.shipxy.com).
- * Dynamics: official ShipFinder / Shipxy GetSingleShip when SHIPFINDER_API_KEY
- * or SHIPXY_API_KEY is set. Stale / rounded public pages are not treated as live.
+ * Identity: Shipxy / ShipFinder public search (searchv3.shipfinder.com).
+ * Dynamics: official GetSingleShip when SHIPFINDER_API_KEY / SHIPXY_API_KEY is set,
+ * else the public ShipFinder vessel page (same numbers as shipfinder.com).
  */
 
 const USER_AGENT =
@@ -86,7 +86,9 @@ async function fetchText(url, accept = 'text/html,application/xhtml+xml') {
     'User-Agent': USER_AGENT,
     Accept: accept,
   };
-  if (/shipxy\.com|shipfinder\.com/i.test(url)) {
+  if (/shipfinder\.com/i.test(url)) {
+    headers.Referer = 'https://www.shipfinder.com/';
+  } else if (/shipxy\.com/i.test(url)) {
     headers.Referer = 'https://www.shipxy.com/';
   }
   const res = await fetch(url, {
@@ -202,12 +204,14 @@ function isPreciseFix(lat, lon) {
   return !(latWhole && lonWhole);
 }
 
-function isLiveSnapshot(snap, maxAgeMs = 3 * 60 * 60 * 1000) {
+function isLiveSnapshot(snap, maxAgeMs = 24 * 60 * 60 * 1000) {
   if (!snap) return false;
   const updated = String(snap.updated || '');
   if (/hours?\s+ago|days?\s+ago/i.test(updated)) return false;
   if (!isPreciseFix(snap.lat, snap.lon) && snap.sog == null) return false;
-  return snapshotAgeMs(snap) <= maxAgeMs;
+  const age = snapshotAgeMs(snap);
+  if (!Number.isFinite(age)) return isPreciseFix(snap.lat, snap.lon) || snap.sog != null;
+  return age <= maxAgeMs;
 }
 
 function pickFreshest(snapshots) {
@@ -282,6 +286,87 @@ async function fetchOfficialSingleShip(mmsi) {
     }
   }));
   return pickFreshest(snapshots);
+}
+
+function htmlField(html, id) {
+  const match = String(html || '').match(
+    new RegExp(`<(label|div|span|td|strong)\\b[^>]*\\bid="${id}"[^>]*>([\\s\\S]*?)</\\1>`, 'i'),
+  );
+  return String(match?.[2] || '')
+    .replace(/<[^>]+>/g, ' ')
+    .replace(/&nbsp;/gi, ' ')
+    .replace(/&#176;|&deg;/gi, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+/** ShipFinder page coords look like `5-57.758 N`. */
+function parseShipfinderDm(value) {
+  const match = String(value || '').trim().match(
+    /^(\d{1,3})-(\d{1,2}(?:\.\d+)?)\s*([NSEW])$/i,
+  );
+  if (!match) return null;
+  const deg = Number(match[1]) + Number(match[2]) / 60;
+  if (!Number.isFinite(deg)) return null;
+  const hemi = match[3].toUpperCase();
+  return hemi === 'S' || hemi === 'W' ? -deg : deg;
+}
+
+function parseShipfinderEta(raw, reportedAt) {
+  const text = String(raw || '').trim();
+  if (!text || /^[-—]+$/.test(text)) return null;
+  const md = text.match(/^(\d{1,2})-(\d{1,2})(?:\s+(\d{1,2}):(\d{2}))?$/);
+  if (!md) return text;
+  const reported = Date.parse(String(reportedAt || '').replace(' ', 'T'));
+  const year = Number.isFinite(reported) ? new Date(reported).getUTCFullYear() : new Date().getUTCFullYear();
+  const month = Number(md[1]);
+  const day = Number(md[2]);
+  let y = year;
+  if (Number.isFinite(reported)) {
+    const rm = new Date(reported).getUTCMonth() + 1;
+    if (month < rm - 6) y = year + 1;
+  }
+  const hh = md[3] ? String(md[3]).padStart(2, '0') : '00';
+  const mm = md[4] ? String(md[4]).padStart(2, '0') : '00';
+  return `${y}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')} ${hh}:${mm}`;
+}
+
+function fromShipfinderDetailHtml(html) {
+  const name = htmlField(html, 'ais-name');
+  const imo = htmlField(html, 'ais-imo').replace(/\D/g, '');
+  const mmsi = htmlField(html, 'ais-mmsi').replace(/\D/g, '');
+  const lat = parseShipfinderDm(htmlField(html, 'ais-_lat'));
+  const lon = parseShipfinderDm(htmlField(html, 'ais-_lon'));
+  const sog = finiteOrNull(htmlField(html, 'ais-_sog').replace(/[^\d.]/g, ''));
+  const cog = finiteOrNull(htmlField(html, 'ais-course_f').replace(/[^\d.]/g, ''));
+  const dest = htmlField(html, 'ais-dest') || null;
+  const lastTime = htmlField(html, 'ais-lastTime') || null;
+  const eta = parseShipfinderEta(htmlField(html, 'ais-_eta'), lastTime);
+  const precise = isPreciseFix(lat, lon);
+  if (!precise && sog == null && !dest) return null;
+  const updated = lastTime
+    ? (unixToIso(Date.parse(lastTime.replace(' ', 'T'))) || lastTime)
+    : null;
+  return snapshot({
+    name,
+    imo,
+    mmsi,
+    lat: precise ? lat : null,
+    lon: precise ? lon : null,
+    sog,
+    cog,
+    dest,
+    eta,
+    updated,
+    source: 'shipfinder',
+  });
+}
+
+async function fetchShipfinderDetail(mmsi) {
+  const id = String(mmsi || '').replace(/\D/g, '');
+  if (!/^\d{9}$/.test(id)) return null;
+  const html = await fetchText(`https://www.shipfinder.com/ship/detail/mmsi/${encodeURIComponent(id)}`);
+  return fromShipfinderDetailHtml(html);
 }
 
 function collectMmsiCandidates(search, parsed) {
@@ -424,8 +509,17 @@ export async function lookupVesselAis(rawKeyword) {
 
   const mmsis = collectMmsiCandidates(search, { ...parsed, mmsi, imo });
   if (mmsis.length) {
-    const live = pickFreshest(await Promise.all(mmsis.map(id => fetchOfficialSingleShip(id))));
-    if (live && isLiveSnapshot(live)) {
+    const official = pickFreshest(await Promise.all(mmsis.map(id => fetchOfficialSingleShip(id))));
+    const pages = [];
+    for (const id of mmsis.slice(0, 2)) {
+      try {
+        pages.push(await fetchShipfinderDetail(id));
+      } catch (err) {
+        console.warn('ShipFinder detail failed:', err?.message || err);
+      }
+    }
+    const live = pickFreshest([official, ...pages]);
+    if (live && (isLiveSnapshot(live) || isPreciseFix(live.lat, live.lon))) {
       return mergeSnapshots(identity, live);
     }
   }

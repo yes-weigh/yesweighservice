@@ -121,13 +121,16 @@ export function VoyageSeaMap({
     };
   }, [aisKeyword, fetchLiveAis]);
 
+  const destLabel = prettyPortName(portOfDischarge || 'Cochin');
+  const aisNextPort = ais?.dest ? prettyPortName(ais.dest.split(',')[0]) : '';
+
   useEffect(() => {
     const host = hostRef.current;
-    const ports = resolveVoyagePorts(portOfLoading, portOfDischarge);
+    const ports = resolveVoyagePorts(portOfLoading, destLabel);
     if (!host || !ports) return;
 
     const route = seaRouteWaypoints(ports.load, ports.discharge);
-    const livePoint = ais?.lat != null && ais?.lon != null
+    const livePoint = ais?.lat != null && ais?.lon != null && !(ais.lat === 0 && ais.lon === 0)
       ? { lat: ais.lat, lon: ais.lon }
       : null;
     const progress = livePoint
@@ -164,7 +167,7 @@ export function VoyageSeaMap({
     }).addTo(map);
 
     const polName = escapeMapLabel(prettyPortName(portOfLoading).toUpperCase());
-    const podName = escapeMapLabel(prettyPortName(portOfDischarge || 'Cochin').toUpperCase());
+    const podName = escapeMapLabel(destLabel.toUpperCase());
     const etdLabel = etd ? escapeMapLabel(`ETD ${formatInvoiceDate(etd)}`) : 'ETD —';
     const etaLabel = eta ? escapeMapLabel(`ETA ${formatInvoiceDate(eta)}`) : 'ETA —';
 
@@ -242,9 +245,9 @@ export function VoyageSeaMap({
       observer.disconnect();
       map.remove();
     };
-  }, [portOfLoading, portOfDischarge, etd, eta, ais?.lat, ais?.lon]);
+  }, [portOfLoading, destLabel, etd, eta, ais?.lat, ais?.lon]);
 
-  const ports = resolveVoyagePorts(portOfLoading, portOfDischarge);
+  const ports = resolveVoyagePorts(portOfLoading, destLabel);
   if (!ports) {
     return (
       <p className="text-muted text-sm catalog-on-order-dialog__map-empty">
@@ -254,7 +257,7 @@ export function VoyageSeaMap({
   }
 
   const route = seaRouteWaypoints(ports.load, ports.discharge);
-  const livePoint = ais?.lat != null && ais?.lon != null
+  const livePoint = ais?.lat != null && ais?.lon != null && !(ais.lat === 0 && ais.lon === 0)
     ? { lat: ais.lat, lon: ais.lon }
     : null;
   const progress = livePoint
@@ -266,8 +269,8 @@ export function VoyageSeaMap({
   const daysUntil = voyageDaysUntilEta(eta);
   const transitDays = voyageTransitDays(etd, eta);
   const fromPort = prettyPortName(portOfLoading) || 'POL';
-  const toPort = prettyPortName(portOfDischarge || 'Cochin');
-  const nextPort = ais?.dest ? prettyPortName(ais.dest.split(',')[0]) : toPort;
+  const toPort = destLabel;
+  const nextPort = aisNextPort || toPort;
   const liveEta = ais?.eta || null;
   const fetchingAis = !aisReady;
 
@@ -297,7 +300,9 @@ export function VoyageSeaMap({
             <span className="voyage-sea-map__info-date">Live speed: {liveSpeedKn.toFixed(1)} kn</span>
           ) : null}
           <span className="voyage-sea-map__info-date">
-            ETA {nextPort}: {liveEta || (eta ? formatInvoiceDate(eta) : '—')}
+            ETA {nextPort}: {liveEta
+              ? `${formatInvoiceDate(liveEta)}${liveEta.slice(11, 16) ? `, ${liveEta.slice(11, 16)}` : ''}`
+              : (eta ? formatInvoiceDate(eta) : '—')}
           </span>
           <span className="voyage-sea-map__info-date">
             ETD {fromPort}: {etd ? formatInvoiceDate(etd) : '—'}

@@ -6,7 +6,7 @@ const SHIPPING_PORT_COORDS: PortCoord[] = [
   { keys: ['cochin', 'kochi', 'ernakulam', 'willingdon'], lat: 9.966, lon: 76.267 },
   { keys: ['ningbo', 'nigbo', 'beilun'], lat: 29.932, lon: 121.838 },
   { keys: ['port klang', 'port kelang', 'pelabuhan klang', 'klang north', 'klang'], lat: 2.999, lon: 101.392 },
-  { keys: ['nhava sheva', 'jnpt', 'nhavasheva', 'navi mumbai'], lat: 18.95, lon: 72.95 },
+  { keys: ['nhava sheva', 'jnpt', 'nhavasheva', 'navi mumbai', 'jawaharlal nehru', 'nehru port'], lat: 18.95, lon: 72.95 },
   { keys: ['mumbai', 'bombay'], lat: 18.938, lon: 72.845 },
   { keys: ['chennai', 'madras'], lat: 13.082, lon: 80.292 },
   { keys: ['tuticorin', 'thoothukudi'], lat: 8.764, lon: 78.135 },

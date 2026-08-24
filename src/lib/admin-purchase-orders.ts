@@ -1336,18 +1336,23 @@ export async function lookupPurchaseOrderVesselAis(keyword: string): Promise<Ves
     const result = await callable({ keyword: q });
     const imo = String(result.data?.imo ?? '').replace(/\D/g, '') || null;
     const mmsi = String(result.data?.mmsi ?? '').replace(/\D/g, '') || null;
-    const lat = Number(result.data?.lat);
-    const lon = Number(result.data?.lon);
-    const sog = Number(result.data?.sog);
-    const cog = Number(result.data?.cog);
+    const optionalNumber = (value: unknown): number | null => {
+      if (value == null || value === '') return null;
+      const n = typeof value === 'number' ? value : Number(value);
+      return Number.isFinite(n) ? n : null;
+    };
+    const lat = optionalNumber(result.data?.lat);
+    const lon = optionalNumber(result.data?.lon);
+    const sog = optionalNumber(result.data?.sog);
+    const cog = optionalNumber(result.data?.cog);
     const mapUrl = purchaseOrderVesselFinderAisMapUrl({
       imo,
       mmsi,
       portOfLoading: null,
       portOfDischarge: 'Cochin',
     }) || String(result.data?.mapUrl ?? '').trim() || null;
-    const hasFix = Number.isFinite(lat) && Number.isFinite(lon);
-    const hasSpeed = Number.isFinite(sog);
+    const hasFix = lat != null && lon != null && !(lat === 0 && lon === 0);
+    const hasSpeed = sog != null;
     if (!mapUrl && !hasFix && !hasSpeed) return null;
     return {
       name: String(result.data?.name ?? '').trim() || q,
@@ -1357,7 +1362,7 @@ export async function lookupPurchaseOrderVesselAis(keyword: string): Promise<Ves
       lat: hasFix ? lat : null,
       lon: hasFix ? lon : null,
       sog: hasSpeed ? sog : null,
-      cog: Number.isFinite(cog) ? cog : null,
+      cog,
       dest: String(result.data?.dest ?? '').replace(/\s+/g, ' ').trim() || null,
       eta: String(result.data?.eta ?? '').replace(/\s+/g, ' ').trim() || null,
       updated: String(result.data?.updated ?? '').trim() || null,
