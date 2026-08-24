@@ -21,9 +21,10 @@ import {
   UserCheck,
   UserRoundPlus,
 } from 'lucide-react';
+import { OpsDealerDashboard } from '../../components/dashboard/OpsDealerDashboard';
 import { SalesChart } from '../../components/dashboard/SalesChart';
 import { useAuth } from '../../context/AuthContext';
-import { canAccessNavFeature } from '../../lib/staffAccess';
+import { canAccessNavFeature, isSalesKamStaff } from '../../lib/staffAccess';
 import { dealerErrorMessage, fetchDealerStats } from '../../lib/dealers';
 import { fetchOpsSupportRequests } from '../../lib/dealerSupport';
 import {
@@ -228,6 +229,14 @@ function buildMiniStats(stats: DealerStats | null, user: import('../../types').U
 }
 
 export const StaffDashboard: React.FC = () => {
+  const { user } = useAuth();
+  if (isSalesKamStaff(user)) {
+    return <OpsDealerDashboard basePath="/staff" variant="kam" />;
+  }
+  return <StaffCompanyDashboard />;
+};
+
+const StaffCompanyDashboard: React.FC = () => {
   const navigate = useNavigate();
   const { user } = useAuth();
   const [dealerStats, setDealerStats] = useState<DealerStats | null>(null);

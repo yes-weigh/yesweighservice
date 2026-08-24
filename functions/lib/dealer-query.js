@@ -155,7 +155,7 @@ export function dealerStats(dealers) {
     counts[bucket] += 1;
   }
 
-  const total = counts.active + counts.nonActive + counts.blacklisted + counts.unstaged;
+  const total = counts.active + counts.nonActive + counts.blacklisted;
 
   return {
     total,

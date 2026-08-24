@@ -34506,7 +34506,7 @@ body:has(.confirm-inline-bar) .confirm-inline-bar {
 }
 
 .dealers-multiselect__menu--portal {
-  z-index: 500;
+  z-index: 1300;
   max-height: min(50vh, 320px);
   box-shadow: 0 16px 40px rgba(0, 0, 0, 0.55);
   background: #0c1222;
@@ -34863,6 +34863,15 @@ body:has(.confirm-inline-bar) .confirm-inline-bar {
 .dealers-card__meta svg {
   flex-shrink: 0;
   opacity: 0.85;
+}
+
+.dealers-card__meta--kam {
+  color: #fff;
+  font-weight: 700;
+}
+
+.dealers-card__meta--kam svg {
+  opacity: 1;
 }
 
 .dealers-card__side {

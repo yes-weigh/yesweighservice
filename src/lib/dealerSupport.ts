@@ -1012,15 +1012,61 @@ function supportDayBoundIso(dateKey: string, endOfDay: boolean): string {
   return date.toISOString();
 }
 
+function supportMatchesDealers(
+  request: DealerSupportRequest,
+  dealerIds: ReadonlySet<string> | null,
+): boolean {
+  if (!dealerIds) return true;
+  return dealerIds.has(String(request.zohoCustomerId ?? '').trim())
+    || dealerIds.has(String(request.dealerId ?? '').trim());
+}
+
+async function fetchOpsSupportRequestsInRange(
+  dateStart: string,
+  dateEnd: string,
+): Promise<DealerSupportRequest[]> {
+  const start = supportDayBoundIso(dateStart, false);
+  const end = supportDayBoundIso(dateEnd, true);
+  try {
+    const snap = await getDocs(
+      query(
+        collection(db, 'dealerSupportRequests'),
+        where('createdAt', '>=', start),
+        where('createdAt', '<=', end),
+      ),
+    );
+    return excludeDraftSupportRequests(
+      snap.docs.map(docSnap => mapSupportRequest(docSnap.id, docSnap.data())),
+    );
+  } catch {
+    return (await fetchOpsSupportRequests()).filter(request => {
+      const created = String(request.createdAt ?? '').slice(0, 10);
+      return !created || (created >= dateStart && created <= dateEnd);
+    });
+  }
+}
+
 /** Non-draft support tickets created in an inclusive YYYY-MM-DD window. */
 export async function countOpsSupportRequestsInRange(
   dateStart: string,
   dateEnd: string,
-  options?: { types?: readonly SupportRequestType[] },
+  options?: { types?: readonly SupportRequestType[]; dealerIds?: readonly string[] },
 ): Promise<number> {
   const start = supportDayBoundIso(dateStart, false);
   const end = supportDayBoundIso(dateEnd, true);
   const types = options?.types?.filter(Boolean) ?? [];
+  const dealerIds = (options?.dealerIds ?? []).map(id => String(id).trim()).filter(Boolean);
+  const dealerSet = dealerIds.length ? new Set(dealerIds) : null;
+
+  if (options?.dealerIds) {
+    if (!dealerSet?.size) return 0;
+    const rows = await fetchOpsSupportRequestsInRange(dateStart, dateEnd);
+    const wanted = new Set(types);
+    return rows.filter(request => {
+      if (wanted.size && !wanted.has(request.type)) return false;
+      return supportMatchesDealers(request, dealerSet);
+    }).length;
+  }
 
   const countCreatedAtRange = async (type?: SupportRequestType): Promise<number> => {
     const constraints = [

@@ -13,6 +13,7 @@ import {
   type StaffDepartment,
   type StaffPermission,
 } from '../types/staff-access';
+import { SYSTEM_STAFF_ROLE_IDS } from '../types/staff-role';
 
 /** Staff permissions that imply mutation / sync (denied for view-only super admins). */
 const SUPER_ADMIN_WRITE_PERMISSIONS = new Set<StaffPermission>([
@@ -33,6 +34,15 @@ const SUPER_ADMIN_WRITE_PERMISSIONS = new Set<StaffPermission>([
 
 export function isStaffUser(user: Pick<User, 'role'> | null | undefined): boolean {
   return user?.role === 'staff';
+}
+
+/** HR Sales staff (KAM) — dashboard and roster are limited to their assigned dealers. */
+export function isSalesKamStaff(
+  user: Pick<User, 'role' | 'staffDepartment' | 'staffRoleId'> | null | undefined,
+): boolean {
+  if (user?.role !== 'staff') return false;
+  return (user.staffDepartment ?? 'admin') === 'sales'
+    || user.staffRoleId === SYSTEM_STAFF_ROLE_IDS.sales;
 }
 
 export function isPlatformAdmin(user: Pick<User, 'role'> | null | undefined): boolean {

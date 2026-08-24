@@ -52,7 +52,7 @@ export const MultiSelect: React.FC<MultiSelectProps> = ({
       left: rect.left,
       width: rect.width,
       maxHeight,
-      zIndex: 120,
+      zIndex: 1300,
     });
   };
 

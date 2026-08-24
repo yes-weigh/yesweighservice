@@ -93,11 +93,15 @@ export function filterDealerRoster(dealers: ZohoDealer[], query: DealerListParam
   const stages = parseList(query.dealerStage);
   const statusKeys = parseList(query.dealerStatus);
 
+  const q = query.q?.trim().toLowerCase() ?? '';
+
   if (!stages.length && !statusKeys.length) {
     list = list.filter(d => !d.isFiltered);
+    if (!q) {
+      list = list.filter(d => classifyStage(d.dealerStage) !== 'unstaged');
+    }
   }
 
-  const q = query.q?.trim().toLowerCase() ?? '';
   if (q) {
     const qDigits = q.replace(/\D/g, '');
     list = list.filter(d => {
@@ -218,7 +222,7 @@ export function computeDealerStats(dealers: ZohoDealer[]): DealerStats {
     counts[classifyStage(dealer.dealerStage)] += 1;
   }
   return {
-    total: counts.active + counts.nonActive + counts.blacklisted + counts.unstaged,
+    total: counts.active + counts.nonActive + counts.blacklisted,
     active: counts.active,
     nonActive: counts.nonActive,
     blacklisted: counts.blacklisted,

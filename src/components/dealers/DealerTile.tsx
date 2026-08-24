@@ -82,7 +82,7 @@ export const DealerTile: React.FC<DealerTileProps> = ({ dealer, onOpen }) => {
             <span>{location}</span>
           </p>
         ) : null}
-        <p className="dealers-card__meta">
+        <p className="dealers-card__meta dealers-card__meta--kam">
           <UserRound size={13} strokeWidth={2.25} />
           <span>KAM: {kam}</span>
         </p>

@@ -1,3 +1,4 @@
+import { collection, getDocs } from 'firebase/firestore';
 import {
   ref,
   uploadBytes,
@@ -5,10 +6,13 @@ import {
   deleteObject,
 } from 'firebase/storage';
 import { getFunctions, httpsCallable } from 'firebase/functions';
-import { app, storage } from '../firebase';
+import { app, db, storage } from '../firebase';
+import { isHiddenKamName } from './dealerKamDisplay';
+import type { AssignableStaffOption } from '../types/dealers';
+import { SYSTEM_STAFF_ROLE_IDS } from '../types/staff-role';
+import { normalizeRole, type FirestoreUserDoc } from '../types';
 import { compressImageForUpload } from './compressImage';
 import type { HrDocumentType, StaffHrProfile } from '../types/staff-hr';
-import type { FirestoreUserDoc } from '../types';
 import { formatStorageUploadError } from './storageErrors';
 
 const functions = getFunctions(app, 'asia-south1');
@@ -368,6 +372,24 @@ export function formatJoinDate(value: string | null | undefined): string {
     month: 'short',
     year: 'numeric',
   }).format(new Date(d));
+}
+
+/** Settings → HR → Sales staff, for dealer KAM filters. */
+export async function listHrSalesStaff(): Promise<AssignableStaffOption[]> {
+  const snap = await getDocs(collection(db, 'users'));
+  return snap.docs
+    .flatMap(docSnap => {
+      const data = docSnap.data() as FirestoreUserDoc;
+      const role = normalizeRole(String(data.role ?? ''));
+      if (role !== 'staff') return [];
+      const isSalesDept = (data.staffDepartment ?? 'admin') === 'sales'
+        || data.staffRoleId === SYSTEM_STAFF_ROLE_IDS.sales;
+      if (!isSalesDept) return [];
+      const displayName = String(data.displayName ?? '').trim() || 'Staff';
+      if (isHiddenKamName(displayName)) return [];
+      return [{ uid: docSnap.id, displayName }];
+    })
+    .sort((a, b) => a.displayName.localeCompare(b.displayName));
 }
 
 export function ageYearsFromDob(value: string | null | undefined): number | null {

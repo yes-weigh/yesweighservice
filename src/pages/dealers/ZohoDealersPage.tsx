@@ -49,7 +49,8 @@ import { type AssignableStaffOption, type DealerListParams, type ZohoDealer } fr
 import type { PriceLevel } from '../../types/priceLevels';
 import { homePathForRole, type Role } from '../../types';
 import { isHiddenKamName } from '../../lib/dealerKamDisplay';
-import { hasStaffPermission } from '../../lib/staffAccess';
+import { listHrSalesStaff } from '../../lib/hrStaff';
+import { hasStaffPermission, isSalesKamStaff } from '../../lib/staffAccess';
 
 type DealersMainTab = 'roster' | 'salespersons';
 
@@ -114,18 +115,15 @@ function FilterMultiDropdown({
 }) {
   return (
     <section className="support-filter-sheet__section dealers-filter-field" aria-label={label}>
-      {options.length === 0 ? (
-        <p className="dealers-filter-empty">No options yet</p>
-      ) : (
-        <MultiSelect
-          className="dealers-filter-multiselect"
-          options={options}
-          value={values}
-          onChange={onChange}
-          placeholder={placeholder}
-          variant="summary"
-        />
-      )}
+      <MultiSelect
+        className="dealers-filter-multiselect"
+        options={options}
+        value={values}
+        onChange={onChange}
+        placeholder={placeholder}
+        variant="summary"
+        menuPortal
+      />
     </section>
   );
 }
@@ -203,6 +201,7 @@ export function ZohoDealersPage() {
   const dealersBase = user ? dealersListBase(user.role) : '/staff/dealers';
   const canSyncDealers = hasStaffPermission(user, 'dealers.sync');
   const canEditDealers = hasStaffPermission(user, 'dealers.edit');
+  const kamLocked = isSalesKamStaff(user);
   const tabParam = searchParams.get('tab');
   const mainTab = parseDealersTab(tabParam);
   const setMainTab = (tab: DealersMainTab) => {
@@ -249,6 +248,7 @@ export function ZohoDealersPage() {
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
   const [assignableStaff, setAssignableStaff] = useState<AssignableStaffOption[]>([]);
+  const [salesStaff, setSalesStaff] = useState<AssignableStaffOption[]>([]);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [filtersOpen, setFiltersOpen] = useState(false);
   const [filterDraft, setFilterDraft] = useState<DealerFilters>(emptyDealerFilters);
@@ -275,7 +275,6 @@ export function ZohoDealersPage() {
     appStatus, stateFilter, districtFilter,
   ]);
 
-  const stats = useMemo(() => computeDealerStats(roster), [roster]);
   const locations = useMemo(() => computeDealerLocations(roster), [roster]);
   const states = locations.states;
   const districtsByState = locations.districtsByState;
@@ -286,6 +285,18 @@ export function ZohoDealersPage() {
     return list.filter(dealer => (
       rosterPriceLevelKey(findPriceLevelForDealer(priceLevels, dealer.id)) === priceLevelFilter
     ));
+  }, [roster, queryParams, priceLevelFilter, priceLevels]);
+
+  const stats = useMemo(() => {
+    const filtersWithoutStatus = { ...queryParams };
+    delete filtersWithoutStatus.dealerStage;
+    let matching = filterDealerRoster(roster, filtersWithoutStatus);
+    if (priceLevelFilter) {
+      matching = matching.filter(dealer => (
+        rosterPriceLevelKey(findPriceLevelForDealer(priceLevels, dealer.id)) === priceLevelFilter
+      ));
+    }
+    return computeDealerStats(matching);
   }, [roster, queryParams, priceLevelFilter, priceLevels]);
   const paged = useMemo(
     () => paginateDealers(
@@ -300,17 +311,33 @@ export function ZohoDealersPage() {
   const loading = !rosterReady && roster.length === 0;
 
   const loadMeta = useCallback(async () => {
-    try {
-      setAssignableStaff(await listAssignableDealerStaff());
-    } catch (err) {
-      console.error('Dealer meta load failed:', err);
-      setError(dealerErrorMessage(err));
+    const [assignable, sales] = await Promise.allSettled([
+      listAssignableDealerStaff(),
+      listHrSalesStaff(),
+    ]);
+    if (assignable.status === 'fulfilled') {
+      setAssignableStaff(assignable.value);
+    } else {
+      console.error('Dealer meta load failed:', assignable.reason);
+      setError(dealerErrorMessage(assignable.reason));
+    }
+    if (sales.status === 'fulfilled') {
+      setSalesStaff(sales.value);
+    } else {
+      console.error('HR sales staff load failed:', sales.reason);
     }
   }, []);
 
   useEffect(() => {
     void loadMeta();
   }, [loadMeta]);
+
+  useEffect(() => {
+    if (!filtersOpen || salesStaff.length) return;
+    void listHrSalesStaff()
+      .then(setSalesStaff)
+      .catch(err => console.error('HR sales staff load failed:', err));
+  }, [filtersOpen, salesStaff.length]);
 
   useEffect(() => subscribePriceLevels(docData => setPriceLevels(docData.levels)), []);
 
@@ -337,6 +364,12 @@ export function ZohoDealersPage() {
   }, []);
 
   useEffect(() => {
+    if (!kamLocked || !user?.uid) return;
+    setAssignment('assigned');
+    setStaffFilter([user.uid]);
+  }, [kamLocked, user?.uid]);
+
+  useEffect(() => {
     setPage(1);
     setSelectedIds(new Set());
   }, [searchTerm, zohoStatus, appStatus, assignment, staffFilter, stateFilter, districtFilter, priceLevelFilter]);
@@ -354,11 +387,16 @@ export function ZohoDealersPage() {
   const applyDealerFilters = (next: DealerFilters) => {
     setZohoStatus(next.zohoStatus);
     setAppStatus(next.appStatus);
-    setAssignment(next.assignment);
-    setStaffFilter(next.staffFilter);
     setStateFilter(next.stateFilter);
     setDistrictFilter(next.districtFilter);
     setPriceLevelFilter(next.priceLevelFilter);
+    if (kamLocked && user?.uid) {
+      setAssignment('assigned');
+      setStaffFilter([user.uid]);
+      return;
+    }
+    setAssignment(next.assignment);
+    setStaffFilter(next.staffFilter);
   };
 
   const openDealerFilters = () => {
@@ -487,12 +525,23 @@ export function ZohoDealersPage() {
 
   const filterBadgeCount = activeFilterCount;
 
-  const kamOptions = useMemo(
-    () => assignableStaff
-      .filter(staff => !isHiddenKamName(staff.displayName))
-      .map(staff => ({ value: staff.uid, label: staff.displayName })),
-    [assignableStaff],
-  );
+  const kamOptions = useMemo(() => {
+    const seen = new Map<string, string>();
+    const add = (uid: string, name: string) => {
+      const id = uid.trim();
+      const label = name.trim();
+      if (!id || !label || isHiddenKamName(label) || seen.has(id)) return;
+      seen.set(id, label);
+    };
+    for (const staff of salesStaff) add(staff.uid, staff.displayName);
+    for (const staff of assignableStaff) add(staff.uid, staff.displayName);
+    for (const dealer of roster) {
+      add(dealer.assignedStaffUid ?? '', dealer.assignedStaffName ?? '');
+    }
+    return [...seen.entries()]
+      .map(([value, label]) => ({ value, label }))
+      .sort((a, b) => a.label.localeCompare(b.label));
+  }, [salesStaff, assignableStaff, roster]);
 
   const draftDistricts = useMemo(() => {
     if (!filterDraft.stateFilter.length) {
@@ -539,21 +588,27 @@ export function ZohoDealersPage() {
         options={APP_STATUS_CHIPS}
         onChange={next => setFilterDraft(prev => ({ ...prev, appStatus: next }))}
       />
-      <FilterSelect
-        label="Assigned"
-        value={filterDraft.assignment}
-        options={ASSIGNMENT_CHIPS}
-        onChange={handleDraftAssignmentChange}
-      />
-      {filterDraft.assignment !== 'unassigned' ? (
-        <FilterMultiDropdown
-          label="KAM"
-          values={filterDraft.staffFilter}
-          options={kamOptions}
-          placeholder="All KAMs"
-          onChange={next => setFilterDraft(prev => ({ ...prev, staffFilter: next }))}
-        />
-      ) : null}
+      {kamLocked ? null : (
+        <>
+          <FilterSelect
+            label="Assigned"
+            value={filterDraft.assignment}
+            options={ASSIGNMENT_CHIPS}
+            onChange={handleDraftAssignmentChange}
+          />
+          {filterDraft.assignment !== 'unassigned' ? (
+            <FilterSelect
+              label="KAM"
+              value={filterDraft.staffFilter[0] ?? ''}
+              options={[{ value: '', label: 'All KAMs' }, ...kamOptions]}
+              onChange={next => setFilterDraft(prev => ({
+                ...prev,
+                staffFilter: next ? [next] : [],
+              }))}
+            />
+          ) : null}
+        </>
+      )}
     </div>
   );
 
