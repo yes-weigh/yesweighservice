@@ -143,13 +143,6 @@ function formatZohoDate(value: string | null | undefined): string | null {
   return date.toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' });
 }
 
-function contactPersonDisplayName(dealer: ZohoDealer): string | null {
-  const zohoName = dealer.zohoPrimaryContact?.name?.trim()
-    || dealer.zohoContactPersons?.find(p => p.isPrimary)?.name?.trim()
-    || dealer.zohoContactPersons?.[0]?.name?.trim();
-  return zohoName || null;
-}
-
 function FieldLabel({
   label,
   source,
@@ -664,7 +657,6 @@ export const DealerDetailPage: React.FC = () => {
   const statusMeta = dealer && draft
     ? getDealerStatusMeta({ dealerStage: draft.dealerStage, signedIn: dealer.signedIn })
     : null;
-  const contactPersonName = dealer ? contactPersonDisplayName(dealer) : null;
   const zohoCreatedOn = dealer ? formatZohoDate(dealer.zohoCreatedTime) : null;
 
   const setFillableDraftField = (key: ZohoFillableFieldKey, value: string) => {
@@ -715,10 +707,6 @@ export const DealerDetailPage: React.FC = () => {
           <div className="dealers-detail__field dealers-detail__field--full dealers-detail__summary">
             <div className="dealers-detail__summary-main">
               <strong className="dealers-detail__summary-name">{name}</strong>
-              <span className="dealers-detail__summary-id">ID {dealer.id}</span>
-              {contactPersonName && (
-                <span className="dealers-detail__summary-meta">{contactPersonName}</span>
-              )}
               {zohoCreatedOn && (
                 <span className="dealers-detail__summary-meta">Created {zohoCreatedOn}</span>
               )}

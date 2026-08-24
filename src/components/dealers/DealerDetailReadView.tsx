@@ -25,13 +25,6 @@ function formatGstTreatment(value: string | null | undefined): string | null {
   return value.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
 }
 
-function contactPersonDisplayName(dealer: ZohoDealer): string | null {
-  const zohoName = dealer.zohoPrimaryContact?.name?.trim()
-    || dealer.zohoContactPersons?.find(p => p.isPrimary)?.name?.trim()
-    || dealer.zohoContactPersons?.[0]?.name?.trim();
-  return zohoName || null;
-}
-
 function displayValue(value: React.ReactNode): string {
   if (value == null || value === '') return '—';
   return String(value);
@@ -101,7 +94,6 @@ export const DealerDetailReadView: React.FC<{
   useEffect(() => subscribePriceLevels(docData => setPriceLevels(docData.levels)), []);
   const name = dealer.companyName || dealer.contactName;
   const statusMeta = getDealerStatusMeta({ dealerStage: dealer.dealerStage, signedIn: dealer.signedIn });
-  const contactPersonName = contactPersonDisplayName(dealer);
   const zohoCreatedOn = formatZohoDate(dealer.zohoCreatedTime);
   const zohoEmailField = topZohoEmailField();
 
@@ -110,10 +102,6 @@ export const DealerDetailReadView: React.FC<{
       <div className="dealers-detail__field dealers-detail__field--full dealers-detail__summary">
         <div className="dealers-detail__summary-main">
           <strong className="dealers-detail__summary-name">{name}</strong>
-          <span className="dealers-detail__summary-id">ID {dealer.id}</span>
-          {contactPersonName && (
-            <span className="dealers-detail__summary-meta">{contactPersonName}</span>
-          )}
           {zohoCreatedOn && (
             <span className="dealers-detail__summary-meta">Created {zohoCreatedOn}</span>
           )}

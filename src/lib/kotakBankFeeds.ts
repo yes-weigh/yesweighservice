@@ -31,6 +31,27 @@ export interface KotakBankFeedSyncResult {
   accountNames: string[];
 }
 
+export interface KotakBankFeedRefreshResult {
+  refreshed: boolean;
+  accountNames: string[];
+  message: string;
+}
+
+/** Ask Zoho Books to Refresh Feeds for Kotak (same as Banking → gear → Refresh Feeds). */
+export async function refreshKotakBankFeeds(): Promise<KotakBankFeedRefreshResult> {
+  try {
+    const fn = httpsCallable<Record<string, never>, KotakBankFeedRefreshResult>(
+      functions,
+      'refreshKotakBankFeedsFn',
+      { timeout: 90_000 },
+    );
+    const result = await fn({});
+    return result.data;
+  } catch (err) {
+    throw new Error(dealerOrderErrorMessage(err));
+  }
+}
+
 /** Fetch latest uncategorised Kotak bank feeds from Zoho and store them. */
 export async function fetchKotakBankFeeds(): Promise<KotakBankFeedSyncResult> {
   try {

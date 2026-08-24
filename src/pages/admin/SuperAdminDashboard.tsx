@@ -4,9 +4,11 @@ import {
   AlertTriangle,
   Ban,
   Building2,
+  Check,
   ChevronRight,
   ClipboardList,
   Clock,
+  Loader2,
   PackagePlus,
   Shield,
   Truck,
@@ -26,6 +28,8 @@ import {
 } from '../../lib/dashboardPeriod';
 import { dealerErrorMessage, fetchDealerStats } from '../../lib/dealers';
 import { countOpsSupportRequestsInRange } from '../../lib/dealerSupport';
+import { refreshKotakBankFeeds } from '../../lib/kotakBankFeeds';
+import kotakBankLogo from '../../assets/kotak-mahindra-bank.jpg';
 import type { DealerStats } from '../../types/dealers';
 
 const BASE = '/super-admin';
@@ -48,6 +52,8 @@ export const SuperAdminDashboard: React.FC = () => {
   const [opsPeriod, setOpsPeriod] = useState<DashboardPeriodPreset>('month');
   const [customRange, setCustomRange] = useState(defaultDashboardCustomRange);
   const [opsCounts, setOpsCounts] = useState(EMPTY_OPS_COUNTS);
+  const [kotakPhase, setKotakPhase] = useState<'idle' | 'working' | 'ok' | 'fail'>('idle');
+  const [kotakMessage, setKotakMessage] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -152,6 +158,24 @@ export const SuperAdminDashboard: React.FC = () => {
   );
 
   useTopBarAction(periodFilter);
+
+  const refreshKotakFeeds = async () => {
+    if (kotakPhase === 'working') return;
+    setKotakPhase('working');
+    setKotakMessage('Asking Zoho Books to refresh Kotak bank feeds…');
+    try {
+      const result = await refreshKotakBankFeeds();
+      setKotakPhase('ok');
+      setKotakMessage(result.message);
+      window.setTimeout(() => {
+        setKotakPhase(current => (current === 'ok' ? 'idle' : current));
+        setKotakMessage(current => (current === result.message ? null : current));
+      }, 5000);
+    } catch (err) {
+      setKotakPhase('fail');
+      setKotakMessage(err instanceof Error ? err.message : 'Could not refresh Kotak bank feeds.');
+    }
+  };
 
   const opsKpis = [
     {
@@ -284,7 +308,49 @@ export const SuperAdminDashboard: React.FC = () => {
               <ChevronRight size={18} className="dealer-dash-kpi__chevron" aria-hidden />
             </button>
           ))}
+          <button
+            type="button"
+            className={`dealer-dash-kpi dealer-dash-kpi--kotak-tile${kotakPhase === 'working' ? ' is-busy' : ''}${kotakPhase === 'ok' ? ' is-ok' : ''}${kotakPhase === 'fail' ? ' is-fail' : ''}`}
+            onClick={() => void refreshKotakFeeds()}
+            disabled={kotakPhase === 'working'}
+            aria-label="Refresh Kotak bank feeds in Zoho Books"
+            title="Refresh Kotak bank feeds in Zoho Books"
+          >
+            <span className="dealer-dash-kpi__kotak-logo-wrap">
+              {kotakPhase === 'working' ? (
+                <Loader2 size={22} className="spin-icon" />
+              ) : kotakPhase === 'ok' ? (
+                <Check size={22} strokeWidth={3} />
+              ) : (
+                <img
+                  src={kotakBankLogo}
+                  alt=""
+                  className="dealer-dash-kpi__kotak-logo"
+                />
+              )}
+            </span>
+            <div className="dealer-dash-kpi__body">
+              <span className="dealer-dash-kpi__label">Kotak</span>
+              <strong className="dealer-dash-kpi__value dealer-dash-kpi__value--sub">
+                {kotakPhase === 'working'
+                  ? 'Refreshing…'
+                  : kotakPhase === 'ok'
+                    ? 'Refresh started'
+                    : kotakPhase === 'fail'
+                      ? 'Try again'
+                      : 'Refresh feeds'}
+              </strong>
+            </div>
+          </button>
         </div>
+        {kotakMessage ? (
+          <p
+            className={`dealer-dash__kotak-status${kotakPhase === 'fail' ? ' is-fail' : ''}${kotakPhase === 'ok' ? ' is-ok' : ''}`}
+            role="status"
+          >
+            {kotakMessage}
+          </p>
+        ) : null}
       </section>
     </div>
   );

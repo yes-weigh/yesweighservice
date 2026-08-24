@@ -29,6 +29,7 @@ async function zohoBankJson(accessToken, orgId, path, {
   body,
   query = {},
   apiBase,
+  jsonString = false,
 } = {}) {
   const url = new URL(`${apiBase}${path}`);
   if (!url.searchParams.has('organization_id')) {
@@ -46,10 +47,15 @@ async function zohoBankJson(accessToken, orgId, path, {
     headers: {
       ...authHeaders(accessToken, orgId),
       'X-com-zoho-books-organizationid': orgId,
-      ...(sendBody ? { 'Content-Type': 'application/json' } : {}),
     },
   };
-  if (sendBody) init.body = JSON.stringify(body);
+  if (sendBody && jsonString) {
+    init.headers['Content-Type'] = 'application/x-www-form-urlencoded';
+    init.body = new URLSearchParams({ JSONString: JSON.stringify(body) }).toString();
+  } else if (sendBody) {
+    init.headers['Content-Type'] = 'application/json';
+    init.body = JSON.stringify(body);
+  }
 
   let res;
   try {
@@ -161,46 +167,127 @@ function mapFeed(raw, account) {
   };
 }
 
+function zohoRecordId(value) {
+  if (value == null) return '';
+  return String(value).trim();
+}
+
+function isKotakCurrentAccount(row) {
+  const name = String(row?.account_name ?? '');
+  const number = String(row?.account_number ?? '');
+  const partner = String(row?.partner_bank_source ?? '');
+  if (partner === 'kotak_bank') return true;
+  if (/kotak current/i.test(name)) return true;
+  return /3712$/.test(number.replace(/\s/g, '')) && isKotakName(row?.bank_name, name);
+}
+
 async function listKotakAccounts(accessToken, orgId) {
   const payload = await zohoBankJsonWithFallback(accessToken, orgId, '/bankaccounts', {
     query: { filter_by: 'Status.Active' },
   });
   const rows = Array.isArray(payload.bankaccounts) ? payload.bankaccounts : [];
-  return rows
-    .filter(row => isKotakName(row.bank_name, row.account_name, row.account_code))
+  const mapped = rows
+    .filter(row => isKotakCurrentAccount(row) || isKotakName(row.bank_name, row.account_name, row.account_code, row.partner_bank_source))
     .map(row => ({
-      accountId: String(row.account_id ?? ''),
+      accountId: zohoRecordId(row.account_id),
       accountName: String(row.account_name ?? ''),
       bankName: String(row.bank_name ?? 'Kotak'),
+      accountNumber: String(row.account_number ?? ''),
+      partnerBankSource: String(row.partner_bank_source ?? ''),
+      lastRefreshDate: row.feeds_last_refresh_date != null ? String(row.feeds_last_refresh_date) : null,
       uncategorizedCount: Number(row.uncategorized_transactions ?? 0),
     }))
     .filter(row => row.accountId);
+
+  const current = mapped.filter(row =>
+    row.partnerBankSource === 'kotak_bank'
+    || /kotak current/i.test(row.accountName)
+    || /3712$/.test(row.accountNumber.replace(/\s/g, '')),
+  );
+  return current.length ? current : mapped;
 }
 
-async function refreshAccountFeeds(accessToken, orgId, accountId) {
-  const paths = [
-    `/bankaccounts/${encodeURIComponent(accountId)}/feeds`,
-    `/bankaccounts/${encodeURIComponent(accountId)}/feeds/refresh`,
-    `/bankaccounts/${encodeURIComponent(accountId)}/refreshfeeds`,
-  ];
+async function refreshAccountFeeds(accessToken, orgId, account) {
+  const accountId = zohoRecordId(account.accountId);
+  const encoded = encodeURIComponent(accountId);
   const errors = [];
-  for (const path of paths) {
-    try {
-      const payload = await zohoBankJsonWithFallback(accessToken, orgId, path, {
-        method: 'POST',
-      });
-      return {
-        ok: true,
-        path,
-        message: String(payload?.message || 'Bank feeds refreshed in Zoho.'),
-      };
-    } catch (err) {
-      errors.push(`${path}: ${err?.message || err}`);
-    }
+
+  try {
+    const payload = await zohoBankJsonWithFallback(accessToken, orgId, `/bankaccounts/${encoded}`, {
+      method: 'PUT',
+      jsonString: true,
+      body: {
+        account_name: account.accountName || 'Kotak Current Account',
+        refresh_feeds: true,
+      },
+    });
+    return {
+      ok: true,
+      path: `/bankaccounts/${accountId}`,
+      message: String(payload?.message || 'Refresh Feeds started for Kotak Current Account.'),
+    };
+  } catch (err) {
+    errors.push(`PUT account: ${err?.message || err}`);
   }
+
+  try {
+    await zohoBankJsonWithFallback(accessToken, orgId, `/bankaccounts/${encoded}/balance`, {
+      query: { refresh: 'true' },
+    });
+    await zohoBankJsonWithFallback(accessToken, orgId, `/bankaccounts/${encoded}/transactions`, {
+      query: { per_page: 1 },
+    });
+    return {
+      ok: true,
+      path: `/bankaccounts/${accountId}/balance`,
+      message: 'Asked Zoho Books to pull the latest Kotak Current Account balance and transactions.',
+    };
+  } catch (err) {
+    errors.push(`balance/transactions: ${err?.message || err}`);
+  }
+
   const message = errors.join(' | ') || 'Zoho Refresh Feeds failed.';
   console.warn(`Zoho Refresh Feeds failed for account ${accountId}: ${message}`);
   return { ok: false, path: null, message };
+}
+
+/**
+ * Same as Zoho Books Banking → gear → Refresh Feeds for Kotak accounts.
+ * Asks Zoho to pull new transactions from the bank. Does not wait for the feed.
+ */
+export async function refreshKotakBankFeedsInZoho(secrets, orgId) {
+  if (!secrets) {
+    throw new Error('Zoho credentials are not configured.');
+  }
+  const accessToken = await getAccessToken(secrets);
+  const organizationId = await resolveOrganizationId(accessToken, orgId);
+  const accounts = await listKotakAccounts(accessToken, organizationId);
+  if (accounts.length === 0) {
+    throw new Error('No Kotak bank account found in Zoho Banking.');
+  }
+
+  const results = [];
+  for (const account of accounts) {
+    const refreshed = await refreshAccountFeeds(accessToken, organizationId, account);
+    results.push({
+      accountId: account.accountId,
+      accountName: account.accountName,
+      ...refreshed,
+    });
+  }
+
+  const okRows = results.filter(row => row.ok);
+  if (okRows.length === 0) {
+    throw new Error(results[0]?.message || 'Zoho could not refresh Kotak bank feeds.');
+  }
+
+  const names = okRows.map(row => row.accountName).filter(Boolean);
+  return {
+    refreshed: true,
+    accountNames: names,
+    lastZohoFeedRefresh: results,
+    message: `Refresh Feeds started for ${names.join(', ') || 'Kotak Current Account'}. Zoho is pulling new transactions from the bank.`,
+  };
 }
 
 function sleep(ms) {
@@ -298,7 +385,7 @@ export async function syncKotakUncategorizedFeeds(secrets, orgId, { source = 'ma
 
   const refreshResults = [];
   for (const account of accounts) {
-    const refreshed = await refreshAccountFeeds(accessToken, organizationId, account.accountId);
+    const refreshed = await refreshAccountFeeds(accessToken, organizationId, account);
     refreshResults.push({
       accountId: account.accountId,
       accountName: account.accountName,

@@ -23956,6 +23956,66 @@ body:has(.confirm-inline-bar) .confirm-inline-bar {
   color: var(--text-primary);
 }
 
+.dealer-dash-kpi--kotak-tile {
+  --kpi-accent: #ed1c24;
+}
+
+.dealer-dash-kpi--kotak-tile:disabled {
+  cursor: wait;
+  opacity: 0.85;
+}
+
+.dealer-dash-kpi--kotak-tile.is-ok {
+  --kpi-accent: #059669;
+}
+
+.dealer-dash-kpi--kotak-tile.is-fail {
+  --kpi-accent: #ef4444;
+}
+
+.dealer-dash-kpi__kotak-logo-wrap {
+  flex-shrink: 0;
+  width: 2.75rem;
+  height: 2.75rem;
+  border-radius: 14px;
+  overflow: hidden;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: #ed1c24;
+  color: #fff;
+}
+
+.dealer-dash-kpi--kotak-tile.is-ok .dealer-dash-kpi__kotak-logo-wrap {
+  background: #059669;
+}
+
+.dealer-dash-kpi__kotak-logo {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.dealer-dash-kpi__value--sub {
+  font-size: 0.92rem;
+  font-weight: 700;
+}
+
+.dealer-dash__kotak-status {
+  margin: 0;
+  font-size: 0.75rem;
+  color: var(--text-muted);
+}
+
+.dealer-dash__kotak-status.is-ok {
+  color: #6ee7b7;
+}
+
+.dealer-dash__kotak-status.is-fail {
+  color: #fca5a5;
+}
+
 .dealer-dash__chart-panel,
 .dealer-dash__activities {
   padding: 1.1rem 1rem 1.15rem;
@@ -35741,8 +35801,11 @@ body:has(.confirm-inline-bar) .confirm-inline-bar {
 
 .dealers-detail__actions-row {
   display: flex;
-  flex-wrap: wrap;
-  gap: 0.5rem;
+  flex-direction: column;
+  flex-wrap: nowrap;
+  align-items: stretch;
+  align-self: start;
+  gap: 1rem;
   padding-top: 0.5rem;
   border-top: 1px solid rgba(148, 163, 184, 0.14);
 }
@@ -35774,6 +35837,10 @@ body:has(.confirm-inline-bar) .confirm-inline-bar {
   flex-direction: column;
   gap: 0.3rem;
   min-width: 0;
+}
+
+.dealers-detail__field.dealers-detail__actions-row {
+  gap: 1rem;
 }
 
 .dealers-detail__field > span,
@@ -36516,7 +36583,9 @@ body:has(.confirm-inline-bar) .confirm-inline-bar {
 
 .dealers-detail__action--delete {
   width: 100%;
-  min-height: 2.75rem;
+  flex: none;
+  min-height: 0;
+  padding: 0.7rem 1.2rem;
   font-weight: 700;
   background: var(--accent-primary, #f58220);
   border-color: var(--accent-primary, #f58220);
@@ -36524,7 +36593,7 @@ body:has(.confirm-inline-bar) .confirm-inline-bar {
 }
 
 .dealers-detail__actions-row .dealers-detail__action--delete {
-  flex: 1 1 12rem;
+  flex: none;
 }
 
 .dealers-detail__pager {
