@@ -5,16 +5,17 @@ import {
   ArrowRight,
   Check,
   ChevronRight,
+  KeyRound,
   MapPin,
   Package,
   Search,
+  Wrench,
   ShoppingCart,
-  Store,
   Trash2,
   UserCircle,
-  Users,
 } from 'lucide-react';
 import { DocumentKamStrip } from '../../components/admin/DocumentKamStrip';
+import { KamCardPicker } from '../../components/admin/KamCardPicker';
 import { CatalogBrowse } from '../../components/catalog/CatalogBrowse';
 import { CatalogCategoryChips } from '../../components/catalog/CatalogCategoryChips';
 import { CategoryThumbnail } from '../../components/catalog/CategoryThumbnail';
@@ -25,7 +26,6 @@ import { GatcStampingInlineControl } from '../../components/catalog/GatcStamping
 import { DocumentLineItemSpec } from '../../components/invoices/DocumentLineItemSpec';
 import { MultiSalesOrderSuccess } from '../../components/salesOrders/MultiSalesOrderSuccess';
 import { StaffSoProductPeek } from '../../components/salesOrders/StaffSoProductPeek';
-import { ThemeSelect } from '../../components/ThemeSelect';
 import { DecimalAmountInput } from '../../components/DecimalAmountInput';
 import { QuantityStepper } from '../../components/QuantityStepper';
 import { DelhiveryQuoteStrip } from '../../components/logistics/DelhiveryQuoteStrip';
@@ -114,6 +114,10 @@ import {
   CLOUD_CHARGES_SALESPERSON_ID,
   CLOUD_CHARGES_SALESPERSON_NAME,
 } from '../../constants/cloudChargesSalesperson';
+import {
+  SHIBIN_SALESPERSON_ID,
+  SHIBIN_SALESPERSON_NAME,
+} from '../../constants/shibinSalesperson';
 import { hasStaffPermission, isFullSuperAdmin } from '../../lib/staffAccess';
 import { createStaffSalesOrder } from '../../lib/salesOrderWorkflow';
 import {
@@ -124,7 +128,6 @@ import {
   type ShippingSelection,
 } from '../../lib/shippingAddresses';
 import {
-  loadSpareInchargeSettings,
   primaryZohoSalespersonForUser,
 } from '../../lib/spareIncharge';
 import {
@@ -132,12 +135,15 @@ import {
   listZohoSalespersonsFromFirestore,
   type ZohoSalespersonOption,
 } from '../../lib/zohoSalespersons';
+import {
+  collapseToPortalKamOptions,
+  portalKamIdForSalesperson,
+} from '../../lib/dealerKamDisplay';
 import { normalizeZohoSalespersonLinks } from '../../lib/zohoSalespersonStaff';
 import { doc, getDoc } from 'firebase/firestore';
 import { db } from '../../firebase';
 import type { CatalogCategory, CatalogProduct } from '../../types/catalog';
 import type { ZohoDealer } from '../../types/dealers';
-import type { User } from '../../types';
 import type { CartItem } from '../../types/cart';
 
 type WizardStep = 'dealer' | 'catalog' | 'preview';
@@ -152,7 +158,7 @@ type SelectedDealer = {
 };
 
 type SalespersonPreview = {
-  source: 'cloud' | 'spare_incharge' | 'self' | 'kam' | 'pick';
+  source: 'cloud' | 'spare_incharge' | 'shibin' | 'self' | 'kam' | 'pick';
   title: string;
   salespersonId: string | null;
   salespersonName: string | null;
@@ -209,21 +215,6 @@ async function loadStaffSalesperson(uid: string): Promise<{
     salespersonName: link.name,
     staffName: String(data.displayName ?? 'Staff').trim() || 'Staff',
   };
-}
-
-function ownSalespersonFromUser(user: User | null | undefined): {
-  salespersonId: string;
-  salespersonName: string | null;
-} | null {
-  if (!user) return null;
-  const link = normalizeZohoSalespersonLinks({
-    zohoSalespersonLinks: user.zohoSalespersonLinks,
-    zohoSalespersonIds: user.zohoSalespersonIds,
-    zohoSalespersonId: user.zohoSalespersonId,
-    zohoSalespersonName: user.zohoSalespersonName,
-  })[0];
-  if (!link?.id) return null;
-  return { salespersonId: link.id, salespersonName: link.name };
 }
 
 function toSelectedDealer(dealer: ZohoDealer): SelectedDealer {
@@ -287,7 +278,8 @@ export const StaffCreateSalesOrderPage: React.FC = () => {
     : '/staff/sales-orders';
 
   const allowedSegments = useMemo(() => staffAllowedOrderSegments(user), [user]);
-  /** Mixed cart like dealer — submit splits by segment×site; spare → Spare Incharge SP. */
+  const [selectedSegment, setSelectedSegment] = useState<OrderSegment | ''>('');
+  /** Mixed cart like dealer — submit splits by segment×site. */
   const [step, setStep] = useState<WizardStep>('dealer');
 
   const [catalogProducts, setCatalogProducts] = useState<CatalogProduct[]>([]);
@@ -301,7 +293,7 @@ export const StaffCreateSalesOrderPage: React.FC = () => {
 
   const [dealerQuery, setDealerQuery] = useState('');
   const [dealers, setDealers] = useState<ZohoDealer[]>([]);
-  const [dealersLoading, setDealersLoading] = useState(false);
+  const [, setDealersLoading] = useState(false);
   const [selectedDealer, setSelectedDealer] = useState<SelectedDealer | null>(null);
 
   const [addresses, setAddresses] = useState<ShippingAddress[]>([]);
@@ -332,7 +324,20 @@ export const StaffCreateSalesOrderPage: React.FC = () => {
   const [fromAddresses, setFromAddresses] = useState<Partial<Record<StaffLogisticsSite, string>>>({});
   const [pendingFreightDiff, setPendingFreightDiff] = useState<PendingFreightDiffPreview | null>(null);
 
-  const activeSegments = allowedSegments;
+  useEffect(() => {
+    setSelectedSegment(prev => {
+      if (prev && allowedSegments.includes(prev)) return prev;
+      if (allowedSegments.includes('product')) return 'product';
+      return allowedSegments[0] ?? '';
+    });
+  }, [allowedSegments]);
+
+  const activeSegments = useMemo(
+    () => (selectedSegment && allowedSegments.includes(selectedSegment)
+      ? [selectedSegment]
+      : []),
+    [selectedSegment, allowedSegments],
+  );
 
   const freightAllowed = activeSegments.some(segment => segmentAllowsFreight(segment));
 
@@ -345,8 +350,8 @@ export const StaffCreateSalesOrderPage: React.FC = () => {
   const dealerReady = Boolean(selectedDealer && shipping);
 
   const fullSA = isFullSuperAdmin(user);
-  /** Super admins pick salesperson for product buckets when product orders are allowed. */
-  const needsSalespersonPicker = fullSA && activeSegments.includes('product');
+  const needsSalespersonPicker = activeSegments.includes('product');
+  const typeReady = activeSegments.length > 0;
 
   const stepTitle = `Step ${stepIndex + 1} of ${steps.length}`;
 
@@ -791,9 +796,17 @@ export const StaffCreateSalesOrderPage: React.FC = () => {
     if (!needsSalespersonPicker) return;
     let cancelled = false;
     setSalespersonsLoading(true);
-    void listZohoSalespersons()
+    void listZohoSalespersons({ includeHidden: true })
       .then(rows => {
-        if (!cancelled) setSalespersons(rows.filter(row => row.active));
+        if (!cancelled) {
+          const kamRows = collapseToPortalKamOptions(rows);
+          setSalespersons(kamRows.map(row => ({
+            id: row.id,
+            name: row.name,
+            email: null,
+            active: true,
+          })));
+        }
       })
       .catch(err => {
         if (!cancelled) {
@@ -846,134 +859,76 @@ export const StaffCreateSalesOrderPage: React.FC = () => {
         }
 
         if (activeSegments.includes('spare')) {
-          const settings = await loadSpareInchargeSettings();
-          const member = settings.members[0];
-          if (!member) {
-            next.spare = {
-              source: 'spare_incharge',
-              title: 'Spare Incharge',
-              salespersonId: null,
-              salespersonName: null,
-              staffName: null,
-              hint: null,
-              error: 'Spare Incharge is not configured. Assign one in HR → Spare Incharge.',
-              loading: false,
-            };
-          } else {
-            const resolved = await loadStaffSalesperson(member.uid);
-            if (!resolved) {
-              next.spare = {
-                source: 'spare_incharge',
-                title: 'Spare Incharge',
-                salespersonId: null,
-                salespersonName: null,
-                staffName: member.displayName,
-                hint: null,
-                error: `${member.displayName} has no Zoho salesperson linked.`,
-                loading: false,
-              };
-            } else {
-              next.spare = {
-                source: 'spare_incharge',
-                title: 'Spare Incharge',
-                salespersonId: resolved.salespersonId,
-                salespersonName: resolved.salespersonName,
-                staffName: resolved.staffName || member.displayName,
-                hint: 'Spare draft SOs use Spare Incharge.',
-                error: null,
-                loading: false,
-              };
-            }
+          let match: ZohoSalespersonOption | null = null;
+          try {
+            const rows = await listZohoSalespersonsFromFirestore();
+            match = rows.find(row => (
+              row.name.trim().toLowerCase() === SHIBIN_SALESPERSON_NAME.toLowerCase()
+            )) ?? null;
+          } catch {
+            // Staff without HR view may be denied Firestore salesperson cache — use known id.
           }
+          next.spare = {
+            source: 'shibin',
+            title: SHIBIN_SALESPERSON_NAME,
+            salespersonId: match?.id || SHIBIN_SALESPERSON_ID,
+            salespersonName: match?.name || SHIBIN_SALESPERSON_NAME,
+            staffName: SHIBIN_SALESPERSON_NAME,
+            hint: null,
+            error: null,
+            loading: false,
+          };
         }
 
         if (activeSegments.includes('product')) {
-          if (fullSA) {
-            if (!selectedDealer) {
-              next.product = {
-                source: 'pick',
-                title: 'Product salesperson',
-                salespersonId: null,
-                salespersonName: null,
-                staffName: user?.displayName ?? null,
-                hint: 'Select a dealer first.',
-                error: 'Select a dealer first.',
-                loading: false,
-              };
-              setSalespersonId('');
-            } else {
-              let visibleRows: ZohoSalespersonOption[] = [];
-              try {
-                visibleRows = await listZohoSalespersons({ includeHidden: false });
-              } catch {
-                visibleRows = [];
-              }
-              const visibleIds = new Set(visibleRows.map(row => row.id));
-              const ownLinks = normalizeZohoSalespersonLinks({
-                zohoSalespersonLinks: user?.zohoSalespersonLinks,
-                zohoSalespersonIds: user?.zohoSalespersonIds,
-                zohoSalespersonId: user?.zohoSalespersonId,
-                zohoSalespersonName: user?.zohoSalespersonName,
-              }).filter(link => visibleIds.has(link.id) || visibleIds.size === 0);
-              const own = ownLinks[0]
-                ? { salespersonId: ownLinks[0].id, salespersonName: ownLinks[0].name }
-                : null;
+          let visibleRows: ZohoSalespersonOption[] = [];
+          try {
+            visibleRows = await listZohoSalespersons({ includeHidden: true });
+          } catch {
+            visibleRows = [];
+          }
+          const kamRows = collapseToPortalKamOptions(visibleRows);
+          const ownLinks = normalizeZohoSalespersonLinks({
+            zohoSalespersonLinks: user?.zohoSalespersonLinks,
+            zohoSalespersonIds: user?.zohoSalespersonIds,
+            zohoSalespersonId: user?.zohoSalespersonId,
+            zohoSalespersonName: user?.zohoSalespersonName,
+          });
+          const own = ownLinks[0]
+            ? { salespersonId: ownLinks[0].id, salespersonName: ownLinks[0].name }
+            : null;
 
-              let defaultId = own?.salespersonId ?? '';
-              let defaultName = own?.salespersonName ?? null;
-              let hint = own
-                ? 'Product draft SOs default to your linked Zoho salesperson — change below if needed.'
-                : 'No Zoho salesperson on your account — pick one below (or link one in Dealers → Salespersons).';
+          let defaultId = portalKamIdForSalesperson(
+            own?.salespersonId,
+            own?.salespersonName,
+            kamRows,
+          );
+          let defaultName = kamRows.find(row => row.id === defaultId)?.name ?? null;
 
-              if (!defaultId) {
-                const kamUid = selectedDealer.assignedStaffUid?.trim() || '';
-                if (kamUid) {
-                  const kam = await loadStaffSalesperson(kamUid);
-                  if (kam && (visibleIds.size === 0 || visibleIds.has(kam.salespersonId))) {
-                    defaultId = kam.salespersonId;
-                    defaultName = kam.salespersonName;
-                    hint = `Product draft SOs default to dealer KAM (${kam.staffName || selectedDealer.assignedStaffName || 'staff'}) — change below if needed.`;
-                  }
-                }
-              }
-
-              next.product = {
-                source: 'pick',
-                title: 'Product salesperson',
-                salespersonId: defaultId || null,
-                salespersonName: defaultName,
-                staffName: user?.displayName ?? null,
-                hint,
-                error: null,
-                loading: false,
-              };
-              setSalespersonId(defaultId);
+          if (!defaultId && selectedDealer?.assignedStaffUid) {
+            const kam = await loadStaffSalesperson(selectedDealer.assignedStaffUid);
+            if (kam) {
+              defaultId = portalKamIdForSalesperson(
+                kam.salespersonId,
+                kam.salespersonName,
+                kamRows,
+              );
+              defaultName = kamRows.find(row => row.id === defaultId)?.name ?? null;
             }
-          } else {
-            const own = ownSalespersonFromUser(user);
-            if (!own) {
-              next.product = {
-                source: 'self',
-                title: 'Your salesperson',
-                salespersonId: null,
-                salespersonName: null,
-                staffName: user?.displayName ?? null,
-                hint: null,
-                error: 'Link a Zoho salesperson to your staff account before creating product orders.',
-                loading: false,
-              };
-            } else {
-              next.product = {
-                source: 'self',
-                title: 'Your salesperson',
-                salespersonId: own.salespersonId,
-                salespersonName: own.salespersonName,
-                staffName: user?.displayName ?? null,
-                hint: 'Product draft SOs use your linked Zoho salesperson.',
-                error: null,
-                loading: false,
-              };
-            }
+          }
+
+          next.product = {
+            source: 'pick',
+            title: 'KAM',
+            salespersonId: defaultId || null,
+            salespersonName: defaultName,
+            staffName: user?.displayName ?? null,
+            hint: null,
+            error: null,
+            loading: false,
+          };
+          if (defaultId) {
+            setSalespersonId(prev => prev || defaultId);
           }
         }
       } catch (err) {
@@ -981,7 +936,7 @@ export const StaffCreateSalesOrderPage: React.FC = () => {
         for (const segment of activeSegments) {
           if (next[segment]) continue;
           next[segment] = {
-            source: segment === 'software' ? 'cloud' : segment === 'spare' ? 'spare_incharge' : 'self',
+            source: segment === 'software' ? 'cloud' : segment === 'spare' ? 'shibin' : 'pick',
             title: 'Salesperson',
             salespersonId: null,
             salespersonName: null,
@@ -1123,7 +1078,18 @@ export const StaffCreateSalesOrderPage: React.FC = () => {
     ? () => navigate(listPath)
     : goBack;
 
+  const selectSegment = (segment: OrderSegment) => {
+    if (selectedSegment === segment) return;
+    setSelectedSegment(segment);
+    if (segment !== 'product') setSalespersonId('');
+    setError('');
+  };
+
   const goToCatalog = () => {
+    if (!typeReady) {
+      setError('Select Product, Spare or Software.');
+      return;
+    }
     if (!selectedDealer) {
       setError('Select a dealer.');
       return;
@@ -1175,7 +1141,7 @@ export const StaffCreateSalesOrderPage: React.FC = () => {
       return;
     }
     if (target === 'catalog') {
-      if (!dealerReady || !salespersonReady) return;
+      if (!typeReady || !dealerReady || !salespersonReady) return;
       setError('');
       setStep('catalog');
       return;
@@ -1401,51 +1367,35 @@ export const StaffCreateSalesOrderPage: React.FC = () => {
       {step === 'dealer' ? (
         <>
           <section className="staff-create-so-page__dealer-stage">
-            <header className="staff-create-so-page__dealer-hero">
-              <span className="staff-create-so-page__dealer-hero-icon" aria-hidden>
-                <Store size={22} />
-              </span>
-              <div className="staff-create-so-page__dealer-hero-copy">
-                <h2>Select Dealer &amp; Shipping Address</h2>
-                <p>
-                  Choose the dealer and shipping address to continue with the catalog.
-                </p>
-              </div>
-              <span className="staff-create-so-page__dealer-hero-art" aria-hidden>
-                <MapPin size={28} />
-                <Package size={24} />
-              </span>
-            </header>
+            <div className="staff-create-so-page__order-types" role="group" aria-label="Order type">
+              {allowedSegments.map(segment => {
+                const selected = selectedSegment === segment;
+                const icon = segment === 'spare'
+                  ? <Wrench size={20} />
+                  : segment === 'software'
+                    ? <KeyRound size={20} />
+                    : <Package size={20} />;
+                return (
+                  <button
+                    key={segment}
+                    type="button"
+                    className={`staff-create-so-page__order-type${selected ? ' is-selected' : ''}`}
+                    aria-pressed={selected}
+                    onClick={() => selectSegment(segment)}
+                  >
+                    <span className="staff-create-so-page__order-type-icon" aria-hidden>
+                      {icon}
+                    </span>
+                    <span className="staff-create-so-page__order-type-name">
+                      {segmentLabel(segment)}
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
 
-            <div className="staff-create-so-page__dealer-panel panel glass">
-              <h3 className="staff-create-so-page__dealer-panel-title">Dealer details</h3>
-              <p className="text-muted text-sm staff-create-so-page__dealer-panel-hint">
-                Pick the dealer and shipping address before browsing the catalog.
-              </p>
-            {selectedDealer ? (
-              <div className="staff-create-so-page__dealer-selected">
-                <div>
-                  <strong>{selectedDealer.label}</strong>
-                  {selectedDealer.contactPerson ? (
-                    <p className="text-muted text-sm">{selectedDealer.contactPerson}</p>
-                  ) : null}
-                  {selectedDealer.mobile ? (
-                    <p className="text-muted text-sm">{selectedDealer.mobile}</p>
-                  ) : null}
-                </div>
-                <button
-                  type="button"
-                  className="btn btn-secondary btn-sm"
-                  onClick={() => {
-                    setSelectedDealer(null);
-                    setAddresses([]);
-                    setShipping(null);
-                  }}
-                >
-                  Change
-                </button>
-              </div>
-            ) : (
+            {typeReady ? (
+            <>
               <div className="staff-create-so-page__dealer-search">
                 <div className="catalog-search staff-create-so-page__dealer-search-input">
                   <Search size={15} aria-hidden />
@@ -1453,12 +1403,22 @@ export const StaffCreateSalesOrderPage: React.FC = () => {
                     type="search"
                     placeholder="Search dealer by name, code or mobile…"
                     value={dealerQuery}
-                    onChange={e => setDealerQuery(e.target.value)}
+                    onChange={e => {
+                      setDealerQuery(e.target.value);
+                      if (selectedDealer) {
+                        setSelectedDealer(null);
+                        setAddresses([]);
+                        setShipping(null);
+                      }
+                    }}
                     aria-label="Search dealers"
+                    autoFocus
                   />
                 </div>
-                {dealersLoading && dealers.length === 0 ? (
-                  <p className="text-muted text-sm">Loading dealers…</p>
+                {selectedDealer && !dealerQuery.trim() ? (
+                  <div className="staff-create-so-page__dealer-picked">
+                    <strong>{selectedDealer.label}</strong>
+                  </div>
                 ) : filteredDealers.length > 0 ? (
                   <ul className="staff-create-so-page__dealer-list" role="listbox">
                     {filteredDealers.map(dealer => {
@@ -1493,29 +1453,8 @@ export const StaffCreateSalesOrderPage: React.FC = () => {
                       );
                     })}
                   </ul>
-                ) : dealerQuery.trim().length >= 2 ? (
-                  <p className="text-muted text-sm">
-                    {dealersLoading
-                      ? 'Still loading dealers…'
-                      : `No dealers match “${dealerQuery.trim()}”.`}
-                  </p>
-                ) : (
-                  <p className="text-muted text-sm">
-                    Type at least 2 characters to search
-                    {dealersLoading ? ' (loading dealer list…)' : '.'}
-                  </p>
-                )}
-                <p className="staff-create-so-page__dealer-loaded">
-                  <Users size={14} aria-hidden />
-                  <span>
-                    {dealersLoading && dealers.length === 0
-                      ? 'Loading dealers…'
-                      : `${dealers.length.toLocaleString('en-IN')} dealers loaded`}
-                  </span>
-                </p>
+                ) : null}
               </div>
-            )}
-            </div>
 
           {selectedDealer ? (
             <div className="staff-create-so-page__dealer-panel panel glass">
@@ -1533,78 +1472,33 @@ export const StaffCreateSalesOrderPage: React.FC = () => {
             </div>
           ) : null}
 
+          {needsSalespersonPicker ? (
           <div className="staff-create-so-page__dealer-panel panel glass staff-create-so-page__salesperson-panel">
             <header className="staff-create-so-page__salesperson-head">
               <span className="staff-create-so-page__salesperson-icon" aria-hidden>
                 <UserCircle size={22} />
               </span>
-              <div>
-                <h2>Salespersons by order type</h2>
-                <p className="text-muted text-sm">
-                  Mixed carts split into separate draft SOs. Spares go to Spare Incharge.
-                </p>
-              </div>
+              <h2>KAM</h2>
             </header>
-            {spLoading ? (
-              <p className="text-muted text-sm">Resolving salesperson…</p>
-            ) : (
-              <div className="staff-create-so-page__sp-list">
-                {activeSegments.map(segment => {
-                  const preview = segmentSpMap[segment];
-                  if (!preview) return null;
-                  return (
-                    <div key={segment} className="staff-create-so-page__sp-block">
-                      <p className="text-muted text-sm staff-create-so-page__sp-title">
-                        {preview.title}
-                        {' · '}
-                        {segmentLabel(segment)}
-                      </p>
-                      {preview.hint ? (
-                        <p className="text-muted text-sm">{preview.hint}</p>
-                      ) : null}
-                      {preview.error ? (
-                        <p className="staff-create-so-page__sp-error" role="alert">{preview.error}</p>
-                      ) : null}
-                      {segment === 'product' && needsSalespersonPicker && selectedDealer ? (
-                        <label className="staff-create-so-page__salesperson">
-                          <span>Zoho salesperson (product SOs)</span>
-                          <ThemeSelect
-                            id="staff-so-salesperson"
-                            value={salespersonId}
-                            disabled={salespersonsLoading}
-                            placeholder={
-                              salespersonsLoading ? 'Loading salespersons…' : 'Select salesperson…'
-                            }
-                            options={salespersons.map(row => ({
-                              value: row.id,
-                              label: row.name,
-                              hint: row.email || undefined,
-                            }))}
-                            onChange={setSalespersonId}
-                            aria-label="Product salesperson"
-                          />
-                        </label>
-                      ) : preview.salespersonId || preview.salespersonName ? (
-                        <DocumentKamStrip
-                          salespersonId={preview.salespersonId}
-                          salespersonName={preview.salespersonName || preview.staffName}
-                          showMissing
-                          missingHint={preview.error}
-                        />
-                      ) : null}
-                    </div>
-                  );
-                })}
-              </div>
-            )}
+            <KamCardPicker
+              options={salespersons}
+              value={salespersonId}
+              onChange={setSalespersonId}
+              disabled={salespersonsLoading}
+              loading={salespersonsLoading}
+              aria-label="KAM"
+            />
           </div>
+          ) : null}
+            </>
+            ) : null}
           </section>
 
           <div className="staff-create-so-page__dealer-continue staff-create-so-page__dealer-continue--sticky">
             <button
               type="button"
               className="btn btn-primary staff-create-so-page__dealer-continue-btn"
-              disabled={!dealerReady || !salespersonReady}
+              disabled={!typeReady || !dealerReady || !salespersonReady}
               onClick={goToCatalog}
             >
               Continue to Catalog

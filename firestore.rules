@@ -1,5 +1,5 @@
 rules_version = '2';
-// CI smoke-test marker — 2026-06-26
+// CI smoke-test marker — 2026-08-25
 
 service cloud.firestore {
   match /databases/{database}/documents {
@@ -552,6 +552,8 @@ service cloud.firestore {
     }
 
     // Portal invoice GATC stamping ledger (written by Cloud Functions on payment verify).
+    // Incentive report also reads ops invoice summaries, invoice docs, salesOrders,
+    // and appSettings/priceLevels (Directors 2% vs 3.5%).
     match /gatcReports/{invoiceId} {
       allow read: if isOpsUser();
       allow write: if false;

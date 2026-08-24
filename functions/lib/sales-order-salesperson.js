@@ -9,6 +9,10 @@ import { loadHiddenZohoSalespersonIds } from './zoho-salespersons.js';
 export const CLOUD_CHARGES_SALESPERSON_ID = '99381000004019936';
 export const CLOUD_CHARGES_SALESPERSON_NAME = 'Cloud Charges';
 
+/** Known Zoho id for Shibin (spare order-type SOs). */
+export const SHIBIN_SALESPERSON_ID = '99381000031557442';
+export const SHIBIN_SALESPERSON_NAME = 'Shibin';
+
 const SPARE_INCHARGE_SETTINGS_DOC = 'appSettings/spareIncharge';
 
 export function normalizeStaffZohoSalespersonIds(data = {}) {
@@ -224,5 +228,52 @@ export async function resolveCloudChargesSalesperson() {
     name: match.name || CLOUD_CHARGES_SALESPERSON_NAME,
     staffUid: '',
     staffName: CLOUD_CHARGES_SALESPERSON_NAME,
+  };
+}
+
+/**
+ * Zoho salesperson "Shibin" for spare-segment SOs.
+ * @throws {Error} when not found
+ */
+export async function resolveShibinSalesperson() {
+  const db = getFirestore();
+  const byName = await db.collection('zohoSalespersons')
+    .where('name', '==', SHIBIN_SALESPERSON_NAME)
+    .limit(5)
+    .get();
+
+  let match = null;
+  for (const docSnap of byName.docs) {
+    const data = docSnap.data() || {};
+    if (data.active === false) continue;
+    if (String(data.name ?? '').trim().toLowerCase() !== SHIBIN_SALESPERSON_NAME.toLowerCase()) continue;
+    match = { id: docSnap.id, name: String(data.name ?? SHIBIN_SALESPERSON_NAME).trim() };
+    break;
+  }
+
+  if (!match) {
+    const fallback = await db.collection('zohoSalespersons').doc(SHIBIN_SALESPERSON_ID).get();
+    if (fallback.exists) {
+      const data = fallback.data() || {};
+      if (data.active !== false) {
+        match = {
+          id: fallback.id,
+          name: String(data.name ?? SHIBIN_SALESPERSON_NAME).trim() || SHIBIN_SALESPERSON_NAME,
+        };
+      }
+    }
+  }
+
+  if (!match) {
+    throw new Error(
+      'Zoho salesperson “Shibin” was not found. Sync salespersons or contact support before ordering spare parts.',
+    );
+  }
+
+  return {
+    id: match.id,
+    name: match.name || SHIBIN_SALESPERSON_NAME,
+    staffUid: '',
+    staffName: SHIBIN_SALESPERSON_NAME,
   };
 }

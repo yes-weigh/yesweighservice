@@ -11,6 +11,7 @@ import { db } from '../firebase';
 import { normalizePhone, isValidPhone } from './loginAuth';
 import { updateUserProfile } from './userAdmin';
 import { listZohoSalespersonsFromFirestore } from './zohoSalespersons';
+import { isPortalVisibleKamName, portalKamKey } from './dealerKamDisplay';
 import type { FirestoreUserDoc } from '../types';
 import { normalizeRole } from '../types';
 
@@ -244,6 +245,53 @@ export async function unlinkZohoSalespersonFromPortalUser(input: {
   const fields = zohoLinksToFirestoreFields(next);
   await updateUserProfile(db, uid, fields);
   return { staffUid: uid, links: fields.zohoSalespersonLinks };
+}
+
+export type KamStaffPhoto = {
+  uid: string;
+  displayName: string;
+  hrPhotoUrl: string | null;
+  hrPhotoStoragePath: string | null;
+};
+
+/** Staff photos keyed by Zoho salesperson id and by portal KAM name. */
+export async function listKamStaffDirectory(): Promise<{
+  byId: Map<string, KamStaffPhoto>;
+  byName: Map<string, KamStaffPhoto>;
+}> {
+  const snap = await getDocs(collection(db, 'users'));
+  const byId = new Map<string, KamStaffPhoto>();
+  const byName = new Map<string, KamStaffPhoto>();
+  for (const docSnap of snap.docs) {
+    const data = docSnap.data() as Record<string, unknown>;
+    if (data.active === false) continue;
+    const role = String(data.role ?? '');
+    if (role !== 'staff' && role !== 'super_admin') continue;
+    const photo: KamStaffPhoto = {
+      uid: docSnap.id,
+      displayName: String(data.displayName ?? 'Staff').trim() || 'Staff',
+      hrPhotoUrl: data.hrPhotoUrl ? String(data.hrPhotoUrl) : null,
+      hrPhotoStoragePath: data.hrPhotoStoragePath ? String(data.hrPhotoStoragePath) : null,
+    };
+    const nameKey = portalKamKey(photo.displayName);
+    if (nameKey && isPortalVisibleKamName(photo.displayName) && !byName.has(nameKey)) {
+      byName.set(nameKey, photo);
+    }
+    const links = normalizeZohoSalespersonLinks({
+      zohoSalespersonLinks: data.zohoSalespersonLinks as ZohoSalespersonLink[] | null | undefined,
+      zohoSalespersonIds: data.zohoSalespersonIds as string[] | null | undefined,
+      zohoSalespersonId: data.zohoSalespersonId as string | null | undefined,
+      zohoSalespersonName: data.zohoSalespersonName as string | null | undefined,
+    });
+    for (const link of links) {
+      if (!byId.has(link.id)) byId.set(link.id, photo);
+      if (link.name) {
+        const linkKey = portalKamKey(link.name);
+        if (linkKey && !byName.has(linkKey)) byName.set(linkKey, photo);
+      }
+    }
+  }
+  return { byId, byName };
 }
 
 export async function listClaimedZohoSalespersonIds(

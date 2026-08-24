@@ -38,7 +38,7 @@ import {
   type PortalOwnerOption,
 } from './PortalOwnerAutocomplete';
 
-type FilterKey = 'all' | 'unlinked' | 'linked' | 'hidden' | 'inactive';
+type FilterKey = 'visible' | 'all' | 'unlinked' | 'linked' | 'hidden' | 'inactive';
 
 type HideDialogState = {
   row: ZohoSalespersonOption;
@@ -61,7 +61,7 @@ export function ZohoSalespersonsPanel() {
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
   const [search, setSearch] = useState('');
-  const [filter, setFilter] = useState<FilterKey>('all');
+  const [filter, setFilter] = useState<FilterKey>('visible');
   const [highlightedId, setHighlightedId] = useState<string | null>(null);
   const [hideDialog, setHideDialog] = useState<HideDialogState | null>(null);
 
@@ -124,6 +124,7 @@ export function ZohoSalespersonsPanel() {
     const q = search.trim().toLowerCase();
     return rows.filter(row => {
       const owner = claimed.get(row.id);
+      if (filter === 'visible' && row.hiddenFromPortal) return false;
       if (filter === 'unlinked' && owner) return false;
       if (filter === 'linked' && !owner) return false;
       if (filter === 'hidden' && !row.hiddenFromPortal) return false;
@@ -143,13 +144,15 @@ export function ZohoSalespersonsPanel() {
     let linked = 0;
     let hidden = 0;
     let inactive = 0;
+    let visible = 0;
     for (const row of rows) {
       if (claimed.has(row.id)) linked += 1;
       else unlinked += 1;
       if (row.hiddenFromPortal) hidden += 1;
+      else visible += 1;
       if (!row.active) inactive += 1;
     }
-    return { total: rows.length, unlinked, linked, hidden, inactive };
+    return { total: rows.length, visible, unlinked, linked, hidden, inactive };
   }, [rows, claimed]);
 
   const reassignTargets = useMemo(() => {
@@ -499,6 +502,7 @@ export function ZohoSalespersonsPanel() {
           </label>
           <div className="zoho-sp-panel__filters" role="group" aria-label="Filter salespersons">
             {([
+              ['visible', `Visible (${counts.visible})`],
               ['all', `All (${counts.total})`],
               ['unlinked', `Unlinked (${counts.unlinked})`],
               ['linked', `Linked (${counts.linked})`],

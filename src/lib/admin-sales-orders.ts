@@ -112,6 +112,7 @@ export interface AdminFirestoreSalesOrder {
   yesOneCreatedFromCart?: boolean;
   /** Portal user who placed the SO (dealer owner after staff approval). */
   yesOneCreatedByUid?: string | null;
+  yesOneOrderSegment?: 'product' | 'spare' | 'software' | null;
   /** Dealer staff who submitted the cart for approval. */
   yesOneDealerStaffUid?: string | null;
   /** Linked Zoho invoice when this SO has been invoiced. */
@@ -278,6 +279,12 @@ export function mapAdminSalesOrderDoc(
     yesOneStage: data.yesOneStage ? String(data.yesOneStage) : null,
     yesOneCreatedFromCart: Boolean(data.yesOneCreatedFromCart),
     yesOneCreatedByUid: data.yesOneCreatedByUid ? String(data.yesOneCreatedByUid) : null,
+    yesOneOrderSegment: (() => {
+      const segment = String(data.yesOneOrderSegment ?? '').trim().toLowerCase();
+      return segment === 'product' || segment === 'spare' || segment === 'software'
+        ? segment
+        : null;
+    })(),
     yesOneDealerStaffUid: data.yesOneDealerStaffUid ? String(data.yesOneDealerStaffUid) : null,
     zohoInvoiceId: data.zohoInvoiceId ? String(data.zohoInvoiceId) : null,
     zohoInvoiceNumber: data.zohoInvoiceNumber ? String(data.zohoInvoiceNumber) : null,
@@ -347,6 +354,54 @@ export function buildAdminSalesOrdersQueryLegacy(
   category: InvoiceCategory | 'all' = 'all',
 ) {
   return buildAdminSalesOrdersQuery({ sort, pageSize, cursor, category });
+}
+
+export function isSalesOrderInvoiced(
+  so: Pick<AdminFirestoreSalesOrder, 'yesOneStage' | 'status' | 'zohoInvoiceId'>,
+): boolean {
+  const stage = String(so.yesOneStage || '').trim();
+  if (stage === 'completed') return true;
+  const zoho = String(so.status || '').toLowerCase().replace(/\s+/g, '_');
+  if (zoho === 'invoiced') return true;
+  return Boolean(so.zohoInvoiceId);
+}
+
+/** Spare / software SOs this staff created that are not invoiced yet. */
+export async function fetchStaffOpenFollowOnSalesOrders(
+  uid: string,
+): Promise<AdminFirestoreSalesOrder[]> {
+  const id = String(uid ?? '').trim();
+  if (!id) return [];
+  try {
+    const snap = await getDocs(query(
+      collection(db, 'salesOrders'),
+      where('yesOneCreatedByUid', '==', id),
+      limit(80),
+    ));
+    return snap.docs
+      .map(mapAdminSalesOrderDoc)
+      .filter(row => {
+        const segment = String(row.yesOneOrderSegment ?? '').trim();
+        if (segment !== 'spare' && segment !== 'software') return false;
+        return !isSalesOrderInvoiced(row);
+      });
+  } catch {
+    return [];
+  }
+}
+
+export function mergeSalesOrderRows(
+  primary: AdminFirestoreSalesOrder[],
+  extra: AdminFirestoreSalesOrder[],
+): AdminFirestoreSalesOrder[] {
+  const seen = new Set(primary.map(row => row.id));
+  const next = [...primary];
+  for (const row of extra) {
+    if (seen.has(row.id)) continue;
+    seen.add(row.id);
+    next.push(row);
+  }
+  return next;
 }
 
 export function subscribeAdminSalesOrders(

@@ -11,6 +11,7 @@ import {
 } from 'firebase/firestore';
 import { getFunctions, httpsCallable } from 'firebase/functions';
 import { app, db } from '../firebase';
+import { serialNumbersFromLineItem } from './invoices';
 
 export const GATC_REPORTS_COLLECTION = 'gatcReports';
 
@@ -32,6 +33,14 @@ export type GatcReportLineItem = {
   lineTotal: number;
   hasStamping: boolean;
   isWeighingScale: boolean;
+};
+
+export type GatcInvoiceLineSerials = {
+  productId: string | null;
+  itemId: string | null;
+  sku: string | null;
+  name: string;
+  serialNumbers: string[];
 };
 
 export type GatcReportTotals = {
@@ -147,6 +156,125 @@ export async function fetchGatcReportForInvoice(
   } catch {
     return null;
   }
+}
+
+function parseInvoiceLineSerials(raw: Record<string, unknown>): string[] {
+  const serials: string[] = [];
+
+  const pushAll = (values: unknown) => {
+    if (!Array.isArray(values)) return;
+    for (const entry of values) {
+      if (typeof entry === 'string' && entry.trim()) {
+        serials.push(entry.trim());
+        continue;
+      }
+      if (!entry || typeof entry !== 'object') continue;
+      const row = entry as Record<string, unknown>;
+      const value = row.serial_number
+        ?? row.serialnumber
+        ?? row.serial_number_value
+        ?? row.serialNumber;
+      if (value) serials.push(String(value).trim());
+    }
+  };
+
+  pushAll(raw.serialNumbers);
+  pushAll(raw.serial_numbers);
+  pushAll(raw.item_serial_numbers);
+  pushAll(raw.itemSerialNumbers);
+
+  for (const field of [
+    ...(Array.isArray(raw.item_custom_fields) ? raw.item_custom_fields : []),
+    ...(Array.isArray(raw.custom_fields) ? raw.custom_fields : []),
+  ]) {
+    if (!field || typeof field !== 'object') continue;
+    const row = field as Record<string, unknown>;
+    const label = String(row.label ?? row.api_name ?? row.customfield_id ?? '').toLowerCase();
+    if (!label.includes('serial') && !label.includes('mac')) continue;
+    const value = row.value ?? row.value_formatted;
+    if (value) serials.push(String(value).trim());
+  }
+
+  const description = raw.description != null ? String(raw.description) : null;
+  serials.push(...serialNumbersFromLineItem({
+    description,
+    serialNumbers: undefined,
+  }));
+
+  if (description) {
+    const listPattern = /\b(?:serial(?:\s*numbers?)?|s\/n|sn)\s*[:#-]\s*([^\n]+)/gi;
+    let match = listPattern.exec(description);
+    while (match) {
+      const chunk = match[1] ?? '';
+      for (const part of chunk.split(/[,;|]+/)) {
+        const value = part.trim();
+        if (value.length >= 3) serials.push(value);
+      }
+      match = listPattern.exec(description);
+    }
+  }
+
+  return [...new Set(serials.filter(Boolean))];
+}
+
+/** Machine serials from the mirrored invoice (not stored on gatcReports). */
+export async function fetchGatcInvoiceLineSerials(
+  customerId: string | null | undefined,
+  invoiceId: string,
+): Promise<GatcInvoiceLineSerials[]> {
+  const invId = invoiceId.trim();
+  const cid = String(customerId ?? '').trim();
+  if (!invId || !cid) return [];
+  try {
+    const snap = await getDoc(doc(db, 'zohoCustomers', cid, 'invoices', invId));
+    if (!snap.exists()) return [];
+    const lines = (Array.isArray(snap.data()?.lineItems) ? snap.data()?.lineItems : []) as unknown[];
+    return lines
+      .filter((row): row is Record<string, unknown> => Boolean(row) && typeof row === 'object')
+      .map((raw): GatcInvoiceLineSerials => ({
+        productId: raw.productId != null ? String(raw.productId) : (
+          raw.itemId != null ? String(raw.itemId) : null
+        ),
+        itemId: raw.itemId != null ? String(raw.itemId) : (
+          raw.item_id != null ? String(raw.item_id) : null
+        ),
+        sku: raw.sku != null ? String(raw.sku) : null,
+        name: String(raw.name ?? ''),
+        serialNumbers: parseInvoiceLineSerials(raw),
+      }))
+      .filter(row => row.serialNumbers.length > 0);
+  } catch {
+    return [];
+  }
+}
+
+export function serialsForGatcLine(
+  line: GatcReportLineItem,
+  invoiceLines: GatcInvoiceLineSerials[],
+  used: Set<number>,
+): string[] {
+  const name = line.name.trim().toLowerCase();
+  const sku = line.sku?.trim().toLowerCase() ?? '';
+  const unused = invoiceLines
+    .map((inv, i) => ({ inv, i }))
+    .filter(row => !used.has(row.i));
+
+  const pick = (predicate: (inv: GatcInvoiceLineSerials) => boolean) =>
+    unused.find(row => predicate(row.inv));
+
+  const match = pick(inv => Boolean(line.productId && inv.productId && line.productId === inv.productId))
+    ?? pick(inv => Boolean(line.itemId && inv.itemId && line.itemId === inv.itemId))
+    ?? pick(inv => Boolean(sku && inv.sku && sku === inv.sku.trim().toLowerCase()))
+    ?? pick(inv => Boolean(name && inv.name.trim().toLowerCase() === name))
+    ?? pick(inv => {
+      const invName = inv.name.trim().toLowerCase();
+      return Boolean(name && invName && (invName.includes(name) || name.includes(invName)));
+    })
+    ?? (unused.length === 1 ? unused[0] : undefined);
+
+  if (!match) return [];
+  used.add(match.i);
+  return match.inv.serialNumbers;
 }
 
 export async function listGatcReports(pageSize = 100): Promise<GatcReportDoc[]> {
@@ -291,6 +419,72 @@ export async function backfillGatcReportsFromInvoices(options?: {
   >(functions, 'backfillGatcReportsFromInvoicesFn', { timeout: 540_000 });
   const res = await callable({ dryRun: Boolean(options?.dryRun) });
   return res.data;
+}
+
+const LIGHT_SHARE = { yesweigh: 100, contractor: 100 } as const;
+const HEAVY_SHARE = { yesweigh: 150, contractor: 200 } as const;
+
+/** First kg token from a range like "20Kg 2g" or "5Kg 500mg". */
+export function parseGatcStampingCapacityKg(range: string | null | undefined): number | null {
+  const match = String(range ?? '').match(/(\d+(?:\.\d+)?)\s*kgs?\b/i);
+  if (!match) return null;
+  const kg = Number(match[1]);
+  return Number.isFinite(kg) ? kg : null;
+}
+
+/** Up to 20 kg → light share; above 20 kg → heavy. Fee 200/350 is the fallback. */
+export function isLightGatcStampingLine(line: Pick<
+  GatcReportLineItem,
+  'gatcStampingRange' | 'gatcFeePerUnit' | 'lineGatcTotal' | 'qty'
+>): boolean {
+  const kg = parseGatcStampingCapacityKg(line.gatcStampingRange);
+  if (kg != null) return kg <= 20;
+  const fee = line.gatcFeePerUnit > 0
+    ? line.gatcFeePerUnit
+    : (line.qty > 0 ? line.lineGatcTotal / line.qty : 0);
+  return fee > 0 && fee <= 200;
+}
+
+export function gatcFeeShareForLine(line: GatcReportLineItem): {
+  yesweigh: number;
+  contractor: number;
+} {
+  if (!line.hasStamping || line.qty <= 0) return { yesweigh: 0, contractor: 0 };
+  const share = isLightGatcStampingLine(line) ? LIGHT_SHARE : HEAVY_SHARE;
+  return {
+    yesweigh: share.yesweigh * line.qty,
+    contractor: share.contractor * line.qty,
+  };
+}
+
+export function sumGatcQtyByWeightBand(
+  lines: ReadonlyArray<GatcReportLineItem>,
+): { upto20kg: number; above20kg: number } {
+  return lines.reduce(
+    (sum, line) => {
+      if (!line.hasStamping || line.qty <= 0) return sum;
+      if (isLightGatcStampingLine(line)) {
+        return { ...sum, upto20kg: sum.upto20kg + line.qty };
+      }
+      return { ...sum, above20kg: sum.above20kg + line.qty };
+    },
+    { upto20kg: 0, above20kg: 0 },
+  );
+}
+
+export function sumGatcFeeShares(
+  lines: ReadonlyArray<GatcReportLineItem>,
+): { yesweigh: number; contractor: number } {
+  return lines.reduce(
+    (sum, line) => {
+      const share = gatcFeeShareForLine(line);
+      return {
+        yesweigh: sum.yesweigh + share.yesweigh,
+        contractor: sum.contractor + share.contractor,
+      };
+    },
+    { yesweigh: 0, contractor: 0 },
+  );
 }
 
 export function gatcReportMatchesQuery(report: GatcReportDoc, rawQuery: string): boolean {

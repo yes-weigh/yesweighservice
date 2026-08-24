@@ -14,8 +14,8 @@ import {
   resolveSalespersonForCustomer,
   resolveSalespersonForStaff,
   resolveSalespersonById,
-  resolveSpareInchargeSalesperson,
   resolveCloudChargesSalesperson,
+  resolveShibinSalesperson,
 } from './sales-order-salesperson.js';
 import {
   classifyOrderLineSegment,
@@ -479,9 +479,9 @@ async function resolveSegmentSalespersons(segments, {
   }
   if (needed.has('spare')) {
     try {
-      bySegment.spare = await resolveSpareInchargeSalesperson();
+      bySegment.spare = await resolveShibinSalesperson();
     } catch (err) {
-      throw new HttpsError('failed-precondition', err?.message || 'Spare Incharge salesperson missing.');
+      throw new HttpsError('failed-precondition', err?.message || 'Shibin salesperson missing.');
     }
   }
   if (needed.has('software')) {

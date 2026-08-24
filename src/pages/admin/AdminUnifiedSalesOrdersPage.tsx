@@ -41,6 +41,8 @@ import {
   fetchAdminSalesOrdersForCustomers,
   fetchAdminSalesOrdersPageDetailed,
   fetchAllAdminSalesOrdersInRange,
+  fetchStaffOpenFollowOnSalesOrders,
+  mergeSalesOrderRows,
   filterAdminSalesOrders,
   loadAdminSalesOrderCursorDocs,
   toSalesOrderDateKey,
@@ -334,6 +336,11 @@ export const AdminUnifiedSalesOrdersPage: React.FC = () => {
   const canCreateStaffOrder = hasStaffPermission(user, 'orders.manage');
   const salespersonIds = useMemo(() => salespersonScopeForUser(user), [user]);
   const salespersonScopeKey = salespersonIds?.slice().sort().join(',') ?? '';
+  const attachFollowOnOrders = useCallback(async (rows: AdminFirestoreSalesOrder[]) => {
+    if (salespersonIds == null || !user?.uid) return rows;
+    const extra = await fetchStaffOpenFollowOnSalesOrders(user.uid);
+    return mergeSalesOrderRows(rows, extra);
+  }, [salespersonIds, user?.uid]);
   const scrollRef = useRevealScrollbarOnScroll();
 
   const restored = pendingReturnRef.current;
@@ -684,9 +691,9 @@ export const AdminUnifiedSalesOrdersPage: React.FC = () => {
         });
 
       void load
-        .then(({ rows, truncated: wasTruncated }) => {
+        .then(async ({ rows, truncated: wasTruncated }) => {
           if (cancelled) return;
-          setZohoOrders(rows);
+          setZohoOrders(await attachFollowOnOrders(rows));
           setTruncated(wasTruncated);
         })
         .catch(err => {
@@ -719,9 +726,9 @@ export const AdminUnifiedSalesOrdersPage: React.FC = () => {
       yesOneStages,
       salespersonIds,
     })
-      .then(result => {
+      .then(async result => {
         if (cancelled) return;
-        setZohoOrders(result.rows);
+        setZohoOrders(await attachFollowOnOrders(result.rows));
         if (!searchActive && result.lastDoc) {
           pageStartCursors.current[page] = result.lastDoc;
         }
@@ -753,6 +760,7 @@ export const AdminUnifiedSalesOrdersPage: React.FC = () => {
     salespersonIds,
     salespersonScopeKey,
     cursorsReady,
+    attachFollowOnOrders,
   ]);
 
   const loading = zohoLoading || countsLoading;

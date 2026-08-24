@@ -66,6 +66,7 @@ import { DealerLevelDefinitionsPanel } from './components/dealers/DealerLevelDef
 import { AuditCyclesTab } from './pages/admin/settings/AuditCyclesTab';
 import { AuditReportTab } from './pages/admin/settings/AuditReportTab';
 import { GatcReportTab } from './pages/admin/settings/GatcReportTab';
+import { IncentiveReportTab } from './pages/admin/settings/IncentiveReportTab';
 import { OpsPlaceholderPage } from './pages/admin/OpsPlaceholderPage';
 import { InventoryAuditItemPage } from './pages/admin/InventoryAuditItemPage';
 import { InventoryAuditLinkedGroupPage } from './pages/admin/InventoryAuditLinkedGroupPage';
@@ -342,6 +343,7 @@ const App: React.FC = () => (
               <Route path="reports" element={<ReportsLayout basePath="/super-admin" />}>
                 <Route path="audit-report" element={<AuditReportTab />} />
                 <Route path="gatc-report" element={<GatcReportTab />} />
+                <Route path="incentive-report" element={<IncentiveReportTab />} />
               </Route>
               <Route
                 path="whatsapp"
@@ -412,6 +414,7 @@ const App: React.FC = () => (
               <Route path="reports" element={<ReportsLayout basePath="/staff" />}>
                 <Route path="audit-report" element={<AuditReportTab />} />
                 <Route path="gatc-report" element={<GatcReportTab />} />
+                <Route path="incentive-report" element={<IncentiveReportTab />} />
               </Route>
               <Route path="hr/*" element={<LegacyPathRedirect from="/staff/hr" to="/staff/settings/hr" />} />
               <Route path="training" element={<Navigate to="/staff/settings/training" replace />} />

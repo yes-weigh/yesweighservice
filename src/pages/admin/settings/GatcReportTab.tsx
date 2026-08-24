@@ -1,24 +1,20 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
-  CheckCircle2,
   FileText,
-  IndianRupee,
-  Info,
-  Package,
-  Receipt,
-  RefreshCw,
-  Search,
-  Stamp,
   Upload,
-  Wallet,
 } from 'lucide-react';
-import { formatCurrency } from '../../../lib/catalog';
+import { formatCurrencyWhole } from '../../../lib/catalog';
 import {
-  gatcReportMatchesQuery,
+  fetchGatcInvoiceLineSerials,
   listGatcReports,
+  serialsForGatcLine,
+  sumGatcFeeShares,
+  sumGatcQtyByWeightBand,
+  type GatcInvoiceLineSerials,
   type GatcReportDoc,
   type GatcReportLineItem,
 } from '../../../lib/gatcReports';
+import { canonicalSalespersonName, isPortalVisibleKamName } from '../../../lib/dealerKamDisplay';
 
 const PAGE_SIZE = 25;
 /** First month available in the GATC month filter. */
@@ -78,6 +74,16 @@ function parseReportDate(value: string | null | undefined): Date | null {
   return Number.isNaN(d.getTime()) ? null : d;
 }
 
+function formatInvoiceDate(report: GatcReportDoc): string {
+  const invoiceAt = parseReportDate(report.invoiceDate);
+  if (!invoiceAt) return formatStampedOn(report).date;
+  return invoiceAt.toLocaleDateString('en-GB', {
+    day: '2-digit',
+    month: 'short',
+    year: 'numeric',
+  });
+}
+
 function formatStampedOn(report: GatcReportDoc): { date: string; time: string } {
   const stampedAt = parseReportDate(report.createdAt) ?? parseReportDate(report.invoiceDate);
   if (!stampedAt) return { date: '—', time: '' };
@@ -93,17 +99,6 @@ function formatStampedOn(report: GatcReportDoc): { date: string; time: string } 
       hour12: true,
     }),
   };
-}
-
-function formatGeneratedAt(date: Date): string {
-  return date.toLocaleString('en-GB', {
-    day: '2-digit',
-    month: 'short',
-    year: 'numeric',
-    hour: '2-digit',
-    minute: '2-digit',
-    hour12: true,
-  });
 }
 
 function csvEscape(value: string): string {
@@ -142,7 +137,7 @@ function exportGatcReportsCsv(reports: GatcReportDoc[], monthLabel: string): voi
   const url = URL.createObjectURL(blob);
   const anchor = document.createElement('a');
   anchor.href = url;
-  anchor.download = `gatc-billwise-${monthLabel.replace(/\s+/g, '-').toLowerCase()}.csv`;
+  anchor.download = `gatc-report-${monthLabel.replace(/\s+/g, '-').toLowerCase()}.csv`;
   anchor.click();
   URL.revokeObjectURL(url);
 }
@@ -157,18 +152,20 @@ export const GatcReportTab: React.FC = () => {
   const [rows, setRows] = useState<GatcReportDoc[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
-  const [search, setSearch] = useState('');
   const [month, setMonth] = useState(defaultMonth);
+  const [kam, setKam] = useState('');
   const [page, setPage] = useState(1);
   const [expandedId, setExpandedId] = useState<string | null>(null);
-  const [generatedAt, setGeneratedAt] = useState(() => new Date());
+  const [serialsByInvoice, setSerialsByInvoice] = useState<
+    Record<string, GatcInvoiceLineSerials[]>
+  >({});
+  const [serialsLoadingId, setSerialsLoadingId] = useState<string | null>(null);
 
   const loadAll = useCallback(async () => {
     setLoading(true);
     setError('');
     try {
       setRows((await listGatcReports(500)).filter(report => report.hasStamping));
-      setGeneratedAt(new Date());
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Could not load GATC report.');
       setRows([]);
@@ -184,15 +181,56 @@ export const GatcReportTab: React.FC = () => {
   useEffect(() => {
     setPage(1);
     setExpandedId(null);
-  }, [search, month]);
+  }, [month, kam]);
 
-  const filtered = useMemo(() => {
+  useEffect(() => {
+    if (!expandedId) return;
+    const report = rows.find(row => row.id === expandedId);
+    if (!report) return;
+    const invoiceId = report.invoiceId.trim();
+    if (!invoiceId || serialsByInvoice[invoiceId] !== undefined) return;
+
+    let cancelled = false;
+    setSerialsLoadingId(invoiceId);
+    void fetchGatcInvoiceLineSerials(report.customerId, invoiceId)
+      .then(lines => {
+        if (!cancelled) {
+          setSerialsByInvoice(prev => ({ ...prev, [invoiceId]: lines }));
+        }
+      })
+      .finally(() => {
+        if (!cancelled) setSerialsLoadingId(current => (current === invoiceId ? null : current));
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [expandedId, rows, serialsByInvoice]);
+
+  const monthRows = useMemo(() => {
     return rows.filter(report => {
       const invoiceMonth = String(report.invoiceDate || '').slice(0, 7);
-      if (month && invoiceMonth !== month) return false;
-      return gatcReportMatchesQuery(report, search);
+      return !month || invoiceMonth === month;
     });
-  }, [rows, search, month]);
+  }, [rows, month]);
+
+  const kamOptions = useMemo(() => {
+    const names = new Set<string>();
+    for (const report of monthRows) {
+      const name = canonicalSalespersonName(report.salespersonName);
+      if (name && isPortalVisibleKamName(name)) names.add(name);
+    }
+    return [...names].sort((a, b) => a.localeCompare(b, 'en'));
+  }, [monthRows]);
+
+  useEffect(() => {
+    if (kam && !kamOptions.includes(kam)) setKam('');
+  }, [kam, kamOptions]);
+
+  const filtered = useMemo(() => {
+    if (!kam) return monthRows;
+    return monthRows.filter(report => canonicalSalespersonName(report.salespersonName) === kam);
+  }, [monthRows, kam]);
 
   const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
   const pageRows = useMemo(() => {
@@ -208,11 +246,17 @@ export const GatcReportTab: React.FC = () => {
     const gatcFeeTotal = filtered.reduce((sum, row) => sum + row.totals.gatcFeeTotal, 0);
     const stampedQty = filtered.reduce((sum, row) => sum + row.totals.stampedQty, 0);
     const invoiceCount = filtered.length;
+    const stampedLines = filtered.flatMap(report => gatcReportDisplayLines(report));
+    const share = sumGatcFeeShares(stampedLines);
+    const qtyBand = sumGatcQtyByWeightBand(stampedLines);
     return {
       invoiceCount,
       gatcFeeTotal,
       stampedQty,
-      avgPerInvoice: invoiceCount > 0 ? gatcFeeTotal / invoiceCount : 0,
+      qtyUpto20kg: qtyBand.upto20kg,
+      qtyAbove20kg: qtyBand.above20kg,
+      yesweigh: share.yesweigh,
+      contractor: share.contractor,
     };
   }, [filtered]);
 
@@ -224,31 +268,6 @@ export const GatcReportTab: React.FC = () => {
 
   return (
     <section className="gatc-report">
-      <header className="gatc-report__masthead">
-        <div className="gatc-report__brand">
-          <span className="gatc-report__brand-icon" aria-hidden>
-            <FileText size={22} strokeWidth={2.25} />
-          </span>
-          <div>
-            <h3 className="gatc-report__title">GATC Billwise Report</h3>
-            <p className="gatc-report__lede">
-              Stamping charges on portal invoices (payment verify / invoice sync).
-            </p>
-          </div>
-        </div>
-        <div className="gatc-report__masthead-actions">
-          <button
-            type="button"
-            className="gatc-report__export-btn"
-            disabled={loading || filtered.length === 0}
-            onClick={handleExport}
-          >
-            <Upload size={15} aria-hidden />
-            Export Report
-          </button>
-        </div>
-      </header>
-
       {error ? <p className="gatc-report__error text-sm">{error}</p> : null}
 
       {loading ? (
@@ -258,89 +277,84 @@ export const GatcReportTab: React.FC = () => {
       ) : (
         <>
           <div className="gatc-report__kpis" aria-label="GATC summary">
-            <article className="gatc-report__kpi gatc-report__kpi--blue">
-              <span className="gatc-report__kpi-icon" aria-hidden>
-                <FileText size={22} strokeWidth={2.15} />
-              </span>
-              <div className="gatc-report__kpi-body">
-                <span className="gatc-report__kpi-label">Total Invoices</span>
-                <strong className="gatc-report__kpi-value">
-                  {kpis.invoiceCount.toLocaleString('en-IN')}
-                </strong>
-                <span className="gatc-report__kpi-sub">This Month</span>
-              </div>
+            <article className="gatc-report__kpi gatc-report__kpi--inv">
+              <span className="gatc-report__kpi-label">INV</span>
+              <strong className="gatc-report__kpi-value">
+                {kpis.invoiceCount.toLocaleString('en-IN')}
+              </strong>
             </article>
 
-            <article className="gatc-report__kpi gatc-report__kpi--green">
-              <span className="gatc-report__kpi-icon" aria-hidden>
-                <Stamp size={22} strokeWidth={2.15} />
-              </span>
-              <div className="gatc-report__kpi-body">
-                <span className="gatc-report__kpi-label">Stamped Qty</span>
+            <article className="gatc-report__kpi gatc-report__kpi--qty" aria-label="Stamped quantity split">
+              <div className="gatc-report__kpi-head">
+                <span className="gatc-report__kpi-label">Total Qty</span>
                 <strong className="gatc-report__kpi-value">
                   {kpis.stampedQty.toLocaleString('en-IN')}
                 </strong>
-                <span className="gatc-report__kpi-sub">Instruments Stamped</span>
               </div>
+              <dl className="gatc-report__stat-list">
+                <div className="gatc-report__stat gatc-report__stat--light">
+                  <dt>Below 20 kg</dt>
+                  <dd>{kpis.qtyUpto20kg.toLocaleString('en-IN')}</dd>
+                </div>
+                <div className="gatc-report__stat gatc-report__stat--heavy">
+                  <dt>Above 20 kg</dt>
+                  <dd>{kpis.qtyAbove20kg.toLocaleString('en-IN')}</dd>
+                </div>
+              </dl>
             </article>
 
-            <article className="gatc-report__kpi gatc-report__kpi--purple">
-              <span className="gatc-report__kpi-icon" aria-hidden>
-                <IndianRupee size={22} strokeWidth={2.15} />
-              </span>
-              <div className="gatc-report__kpi-body">
-                <span className="gatc-report__kpi-label">GATC Fees</span>
-                <strong className="gatc-report__kpi-value gatc-report__kpi-value--green">
-                  {formatCurrency(kpis.gatcFeeTotal)}
-                </strong>
-                <span className="gatc-report__kpi-sub">Total Collected</span>
-              </div>
-            </article>
-
-            <article className="gatc-report__kpi gatc-report__kpi--orange">
-              <span className="gatc-report__kpi-icon" aria-hidden>
-                <Receipt size={22} strokeWidth={2.15} />
-              </span>
-              <div className="gatc-report__kpi-body">
-                <span className="gatc-report__kpi-label">Avg. Per Invoice</span>
-                <strong className="gatc-report__kpi-value gatc-report__kpi-value--orange">
-                  {formatCurrency(kpis.avgPerInvoice)}
-                </strong>
-                <span className="gatc-report__kpi-sub">Average Amount</span>
-              </div>
+            <article className="gatc-report__kpi gatc-report__kpi--fees" aria-label="GATC fees split">
+              <dl className="gatc-report__stat-list gatc-report__stat-list--fees">
+                <div className="gatc-report__stat gatc-report__stat--t">
+                  <dt>Total</dt>
+                  <dd>{formatCurrencyWhole(kpis.gatcFeeTotal)}</dd>
+                </div>
+                <div className="gatc-report__stat gatc-report__stat--y">
+                  <dt>Yesweigh</dt>
+                  <dd>{formatCurrencyWhole(kpis.yesweigh)}</dd>
+                </div>
+                <div className="gatc-report__stat gatc-report__stat--c">
+                  <dt>Contractor</dt>
+                  <dd>{formatCurrencyWhole(kpis.contractor)}</dd>
+                </div>
+              </dl>
             </article>
           </div>
 
           <div className="gatc-report__filters">
-            <label className="gatc-report__search">
-              <Search size={15} aria-hidden />
-              <input
-                type="search"
-                placeholder="Search invoice, customer, SKU, range..."
-                value={search}
-                onChange={e => setSearch(e.target.value)}
-              />
-            </label>
-            <label className="gatc-report__month">
-              <span>Month</span>
-              <select
-                value={month}
-                onChange={e => setMonth(e.target.value)}
-                aria-label="Report month"
-              >
-                {monthOptions.map(opt => (
-                  <option key={opt.value} value={opt.value}>{opt.label}</option>
-                ))}
-              </select>
-            </label>
+            <div className="gatc-report__filters-start">
+              <label className="gatc-report__month">
+                <select
+                  value={month}
+                  onChange={e => setMonth(e.target.value)}
+                  aria-label="Report month"
+                >
+                  {monthOptions.map(opt => (
+                    <option key={opt.value} value={opt.value}>{opt.label}</option>
+                  ))}
+                </select>
+              </label>
+              <label className="gatc-report__kam">
+                <select
+                  value={kam}
+                  onChange={e => setKam(e.target.value)}
+                  aria-label="KAM"
+                >
+                  <option value="">All KAM</option>
+                  {kamOptions.map(name => (
+                    <option key={name} value={name}>{name}</option>
+                  ))}
+                </select>
+              </label>
+            </div>
             <button
               type="button"
-              className="gatc-report__refresh-btn"
-              disabled={loading}
-              onClick={() => void loadAll()}
+              className="gatc-report__export-btn"
+              disabled={loading || filtered.length === 0}
+              onClick={handleExport}
             >
-              <RefreshCw size={15} className={loading ? 'spin-icon' : undefined} aria-hidden />
-              Refresh
+              <Upload size={15} aria-hidden />
+              Export
             </button>
           </div>
 
@@ -351,156 +365,113 @@ export const GatcReportTab: React.FC = () => {
               <p>
                 {rows.length === 0
                   ? 'Entries appear when a stamped portal invoice is created or synced.'
-                  : 'Try clearing search or choosing another month.'}
+                  : 'Try another month or KAM.'}
               </p>
             </div>
           ) : (
             <>
-              <div className="gatc-report__ledger" aria-label="GATC billwise ledger">
-                <div className="gatc-report__ledger-scroll">
-                  <table className="gatc-report__ledger-table">
-                    <thead>
-                      <tr>
-                        <th>Invoice No.</th>
-                        <th>Customer / Details</th>
-                        <th className="is-num">Instruments Stamped Qty</th>
-                        <th>Stamped On</th>
-                        <th className="is-num">GATC Fees (₹)</th>
-                        <th>Status</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {pageRows.map(report => {
-                        const open = expandedId === report.id;
-                        const displayLines = gatcReportDisplayLines(report);
-                        const stamped = formatStampedOn(report);
-                        const detailLine = [
-                          report.invoiceDate,
-                          report.salespersonName,
-                        ].filter(Boolean).join(' · ');
-                        return (
-                          <React.Fragment key={report.id}>
-                            <tr
-                              className={`gatc-report__data-row${open ? ' is-open' : ''}`}
-                              tabIndex={0}
-                              aria-expanded={open}
-                              onClick={() => setExpandedId(open ? null : report.id)}
-                              onKeyDown={event => {
-                                if (event.key === 'Enter' || event.key === ' ') {
-                                  event.preventDefault();
-                                  setExpandedId(open ? null : report.id);
-                                }
-                              }}
-                            >
-                              <td>
-                                <div className="gatc-report__invoice-cell">
-                                  <strong>{report.invoiceNumber || report.invoiceId}</strong>
-                                  <em className="gatc-report__badge">Stamped</em>
-                                </div>
-                              </td>
-                              <td>
-                                <div className="gatc-report__customer-cell">
-                                  <strong>{report.customerName || '—'}</strong>
-                                  {detailLine ? <span>{detailLine}</span> : null}
-                                  {report.salesOrderNumber ? (
-                                    <span>SO {report.salesOrderNumber}</span>
-                                  ) : null}
-                                </div>
-                              </td>
-                              <td className="is-num">
-                                <span className="gatc-report__qty-cell">
-                                  <Package size={15} aria-hidden />
-                                  {report.totals.stampedQty.toLocaleString('en-IN')}
-                                </span>
-                              </td>
-                              <td>
-                                <div className="gatc-report__stamped-on">
-                                  <strong>{stamped.date}</strong>
-                                  {stamped.time ? <span>{stamped.time}</span> : null}
-                                </div>
-                              </td>
-                              <td className="is-num">
-                                <span className="gatc-report__fee">
-                                  {formatCurrency(report.totals.gatcFeeTotal)}
-                                </span>
-                              </td>
-                              <td>
-                                <div className="gatc-report__status">
-                                  <CheckCircle2 size={16} aria-hidden />
-                                  <div>
-                                    <strong>Stamped</strong>
-                                    <span>
-                                      {displayLines.length.toLocaleString('en-IN')}
-                                      {' '}
-                                      {displayLines.length === 1 ? 'line' : 'lines'}
-                                    </span>
-                                  </div>
-                                </div>
-                              </td>
-                            </tr>
-                            {open ? (
-                              <tr className="gatc-report__detail-row">
-                                <td colSpan={6}>
-                                  <div className="gatc-report__detail">
-                                    <table className="gatc-report__detail-table">
-                                      <thead>
-                                        <tr>
-                                          <th>SKU</th>
-                                          <th>Item</th>
-                                          <th className="is-num">Qty</th>
-                                          <th>Stamping</th>
-                                          <th className="is-num">Fee</th>
-                                          <th className="is-num">Total</th>
-                                        </tr>
-                                      </thead>
-                                      <tbody>
-                                        {displayLines.length === 0 ? (
-                                          <tr>
-                                            <td colSpan={6} className="gatc-report__detail-empty">
-                                              No stamping lines on this invoice.
-                                            </td>
-                                          </tr>
-                                        ) : (
-                                          displayLines.map((line, index) => (
-                                            <tr
-                                              key={`${line.productId || line.itemId || 'line'}-${index}`}
-                                              className={line.hasStamping ? 'is-stamped' : undefined}
-                                            >
-                                              <td>{line.sku || '—'}</td>
-                                              <td>{line.name}</td>
-                                              <td className="is-num">
-                                                {line.qty.toLocaleString('en-IN')}
-                                              </td>
-                                              <td>
-                                                {line.hasStamping
-                                                  ? (line.gatcStampingRange || 'Stamped')
-                                                  : 'Without'}
-                                              </td>
-                                              <td className="is-num">
-                                                {line.hasStamping
-                                                  ? formatCurrency(line.gatcFeePerUnit)
-                                                  : '—'}
-                                              </td>
-                                              <td className="is-num">
-                                                {line.hasStamping
-                                                  ? formatCurrency(line.lineGatcTotal)
-                                                  : '—'}
-                                              </td>
-                                            </tr>
-                                          ))
-                                        )}
-                                      </tbody>
-                                    </table>
-                                  </div>
-                                </td>
+              <div className="gatc-report__list" aria-label="GATC report">
+                {pageRows.map(report => {
+                  const open = expandedId === report.id;
+                  const feeLines = gatcReportDisplayLines(report).filter(
+                    line => line.hasStamping && line.lineGatcTotal > 0,
+                  );
+                  const invoiceSerialLines = serialsByInvoice[report.invoiceId] ?? [];
+                  const usedSerialLines = new Set<number>();
+                  return (
+                    <article
+                      key={report.id}
+                      className={`gatc-report__row${open ? ' is-open' : ''}`}
+                    >
+                      <button
+                        type="button"
+                        className="gatc-report__row-main"
+                        aria-expanded={open}
+                        onClick={() => setExpandedId(open ? null : report.id)}
+                      >
+                        <strong className="gatc-report__row-customer">
+                          {report.customerName || '—'}
+                        </strong>
+                        <div className="gatc-report__row-line">
+                          <span className="gatc-report__row-inv">
+                            {report.invoiceNumber || report.invoiceId}
+                            <em>{formatInvoiceDate(report)}</em>
+                          </span>
+                          <span className="gatc-report__row-qty">
+                            {report.totals.stampedQty.toLocaleString('en-IN')}
+                          </span>
+                          <span className="gatc-report__row-amt">
+                            {formatCurrencyWhole(report.totals.gatcFeeTotal)}
+                          </span>
+                        </div>
+                      </button>
+                      {open ? (
+                        <div className="gatc-report__detail">
+                          <table className="gatc-report__detail-table">
+                            <thead>
+                              <tr>
+                                <th>Item Name</th>
+                                <th className="is-num">Qty</th>
+                                <th className="is-num">Fees</th>
                               </tr>
+                            </thead>
+                            <tbody>
+                              {feeLines.length === 0 ? (
+                                <tr>
+                                  <td colSpan={3} className="gatc-report__detail-empty">
+                                    No fee lines on this invoice.
+                                  </td>
+                                </tr>
+                              ) : (
+                                feeLines.map((line, index) => {
+                                  const serials = serialsForGatcLine(
+                                    line,
+                                    invoiceSerialLines,
+                                    usedSerialLines,
+                                  );
+                                  return (
+                                    <tr
+                                      key={`${line.productId || line.itemId || 'line'}-${index}`}
+                                    >
+                                      <td>
+                                        <div className="gatc-report__detail-item">{line.name}</div>
+                                        {serials.length > 0 ? (
+                                          <div className="gatc-report__detail-serials">
+                                            {serials.join(' · ')}
+                                          </div>
+                                        ) : serialsLoadingId === report.invoiceId && index === 0 ? (
+                                          <div className="gatc-report__detail-serials is-loading">
+                                            Loading serials…
+                                          </div>
+                                        ) : null}
+                                      </td>
+                                      <td className="is-num">
+                                        {line.qty.toLocaleString('en-IN')}
+                                      </td>
+                                      <td className="is-num">
+                                        {formatCurrencyWhole(line.lineGatcTotal)}
+                                      </td>
+                                    </tr>
+                                  );
+                                })
+                              )}
+                            </tbody>
+                            {feeLines.length > 0 ? (
+                              <tfoot>
+                                <tr className="gatc-report__detail-total">
+                                  <th colSpan={2} scope="row">Total fees</th>
+                                  <td className="is-num">
+                                    {formatCurrencyWhole(report.totals.gatcFeeTotal)}
+                                  </td>
+                                </tr>
+                              </tfoot>
                             ) : null}
-                          </React.Fragment>
-                        );
-                      })}
-                    </tbody>
-                  </table>
-                </div>
+                          </table>
+                        </div>
+                      ) : null}
+                    </article>
+                  );
+                })}
               </div>
 
               {totalPages > 1 ? (
@@ -535,36 +506,6 @@ export const GatcReportTab: React.FC = () => {
                   </div>
                 </footer>
               ) : null}
-
-              <footer className="gatc-report__summary-bar" aria-label="Report totals">
-                <div className="gatc-report__summary-total">
-                  <span className="gatc-report__summary-total-icon" aria-hidden>
-                    <Wallet size={20} strokeWidth={2.1} />
-                  </span>
-                  <div className="gatc-report__summary-total-body">
-                    <span>Total GATC Fees Collected</span>
-                    <strong>{formatCurrency(kpis.gatcFeeTotal)}</strong>
-                  </div>
-                </div>
-                <div className="gatc-report__summary-stats">
-                  <div>
-                    <span>Total Invoices</span>
-                    <strong>{kpis.invoiceCount.toLocaleString('en-IN')}</strong>
-                  </div>
-                  <div>
-                    <span>Total Instruments Stamped</span>
-                    <strong>{kpis.stampedQty.toLocaleString('en-IN')}</strong>
-                  </div>
-                  <div>
-                    <span>Average Per Invoice</span>
-                    <strong>{formatCurrency(kpis.avgPerInvoice)}</strong>
-                  </div>
-                </div>
-                <p className="gatc-report__summary-meta">
-                  <Info size={14} aria-hidden />
-                  Report generated on {formatGeneratedAt(generatedAt)}
-                </p>
-              </footer>
             </>
           )}
         </>
