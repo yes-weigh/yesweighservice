@@ -2,3 +2,4 @@ packages:
   - '.'
   - 'plugins/tcp-print'
   - 'plugins/whatsapp-share'
+  - 'plugins/wanhai-track'
