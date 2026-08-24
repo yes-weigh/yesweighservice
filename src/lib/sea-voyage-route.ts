@@ -227,6 +227,6 @@ export function prettyPortName(name: string): string {
   const trimmed = name.trim();
   if (!trimmed) return '';
   if (/^nigbo$/i.test(trimmed)) return 'Ningbo';
-  if (/jawaharlal|nehru port|\bjnpt\b/i.test(trimmed)) return 'Nhava Sheva';
+  if (/jawaharlal|nehru port|\bjnpt\b|\binnsa\b/i.test(trimmed)) return 'Nhava Sheva';
   return trimmed.replace(/\b([a-z])/g, letter => letter.toUpperCase());
 }

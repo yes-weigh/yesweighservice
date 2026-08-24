@@ -29,6 +29,54 @@ function toLatLngs(points: { lat: number; lon: number }[]): L.LatLngExpression[]
   return points.map(point => [point.lat, point.lon]);
 }
 
+function cleanAisDest(raw: string): string {
+  const first = raw
+    .split(',')[0]
+    .replace(/&quot;|"/gi, ' ')
+    .replace(/B{4,}/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+  return prettyPortName(first);
+}
+
+function formatAisArrival(value: string | null | undefined): string {
+  const raw = String(value ?? '').trim();
+  if (!raw) return '';
+  const date = formatInvoiceDate(raw);
+  if (date === '—') return raw;
+  const time = raw.slice(11, 16);
+  return /^\d{2}:\d{2}$/.test(time) ? `${date}, ${time}` : date;
+}
+
+function formatAisStampIst(value: string | null | undefined): string {
+  const raw = String(value ?? '').trim();
+  if (!raw) return '';
+  const wall = raw.match(/^(\d{4})-(\d{2})-(\d{2})[T ](\d{2}):(\d{2})(?::(\d{2}))?/);
+  if (!wall) return raw;
+  const utcMs = Date.UTC(
+    Number(wall[1]),
+    Number(wall[2]) - 1,
+    Number(wall[3]),
+    Number(wall[4]) - 8,
+    Number(wall[5]),
+    Number(wall[6] || 0),
+  );
+  const at = new Date(utcMs);
+  const date = new Intl.DateTimeFormat('en-GB', {
+    timeZone: 'Asia/Kolkata',
+    day: '2-digit',
+    month: 'short',
+    year: '2-digit',
+  }).format(at);
+  const time = new Intl.DateTimeFormat('en-IN', {
+    timeZone: 'Asia/Kolkata',
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: true,
+  }).format(at);
+  return `${date}, ${time} (IST)`;
+}
+
 function AisFetchingLabel({ compact = false }: { compact?: boolean }) {
   return (
     <strong className={`voyage-sea-map__fetching${compact ? ' voyage-sea-map__fetching--compact' : ''}`}>
@@ -122,7 +170,8 @@ export function VoyageSeaMap({
   }, [aisKeyword, fetchLiveAis]);
 
   const destLabel = prettyPortName(portOfDischarge || 'Cochin');
-  const aisNextPort = ais?.dest ? prettyPortName(ais.dest.split(',')[0]) : '';
+  const aisNextPort = ais?.dest ? cleanAisDest(ais.dest) : '';
+  const aisArrival = formatAisArrival(ais?.eta);
 
   useEffect(() => {
     const host = hostRef.current;
@@ -271,7 +320,6 @@ export function VoyageSeaMap({
   const fromPort = prettyPortName(portOfLoading) || 'POL';
   const toPort = destLabel;
   const nextPort = aisNextPort || toPort;
-  const liveEta = ais?.eta || null;
   const fetchingAis = !aisReady;
 
   return (
@@ -291,6 +339,11 @@ export function VoyageSeaMap({
           </div>
           {imo || ais?.imo ? <span>IMO Number: {imo || ais?.imo}</span> : null}
           <span>Next Port: {nextPort}</span>
+          {aisNextPort && aisArrival ? (
+            <span className="voyage-sea-map__info-date">
+              ETA {aisNextPort}: {aisArrival}
+            </span>
+          ) : null}
           {fetchingAis ? (
             <span className="voyage-sea-map__info-fetching" role="status" aria-live="polite">
               <i className="voyage-sea-map__fetch-ring" aria-hidden />
@@ -300,15 +353,13 @@ export function VoyageSeaMap({
             <span className="voyage-sea-map__info-date">Live speed: {liveSpeedKn.toFixed(1)} kn</span>
           ) : null}
           <span className="voyage-sea-map__info-date">
-            ETA {nextPort}: {liveEta
-              ? `${formatInvoiceDate(liveEta)}${liveEta.slice(11, 16) ? `, ${liveEta.slice(11, 16)}` : ''}`
-              : (eta ? formatInvoiceDate(eta) : '—')}
+            ETA {toPort}: {eta ? formatInvoiceDate(eta) : '—'}
           </span>
           <span className="voyage-sea-map__info-date">
             ETD {fromPort}: {etd ? formatInvoiceDate(etd) : '—'}
           </span>
           {ais?.updated ? (
-            <span className="voyage-sea-map__info-live">AIS {ais.updated}</span>
+            <span className="voyage-sea-map__info-live">AIS {formatAisStampIst(ais.updated)}</span>
           ) : null}
         </aside>
         <div className="voyage-sea-map__legend" aria-hidden>

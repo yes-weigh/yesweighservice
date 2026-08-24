@@ -300,6 +300,16 @@ function htmlField(html, id) {
     .trim();
 }
 
+/** ShipFinder last-update clock is Beijing time (UTC+8). */
+function shipfinderWallTimeToIso(lastTime) {
+  const match = String(lastTime || '').trim().match(
+    /^(\d{4})-(\d{2})-(\d{2})[ T](\d{2}):(\d{2})(?::(\d{2}))?/,
+  );
+  if (!match) return null;
+  const sec = match[6] || '00';
+  return `${match[1]}-${match[2]}-${match[3]}T${match[4]}:${match[5]}:${sec}+08:00`;
+}
+
 /** ShipFinder page coords look like `5-57.758 N`. */
 function parseShipfinderDm(value) {
   const match = String(value || '').trim().match(
@@ -344,9 +354,7 @@ function fromShipfinderDetailHtml(html) {
   const eta = parseShipfinderEta(htmlField(html, 'ais-_eta'), lastTime);
   const precise = isPreciseFix(lat, lon);
   if (!precise && sog == null && !dest) return null;
-  const updated = lastTime
-    ? (unixToIso(Date.parse(lastTime.replace(' ', 'T'))) || lastTime)
-    : null;
+  const updated = lastTime ? (shipfinderWallTimeToIso(lastTime) || lastTime) : null;
   return snapshot({
     name,
     imo,
