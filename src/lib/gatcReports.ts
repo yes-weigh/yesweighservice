@@ -77,23 +77,86 @@ export type GatcReportDoc = {
 function mapLine(raw: Record<string, unknown>): GatcReportLineItem {
   const gatcFeePerUnit = Number(raw.gatcFeePerUnit) || 0;
   const gatcStampingPriceId = String(raw.gatcStampingPriceId ?? '').trim() || null;
+  const qty = Math.max(0, Math.floor(Number(raw.qty ?? raw.quantity) || 0));
+  const baseRate = Number(raw.baseRate) || 0;
+  const unitRate = Number(raw.unitRate) || 0;
   return {
     productId: raw.productId != null ? String(raw.productId) : null,
     itemId: raw.itemId != null ? String(raw.itemId) : null,
     sku: raw.sku != null ? String(raw.sku) : null,
     name: String(raw.name ?? 'Item'),
-    qty: Math.max(0, Math.floor(Number(raw.qty) || 0)),
-    baseRate: Number(raw.baseRate) || 0,
+    qty,
+    baseRate,
     gatcFeePerUnit,
     gatcStampingPriceId,
     gatcStampingRange: raw.gatcStampingRange != null ? String(raw.gatcStampingRange) : null,
-    unitRate: Number(raw.unitRate) || 0,
-    lineBaseTotal: Number(raw.lineBaseTotal) || 0,
-    lineGatcTotal: Number(raw.lineGatcTotal) || 0,
-    lineTotal: Number(raw.lineTotal) || 0,
+    unitRate,
+    lineBaseTotal: Number(raw.lineBaseTotal) || (baseRate * qty),
+    lineGatcTotal: Number(raw.lineGatcTotal) || (gatcFeePerUnit * qty),
+    lineTotal: Number(raw.lineTotal) || (unitRate * qty),
     hasStamping: Boolean(raw.hasStamping ?? (gatcStampingPriceId && gatcFeePerUnit > 0)),
     isWeighingScale: Boolean(raw.isWeighingScale),
   };
+}
+
+/** Sales-order `yesOneGatcLines` use `quantity`; report docs use `qty`. */
+export function mapYesOneGatcLines(raw: unknown): GatcReportLineItem[] {
+  if (!Array.isArray(raw)) return [];
+  return raw
+    .filter((row): row is Record<string, unknown> => Boolean(row) && typeof row === 'object')
+    .map(mapLine);
+}
+
+export function bundledGatcFeeFromLines(
+  lines: ReadonlyArray<Pick<GatcReportLineItem, 'lineGatcTotal' | 'gatcFeePerUnit' | 'qty'>>,
+): number {
+  return Math.round(lines.reduce((sum, line) => {
+    const fromLine = Number(line.lineGatcTotal) || 0;
+    if (fromLine > 0) return sum + fromLine;
+    return sum + (Number(line.gatcFeePerUnit) || 0) * (Number(line.qty) || 0);
+  }, 0) * 100) / 100;
+}
+
+function normGatcKey(value: string | null | undefined): string {
+  return String(value ?? '').trim().toLowerCase();
+}
+
+export function matchGatcReportLine(
+  line: {
+    itemId?: string | null;
+    productId?: string | null;
+    sku?: string | null;
+    name?: string | null;
+    qty?: number;
+  },
+  gatcLines: readonly GatcReportLineItem[],
+  used: Set<number>,
+): GatcReportLineItem | null {
+  const itemId = normGatcKey(line.itemId ?? line.productId);
+  const sku = normGatcKey(line.sku);
+  const name = normGatcKey(line.name);
+  const qty = Math.max(0, Math.floor(Number(line.qty) || 0));
+
+  const tryMatch = (predicate: (gatc: GatcReportLineItem) => boolean) => {
+    for (let i = 0; i < gatcLines.length; i += 1) {
+      if (used.has(i)) continue;
+      const gatc = gatcLines[i];
+      if (!gatc || !predicate(gatc)) continue;
+      used.add(i);
+      return gatc;
+    }
+    return null;
+  };
+
+  return (
+    (itemId
+      ? tryMatch(gatc => normGatcKey(gatc.itemId) === itemId || normGatcKey(gatc.productId) === itemId)
+      : null)
+    || (sku ? tryMatch(gatc => normGatcKey(gatc.sku) === sku && (!qty || gatc.qty === qty)) : null)
+    || (sku ? tryMatch(gatc => normGatcKey(gatc.sku) === sku) : null)
+    || (name ? tryMatch(gatc => normGatcKey(gatc.name) === name && (!qty || gatc.qty === qty)) : null)
+    || (name ? tryMatch(gatc => normGatcKey(gatc.name) === name) : null)
+  );
 }
 
 function mapReport(id: string, data: Record<string, unknown>): GatcReportDoc {

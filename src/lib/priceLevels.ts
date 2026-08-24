@@ -553,6 +553,93 @@ export function findPriceLevelForDealer(
   return levels.find(isDefaultDealerPriceLevel) ?? null;
 }
 
+function itemRuleMatchesProduct(
+  item: PriceLevelItemRule,
+  productId: string | null,
+  sku: string | null,
+): boolean {
+  const pid = String(productId ?? '').trim();
+  const skuKey = normalizePriceLevelSku(sku);
+  if (pid && item.productId === pid) return true;
+  return Boolean(skuKey && normalizePriceLevelSku(item.sku) === skuKey);
+}
+
+function fixedItemSlabRate(item: PriceLevelItemRule, quantity: number): number | null {
+  if (item.kind !== 'fixed') return null;
+  const slabs = normalizePriceLevelSlabs(item.slabs);
+  if (slabs.length) {
+    const rate = resolveSlabUnitRate(slabs, quantity, item.customRate ?? 0);
+    return rate > 0 ? rate : null;
+  }
+  const fixed = roundMoney(Number(item.customRate) || 0);
+  return fixed > 0 ? fixed : null;
+}
+
+/** Qty-slab unit ₹ for a SKU / product across price levels (dealer level first). */
+export function resolveProductQtySlabRate(
+  levels: PriceLevel[],
+  input: {
+    productId?: string | null;
+    sku?: string | null;
+    quantity: number;
+    dealerId?: string | null;
+  },
+): number | null {
+  const productId = String(input.productId ?? '').trim() || null;
+  const sku = input.sku ?? null;
+  if (!productId && !normalizePriceLevelSku(sku)) return null;
+  const qty = clampQty(input.quantity);
+
+  const rateFromLevel = (level: PriceLevel): number | null => {
+    for (const rule of level.categoryRules) {
+      const item = rule.itemRules.find(row => itemRuleMatchesProduct(row, productId, sku));
+      if (!item) continue;
+      const rate = fixedItemSlabRate(item, qty);
+      if (rate != null) return rate;
+    }
+    return null;
+  };
+
+  const dealerLevel = findPriceLevelForDealer(levels, input.dealerId);
+  if (dealerLevel) {
+    const hit = rateFromLevel(dealerLevel);
+    if (hit != null) return hit;
+  }
+  for (const level of levels) {
+    if (dealerLevel && level.id === dealerLevel.id) continue;
+    const hit = rateFromLevel(level);
+    if (hit != null) return hit;
+  }
+  return null;
+}
+
+/** True when `rate` is a published qty-slab / fixed override for this SKU. */
+export function isPublishedQtySlabRate(
+  levels: PriceLevel[],
+  input: {
+    productId?: string | null;
+    sku?: string | null;
+    rate: number;
+  },
+): boolean {
+  const charged = roundMoney(Number(input.rate) || 0);
+  if (charged <= 0) return false;
+  const productId = String(input.productId ?? '').trim() || null;
+  const sku = input.sku ?? null;
+  if (!productId && !normalizePriceLevelSku(sku)) return false;
+
+  for (const level of levels) {
+    for (const rule of level.categoryRules) {
+      const item = rule.itemRules.find(row => itemRuleMatchesProduct(row, productId, sku));
+      if (!item || item.kind !== 'fixed') continue;
+      const slabs = normalizePriceLevelSlabs(item.slabs);
+      if (slabs.some(slab => roundMoney(slab.rate) === charged)) return true;
+      if (roundMoney(Number(item.customRate) || 0) === charged) return true;
+    }
+  }
+  return false;
+}
+
 function nonePrice(
   listRate: number,
   level: PriceLevel | null,

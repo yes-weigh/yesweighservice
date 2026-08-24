@@ -1,6 +1,7 @@
 import {
   collection,
   doc,
+  documentId,
   getDoc,
   getDocs,
   limit,
@@ -15,11 +16,31 @@ import {
 } from './admin-invoices';
 import { canonicalSalespersonName } from './dealerKamDisplay';
 import {
+  bundledGatcFeeFromLines,
+  fetchGatcReportForInvoice,
+  listGatcReportsInDateRange,
+  mapYesOneGatcLines,
+  matchGatcReportLine,
+  type GatcReportLineItem,
+} from './gatcReports';
+import {
   invoiceAmountExclGst,
   isFreightInvoiceLineItem,
   isGatcFeeInvoiceLineItem,
 } from './invoices';
-import { loadPriceLevels } from './priceLevels';
+import {
+  gatcFeeFromInvoiceTag,
+  invoiceLineHasGatcTag,
+} from './invoiceGatcTag';
+import { loadGatcStampingPrices } from './catalogProductSettings';
+import {
+  isDirectorsQtyClubSku,
+  isPublishedQtySlabRate,
+  loadPriceLevels,
+  resolveDealerUnitPrice,
+  resolveProductQtySlabRate,
+  sumDirectorsClubCartQty,
+} from './priceLevels';
 import type { PriceLevel } from '../types/priceLevels';
 
 export const INCENTIVE_RATE = 0.035;
@@ -101,6 +122,10 @@ export type IncentiveInvoiceRow = {
   incentive: number;
   rate: number;
   priceAdjust: IncentivePriceAdjust;
+  gatcExcess: number;
+  discountAmount: number;
+  discountedSales: number;
+  hikeAmount: number;
 };
 
 export type IncentiveInvoiceLine = {
@@ -111,7 +136,12 @@ export type IncentiveInvoiceLine = {
   total: number;
   itemId: string | null;
   priceAdjust: IncentivePriceAdjust;
+  gatcExcess: number;
+  unitDiscount: number;
+  unitHike: number;
 };
+
+export type IncentiveRowTone = 'discount' | 'hike' | 'director' | null;
 
 type PriceChangeLike = {
   productId?: unknown;
@@ -120,9 +150,18 @@ type PriceChangeLike = {
   name?: unknown;
   catalogRate?: unknown;
   rate?: unknown;
+  quantity?: unknown;
   source?: unknown;
   changedByUid?: unknown;
   priceLevelName?: unknown;
+};
+
+type SalesOrderExtras = {
+  priceAdjust: IncentivePriceAdjust;
+  gatcFee: number;
+  discountAmount: number;
+  discountedSales: number;
+  hikeAmount: number;
 };
 
 function isManualUserPriceChange(change: PriceChangeLike): boolean {
@@ -131,24 +170,303 @@ function isManualUserPriceChange(change: PriceChangeLike): boolean {
   return change.source === 'user' || Boolean(change.changedByUid) || change.source == null;
 }
 
-function priceAdjustFromChange(change: PriceChangeLike): IncentivePriceAdjust {
+function catalogLookupKey(productId?: unknown, itemId?: unknown, sku?: unknown): string[] {
+  const keys: string[] = [];
+  const product = String(productId ?? '').trim();
+  const item = String(itemId ?? '').trim();
+  const skuKey = String(sku ?? '').trim().toLowerCase();
+  if (product) keys.push(product);
+  if (item && item !== product) keys.push(item);
+  if (skuKey) keys.push(`sku:${skuKey}`);
+  return keys;
+}
+
+type CatalogPriceMeta = {
+  id: string;
+  rate: number;
+  sku: string | null;
+  categoryId: string | null;
+  categoryName: string | null;
+};
+
+function catalogMetaFor(
+  catalog: Map<string, CatalogPriceMeta>,
+  productId?: unknown,
+  itemId?: unknown,
+  sku?: unknown,
+): CatalogPriceMeta | null {
+  for (const key of catalogLookupKey(productId, itemId, sku)) {
+    const hit = catalog.get(key);
+    if (hit) return hit;
+  }
+  return null;
+}
+
+async function loadCatalogPriceMeta(
+  refs: Array<{ productId?: unknown; itemId?: unknown; sku?: unknown }>,
+): Promise<Map<string, CatalogPriceMeta>> {
+  const catalog = new Map<string, CatalogPriceMeta>();
+  const ids = [...new Set(refs.flatMap(ref => (
+    [String(ref.productId ?? '').trim(), String(ref.itemId ?? '').trim()].filter(Boolean)
+  )))];
+  const skus = [...new Set(refs
+    .map(ref => String(ref.sku ?? '').trim())
+    .filter(Boolean))];
+
+  const index = (id: string, data: Record<string, unknown>) => {
+    const meta: CatalogPriceMeta = {
+      id: String(data.id ?? id),
+      rate: Number(data.rate ?? 0) || 0,
+      sku: data.sku != null ? String(data.sku).trim() : null,
+      categoryId: data.categoryId != null ? String(data.categoryId).trim() : null,
+      categoryName: data.categoryName != null ? String(data.categoryName).trim() : null,
+    };
+    if (id) catalog.set(id, meta);
+    if (meta.id) catalog.set(meta.id, meta);
+    if (meta.sku) catalog.set(`sku:${meta.sku.toLowerCase()}`, meta);
+  };
+
+  for (let i = 0; i < ids.length; i += 10) {
+    const chunk = ids.slice(i, i + 10);
+    try {
+      const snap = await getDocs(query(
+        collection(db, 'catalogProducts'),
+        where(documentId(), 'in', chunk),
+      ));
+      for (const row of snap.docs) {
+        index(row.id, row.data());
+      }
+    } catch {
+      await Promise.all(chunk.map(async id => {
+        try {
+          const snap = await getDoc(doc(db, 'catalogProducts', id));
+          if (snap.exists()) index(id, snap.data());
+        } catch {
+          // skip missing catalog row
+        }
+      }));
+    }
+  }
+
+  const missingSkus = skus.filter(sku => !catalog.has(`sku:${sku.toLowerCase()}`));
+  for (const sku of missingSkus) {
+    try {
+      const snap = await getDocs(query(
+        collection(db, 'catalogProducts'),
+        where('sku', '==', sku),
+        limit(1),
+      ));
+      if (snap.empty) continue;
+      index(snap.docs[0].id, snap.docs[0].data());
+    } catch {
+      // skip
+    }
+  }
+
+  return catalog;
+}
+
+function expectedCatalogRate(
+  change: PriceChangeLike,
+  catalog: Map<string, CatalogPriceMeta>,
+  levels: PriceLevel[],
+  dealerId: string | null,
+  directorsClubQty: number,
+  lineQty?: number,
+): number {
+  const meta = catalogMetaFor(catalog, change.productId, change.itemId, change.sku);
+  const sku = meta?.sku ?? (change.sku != null ? String(change.sku) : null);
+  const productId = meta?.id || String(change.productId ?? change.itemId ?? '');
+  const qty = Math.max(1, lineQty || Number(change.quantity) || 0);
+  const slabQty = (
+    directorsClubQty > 0 && isDirectorsQtyClubSku(sku)
+      ? directorsClubQty
+      : qty
+  );
+  const slab = resolveProductQtySlabRate(levels, {
+    productId,
+    sku,
+    quantity: slabQty,
+    dealerId,
+  });
+  if (slab != null && slab > 0) return slab;
+
+  const listRate = meta?.rate || Number(change.catalogRate) || 0;
+  if (listRate <= 0) return 0;
+  const priced = resolveDealerUnitPrice(
+    levels,
+    dealerId,
+    {
+      id: productId,
+      rate: listRate,
+      sku,
+      categoryId: meta?.categoryId ?? null,
+      categoryName: meta?.categoryName ?? null,
+    },
+    qty,
+    { directorsClubQty },
+  );
+  return priced.chargeRate > 0 ? priced.chargeRate : listRate;
+}
+
+function withExpectedCatalogRates(
+  changes: PriceChangeLike[],
+  catalog: Map<string, CatalogPriceMeta>,
+  levels: PriceLevel[],
+  dealerId: string | null,
+  directorsClubQty: number,
+): PriceChangeLike[] {
+  return changes.map(change => {
+    const expected = expectedCatalogRate(
+      change,
+      catalog,
+      levels,
+      dealerId,
+      directorsClubQty,
+    );
+    if (expected <= 0) return change;
+    return { ...change, catalogRate: expected };
+  });
+}
+
+function directorsClubQtyFromLines(
+  lines: Array<{ sku?: unknown; quantity?: unknown; qty?: unknown }>,
+): number {
+  return sumDirectorsClubCartQty(lines.map(line => ({
+    sku: line.sku != null ? String(line.sku) : null,
+    quantity: Number(line.quantity ?? line.qty) || 0,
+  })));
+}
+
+function priceAdjustFromChange(
+  change: PriceChangeLike,
+  levels: PriceLevel[] = [],
+): IncentivePriceAdjust {
   if (!isManualUserPriceChange(change)) return null;
-  const catalog = Number(change.catalogRate) || 0;
   const charged = Number(change.rate) || 0;
+  if (
+    charged > 0
+    && isPublishedQtySlabRate(levels, {
+      productId: String(change.productId ?? change.itemId ?? ''),
+      sku: change.sku != null ? String(change.sku) : null,
+      rate: charged,
+    })
+  ) {
+    return null;
+  }
+  const catalog = Number(change.catalogRate) || 0;
   if (catalog <= 0) return null;
   if (charged < catalog - 0.005) return 'discount';
   if (charged > catalog + 0.005) return 'hike';
   return null;
 }
 
-function summarizePriceAdjusts(changes: PriceChangeLike[]): IncentivePriceAdjust {
+function priceAdjustAmount(change: PriceChangeLike): number {
+  const catalog = Number(change.catalogRate) || 0;
+  const charged = Number(change.rate) || 0;
+  const qty = Math.max(1, Number(change.quantity) || 0);
+  return round2(Math.abs(charged - catalog) * qty);
+}
+
+function chargedSalesFromChange(change: PriceChangeLike): number {
+  const charged = Number(change.rate) || 0;
+  const qty = Math.max(1, Number(change.quantity) || 0);
+  return round2(Math.max(0, charged) * qty);
+}
+
+function summarizePriceAdjusts(
+  changes: PriceChangeLike[],
+  levels: PriceLevel[] = [],
+): Omit<SalesOrderExtras, 'gatcFee'> {
   let hike = false;
+  let discountAmount = 0;
+  let discountedSales = 0;
+  let hikeAmount = 0;
   for (const change of changes) {
-    const kind = priceAdjustFromChange(change);
-    if (kind === 'discount') return 'discount';
-    if (kind === 'hike') hike = true;
+    const kind = priceAdjustFromChange(change, levels);
+    if (kind === 'discount') {
+      discountAmount = round2(discountAmount + priceAdjustAmount(change));
+      discountedSales = round2(discountedSales + chargedSalesFromChange(change));
+    } else if (kind === 'hike') {
+      hike = true;
+      hikeAmount = round2(hikeAmount + priceAdjustAmount(change));
+    }
   }
-  return hike ? 'hike' : null;
+  return {
+    priceAdjust: discountAmount > 0 ? 'discount' : (hike ? 'hike' : null),
+    discountAmount,
+    discountedSales,
+    hikeAmount,
+  };
+}
+
+export function incentiveRowTone(
+  row: Pick<IncentiveInvoiceRow, 'priceAdjust' | 'rate'>,
+): IncentiveRowTone {
+  if (row.priceAdjust === 'discount') return 'discount';
+  if (row.priceAdjust === 'hike') return 'hike';
+  if (row.rate === INCENTIVE_DIRECTOR_RATE) return 'director';
+  return null;
+}
+
+/** White note under a pink/red list amount: price hike, or discount given. GATC is never shown. */
+export function incentiveRowNote(
+  row: Pick<IncentiveInvoiceRow, 'priceAdjust' | 'rate' | 'discountAmount' | 'hikeAmount'>,
+): { kind: 'excess' | 'discount'; amount: number } | null {
+  const tone = incentiveRowTone(row);
+  if (tone === 'discount' && row.discountAmount > 0) {
+    return { kind: 'discount', amount: row.discountAmount };
+  }
+  if ((tone === 'hike' || tone === 'director') && row.hikeAmount > 0) {
+    return { kind: 'excess', amount: row.hikeAmount };
+  }
+  return null;
+}
+
+export function salesExcludingBundledGatc(sales: number, gatcFee: number): number {
+  return Math.max(0, round2(sales - Math.max(0, gatcFee)));
+}
+
+export function incentiveLineAmountsExGatc(
+  input: {
+    rate: number;
+    total: number;
+    qty: number;
+    baseRate?: number | null;
+    gatcFeePerUnit?: number | null;
+    tagged?: boolean;
+  },
+  gatc: GatcReportLineItem | null,
+): Pick<IncentiveInvoiceLine, 'rate' | 'total' | 'gatcExcess'> {
+  const qty = Math.max(0, Number(input.qty) || 0);
+  const charged = Number(input.rate) || 0;
+  const chargedTotal = Number(input.total) || 0;
+  const fee = gatc && gatc.gatcFeePerUnit > 0
+    ? gatc.gatcFeePerUnit
+    : (Number(input.gatcFeePerUnit) || 0);
+  const tagged = Boolean(input.tagged) || fee > 0;
+  const storedBase = gatc && gatc.baseRate > 0
+    ? gatc.baseRate
+    : (input.baseRate != null && Number(input.baseRate) > 0 ? Number(input.baseRate) : 0);
+  let base = charged;
+  if (fee > 0) {
+    const storedPlusFee = storedBase > 0 && Math.abs(storedBase + fee - charged) < 0.51;
+    // Invoice tagging means Zoho `rate` is base + GATC. Use that split
+    // even when the GATC report stored the combined amount as baseRate.
+    if (tagged || storedPlusFee || storedBase <= 0 || Math.abs(storedBase - charged) < 0.51) {
+      base = charged - fee;
+    } else {
+      base = storedBase;
+    }
+  }
+  const safeBase = Math.max(0, round2(base));
+  return {
+    rate: safeBase,
+    total: qty > 0
+      ? round2(safeBase * qty)
+      : Math.max(0, round2(chargedTotal - fee * qty)),
+    gatcExcess: Math.max(0, round2(fee)),
+  };
 }
 
 function changeMatchesLine(
@@ -165,17 +483,71 @@ function changeMatchesLine(
 }
 
 function linePriceAdjust(
-  line: Pick<IncentiveInvoiceLine, 'itemId' | 'sku' | 'name'>,
+  line: Pick<IncentiveInvoiceLine, 'itemId' | 'sku' | 'name' | 'rate'>,
   changes: PriceChangeLike[],
+  levels: PriceLevel[] = [],
 ): IncentivePriceAdjust {
+  if (isPublishedQtySlabRate(levels, {
+    productId: line.itemId,
+    sku: line.sku,
+    rate: line.rate,
+  })) {
+    return null;
+  }
   let hike = false;
   for (const change of changes) {
     if (!changeMatchesLine(change, line)) continue;
-    const kind = priceAdjustFromChange(change);
+    const kind = priceAdjustFromChange(change, levels);
     if (kind === 'discount') return 'discount';
     if (kind === 'hike') hike = true;
   }
   return hike ? 'hike' : null;
+}
+
+function lineUnitDiscount(
+  line: Pick<IncentiveInvoiceLine, 'itemId' | 'sku' | 'name' | 'rate'>,
+  changes: PriceChangeLike[],
+  levels: PriceLevel[] = [],
+): number {
+  if (isPublishedQtySlabRate(levels, {
+    productId: line.itemId,
+    sku: line.sku,
+    rate: line.rate,
+  })) {
+    return 0;
+  }
+  let perUnit = 0;
+  for (const change of changes) {
+    if (!changeMatchesLine(change, line)) continue;
+    if (priceAdjustFromChange(change, levels) !== 'discount') continue;
+    const catalog = Number(change.catalogRate) || 0;
+    const charged = Number(change.rate) || 0;
+    perUnit = Math.max(perUnit, round2(catalog - charged));
+  }
+  return perUnit;
+}
+
+function lineUnitHike(
+  line: Pick<IncentiveInvoiceLine, 'itemId' | 'sku' | 'name' | 'rate'>,
+  changes: PriceChangeLike[],
+  levels: PriceLevel[] = [],
+): number {
+  if (isPublishedQtySlabRate(levels, {
+    productId: line.itemId,
+    sku: line.sku,
+    rate: line.rate,
+  })) {
+    return 0;
+  }
+  let perUnit = 0;
+  for (const change of changes) {
+    if (!changeMatchesLine(change, line)) continue;
+    if (priceAdjustFromChange(change, levels) !== 'hike') continue;
+    const catalog = Number(change.catalogRate) || 0;
+    const charged = Number(change.rate) || 0;
+    perUnit = Math.max(perUnit, round2(charged - catalog));
+  }
+  return perUnit;
 }
 
 function round2(value: number): number {
@@ -277,13 +649,29 @@ export function incentiveForSales(sales: number, rate = INCENTIVE_RATE): number 
   return round2(sales * rate);
 }
 
+/** Super-admin can drop red (discounted) line sales from the incentive total. */
+export function incentiveForRow(
+  row: Pick<IncentiveInvoiceRow, 'incentive' | 'sales' | 'rate' | 'priceAdjust' | 'discountedSales'>,
+  excludeDiscounts = false,
+): number {
+  if (!excludeDiscounts) return row.incentive;
+  const cut = row.discountedSales > 0
+    ? row.discountedSales
+    : (row.priceAdjust === 'discount' ? row.sales : 0);
+  return incentiveForSales(Math.max(0, round2(row.sales - cut)), row.rate);
+}
+
 function toIncentiveRow(
   invoice: AdminFirestoreInvoice,
   directorDealerIds: Set<string>,
+  gatcFee = 0,
 ): IncentiveInvoiceRow | null {
   if (invoiceStatusExcluded(invoice.status)) return null;
   const kam = matchIncentiveKam(invoice);
-  const sales = incentiveEligibleSales(invoice, kam?.spareOnly === true);
+  const sales = salesExcludingBundledGatc(
+    incentiveEligibleSales(invoice, kam?.spareOnly === true),
+    gatcFee,
+  );
   if (sales <= 0) return null;
   const dealerIsDirector = directorDealerIds.has(String(invoice.customerId ?? '').trim());
   const rate = incentiveRateForInvoice(kam?.id ?? null, dealerIsDirector);
@@ -299,6 +687,10 @@ function toIncentiveRow(
     incentive: incentiveForSales(sales, rate),
     rate,
     priceAdjust: null,
+    gatcExcess: Math.max(0, round2(gatcFee)),
+    discountAmount: 0,
+    discountedSales: 0,
+    hikeAmount: 0,
   };
 }
 
@@ -310,12 +702,45 @@ export async function fetchIncentiveInvoiceLines(
   const invId = invoiceId.trim();
   if (!cid || !invId) return [];
   try {
-    const snap = await getDoc(doc(db, 'zohoCustomers', cid, 'invoices', invId));
+    const [snap, gatcReport, gatcPrices, priceLevels] = await Promise.all([
+      getDoc(doc(db, 'zohoCustomers', cid, 'invoices', invId)),
+      fetchGatcReportForInvoice(invId),
+      loadGatcStampingPrices().catch(() => []),
+      loadPriceLevels().catch(() => ({ levels: [] as PriceLevel[] })),
+    ]);
     if (!snap.exists()) return [];
     const invoice = snap.data() ?? {};
     const salesOrderId = invoice.salesOrderId != null ? String(invoice.salesOrderId).trim() : '';
-    const changes = await loadSalesOrderPriceChanges(invId, salesOrderId);
-    const lines = (Array.isArray(invoice.lineItems) ? invoice.lineItems : []) as unknown[];
+    const soExtras = await loadSalesOrderLineContext(invId, salesOrderId);
+    const invoiceLines = (Array.isArray(invoice.lineItems) ? invoice.lineItems : []) as unknown[];
+    const catalog = await loadCatalogPriceMeta([
+      ...soExtras.changes,
+      ...invoiceLines
+        .filter((row): row is Record<string, unknown> => Boolean(row) && typeof row === 'object')
+        .map(raw => ({
+          productId: raw.productId,
+          itemId: raw.itemId ?? raw.item_id,
+          sku: raw.sku,
+        })),
+    ]);
+    const clubQty = directorsClubQtyFromLines([
+      ...soExtras.changes,
+      ...invoiceLines.filter((row): row is Record<string, unknown> => (
+        Boolean(row) && typeof row === 'object'
+      )),
+    ]);
+    const priceChanges = withExpectedCatalogRates(
+      soExtras.changes,
+      catalog,
+      priceLevels.levels,
+      cid,
+      clubQty,
+    );
+    const gatcLines = gatcReport?.lineItems?.length
+      ? gatcReport.lineItems
+      : soExtras.gatcLines;
+    const usedGatc = new Set<number>();
+    const lines = invoiceLines;
     return lines
       .filter((row): row is Record<string, unknown> => Boolean(row) && typeof row === 'object')
       .map(raw => {
@@ -324,13 +749,44 @@ export async function fetchIncentiveInvoiceLines(
         const itemId = raw.itemId != null ? String(raw.itemId) : (
           raw.item_id != null ? String(raw.item_id) : null
         );
+        const productId = raw.productId != null ? String(raw.productId) : itemId;
         const hsn = raw.hsn != null ? String(raw.hsn) : null;
+        const qty = Number(raw.quantity ?? raw.qty ?? 0) || 0;
+        const description = raw.description != null ? String(raw.description) : null;
+        const tagged = invoiceLineHasGatcTag({
+          description,
+          gatcStampingPriceId: raw.gatcStampingPriceId != null
+            ? String(raw.gatcStampingPriceId)
+            : null,
+          gatcFeePerUnit: raw.gatcFeePerUnit != null ? Number(raw.gatcFeePerUnit) : null,
+        });
+        const gatc = matchGatcReportLine(
+          { itemId, productId, sku, name, qty },
+          gatcLines,
+          usedGatc,
+        );
+        const tagFee = gatcFeeFromInvoiceTag({
+          description,
+          gatcFeePerUnit: raw.gatcFeePerUnit != null ? Number(raw.gatcFeePerUnit) : null,
+          gatcStampingRange: raw.gatcStampingRange != null
+            ? String(raw.gatcStampingRange)
+            : (gatc?.gatcStampingRange ?? null),
+        }, gatcPrices);
+        const amounts = incentiveLineAmountsExGatc({
+          rate: Number(raw.rate ?? 0) || 0,
+          total: Number(raw.total ?? 0) || 0,
+          qty,
+          baseRate: raw.baseRate != null ? Number(raw.baseRate) : null,
+          gatcFeePerUnit: (gatc && gatc.gatcFeePerUnit > 0)
+            ? gatc.gatcFeePerUnit
+            : tagFee,
+          tagged: tagged || Boolean(gatc?.hasStamping),
+        }, gatc);
         return {
           name,
           sku,
-          qty: Number(raw.quantity ?? raw.qty ?? 0) || 0,
-          rate: Number(raw.rate ?? 0) || 0,
-          total: Number(raw.total ?? 0) || 0,
+          qty,
+          ...amounts,
           itemId,
           hsn,
         };
@@ -340,46 +796,62 @@ export async function fetchIncentiveInvoiceLines(
         && !isGatcFeeInvoiceLineItem(line)
         && line.qty > 0
       ))
-      .map(({ name, sku, qty, rate, total, itemId }) => ({
-        name,
-        sku,
-        qty,
-        rate,
-        total,
-        itemId,
-        priceAdjust: linePriceAdjust({ itemId, sku, name }, changes),
-      }));
+      .map(({ name, sku, qty, rate, total, itemId, gatcExcess }) => {
+        const match = { itemId, sku, name };
+        return {
+          name,
+          sku,
+          qty,
+          rate,
+          total,
+          itemId,
+          gatcExcess,
+          priceAdjust: linePriceAdjust({ ...match, rate }, priceChanges, priceLevels.levels),
+          unitDiscount: lineUnitDiscount({ ...match, rate }, priceChanges, priceLevels.levels),
+          unitHike: lineUnitHike({ ...match, rate }, priceChanges, priceLevels.levels),
+        };
+      });
   } catch {
     return [];
   }
 }
 
-async function loadSalesOrderPriceChanges(
+async function loadSalesOrderLineContext(
   invoiceId: string,
   salesOrderId?: string,
-): Promise<PriceChangeLike[]> {
+): Promise<{ changes: PriceChangeLike[]; gatcLines: GatcReportLineItem[] }> {
+  const empty = { changes: [] as PriceChangeLike[], gatcLines: [] as GatcReportLineItem[] };
+  const fromSnap = (data: Record<string, unknown> | undefined) => ({
+    changes: Array.isArray(data?.yesOnePriceChanges) ? data.yesOnePriceChanges : [],
+    gatcLines: mapYesOneGatcLines(data?.yesOneGatcLines),
+  });
   if (salesOrderId) {
     const soSnap = await getDoc(doc(db, 'salesOrders', salesOrderId));
-    if (soSnap.exists()) {
-      const raw = soSnap.data()?.yesOnePriceChanges;
-      return Array.isArray(raw) ? raw : [];
-    }
+    if (soSnap.exists()) return fromSnap(soSnap.data());
   }
   const found = await getDocs(query(
     collection(db, 'salesOrders'),
     where('zohoInvoiceId', '==', invoiceId),
     limit(1),
   ));
-  if (found.empty) return [];
-  const raw = found.docs[0].data()?.yesOnePriceChanges;
-  return Array.isArray(raw) ? raw : [];
+  if (found.empty) return empty;
+  return fromSnap(found.docs[0].data());
 }
 
-async function loadInvoicePriceAdjustments(
-  invoiceIds: string[],
-): Promise<Map<string, IncentivePriceAdjust>> {
-  const map = new Map<string, IncentivePriceAdjust>();
-  const ids = [...new Set(invoiceIds.map(id => id.trim()).filter(Boolean))];
+async function loadSalesOrderExtras(
+  invoices: Array<{ invoiceId: string; customerId: string }>,
+  levels: PriceLevel[],
+): Promise<Map<string, SalesOrderExtras>> {
+  const pending: Array<{
+    invoiceId: string;
+    customerId: string;
+    changes: PriceChangeLike[];
+    gatcFee: number;
+  }> = [];
+  const customerByInvoice = new Map(
+    invoices.map(row => [row.invoiceId.trim(), row.customerId.trim()]),
+  );
+  const ids = [...new Set(invoices.map(row => row.invoiceId.trim()).filter(Boolean))];
   for (let i = 0; i < ids.length; i += 10) {
     const chunk = ids.slice(i, i + 10);
     const snap = await getDocs(query(
@@ -389,10 +861,30 @@ async function loadInvoicePriceAdjustments(
     for (const row of snap.docs) {
       const invoiceId = String(row.data()?.zohoInvoiceId ?? '').trim();
       if (!invoiceId) continue;
-      const raw = row.data()?.yesOnePriceChanges;
-      const kind = summarizePriceAdjusts(Array.isArray(raw) ? raw : []);
-      if (kind) map.set(invoiceId, kind);
+      const data = row.data();
+      pending.push({
+        invoiceId,
+        customerId: customerByInvoice.get(invoiceId)
+          || String(data.customerId ?? '').trim(),
+        changes: Array.isArray(data?.yesOnePriceChanges) ? data.yesOnePriceChanges : [],
+        gatcFee: bundledGatcFeeFromLines(mapYesOneGatcLines(data?.yesOneGatcLines)),
+      });
     }
+  }
+  const catalog = await loadCatalogPriceMeta(pending.flatMap(row => row.changes));
+  const map = new Map<string, SalesOrderExtras>();
+  for (const row of pending) {
+    const clubQty = directorsClubQtyFromLines(row.changes);
+    map.set(row.invoiceId, {
+      ...summarizePriceAdjusts(withExpectedCatalogRates(
+        row.changes,
+        catalog,
+        levels,
+        row.customerId || null,
+        clubQty,
+      ), levels),
+      gatcFee: row.gatcFee,
+    });
   }
   return map;
 }
@@ -402,7 +894,7 @@ export async function listIncentiveInvoices(yearMonth: string): Promise<{
   truncated: boolean;
 }> {
   const { dateStart, dateEnd } = incentiveMonthBounds(yearMonth);
-  const [{ rows, truncated }, priceLevels] = await Promise.all([
+  const [{ rows, truncated }, priceLevels, gatcReports] = await Promise.all([
     fetchAllAdminInvoicesInRange({
       category: 'all',
       dateStart,
@@ -412,17 +904,40 @@ export async function listIncentiveInvoices(yearMonth: string): Promise<{
       maxRows: 4000,
     }),
     loadPriceLevels().catch(() => ({ levels: [] as PriceLevel[] })),
+    listGatcReportsInDateRange({ dateStart, dateEnd, maxRows: 2000 }).catch(() => []),
   ]);
+  const gatcFeeByInvoice = new Map<string, number>();
+  for (const report of gatcReports) {
+    const invoiceId = (report.invoiceId || report.id).trim();
+    if (!invoiceId || gatcFeeByInvoice.has(invoiceId)) continue;
+    gatcFeeByInvoice.set(invoiceId, report.totals.gatcFeeTotal);
+  }
   const directorDealerIds = directorDealerIdSet(priceLevels.levels);
   const mapped = rows
-    .map(row => toIncentiveRow(row, directorDealerIds))
+    .map(row => toIncentiveRow(row, directorDealerIds, gatcFeeByInvoice.get(row.id) ?? 0))
     .filter((row): row is IncentiveInvoiceRow => Boolean(row));
-  const adjusts = await loadInvoicePriceAdjustments(mapped.map(row => row.id));
+  const extras = await loadSalesOrderExtras(
+    mapped.map(row => ({ invoiceId: row.id, customerId: row.customerId })),
+    priceLevels.levels,
+  );
   return {
-    rows: mapped.map(row => ({
-      ...row,
-      priceAdjust: adjusts.get(row.id) ?? null,
-    })),
+    rows: mapped.map(row => {
+      const extra = extras.get(row.id);
+      const gatcExcess = row.gatcExcess > 0 ? row.gatcExcess : (extra?.gatcFee ?? 0);
+      const sales = row.gatcExcess > 0
+        ? row.sales
+        : salesExcludingBundledGatc(row.sales, extra?.gatcFee ?? 0);
+      return {
+        ...row,
+        sales,
+        incentive: incentiveForSales(sales, row.rate),
+        gatcExcess,
+        priceAdjust: extra?.priceAdjust ?? null,
+        discountAmount: extra?.discountAmount ?? 0,
+        discountedSales: extra?.discountedSales ?? 0,
+        hikeAmount: extra?.hikeAmount ?? 0,
+      };
+    }).filter(row => row.sales > 0),
     truncated,
   };
 }
