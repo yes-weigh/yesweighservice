@@ -282,11 +282,33 @@ export async function refreshKotakBankFeedsInZoho(secrets, orgId) {
   }
 
   const names = okRows.map(row => row.accountName).filter(Boolean);
+  const latest = await listKotakAccounts(accessToken, organizationId).catch(() => accounts);
+  const uncategorizedCount = latest.reduce((sum, row) => sum + (Number(row.uncategorizedCount) || 0), 0);
   return {
     refreshed: true,
     accountNames: names,
+    uncategorizedCount,
     lastZohoFeedRefresh: results,
     message: `Refresh Feeds started for ${names.join(', ') || 'Kotak Current Account'}. Zoho is pulling new transactions from the bank.`,
+  };
+}
+
+/** Uncategorised transaction count for Kotak Current Account from Zoho Books. */
+export async function getKotakBankFeedSummary(secrets, orgId) {
+  if (!secrets) {
+    throw new Error('Zoho credentials are not configured.');
+  }
+  const accessToken = await getAccessToken(secrets);
+  const organizationId = await resolveOrganizationId(accessToken, orgId);
+  const accounts = await listKotakAccounts(accessToken, organizationId);
+  if (accounts.length === 0) {
+    throw new Error('No Kotak bank account found in Zoho Banking.');
+  }
+  const uncategorizedCount = accounts.reduce((sum, row) => sum + (Number(row.uncategorizedCount) || 0), 0);
+  return {
+    uncategorizedCount,
+    accountNames: accounts.map(row => row.accountName).filter(Boolean),
+    lastRefreshDate: accounts[0]?.lastRefreshDate ?? null,
   };
 }
 

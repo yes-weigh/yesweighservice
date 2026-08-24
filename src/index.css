@@ -23958,6 +23958,7 @@ body:has(.confirm-inline-bar) .confirm-inline-bar {
 
 .dealer-dash-kpi--kotak-tile {
   --kpi-accent: #ed1c24;
+  overflow: visible;
 }
 
 .dealer-dash-kpi--kotak-tile:disabled {
@@ -23974,11 +23975,12 @@ body:has(.confirm-inline-bar) .confirm-inline-bar {
 }
 
 .dealer-dash-kpi__kotak-logo-wrap {
+  position: relative;
   flex-shrink: 0;
   width: 2.75rem;
   height: 2.75rem;
   border-radius: 14px;
-  overflow: hidden;
+  overflow: visible;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -23995,6 +23997,27 @@ body:has(.confirm-inline-bar) .confirm-inline-bar {
   height: 100%;
   object-fit: cover;
   display: block;
+  border-radius: 14px;
+}
+
+.dealer-dash-kpi__kotak-badge {
+  position: absolute;
+  top: -0.32rem;
+  right: -0.38rem;
+  z-index: 1;
+  min-width: 1.15rem;
+  height: 1.15rem;
+  padding: 0 0.28rem;
+  border-radius: 999px;
+  background: #ed1c24;
+  color: #fff;
+  font-size: 0.62rem;
+  font-weight: 800;
+  line-height: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 0 0 2px rgba(10, 15, 28, 0.95);
 }
 
 .dealer-dash-kpi__value--sub {

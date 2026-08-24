@@ -28,7 +28,7 @@ import {
 } from '../../lib/dashboardPeriod';
 import { dealerErrorMessage, fetchDealerStats } from '../../lib/dealers';
 import { countOpsSupportRequestsInRange } from '../../lib/dealerSupport';
-import { refreshKotakBankFeeds } from '../../lib/kotakBankFeeds';
+import { fetchKotakBankFeedSummary, refreshKotakBankFeeds } from '../../lib/kotakBankFeeds';
 import kotakBankLogo from '../../assets/kotak-mahindra-bank.jpg';
 import type { DealerStats } from '../../types/dealers';
 
@@ -54,6 +54,8 @@ export const SuperAdminDashboard: React.FC = () => {
   const [opsCounts, setOpsCounts] = useState(EMPTY_OPS_COUNTS);
   const [kotakPhase, setKotakPhase] = useState<'idle' | 'working' | 'ok' | 'fail'>('idle');
   const [kotakMessage, setKotakMessage] = useState<string | null>(null);
+  const [kotakUncategorized, setKotakUncategorized] = useState<number | null>(null);
+  const [kotakCountLoading, setKotakCountLoading] = useState(true);
 
   useEffect(() => {
     let cancelled = false;
@@ -72,6 +74,25 @@ export const SuperAdminDashboard: React.FC = () => {
       }
     };
     void load();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    const loadKotakCount = async () => {
+      setKotakCountLoading(true);
+      try {
+        const summary = await fetchKotakBankFeedSummary();
+        if (!cancelled) setKotakUncategorized(summary.uncategorizedCount);
+      } catch {
+        if (!cancelled) setKotakUncategorized(null);
+      } finally {
+        if (!cancelled) setKotakCountLoading(false);
+      }
+    };
+    void loadKotakCount();
     return () => {
       cancelled = true;
     };
@@ -165,6 +186,9 @@ export const SuperAdminDashboard: React.FC = () => {
     setKotakMessage('Asking Zoho Books to refresh Kotak bank feeds…');
     try {
       const result = await refreshKotakBankFeeds();
+      if (typeof result.uncategorizedCount === 'number') {
+        setKotakUncategorized(result.uncategorizedCount);
+      }
       setKotakPhase('ok');
       setKotakMessage(result.message);
       window.setTimeout(() => {
@@ -313,8 +337,16 @@ export const SuperAdminDashboard: React.FC = () => {
             className={`dealer-dash-kpi dealer-dash-kpi--kotak-tile${kotakPhase === 'working' ? ' is-busy' : ''}${kotakPhase === 'ok' ? ' is-ok' : ''}${kotakPhase === 'fail' ? ' is-fail' : ''}`}
             onClick={() => void refreshKotakFeeds()}
             disabled={kotakPhase === 'working'}
-            aria-label="Refresh Kotak bank feeds in Zoho Books"
-            title="Refresh Kotak bank feeds in Zoho Books"
+            aria-label={
+              kotakUncategorized != null
+                ? `Refresh Kotak bank feeds. ${kotakUncategorized} uncategorised transactions.`
+                : 'Refresh Kotak bank feeds in Zoho Books'
+            }
+            title={
+              kotakUncategorized != null
+                ? `${kotakUncategorized} uncategorised · tap to refresh feeds`
+                : 'Refresh Kotak bank feeds in Zoho Books'
+            }
           >
             <span className="dealer-dash-kpi__kotak-logo-wrap">
               {kotakPhase === 'working' ? (
@@ -328,17 +360,20 @@ export const SuperAdminDashboard: React.FC = () => {
                   className="dealer-dash-kpi__kotak-logo"
                 />
               )}
+              {kotakUncategorized != null ? (
+                <span className="dealer-dash-kpi__kotak-badge" aria-hidden>
+                  {kotakUncategorized > 99 ? '99+' : kotakUncategorized}
+                </span>
+              ) : null}
             </span>
             <div className="dealer-dash-kpi__body">
               <span className="dealer-dash-kpi__label">Kotak</span>
-              <strong className="dealer-dash-kpi__value dealer-dash-kpi__value--sub">
-                {kotakPhase === 'working'
-                  ? 'Refreshing…'
-                  : kotakPhase === 'ok'
-                    ? 'Refresh started'
-                    : kotakPhase === 'fail'
-                      ? 'Try again'
-                      : 'Refresh feeds'}
+              <strong className="dealer-dash-kpi__value">
+                {kotakCountLoading && kotakUncategorized == null
+                  ? '…'
+                  : kotakUncategorized != null
+                    ? String(kotakUncategorized)
+                    : '—'}
               </strong>
             </div>
           </button>

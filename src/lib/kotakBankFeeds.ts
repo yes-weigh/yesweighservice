@@ -34,7 +34,29 @@ export interface KotakBankFeedSyncResult {
 export interface KotakBankFeedRefreshResult {
   refreshed: boolean;
   accountNames: string[];
+  uncategorizedCount?: number;
   message: string;
+}
+
+export interface KotakBankFeedSummary {
+  uncategorizedCount: number;
+  accountNames: string[];
+  lastRefreshDate: string | null;
+}
+
+/** Uncategorised transaction count for Kotak Current Account. */
+export async function fetchKotakBankFeedSummary(): Promise<KotakBankFeedSummary> {
+  try {
+    const fn = httpsCallable<Record<string, never>, KotakBankFeedSummary>(
+      functions,
+      'getKotakBankFeedSummaryFn',
+      { timeout: 60_000 },
+    );
+    const result = await fn({});
+    return result.data;
+  } catch (err) {
+    throw new Error(dealerOrderErrorMessage(err));
+  }
 }
 
 /** Ask Zoho Books to Refresh Feeds for Kotak (same as Banking → gear → Refresh Feeds). */

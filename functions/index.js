@@ -51,7 +51,7 @@ import {
   backfillLegacyCatalogProductAudits,
 } from './lib/catalog-product-audit.js';
 import { scheduledInboundQtyByProductId } from './lib/scheduled-goods-receipt-inbound.js';
-import { refreshKotakBankFeedsInZoho, syncKotakUncategorizedFeeds } from './lib/zoho-bank-feeds.js';
+import { getKotakBankFeedSummary, refreshKotakBankFeedsInZoho, syncKotakUncategorizedFeeds } from './lib/zoho-bank-feeds.js';
 import { migrateExistingAuditsIntoCycles } from './lib/audit-cycles-migrate.js';
 import { transferCatalogProductWarehouseStock as persistWarehouseTransfer } from './lib/zoho-warehouse-transfer.js';
 import {
@@ -2869,6 +2869,25 @@ export const syncKotakBankFeedsScheduled = onSchedule(
       );
     } catch (err) {
       console.error('Scheduled Kotak bank feed refresh failed:', err?.message ?? err);
+    }
+  },
+);
+
+/** Uncategorised Kotak Current Account count from Zoho Books. */
+export const getKotakBankFeedSummaryFn = onCall(
+  {
+    region: 'asia-south1',
+    secrets: [zohoClientId, zohoClientSecret, zohoRefreshToken],
+    timeoutSeconds: 60,
+    memory: '256MiB',
+  },
+  async request => {
+    await requireActiveUser(request.auth?.uid, SYNC_ROLES, { allowViewOnly: true });
+    try {
+      return await getKotakBankFeedSummary(zohoSecrets(), zohoOrganizationId.value());
+    } catch (err) {
+      if (err instanceof HttpsError) throw err;
+      throw new HttpsError('failed-precondition', err?.message ?? 'Could not read Kotak bank feeds.');
     }
   },
 );
