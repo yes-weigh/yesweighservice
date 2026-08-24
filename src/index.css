@@ -54603,6 +54603,15 @@ button.invoice-detail-top__card {
   border-radius: 10px;
 }
 
+.kotak-uncat-popup__row .kotak-feeds-sheet__details {
+  min-width: 0;
+}
+
+.kotak-uncat-popup__row .kotak-feeds-sheet__details strong {
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
 .kotak-uncat-popup__amount {
   display: grid;
   justify-items: end;
@@ -54640,6 +54649,44 @@ button.invoice-detail-top__card {
 
 .kotak-uncat-popup__close-btn {
   min-width: 7.5rem;
+}
+
+@media (max-width: 40rem) {
+  .kotak-uncat-popup__cols {
+    grid-template-columns: 4.4rem minmax(0, 1fr);
+  }
+
+  .kotak-uncat-popup__cols span:last-child {
+    display: none;
+  }
+
+  .kotak-uncat-popup__row {
+    grid-template-columns: 4.4rem minmax(0, 1fr);
+    grid-template-areas:
+      "date details"
+      ". amount";
+    row-gap: 0.28rem;
+  }
+
+  .kotak-uncat-popup__row > :nth-child(1) {
+    grid-area: date;
+  }
+
+  .kotak-uncat-popup__row > :nth-child(2) {
+    grid-area: details;
+  }
+
+  .kotak-uncat-popup__row > :nth-child(3) {
+    grid-area: amount;
+  }
+
+  .kotak-uncat-popup__amount {
+    justify-items: start;
+    text-align: left;
+    grid-auto-flow: column;
+    align-items: baseline;
+    gap: 0.4rem;
+  }
 }
 
 .so-detail__selected-bank-feed {
