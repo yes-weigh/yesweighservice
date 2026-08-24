@@ -1,5 +1,5 @@
 import { KERALA_DISTRICT_PATHS } from '../data/keralaDistrictPaths';
-import { canonicalIndiaState, normKey } from './indiaStates';
+import { canonicalIndiaState, normKey, stripLocationNumberPrefix } from './indiaStates';
 
 /** Official Kerala districts, north → south. */
 export const KERALA_DISTRICTS = [
@@ -75,10 +75,7 @@ export function isKeralaBillingState(state: string | null | undefined): boolean 
 }
 
 export function canonicalKeralaDistrict(raw: string | null | undefined): string {
-  const stripped = String(raw ?? '')
-    .replace(/^[\s\u00a0\u2060]*\d+[\s\u00a0\u2060]*[.)][\s\u00a0\u2060]*/u, '')
-    .trim();
-  const key = normKey(stripped);
+  const key = normKey(stripLocationNumberPrefix(String(raw ?? '')));
   if (!key) return UNSPECIFIED_DISTRICT;
   return ALIASES[key] ?? CANONICAL.get(key) ?? UNSPECIFIED_DISTRICT;
 }

@@ -1,6 +1,12 @@
 import { useEffect, useMemo, useState } from 'react';
 import { INDIA_MAP_VIEWBOX, INDIA_STATE_PATHS } from '../../data/indiaStatePaths';
+import { canonicalIndiaState, UNSPECIFIED_STATE } from '../../lib/indiaStates';
 import { formatCompactInr, type StateSalesRow } from '../../lib/salesByState';
+
+function officialStateName(name: string): string {
+  const canon = canonicalIndiaState(name);
+  return canon === UNSPECIFIED_STATE ? name : canon;
+}
 
 function fillForShare(sales: number, maxSales: number): string {
   if (maxSales <= 0 || sales <= 0) return '#152238';
@@ -66,9 +72,9 @@ export function IndiaSalesMap({
           : 'slate';
   const paths = useMemo(() => {
     if (!active) return INDIA_STATE_PATHS;
-    const rest = INDIA_STATE_PATHS.filter(state => state.name !== active);
-    const hot = INDIA_STATE_PATHS.find(state => state.name === active);
-    return hot ? [...rest, hot] : INDIA_STATE_PATHS;
+    const rest = INDIA_STATE_PATHS.filter(state => officialStateName(state.name) !== active);
+    const hot = INDIA_STATE_PATHS.filter(state => officialStateName(state.name) === active);
+    return hot.length ? [...rest, ...hot] : INDIA_STATE_PATHS;
   }, [active]);
 
   return (
@@ -82,8 +88,9 @@ export function IndiaSalesMap({
         onPointerLeave={() => setHover(null)}
       >
         {paths.map(state => {
-          const row = byName.get(state.name);
-          const isHot = active === state.name;
+          const official = officialStateName(state.name);
+          const row = byName.get(official);
+          const isHot = active === official;
           return (
             <path
               key={state.id}
@@ -92,9 +99,9 @@ export function IndiaSalesMap({
               stroke={isHot ? '#ffffff' : 'rgba(15, 23, 42, 0.85)'}
               strokeWidth={isHot ? 1.85 : 0.45}
               className={`sales-map__state${isHot ? ' is-hot' : ''}`}
-              onClick={() => onSelect(state.name)}
-              onPointerEnter={() => setHover(state.name)}
-              onPointerDown={() => setHover(state.name)}
+              onClick={() => onSelect(official)}
+              onPointerEnter={() => setHover(official)}
+              onPointerDown={() => setHover(official)}
             />
           );
         })}

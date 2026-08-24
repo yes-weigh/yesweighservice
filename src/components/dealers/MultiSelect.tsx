@@ -7,8 +7,8 @@ export interface MultiSelectOption {
   label: string;
 }
 
-const OPTION_ROW_PX = 28;
-const SEARCH_ROW_PX = 44;
+const OPTION_ROW_PX = 36;
+const SEARCH_ROW_PX = 48;
 const MENU_PAD_PX = 10;
 
 interface MultiSelectProps {

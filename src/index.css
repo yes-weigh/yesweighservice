@@ -34349,8 +34349,8 @@ body:has(.confirm-inline-bar) .confirm-inline-bar {
   align-items: flex-start;
   justify-content: space-between;
   gap: 0.5rem;
-  font-size: 0.8125rem;
-  padding: 0.35rem 0.5rem;
+  font-size: 1rem;
+  padding: 0.4rem 0.55rem;
   cursor: pointer;
 }
 
@@ -34524,7 +34524,7 @@ body:has(.confirm-inline-bar) .confirm-inline-bar {
   outline: none;
   background: transparent;
   color: #fff;
-  font-size: 0.82rem;
+  font-size: 0.95rem;
 }
 
 .dealers-multiselect__search input::placeholder {
@@ -34541,10 +34541,11 @@ body:has(.confirm-inline-bar) .confirm-inline-bar {
 .dealers-multiselect__option {
   display: flex;
   align-items: center;
-  gap: 0.4rem;
-  min-height: 1.75rem;
-  padding: 0.22rem 0.4rem;
-  font-size: 0.8rem;
+  gap: 0.45rem;
+  min-height: 2.15rem;
+  padding: 0.28rem 0.45rem;
+  font-size: 0.95rem;
+  line-height: 1.3;
   cursor: pointer;
 }
 

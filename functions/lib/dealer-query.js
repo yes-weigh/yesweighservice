@@ -1,3 +1,100 @@
+const INDIA_STATES = [
+  'Andhra Pradesh',
+  'Arunachal Pradesh',
+  'Assam',
+  'Bihar',
+  'Chhattisgarh',
+  'Delhi',
+  'Goa',
+  'Gujarat',
+  'Haryana',
+  'Himachal Pradesh',
+  'Jammu and Kashmir',
+  'Jharkhand',
+  'Karnataka',
+  'Kerala',
+  'Madhya Pradesh',
+  'Maharashtra',
+  'Manipur',
+  'Meghalaya',
+  'Mizoram',
+  'Nagaland',
+  'Odisha',
+  'Punjab',
+  'Rajasthan',
+  'Sikkim',
+  'Tamil Nadu',
+  'Telangana',
+  'Tripura',
+  'Uttar Pradesh',
+  'Uttarakhand',
+  'West Bengal',
+  'Andaman and Nicobar Islands',
+  'Chandigarh',
+  'Daman & Diu',
+  'Ladakh',
+  'Lakshadweep',
+  'Puducherry',
+];
+
+const INDIA_STATE_ALIASES = {
+  orissa: 'Odisha',
+  uttaranchal: 'Uttarakhand',
+  pondicherry: 'Puducherry',
+  pondichery: 'Puducherry',
+  delhi: 'Delhi',
+  'delhi nct': 'Delhi',
+  'nct of delhi': 'Delhi',
+  'nct delhi': 'Delhi',
+  'new delhi': 'Delhi',
+  nct: 'Delhi',
+  'jammu kashmir': 'Jammu and Kashmir',
+  jk: 'Jammu and Kashmir',
+  ladakh: 'Ladakh',
+  'andaman nicobar': 'Andaman and Nicobar Islands',
+  'andaman and nicobar': 'Andaman and Nicobar Islands',
+  'dadra nagar haveli': 'Daman & Diu',
+  'dadra and nagar haveli': 'Daman & Diu',
+  'dadra and nagar haveli and daman and diu': 'Daman & Diu',
+  'daman diu': 'Daman & Diu',
+  'daman and diu': 'Daman & Diu',
+  dnhdd: 'Daman & Diu',
+  dnh: 'Daman & Diu',
+  tamilnadu: 'Tamil Nadu',
+  tn: 'Tamil Nadu',
+  kerla: 'Kerala',
+  karnatka: 'Karnataka',
+  maharastra: 'Maharashtra',
+  maharasthra: 'Maharashtra',
+  mh: 'Maharashtra',
+  'west bangal': 'West Bengal',
+  westbengal: 'West Bengal',
+  wb: 'West Bengal',
+  uttarpradesh: 'Uttar Pradesh',
+  up: 'Uttar Pradesh',
+  mp: 'Madhya Pradesh',
+  andhrapradesh: 'Andhra Pradesh',
+  ap: 'Andhra Pradesh',
+  telengana: 'Telangana',
+  ts: 'Telangana',
+  tg: 'Telangana',
+  gj: 'Gujarat',
+  rj: 'Rajasthan',
+  br: 'Bihar',
+  od: 'Odisha',
+  pb: 'Punjab',
+  hr: 'Haryana',
+  chattisgarh: 'Chhattisgarh',
+  chhatisgarh: 'Chhattisgarh',
+  cg: 'Chhattisgarh',
+  jh: 'Jharkhand',
+  ga: 'Goa',
+  himachal: 'Himachal Pradesh',
+  hp: 'Himachal Pradesh',
+  kl: 'Kerala',
+  ka: 'Karnataka',
+};
+
 const KERALA_DISTRICTS = [
   'Kasaragod',
   'Kannur',
@@ -48,16 +145,26 @@ function normLocationKey(value) {
     .trim();
 }
 
+function stripLocationNumberPrefix(raw) {
+  return String(raw ?? '')
+    .replace(/^[\s\u00a0\u2060]*\d+[\s\u00a0\u2060]*[.)][\s\u00a0\u2060]*/u, '')
+    .trim();
+}
+
+function canonicalIndiaState(raw) {
+  const key = normLocationKey(stripLocationNumberPrefix(raw));
+  if (!key) return '';
+  if (INDIA_STATE_ALIASES[key]) return INDIA_STATE_ALIASES[key];
+  const exact = INDIA_STATES.find(name => normLocationKey(name) === key);
+  return exact || '';
+}
+
 function isKeralaBillingState(state) {
-  const key = normLocationKey(state);
-  return key === 'kerala' || key === 'kl';
+  return canonicalIndiaState(state) === 'Kerala';
 }
 
 function canonicalKeralaDistrict(raw) {
-  const stripped = String(raw ?? '')
-    .replace(/^[\s\u00a0\u2060]*\d+[\s\u00a0\u2060]*[.)][\s\u00a0\u2060]*/u, '')
-    .trim();
-  const key = normLocationKey(stripped);
+  const key = normLocationKey(stripLocationNumberPrefix(raw));
   if (!key) return '';
   if (KERALA_DISTRICT_ALIASES[key]) return KERALA_DISTRICT_ALIASES[key];
   const exact = KERALA_DISTRICTS.find(name => normLocationKey(name) === key);
@@ -155,7 +262,14 @@ export function filterDealers(dealers, query = {}) {
 
   const states = parseListParam(query.billingState);
   if (states.length > 0) {
-    list = list.filter(d => d.billingState && states.includes(d.billingState));
+    const wanted = new Set(states);
+    list = list.filter(d => {
+      const raw = String(d.billingState ?? '').trim();
+      if (!raw) return false;
+      if (wanted.has(raw)) return true;
+      const canon = canonicalIndiaState(raw);
+      return Boolean(canon) && wanted.has(canon);
+    });
   }
 
   const districts = parseListParam(query.district);
@@ -251,7 +365,7 @@ function classifyDealerStageBucket(stage) {
 
 export function dealerLocations(dealers) {
   const active = dealers.filter(d => !d.isFiltered);
-  const states = Array.from(new Set(active.map(d => d.billingState).filter(Boolean))).sort();
+  const states = [...INDIA_STATES];
   const districtsByState = {};
   for (const state of states) {
     if (isKeralaBillingState(state)) {
@@ -259,7 +373,9 @@ export function dealerLocations(dealers) {
       continue;
     }
     districtsByState[state] = Array.from(new Set(
-      active.filter(d => d.billingState === state && d.district).map(d => d.district),
+      active
+        .filter(d => canonicalIndiaState(d.billingState) === state && d.district)
+        .map(d => d.district),
     )).sort((a, b) => String(a).localeCompare(String(b)));
   }
   return { states, districtsByState };
