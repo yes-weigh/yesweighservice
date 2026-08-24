@@ -288,7 +288,7 @@ export const DealerLevelDefinitionsPanel: React.FC = () => {
     <div className="price-levels-tab dealer-level-definitions">
       <header className="price-levels-tab__header">
         <div>
-          <h3>Dealer level</h3>
+          <h3>Price level</h3>
           <p className="text-muted text-sm">
             Create levels and assign dealers. Category discounts, item overrides, and Costs &amp; New
             sell live under Products → Price level. Changes save automatically.

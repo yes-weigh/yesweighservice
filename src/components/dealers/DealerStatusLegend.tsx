@@ -5,12 +5,8 @@ import { DealerStatusIndicator } from './DealerStatusIndicator';
 
 export const DealerStatusLegend: React.FC = () => (
   <details className="dealers-status-legend panel glass">
-    <summary className="dealers-status-legend__summary">
+    <summary className="dealers-status-legend__summary" aria-label="Status legend">
       <Info size={15} />
-      <span>Status legend</span>
-      <span className="dealers-status-legend__preview" aria-hidden>
-        Active · Logged in / Not logged in
-      </span>
     </summary>
     <p className="dealers-status-legend__hint">
       Stage colour · logged in vs not logged in

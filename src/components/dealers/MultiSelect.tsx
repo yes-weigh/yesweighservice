@@ -15,6 +15,8 @@ interface MultiSelectProps {
   className?: string;
   menuPortal?: boolean;
   disabled?: boolean;
+  /** Compact trigger with a count; chips render below instead of inside the box. */
+  variant?: 'chips' | 'summary';
 }
 
 export const MultiSelect: React.FC<MultiSelectProps> = ({
@@ -25,6 +27,7 @@ export const MultiSelect: React.FC<MultiSelectProps> = ({
   className = '',
   menuPortal = false,
   disabled = false,
+  variant = 'chips',
 }) => {
   const [open, setOpen] = useState(false);
   const [menuStyle, setMenuStyle] = useState<React.CSSProperties>({});
@@ -40,7 +43,7 @@ export const MultiSelect: React.FC<MultiSelectProps> = ({
       top: rect.bottom + 4,
       left: rect.left,
       width: rect.width,
-      zIndex: 500,
+      zIndex: 1300,
     });
   };
 
@@ -110,6 +113,33 @@ export const MultiSelect: React.FC<MultiSelectProps> = ({
     setOpen(v => !v);
   };
 
+  const chips = (
+    <span className={`dealers-multiselect__chips${variant === 'summary' ? ' dealers-multiselect__chips--below' : ''}`}>
+      {value.map(val => (
+        <span key={val} className="dealers-multiselect__chip">
+          <span className="dealers-multiselect__chip-label">
+            {options.find(o => o.value === val)?.label ?? val}
+          </span>
+          {!disabled && (
+            <span
+              role="button"
+              tabIndex={-1}
+              className="dealers-multiselect__chip-remove"
+              aria-label={`Remove ${options.find(o => o.value === val)?.label ?? val}`}
+              onMouseDown={e => e.stopPropagation()}
+              onClick={e => removeChip(val, e)}
+              onKeyDown={e => {
+                if (e.key === 'Enter' || e.key === ' ') removeChip(val, e);
+              }}
+            >
+              <X size={11} />
+            </span>
+          )}
+        </span>
+      ))}
+    </span>
+  );
+
   const menu = open ? (
     <div
       className={`dealers-multiselect__menu panel glass${menuPortal ? ' dealers-multiselect__menu--portal' : ''}`}
@@ -130,7 +160,7 @@ export const MultiSelect: React.FC<MultiSelectProps> = ({
 
   return (
     <div
-      className={`dealers-multiselect${value.length > 0 ? ' dealers-multiselect--has-value' : ''} ${className}`.trim()}
+      className={`dealers-multiselect${value.length > 0 ? ' dealers-multiselect--has-value' : ''}${variant === 'summary' ? ' dealers-multiselect--summary' : ''} ${className}`.trim()}
       ref={rootRef}
     >
       <div
@@ -152,34 +182,13 @@ export const MultiSelect: React.FC<MultiSelectProps> = ({
         }}
       >
         <span className="dealers-multiselect__value">
-          {value.length === 0 ? (
-            <span className="dealers-multiselect__placeholder">{placeholder}</span>
-          ) : (
-            <span className="dealers-multiselect__chips">
-              {value.map(val => (
-                <span key={val} className="dealers-multiselect__chip">
-                  <span className="dealers-multiselect__chip-label">
-                    {options.find(o => o.value === val)?.label ?? val}
-                  </span>
-                  {!disabled && (
-                    <span
-                      role="button"
-                      tabIndex={-1}
-                      className="dealers-multiselect__chip-remove"
-                      aria-label={`Remove ${options.find(o => o.value === val)?.label ?? val}`}
-                      onMouseDown={e => e.stopPropagation()}
-                      onClick={e => removeChip(val, e)}
-                      onKeyDown={e => {
-                        if (e.key === 'Enter' || e.key === ' ') removeChip(val, e);
-                      }}
-                    >
-                      <X size={11} />
-                    </span>
-                  )}
-                </span>
-              ))}
+          {variant === 'summary' ? (
+            <span className={`dealers-multiselect__summary${value.length === 0 ? ' dealers-multiselect__summary--empty' : ''}`}>
+              {value.length === 0 ? placeholder : `${value.length} selected`}
             </span>
-          )}
+          ) : value.length === 0 ? (
+            <span className="dealers-multiselect__placeholder">{placeholder}</span>
+          ) : chips}
         </span>
         <div className="dealers-multiselect__controls">
           {value.length > 0 && !disabled && (
@@ -198,6 +207,7 @@ export const MultiSelect: React.FC<MultiSelectProps> = ({
           </span>
         </div>
       </div>
+      {variant === 'summary' && value.length > 0 ? chips : null}
       {menu && (menuPortal ? createPortal(menu, document.body) : menu)}
     </div>
   );

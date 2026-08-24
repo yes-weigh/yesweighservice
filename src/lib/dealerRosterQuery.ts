@@ -121,14 +121,15 @@ export function filterDealerRoster(dealers: ZohoDealer[], query: DealerListParam
     list = list.filter(d => d.status === query.status);
   }
 
-  const staffIds = parseList(query.assignedStaffUid);
+  if (query.assignment === 'unassigned') {
+    list = list.filter(d => !d.assignedStaffUid);
+  } else if (query.assignment === 'assigned') {
+    list = list.filter(d => Boolean(d.assignedStaffUid));
+  }
+
+  const staffIds = parseList(query.assignedStaffUid).filter(id => id !== 'unassigned');
   if (staffIds.length > 0) {
-    if (staffIds.includes('unassigned')) {
-      const assigned = staffIds.filter(id => id !== 'unassigned');
-      list = list.filter(d => !d.assignedStaffUid || assigned.includes(d.assignedStaffUid));
-    } else {
-      list = list.filter(d => d.assignedStaffUid && staffIds.includes(d.assignedStaffUid));
-    }
+    list = list.filter(d => d.assignedStaffUid && staffIds.includes(d.assignedStaffUid));
   }
 
   if (stages.length > 0) {

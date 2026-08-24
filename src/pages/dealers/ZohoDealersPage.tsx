@@ -13,20 +13,17 @@ import {
   X,
 } from 'lucide-react';
 import { CreateDealerModal } from '../../components/dealers/CreateDealerModal';
-import { MultiSelect } from '../../components/dealers/MultiSelect';
-import { FetchingLoader } from '../../components/FetchingLoader';
 import { DealerTile } from '../../components/dealers/DealerTile';
 import { DealerStatusLegend } from '../../components/dealers/DealerStatusLegend';
 import { DealerLevelDefinitionsPanel } from '../../components/dealers/DealerLevelDefinitionsPanel';
+import { MultiSelect } from '../../components/dealers/MultiSelect';
 import { ZohoSalespersonsPanel } from '../../components/dealers/ZohoSalespersonsPanel';
 import { useAuth } from '../../context/AuthContext';
 import { useConfirm } from '../../context/ConfirmContext';
 import { useCatalogPageHeader, usePageHeaderSlot } from '../../context/PageHeaderContext';
-import { DEALER_STATUS_LEGEND } from '../../lib/dealerStatus';
 import {
   dealerErrorMessage,
   exportDealersCsv,
-  fetchDealerCategories,
   listAssignableDealerStaff,
   patchDealer,
   syncZohoCustomers,
@@ -38,6 +35,11 @@ import {
   subscribeDealerCache,
 } from '../../lib/dealer-cache';
 import {
+  findPriceLevelForDealer,
+  isDefaultDealerPriceLevel,
+  subscribePriceLevels,
+} from '../../lib/priceLevels';
+import {
   computeDealerLocations,
   computeDealerStats,
   filterDealerRoster,
@@ -45,6 +47,7 @@ import {
   sortDealers,
 } from '../../lib/dealerRosterQuery';
 import { type AssignableStaffOption, type DealerListParams, type ZohoDealer } from '../../types/dealers';
+import type { PriceLevel } from '../../types/priceLevels';
 import { homePathForRole, type Role } from '../../types';
 import { canViewDealersInHr, hasStaffPermission } from '../../lib/staffAccess';
 
@@ -59,6 +62,122 @@ function parseDealersTab(value: string | null): DealersMainTab {
 
 function dealersListBase(role: Role): string {
   return `${homePathForRole(role)}/dealers`;
+}
+
+type FilterChip = { value: string; label: string };
+
+function slugifyFilterId(label: string) {
+  return `dealers-filter-${label.toLowerCase().replace(/[^a-z0-9]+/g, '-')}`;
+}
+
+function FilterSelect({
+  label,
+  value,
+  options,
+  onChange,
+}: {
+  label: string;
+  value: string;
+  options: FilterChip[];
+  onChange: (next: string) => void;
+}) {
+  const id = slugifyFilterId(label);
+  return (
+    <section className="support-filter-sheet__section">
+      <label className="support-filter-sheet__section-title" htmlFor={id}>{label}</label>
+      <select
+        id={id}
+        className="catalog-select dealers-filter-select"
+        value={value}
+        onChange={e => onChange(e.target.value)}
+      >
+        {options.map(option => (
+          <option key={option.value || 'all'} value={option.value}>
+            {option.label}
+          </option>
+        ))}
+      </select>
+    </section>
+  );
+}
+
+function FilterMultiDropdown({
+  label,
+  values,
+  options,
+  placeholder,
+  onChange,
+}: {
+  label: string;
+  values: string[];
+  options: FilterChip[];
+  placeholder: string;
+  onChange: (next: string[]) => void;
+}) {
+  return (
+    <section className="support-filter-sheet__section">
+      <h4 className="support-filter-sheet__section-title">{label}</h4>
+      {options.length === 0 ? (
+        <p className="dealers-filter-empty">No options yet</p>
+      ) : (
+        <MultiSelect
+          className="dealers-filter-multiselect"
+          options={options}
+          value={values}
+          onChange={onChange}
+          placeholder={placeholder}
+          variant="summary"
+          menuPortal
+        />
+      )}
+    </section>
+  );
+}
+
+function isHiddenKamName(name: string) {
+  return /\bshibin\b/i.test(name);
+}
+
+const ZOHO_STATUS_CHIPS: FilterChip[] = [
+  { value: '', label: 'All' },
+  { value: 'Active', label: 'Active' },
+  { value: 'Non Active', label: 'Inactive' },
+  { value: 'Black listed', label: 'Blacklisted' },
+];
+
+const APP_STATUS_CHIPS: FilterChip[] = [
+  { value: '', label: 'All' },
+  { value: 'logged-in', label: 'Logged in' },
+  { value: 'not-logged-in', label: 'Not logged in' },
+];
+
+const ASSIGNMENT_CHIPS: FilterChip[] = [
+  { value: '', label: 'All' },
+  { value: 'assigned', label: 'Assigned' },
+  { value: 'unassigned', label: 'Unassigned' },
+];
+
+const PRICE_LEVEL_FILTER_OPTIONS: FilterChip[] = [
+  { value: '', label: 'all' },
+  { value: 'directors', label: 'directors' },
+  { value: 'dealers', label: 'Dealers' },
+  { value: 'subdealer', label: 'Subdealer' },
+  { value: 'reseller', label: 'reseller' },
+  { value: 'spareonly', label: 'spareonly' },
+];
+
+function compactPriceLevelName(name: string) {
+  return name.trim().toLowerCase().replace(/[\s_-]+/g, '');
+}
+
+function rosterPriceLevelKey(level: PriceLevel | null): string {
+  if (!level || isDefaultDealerPriceLevel(level)) return 'dealers';
+  const compact = compactPriceLevelName(level.name);
+  if (compact === 'directors') return 'directors';
+  if (compact === 'subdealer' || compact === 'subdealers') return 'subdealer';
+  if (compact === 'reseller' || compact === 'resellers') return 'reseller';
+  if (compact === 'spareonly' || compact === 'sparesonly') return 'spareonly';
+  return compact;
 }
 
 export function ZohoDealersPage() {
@@ -93,11 +212,14 @@ export function ZohoDealersPage() {
   }, [mainTab, canManageDealerLevels, setSearchParams]);
 
   const [searchTerm, setSearchTerm] = useState('');
-  const [statusFilter, setStatusFilter] = useState<string[]>([]);
+  const [zohoStatus, setZohoStatus] = useState('');
+  const [appStatus, setAppStatus] = useState('');
+  const [assignment, setAssignment] = useState('');
   const [staffFilter, setStaffFilter] = useState<string[]>([]);
   const [stateFilter, setStateFilter] = useState<string[]>([]);
   const [districtFilter, setDistrictFilter] = useState<string[]>([]);
-  const [categoryFilter, setCategoryFilter] = useState<string[]>([]);
+  const [priceLevelFilter, setPriceLevelFilter] = useState('');
+  const [priceLevels, setPriceLevels] = useState<PriceLevel[]>([]);
   const [page, setPage] = useState(1);
   const [paginationOn, setPaginationOn] = useState(true);
   const [isMobileViewport, setIsMobileViewport] = useState(
@@ -118,7 +240,6 @@ export function ZohoDealersPage() {
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
   const [assignableStaff, setAssignableStaff] = useState<AssignableStaffOption[]>([]);
-  const [categories, setCategories] = useState<string[]>([]);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [filtersOpen, setFiltersOpen] = useState(false);
   const [createOpen, setCreateOpen] = useState(false);
@@ -128,16 +249,20 @@ export function ZohoDealersPage() {
     limit: effectivePaginationOn ? limit : 99999,
     status: 'all',
     ...(searchTerm.trim() ? { q: searchTerm.trim() } : {}),
-    ...(staffFilter.length ? { assignedStaffUid: staffFilter.join(',') } : {}),
-    ...(statusFilter.length ? { dealerStatus: statusFilter.join(',') } : {}),
+    ...(assignment === 'assigned' || assignment === 'unassigned' ? { assignment } : {}),
+    ...(assignment !== 'unassigned' && staffFilter.length
+      ? { assignedStaffUid: staffFilter.join(',') }
+      : {}),
+    ...(zohoStatus ? { dealerStage: zohoStatus } : {}),
+    ...(appStatus === 'logged-in' ? { signedIn: 'true' as const } : {}),
+    ...(appStatus === 'not-logged-in' ? { signedIn: 'false' as const } : {}),
     ...(stateFilter.length ? { billingState: stateFilter.join(',') } : {}),
     ...(districtFilter.length ? { district: districtFilter.join(',') } : {}),
-    ...(categoryFilter.length ? { categories: categoryFilter.join(',') } : {}),
     sortField: 'contactName',
     sortDir: 'asc',
   }), [
-    effectivePaginationOn, page, searchTerm, staffFilter, statusFilter, stateFilter,
-    districtFilter, categoryFilter,
+    effectivePaginationOn, page, searchTerm, assignment, staffFilter, zohoStatus,
+    appStatus, stateFilter, districtFilter,
   ]);
 
   const stats = useMemo(() => computeDealerStats(roster), [roster]);
@@ -145,10 +270,13 @@ export function ZohoDealersPage() {
   const states = locations.states;
   const districtsByState = locations.districtsByState;
 
-  const filteredDealers = useMemo(
-    () => sortDealers(filterDealerRoster(roster, queryParams), 'contactName', 'asc'),
-    [roster, queryParams],
-  );
+  const filteredDealers = useMemo(() => {
+    const list = sortDealers(filterDealerRoster(roster, queryParams), 'contactName', 'asc');
+    if (!priceLevelFilter) return list;
+    return list.filter(dealer => (
+      rosterPriceLevelKey(findPriceLevelForDealer(priceLevels, dealer.id)) === priceLevelFilter
+    ));
+  }, [roster, queryParams, priceLevelFilter, priceLevels]);
   const paged = useMemo(
     () => paginateDealers(
       filteredDealers,
@@ -170,12 +298,7 @@ export function ZohoDealersPage() {
 
   const loadMeta = useCallback(async () => {
     try {
-      const [staffRes, catsRes] = await Promise.all([
-        listAssignableDealerStaff(),
-        fetchDealerCategories(),
-      ]);
-      setAssignableStaff(staffRes);
-      setCategories(catsRes);
+      setAssignableStaff(await listAssignableDealerStaff());
     } catch (err) {
       console.error('Dealer meta load failed:', err);
       setError(dealerErrorMessage(err));
@@ -185,6 +308,19 @@ export function ZohoDealersPage() {
   useEffect(() => {
     void loadMeta();
   }, [loadMeta]);
+
+  useEffect(() => subscribePriceLevels(docData => setPriceLevels(docData.levels)), []);
+
+  useEffect(() => {
+    const hidden = new Set(
+      assignableStaff.filter(staff => isHiddenKamName(staff.displayName)).map(staff => staff.uid),
+    );
+    if (!hidden.size) return;
+    setStaffFilter(prev => {
+      const next = prev.filter(uid => !hidden.has(uid));
+      return next.length === prev.length ? prev : next;
+    });
+  }, [assignableStaff]);
 
   useEffect(() => {
     const unsub = subscribeDealerCache((dealers, complete) => {
@@ -200,11 +336,22 @@ export function ZohoDealersPage() {
   useEffect(() => {
     setPage(1);
     setSelectedIds(new Set());
-  }, [searchTerm, statusFilter, staffFilter, stateFilter, districtFilter, categoryFilter]);
+  }, [searchTerm, zohoStatus, appStatus, assignment, staffFilter, stateFilter, districtFilter, priceLevelFilter]);
 
-  useEffect(() => {
-    setDistrictFilter([]);
-  }, [stateFilter]);
+  const handleStateFilterChange = (next: string[]) => {
+    setStateFilter(next);
+    if (!next.length) {
+      setDistrictFilter([]);
+      return;
+    }
+    const allowed = new Set(next.flatMap(state => districtsByState[state] ?? []));
+    setDistrictFilter(prev => prev.filter(district => allowed.has(district)));
+  };
+
+  const handleAssignmentChange = (next: string) => {
+    setAssignment(next);
+    if (next === 'unassigned') setStaffFilter([]);
+  };
 
   const handleSync = async () => {
     setSyncing(true);
@@ -278,68 +425,87 @@ export function ZohoDealersPage() {
   const totalPages = Math.max(1, Math.ceil(total / limit));
 
   const activeFilterCount = [
-    staffFilter,
-    statusFilter,
-    stateFilter,
-    districtFilter,
-    categoryFilter,
-  ].filter(f => f.length > 0).length;
+    zohoStatus,
+    appStatus,
+    assignment,
+    staffFilter.length ? 'kam' : '',
+    stateFilter.length ? 'state' : '',
+    districtFilter.length ? 'district' : '',
+    priceLevelFilter,
+  ].filter(Boolean).length;
 
   const resetDealerFilters = () => {
+    setZohoStatus('');
+    setAppStatus('');
+    setAssignment('');
     setStaffFilter([]);
-    setStatusFilter([]);
     setStateFilter([]);
     setDistrictFilter([]);
-    setCategoryFilter([]);
+    setPriceLevelFilter('');
     setMainTab('roster');
   };
 
-  const applyStatusPreset = (keys: string[]) => {
-    setStatusFilter(keys);
+  const applyZohoStatus = (next: string) => {
+    setZohoStatus(next);
     setPage(1);
   };
 
-  const statusPreset = statusFilter.slice().sort().join(',');
-  const kpiActive = (keys: string[]) => statusPreset === keys.slice().sort().join(',');
+  const filterBadgeCount = activeFilterCount;
 
-  const filterBadgeCount = activeFilterCount + (mainTab === 'roster' ? 0 : 1);
+  const kamOptions = useMemo(
+    () => assignableStaff
+      .filter(staff => !isHiddenKamName(staff.displayName))
+      .map(staff => ({ value: staff.uid, label: staff.displayName })),
+    [assignableStaff],
+  );
 
   const dealerFilterFields = (
-    <div className="dealers-filters">
-      <MultiSelect
-        placeholder="Assigned staff"
-        value={staffFilter}
-        onChange={setStaffFilter}
-        options={[
-          { value: 'unassigned', label: 'Unassigned' },
-          ...assignableStaff.map(s => ({ value: s.uid, label: s.displayName })),
-        ]}
+    <div className="dealers-filter-groups">
+      <FilterSelect
+        label="Zoho status"
+        value={zohoStatus}
+        options={ZOHO_STATUS_CHIPS}
+        onChange={setZohoStatus}
       />
-      <MultiSelect
-        placeholder="Status"
-        value={statusFilter}
-        onChange={setStatusFilter}
-        options={DEALER_STATUS_LEGEND.map(item => ({ value: item.key, label: item.symbol }))}
+      <FilterSelect
+        label="App status"
+        value={appStatus}
+        options={APP_STATUS_CHIPS}
+        onChange={setAppStatus}
       />
-      <MultiSelect
-        className="dealers-filter--state"
-        placeholder="State"
-        value={stateFilter}
-        onChange={setStateFilter}
-        options={states.map(s => ({ value: s, label: s }))}
+      <FilterSelect
+        label="Assigned"
+        value={assignment}
+        options={ASSIGNMENT_CHIPS}
+        onChange={handleAssignmentChange}
       />
-      <MultiSelect
-        placeholder="District"
-        value={districtFilter}
-        onChange={setDistrictFilter}
-        options={districts.map(d => ({ value: d, label: d }))}
+      {assignment !== 'unassigned' ? (
+        <FilterMultiDropdown
+          label="KAM"
+          values={staffFilter}
+          options={kamOptions}
+          placeholder="All KAMs"
+          onChange={setStaffFilter}
+        />
+      ) : null}
+      <FilterMultiDropdown
+        label="State"
+        values={stateFilter}
+        options={states.map(state => ({ value: state, label: state }))}
+        placeholder="All states"
+        onChange={handleStateFilterChange}
       />
-      <MultiSelect
-        placeholder="Category"
-        value={categoryFilter}
-        onChange={setCategoryFilter}
-        options={categories.map(c => ({ value: c, label: c }))}
-      />
+      {stateFilter.length > 0 ? (
+        <FilterMultiDropdown
+          label="District"
+          values={districtFilter}
+          options={districts.map(district => ({ value: district, label: district }))}
+          placeholder="All districts"
+          onChange={setDistrictFilter}
+        />
+      ) : (
+        <p className="dealers-filter-hint">Select a state to see districts where you have dealers.</p>
+      )}
     </div>
   );
 
@@ -474,7 +640,7 @@ export function ZohoDealersPage() {
             onClick={() => setFiltersOpen(false)}
           />
           <div
-            className="support-filter-sheet"
+            className="support-filter-sheet dealers-filter-sheet"
             role="dialog"
             aria-modal="true"
             aria-label="Filter dealers"
@@ -501,34 +667,24 @@ export function ZohoDealersPage() {
               </div>
             </header>
 
-            <section className="support-filter-sheet__section">
-              <h4 className="support-filter-sheet__section-title">View</h4>
-              <div className="support-filter-sheet__options">
-                <button
-                  type="button"
-                  className={`support-filter-sheet__option${mainTab === 'roster' ? ' is-active' : ''}`}
-                  onClick={() => setMainTab('roster')}
-                >
-                  Dealer
-                </button>
-                <button
-                  type="button"
-                  className={`support-filter-sheet__option${mainTab === 'salespersons' ? ' is-active' : ''}`}
-                  onClick={() => setMainTab('salespersons')}
-                >
-                  Salesperson
-                </button>
-                {canManageDealerLevels ? (
-                  <button
-                    type="button"
-                    className={`support-filter-sheet__option${mainTab === 'dealer-level' ? ' is-active' : ''}`}
-                    onClick={() => setMainTab('dealer-level')}
-                  >
-                    Dealer level
-                  </button>
-                ) : null}
-              </div>
-            </section>
+            <FilterSelect
+              label="Price level"
+              value={priceLevelFilter}
+              options={PRICE_LEVEL_FILTER_OPTIONS}
+              onChange={next => {
+                setPriceLevelFilter(next);
+                if (mainTab !== 'roster') setMainTab('roster');
+              }}
+            />
+            {canManageDealerLevels ? (
+              <button
+                type="button"
+                className="dealers-filter-manage-levels"
+                onClick={() => setMainTab('dealer-level')}
+              >
+                Manage price levels
+              </button>
+            ) : null}
 
             {mainTab === 'roster' ? dealerFilterFields : null}
           </div>
@@ -573,41 +729,50 @@ export function ZohoDealersPage() {
       <div className="dealers-kpis dealers-kpis--roster" role="group" aria-label="Dealer counts">
         <button
           type="button"
-          className={`dealers-kpi dealers-kpi--roster${statusFilter.length === 0 ? ' is-active' : ''}`}
-          onClick={() => applyStatusPreset([])}
+          className={`dealers-kpi dealers-kpi--roster${zohoStatus === '' ? ' is-active' : ''}`}
+          onClick={() => applyZohoStatus('')}
         >
           <Users size={16} />
           <div>
-            <h3>Total Dealers</h3>
+            <h3>
+              <span className="dealers-kpi__label-long">Total Dealers</span>
+              <span className="dealers-kpi__label-short">Total</span>
+            </h3>
             <div className="stat-value">{(stats?.total ?? total).toLocaleString('en-IN')}</div>
           </div>
         </button>
         <button
           type="button"
-          className={`dealers-kpi dealers-kpi--roster dealers-kpi--active${kpiActive(['active-yes', 'active-no']) ? ' is-active' : ''}`}
-          onClick={() => applyStatusPreset(['active-yes', 'active-no'])}
+          className={`dealers-kpi dealers-kpi--roster dealers-kpi--active${zohoStatus === 'Active' ? ' is-active' : ''}`}
+          onClick={() => applyZohoStatus('Active')}
         >
           <UserCheck size={16} />
           <div>
-            <h3>Active Dealers</h3>
+            <h3>
+              <span className="dealers-kpi__label-long">Active Dealers</span>
+              <span className="dealers-kpi__label-short">Active</span>
+            </h3>
             <div className="stat-value">{(stats?.active ?? 0).toLocaleString('en-IN')}</div>
           </div>
         </button>
         <button
           type="button"
-          className={`dealers-kpi dealers-kpi--roster dealers-kpi--inactive${kpiActive(['non-active-yes', 'non-active-no']) ? ' is-active' : ''}`}
-          onClick={() => applyStatusPreset(['non-active-yes', 'non-active-no'])}
+          className={`dealers-kpi dealers-kpi--roster dealers-kpi--inactive${zohoStatus === 'Non Active' ? ' is-active' : ''}`}
+          onClick={() => applyZohoStatus('Non Active')}
         >
           <Clock size={16} />
           <div>
-            <h3>Inactive Dealers</h3>
+            <h3>
+              <span className="dealers-kpi__label-long">Inactive Dealers</span>
+              <span className="dealers-kpi__label-short">Inactive</span>
+            </h3>
             <div className="stat-value">{(stats?.nonActive ?? 0).toLocaleString('en-IN')}</div>
           </div>
         </button>
         <button
           type="button"
-          className={`dealers-kpi dealers-kpi--roster dealers-kpi--blacklisted${kpiActive(['blacklisted-yes', 'blacklisted-no']) ? ' is-active' : ''}`}
-          onClick={() => applyStatusPreset(['blacklisted-yes', 'blacklisted-no'])}
+          className={`dealers-kpi dealers-kpi--roster dealers-kpi--blacklisted${zohoStatus === 'Black listed' ? ' is-active' : ''}`}
+          onClick={() => applyZohoStatus('Black listed')}
         >
           <Ban size={16} />
           <div>
@@ -619,10 +784,10 @@ export function ZohoDealersPage() {
 
       <div className="dealers-table-panel">
         <div className="dealers-roster" aria-label="Dealer list">
-          {loading ? (
-            <FetchingLoader label="Fetching dealers" className="dealers-tiles__loading" />
-          ) : dealers.length === 0 ? (
-            <p className="dealers-tiles__empty">No dealers found. Sync from Zoho to get started.</p>
+          {dealers.length === 0 ? (
+            <p className="dealers-tiles__empty">
+              {loading ? 'Loading dealers…' : 'No dealers found. Sync from Zoho to get started.'}
+            </p>
           ) : (
             dealers.map(dealer => (
               <DealerTile

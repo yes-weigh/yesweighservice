@@ -1,8 +1,8 @@
 /**
  * Live vessel AIS for catalog / PO maps.
  * Identity: Shipxy / ShipFinder public search (searchv3.shipxy.com).
- * Dynamics: Shipxy GetSingleShip when SHIPXY_API_KEY is set; otherwise the
- * public vessel page used by the same AIS network (speed, dest, ETA, position).
+ * Dynamics: official ShipFinder / Shipxy GetSingleShip when SHIPFINDER_API_KEY
+ * or SHIPXY_API_KEY is set. Stale / rounded public pages are not treated as live.
  */
 
 const USER_AGENT =
@@ -171,8 +171,61 @@ function finiteOrNull(value) {
   return Number.isFinite(n) ? n : null;
 }
 
-/** Shipxy GetSingleShip stores lat/lon in 1e-6 deg and SOG in mm/s. */
-function fromShipxySingleShip(row) {
+function officialAisKeys() {
+  return [...new Set(
+    [process.env.SHIPFINDER_API_KEY, process.env.SHIPXY_API_KEY]
+      .map(value => String(value || '').trim())
+      .filter(Boolean),
+  )];
+}
+
+function unixToIso(value) {
+  const n = Number(value);
+  if (!Number.isFinite(n) || n <= 0) return null;
+  const ms = n > 1e12 ? n : n * 1000;
+  const date = new Date(ms);
+  return Number.isNaN(date.getTime()) ? null : date.toISOString();
+}
+
+function snapshotAgeMs(snap) {
+  const iso = Date.parse(String(snap?.updated || ''));
+  if (!Number.isFinite(iso)) return Number.POSITIVE_INFINITY;
+  return Date.now() - iso;
+}
+
+function isPreciseFix(lat, lon) {
+  if (!Number.isFinite(lat) || !Number.isFinite(lon)) return false;
+  if (lat === 0 && lon === 0) return false;
+  // VesselFinder's free HTML rounds to whole degrees — unusable for a live plot.
+  const latWhole = Math.abs(lat - Math.round(lat)) < 1e-6;
+  const lonWhole = Math.abs(lon - Math.round(lon)) < 1e-6;
+  return !(latWhole && lonWhole);
+}
+
+function isLiveSnapshot(snap, maxAgeMs = 3 * 60 * 60 * 1000) {
+  if (!snap) return false;
+  const updated = String(snap.updated || '');
+  if (/hours?\s+ago|days?\s+ago/i.test(updated)) return false;
+  if (!isPreciseFix(snap.lat, snap.lon) && snap.sog == null) return false;
+  return snapshotAgeMs(snap) <= maxAgeMs;
+}
+
+function pickFreshest(snapshots) {
+  const usable = snapshots.filter(Boolean);
+  if (!usable.length) return null;
+  return usable.slice().sort((a, b) => {
+    const liveA = isLiveSnapshot(a) ? 1 : 0;
+    const liveB = isLiveSnapshot(b) ? 1 : 0;
+    if (liveA !== liveB) return liveB - liveA;
+    const satA = String(a.source || '').includes('satellite') ? 1 : 0;
+    const satB = String(b.source || '').includes('satellite') ? 1 : 0;
+    if (satA !== satB) return satB - satA;
+    return snapshotAgeMs(a) - snapshotAgeMs(b);
+  })[0];
+}
+
+/** Official Shipxy / ShipFinder GetSingleShip: lat/lon in 1e-6 deg, SOG in mm/s. */
+function fromOfficialSingleShip(row, source) {
   if (!row || typeof row !== 'object') return null;
   let lat = Number(row.lat);
   let lon = Number(row.lon);
@@ -184,13 +237,15 @@ function fromShipxySingleShip(row) {
   if (Number.isFinite(cog) && cog > 360) cog /= 100;
   const dest = String(row.dest_std || row.dest || '').trim() || null;
   const eta = String(row.eta_std || row.eta || '').trim() || null;
+  const from = Number(row.from ?? row.From);
+  const satelliteTs = Number(row.satelliteutc || row.satellittime || row.obctime || 0);
   const last = Number(row.lasttime);
-  const updated = Number.isFinite(last) && last > 0
-    ? new Date(last * 1000).toISOString()
-    : null;
-  const hasFix = Number.isFinite(lat) && Number.isFinite(lon) && !(lat === 0 && lon === 0);
+  const bestTs = [satelliteTs, last].filter(n => Number.isFinite(n) && n > 0).sort((a, b) => b - a)[0];
+  const updated = unixToIso(bestTs);
+  const hasFix = isPreciseFix(lat, lon);
   const hasSpeed = Number.isFinite(sog);
   if (!hasFix && !hasSpeed) return null;
+  const satellite = from === 1 || (Number.isFinite(satelliteTs) && satelliteTs >= last);
   return snapshot({
     name: row.name,
     imo: row.imo,
@@ -202,20 +257,42 @@ function fromShipxySingleShip(row) {
     dest,
     eta,
     updated,
-    source: 'shipxy',
+    source: satellite ? `${source}-satellite` : source,
   });
 }
 
-async function fetchShipxySingleShip(mmsi) {
-  const key = String(process.env.SHIPXY_API_KEY || '').trim();
-  if (!key || !/^\d{9}$/.test(String(mmsi))) return null;
-  const url =
-    `https://api.shipxy.com/apicall/GetSingleShip?v=2&k=${encodeURIComponent(key)}`
-    + `&enc=1&id=${encodeURIComponent(mmsi)}`;
-  const json = await fetchJson(url);
-  if (!json || Number(json.status) !== 0) return null;
-  const row = Array.isArray(json.data) ? json.data[0] : json.data;
-  return fromShipxySingleShip(row);
+async function fetchOfficialSingleShip(mmsi) {
+  const id = String(mmsi || '').replace(/\D/g, '');
+  const keys = officialAisKeys();
+  if (!keys.length || !/^\d{9}$/.test(id)) return null;
+  const urls = keys.flatMap(key => ([
+    `https://api.shipfinder.com/apicall/GetSingleShip?v=2&k=${encodeURIComponent(key)}&enc=1&id=${encodeURIComponent(id)}&idtype=0`,
+    `https://api.shipxy.com/apicall/GetSingleShip?v=2&k=${encodeURIComponent(key)}&enc=1&id=${encodeURIComponent(id)}`,
+  ]));
+  const snapshots = [];
+  await Promise.all(urls.map(async url => {
+    try {
+      const json = await fetchJson(url);
+      if (!json || Number(json.status) !== 0) return;
+      const row = Array.isArray(json.data) ? json.data[0] : json.data;
+      const source = /shipfinder\.com/i.test(url) ? 'shipfinder' : 'shipxy';
+      snapshots.push(fromOfficialSingleShip(row, source));
+    } catch (err) {
+      console.warn('Official AIS lookup failed:', err?.message || err);
+    }
+  }));
+  return pickFreshest(snapshots);
+}
+
+function collectMmsiCandidates(search, parsed) {
+  const ids = [];
+  const push = value => {
+    const id = String(value || '').replace(/\D/g, '');
+    if (/^\d{9}$/.test(id) && !ids.includes(id)) ids.push(id);
+  };
+  push(parsed.mmsi);
+  for (const row of Array.isArray(search?.ship) ? search.ship : []) push(row?.m);
+  return ids.slice(0, 4);
 }
 
 function parseSearchRows(html) {
@@ -281,12 +358,13 @@ function parseDetails(html, fallbackImo) {
       .replace(/\s+/g, ' ')
       .trim()
     || null;
+  const precise = isPreciseFix(lat, lon);
   return snapshot({
     name,
     imo: /^\d{7}$/.test(imo) ? imo : '',
     mmsi: /^\d{9}$/.test(mmsi) ? mmsi : '',
-    lat,
-    lon,
+    lat: precise ? lat : null,
+    lon: precise ? lon : null,
     cog: finiteOrNull(parsed.ship_cog),
     sog,
     dest,
@@ -330,9 +408,10 @@ export async function lookupVesselAis(rawKeyword) {
   }
 
   const searchKw = parsed.imo || parsed.mmsi || parsed.name;
+  let search = null;
   let shipxyRow = null;
   try {
-    const search = await searchShipxy(searchKw);
+    search = await searchShipxy(searchKw);
     shipxyRow = pickShipxyShip(search?.ship, parsed);
   } catch (err) {
     console.warn('Shipxy search failed:', err?.message || err);
@@ -343,20 +422,25 @@ export async function lookupVesselAis(rawKeyword) {
   const name = String(shipxyRow?.n ?? parsed.name ?? '').trim();
   const identity = snapshot({ name, imo, mmsi, source: 'shipxy' });
 
-  if (mmsi) {
-    try {
-      const live = await fetchShipxySingleShip(mmsi);
-      if (live && (live.sog != null || live.lat != null)) {
-        return mergeSnapshots(identity, live);
-      }
-    } catch (err) {
-      console.warn('Shipxy GetSingleShip failed:', err?.message || err);
+  const mmsis = collectMmsiCandidates(search, { ...parsed, mmsi, imo });
+  if (mmsis.length) {
+    const live = pickFreshest(await Promise.all(mmsis.map(id => fetchOfficialSingleShip(id))));
+    if (live && isLiveSnapshot(live)) {
+      return mergeSnapshots(identity, live);
     }
   }
 
   if (/^\d{7}$/.test(imo)) {
     const details = await fetchVesselDetails(imo);
-    return mergeSnapshots(identity, details);
+    if (isLiveSnapshot(details)) return mergeSnapshots(identity, details);
+    return mergeSnapshots(identity, snapshot({
+      name: details.name,
+      imo: details.imo,
+      mmsi: details.mmsi,
+      dest: details.dest,
+      eta: details.eta,
+      source: details.source,
+    }));
   }
 
   if (parsed.name && !imo) {
@@ -366,7 +450,15 @@ export async function lookupVesselAis(rawKeyword) {
     const row = pickSearchRow(parseSearchRows(searchHtml), parsed.name);
     if (row?.imo) {
       const details = await fetchVesselDetails(row.imo);
-      return mergeSnapshots(identity, details);
+      if (isLiveSnapshot(details)) return mergeSnapshots(identity, details);
+      return mergeSnapshots(identity, snapshot({
+        name: details.name,
+        imo: details.imo,
+        mmsi: details.mmsi,
+        dest: details.dest,
+        eta: details.eta,
+        source: details.source,
+      }));
     }
   }
 

@@ -115,6 +115,8 @@ export interface DealerListParams {
   q?: string;
   status?: string;
   assignedStaffUid?: string;
+  /** assigned = has a KAM; unassigned = no KAM. Independent of KAM uid list. */
+  assignment?: 'assigned' | 'unassigned';
   dealerStage?: string;
   dealerStatus?: string;
   billingState?: string;
