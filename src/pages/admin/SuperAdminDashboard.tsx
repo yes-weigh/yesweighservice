@@ -26,9 +26,19 @@ import {
   resolveDashboardPeriodBounds,
   type DashboardPeriodPreset,
 } from '../../lib/dashboardPeriod';
+import { playDealerSuccessSound, unlockDealerActionAudio } from '../../lib/dealerActionSound';
 import { dealerErrorMessage, fetchDealerStats } from '../../lib/dealers';
 import { countOpsSupportRequestsInRange } from '../../lib/dealerSupport';
-import { fetchKotakBankFeedSummary, refreshKotakBankFeeds } from '../../lib/kotakBankFeeds';
+import {
+  KotakUncategorizedPopup,
+  type KotakPopupPhase,
+} from '../../components/dashboard/KotakUncategorizedPopup';
+import {
+  fetchKotakBankFeedSummary,
+  fetchKotakBankFeeds,
+  refreshKotakBankFeeds,
+  type KotakBankFeed,
+} from '../../lib/kotakBankFeeds';
 import kotakBankLogo from '../../assets/kotak-mahindra-bank.jpg';
 import type { DealerStats } from '../../types/dealers';
 
@@ -56,6 +66,12 @@ export const SuperAdminDashboard: React.FC = () => {
   const [kotakMessage, setKotakMessage] = useState<string | null>(null);
   const [kotakUncategorized, setKotakUncategorized] = useState<number | null>(null);
   const [kotakCountLoading, setKotakCountLoading] = useState(true);
+  const [kotakLastRefresh, setKotakLastRefresh] = useState<string | null>(null);
+  const [kotakPopupOpen, setKotakPopupOpen] = useState(false);
+  const [kotakPopupPhase, setKotakPopupPhase] = useState<KotakPopupPhase>('refreshing');
+  const [kotakPopupError, setKotakPopupError] = useState<string | null>(null);
+  const [kotakFeeds, setKotakFeeds] = useState<KotakBankFeed[]>([]);
+  const [kotakFetchedAt, setKotakFetchedAt] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -85,7 +101,10 @@ export const SuperAdminDashboard: React.FC = () => {
       setKotakCountLoading(true);
       try {
         const summary = await fetchKotakBankFeedSummary();
-        if (!cancelled) setKotakUncategorized(summary.uncategorizedCount);
+        if (!cancelled) {
+          setKotakUncategorized(summary.uncategorizedCount);
+          setKotakLastRefresh(summary.lastRefreshDate);
+        }
       } catch {
         if (!cancelled) setKotakUncategorized(null);
       } finally {
@@ -180,24 +199,44 @@ export const SuperAdminDashboard: React.FC = () => {
 
   useTopBarAction(periodFilter);
 
-  const refreshKotakFeeds = async () => {
+  const openKotakFeeds = async () => {
     if (kotakPhase === 'working') return;
+    unlockDealerActionAudio();
     setKotakPhase('working');
-    setKotakMessage('Asking Zoho Books to refresh Kotak bank feeds…');
+    setKotakMessage(null);
+    setKotakPopupOpen(true);
+    setKotakPopupPhase('refreshing');
+    setKotakPopupError(null);
+    setKotakFeeds([]);
+    setKotakFetchedAt(null);
     try {
-      const result = await refreshKotakBankFeeds();
-      if (typeof result.uncategorizedCount === 'number') {
-        setKotakUncategorized(result.uncategorizedCount);
+      try {
+        const refresh = await refreshKotakBankFeeds();
+        if (typeof refresh.uncategorizedCount === 'number') {
+          setKotakUncategorized(refresh.uncategorizedCount);
+        }
+        if (refresh.lastRefreshDate) setKotakLastRefresh(refresh.lastRefreshDate);
+        await new Promise(resolve => window.setTimeout(resolve, 3000));
+      } catch (err) {
+        setKotakPopupError(err instanceof Error ? err.message : 'Refresh Feeds failed in Zoho.');
       }
+      playDealerSuccessSound();
+      setKotakPopupPhase('loading');
+      const result = await fetchKotakBankFeeds({ skipRefresh: true });
+      setKotakFeeds(result.feeds || []);
+      setKotakFetchedAt(result.fetchedAt || null);
+      setKotakUncategorized(result.count);
+      setKotakPopupPhase('ready');
       setKotakPhase('ok');
-      setKotakMessage(result.message);
       window.setTimeout(() => {
         setKotakPhase(current => (current === 'ok' ? 'idle' : current));
-        setKotakMessage(current => (current === result.message ? null : current));
-      }, 5000);
+      }, 2500);
     } catch (err) {
+      const message = err instanceof Error ? err.message : 'Could not load Kotak bank transactions.';
+      setKotakPopupPhase('error');
+      setKotakPopupError(message);
       setKotakPhase('fail');
-      setKotakMessage(err instanceof Error ? err.message : 'Could not refresh Kotak bank feeds.');
+      setKotakMessage(message);
     }
   };
 
@@ -335,17 +374,17 @@ export const SuperAdminDashboard: React.FC = () => {
           <button
             type="button"
             className={`dealer-dash-kpi dealer-dash-kpi--kotak-tile${kotakPhase === 'working' ? ' is-busy' : ''}${kotakPhase === 'ok' ? ' is-ok' : ''}${kotakPhase === 'fail' ? ' is-fail' : ''}`}
-            onClick={() => void refreshKotakFeeds()}
+            onClick={() => void openKotakFeeds()}
             disabled={kotakPhase === 'working'}
             aria-label={
               kotakUncategorized != null
-                ? `Refresh Kotak bank feeds. ${kotakUncategorized} uncategorised transactions.`
-                : 'Refresh Kotak bank feeds in Zoho Books'
+                ? `Refresh Kotak bank feeds and show ${kotakUncategorized} uncategorised transactions.`
+                : 'Refresh Kotak bank feeds and show uncategorised transactions'
             }
             title={
               kotakUncategorized != null
-                ? `${kotakUncategorized} uncategorised · tap to refresh feeds`
-                : 'Refresh Kotak bank feeds in Zoho Books'
+                ? `${kotakUncategorized} uncategorised · tap to refresh and view`
+                : 'Refresh Kotak bank feeds and view uncategorised transactions'
             }
           >
             <span className="dealer-dash-kpi__kotak-logo-wrap">
@@ -378,7 +417,7 @@ export const SuperAdminDashboard: React.FC = () => {
             </div>
           </button>
         </div>
-        {kotakMessage ? (
+        {kotakMessage && !kotakPopupOpen ? (
           <p
             className={`dealer-dash__kotak-status${kotakPhase === 'fail' ? ' is-fail' : ''}${kotakPhase === 'ok' ? ' is-ok' : ''}`}
             role="status"
@@ -387,6 +426,21 @@ export const SuperAdminDashboard: React.FC = () => {
           </p>
         ) : null}
       </section>
+      {kotakPopupOpen ? (
+        <KotakUncategorizedPopup
+          feeds={kotakFeeds}
+          fetchedAt={kotakFetchedAt}
+          lastRefreshDate={kotakLastRefresh}
+          phase={kotakPopupPhase}
+          error={kotakPopupError}
+          onRefresh={() => void openKotakFeeds()}
+          onClose={() => {
+            setKotakPopupOpen(false);
+            if (kotakPhase === 'working' || kotakPhase === 'fail') return;
+            setKotakPhase('idle');
+          }}
+        />
+      ) : null}
     </div>
   );
 };

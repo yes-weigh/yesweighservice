@@ -288,6 +288,7 @@ export async function refreshKotakBankFeedsInZoho(secrets, orgId) {
     refreshed: true,
     accountNames: names,
     uncategorizedCount,
+    lastRefreshDate: latest[0]?.lastRefreshDate ?? accounts[0]?.lastRefreshDate ?? null,
     lastZohoFeedRefresh: results,
     message: `Refresh Feeds started for ${names.join(', ') || 'Kotak Current Account'}. Zoho is pulling new transactions from the bank.`,
   };
@@ -394,7 +395,7 @@ async function persistFeeds(feeds, source, extras = {}) {
  * Pull Kotak uncategorised bank feeds from Zoho and store them in Firestore.
  * @returns {{ feeds: object[], fetchedAt: string, count: number, accountNames: string[] }}
  */
-export async function syncKotakUncategorizedFeeds(secrets, orgId, { source = 'manual' } = {}) {
+export async function syncKotakUncategorizedFeeds(secrets, orgId, { source = 'manual', skipRefresh = false } = {}) {
   if (!secrets) {
     throw new Error('Zoho credentials are not configured.');
   }
@@ -406,17 +407,19 @@ export async function syncKotakUncategorizedFeeds(secrets, orgId, { source = 'ma
   }
 
   const refreshResults = [];
-  for (const account of accounts) {
-    const refreshed = await refreshAccountFeeds(accessToken, organizationId, account);
-    refreshResults.push({
-      accountId: account.accountId,
-      accountName: account.accountName,
-      ...refreshed,
-    });
-  }
-  if (refreshResults.some(row => row.ok)) {
-    // Zoho pulls from the bank asynchronously after Refresh Feeds.
-    await sleep(5000);
+  if (!skipRefresh) {
+    for (const account of accounts) {
+      const refreshed = await refreshAccountFeeds(accessToken, organizationId, account);
+      refreshResults.push({
+        accountId: account.accountId,
+        accountName: account.accountName,
+        ...refreshed,
+      });
+    }
+    if (refreshResults.some(row => row.ok)) {
+      // Zoho pulls from the bank asynchronously after Refresh Feeds.
+      await sleep(5000);
+    }
   }
 
   const feeds = [];
@@ -434,7 +437,7 @@ export async function syncKotakUncategorizedFeeds(secrets, orgId, { source = 'ma
   }
   unique.sort((a, b) => String(b.date || '').localeCompare(String(a.date || '')));
 
-  const persisted = await persistFeeds(unique, source, {
+  const persisted = await persistFeeds(unique, source, skipRefresh ? {} : {
     lastZohoFeedRefreshAt: new Date().toISOString(),
     lastZohoFeedRefresh: refreshResults,
   });

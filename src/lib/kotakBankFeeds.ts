@@ -35,6 +35,7 @@ export interface KotakBankFeedRefreshResult {
   refreshed: boolean;
   accountNames: string[];
   uncategorizedCount?: number;
+  lastRefreshDate?: string | null;
   message: string;
 }
 
@@ -75,14 +76,16 @@ export async function refreshKotakBankFeeds(): Promise<KotakBankFeedRefreshResul
 }
 
 /** Fetch latest uncategorised Kotak bank feeds from Zoho and store them. */
-export async function fetchKotakBankFeeds(): Promise<KotakBankFeedSyncResult> {
+export async function fetchKotakBankFeeds(options?: {
+  skipRefresh?: boolean;
+}): Promise<KotakBankFeedSyncResult> {
   try {
-    const fn = httpsCallable<Record<string, never>, KotakBankFeedSyncResult>(
+    const fn = httpsCallable<{ skipRefresh?: boolean }, KotakBankFeedSyncResult>(
       functions,
       'fetchKotakBankFeedsFn',
       { timeout: 120_000 },
     );
-    const result = await fn({});
+    const result = await fn(options?.skipRefresh ? { skipRefresh: true } : {});
     return result.data;
   } catch (err) {
     throw new Error(dealerOrderErrorMessage(err));

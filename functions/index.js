@@ -2924,7 +2924,7 @@ export const fetchKotakBankFeedsFn = onCall(
       return await syncKotakUncategorizedFeeds(
         zohoSecrets(),
         zohoOrganizationId.value(),
-        { source: 'manual' },
+        { source: 'manual', skipRefresh: request.data?.skipRefresh === true },
       );
     } catch (err) {
       if (err instanceof HttpsError) throw err;
