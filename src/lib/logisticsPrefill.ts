@@ -50,49 +50,31 @@ export function logisticsPathForRole(role: Role): string {
   return `${homePathForRole(role)}/logistics`;
 }
 
-function invoiceCalendarDay(value: string): Date | null {
-  const match = /^(\d{4})-(\d{2})-(\d{2})/.exec(value.trim());
-  if (match) {
-    return new Date(Number(match[1]), Number(match[2]) - 1, Number(match[3]));
-  }
-  const parsed = new Date(value);
-  if (Number.isNaN(parsed.getTime())) return null;
-  return new Date(parsed.getFullYear(), parsed.getMonth(), parsed.getDate());
-}
-
 /**
- * Book Courier is available only for recent product/spare invoices that have a
- * courier freight line. Hidden for software / stamping / service-only, pickup
- * (no freight), or invoices older than 4 days.
+ * Book Courier on every invoice. Hidden only for void.
+ * Freight line is optional (defaults to ST). Pickup / delivered still show
+ * their own status cards; the admin layout replaces this with AWB after booking.
  */
 export function canBookCourierForInvoice(
   invoice: Pick<
     DealerInvoiceDetail,
-    'date' | 'invoiceCategory' | 'categories' | 'sourceSalesOrderIsPickup' | 'yesOneFreightPartner'
+    | 'date'
+    | 'status'
+    | 'invoiceCategory'
+    | 'categories'
+    | 'sourceSalesOrderIsPickup'
+    | 'yesOneFreightPartner'
   > & {
     lineItems?: DealerInvoiceDetail['lineItems'] | null;
   },
 ): boolean {
-  if (invoice.sourceSalesOrderIsPickup) return false;
-  if (isInvoiceLocalFreightPickup(invoice)) return false;
-  if (invoiceHasNoCourierFreightLine(invoice)) return false;
-  if (!invoiceAllowsLogisticsFulfillment(invoice)) return false;
-
-  const dateRaw = invoice.date?.trim();
-  if (!dateRaw) return true;
-
-  const invoiceDay = invoiceCalendarDay(dateRaw);
-  if (!invoiceDay) return true;
-
-  const now = new Date();
-  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-  const ageDays = (today.getTime() - invoiceDay.getTime()) / (24 * 60 * 60 * 1000);
-  return ageDays <= 4;
+  const status = String(invoice.status ?? '').trim().toLowerCase().replace(/\s+/g, '_');
+  return status !== 'void';
 }
 
 /**
- * Record an existing LR on an invoice (any age) — skips the full Book Courier wizard.
- * Same freight-line eligibility as Book Courier.
+ * Record an existing LR on an invoice — skips the full Book Courier wizard.
+ * Requires a courier freight line (unlike Book Courier, which can default to ST).
  */
 export function canRecordInvoiceLogisticsLr(
   invoice: Pick<

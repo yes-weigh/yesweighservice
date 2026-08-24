@@ -100,6 +100,44 @@ export function processCustomers(rawCustomers) {
   return [...Array.from(map.values()), ...processedCustomers];
 }
 
+function normalizeGstin(value) {
+  return String(value ?? '').replace(/[\s-]/g, '').toUpperCase();
+}
+
+/** True when this contact id still exists in Zoho Inventory. */
+export async function zohoCustomerStillExists(secrets, orgId, contactId) {
+  const id = String(contactId ?? '').trim();
+  if (!id) return false;
+  try {
+    const accessToken = await getAccessToken(secrets);
+    const organizationId = await resolveOrganizationId(accessToken, orgId);
+    await fetchRawCustomerDetail(accessToken, organizationId, id);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/** Zoho contact id for this GSTIN, or null when Zoho has no match. */
+export async function findZohoContactIdByGstin(secrets, orgId, gstin) {
+  const key = normalizeGstin(gstin);
+  if (!key) return null;
+  const accessToken = await getAccessToken(secrets);
+  const organizationId = await resolveOrganizationId(accessToken, orgId);
+  const url = new URL(`${ZOHO_API_BASE}/contacts`);
+  url.searchParams.set('organization_id', organizationId);
+  url.searchParams.set('contact_type', 'customer');
+  url.searchParams.set('search_text', key);
+  url.searchParams.set('per_page', '25');
+  const res = await fetch(url.toString(), { headers: authHeaders(accessToken, organizationId) });
+  const { payload } = await parseZohoJsonResponse(res);
+  if (!res.ok || payload?.code !== 0) return null;
+  const match = (payload.contacts ?? []).find(
+    row => normalizeGstin(row?.gst_no) === key,
+  );
+  return match?.contact_id ? String(match.contact_id) : null;
+}
+
 export async function fetchRawCustomerDetail(accessToken, orgId, contactId) {
   const url = `${ZOHO_API_BASE}/contacts/${contactId}?organization_id=${orgId}`;
   const res = await fetch(url, { headers: authHeaders(accessToken, orgId) });
@@ -396,6 +434,13 @@ function mapContactPersonForUpdate(person, primaryId, changes) {
   });
 }
 
+function addressForCreate(addr) {
+  if (!addr || typeof addr !== 'object') return undefined;
+  const next = writableZohoAddressFromChange(null, addr);
+  if (!next.address && !next.city && !next.zip && !next.state) return undefined;
+  return next;
+}
+
 export async function createZohoCustomer(input, secrets, orgId) {
   const companyName = cleanStr(input?.companyName);
   if (!companyName) throw new Error('Company name is required.');
@@ -405,12 +450,19 @@ export async function createZohoCustomer(input, secrets, orgId) {
   const personName = cleanStr(input?.contactName) ?? companyName;
   const email = cleanStr(input?.email);
   const phone = cleanStr(input?.phone);
+  const mobile = cleanStr(input?.mobile) ?? phone;
+  const gstin = cleanStr(input?.gstin) ?? cleanStr(input?.gst_no);
+  const gstTreatment = cleanStr(input?.gstTreatment) ?? cleanStr(input?.gst_treatment);
+  const pan = cleanStr(input?.pan) ?? cleanStr(input?.pan_no);
+  const legalName = cleanStr(input?.legalName) ?? cleanStr(input?.legal_name);
+  const billingAddress = addressForCreate(input?.billing ?? input?.billing_address);
+  const shippingAddress = addressForCreate(input?.shipping ?? input?.shipping_address) ?? billingAddress;
 
   const contactPerson = omitEmpty({
     first_name: personName,
     email,
     phone,
-    mobile: phone,
+    mobile,
     is_primary_contact: true,
   });
 
@@ -421,9 +473,15 @@ export async function createZohoCustomer(input, secrets, orgId) {
     customer_sub_type: 'business',
     email,
     phone,
-    mobile: phone,
+    mobile,
     first_name: personName,
+    gst_no: gstin,
+    gst_treatment: gstTreatment,
+    pan_no: pan,
+    legal_name: legalName,
     contact_persons: [contactPerson],
+    billing_address: billingAddress,
+    shipping_address: shippingAddress,
   });
 
   const url = `${ZOHO_API_BASE}/contacts?organization_id=${organizationId}`;
@@ -699,6 +757,93 @@ export async function upsertCustomerFromZoho(secrets, orgId, contactId) {
 
   await ref.set(patch, { merge: true });
   return { id, created: false };
+}
+
+function cannotDeleteBecauseTransactions(payload) {
+  const message = String(payload?.message ?? '').toLowerCase();
+  return /transaction|cannot be deleted|associated with|sales order|invoice|has been used|outstanding/i.test(message);
+}
+
+async function markZohoContactInactive(accessToken, organizationId, contactId) {
+  const inactiveUrl = `${ZOHO_API_BASE}/contacts/${contactId}/inactive?organization_id=${organizationId}`;
+  const res = await fetch(inactiveUrl, {
+    method: 'POST',
+    headers: {
+      ...authHeaders(accessToken, organizationId),
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({}),
+  });
+  const { payload } = await parseZohoJsonResponse(res);
+  if (res.ok && (payload?.code === 0 || payload?.code == null)) return;
+
+  let contactName = '';
+  try {
+    const contact = await fetchRawCustomerDetail(accessToken, organizationId, contactId);
+    contactName = String(contact?.contact_name ?? '').trim();
+  } catch {
+    // PUT still needs a name; fall back below.
+  }
+  const putUrl = `${ZOHO_API_BASE}/contacts/${contactId}?organization_id=${organizationId}`;
+  const putRes = await fetch(putUrl, {
+    method: 'PUT',
+    headers: {
+      ...authHeaders(accessToken, organizationId),
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      contact_name: contactName || 'Customer',
+      contact_type: 'customer',
+      status: 'inactive',
+    }),
+  });
+  const { payload: putPayload } = await parseZohoJsonResponse(putRes);
+  if (!putRes.ok || (putPayload?.code !== 0 && putPayload?.code != null)) {
+    throw new Error(putPayload?.message || 'Zoho could not void this dealer.');
+  }
+}
+
+/** Delete in Zoho when there are no transactions; otherwise mark inactive (void). */
+export async function deleteOrVoidZohoCustomer(id, secrets, orgId) {
+  const contactId = String(id ?? '').trim();
+  if (!contactId) throw new Error('Dealer id is required.');
+
+  const db = getFirestore();
+  const ref = db.collection(CUSTOMERS_COLLECTION).doc(contactId);
+  const snap = await ref.get();
+  if (!snap.exists) throw new Error('Dealer not found.');
+
+  const accessToken = await getAccessToken(secrets);
+  const organizationId = await resolveOrganizationId(accessToken, orgId);
+  const delUrl = `${ZOHO_API_BASE}/contacts/${contactId}?organization_id=${organizationId}`;
+  const delRes = await fetch(delUrl, {
+    method: 'DELETE',
+    headers: authHeaders(accessToken, organizationId),
+  });
+  const { payload: delPayload } = await parseZohoJsonResponse(delRes);
+  const deletedOk = delRes.ok && (delPayload?.code === 0 || delRes.status === 204);
+  const missing = delRes.status === 404
+    || /invalid contact|not found|does not exist/i.test(String(delPayload?.message ?? ''));
+
+  if (deletedOk || missing) {
+    await ref.delete();
+    return { action: 'deleted', id: contactId };
+  }
+
+  if (cannotDeleteBecauseTransactions(delPayload)) {
+    await markZohoContactInactive(accessToken, organizationId, contactId);
+    await ref.set({
+      status: 'inactive',
+      isFiltered: true,
+      filterReason: 'Void',
+      dealerStage: 'Non Active',
+      syncedAt: new Date().toISOString(),
+      updatedAt: FieldValue.serverTimestamp(),
+    }, { merge: true });
+    return { action: 'voided', id: contactId };
+  }
+
+  throw new Error(delPayload?.message || `Zoho could not delete this dealer (${delRes.status}).`);
 }
 
 export async function markCustomerDeletedFromZoho(contactId) {

@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { Check, Copy, ExternalLink, Phone, RefreshCw, Save, X } from 'lucide-react';
 import { DealerAddressBox } from './DealerAddressBox';
+import { DealerCreateStatusOverlay, type DealerCreateStatusPhase } from './DealerCreateStatusOverlay';
 import { useAuth } from '../../context/AuthContext';
 import { isValidPhone, normalizePhone } from '../../lib/loginAuth';
 import {
@@ -30,6 +31,11 @@ import {
   subscribePriceLevels,
 } from '../../lib/priceLevels';
 import type { PriceLevel } from '../../types/priceLevels';
+import {
+  playDealerFailSound,
+  playDealerSuccessSound,
+  unlockDealerActionAudio,
+} from '../../lib/dealerActionSound';
 import type { AssignableStaffOption, ZohoDealer } from '../../types/dealers';
 import { DEALER_STAGES } from '../../types/dealers';
 
@@ -192,6 +198,7 @@ export const CreateDealerModal: React.FC<CreateDealerModalProps> = ({
   const [priceLevels, setPriceLevels] = useState<PriceLevel[]>([]);
   const [gstFetching, setGstFetching] = useState(false);
   const [submitting, setSubmitting] = useState(false);
+  const [createPhase, setCreatePhase] = useState<DealerCreateStatusPhase | null>(null);
   const [error, setError] = useState('');
 
   const taxpayerOptions = withFetchedOption(GST_TAXPAYER_TYPES, taxpayerType);
@@ -236,10 +243,12 @@ export const CreateDealerModal: React.FC<CreateDealerModalProps> = ({
         const nextBilling = {
           ...current,
           address: details.address || current.address,
+          street2: details.street2 || current.street2,
           state: details.state || current.state,
           district: details.district || current.district,
           city: details.city || details.district || current.city,
           zip: details.zip || current.zip,
+          country: current.country || 'India',
           phone: current.phone || details.phone.replace(/\D/g, '').slice(-10),
         };
         if (!separateShipping) setShipping(nextBilling);
@@ -266,6 +275,10 @@ export const CreateDealerModal: React.FC<CreateDealerModalProps> = ({
     }
     const shop = shopMobile.trim() ? normalizePhone(shopMobile) : '';
     const person = mobile.trim() ? normalizePhone(mobile) : '';
+    if (!shop && !person) {
+      setError('Enter shop mobile or mobile.');
+      return;
+    }
     if (shopMobile.trim() && !isValidPhone(shop)) {
       setError('Enter a valid 10-digit shop mobile.');
       return;
@@ -291,7 +304,9 @@ export const CreateDealerModal: React.FC<CreateDealerModalProps> = ({
       return;
     }
     const nextShipping = separateShipping ? shipping : billing;
+    unlockDealerActionAudio();
     setSubmitting(true);
+    setCreatePhase('creating');
     setError('');
     try {
       const dealer = await createDealer({
@@ -352,9 +367,14 @@ export const CreateDealerModal: React.FC<CreateDealerModalProps> = ({
           console.error('Create dealer price level failed:', err);
         }
       }
-      onCreated(dealer);
+      setCreatePhase('success');
+      playDealerSuccessSound();
+      window.setTimeout(() => onCreated(dealer), 1100);
     } catch (err) {
+      setCreatePhase('fail');
+      playDealerFailSound();
       setError(dealerErrorMessage(err));
+      window.setTimeout(() => setCreatePhase(current => (current === 'fail' ? null : current)), 1600);
     } finally {
       setSubmitting(false);
     }
@@ -498,18 +518,19 @@ export const CreateDealerModal: React.FC<CreateDealerModalProps> = ({
             </label>
             <PhoneField
               id="create-dealer-shop-mobile"
-              label="Shop mobile"
+              label="Shop mobile *"
               value={shopMobile}
               placeholder="10-digit shop mobile"
               onChange={setShopMobile}
             />
             <PhoneField
               id="create-dealer-mobile"
-              label="Mobile"
+              label="Mobile *"
               value={mobile}
               placeholder="10-digit mobile"
               onChange={setMobile}
             />
+            <p className="dealers-create-phone-hint">Enter shop mobile or mobile — one is enough.</p>
             <label className="dealers-modal__field">
               <span>Email</span>
               <input
@@ -529,7 +550,7 @@ export const CreateDealerModal: React.FC<CreateDealerModalProps> = ({
               </select>
             </label>
             <label className="dealers-modal__field">
-              <span>Assigned staff</span>
+              <span>KAM</span>
               <select value={assignedStaffUid} onChange={e => setAssignedStaffUid(e.target.value)}>
                 <option value="">Unassigned</option>
                 {dealerStaffSelectOptions(assignableStaff).map(staff => (
@@ -659,6 +680,7 @@ export const CreateDealerModal: React.FC<CreateDealerModalProps> = ({
             {submitting ? 'Creating…' : 'Create dealer'}
           </button>
         </form>
+        {createPhase ? <DealerCreateStatusOverlay phase={createPhase} /> : null}
       </div>
     </div>
   );

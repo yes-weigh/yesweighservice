@@ -7,11 +7,20 @@ import {
   RefreshCw,
   RotateCcw,
   Save,
+  Trash2,
 } from 'lucide-react';
 import { useLocation, useNavigate, useParams } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
+import { useConfirm } from '../../context/ConfirmContext';
 import { homePathForRole } from '../../types';
+import { hasStaffPermission } from '../../lib/staffAccess';
 import { DealerAddressBox } from '../../components/dealers/DealerAddressBox';
+import { DealerCreateStatusOverlay, type DealerCreateStatusPhase } from '../../components/dealers/DealerCreateStatusOverlay';
+import {
+  playDealerFailSound,
+  playDealerSuccessSound,
+  unlockDealerActionAudio,
+} from '../../lib/dealerActionSound';
 import { DealerStatusIndicator } from '../../components/dealers/DealerStatusIndicator';
 import { FetchingLoader } from '../../components/FetchingLoader';
 import {
@@ -22,6 +31,7 @@ import {
   type DealerAddress,
 } from '../../lib/dealerAddress';
 import {
+  deleteDealer,
   dealerErrorMessage,
   dealerStaffSelectOptions,
   fetchDealerById,
@@ -30,6 +40,7 @@ import {
   pushDealerChangesToZoho,
   refreshDealerFromZoho,
 } from '../../lib/dealers';
+import { removeCachedDealer } from '../../lib/dealer-cache';
 import {
   zohoPushableBaseline,
   type ZohoPushableFields,
@@ -360,6 +371,8 @@ export const DealerDetailPage: React.FC = () => {
   const location = useLocation();
   const navigate = useNavigate();
   const { user } = useAuth();
+  const confirm = useConfirm();
+  const canDeleteDealer = hasStaffPermission(user, 'dealers.edit');
   const preview = (location.state as { dealer?: ZohoDealer } | null)?.dealer;
 
   const [dealer, setDealer] = useState<ZohoDealer | null>(
@@ -381,6 +394,8 @@ export const DealerDetailPage: React.FC = () => {
     return false;
   });
   const [saving, setSaving] = useState(false);
+  const [deletePhase, setDeletePhase] = useState<DealerCreateStatusPhase | null>(null);
+  const [deleteSuccessLabel, setDeleteSuccessLabel] = useState('Dealer deleted');
   const [refreshingZoho, setRefreshingZoho] = useState(false);
   const [zohoBaseline, setZohoBaseline] = useState<ZohoPushableFields | null>(
     preview && preview.id === dealerId ? zohoPushableBaseline(preview) : null,
@@ -606,6 +621,43 @@ export const DealerDetailPage: React.FC = () => {
     }
   };
 
+  const handleDeleteDealer = async () => {
+    if (!dealer || !canDeleteDealer) return;
+    const label = dealer.companyName || dealer.contactName || 'this dealer';
+    const ok = await confirm({
+      title: 'Delete dealer',
+      message: `Delete ${label} from Zoho and YesOne? If Zoho has transactions, the dealer will be voided instead.`,
+      confirmLabel: 'Delete',
+    });
+    if (!ok) return;
+    unlockDealerActionAudio();
+    setSaving(true);
+    setDeletePhase('creating');
+    setError('');
+    try {
+      const result = await deleteDealer(dealer.id);
+      const successLabel = result.action === 'deleted' ? 'Dealer deleted' : 'Dealer voided';
+      setDeleteSuccessLabel(successLabel);
+      setDeletePhase('success');
+      playDealerSuccessSound();
+      if (result.action === 'deleted') {
+        removeCachedDealer(dealer.id);
+        const base = user ? homePathForRole(user.role) : '/super-admin';
+        window.setTimeout(() => navigate(`${base}/dealers`), 1100);
+        return;
+      }
+      await loadDealer();
+      window.setTimeout(() => setDeletePhase(current => (current === 'success' ? null : current)), 1100);
+    } catch (err) {
+      setDeletePhase('fail');
+      playDealerFailSound();
+      setError(dealerErrorMessage(err));
+      window.setTimeout(() => setDeletePhase(current => (current === 'fail' ? null : current)), 1600);
+    } finally {
+      setSaving(false);
+    }
+  };
+
   if (!dealerId) return null;
 
   const name = dealer ? (dealer.companyName || dealer.contactName) : '';
@@ -724,7 +776,7 @@ export const DealerDetailPage: React.FC = () => {
             </select>
           </label>
           <label className="dealers-detail__field dealers-detail__field--full">
-            <FieldLabel label="Assigned staff" source="local" />
+            <FieldLabel label="KAM" source="local" />
             <select
               className="catalog-select"
               value={draft.assignedStaffUid ?? ''}
@@ -743,7 +795,7 @@ export const DealerDetailPage: React.FC = () => {
               ))}
             </select>
             <span className="dealers-detail__staff-hint">
-              Only staff with at least one linked Zoho salesperson can be assigned.
+              Only KAMs with at least one linked Zoho salesperson can be assigned.
             </span>
           </label>
 
@@ -913,21 +965,32 @@ export const DealerDetailPage: React.FC = () => {
               <Lock size={16} />
               Block dealer
             </button>
-            <button
-              type="button"
-              className="btn btn-secondary"
-              onClick={() => {
-                const base = user ? homePathForRole(user.role) : '/super-admin';
-                navigate(`${base}/orders?dealerId=${encodeURIComponent(dealer.id)}`);
-              }}
-            >
-              View orders
-            </button>
+            {canDeleteDealer ? (
+              <button
+                type="button"
+                className="btn btn-primary dealers-detail__action--delete"
+                disabled={saving}
+                onClick={() => void handleDeleteDealer()}
+              >
+                <Trash2 size={16} />
+                Delete
+              </button>
+            ) : null}
           </div>
         </div>
       )}
 
       </div>
+
+      {deletePhase ? (
+        <DealerCreateStatusOverlay
+          phase={deletePhase}
+          cover="page"
+          workingLabel="Deleting dealer…"
+          successLabel={deleteSuccessLabel}
+          failLabel="Could not delete dealer"
+        />
+      ) : null}
 
       {dirty && dealer && (
         <div className="dealers-detail__save-float" role="region" aria-label="Unsaved changes">

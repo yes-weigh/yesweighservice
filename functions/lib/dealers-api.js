@@ -6,6 +6,10 @@ import {
   writeDealerSetting,
   refreshDealerFromZoho,
   pushDealerChangesToZoho,
+  createZohoCustomer,
+  deleteOrVoidZohoCustomer,
+  findZohoContactIdByGstin,
+  zohoCustomerStillExists,
 } from './zoho-customers.js';
 import {
   filterDealers,
@@ -57,6 +61,7 @@ export async function listAssignableStaffOptions() {
     const role = String(data.role ?? '');
     if (role !== 'staff' && role !== 'super_admin') continue;
     if (data.active === false) continue;
+    if (/\bshibin\b/i.test(String(data.displayName ?? ''))) continue;
     if (!normalizeStaffZohoSalespersonIds(data).length) continue;
     rows.push({
       uid: docSnap.id,
@@ -192,10 +197,13 @@ function zohoAddressRaw(addr) {
   };
 }
 
-export async function createDealerRecord(input) {
+export async function createDealerRecord(input, { secrets, orgId } = {}) {
   const companyName = String(input?.companyName ?? '').trim();
   if (!companyName) {
     throw new HttpsError('invalid-argument', 'Company name is required.');
+  }
+  if (!secrets) {
+    throw new HttpsError('failed-precondition', 'Zoho credentials are required to create a dealer.');
   }
   const contactName = String(input?.contactName ?? '').trim();
   const phone = String(input?.phone ?? '').replace(/\D/g, '').slice(0, 10);
@@ -203,6 +211,11 @@ export async function createDealerRecord(input) {
   const email = String(input?.email ?? '').trim().toLowerCase();
   const gstin = String(input?.gstin ?? input?.zohoGstNo ?? '').replace(/[\s-]/g, '').toUpperCase();
   const pan = String(input?.pan ?? input?.zohoPanNo ?? '').replace(/[^A-Za-z0-9]/g, '').toUpperCase();
+  const gstTreatment = String(input?.gstTreatment ?? input?.zohoGstTreatment ?? '').trim();
+  const legalName = String(input?.legalName ?? input?.zohoLegalName ?? '').trim();
+  if (!phone && !mobile) {
+    throw new HttpsError('invalid-argument', 'Enter shop mobile or mobile.');
+  }
   if (phone && phone.length !== 10) {
     throw new HttpsError('invalid-argument', 'Enter a valid 10-digit mobile number.');
   }
@@ -230,6 +243,22 @@ export async function createDealerRecord(input) {
     : billing;
 
   const db = getFirestore();
+  if (gstin) {
+    const zohoId = await findZohoContactIdByGstin(secrets, orgId, gstin).catch(() => null);
+    if (zohoId) {
+      throw new HttpsError('already-exists', 'A dealer with this GSTIN already exists in Zoho.');
+    }
+    const existingGstin = await db.collection('zohoCustomers').where('zohoGstNo', '==', gstin).limit(1).get();
+    if (!existingGstin.empty) {
+      const orphan = existingGstin.docs[0];
+      const stillInZoho = await zohoCustomerStillExists(secrets, orgId, orphan.id);
+      if (stillInZoho) {
+        throw new HttpsError('already-exists', 'A dealer with this GSTIN already exists.');
+      }
+      await orphan.ref.delete();
+    }
+  }
+
   let assignedStaffUid = null;
   let assignedStaffName = null;
   const staffUid = String(input?.assignedStaffUid ?? '').trim();
@@ -240,18 +269,39 @@ export async function createDealerRecord(input) {
     assignedStaffName = String(userData.displayName ?? 'Staff').trim() || 'Staff';
   }
 
-  const ref = db.collection('zohoCustomers').doc();
+  let contactId;
+  try {
+    contactId = await createZohoCustomer({
+      companyName,
+      contactName,
+      email,
+      phone,
+      mobile: mobile || phone,
+      gstin,
+      gstTreatment,
+      legalName,
+      pan,
+      billing,
+      shipping,
+    }, secrets, orgId);
+  } catch (err) {
+    if (err instanceof HttpsError) throw err;
+    throw new HttpsError(
+      'failed-precondition',
+      err?.message || 'Could not create this dealer in Zoho.',
+    );
+  }
+
+  const ref = db.collection('zohoCustomers').doc(contactId);
   await ref.set({
-    contactName: companyName,
-    companyName,
     firstName: contactName || null,
     phone: phone || null,
     mobile: mobile || phone || null,
     alternateMobile: mobile && mobile !== phone ? mobile : null,
     email: email || null,
     zohoGstNo: gstin || null,
-    zohoGstTreatment: String(input?.gstTreatment ?? input?.zohoGstTreatment ?? '').trim() || null,
-    zohoLegalName: String(input?.legalName ?? input?.zohoLegalName ?? '').trim() || null,
+    zohoGstTreatment: gstTreatment || null,
+    zohoLegalName: legalName || null,
     zohoTaxpayerType: String(input?.taxpayerType ?? input?.zohoTaxpayerType ?? '').trim() || null,
     zohoConstitutionOfBusiness: String(input?.constitutionOfBusiness ?? input?.zohoConstitutionOfBusiness ?? '').trim() || null,
     zohoPanNo: pan || null,
@@ -267,20 +317,13 @@ export async function createDealerRecord(input) {
     canBuySpares: input?.canBuySpares !== false,
     orderPayOffline: input?.orderPayOffline !== false,
     orderPayOnline: Boolean(input?.orderPayOnline),
-    status: 'active',
-    outstandingReceivable: 0,
-    unusedCredits: 0,
-    isFiltered: false,
-    filterReason: null,
     assignedStaffUid,
     assignedStaffName,
     dealerStage: String(input?.dealerStage ?? '').trim() || null,
     source: 'app',
-    createdAt: FieldValue.serverTimestamp(),
     updatedAt: FieldValue.serverTimestamp(),
-    syncedAt: new Date().toISOString(),
-  });
-  return getDealerRecord(ref.id);
+  }, { merge: true });
+  return getDealerRecord(contactId);
 }
 
 export async function patchDealerRecord(id, body = {}) {
@@ -372,6 +415,20 @@ export async function refreshDealerZohoRecord(id, secrets, orgId, { force = true
 export async function pushDealerToZohoRecord(id, changes, secrets, orgId) {
   await pushDealerChangesToZoho(id, changes, secrets, orgId);
   return getDealerRecord(id);
+}
+
+export async function deleteDealerRecord(id, { secrets, orgId } = {}) {
+  const contactId = String(id ?? '').trim();
+  if (!contactId) throw new HttpsError('invalid-argument', 'Dealer id is required.');
+  if (!secrets) {
+    throw new HttpsError('failed-precondition', 'Zoho credentials are required to delete a dealer.');
+  }
+  try {
+    return await deleteOrVoidZohoCustomer(contactId, secrets, orgId);
+  } catch (err) {
+    if (err instanceof HttpsError) throw err;
+    throw new HttpsError('failed-precondition', err?.message || 'Could not delete dealer.');
+  }
 }
 
 export { readDealerSetting, writeDealerSetting };

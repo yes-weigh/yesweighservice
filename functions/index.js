@@ -70,6 +70,7 @@ import {
   getDealerLocationsSummary,
   getDealerRecord,
   createDealerRecord,
+  deleteDealerRecord,
   patchDealerRecord,
   linkDealerPortalUser,
   refreshDealerZohoRecord,
@@ -4328,21 +4329,49 @@ export const fetchGstinDetails = onCall(
   },
 );
 
-/** Create a dealer in Firestore — staff / super admin. Zoho webhooks update the record later. */
+/** Create a dealer in Zoho Books, then store extras in Firestore. */
 export const createDealer = onCall(
   {
     region: 'asia-south1',
-    timeoutSeconds: 60,
+    secrets: [zohoClientId, zohoClientSecret, zohoRefreshToken],
+    timeoutSeconds: 120,
     memory: '256MiB',
   },
   async request => {
     await requireActiveUser(request.auth?.uid, SYNC_ROLES);
     try {
-      const dealer = await createDealerRecord(request.data ?? {});
+      const dealer = await createDealerRecord(request.data ?? {}, {
+        secrets: zohoSecrets(),
+        orgId: zohoOrganizationId.value(),
+      });
       return { dealer };
     } catch (err) {
       if (err instanceof HttpsError) throw err;
-      throw new HttpsError('internal', err?.message ?? 'Could not create dealer.');
+      throw new HttpsError('failed-precondition', err?.message ?? 'Could not create dealer.');
+    }
+  },
+);
+
+/** Delete a dealer in Zoho when unused; void (inactive) when Zoho has transactions. */
+export const deleteDealer = onCall(
+  {
+    region: 'asia-south1',
+    secrets: [zohoClientId, zohoClientSecret, zohoRefreshToken],
+    timeoutSeconds: 120,
+    memory: '256MiB',
+  },
+  async request => {
+    await requireActiveUser(request.auth?.uid, SYNC_ROLES);
+    const id = String(request.data?.id ?? '').trim();
+    if (!id) throw new HttpsError('invalid-argument', 'id is required.');
+    try {
+      return await deleteDealerRecord(id, {
+        secrets: zohoSecrets(),
+        orgId: zohoOrganizationId.value(),
+      });
+    } catch (err) {
+      if (err instanceof HttpsError) throw err;
+      throw new HttpsError('failed-precondition', err?.message ?? 'Could not delete dealer.');
     }
   },
 );

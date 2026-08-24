@@ -35780,7 +35780,7 @@ body:has(.confirm-inline-bar) .confirm-inline-bar {
 .dealers-detail__field-label {
   font-size: 0.8125rem;
   font-weight: 650;
-  color: var(--text-secondary);
+  color: #fdba74;
   text-transform: none;
   letter-spacing: 0;
 }
@@ -36514,6 +36514,19 @@ body:has(.confirm-inline-bar) .confirm-inline-bar {
   color: #fdba74;
 }
 
+.dealers-detail__action--delete {
+  width: 100%;
+  min-height: 2.75rem;
+  font-weight: 700;
+  background: var(--accent-primary, #f58220);
+  border-color: var(--accent-primary, #f58220);
+  color: #111827;
+}
+
+.dealers-detail__actions-row .dealers-detail__action--delete {
+  flex: 1 1 12rem;
+}
+
 .dealers-detail__pager {
   display: flex;
   align-items: center;
@@ -36658,12 +36671,17 @@ body:has(.confirm-inline-bar) .confirm-inline-bar {
   font-size: 0.8125rem;
 }
 
+.dealers-modal__field > span {
+  color: #fdba74;
+  font-weight: 650;
+}
+
 .dealers-modal__field input {
   padding: 0.5rem 0.65rem;
   border-radius: 8px;
   border: 1px solid var(--border-glass);
   background: var(--bg-input, rgba(15, 23, 42, 0.4));
-  color: inherit;
+  color: #fff;
 }
 
 .dealers-modal__pw {
@@ -36699,6 +36717,7 @@ body:has(.confirm-inline-bar) .confirm-inline-bar {
 }
 
 .dealers-create-modal {
+  position: relative;
   width: 100%;
   max-width: none;
   height: 100%;
@@ -36786,7 +36805,7 @@ body:has(.confirm-inline-bar) .confirm-inline-bar {
   border-radius: 12px;
   border: 1px solid var(--border-glass);
   background: rgba(0, 0, 0, 0.28);
-  color: inherit;
+  color: #fff;
 }
 
 .dealers-create-details .dealers-modal__field select {
@@ -36818,6 +36837,13 @@ body:has(.confirm-inline-bar) .confirm-inline-bar {
   border-radius: 12px;
   border: 1px solid var(--border-glass);
   background: rgba(0, 0, 0, 0.28);
+  color: #fff;
+}
+
+.dealers-create-phone-hint {
+  margin: -0.15rem 0 0;
+  font-size: 0.75rem;
+  color: var(--text-muted);
 }
 
 .dealers-create-phone {
@@ -36863,6 +36889,101 @@ body:has(.confirm-inline-bar) .confirm-inline-bar {
   margin-top: 0.15rem;
   font-weight: 700;
   background: var(--accent-primary, #f58220);
+}
+
+.dealer-create-status {
+  position: absolute;
+  inset: 0;
+  z-index: 30;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 1.15rem;
+  background: rgba(6, 10, 16, 0.78);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+}
+
+.dealer-create-status--page {
+  position: fixed;
+  z-index: 80;
+}
+
+.dealer-create-status__stage {
+  display: grid;
+  place-items: center;
+  width: 7.5rem;
+  height: 7.5rem;
+}
+
+.dealer-create-status__scene {
+  width: 4.5rem;
+  height: 4.5rem;
+  perspective: 640px;
+}
+
+.dealer-create-status__cube {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  transform-style: preserve-3d;
+  animation: dealer-create-cube-spin 1.35s linear infinite;
+}
+
+.dealer-create-status__face {
+  position: absolute;
+  inset: 0;
+  border-radius: 0.55rem;
+  border: 1px solid rgba(255, 255, 255, 0.28);
+  background: linear-gradient(145deg, #ff9a3d 0%, #f58220 55%, #c65a0c 100%);
+  box-shadow: inset 0 0 18px rgba(255, 255, 255, 0.18);
+}
+
+.dealer-create-status__face--front { transform: translateZ(2.25rem); }
+.dealer-create-status__face--back { transform: rotateY(180deg) translateZ(2.25rem); }
+.dealer-create-status__face--right { transform: rotateY(90deg) translateZ(2.25rem); }
+.dealer-create-status__face--left { transform: rotateY(-90deg) translateZ(2.25rem); }
+.dealer-create-status__face--top { transform: rotateX(90deg) translateZ(2.25rem); }
+.dealer-create-status__face--bottom { transform: rotateX(-90deg) translateZ(2.25rem); }
+
+.dealer-create-status__mark {
+  width: 5.25rem;
+  height: 5.25rem;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  animation: dealer-create-mark-pop 0.42s cubic-bezier(0.2, 0.9, 0.25, 1.25);
+}
+
+.dealer-create-status__mark--ok {
+  color: #ecfdf5;
+  background: radial-gradient(circle at 30% 28%, #4ade80, #16a34a 68%);
+  box-shadow: 0 0 0 8px rgba(34, 197, 94, 0.18);
+}
+
+.dealer-create-status__mark--bad {
+  color: #fef2f2;
+  background: radial-gradient(circle at 30% 28%, #f87171, #dc2626 68%);
+  box-shadow: 0 0 0 8px rgba(239, 68, 68, 0.18);
+}
+
+.dealer-create-status__label {
+  margin: 0;
+  font-size: 1rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  color: #f8fafc;
+}
+
+@keyframes dealer-create-cube-spin {
+  from { transform: rotateX(-22deg) rotateY(18deg); }
+  to { transform: rotateX(338deg) rotateY(378deg); }
+}
+
+@keyframes dealer-create-mark-pop {
+  from { transform: scale(0.45); opacity: 0; }
+  to { transform: scale(1); opacity: 1; }
 }
 
 .dealers-modal__actions {

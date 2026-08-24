@@ -70,7 +70,9 @@ function filled(value, fallback = '') {
 function pickAddress(row) {
   const raw = row?.pradr ?? row?.principal_place_of_business ?? row?.address ?? row?.addr
     ?? row?.billing_address ?? {};
-  return raw && typeof raw === 'object' ? raw : {};
+  if (!raw || typeof raw !== 'object') return {};
+  if (raw.addr && typeof raw.addr === 'object') return raw.addr;
+  return raw;
 }
 
 function mapGstTreatment(taxpayerType, gstTreatment) {
@@ -99,6 +101,7 @@ function emptyDetails(gstin) {
     city: '',
     zip: '',
     address: '',
+    street2: '',
     phone: '',
     source: '',
   };
@@ -118,6 +121,7 @@ function mergeDetails(...rows) {
     city: filled(acc.city, row.city),
     zip: filled(acc.zip, row.zip),
     address: filled(acc.address, row.address),
+    street2: filled(acc.street2, row.street2),
     phone: filled(acc.phone, row.phone),
     source: filled(acc.source, row.source),
   }), emptyDetails(rows.find(row => row?.gstin)?.gstin || ''));
@@ -168,19 +172,24 @@ function mapGstinBlob(blob, gstin, source) {
   const companyName = tradeName || legalName;
   if (!companyName) return null;
   const zip = pickText(addr.zip, addr.zipcode, addr.pincode, addr.pin_code, addr.pncd, row.pincode, row.pncd);
+  const stateCode = /^\d{2}$/.test(pickText(addr.stcd)) ? pickText(addr.stcd) : '';
   const state = pickText(
+    !stateCode ? addr.stcd : '',
     addr.state,
-    addr.stcd,
     row.state,
-    GSTIN_STATE_NAMES[gstin.slice(0, 2)],
+    GSTIN_STATE_NAMES[stateCode || gstin.slice(0, 2)],
   );
   const district = pickText(addr.dst, addr.district, row.dst, row.district);
-  const city = pickText(addr.city, addr.loc, addr.locality, row.city, district);
+  const city = pickText(addr.city, addr.st, addr.locality, addr.loc, row.city, district);
+  const street2 = pickText(addr.street2, addr.landMark);
+  const floor = pickText(addr.flno);
+  const floorPart = floor && floor.toLowerCase() !== city.toLowerCase() ? floor : '';
   const address = pickText(
+    [floorPart, addr.bno, addr.bnm].filter(Boolean).join(', '),
     [addr.bno, addr.bnm, addr.st, addr.loc, addr.dst].filter(Boolean).join(', '),
     addr.address,
     typeof row.pradr === 'string' ? row.pradr : '',
-    row.address,
+    typeof row.address === 'string' ? row.address : '',
   );
   return {
     ...emptyDetails(gstin),
@@ -195,6 +204,7 @@ function mapGstinBlob(blob, gstin, source) {
     city,
     zip,
     address,
+    street2,
     phone: pickText(row.phone, addr.phone),
     source,
   };

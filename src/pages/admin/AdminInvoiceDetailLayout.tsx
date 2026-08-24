@@ -194,7 +194,7 @@ export const AdminInvoiceDetailLayout: React.FC = () => {
     };
   }, [customerId, invoiceId]);
 
-  /** Existing AWB booking wins; else Book Courier (≤4 days) or Add LR (any age). */
+  /** Existing AWB booking wins; else Book Courier (or Add LR when a freight line exists). */
   useEffect(() => {
     if (!invoice || !customerId || !invoiceId || !user) {
       setCourierEntry(null);
@@ -227,18 +227,6 @@ export const AdminInvoiceDetailLayout: React.FC = () => {
       setAddLrShipFrom(shipFromSite);
       setPickupShipFrom(shipFromSite);
       setPickupShipFromLabel(branch.branchLabel);
-
-      if (
-        isInvoiceCustomerPickup(invoice)
-        || isInvoiceLocalFreightPickup(invoice)
-        || invoice.sourceSalesOrderIsPickup
-        || invoiceHasNoCourierFreightLine(invoice)
-        || isInvoiceManuallyDelivered(invoice)
-      ) {
-        setCourierEntry(null);
-        setAddLrAvailable(false);
-        return;
-      }
 
       const courierPartner = resolveInvoiceCourierPartner(invoice);
       setAddLrPartnerId(courierPartner.partnerId);
@@ -597,6 +585,8 @@ export const AdminInvoiceDetailLayout: React.FC = () => {
                     }
                     variant="card"
                   />
+                ) : courierEntry ? (
+                  <BookCourierEntryButton entry={courierEntry} variant="card" />
                 ) : customerPickupActive ? (
                   <div
                     className="invoice-detail-top__card invoice-detail-top__card--amber is-active"
@@ -624,8 +614,6 @@ export const AdminInvoiceDetailLayout: React.FC = () => {
                     </span>
                     <span className="invoice-detail-top__card-label">Delivered</span>
                   </div>
-                ) : courierEntry ? (
-                  <BookCourierEntryButton entry={courierEntry} variant="card" />
                 ) : null}
                 {showCustomerPickup ? (
                   <button

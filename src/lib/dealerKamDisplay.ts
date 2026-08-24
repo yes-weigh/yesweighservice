@@ -1,6 +1,11 @@
 import type { ZohoDealer } from '../types/dealers';
 import type { LogisticsBooking } from '../types/logistics-dispatch';
 
+/** Super-admin names that must not appear in dealer KAM pickers. */
+export function isHiddenKamName(name: string | null | undefined): boolean {
+  return /\bshibin\b/i.test(String(name ?? ''));
+}
+
 export function buildDealerStaffNameMap(dealers: ZohoDealer[]): Record<string, string> {
   const next: Record<string, string> = {};
   for (const dealer of dealers) {

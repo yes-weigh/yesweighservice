@@ -10,6 +10,7 @@ import type {
 } from '../types/dealers';
 import { DEFAULT_DEALER_CATEGORIES } from '../types/dealers';
 import type { DealerAddress } from './dealerAddress';
+import { isHiddenKamName } from './dealerKamDisplay';
 
 const functions = getFunctions(app, 'asia-south1');
 
@@ -50,8 +51,16 @@ function dealerErrorMessage(err: unknown): string {
       }
       return 'Zoho is temporarily rate-limited. Wait a few minutes, then try Sync again.';
     }
-    if (code === 'functions/not-found' || message.includes('not-found')) {
+    if (code === 'functions/not-found') {
+      const clean = message.replace(/^FirebaseError:\s*/i, '').trim();
+      if (clean && !/^(not-found|not_found|NOT_FOUND)$/i.test(clean)) {
+        return clean;
+      }
       return 'Dealer functions are not deployed yet. Push to main or deploy Cloud Functions.';
+    }
+    if (code === 'functions/already-exists') {
+      const clean = message.replace(/^FirebaseError:\s*/i, '').trim();
+      return clean || 'This dealer already exists.';
     }
     if (code === 'functions/permission-denied') {
       const clean = message.replace(/^FirebaseError:\s*/i, '').trim();
@@ -202,6 +211,7 @@ export type GstinLookupDetails = {
   city?: string;
   zip: string;
   address: string;
+  street2?: string;
   phone: string;
 };
 
@@ -255,6 +265,16 @@ export async function patchDealer(
   await fn({ id, patch });
 }
 
+export async function deleteDealer(id: string): Promise<{ action: 'deleted' | 'voided' }> {
+  const fn = httpsCallable<{ id: string }, { action: 'deleted' | 'voided' }>(
+    functions,
+    'deleteDealer',
+    { timeout: 120_000 },
+  );
+  const result = await fn({ id });
+  return { action: result.data.action };
+}
+
 export async function linkDealerPortalUser(
   zohoCustomerId: string,
   portalUserId: string,
@@ -266,7 +286,8 @@ export async function linkDealerPortalUser(
 export async function listAssignableDealerStaff(): Promise<AssignableStaffOption[]> {
   const fn = httpsCallable(functions, 'listAssignableDealerStaff');
   const result = await fn();
-  return (result.data as { data: AssignableStaffOption[] }).data ?? [];
+  return ((result.data as { data: AssignableStaffOption[] }).data ?? [])
+    .filter(staff => !isHiddenKamName(staff.displayName));
 }
 
 /**
@@ -278,11 +299,14 @@ export function dealerStaffSelectOptions(
   current?: { uid?: string | null; name?: string | null } | null,
 ): AssignableStaffOption[] {
   const uid = String(current?.uid ?? '').trim();
-  if (!uid || assignableStaff.some(s => s.uid === uid)) return assignableStaff;
-  const name = String(current?.name ?? '').trim() || 'Assigned staff';
+  const visible = assignableStaff.filter(staff => !isHiddenKamName(staff.displayName));
+  if (!uid || visible.some(s => s.uid === uid) || isHiddenKamName(current?.name)) {
+    return visible;
+  }
+  const name = String(current?.name ?? '').trim() || 'KAM';
   return [
     { uid, displayName: `${name} (no Zoho salesperson)` },
-    ...assignableStaff,
+    ...visible,
   ];
 }
 

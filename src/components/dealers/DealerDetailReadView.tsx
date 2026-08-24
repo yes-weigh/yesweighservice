@@ -137,7 +137,7 @@ export const DealerDetailReadView: React.FC<{
       )}
 
       <ReadOnlyField label="Status" value={dealer.dealerStage} />
-      <ReadOnlyField label="Assigned staff" value={dealer.assignedStaffName} />
+      <ReadOnlyField label="KAM" value={dealer.assignedStaffName} />
 
       {visibleFillableFields(dealer).map(field => {
         const storedValue = field.getValue(dealer);

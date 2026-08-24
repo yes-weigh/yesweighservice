@@ -97,7 +97,7 @@ export const DEALER_FIELD_DEFINITIONS: DealerFieldDefinition[] = [
   { key: 'filterReason', label: 'Filter reason', source: 'overlay', getValue: d => d.filterReason },
   { key: 'portalUserId', label: 'Portal user ID', source: 'overlay', getValue: d => d.portalUserId },
 
-  { key: 'assignedStaffName', label: 'Assigned staff', source: 'computed', getValue: d => d.assignedStaffName },
+  { key: 'assignedStaffName', label: 'KAM', source: 'computed', getValue: d => d.assignedStaffName },
   { key: 'portalUserName', label: 'Portal user name', source: 'computed', getValue: d => d.portalUserName },
   { key: 'portalLoginId', label: 'Portal login ID', source: 'computed', getValue: d => d.portalLoginId },
   { key: 'signedIn', label: 'Signed in to portal', source: 'computed', getValue: d => d.signedIn },

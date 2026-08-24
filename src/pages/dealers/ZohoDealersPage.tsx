@@ -48,6 +48,7 @@ import {
 import { type AssignableStaffOption, type DealerListParams, type ZohoDealer } from '../../types/dealers';
 import type { PriceLevel } from '../../types/priceLevels';
 import { homePathForRole, type Role } from '../../types';
+import { isHiddenKamName } from '../../lib/dealerKamDisplay';
 import { hasStaffPermission } from '../../lib/staffAccess';
 
 type DealersMainTab = 'roster' | 'salespersons';
@@ -129,9 +130,6 @@ function FilterMultiDropdown({
   );
 }
 
-function isHiddenKamName(name: string) {
-  return /\bshibin\b/i.test(name);
-}
 
 const ZOHO_STATUS_CHIPS: FilterChip[] = [
   { value: '', label: 'All Zoho Status' },

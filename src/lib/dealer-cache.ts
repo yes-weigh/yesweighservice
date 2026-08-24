@@ -96,6 +96,12 @@ export function clearDealerCache(): void {
   }
 }
 
+export function removeCachedDealer(id: string): void {
+  const entry = memory ?? readSession();
+  if (!entry) return;
+  commit(entry.dealers.filter(dealer => dealer.id !== id), entry.complete);
+}
+
 /** Subscribe to cache updates while pages are still loading. */
 export function subscribeDealerCache(listener: DealerCacheListener): () => void {
   listeners.add(listener);
