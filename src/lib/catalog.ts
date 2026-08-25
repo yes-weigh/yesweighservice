@@ -14,6 +14,7 @@ import type {
   CatalogResponse,
   CatalogStats,
 } from '../types/catalog';
+import { prefetchFastImages } from './fastImageCache';
 import { mapAuditSnapshot } from './catalogProductAudit/data';
 import { resolveAdjustedAuditDisplay } from './catalogProductAudit/display';
 import { effectiveCatalogStockStatus, isSacHsn } from './sacCatalog';
@@ -1152,6 +1153,18 @@ export async function fetchCatalog(
   }
 }
 
+/** Warm catalog + store product/category images on the phone. */
+export function prefetchCatalogForDisplay(): void {
+  void fetchCatalog()
+    .then(data => {
+      prefetchFastImages([
+        ...data.categories.map(category => category.thumbnailUrl),
+        ...data.items.map(item => item.imageUrl),
+      ]);
+    })
+    .catch(() => undefined);
+}
+
 async function loadCatalogPayload(options: FetchCatalogOptions): Promise<CatalogCachePayload> {
   if (options.force) {
     const promise = fetchCatalogPayloadFromFirestore().finally(() => {
@@ -1172,17 +1185,21 @@ async function loadCatalogPayload(options: FetchCatalogOptions): Promise<Catalog
         return cached;
       }
     } catch {
-      const fresh = peekCatalogCache();
-      if (fresh) return fresh;
+      return cached;
     }
   }
 
   const existing = getCatalogInflight();
   if (existing) return existing;
 
-  const promise = fetchCatalogPayloadFromFirestore().finally(() => {
-    setCatalogInflight(null);
-  });
+  const promise = fetchCatalogPayloadFromFirestore()
+    .catch(err => {
+      if (cached) return cached;
+      throw err;
+    })
+    .finally(() => {
+      setCatalogInflight(null);
+    });
   setCatalogInflight(promise);
   return promise;
 }

@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { BadgePercent, Ban, ChartNoAxesColumnIncreasing, FileText, Upload } from 'lucide-react';
+import { BadgePercent, ChartNoAxesColumnIncreasing, FileText, Upload } from 'lucide-react';
 import { useAuth } from '../../../context/AuthContext';
 import { formatCurrencyWhole } from '../../../lib/catalog';
 import {
@@ -7,15 +7,29 @@ import {
   INCENTIVE_KAMS,
   INCENTIVE_MONTH_START,
   INCENTIVE_RATE,
+  applyIncentiveExclusions,
+  applyLineAdjustsToRow,
+  clearIncentiveLineExcluded,
   fetchIncentiveInvoiceLines,
+  incentiveExcludedAdjustTotals,
   incentiveForRow,
+  incentiveLineAdjustAmounts,
+  incentiveLineHasAdjust,
+  incentiveLineKey,
   incentiveRowNote,
   incentiveRowTone,
   listIncentiveInvoices,
+  listIncentiveLineExclusions,
+  persistIncentiveSnapshots,
+  setIncentiveLineExcluded,
+  withRateCardIncentive,
   type IncentiveInvoiceLine,
   type IncentiveInvoiceRow,
   type IncentiveKamId,
+  type IncentiveLineExclusion,
 } from '../../../lib/incentiveReports';
+import { canSuperAdminWrite } from '../../../lib/staffAccess';
+import { hydrateTableCache, peekTableCache, setTableCache } from '../../../lib/tableDisplayCache';
 
 const PAGE_SIZE = 25;
 
@@ -63,6 +77,19 @@ function parseInvoiceDate(value: string | null | undefined): Date | null {
   return Number.isNaN(d.getTime()) ? null : d;
 }
 
+function formatLineAdjustNote(line: IncentiveInvoiceLine): string | null {
+  const qty = Math.max(0, Number(line.adjustQty || line.qty) || 0);
+  if (qty <= 0) return null;
+  const qtyLabel = qty.toLocaleString('en-IN');
+  if (line.priceAdjust === 'discount' && line.unitDiscount > 0) {
+    return `-${formatCurrencyWhole(line.unitDiscount)} × ${qtyLabel} = -${formatCurrencyWhole(line.unitDiscount * qty)}`;
+  }
+  if (line.priceAdjust === 'hike' && line.unitHike > 0) {
+    return `+${formatCurrencyWhole(line.unitHike)} × ${qtyLabel} = +${formatCurrencyWhole(line.unitHike * qty)}`;
+  }
+  return null;
+}
+
 function formatInvoiceDate(value: string | null | undefined): string {
   const date = parseInvoiceDate(value);
   if (!date) return '—';
@@ -71,6 +98,17 @@ function formatInvoiceDate(value: string | null | undefined): string {
     month: 'short',
     year: 'numeric',
   });
+}
+
+function mergeIncentiveExclusions(
+  local: IncentiveLineExclusion[],
+  remote: IncentiveLineExclusion[],
+): IncentiveLineExclusion[] {
+  const byKey = new Map<string, IncentiveLineExclusion>();
+  for (const item of [...remote, ...local]) {
+    byKey.set(`${item.invoiceId}|${item.lineKey}`, item);
+  }
+  return [...byKey.values()];
 }
 
 function csvEscape(value: string): string {
@@ -82,15 +120,15 @@ function exportIncentiveCsv(
   rows: IncentiveInvoiceRow[],
   monthLabel: string,
   kamLabel: string,
-  excludeDiscounts = false,
 ): void {
   const headers = [
     'Invoice No',
     'Customer',
     'Invoice Date',
     'Salesperson',
-    'Sales (ex GST, courier, GATC)',
-    'Incentive 3.5%',
+    'Invoice sales (ex GST, courier, GATC)',
+    'Rate card sales',
+    'Incentive',
   ];
   const lines = [
     headers.join(','),
@@ -100,7 +138,8 @@ function exportIncentiveCsv(
       row.date || '',
       row.salespersonName || '',
       String(row.sales),
-      String(incentiveForRow(row, excludeDiscounts)),
+      String(row.rateCardSales ?? row.sales),
+      String(incentiveForRow(row)),
     ].map(value => csvEscape(String(value))).join(',')),
   ];
   const blob = new Blob([lines.join('\n')], { type: 'text/csv;charset=utf-8' });
@@ -115,7 +154,7 @@ function exportIncentiveCsv(
 
 export const IncentiveReportTab: React.FC = () => {
   const { user } = useAuth();
-  const isSuperAdmin = user?.role === 'super_admin';
+  const canExcludeLines = canSuperAdminWrite(user);
   const monthOptions = useMemo(
     () => buildMonthOptions(INCENTIVE_MONTH_START, currentYearMonth()),
     [],
@@ -127,25 +166,51 @@ export const IncentiveReportTab: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [month, setMonth] = useState(defaultMonth);
-  const [kam, setKam] = useState<IncentiveKamId | ''>('');
+  const [kam, setKam] = useState<IncentiveKamId>('biju');
   const [adjustFilter, setAdjustFilter] = useState<AdjustFilter>('');
-  const [excludeDiscounts, setExcludeDiscounts] = useState(false);
   const [page, setPage] = useState(1);
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [linesByInvoice, setLinesByInvoice] = useState<Record<string, IncentiveInvoiceLine[]>>({});
   const [linesLoadingId, setLinesLoadingId] = useState<string | null>(null);
+  const [exclusions, setExclusions] = useState<IncentiveLineExclusion[]>([]);
+  const [exclusionBusyKey, setExclusionBusyKey] = useState<string | null>(null);
 
   const loadMonth = useCallback(async (yearMonth: string) => {
-    setLoading(true);
+    const cacheKey = `incentive:${yearMonth}`;
+    const cached = peekTableCache<{ rows: IncentiveInvoiceRow[]; truncated: boolean }>(cacheKey)
+      ?? await hydrateTableCache<{ rows: IncentiveInvoiceRow[]; truncated: boolean }>(cacheKey);
+    if (cached) {
+      setRows(cached.rows.map(row => withRateCardIncentive(row)));
+      setTruncated(cached.truncated);
+      setLoading(false);
+    } else {
+      setLoading(true);
+    }
     setError('');
+    const exclusionKey = `incentive-excl:${yearMonth}`;
+    const localExclusions = peekTableCache<IncentiveLineExclusion[]>(exclusionKey)
+      ?? await hydrateTableCache<IncentiveLineExclusion[]>(exclusionKey)
+      ?? [];
+    if (localExclusions.length) setExclusions(localExclusions);
     try {
-      const result = await listIncentiveInvoices(yearMonth);
+      const [result, monthExclusions] = await Promise.all([
+        listIncentiveInvoices(yearMonth),
+        listIncentiveLineExclusions(yearMonth).catch(() => [] as IncentiveLineExclusion[]),
+      ]);
+      const merged = mergeIncentiveExclusions(localExclusions, monthExclusions);
       setRows(result.rows);
       setTruncated(result.truncated);
+      setExclusions(merged);
+      setTableCache(cacheKey, result);
+      setTableCache(exclusionKey, merged);
+      void persistIncentiveSnapshots(yearMonth, result.rows);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Could not load incentive report.');
-      setRows([]);
-      setTruncated(false);
+      if (!cached) {
+        setError(err instanceof Error ? err.message : 'Could not load incentive report.');
+        setRows([]);
+        setTruncated(false);
+        setExclusions([]);
+      }
     } finally {
       setLoading(false);
     }
@@ -175,9 +240,19 @@ export const IncentiveReportTab: React.FC = () => {
     setLinesLoadingId(report.id);
     void fetchIncentiveInvoiceLines(report.customerId, report.id)
       .then(lines => {
-        if (!cancelled) {
-          setLinesByInvoice(prev => ({ ...prev, [report.id]: lines }));
-        }
+        if (cancelled) return;
+        setLinesByInvoice(prev => ({ ...prev, [report.id]: lines }));
+        setRows(current => {
+          const next = current.map(row => (
+            row.id === report.id
+              ? applyLineAdjustsToRow(row, lines)
+              : row
+          ));
+          setTableCache(`incentive:${month}`, { rows: next, truncated });
+          const updated = next.find(row => row.id === report.id);
+          if (updated) void persistIncentiveSnapshots(month, [updated]);
+          return next;
+        });
       })
       .finally(() => {
         if (!cancelled) setLinesLoadingId(current => (current === report.id ? null : current));
@@ -186,12 +261,33 @@ export const IncentiveReportTab: React.FC = () => {
     return () => {
       cancelled = true;
     };
-  }, [expandedId, rows, linesByInvoice]);
+  }, [expandedId, rows, linesByInvoice, month, truncated]);
 
-  const kamRows = useMemo(() => {
-    if (!kam) return rows;
-    return rows.filter(row => row.kamId === kam);
-  }, [rows, kam]);
+  const rowsWithLineAdjust = useMemo(() => (
+    rows.map(row => {
+      const lines = linesByInvoice[row.id];
+      if (!lines?.length) return row;
+      return applyLineAdjustsToRow(row, lines);
+    })
+  ), [rows, linesByInvoice]);
+
+  const displayRows = useMemo(
+    () => applyIncentiveExclusions(rowsWithLineAdjust, exclusions),
+    [rowsWithLineAdjust, exclusions],
+  );
+
+  const excludedKeys = useMemo(() => {
+    const keys = new Set<string>();
+    for (const exclusion of exclusions) {
+      keys.add(`${exclusion.invoiceId}|${exclusion.lineKey}`);
+    }
+    return keys;
+  }, [exclusions]);
+
+  const kamRows = useMemo(
+    () => displayRows.filter(row => row.kamId === kam),
+    [displayRows, kam],
+  );
 
   const listed = useMemo(() => {
     if (adjustFilter === 'upsales') return kamRows.filter(row => row.hikeAmount > 0);
@@ -209,27 +305,31 @@ export const IncentiveReportTab: React.FC = () => {
     if (page > totalPages) setPage(totalPages);
   }, [page, totalPages]);
 
-  const skipDiscountIncentive = isSuperAdmin && excludeDiscounts;
+  const kamSource = useMemo(
+    () => rowsWithLineAdjust.filter(row => row.kamId === kam),
+    [rowsWithLineAdjust, kam],
+  );
 
   const kpis = useMemo(() => {
     const invoiceCount = kamRows.length;
     const totalSales = kamRows.reduce((sum, row) => sum + row.sales, 0);
-    const totalIncentive = kamRows.reduce(
-      (sum, row) => sum + incentiveForRow(row, skipDiscountIncentive),
-      0,
-    );
+    const totalIncentive = kamRows.reduce((sum, row) => sum + incentiveForRow(row), 0);
     const incentiveStandard = kamRows.reduce((sum, row) => (
       row.rate === INCENTIVE_DIRECTOR_RATE
         ? sum
-        : sum + incentiveForRow(row, skipDiscountIncentive)
+        : sum + incentiveForRow(row)
     ), 0);
     const incentiveDirector = kamRows.reduce((sum, row) => (
       row.rate === INCENTIVE_DIRECTOR_RATE
-        ? sum + incentiveForRow(row, skipDiscountIncentive)
+        ? sum + incentiveForRow(row)
         : sum
     ), 0);
-    const upsales = kamRows.reduce((sum, row) => sum + row.hikeAmount, 0);
-    const downSale = kamRows.reduce((sum, row) => sum + row.discountAmount, 0);
+    const excludedAdjust = incentiveExcludedAdjustTotals(kamSource, exclusions);
+    const rawUpsales = kamSource.reduce((sum, row) => sum + row.hikeAmount, 0);
+    const rawDownSale = kamSource.reduce((sum, row) => sum + row.discountAmount, 0);
+    const upsales = Math.max(0, rawUpsales - excludedAdjust.hikeAmount);
+    const downSale = Math.max(0, rawDownSale - excludedAdjust.discountAmount);
+    const netAdjust = upsales - downSale;
     return {
       invoiceCount,
       totalSales,
@@ -238,16 +338,59 @@ export const IncentiveReportTab: React.FC = () => {
       incentiveDirector,
       upsales,
       downSale,
-      netAdjust: upsales - downSale,
+      netAdjust,
+      kamShare: netAdjust * 0.3,
     };
-  }, [kamRows, skipDiscountIncentive]);
+  }, [kamRows, kamSource, exclusions]);
 
   const monthLabel = monthOptions.find(opt => opt.value === month)?.label || month;
-  const kamLabel = INCENTIVE_KAMS.find(opt => opt.id === kam)?.label || 'All';
+  const kamLabel = INCENTIVE_KAMS.find(opt => opt.id === kam)?.label || 'Biju';
 
   const handleExport = useCallback(() => {
-    exportIncentiveCsv(listed, monthLabel, kamLabel, skipDiscountIncentive);
-  }, [listed, monthLabel, kamLabel, skipDiscountIncentive]);
+    exportIncentiveCsv(listed, monthLabel, kamLabel);
+  }, [listed, monthLabel, kamLabel]);
+
+  const toggleLineExclusion = useCallback(async (
+    row: IncentiveInvoiceRow,
+    line: IncentiveInvoiceLine,
+    index: number,
+  ) => {
+    if (!canExcludeLines || !incentiveLineHasAdjust(line)) return;
+    const lineKey = incentiveLineKey(line, index);
+    const busyKey = `${row.id}|${lineKey}`;
+    if (exclusionBusyKey) return;
+    const already = excludedKeys.has(busyKey);
+    const amounts = incentiveLineAdjustAmounts(line, row);
+    setExclusionBusyKey(busyKey);
+    const next = already
+      ? exclusions.filter(item => !(item.invoiceId === row.id && item.lineKey === lineKey))
+      : [...exclusions.filter(item => !(item.invoiceId === row.id && item.lineKey === lineKey)), {
+        id: `${row.id}__${lineKey}`,
+        invoiceId: row.id,
+        month,
+        lineKey,
+        ...amounts,
+      }];
+    setExclusions(next);
+    setTableCache(`incentive-excl:${month}`, next);
+    try {
+      if (already) {
+        await clearIncentiveLineExcluded(row.id, lineKey);
+      } else {
+        await setIncentiveLineExcluded({
+          invoiceId: row.id,
+          month,
+          lineKey,
+          ...amounts,
+          uid: user?.uid,
+        });
+      }
+    } catch {
+      // Keep the local exclusion so Upsales / Down sale still move.
+    } finally {
+      setExclusionBusyKey(current => (current === busyKey ? null : current));
+    }
+  }, [canExcludeLines, excludedKeys, exclusionBusyKey, exclusions, month, user?.uid]);
 
   return (
     <section className="gatc-report incentive-report">
@@ -288,10 +431,8 @@ export const IncentiveReportTab: React.FC = () => {
               <div className="incentive-report__kpi-copy">
                 <span className="incentive-report__kpi-label">
                   {kam === 'shibin'
-                    ? (skipDiscountIncentive ? 'Incentives excl. discounts' : 'Incentives')
-                    : `Incentives (${(INCENTIVE_RATE * 100).toFixed(1)}%)${
-                      skipDiscountIncentive ? ' excl. discounts' : ''
-                    }`}
+                    ? 'Incentives (rate card)'
+                    : `Incentives (${(INCENTIVE_RATE * 100).toFixed(1)}% rate card)`}
                 </span>
                 {kam === 'shibin' ? (
                   <dl className="incentive-report__kpi-split">
@@ -341,10 +482,12 @@ export const IncentiveReportTab: React.FC = () => {
               </strong>
             </button>
             <div className="incentive-report__adjust-col is-net">
-              <span className="incentive-report__adjust-label">NET</span>
               <strong className="incentive-report__adjust-value">
                 {formatCurrencyWhole(kpis.netAdjust)}
               </strong>
+              <span className="incentive-report__adjust-kam">
+                30% ({formatCurrencyWhole(kpis.kamShare)})
+              </span>
             </div>
           </div>
 
@@ -364,10 +507,9 @@ export const IncentiveReportTab: React.FC = () => {
               <label className="gatc-report__kam">
                 <select
                   value={kam}
-                  onChange={e => setKam(e.target.value as IncentiveKamId | '')}
+                  onChange={e => setKam(e.target.value as IncentiveKamId)}
                   aria-label="Salesperson"
                 >
-                  <option value="">All</option>
                   {INCENTIVE_KAMS.map(opt => (
                     <option key={opt.id} value={opt.id}>{opt.label}</option>
                   ))}
@@ -403,22 +545,21 @@ export const IncentiveReportTab: React.FC = () => {
             </div>
           ) : (
             <>
-              {isSuperAdmin && kamRows.some(row => row.discountAmount > 0) ? (
-                <button
-                  type="button"
-                  className={`incentive-report__skip-btn${excludeDiscounts ? ' is-active' : ''}`}
-                  aria-pressed={excludeDiscounts}
-                  onClick={() => setExcludeDiscounts(current => !current)}
-                >
-                  <Ban size={15} aria-hidden />
-                  {excludeDiscounts ? 'Discounts off' : 'Skip discounts'}
-                </button>
-              ) : null}
               <div className="gatc-report__list" aria-label="Incentive invoices">
                 {pageRows.map(row => {
                   const open = expandedId === row.id;
                   const lines = linesByInvoice[row.id];
                   const subtotal = (lines ?? []).reduce((sum, line) => sum + line.total, 0);
+                  const lineHikeTotal = (lines ?? []).reduce((sum, line) => (
+                    line.priceAdjust === 'hike'
+                      ? sum + line.unitHike * (line.adjustQty || line.qty)
+                      : sum
+                  ), 0);
+                  const lineDiscountTotal = (lines ?? []).reduce((sum, line) => (
+                    line.priceAdjust === 'discount'
+                      ? sum + line.unitDiscount * (line.adjustQty || line.qty)
+                      : sum
+                  ), 0);
                   const tone = incentiveRowTone(row);
                   const note = incentiveRowNote(row);
                   return (
@@ -466,13 +607,20 @@ export const IncentiveReportTab: React.FC = () => {
                             <p className="incentive-report__detail-empty">No item lines on this invoice.</p>
                           ) : (
                             <>
-                              {lines.map((line, index) => (
+                              {lines.map((line, index) => {
+                                const lineKey = incentiveLineKey(line, index);
+                                const excluded = excludedKeys.has(`${row.id}|${lineKey}`);
+                                const canToggle = canExcludeLines && incentiveLineHasAdjust(line);
+                                const busy = exclusionBusyKey === `${row.id}|${lineKey}`;
+                                const adjustNote = formatLineAdjustNote(line);
+                                return (
                                 <div
-                                  key={`${line.sku || line.name}-${index}`}
+                                  key={lineKey}
                                   className={[
                                     'incentive-report__item',
                                     line.priceAdjust === 'discount' ? 'is-discounted' : '',
                                     line.priceAdjust === 'hike' ? 'is-hiked' : '',
+                                    excluded ? 'is-excluded' : '',
                                   ].filter(Boolean).join(' ')}
                                 >
                                   <div className="incentive-report__item-main">
@@ -487,23 +635,53 @@ export const IncentiveReportTab: React.FC = () => {
                                   <div className="incentive-report__item-meta">
                                     <span>{line.sku || '—'}</span>
                                     <span>({formatCurrencyWhole(line.rate)})</span>
-                                    {line.priceAdjust === 'discount' && line.unitDiscount > 0 ? (
+                                    {line.listRate > 0 && Math.abs(line.listRate - line.rate) > 0.005 ? (
+                                      <span>list {formatCurrencyWhole(line.listRate)}</span>
+                                    ) : null}
+                                    {adjustNote ? (
                                       <span className="incentive-report__item-note">
-                                        -{formatCurrencyWhole(line.unitDiscount)}
+                                        {adjustNote}
                                       </span>
                                     ) : null}
-                                    {line.priceAdjust === 'hike' && line.unitHike > 0 ? (
-                                      <span className="incentive-report__item-note">
-                                        +{formatCurrencyWhole(line.unitHike)}
-                                      </span>
+                                    {canToggle ? (
+                                      <button
+                                        type="button"
+                                        className={`incentive-report__exclude-btn${excluded ? ' is-active' : ''}`}
+                                        aria-pressed={excluded}
+                                        disabled={busy}
+                                        onClick={() => { void toggleLineExclusion(row, line, index); }}
+                                      >
+                                        {excluded ? 'Include' : 'Exclude'}
+                                      </button>
+                                    ) : excluded ? (
+                                      <span className="incentive-report__exclude-flag">Excluded</span>
                                     ) : null}
                                   </div>
                                 </div>
-                              ))}
+                                );
+                              })}
                               <div className="incentive-report__subtotal">
                                 <span>Sub total</span>
                                 <strong>{formatCurrencyWhole(subtotal)}</strong>
                               </div>
+                              {lineHikeTotal > 0.005 ? (
+                                <div className="incentive-report__adjust-sum">
+                                  Extra {formatCurrencyWhole(lineHikeTotal)}
+                                </div>
+                              ) : row.hikeAmount > 0.005 ? (
+                                <div className="incentive-report__adjust-sum">
+                                  Extra {formatCurrencyWhole(row.hikeAmount)}
+                                </div>
+                              ) : null}
+                              {lineDiscountTotal > 0.005 ? (
+                                <div className="incentive-report__adjust-sum is-discount">
+                                  Discount {formatCurrencyWhole(lineDiscountTotal)}
+                                </div>
+                              ) : row.discountAmount > 0.005 ? (
+                                <div className="incentive-report__adjust-sum is-discount">
+                                  Discount {formatCurrencyWhole(row.discountAmount)}
+                                </div>
+                              ) : null}
                             </>
                           )}
                         </div>

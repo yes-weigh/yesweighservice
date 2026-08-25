@@ -1,22 +1,28 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import { AlertCircle } from 'lucide-react';
 import { CatalogBrowse } from '../../components/catalog/CatalogBrowse';
+import { catalogResponseFromCache, peekCatalogCacheStale } from '../../lib/catalog-cache';
 import { excludeHiddenCatalogProducts, fetchCatalog, isHiddenCatalogCategory } from '../../lib/catalog';
 import type { CatalogResponse } from '../../types/catalog';
 
 export const OpenCatalogPage: React.FC = () => {
-  const [catalog, setCatalog] = useState<CatalogResponse | null>(null);
-  const [loading, setLoading] = useState(true);
+  const [catalog, setCatalog] = useState<CatalogResponse | null>(() => {
+    const cached = peekCatalogCacheStale();
+    return cached ? catalogResponseFromCache(cached) : null;
+  });
+  const [loading, setLoading] = useState(() => !peekCatalogCacheStale());
   const [error, setError] = useState<string | null>(null);
 
   const load = useCallback(async () => {
-    setLoading(true);
+    if (!peekCatalogCacheStale()) setLoading(true);
     setError(null);
     try {
       const data = await fetchCatalog();
       setCatalog(data);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Unable to load products.');
+      if (!peekCatalogCacheStale()) {
+        setError(err instanceof Error ? err.message : 'Unable to load products.');
+      }
     } finally {
       setLoading(false);
     }

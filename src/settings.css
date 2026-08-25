@@ -150,30 +150,6 @@
   cursor: not-allowed;
 }
 
-.incentive-report__skip-btn {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.35rem;
-  margin: 0.15rem 0 0.35rem;
-  padding: 0;
-  border: 0;
-  background: none;
-  color: #f87171;
-  font-size: 0.8125rem;
-  font-weight: 700;
-  letter-spacing: 0.01em;
-  line-height: 1.15;
-  cursor: pointer;
-}
-
-.incentive-report__skip-btn:hover:not(:disabled) {
-  color: #fecaca;
-}
-
-.incentive-report__skip-btn.is-active {
-  color: #fecaca;
-}
-
 .gatc-report__error {
   margin: 0;
   color: #fca5a5;
@@ -401,6 +377,17 @@
 
 .incentive-report__adjust-col.is-net {
   --adjust-accent: #64748b;
+  justify-content: center;
+  gap: 0.12rem;
+}
+
+.incentive-report__adjust-kam {
+  font-size: 0.68rem;
+  font-weight: 650;
+  letter-spacing: 0.01em;
+  line-height: 1.15;
+  color: #94a3b8;
+  white-space: nowrap;
 }
 
 button.incentive-report__adjust-col {
@@ -482,11 +469,48 @@ button.incentive-report__adjust-col:focus-visible {
 .incentive-report__item-meta {
   display: flex;
   align-items: baseline;
+  flex-wrap: wrap;
   gap: 0.4rem;
   margin-top: 0.08rem;
   font-size: 0.68rem;
   font-weight: 550;
   color: #fb923c;
+}
+
+.incentive-report__exclude-btn {
+  margin-left: auto;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: #facc15;
+  font-size: 0.68rem;
+  font-weight: 750;
+  letter-spacing: 0.02em;
+  line-height: 1.15;
+  text-decoration: underline;
+  text-underline-offset: 0.12em;
+  cursor: pointer;
+}
+
+.incentive-report__item.is-discounted .incentive-report__exclude-btn,
+.incentive-report__item.is-hiked .incentive-report__exclude-btn {
+  color: #facc15;
+}
+
+.incentive-report__exclude-btn:disabled {
+  opacity: 0.55;
+  cursor: wait;
+}
+
+.incentive-report__exclude-btn.is-active,
+.incentive-report__exclude-flag {
+  margin-left: auto;
+  color: #e2e8f0;
+  text-decoration: none;
+}
+
+.incentive-report__item.is-excluded {
+  opacity: 0.48;
 }
 
 .incentive-report__subtotal {
@@ -498,6 +522,19 @@ button.incentive-report__adjust-col:focus-visible {
   border-top: 1px solid rgba(148, 163, 184, 0.12);
   font-size: 0.72rem;
   color: #94a3b8;
+}
+
+.incentive-report__adjust-sum {
+  display: flex;
+  justify-content: flex-end;
+  padding: 0.12rem 0 0;
+  font-size: 0.68rem;
+  font-weight: 650;
+  color: #f472b6;
+}
+
+.incentive-report__adjust-sum.is-discount {
+  color: #f87171;
 }
 
 .incentive-report__subtotal strong {
@@ -549,6 +586,7 @@ button.incentive-report__adjust-col:focus-visible {
 .incentive-report__item.is-hiked .incentive-report__item-meta .incentive-report__item-note {
   color: #fff;
   font-weight: 650;
+  white-space: nowrap;
 }
 
 .gatc-report__kpi-label {

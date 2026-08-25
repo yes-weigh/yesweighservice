@@ -55,6 +55,10 @@ html::-webkit-scrollbar {
 
 .fade-in { animation: fadeIn 0.45s ease-out forwards; }
 
+@media (max-width: 768px) {
+  .fade-in { animation-duration: 0.16s; }
+}
+
 .glass {
   background: var(--bg-glass);
   backdrop-filter: var(--blur-glass);
@@ -10768,6 +10772,10 @@ body:has(.confirm-inline-bar) .confirm-inline-bar {
     height: 100dvh;
     max-height: 100dvh;
     padding-bottom: env(safe-area-inset-bottom, 0px);
+    background: #0a0f1c;
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
+    transition: transform 0.22s cubic-bezier(0.4, 0, 0.2, 1);
   }
 
   .sidebar.mobile-open { transform: translateX(0); }

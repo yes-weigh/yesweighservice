@@ -14,7 +14,12 @@ import {
   type GatcReportDoc,
   type GatcReportLineItem,
 } from '../../../lib/gatcReports';
-import { canonicalSalespersonName, isPortalVisibleKamName } from '../../../lib/dealerKamDisplay';
+import {
+  PORTAL_KAM_DISPLAY_NAMES,
+  canonicalSalespersonName,
+  isPortalVisibleKamName,
+  portalKamKey,
+} from '../../../lib/dealerKamDisplay';
 
 const PAGE_SIZE = 25;
 /** First month available in the GATC month filter. */
@@ -215,7 +220,7 @@ export const GatcReportTab: React.FC = () => {
   }, [rows, month]);
 
   const kamOptions = useMemo(() => {
-    const names = new Set<string>();
+    const names = new Set<string>(PORTAL_KAM_DISPLAY_NAMES);
     for (const report of monthRows) {
       const name = canonicalSalespersonName(report.salespersonName);
       if (name && isPortalVisibleKamName(name)) names.add(name);
@@ -229,7 +234,7 @@ export const GatcReportTab: React.FC = () => {
 
   const filtered = useMemo(() => {
     if (!kam) return monthRows;
-    return monthRows.filter(report => canonicalSalespersonName(report.salespersonName) === kam);
+    return monthRows.filter(report => portalKamKey(report.salespersonName) === portalKamKey(kam));
   }, [monthRows, kam]);
 
   const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
@@ -410,15 +415,16 @@ export const GatcReportTab: React.FC = () => {
                           <table className="gatc-report__detail-table">
                             <thead>
                               <tr>
-                                <th>Item Name</th>
-                                <th className="is-num">Qty</th>
+                                <th>Item name</th>
                                 <th className="is-num">Fees</th>
+                                <th className="is-num">Qty</th>
+                                <th className="is-num">Total fees</th>
                               </tr>
                             </thead>
                             <tbody>
                               {feeLines.length === 0 ? (
                                 <tr>
-                                  <td colSpan={3} className="gatc-report__detail-empty">
+                                  <td colSpan={4} className="gatc-report__detail-empty">
                                     No fee lines on this invoice.
                                   </td>
                                 </tr>
@@ -446,6 +452,13 @@ export const GatcReportTab: React.FC = () => {
                                         ) : null}
                                       </td>
                                       <td className="is-num">
+                                        {formatCurrencyWhole(
+                                          line.gatcFeePerUnit > 0
+                                            ? line.gatcFeePerUnit
+                                            : (line.qty > 0 ? line.lineGatcTotal / line.qty : 0),
+                                        )}
+                                      </td>
+                                      <td className="is-num">
                                         {line.qty.toLocaleString('en-IN')}
                                       </td>
                                       <td className="is-num">
@@ -459,7 +472,7 @@ export const GatcReportTab: React.FC = () => {
                             {feeLines.length > 0 ? (
                               <tfoot>
                                 <tr className="gatc-report__detail-total">
-                                  <th colSpan={2} scope="row">Total fees</th>
+                                  <th colSpan={3} scope="row">Total fees</th>
                                   <td className="is-num">
                                     {formatCurrencyWhole(report.totals.gatcFeeTotal)}
                                   </td>

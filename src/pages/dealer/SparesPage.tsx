@@ -10,6 +10,10 @@ import { useCanViewShipmentTracking, useCanViewCatalogStock } from '../../hooks/
 import { isDealerPortalUser } from '../../lib/dealerAccess';
 import { hasStaffPermission } from '../../lib/staffAccess';
 import {
+  catalogResponseFromCache,
+  peekCatalogCacheStale,
+} from '../../lib/catalog-cache';
+import {
   fetchCatalog,
   fetchCatalogSpareLinks,
   fetchSpareLinkIndex,
@@ -52,10 +56,13 @@ export const SparesPage: React.FC = () => {
   const raisedPoQtyByProductId = useRaisedPoQtyByProductId(useCanViewShipmentTracking());
   const viewMode = parseViewMode(searchParams.get('view'), canSync);
 
-  const [catalog, setCatalog] = useState<CatalogResponse | null>(null);
+  const [catalog, setCatalog] = useState<CatalogResponse | null>(() => {
+    const cached = peekCatalogCacheStale();
+    return cached ? catalogResponseFromCache(cached) : null;
+  });
   const [linkedSpareIds, setLinkedSpareIds] = useState<Set<string> | null>(null);
   const [spareCountByProductId, setSpareCountByProductId] = useState<Map<string, number> | null>(null);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(() => !peekCatalogCacheStale());
   const [linksLoading, setLinksLoading] = useState(false);
   const [syncing, setSyncing] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -80,13 +87,15 @@ export const SparesPage: React.FC = () => {
   }, [canSync]);
 
   const loadCatalog = useCallback(async () => {
-    setLoading(true);
+    if (!peekCatalogCacheStale()) setLoading(true);
     setError(null);
     try {
       const data = await fetchCatalog();
       setCatalog(data);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Unable to load spares catalog.');
+      if (!peekCatalogCacheStale()) {
+        setError(err instanceof Error ? err.message : 'Unable to load spares catalog.');
+      }
     } finally {
       setLoading(false);
     }

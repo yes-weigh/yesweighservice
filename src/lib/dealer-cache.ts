@@ -3,6 +3,7 @@ import { db } from '../firebase';
 import { fetchDealers } from './dealers';
 import { mapZohoCustomerDoc } from './dealerRosterQuery';
 import type { ZohoDealer } from '../types/dealers';
+import { DISPLAY_CACHE_KEYS, displayCacheGet, displayCacheRemove, displayCacheSet } from './displayCache';
 
 const CACHE_VERSION = 'v3';
 const SESSION_KEY = `yws.dealers.${CACHE_VERSION}`;
@@ -71,19 +72,31 @@ function commit(dealers: ZohoDealer[], complete: boolean): DealerCacheEnvelope {
   };
   memory = entry;
   writeSession(entry);
+  displayCacheSet(DISPLAY_CACHE_KEYS.dealers, entry);
   notify(dealers, complete);
   return entry;
 }
 
-/** Instant snapshot if already loaded (memory or session). */
+/** Instant snapshot if already loaded (memory, session, or last phone copy). */
 export function peekCachedDealers(): ZohoDealer[] | null {
-  if (isFresh(memory)) return memory.dealers;
+  if (memory?.dealers.length) return memory.dealers;
   const session = readSession();
-  if (isFresh(session)) {
+  if (session?.dealers.length) {
     memory = session;
     return session.dealers;
   }
   return null;
+}
+
+export async function hydrateDealersCacheFromDisk(): Promise<ZohoDealer[] | null> {
+  if (peekCachedDealers()) return peekCachedDealers();
+  const disk = await displayCacheGet<DealerCacheEnvelope>(DISPLAY_CACHE_KEYS.dealers);
+  const entry = disk?.data;
+  if (!entry || !Array.isArray(entry.dealers) || !entry.dealers.length) return null;
+  memory = entry;
+  writeSession(entry);
+  notify(entry.dealers, entry.complete);
+  return entry.dealers;
 }
 
 export function clearDealerCache(): void {
@@ -94,6 +107,7 @@ export function clearDealerCache(): void {
   } catch {
     // ignore
   }
+  displayCacheRemove(DISPLAY_CACHE_KEYS.dealers);
 }
 
 export function removeCachedDealer(id: string): void {

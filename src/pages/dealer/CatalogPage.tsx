@@ -23,6 +23,10 @@ import { SPARE_PRICE_LEVEL_CATEGORY_ID } from '../../types/priceLevels';
 import { canViewDealersInHr, hasStaffPermission } from '../../lib/staffAccess';
 import { catalogBaseForRole } from '../../lib/catalogRoutes';
 import {
+  catalogResponseFromCache,
+  peekCatalogCacheStale,
+} from '../../lib/catalog-cache';
+import {
   excludeHiddenCatalogProducts,
   fetchCatalog,
   fetchCatalogSpareLinks,
@@ -204,10 +208,13 @@ export const CatalogPage: React.FC = () => {
   /** Matches firestore `canAccessYesStore` — staff cannot list yesStoreItems. */
   const canReadYesStore = isSuperAdmin || user?.role === 'warehouse';
 
-  const [catalog, setCatalog] = useState<CatalogResponse | null>(null);
+  const [catalog, setCatalog] = useState<CatalogResponse | null>(() => {
+    const cached = peekCatalogCacheStale();
+    return cached ? catalogResponseFromCache(cached) : null;
+  });
   const [linkedSpareIds, setLinkedSpareIds] = useState<Set<string> | null>(null);
   const [spareCountByProductId, setSpareCountByProductId] = useState<Map<string, number> | null>(null);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(() => !peekCatalogCacheStale());
   const [linksLoading, setLinksLoading] = useState(false);
   const [syncing, setSyncing] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -373,13 +380,15 @@ export const CatalogPage: React.FC = () => {
   }, [canSync, canUseCatalogFilters]);
 
   const loadCatalog = useCallback(async (opts?: { force?: boolean }) => {
-    setLoading(true);
+    if (opts?.force || !peekCatalogCacheStale()) setLoading(true);
     setError(null);
     try {
       const data = await fetchCatalog({}, { force: opts?.force === true });
       setCatalog(data);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Unable to load products.');
+      if (!peekCatalogCacheStale()) {
+        setError(err instanceof Error ? err.message : 'Unable to load products.');
+      }
     } finally {
       setLoading(false);
     }
@@ -526,8 +535,15 @@ export const CatalogPage: React.FC = () => {
 
   useEffect(() => {
     if (!showAuditedLocations) return;
-    if (focus !== 'inventory-audit' && focus !== 'all-spares' && focus !== 'browse') return;
-    void loadAuditItems();
+    if (focus === 'inventory-audit' || focus === 'all-spares') {
+      void loadAuditItems();
+      return;
+    }
+    if (focus !== 'browse') return;
+    const idle = window.setTimeout(() => {
+      void loadAuditItems();
+    }, 2500);
+    return () => window.clearTimeout(idle);
   }, [showAuditedLocations, focus, loadAuditItems]);
 
   const priceVisibleShopProducts = useMemo(() => {

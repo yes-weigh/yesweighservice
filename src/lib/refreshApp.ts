@@ -1,10 +1,12 @@
 import { clearCatalogCache } from './catalog-cache';
 import { clearDealerCache } from './dealer-cache';
+import { clearTableCaches } from './tableDisplayCache';
 
 /** Drop local caches and reload so a phone picks up the latest app and data. */
 export async function refreshAppAndData(): Promise<void> {
   clearCatalogCache();
   clearDealerCache();
+  clearTableCaches();
 
   if ('caches' in window) {
     const keys = await caches.keys();

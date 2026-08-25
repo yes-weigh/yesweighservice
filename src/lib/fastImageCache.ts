@@ -332,7 +332,7 @@ export function prefetchFastImages(
   urls: Array<string | null | undefined>,
   size: FastImageSize = 'thumb',
 ): void {
-  urls.slice(0, 16).forEach((url, index) => {
+  urls.slice(0, 48).forEach((url, index) => {
     if (!url || !isRemoteHttpUrl(url)) return;
     void loadFastImage(url, size, index < 8);
   });

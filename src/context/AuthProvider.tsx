@@ -16,7 +16,9 @@ import { authEmailForLoginId, parseLoginId } from '../lib/loginAuth';
 import { contactFieldsForLogin, resolveProfileLogin } from '../lib/profileLogin';
 import { authErrorMessage } from '../lib/authErrors';
 import { clearInvoiceCacheForUser } from '../lib/invoice-cache';
+import { prefetchCatalogForDisplay } from '../lib/catalog';
 import { clearDealerCache, prefetchDealersCache } from '../lib/dealer-cache';
+import { hydrateAppDisplayCaches } from '../lib/hydrateAppCaches';
 import { isInternalOpsUser } from '../lib/staffAccess';
 import { normalizeZohoSalespersonLinks } from '../lib/zohoSalespersonStaff';
 import { FIRM_NAME } from '../constants/brand';
@@ -163,8 +165,13 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   }, []);
 
   useEffect(() => {
-    if (!user || !isInternalOpsUser(user)) return;
-    prefetchDealersCache();
+    void hydrateAppDisplayCaches();
+  }, []);
+
+  useEffect(() => {
+    if (!user) return;
+    if (isInternalOpsUser(user)) prefetchDealersCache();
+    prefetchCatalogForDisplay();
   }, [user?.uid, user?.role]);
 
   const login = async (loginIdInput: string, password: string) => {

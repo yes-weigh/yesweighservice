@@ -9,6 +9,10 @@ import { useCanViewShipmentTracking, useCanViewCatalogStock } from '../../hooks/
 import { isDealerPortalUser } from '../../lib/dealerAccess';
 import { hasStaffPermission } from '../../lib/staffAccess';
 import {
+  catalogResponseFromCache,
+  peekCatalogCacheStale,
+} from '../../lib/catalog-cache';
+import {
   excludeHiddenCatalogProducts,
   fetchCatalog,
   getShopCatalogProducts,
@@ -36,19 +40,24 @@ export const ProductsPage: React.FC = () => {
     [user],
   );
 
-  const [catalog, setCatalog] = useState<CatalogResponse | null>(null);
-  const [loading, setLoading] = useState(true);
+  const [catalog, setCatalog] = useState<CatalogResponse | null>(() => {
+    const cached = peekCatalogCacheStale();
+    return cached ? catalogResponseFromCache(cached) : null;
+  });
+  const [loading, setLoading] = useState(() => !peekCatalogCacheStale());
   const [syncing, setSyncing] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const loadCatalog = useCallback(async () => {
-    setLoading(true);
+    if (!peekCatalogCacheStale()) setLoading(true);
     setError(null);
     try {
       const data = await fetchCatalog();
       setCatalog(data);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Unable to load product catalog.');
+      if (!peekCatalogCacheStale()) {
+        setError(err instanceof Error ? err.message : 'Unable to load product catalog.');
+      }
     } finally {
       setLoading(false);
     }

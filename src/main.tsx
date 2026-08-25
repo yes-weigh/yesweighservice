@@ -8,6 +8,9 @@ import './hr.css';
 import './settings.css';
 import './yes-store.css';
 import App from './App';
+import { hydrateAppDisplayCaches } from './lib/hydrateAppCaches';
+
+void hydrateAppDisplayCaches();
 
 const isNative = Capacitor.isNativePlatform();
 

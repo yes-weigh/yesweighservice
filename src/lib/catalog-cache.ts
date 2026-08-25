@@ -1,4 +1,5 @@
-import type { CatalogCategory, CatalogProduct, CatalogStats } from '../types/catalog';
+import type { CatalogCategory, CatalogProduct, CatalogResponse, CatalogStats } from '../types/catalog';
+import { DISPLAY_CACHE_KEYS, displayCacheGet, displayCacheRemove, displayCacheSet } from './displayCache';
 
 const CACHE_VERSION = 'v3';
 const SESSION_KEY = `yws.catalog.${CACHE_VERSION}`;
@@ -55,6 +56,16 @@ function writeSession(entry: CatalogCacheEnvelope): void {
   }
 }
 
+export function catalogResponseFromCache(data: CatalogCachePayload): CatalogResponse {
+  return {
+    items: data.allItems,
+    categories: data.categories,
+    total: data.allItems.length,
+    syncedAt: data.syncedAt,
+    stats: data.stats,
+  };
+}
+
 export function peekCatalogCache(): CatalogCachePayload | null {
   if (isFresh(memory)) return memory.data;
   const session = readSession();
@@ -65,7 +76,7 @@ export function peekCatalogCache(): CatalogCachePayload | null {
   return null;
 }
 
-/** Any cached payload (may be past soft TTL) — for meta contentKey compare. */
+/** Any cached payload (may be past soft TTL) — for first paint and meta compare. */
 export function peekCatalogCacheStale(): CatalogCachePayload | null {
   if (memory?.data) return memory.data;
   const session = readSession();
@@ -80,6 +91,20 @@ export function setCatalogCache(data: CatalogCachePayload): void {
   const entry: CatalogCacheEnvelope = { savedAt: Date.now(), data };
   memory = entry;
   writeSession(entry);
+  displayCacheSet(DISPLAY_CACHE_KEYS.catalog, data);
+}
+
+/** Restore last catalog from phone storage so menus can paint before the network. */
+export async function hydrateCatalogCacheFromDisk(): Promise<CatalogCachePayload | null> {
+  if (peekCatalogCacheStale()) return peekCatalogCacheStale();
+  const disk = await displayCacheGet<CatalogCachePayload>(DISPLAY_CACHE_KEYS.catalog);
+  if (!disk?.data || !Array.isArray(disk.data.allItems) || !Array.isArray(disk.data.categories)) {
+    return null;
+  }
+  const entry: CatalogCacheEnvelope = { savedAt: disk.savedAt, data: disk.data };
+  memory = entry;
+  writeSession(entry);
+  return disk.data;
 }
 
 /** Overlay live stock / audit fields onto a cached list item (e.g. after product detail). */
@@ -115,6 +140,7 @@ export function clearCatalogCache(): void {
   } catch {
     // ignore
   }
+  displayCacheRemove(DISPLAY_CACHE_KEYS.catalog);
 }
 
 export function getCatalogInflight(): Promise<CatalogCachePayload> | null {

@@ -63,6 +63,7 @@ import { invoiceListFilterStatusKey } from '../../lib/invoiceListStatus';
 import { readRememberedInvoiceCustomerPickupIds } from '../../lib/invoiceCustomerPickup';
 import { readRememberedInvoiceManualDeliveryIds } from '../../lib/invoiceManualDelivery';
 import { isInternalOpsUser } from '../../lib/staffAccess';
+import { hydrateTableCache, peekTableCache, setTableCache } from '../../lib/tableDisplayCache';
 import { useDealerStaffById } from '../../lib/useDealerStaffById';
 import { useRevealScrollbarOnScroll } from '../../lib/useRevealScrollbarOnScroll';
 import type { LogisticsBooking } from '../../types/logistics-dispatch';
@@ -552,7 +553,31 @@ export const AdminInvoicesPage: React.FC = () => {
   useEffect(() => {
     if (dealerScoped) return;
     let cancelled = false;
-    setLoading(true);
+    const cacheKey = `admin-invoices:${JSON.stringify({
+      sort,
+      dateStart,
+      dateEnd,
+      salespersonIds,
+      category,
+      statusFilter,
+      page,
+      useAggregate,
+      useLifetimeDealerRollups,
+      orgWide,
+    })}`;
+    type CachedList = { rows: AdminFirestoreInvoice[]; truncated?: boolean; hasMore?: boolean };
+    const applyCached = (cached: CachedList) => {
+      setRows(cached.rows);
+      setTruncated(cached.truncated === true);
+      setHasMore(cached.hasMore === true);
+      setLoading(false);
+    };
+    const memoryHit = peekTableCache<CachedList>(cacheKey);
+    if (memoryHit) applyCached(memoryHit);
+    else setLoading(true);
+    void hydrateTableCache<CachedList>(cacheKey).then(disk => {
+      if (!cancelled && !memoryHit && disk) applyCached(disk);
+    });
     setError('');
     setTruncated(false);
 
@@ -574,6 +599,7 @@ export const AdminInvoicesPage: React.FC = () => {
           setTruncated(wasTruncated);
           setHasMore(false);
           setLoading(false);
+          setTableCache(cacheKey, { rows: next, truncated: wasTruncated, hasMore: false });
           if (useLifetimeDealerRollups) return;
           void fetchAdminPortalStampingInvoices({
             sort,
@@ -586,7 +612,7 @@ export const AdminInvoicesPage: React.FC = () => {
           });
         })
         .catch(err => {
-          if (!cancelled) {
+          if (!cancelled && !peekTableCache(cacheKey)) {
             setError(err instanceof Error ? err.message : 'Could not load invoices.');
             setRows([]);
             setLoading(false);
@@ -610,6 +636,7 @@ export const AdminInvoicesPage: React.FC = () => {
           setRows(next);
           setHasMore(false);
           setLoading(false);
+          setTableCache(cacheKey, { rows: next, hasMore: false });
           if (category !== 'gatc') return;
           void fetchAdminPortalStampingInvoices({
             sort,
@@ -622,7 +649,7 @@ export const AdminInvoicesPage: React.FC = () => {
           });
         })
         .catch(err => {
-          if (!cancelled) {
+          if (!cancelled && !peekTableCache(cacheKey)) {
             setError(err instanceof Error ? err.message : 'Could not load invoices.');
             setRows([]);
             setLoading(false);
@@ -650,9 +677,10 @@ export const AdminInvoicesPage: React.FC = () => {
         setHasMore(more);
         if (lastDoc) pageCursorStack.current[page] = lastDoc;
         setLoading(false);
+        setTableCache(cacheKey, { rows: next, hasMore: more });
       })
       .catch(err => {
-        if (!cancelled) {
+        if (!cancelled && !peekTableCache(cacheKey)) {
           setError(err instanceof Error ? err.message : 'Could not load invoices.');
           setRows([]);
           setLoading(false);
@@ -750,7 +778,27 @@ export const AdminInvoicesPage: React.FC = () => {
   useEffect(() => {
     if (!dealerScoped) return;
     let cancelled = false;
-    setLoading(true);
+    const cacheKey = `admin-invoices-dealer:${JSON.stringify({
+      selectedCustomerIds,
+      dateStart,
+      dateEnd,
+      sort,
+      category,
+    })}`;
+    type CachedList = { rows: AdminFirestoreInvoice[] };
+    const memoryHit = peekTableCache<CachedList>(cacheKey);
+    if (memoryHit) {
+      setRows(memoryHit.rows);
+      setLoading(false);
+    } else {
+      setLoading(true);
+    }
+    void hydrateTableCache<CachedList>(cacheKey).then(disk => {
+      if (!cancelled && !memoryHit && disk) {
+        setRows(disk.rows);
+        setLoading(false);
+      }
+    });
     setError('');
     setTruncated(false);
     const applyDealerRows = (merged: AdminFirestoreInvoice[]) => {
@@ -781,6 +829,7 @@ export const AdminInvoicesPage: React.FC = () => {
         if (cancelled) return;
         applyDealerRows(allRows);
         setLoading(false);
+        setTableCache(cacheKey, { rows: allRows });
         if (category !== 'gatc') return;
         void fetchAdminPortalStampingInvoices({
           customerIds: selectedCustomerIds,
@@ -794,7 +843,7 @@ export const AdminInvoicesPage: React.FC = () => {
         });
       })
       .catch(err => {
-        if (!cancelled) {
+        if (!cancelled && !peekTableCache(cacheKey)) {
           setError(err instanceof Error ? err.message : 'Could not load invoices.');
           setRows([]);
           setLoading(false);

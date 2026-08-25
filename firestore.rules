@@ -559,6 +559,18 @@ service cloud.firestore {
       allow write: if false;
     }
 
+    // Super-admin line exclusions on the incentive report (hike / discount lines).
+    match /incentiveLineExclusions/{exclusionId} {
+      allow read: if isOpsUser();
+      allow create, update, delete: if isFullSuperAdmin();
+    }
+
+    // Recalculated incentive (3.5% / 2% on rate-card sales, not invoice value).
+    match /incentiveSnapshots/{invoiceId} {
+      allow read: if isOpsUser();
+      allow create, update, delete: if isOpsUser();
+    }
+
     // Zoho salesperson cache — ops need this for create-SO (Cloud Charges, pickers).
     match /zohoSalespersons/{salespersonId} {
       allow read: if isActiveUser() && (isOpsUser() || staffHasHrView());

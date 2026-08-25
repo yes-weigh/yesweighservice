@@ -1,12 +1,16 @@
 import {
   collection,
+  deleteDoc,
   doc,
   documentId,
   getDoc,
   getDocs,
   limit,
   query,
+  serverTimestamp,
+  setDoc,
   where,
+  writeBatch,
 } from 'firebase/firestore';
 import { SHIBIN_SALESPERSON_ID } from '../constants/shibinSalesperson';
 import { db } from '../firebase';
@@ -119,6 +123,7 @@ export type IncentiveInvoiceRow = {
   salespersonName: string | null;
   kamId: IncentiveKamId | null;
   sales: number;
+  rateCardSales: number;
   incentive: number;
   rate: number;
   priceAdjust: IncentivePriceAdjust;
@@ -139,6 +144,18 @@ export type IncentiveInvoiceLine = {
   gatcExcess: number;
   unitDiscount: number;
   unitHike: number;
+  listRate: number;
+  adjustQty: number;
+};
+
+export type IncentiveLineExclusion = {
+  id: string;
+  invoiceId: string;
+  month: string;
+  lineKey: string;
+  sales: number;
+  hikeAmount: number;
+  discountAmount: number;
 };
 
 export type IncentiveRowTone = 'discount' | 'hike' | 'director' | null;
@@ -315,18 +332,44 @@ function withExpectedCatalogRates(
   levels: PriceLevel[],
   dealerId: string | null,
   directorsClubQty: number,
+  qtyForChange?: (change: PriceChangeLike) => number,
 ): PriceChangeLike[] {
   return changes.map(change => {
+    const lineQty = qtyForChange?.(change);
     const expected = expectedCatalogRate(
       change,
       catalog,
       levels,
       dealerId,
       directorsClubQty,
+      lineQty,
     );
-    if (expected <= 0) return change;
-    return { ...change, catalogRate: expected };
+    const quantity = lineQty && lineQty > 0
+      ? lineQty
+      : Math.max(1, Number(change.quantity) || 0);
+    if (expected <= 0) return { ...change, quantity };
+    return { ...change, catalogRate: expected, quantity };
   });
+}
+
+function lineQtyForPriceChange(
+  change: PriceChangeLike,
+  lines: Array<{ itemId?: unknown; sku?: unknown; name?: unknown; quantity?: unknown; qty?: unknown }>,
+): number {
+  const changeItem = String(change.itemId ?? change.productId ?? '').trim();
+  const changeSku = String(change.sku ?? '').trim().toLowerCase();
+  const changeName = String(change.name ?? '').trim();
+  const match = lines.find(line => {
+    const itemId = String(line.itemId ?? '').trim();
+    const sku = String(line.sku ?? '').trim().toLowerCase();
+    const name = String(line.name ?? '').trim();
+    if (changeItem && itemId && changeItem === itemId) return true;
+    if (changeSku && sku && changeSku === sku) return true;
+    return Boolean(changeName && name && changeName === name);
+  });
+  const lineQty = Number(match?.quantity ?? match?.qty) || 0;
+  if (lineQty > 0) return lineQty;
+  return Math.max(0, Number(change.quantity) || 0);
 }
 
 function directorsClubQtyFromLines(
@@ -527,6 +570,113 @@ function lineUnitDiscount(
   return perUnit;
 }
 
+function lineAdjustFromSoChanges(
+  line: Pick<IncentiveInvoiceLine, 'itemId' | 'sku' | 'name' | 'rate' | 'qty'>,
+  changes: PriceChangeLike[],
+): Pick<IncentiveInvoiceLine, 'priceAdjust' | 'unitDiscount' | 'unitHike' | 'adjustQty' | 'listRate'> | null {
+  let best: Pick<IncentiveInvoiceLine, 'priceAdjust' | 'unitDiscount' | 'unitHike' | 'adjustQty' | 'listRate'> | null = null;
+  let bestAbs = 0;
+  for (const change of changes) {
+    if (!changeMatchesLine(change, line)) continue;
+    const catalog = Number(change.catalogRate) || 0;
+    const charged = Number(change.rate) || Number(line.rate) || 0;
+    if (catalog <= 0 || charged <= 0) continue;
+    const changeQty = Math.max(1, Number(change.quantity) || Number(line.qty) || 1);
+    const delta = round2(charged - catalog);
+    const abs = Math.abs(delta);
+    if (abs < 0.005 || abs <= bestAbs) continue;
+    bestAbs = abs;
+    best = delta < 0
+      ? {
+        priceAdjust: 'discount',
+        unitDiscount: round2(-delta),
+        unitHike: 0,
+        adjustQty: changeQty,
+        listRate: catalog,
+      }
+      : {
+        priceAdjust: 'hike',
+        unitDiscount: 0,
+        unitHike: delta,
+        adjustQty: changeQty,
+        listRate: catalog,
+      };
+  }
+  return best;
+}
+
+function lineAdjustFromRateCard(
+  line: Pick<IncentiveInvoiceLine, 'itemId' | 'sku' | 'name' | 'rate' | 'qty'>,
+  catalog: Map<string, CatalogPriceMeta>,
+  levels: PriceLevel[],
+  dealerId: string | null,
+  clubQty: number,
+  changes: PriceChangeLike[],
+): Pick<IncentiveInvoiceLine, 'priceAdjust' | 'unitDiscount' | 'unitHike' | 'listRate' | 'adjustQty'> {
+  const expected = expectedCatalogRate(
+    {
+      productId: line.itemId,
+      itemId: line.itemId,
+      sku: line.sku,
+      name: line.name,
+      quantity: line.qty,
+    },
+    catalog,
+    levels,
+    dealerId,
+    clubQty,
+    line.qty,
+  );
+  const charged = Number(line.rate) || 0;
+  if (expected > 0 && charged > 0) {
+    const delta = round2(charged - expected);
+    if (delta < -0.005) {
+      return {
+        priceAdjust: 'discount',
+        unitDiscount: round2(-delta),
+        unitHike: 0,
+        listRate: expected,
+        adjustQty: line.qty,
+      };
+    }
+    if (delta > 0.005) {
+      return {
+        priceAdjust: 'hike',
+        unitDiscount: 0,
+        unitHike: delta,
+        listRate: expected,
+        adjustQty: line.qty,
+      };
+    }
+  }
+  const fromSo = lineAdjustFromSoChanges(line, changes);
+  if (fromSo) return fromSo;
+  return {
+    priceAdjust: null,
+    unitDiscount: 0,
+    unitHike: 0,
+    listRate: expected,
+    adjustQty: line.qty,
+  };
+}
+
+export function applyLineAdjustsToRow(
+  row: IncentiveInvoiceRow,
+  lines: IncentiveInvoiceLine[],
+): IncentiveInvoiceRow {
+  const fromLines = incentiveAdjustFromLines(lines);
+  const hasHike = lines.some(line => line.priceAdjust === 'hike');
+  const hasDiscount = lines.some(line => line.priceAdjust === 'discount');
+  return withRateCardIncentive({
+    ...row,
+    hikeAmount: hasHike ? fromLines.hikeAmount : row.hikeAmount,
+    discountAmount: hasDiscount ? fromLines.discountAmount : row.discountAmount,
+    priceAdjust: hasDiscount
+      ? 'discount'
+      : (hasHike ? 'hike' : row.priceAdjust),
+  });
+}
+
 function lineUnitHike(
   line: Pick<IncentiveInvoiceLine, 'itemId' | 'sku' | 'name' | 'rate'>,
   changes: PriceChangeLike[],
@@ -649,16 +799,236 @@ export function incentiveForSales(sales: number, rate = INCENTIVE_RATE): number 
   return round2(sales * rate);
 }
 
-/** Super-admin can drop red (discounted) line sales from the incentive total. */
-export function incentiveForRow(
-  row: Pick<IncentiveInvoiceRow, 'incentive' | 'sales' | 'rate' | 'priceAdjust' | 'discountedSales'>,
-  excludeDiscounts = false,
+/** Rate-card sales ignore invoice hikes and discounts. */
+export function rateCardSalesFromInvoice(
+  invoiceSales: number,
+  hikeAmount: number,
+  discountAmount: number,
 ): number {
-  if (!excludeDiscounts) return row.incentive;
-  const cut = row.discountedSales > 0
-    ? row.discountedSales
-    : (row.priceAdjust === 'discount' ? row.sales : 0);
-  return incentiveForSales(Math.max(0, round2(row.sales - cut)), row.rate);
+  return Math.max(0, round2(invoiceSales - hikeAmount + discountAmount));
+}
+
+export function withRateCardIncentive(row: IncentiveInvoiceRow): IncentiveInvoiceRow {
+  const rateCardSales = rateCardSalesFromInvoice(
+    row.sales,
+    row.hikeAmount ?? 0,
+    row.discountAmount ?? 0,
+  );
+  return {
+    ...row,
+    rateCardSales,
+    incentive: incentiveForSales(rateCardSales, row.rate),
+  };
+}
+
+export function incentiveForRow(
+  row: Pick<IncentiveInvoiceRow, 'incentive'>,
+): number {
+  return row.incentive;
+}
+
+export function incentiveLineKey(
+  line: Pick<IncentiveInvoiceLine, 'itemId' | 'sku' | 'name' | 'qty' | 'rate' | 'total'>,
+  index: number,
+): string {
+  return [
+    line.itemId || '',
+    line.sku || '',
+    line.name,
+    line.qty,
+    line.rate,
+    line.total,
+    index,
+  ].join('|');
+}
+
+export function incentiveLineHasAdjust(line: Pick<IncentiveInvoiceLine, 'priceAdjust'>): boolean {
+  return line.priceAdjust === 'discount' || line.priceAdjust === 'hike';
+}
+
+export function incentiveAdjustFromLines(
+  lines: IncentiveInvoiceLine[],
+): Pick<IncentiveInvoiceRow, 'hikeAmount' | 'discountAmount' | 'priceAdjust'> {
+  const totals = lines.reduce((sum, line) => {
+    const amounts = incentiveLineAdjustAmounts(line);
+    return {
+      hikeAmount: round2(sum.hikeAmount + amounts.hikeAmount),
+      discountAmount: round2(sum.discountAmount + amounts.discountAmount),
+    };
+  }, { hikeAmount: 0, discountAmount: 0 });
+  return {
+    ...totals,
+    priceAdjust: priceAdjustFromAmounts(totals.discountAmount, totals.hikeAmount),
+  };
+}
+
+export function incentiveLineAdjustAmounts(
+  line: Pick<IncentiveInvoiceLine, 'qty' | 'adjustQty' | 'priceAdjust' | 'unitDiscount' | 'unitHike'>,
+  invoice?: Pick<IncentiveInvoiceRow, 'discountAmount' | 'hikeAmount'>,
+): Pick<IncentiveLineExclusion, 'sales' | 'hikeAmount' | 'discountAmount'> {
+  const qty = Math.max(0, Number(line.adjustQty || line.qty) || 0);
+  let hikeAmount = line.priceAdjust === 'hike'
+    ? round2(Math.max(0, line.unitHike) * qty)
+    : 0;
+  let discountAmount = line.priceAdjust === 'discount'
+    ? round2(Math.max(0, line.unitDiscount) * qty)
+    : 0;
+  if (line.priceAdjust === 'hike' && hikeAmount <= 0 && invoice && invoice.hikeAmount > 0) {
+    hikeAmount = invoice.hikeAmount;
+  }
+  if (line.priceAdjust === 'discount' && discountAmount <= 0 && invoice && invoice.discountAmount > 0) {
+    discountAmount = invoice.discountAmount;
+  }
+  return {
+    sales: 0,
+    hikeAmount,
+    discountAmount,
+  };
+}
+
+function incentiveLineExclusionDocId(invoiceId: string, lineKey: string): string {
+  return `${invoiceId}__${lineKey.replace(/[/#[\]]/g, '_')}`;
+}
+
+function priceAdjustFromAmounts(
+  discountAmount: number,
+  hikeAmount: number,
+): IncentivePriceAdjust {
+  if (discountAmount > 0.005) return 'discount';
+  if (hikeAmount > 0.005) return 'hike';
+  return null;
+}
+
+export function applyIncentiveExclusions(
+  rows: IncentiveInvoiceRow[],
+  exclusions: IncentiveLineExclusion[],
+): IncentiveInvoiceRow[] {
+  if (exclusions.length === 0) return rows;
+  const cuts = new Map<string, IncentiveLineExclusion[]>();
+  for (const exclusion of exclusions) {
+    const list = cuts.get(exclusion.invoiceId) ?? [];
+    list.push(exclusion);
+    cuts.set(exclusion.invoiceId, list);
+  }
+  return rows.map(row => {
+    const list = cuts.get(row.id);
+    if (!list?.length) return row;
+    const hikeCut = list.reduce((sum, item) => sum + item.hikeAmount, 0);
+    const discountCut = list.reduce((sum, item) => sum + item.discountAmount, 0);
+    const hikeAmount = Math.max(0, round2(row.hikeAmount - hikeCut));
+    const discountAmount = Math.max(0, round2(row.discountAmount - discountCut));
+    return {
+      ...row,
+      hikeAmount,
+      discountAmount,
+      priceAdjust: priceAdjustFromAmounts(discountAmount, hikeAmount),
+    };
+  });
+}
+
+export function incentiveExcludedAdjustTotals(
+  rows: IncentiveInvoiceRow[],
+  exclusions: IncentiveLineExclusion[],
+): { hikeAmount: number; discountAmount: number } {
+  const invoiceIds = new Set(rows.map(row => row.id));
+  return exclusions.reduce((sum, item) => {
+    if (!invoiceIds.has(item.invoiceId)) return sum;
+    return {
+      hikeAmount: round2(sum.hikeAmount + item.hikeAmount),
+      discountAmount: round2(sum.discountAmount + item.discountAmount),
+    };
+  }, { hikeAmount: 0, discountAmount: 0 });
+}
+
+export async function listIncentiveLineExclusions(
+  yearMonth: string,
+): Promise<IncentiveLineExclusion[]> {
+  const month = yearMonth.trim();
+  if (!month) return [];
+  const snap = await getDocs(query(
+    collection(db, 'incentiveLineExclusions'),
+    where('month', '==', month),
+  ));
+  return snap.docs.map(row => {
+    const data = row.data();
+    return {
+      id: row.id,
+      invoiceId: String(data.invoiceId ?? '').trim(),
+      month: String(data.month ?? month).trim(),
+      lineKey: String(data.lineKey ?? '').trim(),
+      sales: Number(data.sales ?? 0) || 0,
+      hikeAmount: Number(data.hikeAmount ?? 0) || 0,
+      discountAmount: Number(data.discountAmount ?? 0) || 0,
+    };
+  }).filter(row => row.invoiceId && row.lineKey);
+}
+
+export async function setIncentiveLineExcluded(input: {
+  invoiceId: string;
+  month: string;
+  lineKey: string;
+  sales: number;
+  hikeAmount: number;
+  discountAmount: number;
+  uid?: string | null;
+}): Promise<IncentiveLineExclusion> {
+  const invoiceId = input.invoiceId.trim();
+  const month = input.month.trim();
+  const lineKey = input.lineKey.trim();
+  const id = incentiveLineExclusionDocId(invoiceId, lineKey);
+  const exclusion: IncentiveLineExclusion = {
+    id,
+    invoiceId,
+    month,
+    lineKey,
+    sales: round2(Math.max(0, input.sales)),
+    hikeAmount: round2(Math.max(0, input.hikeAmount)),
+    discountAmount: round2(Math.max(0, input.discountAmount)),
+  };
+  await setDoc(doc(db, 'incentiveLineExclusions', id), {
+    ...exclusion,
+    excludedAt: serverTimestamp(),
+    excludedBy: input.uid || null,
+  });
+  return exclusion;
+}
+
+export async function clearIncentiveLineExcluded(
+  invoiceId: string,
+  lineKey: string,
+): Promise<void> {
+  const id = incentiveLineExclusionDocId(invoiceId.trim(), lineKey.trim());
+  await deleteDoc(doc(db, 'incentiveLineExclusions', id));
+}
+
+export async function persistIncentiveSnapshots(
+  yearMonth: string,
+  rows: IncentiveInvoiceRow[],
+): Promise<void> {
+  const month = yearMonth.trim();
+  if (!month || rows.length === 0) return;
+  const chunkSize = 400;
+  for (let i = 0; i < rows.length; i += chunkSize) {
+    const batch = writeBatch(db);
+    for (const row of rows.slice(i, i + chunkSize)) {
+      batch.set(doc(db, 'incentiveSnapshots', row.id), {
+        invoiceId: row.id,
+        invoiceNumber: row.invoiceNumber,
+        customerId: row.customerId,
+        month,
+        date: row.date,
+        kamId: row.kamId,
+        invoiceSales: row.sales,
+        rateCardSales: row.rateCardSales,
+        incentive: row.incentive,
+        rate: row.rate,
+        hikeAmount: row.hikeAmount,
+        discountAmount: row.discountAmount,
+        updatedAt: serverTimestamp(),
+      }, { merge: true });
+    }
+    await batch.commit();
+  }
 }
 
 function toIncentiveRow(
@@ -684,6 +1054,7 @@ function toIncentiveRow(
     salespersonName: invoice.salespersonName ?? kam?.label ?? null,
     kamId: kam?.id ?? null,
     sales,
+    rateCardSales: sales,
     incentive: incentiveForSales(sales, rate),
     rate,
     priceAdjust: null,
@@ -735,6 +1106,7 @@ export async function fetchIncentiveInvoiceLines(
       priceLevels.levels,
       cid,
       clubQty,
+      change => lineQtyForPriceChange(change, invoiceLines),
     );
     const gatcLines = gatcReport?.lineItems?.length
       ? gatcReport.lineItems
@@ -797,7 +1169,14 @@ export async function fetchIncentiveInvoiceLines(
         && line.qty > 0
       ))
       .map(({ name, sku, qty, rate, total, itemId, gatcExcess }) => {
-        const match = { itemId, sku, name };
+        const adjust = lineAdjustFromRateCard(
+          { itemId, sku, name, rate, qty },
+          catalog,
+          priceLevels.levels,
+          cid,
+          clubQty,
+          priceChanges,
+        );
         return {
           name,
           sku,
@@ -806,9 +1185,7 @@ export async function fetchIncentiveInvoiceLines(
           total,
           itemId,
           gatcExcess,
-          priceAdjust: linePriceAdjust({ ...match, rate }, priceChanges, priceLevels.levels),
-          unitDiscount: lineUnitDiscount({ ...match, rate }, priceChanges, priceLevels.levels),
-          unitHike: lineUnitHike({ ...match, rate }, priceChanges, priceLevels.levels),
+          ...adjust,
         };
       });
   } catch {
@@ -846,6 +1223,7 @@ async function loadSalesOrderExtras(
     invoiceId: string;
     customerId: string;
     changes: PriceChangeLike[];
+    lines: Array<{ itemId?: unknown; sku?: unknown; name?: unknown; quantity?: unknown; qty?: unknown }>;
     gatcFee: number;
   }> = [];
   const customerByInvoice = new Map(
@@ -862,19 +1240,29 @@ async function loadSalesOrderExtras(
       const invoiceId = String(row.data()?.zohoInvoiceId ?? '').trim();
       if (!invoiceId) continue;
       const data = row.data();
+      const lines = (Array.isArray(data?.lineItems) ? data.lineItems : [])
+        .filter((line): line is Record<string, unknown> => Boolean(line) && typeof line === 'object');
       pending.push({
         invoiceId,
         customerId: customerByInvoice.get(invoiceId)
           || String(data.customerId ?? '').trim(),
         changes: Array.isArray(data?.yesOnePriceChanges) ? data.yesOnePriceChanges : [],
+        lines,
         gatcFee: bundledGatcFeeFromLines(mapYesOneGatcLines(data?.yesOneGatcLines)),
       });
     }
   }
-  const catalog = await loadCatalogPriceMeta(pending.flatMap(row => row.changes));
+  const catalog = await loadCatalogPriceMeta([
+    ...pending.flatMap(row => row.changes),
+    ...pending.flatMap(row => row.lines.map(line => ({
+      productId: line.productId,
+      itemId: line.itemId ?? line.item_id,
+      sku: line.sku,
+    }))),
+  ]);
   const map = new Map<string, SalesOrderExtras>();
   for (const row of pending) {
-    const clubQty = directorsClubQtyFromLines(row.changes);
+    const clubQty = directorsClubQtyFromLines([...row.changes, ...row.lines]);
     map.set(row.invoiceId, {
       ...summarizePriceAdjusts(withExpectedCatalogRates(
         row.changes,
@@ -882,6 +1270,7 @@ async function loadSalesOrderExtras(
         levels,
         row.customerId || null,
         clubQty,
+        change => lineQtyForPriceChange(change, row.lines),
       ), levels),
       gatcFee: row.gatcFee,
     });
@@ -927,16 +1316,15 @@ export async function listIncentiveInvoices(yearMonth: string): Promise<{
       const sales = row.gatcExcess > 0
         ? row.sales
         : salesExcludingBundledGatc(row.sales, extra?.gatcFee ?? 0);
-      return {
+      return withRateCardIncentive({
         ...row,
         sales,
-        incentive: incentiveForSales(sales, row.rate),
         gatcExcess,
         priceAdjust: extra?.priceAdjust ?? null,
         discountAmount: extra?.discountAmount ?? 0,
         discountedSales: extra?.discountedSales ?? 0,
         hikeAmount: extra?.hikeAmount ?? 0,
-      };
+      });
     }).filter(row => row.sales > 0),
     truncated,
   };

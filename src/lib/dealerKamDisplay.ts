@@ -44,6 +44,16 @@ function normalizeSalespersonNameKey(name: string): string {
     .trim();
 }
 
+/** Canonical names always shown in GATC / portal KAM filters. */
+export const PORTAL_KAM_DISPLAY_NAMES = [
+  'Biju B',
+  'Namratha',
+  'Safna',
+  'Saritha Solanki',
+  'Supriya',
+  'Visakh B',
+] as const;
+
 /** True for the six KAMs shown in portal pickers / GATC filters. */
 export function isPortalVisibleKamName(name: string | null | undefined): boolean {
   const canonical = canonicalSalespersonName(name);
