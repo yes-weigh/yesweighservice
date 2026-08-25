@@ -728,13 +728,6 @@ service cloud.firestore {
       return data.lifecycle == 'draft' || data.status == 'draft';
     }
 
-    function isSupportOpenData(data) {
-      return data.lifecycle == 'open'
-        || data.status == 'pending'
-        || data.status == 'awaiting_product'
-        || data.status == 'in_progress';
-    }
-
     function isSupportClosedData(data) {
       return data.lifecycle == 'resolved'
         || data.lifecycle == 'cancelled'
