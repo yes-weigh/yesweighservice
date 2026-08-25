@@ -354,7 +354,7 @@ function withExpectedCatalogRates(
 
 function lineQtyForPriceChange(
   change: PriceChangeLike,
-  lines: Array<{ itemId?: unknown; sku?: unknown; name?: unknown; quantity?: unknown; qty?: unknown }>,
+  lines: Array<Record<string, unknown>>,
 ): number {
   const changeItem = String(change.itemId ?? change.productId ?? '').trim();
   const changeSku = String(change.sku ?? '').trim().toLowerCase();
@@ -525,51 +525,6 @@ function changeMatchesLine(
   return Boolean(name && line.name && name === line.name);
 }
 
-function linePriceAdjust(
-  line: Pick<IncentiveInvoiceLine, 'itemId' | 'sku' | 'name' | 'rate'>,
-  changes: PriceChangeLike[],
-  levels: PriceLevel[] = [],
-): IncentivePriceAdjust {
-  if (isPublishedQtySlabRate(levels, {
-    productId: line.itemId,
-    sku: line.sku,
-    rate: line.rate,
-  })) {
-    return null;
-  }
-  let hike = false;
-  for (const change of changes) {
-    if (!changeMatchesLine(change, line)) continue;
-    const kind = priceAdjustFromChange(change, levels);
-    if (kind === 'discount') return 'discount';
-    if (kind === 'hike') hike = true;
-  }
-  return hike ? 'hike' : null;
-}
-
-function lineUnitDiscount(
-  line: Pick<IncentiveInvoiceLine, 'itemId' | 'sku' | 'name' | 'rate'>,
-  changes: PriceChangeLike[],
-  levels: PriceLevel[] = [],
-): number {
-  if (isPublishedQtySlabRate(levels, {
-    productId: line.itemId,
-    sku: line.sku,
-    rate: line.rate,
-  })) {
-    return 0;
-  }
-  let perUnit = 0;
-  for (const change of changes) {
-    if (!changeMatchesLine(change, line)) continue;
-    if (priceAdjustFromChange(change, levels) !== 'discount') continue;
-    const catalog = Number(change.catalogRate) || 0;
-    const charged = Number(change.rate) || 0;
-    perUnit = Math.max(perUnit, round2(catalog - charged));
-  }
-  return perUnit;
-}
-
 function lineAdjustFromSoChanges(
   line: Pick<IncentiveInvoiceLine, 'itemId' | 'sku' | 'name' | 'rate' | 'qty'>,
   changes: PriceChangeLike[],
@@ -675,29 +630,6 @@ export function applyLineAdjustsToRow(
       ? 'discount'
       : (hasHike ? 'hike' : row.priceAdjust),
   });
-}
-
-function lineUnitHike(
-  line: Pick<IncentiveInvoiceLine, 'itemId' | 'sku' | 'name' | 'rate'>,
-  changes: PriceChangeLike[],
-  levels: PriceLevel[] = [],
-): number {
-  if (isPublishedQtySlabRate(levels, {
-    productId: line.itemId,
-    sku: line.sku,
-    rate: line.rate,
-  })) {
-    return 0;
-  }
-  let perUnit = 0;
-  for (const change of changes) {
-    if (!changeMatchesLine(change, line)) continue;
-    if (priceAdjustFromChange(change, levels) !== 'hike') continue;
-    const catalog = Number(change.catalogRate) || 0;
-    const charged = Number(change.rate) || 0;
-    perUnit = Math.max(perUnit, round2(charged - catalog));
-  }
-  return perUnit;
 }
 
 function round2(value: number): number {
@@ -1083,22 +1015,19 @@ export async function fetchIncentiveInvoiceLines(
     const invoice = snap.data() ?? {};
     const salesOrderId = invoice.salesOrderId != null ? String(invoice.salesOrderId).trim() : '';
     const soExtras = await loadSalesOrderLineContext(invId, salesOrderId);
-    const invoiceLines = (Array.isArray(invoice.lineItems) ? invoice.lineItems : []) as unknown[];
+    const invoiceLines = (Array.isArray(invoice.lineItems) ? invoice.lineItems : [])
+      .filter((row): row is Record<string, unknown> => Boolean(row) && typeof row === 'object');
     const catalog = await loadCatalogPriceMeta([
       ...soExtras.changes,
-      ...invoiceLines
-        .filter((row): row is Record<string, unknown> => Boolean(row) && typeof row === 'object')
-        .map(raw => ({
-          productId: raw.productId,
-          itemId: raw.itemId ?? raw.item_id,
-          sku: raw.sku,
-        })),
+      ...invoiceLines.map(raw => ({
+        productId: raw.productId,
+        itemId: raw.itemId ?? raw.item_id,
+        sku: raw.sku,
+      })),
     ]);
     const clubQty = directorsClubQtyFromLines([
       ...soExtras.changes,
-      ...invoiceLines.filter((row): row is Record<string, unknown> => (
-        Boolean(row) && typeof row === 'object'
-      )),
+      ...invoiceLines,
     ]);
     const priceChanges = withExpectedCatalogRates(
       soExtras.changes,
@@ -1223,7 +1152,7 @@ async function loadSalesOrderExtras(
     invoiceId: string;
     customerId: string;
     changes: PriceChangeLike[];
-    lines: Array<{ itemId?: unknown; sku?: unknown; name?: unknown; quantity?: unknown; qty?: unknown }>;
+    lines: Array<Record<string, unknown>>;
     gatcFee: number;
   }> = [];
   const customerByInvoice = new Map(
