@@ -332,7 +332,10 @@ import {
 import { lookupVesselAis } from './lib/vessel-ais.js';
 import {
   applyCors,
+  ensureWebhookSettings,
   handleYesgatcPush,
+  listCertificatesForOps,
+  listRcDetailsForOps,
   loadWebhookSecret,
   readProvidedSecret,
 } from './lib/yesgatc-webhook.js';
@@ -7280,6 +7283,76 @@ export const yesgatcPushWebhook = onRequest(
     } catch (err) {
       console.error('yesgatcPushWebhook failed:', err);
       res.status(500).json({ ok: false, message: err?.message ?? 'Webhook processing failed.' });
+    }
+  },
+);
+
+export const ensureYesGatcWebhookFn = onCall(
+  {
+    region: 'asia-south1',
+    timeoutSeconds: 30,
+    memory: '256MiB',
+  },
+  async request => {
+    await requireActiveUser(request.auth?.uid, SUPER_ADMIN_ROLES);
+    const actor = String(request.data?.actorName ?? '').trim() || 'YESWEIGH';
+    try {
+      return await ensureWebhookSettings(actor, { rotate: false });
+    } catch (err) {
+      if (err instanceof HttpsError) throw err;
+      throw new HttpsError('internal', err?.message ?? 'Could not load webhook settings.');
+    }
+  },
+);
+
+export const rotateYesGatcWebhookFn = onCall(
+  {
+    region: 'asia-south1',
+    timeoutSeconds: 30,
+    memory: '256MiB',
+  },
+  async request => {
+    await requireActiveUser(request.auth?.uid, SUPER_ADMIN_ROLES);
+    const actor = String(request.data?.actorName ?? '').trim() || 'YESWEIGH';
+    try {
+      return await ensureWebhookSettings(actor, { rotate: true });
+    } catch (err) {
+      if (err instanceof HttpsError) throw err;
+      throw new HttpsError('internal', err?.message ?? 'Could not rotate webhook secret.');
+    }
+  },
+);
+
+export const listYesGatcCertificatesFn = onCall(
+  {
+    region: 'asia-south1',
+    timeoutSeconds: 60,
+    memory: '256MiB',
+  },
+  async request => {
+    await requireActiveUser(request.auth?.uid, SYNC_ROLES, { allowViewOnly: true });
+    try {
+      return { rows: await listCertificatesForOps() };
+    } catch (err) {
+      if (err instanceof HttpsError) throw err;
+      throw new HttpsError('internal', err?.message ?? 'Could not load certificates.');
+    }
+  },
+);
+
+export const listYesGatcRcDetailsFn = onCall(
+  {
+    region: 'asia-south1',
+    timeoutSeconds: 60,
+    memory: '256MiB',
+  },
+  async request => {
+    await requireActiveUser(request.auth?.uid, SYNC_ROLES, { allowViewOnly: true });
+    try {
+      return { rows: await listRcDetailsForOps() };
+    } catch (err) {
+      if (err instanceof HttpsError) throw err;
+      throw new HttpsError('internal', err?.message ?? 'Could not load RC details.');
     }
   },
 );

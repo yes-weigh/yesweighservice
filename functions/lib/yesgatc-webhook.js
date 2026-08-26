@@ -1,7 +1,7 @@
 /**
  * YesGATC → YesOne ingest. Stores certificates and RC details pushed from yesgatc.
  */
-import { randomUUID } from 'node:crypto';
+import { randomBytes, randomUUID } from 'node:crypto';
 import { FieldValue, getFirestore } from 'firebase-admin/firestore';
 
 export const YESGATC_CERTIFICATES = 'yesgatcCertificates';
@@ -265,4 +265,98 @@ export function applyCors(res) {
   res.set('Access-Control-Allow-Origin', '*');
   res.set('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
   res.set('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-YesGatc-Secret, X-Webhook-Secret');
+}
+
+const DEST_URL = 'https://yesweigh-service.web.app/webhooks/yesgatc';
+
+function webhookSettingsFromSecret(secret) {
+  return {
+    secret,
+    destinationUrl: DEST_URL,
+    pasteUrl: `${DEST_URL}?key=${encodeURIComponent(secret)}`,
+  };
+}
+
+function isoFromAdmin(value) {
+  if (value == null) return null;
+  if (typeof value?.toDate === 'function') {
+    try {
+      return value.toDate().toISOString();
+    } catch {
+      return null;
+    }
+  }
+  const text = String(value).trim();
+  return text || null;
+}
+
+export async function ensureWebhookSettings(actorName, { rotate = false } = {}) {
+  const ref = getFirestore().doc(YESGATC_WEBHOOK_SETTINGS_DOC);
+  const snap = await ref.get();
+  const existing = String(snap.data()?.secret ?? '').trim();
+  if (existing && !rotate) return webhookSettingsFromSecret(existing);
+  const secret = randomBytes(24).toString('hex');
+  await ref.set({
+    secret,
+    destinationUrl: DEST_URL,
+    updatedAt: FieldValue.serverTimestamp(),
+    updatedBy: actorName || 'YESWEIGH',
+  }, { merge: true });
+  return webhookSettingsFromSecret(secret);
+}
+
+function mapCertificateDoc(row) {
+  const data = row.data() || {};
+  return {
+    id: row.id,
+    certificateNumber: String(data.certificateNumber ?? ''),
+    serialNumber: String(data.serialNumber ?? ''),
+    dealerName: String(data.dealerName ?? ''),
+    dealerId: data.dealerId != null ? String(data.dealerId) : null,
+    productName: String(data.productName ?? ''),
+    sku: data.sku != null ? String(data.sku) : null,
+    rcCode: data.rcCode != null ? String(data.rcCode) : null,
+    status: data.status != null ? String(data.status) : null,
+    issuedAt: data.issuedAt != null ? String(data.issuedAt) : null,
+    pdfUrl: data.pdfUrl != null ? String(data.pdfUrl) : null,
+    receivedAt: isoFromAdmin(data.receivedAt),
+    raw: data.raw ?? null,
+  };
+}
+
+function mapRcDoc(row) {
+  const data = row.data() || {};
+  return {
+    id: row.id,
+    code: String(data.code ?? ''),
+    name: String(data.name ?? ''),
+    address: data.address != null ? String(data.address) : null,
+    city: data.city != null ? String(data.city) : null,
+    state: data.state != null ? String(data.state) : null,
+    pincode: data.pincode != null ? String(data.pincode) : null,
+    phone: data.phone != null ? String(data.phone) : null,
+    email: data.email != null ? String(data.email) : null,
+    status: data.status != null ? String(data.status) : null,
+    receivedAt: isoFromAdmin(data.receivedAt),
+    raw: data.raw ?? null,
+  };
+}
+
+async function listCollection(name, mapFn, max = 400) {
+  const col = getFirestore().collection(name);
+  try {
+    const snap = await col.orderBy('receivedAt', 'desc').limit(max).get();
+    return snap.docs.map(mapFn);
+  } catch {
+    const snap = await col.limit(max).get();
+    return snap.docs.map(mapFn);
+  }
+}
+
+export function listCertificatesForOps(max = 400) {
+  return listCollection(YESGATC_CERTIFICATES, mapCertificateDoc, max);
+}
+
+export function listRcDetailsForOps(max = 400) {
+  return listCollection(YESGATC_RC_DETAILS, mapRcDoc, max);
 }

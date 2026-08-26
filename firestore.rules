@@ -561,13 +561,12 @@ service cloud.firestore {
       allow write: if false;
     }
 
-    // Certificates pushed from YesGATC (written by yesgatcPushWebhook).
+    // Certificates and RC details pushed from YesGATC (Admin SDK webhook + ops read).
     match /yesgatcCertificates/{certificateId} {
       allow read: if isOpsUser();
       allow write: if false;
     }
 
-    // Regional Center details pushed from YesGATC (written by yesgatcPushWebhook).
     match /yesgatcRcDetails/{rcId} {
       allow read: if isOpsUser();
       allow write: if false;

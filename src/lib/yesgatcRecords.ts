@@ -4,12 +4,12 @@ import {
   getDoc,
   getDocs,
   limit,
-  orderBy,
   query,
   serverTimestamp,
   setDoc,
 } from 'firebase/firestore';
-import { db } from '../firebase';
+import { getFunctions, httpsCallable } from 'firebase/functions';
+import { app, db } from '../firebase';
 
 export const YESGATC_CERTIFICATES = 'yesgatcCertificates';
 export const YESGATC_RC_DETAILS = 'yesgatcRcDetails';
@@ -18,6 +18,8 @@ export const YESGATC_WEBHOOK_SETTINGS_ID = 'yesgatcWebhook';
 export const YESGATC_WEBHOOK_URL = 'https://yesweigh-service.web.app/webhooks/yesgatc';
 export const YESGATC_WEBHOOK_FUNCTION_URL =
   'https://asia-south1-yesweigh-service.cloudfunctions.net/yesgatcPushWebhook';
+
+const functions = getFunctions(app, 'asia-south1');
 
 export type YesGatcCertificate = {
   id: string;
@@ -126,15 +128,31 @@ export async function saveYesGatcWebhookSecret(
 export async function ensureYesGatcWebhookSettings(
   actorName: string,
 ): Promise<YesGatcWebhookSettings> {
-  const existing = await loadYesGatcWebhookSettings();
-  if (existing) return existing;
-  return saveYesGatcWebhookSecret(generateWebhookSecret(), actorName);
+  try {
+    const fn = httpsCallable<{ actorName: string }, YesGatcWebhookSettings>(
+      functions,
+      'ensureYesGatcWebhookFn',
+    );
+    return (await fn({ actorName })).data;
+  } catch {
+    const existing = await loadYesGatcWebhookSettings();
+    if (existing) return existing;
+    return saveYesGatcWebhookSecret(generateWebhookSecret(), actorName);
+  }
 }
 
 export async function rotateYesGatcWebhookSecret(
   actorName: string,
 ): Promise<YesGatcWebhookSettings> {
-  return saveYesGatcWebhookSecret(generateWebhookSecret(), actorName);
+  try {
+    const fn = httpsCallable<{ actorName: string }, YesGatcWebhookSettings>(
+      functions,
+      'rotateYesGatcWebhookFn',
+    );
+    return (await fn({ actorName })).data;
+  } catch {
+    return saveYesGatcWebhookSecret(generateWebhookSecret(), actorName);
+  }
 }
 
 function mapCertificate(id: string, data: Record<string, unknown>): YesGatcCertificate {
@@ -173,11 +191,14 @@ function mapRc(id: string, data: Record<string, unknown>): YesGatcRcDetail {
 }
 
 export async function listYesGatcCertificates(max = 400): Promise<YesGatcCertificate[]> {
-  const col = collection(db, YESGATC_CERTIFICATES);
   try {
-    const snap = await getDocs(query(col, orderBy('receivedAt', 'desc'), limit(max)));
-    return snap.docs.map(row => mapCertificate(row.id, row.data() as Record<string, unknown>));
+    const fn = httpsCallable<{ max?: number }, { rows: YesGatcCertificate[] }>(
+      functions,
+      'listYesGatcCertificatesFn',
+    );
+    return (await fn({ max })).data.rows ?? [];
   } catch {
+    const col = collection(db, YESGATC_CERTIFICATES);
     const snap = await getDocs(query(col, limit(max)));
     return snap.docs
       .map(row => mapCertificate(row.id, row.data() as Record<string, unknown>))
@@ -186,11 +207,14 @@ export async function listYesGatcCertificates(max = 400): Promise<YesGatcCertifi
 }
 
 export async function listYesGatcRcDetails(max = 400): Promise<YesGatcRcDetail[]> {
-  const col = collection(db, YESGATC_RC_DETAILS);
   try {
-    const snap = await getDocs(query(col, orderBy('receivedAt', 'desc'), limit(max)));
-    return snap.docs.map(row => mapRc(row.id, row.data() as Record<string, unknown>));
+    const fn = httpsCallable<{ max?: number }, { rows: YesGatcRcDetail[] }>(
+      functions,
+      'listYesGatcRcDetailsFn',
+    );
+    return (await fn({ max })).data.rows ?? [];
   } catch {
+    const col = collection(db, YESGATC_RC_DETAILS);
     const snap = await getDocs(query(col, limit(max)));
     return snap.docs
       .map(row => mapRc(row.id, row.data() as Record<string, unknown>))

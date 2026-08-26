@@ -106,9 +106,9 @@ export const WebhookSettingsTab: React.FC = () => {
       </header>
 
       {error ? <p className="settings-locations__error">{error}</p> : null}
-      {loading || !settings ? (
+      {loading ? (
         <p className="settings-locations__loading">Loading webhook…</p>
-      ) : (
+      ) : settings ? (
         <div className="yesgatc-webhook">
           <CopyField
             label="Paste this URL into YesGATC"
@@ -157,7 +157,7 @@ export const WebhookSettingsTab: React.FC = () => {
 }`}</pre>
           </div>
         </div>
-      )}
+      ) : null}
     </section>
   );
 };
