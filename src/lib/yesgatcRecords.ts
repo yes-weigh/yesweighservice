@@ -10,7 +10,9 @@ import {
   setDoc,
   startAfter,
   where,
+  type DocumentData,
   type QueryDocumentSnapshot,
+  type QuerySnapshot,
 } from 'firebase/firestore';
 import { getFunctions, httpsCallable } from 'firebase/functions';
 import { app, db } from '../firebase';
@@ -390,14 +392,16 @@ async function loadCertificatesWhere(
   const col = collection(db, YESGATC_CERTIFICATES);
   const pageSize = 400;
   const rows: YesGatcCertificate[] = [];
-  let cursor: QueryDocumentSnapshot | null = null;
+  let cursor: QueryDocumentSnapshot<DocumentData> | null = null;
   for (;;) {
-    const snap = await getDocs(
+    const snap: QuerySnapshot<DocumentData> = await getDocs(
       cursor
         ? query(col, where(field, '==', value), startAfter(cursor), limit(pageSize))
         : query(col, where(field, '==', value), limit(pageSize)),
     );
-    rows.push(...snap.docs.map(row => mapCertificate(row.id, row.data() as Record<string, unknown>)));
+    rows.push(...snap.docs.map(docSnap => (
+      mapCertificate(docSnap.id, docSnap.data() as Record<string, unknown>)
+    )));
     if (snap.size < pageSize) break;
     cursor = snap.docs[snap.docs.length - 1] ?? null;
     if (!cursor) break;
