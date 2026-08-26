@@ -26,7 +26,6 @@ import {
   Wrench,
   RotateCcw,
   MessageSquareWarning,
-  Award,
   FileText,
   ShoppingCart,
   UserCircle,
@@ -307,7 +306,7 @@ const LayoutShell: React.FC = () => {
           { path: '/super-admin/invoices', icon: <FileText size={20} />, label: 'Invoices' },
           ...operationsNavItems('/super-admin', OPS_PRIORITY_SUFFIXES),
           { path: '/super-admin/dealers', icon: <Building2 size={20} />, label: 'Dealers' },
-          { path: '/super-admin/certificate', icon: <Award size={20} />, label: 'Certificate' },
+          { path: '/super-admin/certificate', icon: <Stamp size={20} />, label: 'GATC' },
           { path: '/super-admin/purchase-orders', icon: <ShoppingBag size={20} />, label: 'Purchase order' },
           { path: '/super-admin/goods-receipts', icon: <PackageCheck size={20} />, label: 'Goods receipt' },
           { path: '/super-admin/spare-indents', icon: <PackagePlus size={20} />, label: 'Spare Indent' },
@@ -340,7 +339,7 @@ const LayoutShell: React.FC = () => {
           ...withExtras,
           { path: '/staff/tasks', icon: <ListTodo size={20} />, label: 'Tasks' },
           { path: '/staff/dealers', icon: <Building2 size={20} />, label: 'Dealers' },
-          { path: '/staff/certificate', icon: <Award size={20} />, label: 'Certificate' },
+          { path: '/staff/certificate', icon: <Stamp size={20} />, label: 'GATC' },
           { path: '/staff/leads', icon: <UserRoundPlus size={20} />, label: 'Leads' },
         ];
         return filterStaffNavItems(user, items);

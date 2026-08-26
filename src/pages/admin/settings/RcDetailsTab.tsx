@@ -56,8 +56,6 @@ export const RcDetailsTab: React.FC = () => {
         columns={columns}
         loading={loading}
         empty="No RC details yet. After YesGATC posts to the webhook, they will show here."
-        searchPlaceholder="Search RC code, name, city…"
-        extraSearch={row => [row.code, row.name, row.city, row.state, row.phone, row.email, row.address].join(' ')}
       />
     </section>
   );

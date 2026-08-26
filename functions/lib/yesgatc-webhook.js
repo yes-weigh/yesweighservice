@@ -22,6 +22,18 @@ function pickStr(source, keys) {
   return '';
 }
 
+function pickCertificateStatus(record) {
+  if (!record || typeof record !== 'object') return null;
+  if (record.signed === true || record.isSigned === true || record.digitallySigned === true) {
+    return 'signed';
+  }
+  const text = pickStr(record, [
+    'status', 'state', 'certificateStatus', 'signStatus', 'signedStatus',
+    'tag', 'message', 'signed', 'isSigned',
+  ]);
+  return text || null;
+}
+
 function sanitizeId(raw) {
   const text = String(raw ?? '').trim().replace(/[/\\]+/g, '_').slice(0, 700);
   return text || randomUUID();
@@ -163,6 +175,8 @@ function normalizeCertificate(record) {
     'serialNumber', 'serial_number', 'serial', 'slNo', 'sl_no', 'machineSerial',
   ]);
   const idHint = pickStr(record, ['id', 'docId', '_id', 'uuid', 'certificateId']);
+  const rc = rcFieldsFromRecord(record);
+  const yesoneVisible = isYesoneIwpRc({ code: rc.code, name: rc.name, raw: record });
   return {
     certificateNumber,
     serialNumber,
@@ -170,10 +184,15 @@ function normalizeCertificate(record) {
     dealerId: pickStr(record, ['dealerId', 'dealer_id', 'zohoCustomerId', 'customerId']) || null,
     productName: pickStr(record, ['productName', 'product_name', 'product', 'model', 'instrument', 'make']),
     sku: pickStr(record, ['sku', 'itemCode', 'item_code']) || null,
-    rcCode: pickStr(record, ['rcCode', 'rc_code', 'rcNumber', 'rc_number', 'rcId', 'rc', 'regionalCenter']) || null,
-    status: pickStr(record, ['status', 'state']) || null,
+    rcCode: yesoneVisible ? YESONE_RC_CODE : (rc.code || null),
+    rcName: rc.name || null,
+    yesoneVisible,
+    status: pickCertificateStatus(record),
     issuedAt: pickStr(record, ['issuedAt', 'issueDate', 'issued_on', 'date', 'createdAt']) || null,
     pdfUrl: pickStr(record, ['pdfUrl', 'pdf_url', 'fileUrl', 'file_url', 'url', 'certificateUrl']) || null,
+    max: pickStr(record, ['max', 'Max', 'maxCapacity', 'max_capacity', 'maxKg', 'Max (kg)']),
+    min: pickStr(record, ['min', 'Min', 'minCapacity', 'min_capacity', 'minG', 'Min (g)']),
+    e: pickStr(record, ['e', 'E', 'eValue', 'e_value', 'eG', 'e (g)']),
     raw: rawForStore(record),
     receivedAt: FieldValue.serverTimestamp(),
     source: 'yesgatc',
@@ -185,9 +204,11 @@ function normalizeRc(record) {
   const code = pickStr(record, ['code', 'rcCode', 'rc_code', 'rcNumber', 'rc_number', 'rcId']);
   const name = pickStr(record, ['name', 'rcName', 'officeName', 'office_name', 'title']);
   const idHint = pickStr(record, ['id', 'docId', '_id', 'uuid', 'rcId']);
+  const yesoneVisible = isYesoneIwpRc({ code, name, raw: record });
   return {
-    code,
+    code: yesoneVisible ? YESONE_RC_CODE : code,
     name,
+    yesoneVisible,
     address: pickStr(record, ['address', 'officeAddress']) || null,
     city: pickStr(record, ['city', 'district']) || null,
     state: pickStr(record, ['state', 'region']) || null,
@@ -268,6 +289,55 @@ export function applyCors(res) {
 }
 
 const DEST_URL = 'https://yesweigh-service.web.app/webhooks/yesgatc';
+export const YESONE_RC_CODE = 'IWP';
+export const YESONE_RC_NAME = 'INTERWEIGHING PVT LTD';
+
+function normCode(value) {
+  return String(value ?? '').trim().toUpperCase();
+}
+
+function normName(value) {
+  return String(value ?? '').replace(/\s+/g, ' ').trim().toUpperCase();
+}
+
+function rcFieldsFromRecord(record) {
+  if (!record || typeof record !== 'object') return { code: '', name: '' };
+  const nested = [record.rcOffice, record.regionalCenter, record.rcDetail, record.rc_office]
+    .find(item => item && typeof item === 'object' && !Array.isArray(item));
+  const rcObject = (record.rc && typeof record.rc === 'object' && !Array.isArray(record.rc))
+    ? record.rc
+    : null;
+  const code = pickStr(record, [
+    'rcCode', 'rc_code', 'rcNumber', 'rc_number', 'rcId', 'officeCode', 'rcOfficeCode',
+  ]) || (typeof record.rc === 'string' ? String(record.rc).trim() : '')
+    || pickStr(rcObject, ['code', 'rcCode', 'id'])
+    || pickStr(nested, ['code', 'rcCode', 'id']);
+  const name = pickStr(record, [
+    'rcName', 'rc_name', 'officeName', 'rcOfficeName', 'regionalCenterName',
+  ]) || pickStr(rcObject, ['name', 'rcName', 'title'])
+    || pickStr(nested, ['name', 'rcName', 'title']);
+  return { code, name };
+}
+
+export function isYesoneIwpRc({ code, name, raw } = {}) {
+  if (isIwpCode(code) || isIwpName(name)) return true;
+  if (raw && typeof raw === 'object') {
+    const nested = rcFieldsFromRecord(raw);
+    if (isIwpCode(nested.code) || isIwpName(nested.name)) return true;
+    if (isIwpName(pickStr(raw, ['issuedBy', 'issued_by', 'office', 'rcOfficeName']))) return true;
+  }
+  return false;
+}
+
+function isIwpCode(value) {
+  const code = normCode(value);
+  return code === YESONE_RC_CODE || code.startsWith(`${YESONE_RC_CODE}/`) || code.startsWith(`${YESONE_RC_CODE}-`);
+}
+
+function isIwpName(value) {
+  const compact = normName(value).replace(/[\s\-_]/g, '');
+  return compact === 'INTERWEIGHINGPVTLTD' || compact.includes('INTERWEIGHING');
+}
 
 function webhookSettingsFromSecret(secret) {
   return {
@@ -316,9 +386,16 @@ function mapCertificateDoc(row) {
     productName: String(data.productName ?? ''),
     sku: data.sku != null ? String(data.sku) : null,
     rcCode: data.rcCode != null ? String(data.rcCode) : null,
-    status: data.status != null ? String(data.status) : null,
+    rcName: data.rcName != null ? String(data.rcName) : null,
+    yesoneVisible: data.yesoneVisible === true,
+    status: data.status != null
+      ? String(data.status)
+      : (data.signed === true || data.isSigned === true ? 'signed' : null),
     issuedAt: data.issuedAt != null ? String(data.issuedAt) : null,
     pdfUrl: data.pdfUrl != null ? String(data.pdfUrl) : null,
+    max: data.max != null ? String(data.max) : '',
+    min: data.min != null ? String(data.min) : '',
+    e: data.e != null ? String(data.e) : '',
     receivedAt: isoFromAdmin(data.receivedAt),
     raw: data.raw ?? null,
   };
@@ -330,6 +407,7 @@ function mapRcDoc(row) {
     id: row.id,
     code: String(data.code ?? ''),
     name: String(data.name ?? ''),
+    yesoneVisible: data.yesoneVisible === true,
     address: data.address != null ? String(data.address) : null,
     city: data.city != null ? String(data.city) : null,
     state: data.state != null ? String(data.state) : null,
@@ -340,6 +418,21 @@ function mapRcDoc(row) {
     receivedAt: isoFromAdmin(data.receivedAt),
     raw: data.raw ?? null,
   };
+}
+
+async function paginateQuery(queryBase, pageSize = 500) {
+  const docs = [];
+  let last = null;
+  for (;;) {
+    let q = queryBase.limit(pageSize);
+    if (last) q = queryBase.startAfter(last).limit(pageSize);
+    const snap = await q.get();
+    if (snap.empty) break;
+    docs.push(...snap.docs);
+    if (snap.size < pageSize) break;
+    last = snap.docs[snap.docs.length - 1];
+  }
+  return docs;
 }
 
 async function listCollection(name, mapFn, max = 400) {
@@ -353,10 +446,56 @@ async function listCollection(name, mapFn, max = 400) {
   }
 }
 
-export function listCertificatesForOps(max = 400) {
-  return listCollection(YESGATC_CERTIFICATES, mapCertificateDoc, max);
+function publicCertificateRow(row) {
+  const { raw, ...rest } = row;
+  return rest;
 }
 
-export function listRcDetailsForOps(max = 400) {
-  return listCollection(YESGATC_RC_DETAILS, mapRcDoc, max);
+export function isYesoneIwpCertificateRow(row) {
+  return isYesoneIwpRc({
+    code: row?.rcCode ?? row?.code,
+    name: row?.rcName ?? row?.name,
+    raw: row?.raw,
+  });
+}
+
+export async function listCertificatesForOps(max = 10000) {
+  const cap = Math.min(20000, Math.max(1, Number(max) || 10000));
+  const col = getFirestore().collection(YESGATC_CERTIFICATES);
+  const seen = new Set();
+  const out = [];
+
+  const take = (docs) => {
+    for (const doc of docs) {
+      if (seen.has(doc.id) || out.length >= cap) continue;
+      const row = mapCertificateDoc(doc);
+      if (!isYesoneIwpCertificateRow(row)) continue;
+      seen.add(doc.id);
+      out.push(publicCertificateRow(row));
+    }
+  };
+
+  for (const queryBase of [
+    col.where('yesoneVisible', '==', true),
+    col.where('rcCode', '==', YESONE_RC_CODE),
+  ]) {
+    try {
+      take(await paginateQuery(queryBase));
+    } catch {
+      // Missing index or field — fall through to the full scan.
+    }
+    if (out.length >= cap) return out;
+  }
+
+  try {
+    take(await paginateQuery(col.orderBy('receivedAt', 'desc')));
+  } catch {
+    take(await paginateQuery(col));
+  }
+  return out;
+}
+
+export async function listRcDetailsForOps(max = 400) {
+  const pool = await listCollection(YESGATC_RC_DETAILS, mapRcDoc, Math.min(500, Math.max(max * 4, 80)));
+  return pool.filter(isYesoneIwpCertificateRow).slice(0, max);
 }

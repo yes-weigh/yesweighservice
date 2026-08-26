@@ -7326,13 +7326,14 @@ export const rotateYesGatcWebhookFn = onCall(
 export const listYesGatcCertificatesFn = onCall(
   {
     region: 'asia-south1',
-    timeoutSeconds: 60,
-    memory: '256MiB',
+    timeoutSeconds: 120,
+    memory: '512MiB',
   },
   async request => {
     await requireActiveUser(request.auth?.uid, SYNC_ROLES, { allowViewOnly: true });
     try {
-      return { rows: await listCertificatesForOps() };
+      const max = Math.min(20000, Math.max(1, Number(request.data?.max) || 10000));
+      return { rows: await listCertificatesForOps(max) };
     } catch (err) {
       if (err instanceof HttpsError) throw err;
       throw new HttpsError('internal', err?.message ?? 'Could not load certificates.');

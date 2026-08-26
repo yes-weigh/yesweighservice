@@ -1,5 +1,4 @@
-import React, { useMemo, useState } from 'react';
-import { Search } from 'lucide-react';
+import React, { useState } from 'react';
 
 export type YesGatcColumn<T> = {
   key: string;
@@ -12,48 +11,19 @@ export function YesGatcRecordsTable<T extends { id: string; raw?: unknown }>({
   columns,
   loading,
   empty,
-  searchPlaceholder,
-  extraSearch,
 }: {
   rows: T[];
   columns: Array<YesGatcColumn<T>>;
   loading: boolean;
   empty: string;
-  searchPlaceholder: string;
-  extraSearch?: (row: T) => string;
 }) {
-  const [query, setQuery] = useState('');
   const [openId, setOpenId] = useState<string | null>(null);
-
-  const filtered = useMemo(() => {
-    const needle = query.trim().toLowerCase();
-    if (!needle) return rows;
-    return rows.filter(row => {
-      const blob = [
-        extraSearch?.(row) ?? '',
-        ...columns.map(col => {
-          const value = col.render(row);
-          return typeof value === 'string' || typeof value === 'number' ? String(value) : '';
-        }),
-      ].join(' ').toLowerCase();
-      return blob.includes(needle);
-    });
-  }, [columns, extraSearch, query, rows]);
 
   return (
     <div className="yesgatc-records">
-      <label className="yesgatc-records__search">
-        <Search size={16} aria-hidden />
-        <input
-          type="search"
-          value={query}
-          onChange={event => setQuery(event.target.value)}
-          placeholder={searchPlaceholder}
-        />
-      </label>
       {loading ? (
         <p className="settings-locations__loading">Loading…</p>
-      ) : filtered.length === 0 ? (
+      ) : rows.length === 0 ? (
         <p className="settings-locations__empty">{empty}</p>
       ) : (
         <div className="invoices-table-wrap">
@@ -66,7 +36,7 @@ export function YesGatcRecordsTable<T extends { id: string; raw?: unknown }>({
               </tr>
             </thead>
             <tbody>
-              {filtered.map(row => {
+              {rows.map(row => {
                 const open = openId === row.id;
                 return (
                   <React.Fragment key={row.id}>

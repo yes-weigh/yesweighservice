@@ -561,14 +561,22 @@ service cloud.firestore {
       allow write: if false;
     }
 
-    // Certificates and RC details pushed from YesGATC (Admin SDK webhook + ops read).
+    // YesGATC ingest: all RCs stored; client may only read Interweighing (IWP).
     match /yesgatcCertificates/{certificateId} {
-      allow read: if isOpsUser();
+      allow get, list: if isOpsUser()
+        && (
+          resource.data.get('yesoneVisible', false) == true
+          || resource.data.get('rcCode', '') == 'IWP'
+        );
       allow write: if false;
     }
 
     match /yesgatcRcDetails/{rcId} {
-      allow read: if isOpsUser();
+      allow get, list: if isOpsUser()
+        && (
+          resource.data.get('yesoneVisible', false) == true
+          || resource.data.get('code', '') == 'IWP'
+        );
       allow write: if false;
     }
 
