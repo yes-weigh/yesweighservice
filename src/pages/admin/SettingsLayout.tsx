@@ -5,6 +5,7 @@ import {
   CalendarRange,
   GraduationCap,
   Hash,
+  IdCard,
   Layers,
   Package,
   Percent,
@@ -14,6 +15,7 @@ import {
   Truck,
   UserCircle,
   Users,
+  Webhook,
 } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import { isLocalhostDev } from '../../lib/isLocalhost';
@@ -98,6 +100,8 @@ export const SettingsLayout: React.FC = () => {
     ops.push(
       { id: 'logistics', label: 'Logistics', path: `${home}/settings/logistics`, icon: <Truck size={16} /> },
       { id: 'local-printers', label: 'Label printing', path: `${home}/settings/local-printers`, icon: <Printer size={16} /> },
+      { id: 'webhook', label: 'Webhook', path: `${home}/settings/webhook`, icon: <Webhook size={16} /> },
+      { id: 'rc-details', label: 'RC details', path: `${home}/settings/rc-details`, icon: <IdCard size={16} /> },
     );
     return [profile, ...people, ...ops];
   }, [home, isSuperAdmin, showHr, showPriceLevel, showSkuCorrection, showTraining]);
@@ -118,24 +122,10 @@ export const SettingsLayout: React.FC = () => {
   const isTabActive = (path: string) =>
     location.pathname === path || location.pathname.startsWith(`${path}/`);
 
-  const subtitle = isSuperAdmin
-    ? (showSkuCorrection
-      ? 'Account profile, HR, trainings, warehouse zones, store room layout, audit, product settings, price level, Sanoft, serial numbers, SKU correction, logistics, and label printing.'
-      : 'Account profile, HR, trainings, warehouse zones, store room layout, audit, product settings, price level, Sanoft, serial numbers, logistics, and label printing.')
-    : [
-      'Account profile',
-      showHr ? 'HR' : null,
-      showTraining ? 'trainings' : null,
-      showPriceLevel ? 'price level' : null,
-    ].filter(Boolean).join(', ') + '.';
-
   return (
     <div className="settings-hub page-content fade-in">
       <header className="settings-hub__header panel glass">
-        <div>
-          <h2>Settings</h2>
-          <p className="text-muted text-sm">{subtitle}</p>
-        </div>
+        <h2>Settings</h2>
       </header>
 
       <nav className="settings-hub__tabs panel glass" aria-label="Settings sections">

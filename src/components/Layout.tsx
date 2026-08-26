@@ -25,8 +25,8 @@ import {
   Bot,
   Wrench,
   RotateCcw,
-  Megaphone,
   MessageSquareWarning,
+  Award,
   FileText,
   ShoppingCart,
   UserCircle,
@@ -68,7 +68,6 @@ const OPS_PRIORITY_SUFFIXES = [
 
 /** Shown after Goods receipt, before Reports. */
 const OPS_BEFORE_REPORTS_SUFFIXES = [
-  '/advertisements',
   '/loyalty',
 ] as const;
 
@@ -125,7 +124,6 @@ function portalNavItems(
     reports: { path: `${home}/reports`, icon: <BarChart3 size={20} />, label: 'Reports' },
     services: { path: `${home}/services`, icon: <Wrench size={20} />, label: 'Services' },
     returns: { path: `${home}/returns`, icon: <RotateCcw size={20} />, label: 'Returns' },
-    advertisements: { path: `${home}/advertisements`, icon: <Megaphone size={20} />, label: 'Media Center' },
     invoices: { path: `${home}/invoices`, icon: <FileText size={20} />, label: 'Invoice' },
     gatc: { path: `${home}/verification`, icon: <Stamp size={20} />, label: 'GATC' },
     goodsReceipts: {
@@ -152,7 +150,6 @@ function portalNavItems(
           'catalog',
           'logistics',
           'warrantySupport',
-          'advertisements',
           'goodsReceipts',
           'spareIndents',
           'loyalty',
@@ -165,7 +162,6 @@ function portalNavItems(
             'orders',
             'logistics',
             'warrantySupport',
-            'advertisements',
             'scheme',
             'rewardPoint',
             'training',
@@ -179,7 +175,6 @@ function portalNavItems(
           'logistics',
           'warrantySupport',
           'reports',
-          'advertisements',
           'loyalty',
           'training',
           'aiAssistant',
@@ -211,6 +206,7 @@ function staffPathToFeature(path: string): StaffNavFeature {
     'warranty-support': 'warranty-support',
     verification: 'verification',
     advertisements: 'advertisements',
+    certificate: 'dealers',
     invoices: 'invoices',
     'sales-orders': 'sales-orders',
     'purchase-orders': 'purchase-orders',
@@ -311,6 +307,7 @@ const LayoutShell: React.FC = () => {
           { path: '/super-admin/invoices', icon: <FileText size={20} />, label: 'Invoices' },
           ...operationsNavItems('/super-admin', OPS_PRIORITY_SUFFIXES),
           { path: '/super-admin/dealers', icon: <Building2 size={20} />, label: 'Dealers' },
+          { path: '/super-admin/certificate', icon: <Award size={20} />, label: 'Certificate' },
           { path: '/super-admin/purchase-orders', icon: <ShoppingBag size={20} />, label: 'Purchase order' },
           { path: '/super-admin/goods-receipts', icon: <PackageCheck size={20} />, label: 'Goods receipt' },
           { path: '/super-admin/spare-indents', icon: <PackagePlus size={20} />, label: 'Spare Indent' },
@@ -343,6 +340,7 @@ const LayoutShell: React.FC = () => {
           ...withExtras,
           { path: '/staff/tasks', icon: <ListTodo size={20} />, label: 'Tasks' },
           { path: '/staff/dealers', icon: <Building2 size={20} />, label: 'Dealers' },
+          { path: '/staff/certificate', icon: <Award size={20} />, label: 'Certificate' },
           { path: '/staff/leads', icon: <UserRoundPlus size={20} />, label: 'Leads' },
         ];
         return filterStaffNavItems(user, items);

@@ -330,6 +330,12 @@ import {
   GATC_VERIFICATION_EMBED_URL,
 } from './lib/gatc-verification-embed.js';
 import { lookupVesselAis } from './lib/vessel-ais.js';
+import {
+  applyCors,
+  handleYesgatcPush,
+  loadWebhookSecret,
+  readProvidedSecret,
+} from './lib/yesgatc-webhook.js';
 import { CI_BUILD_TAG } from './lib/ci-build.js';
 
 // CI smoke-test marker (shared bundle entry — triggers full functions deploy in CI).
@@ -7219,6 +7225,61 @@ export const getGatcVerificationEmbedToken = onCall(
     } catch (err) {
       console.error('getGatcVerificationEmbedToken failed:', err);
       return { src: GATC_VERIFICATION_EMBED_URL, autoLogin: false };
+    }
+  },
+);
+
+/**
+ * Destination webhook for YesGATC → YesOne.
+ * Hosting rewrite: POST /webhooks/yesgatc
+ * Auth: X-YesGatc-Secret, Authorization Bearer, or ?key=
+ */
+export const yesgatcPushWebhook = onRequest(
+  {
+    region: 'asia-south1',
+    invoker: 'public',
+    timeoutSeconds: 120,
+    memory: '512MiB',
+    cors: false,
+  },
+  async (req, res) => {
+    applyCors(res);
+    if (req.method === 'OPTIONS') {
+      res.status(204).send('');
+      return;
+    }
+    if (req.method === 'GET' || req.method === 'HEAD') {
+      res.status(200).json({
+        ok: true,
+        service: 'yesone',
+        destination: 'yesgatc',
+        hint: 'POST JSON certificate and RC details here. Include the webhook secret.',
+      });
+      return;
+    }
+    if (req.method !== 'POST') {
+      res.status(405).json({ ok: false, message: 'Method not allowed' });
+      return;
+    }
+
+    try {
+      const expected = await loadWebhookSecret();
+      if (!expected) {
+        res.status(503).json({
+          ok: false,
+          message: 'Webhook secret is not set. Open Settings → Webhook in YesOne first.',
+        });
+        return;
+      }
+      if (readProvidedSecret(req) !== expected) {
+        res.status(401).json({ ok: false, message: 'Invalid webhook secret.' });
+        return;
+      }
+      const result = await handleYesgatcPush(req.body);
+      res.status(200).json(result);
+    } catch (err) {
+      console.error('yesgatcPushWebhook failed:', err);
+      res.status(500).json({ ok: false, message: err?.message ?? 'Webhook processing failed.' });
     }
   },
 );

@@ -62,6 +62,9 @@ import { SerialNumberAllotmentTab } from './pages/admin/settings/SerialNumberAll
 import { SkuCorrectionTab } from './pages/admin/settings/SkuCorrectionTab';
 import { LogisticsSettingsTab } from './pages/admin/settings/LogisticsSettingsTab';
 import { LocalPrintersTab } from './pages/admin/settings/LocalPrintersTab';
+import { WebhookSettingsTab } from './pages/admin/settings/WebhookSettingsTab';
+import { RcDetailsTab } from './pages/admin/settings/RcDetailsTab';
+import { YesGatcCertificatesPage } from './pages/admin/YesGatcCertificatesPage';
 import { DealerLevelDefinitionsPanel } from './components/dealers/DealerLevelDefinitionsPanel';
 import { AuditCyclesTab } from './pages/admin/settings/AuditCyclesTab';
 import { AuditReportTab } from './pages/admin/settings/AuditReportTab';
@@ -297,6 +300,7 @@ const App: React.FC = () => (
               <Route path="staff" element={<Navigate to="/super-admin/settings/hr/staff" replace />} />
               <Route path="super-admins" element={<Navigate to="/super-admin/settings/hr/super-admins" replace />} />
               <Route path="dealers/*" element={<AdminDealersList />} />
+              <Route path="certificate" element={<YesGatcCertificatesPage />} />
               <Route path="hr/dealers/*" element={<LegacyPathRedirect from="/super-admin/hr/dealers" to="/super-admin/dealers" />} />
               <Route path="hr/*" element={<LegacyPathRedirect from="/super-admin/hr" to="/super-admin/settings/hr" />} />
               <Route path="dealer-staff" element={<AdminDealerStaffList />} />
@@ -385,6 +389,8 @@ const App: React.FC = () => (
                 <Route path="sku-correction" element={<SkuCorrectionTab />} />
                 <Route path="logistics" element={<LogisticsSettingsTab />} />
                 <Route path="local-printers" element={<LocalPrintersTab />} />
+                <Route path="webhook" element={<WebhookSettingsTab />} />
+                <Route path="rc-details" element={<RcDetailsTab />} />
               </Route>
               <Route path="profile" element={<Navigate to="/super-admin/settings/profile" replace />} />
             </Route>
@@ -400,6 +406,7 @@ const App: React.FC = () => (
               <Route path="spare-indents" element={<AdminSpareIndentsPage />} />
               <Route path="leads" element={<DealerMenuPages.Leads />} />
               <Route path="dealers/*" element={<AdminDealersList />} />
+              <Route path="certificate" element={<YesGatcCertificatesPage />} />
               <Route path="sales-orders" element={<AdminUnifiedSalesOrdersPage />} />
               <Route path="sales-orders/new" element={<StaffCreateSalesOrderPage />} />
               <Route path="sales-orders/portal/:orderId" element={<StaffOrderDetailPage />} />

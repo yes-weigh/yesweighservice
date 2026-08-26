@@ -1,5 +1,5 @@
 rules_version = '2';
-// CI smoke-test marker — 2026-08-25
+// CI smoke-test marker — 2026-08-26
 
 service cloud.firestore {
   match /databases/{database}/documents {
@@ -269,7 +269,8 @@ service cloud.firestore {
         && docId != 'delhiveryB2bSecrets'
         && docId != 'delhiveryB2bAuth'
         && docId != 'blueDartSecrets'
-        && docId != 'blueDartAuth';
+        && docId != 'blueDartAuth'
+        && (docId != 'yesgatcWebhook' || isFullSuperAdmin());
       allow write: if signedIn()
         && docId != 'delhiveryB2bSecrets'
         && docId != 'delhiveryB2bAuth'
@@ -286,6 +287,7 @@ service cloud.firestore {
         || (docId == 'localPrinterSettings' && isFullSuperAdmin())
         || (docId == 'labelStudio' && isFullSuperAdmin())
         || (docId == 'spareIncharge' && (isFullSuperAdmin() || staffHasHrManage()))
+        || (docId == 'yesgatcWebhook' && isFullSuperAdmin())
       );
     }
 
@@ -555,6 +557,18 @@ service cloud.firestore {
     // Incentive report also reads ops invoice summaries, invoice docs, salesOrders,
     // and appSettings/priceLevels (Directors 2% vs 3.5%).
     match /gatcReports/{invoiceId} {
+      allow read: if isOpsUser();
+      allow write: if false;
+    }
+
+    // Certificates pushed from YesGATC (written by yesgatcPushWebhook).
+    match /yesgatcCertificates/{certificateId} {
+      allow read: if isOpsUser();
+      allow write: if false;
+    }
+
+    // Regional Center details pushed from YesGATC (written by yesgatcPushWebhook).
+    match /yesgatcRcDetails/{rcId} {
       allow read: if isOpsUser();
       allow write: if false;
     }

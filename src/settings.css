@@ -1206,7 +1206,7 @@ button.incentive-report__adjust-col:focus-visible {
 }
 
 .settings-hub__header h2 {
-  margin: 0 0 0.25rem;
+  margin: 0;
 }
 
 .settings-hub__tabs {
@@ -1307,6 +1307,93 @@ button.incentive-report__adjust-col:focus-visible {
   min-height: 8rem;
   text-align: center;
   color: #94a3b8;
+}
+
+.yesgatc-webhook {
+  display: grid;
+  gap: 1rem;
+}
+
+.yesgatc-webhook__field {
+  display: grid;
+  gap: 0.35rem;
+}
+
+.yesgatc-webhook__field > span {
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: #94a3b8;
+}
+
+.yesgatc-webhook__copy-row {
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+}
+
+.yesgatc-webhook__copy-row input {
+  flex: 1;
+  min-width: 0;
+  border-radius: 8px;
+  border: 1px solid rgba(148, 163, 184, 0.22);
+  background: rgba(15, 23, 42, 0.45);
+  color: inherit;
+  padding: 0.5rem 0.65rem;
+  font: inherit;
+  font-size: 0.82rem;
+}
+
+.yesgatc-webhook__example {
+  margin-top: 0.25rem;
+  padding: 0.75rem;
+  border-radius: 12px;
+  border: 1px solid rgba(148, 163, 184, 0.16);
+  background: rgba(15, 23, 42, 0.35);
+}
+
+.yesgatc-webhook__example-title {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  margin: 0 0 0.5rem;
+  font-size: 0.82rem;
+  font-weight: 600;
+}
+
+.yesgatc-webhook__example pre,
+.yesgatc-records__raw {
+  margin: 0;
+  overflow: auto;
+  max-height: 18rem;
+  font-size: 0.75rem;
+  line-height: 1.45;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.yesgatc-records__search {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  margin-bottom: 0.75rem;
+  padding: 0.4rem 0.65rem;
+  border-radius: 8px;
+  border: 1px solid rgba(148, 163, 184, 0.18);
+  background: rgba(15, 23, 42, 0.35);
+}
+
+.yesgatc-records__search input {
+  flex: 1;
+  min-width: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  outline: none;
+}
+
+.yesgatc-records__raw-row td {
+  background: rgba(15, 23, 42, 0.4);
 }
 
 .settings-locations__grid {
