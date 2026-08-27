@@ -33,6 +33,7 @@ import {
   pushMeezanCatalogDoc,
   pushMeezanCatalogSnapshot,
 } from './lib/meezan-catalog-mirror.js';
+import { writeRaisedPoQtyMirror } from './lib/raised-po-qty-mirror.js';
 import {
   mutateCatalogProductDetails,
   mutateCatalogProductOverlays,
@@ -400,6 +401,7 @@ function onMeezanCatalogDocMirror(document, paramName) {
       const id = String(event.params[paramName] ?? '');
       const collection = document.split('/')[0];
       if (collection === 'catalogMeta' && id === 'meezanMirror') return;
+      if (collection === 'catalogMeta' && id === 'childOrgRates') return;
       if (collection === 'appSettings' && id !== 'priceLevels' && id !== 'productSettings') return;
 
       const after = event.data?.after?.exists ? (event.data.after.data() || {}) : null;
@@ -2751,6 +2753,27 @@ export const mirrorMeezanCatalogMedia = onMeezanCatalogDocMirror('catalogProduct
 export const mirrorMeezanCatalogSupport = onMeezanCatalogDocMirror('catalogProductSupport/{productId}', 'productId');
 export const mirrorMeezanAppSettings = onMeezanCatalogDocMirror('appSettings/{docId}', 'docId');
 
+/** Open PO qty minus received GR — mirrored to Meezan as catalogMeta/raisedPoQty. */
+export const mirrorRaisedPoQtyToMeezan = onSchedule(
+  {
+    schedule: '*/15 * * * *',
+    timeZone: 'Asia/Kolkata',
+    region: 'asia-south1',
+    timeoutSeconds: 180,
+    memory: '512MiB',
+  },
+  async () => {
+    try {
+      const result = await writeRaisedPoQtyMirror();
+      console.log(
+        `Raised PO qty mirror: ${result.productCount} products at ${result.updatedAt}.`,
+      );
+    } catch (err) {
+      console.error('Raised PO qty mirror failed:', err?.message || err);
+    }
+  },
+);
+
 /** One-shot copy of the catalog collections into Meezan Firestore. */
 export const pushCatalogToMeezan = onCall(
   {
@@ -3085,6 +3108,12 @@ export const syncZohoPurchaseOrdersScheduled = onSchedule(
         + `failed=${result.failedCount}, remaining=${result.remaining}, rateLimited=${result.rateLimited}, `
         + `quotaReserved=${result.quotaReserved}.`,
       );
+      try {
+        const qty = await writeRaisedPoQtyMirror();
+        console.log(`Raised PO qty mirror after PO sync: ${qty.productCount} products.`);
+      } catch (qtyErr) {
+        console.error('Raised PO qty mirror after PO sync failed:', qtyErr?.message || qtyErr);
+      }
     } catch (err) {
       console.error('Scheduled org PO sync failed:', err?.message ?? err);
     }
@@ -3116,6 +3145,12 @@ export const syncZohoGoodsReceiptsScheduled = onSchedule(
         + `failed=${result.failedCount}, remaining=${result.remaining}, rateLimited=${result.rateLimited}, `
         + `quotaReserved=${result.quotaReserved}.`,
       );
+      try {
+        const qty = await writeRaisedPoQtyMirror();
+        console.log(`Raised PO qty mirror after GR sync: ${qty.productCount} products.`);
+      } catch (qtyErr) {
+        console.error('Raised PO qty mirror after GR sync failed:', qtyErr?.message || qtyErr);
+      }
     } catch (err) {
       console.error('Scheduled org goods receipt sync failed:', err?.message ?? err);
     }

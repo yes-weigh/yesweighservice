@@ -19,6 +19,7 @@ export const MEEZAN_MIRROR_COLLECTIONS = [
 
 export const MEEZAN_MIRROR_SINGLE_DOCS = [
   { collection: 'catalogMeta', id: 'sync' },
+  { collection: 'catalogMeta', id: 'raisedPoQty' },
   { collection: 'appSettings', id: 'priceLevels' },
   { collection: 'appSettings', id: 'productSettings' },
 ];
