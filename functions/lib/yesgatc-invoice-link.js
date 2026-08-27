@@ -83,6 +83,23 @@ export function invoiceOnOrAfter(date, minDate = YESGATC_INVOICE_MIN_DATE) {
   return key >= minDate;
 }
 
+function gatcVerificationKind(data) {
+  const raw = data?.raw && typeof data.raw === 'object' && !Array.isArray(data.raw)
+    ? data.raw
+    : null;
+  const text = String(
+    data?.verificationType
+    || raw?.verificationType
+    || raw?.verification_type
+    || data?.verification_type
+    || '',
+  ).trim().toUpperCase();
+  if (!text) return null;
+  if (text === 'OV' || text.startsWith('ORIGINAL')) return 'OV';
+  if (text === 'RV' || text.startsWith('RE')) return 'RV';
+  return null;
+}
+
 /** Y10111, y 10310, Y-10-310, YZ 00317 */
 const YESWEIGH_SERIAL = /(?:^|[^A-Z0-9])(Y[A-Z]?(?:[^A-Z0-9]*\d){3,})/gi;
 const SERIAL_LABEL_LIST = /(?:serial(?:\s*no\.?s?|\s*numbers?)?|s\/n|s\.n\.|sn)\s*[:#-]?\s*([^\n]+)/gi;
@@ -196,6 +213,9 @@ export async function manualLinkYesGatcCertificateInvoice({
   const snap = await getFirestore().collection(YESGATC_CERTIFICATES).doc(certId).get();
   if (!snap.exists) throw new Error('Certificate not found.');
   const cert = snap.data() || {};
+  if (gatcVerificationKind(cert) !== 'OV') {
+    throw new Error('Only original verification (OV) certificates can be linked to an invoice.');
+  }
   const serial = String(serialNumber || cert.serialNumber || '').trim();
   const link = {
     invoiceId: invoiceId ? String(invoiceId) : null,
@@ -514,6 +534,7 @@ export async function attachInvoiceFieldsToCertificateWrites(writes) {
     const serial = row.data?.serialNumber;
     const key = serialLinkDocId(serial);
     if (key) row.data.serialKey = key;
+    if (gatcVerificationKind(row.data) !== 'OV') continue;
     const link = key ? links.get(key) : null;
     if (!link?.invoiceNumber) continue;
     Object.assign(row.data, invoiceFieldsFromLink(link));
@@ -780,6 +801,7 @@ export async function linkYesGatcCertificatesToInvoices({
         data: { serialKey: key },
       });
     }
+    if (gatcVerificationKind(data) !== 'OV') continue;
     if (!link) continue;
     matched += 1;
     writes.push({

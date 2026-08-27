@@ -193,6 +193,9 @@ function normalizeCertificate(record) {
     max: pickStr(record, ['max', 'Max', 'maxCapacity', 'max_capacity', 'maxKg', 'Max (kg)']),
     min: pickStr(record, ['min', 'Min', 'minCapacity', 'min_capacity', 'minG', 'Min (g)']),
     e: pickStr(record, ['e', 'E', 'eValue', 'e_value', 'eG', 'e (g)']),
+    verificationType: pickStr(record, [
+      'verificationType', 'verification_type', 'verifType', 'typeOfVerification',
+    ]) || null,
     raw: rawForStore(record),
     receivedAt: FieldValue.serverTimestamp(),
     source: 'yesgatc',
@@ -280,6 +283,12 @@ export async function handleYesgatcPush(body) {
       outgoing = await attachInvoiceFieldsToCertificateWrites(writes);
     } catch (err) {
       console.warn('YesGATC invoice link attach failed:', err?.message ?? err);
+    }
+    try {
+      const { attachOvQtyInvoiceToCertificateWrites } = await import('./yesgatc-ov-invoice-qty-link.js');
+      outgoing = await attachOvQtyInvoiceToCertificateWrites(outgoing);
+    } catch (err) {
+      console.warn('YesGATC OV qty invoice attach failed:', err?.message ?? err);
     }
   }
   const written = await commitChunks(outgoing);
@@ -410,6 +419,11 @@ function mapCertificateDoc(row) {
     invoiceNumber: data.invoiceNumber != null ? String(data.invoiceNumber) : null,
     invoiceDate: data.invoiceDate != null ? String(data.invoiceDate) : null,
     invoiceCustomerId: data.invoiceCustomerId != null ? String(data.invoiceCustomerId) : null,
+    verificationType: data.verificationType != null
+      ? String(data.verificationType)
+      : (data.raw && typeof data.raw === 'object' && data.raw.verificationType != null
+        ? String(data.raw.verificationType)
+        : null),
     raw: data.raw ?? null,
   };
 }
@@ -475,9 +489,45 @@ export function isYesoneIwpCertificateRow(row) {
   });
 }
 
+function verificationKindFromCert(row) {
+  const raw = row?.raw && typeof row.raw === 'object' && !Array.isArray(row.raw) ? row.raw : null;
+  const text = String(
+    row?.verificationType
+    || raw?.verificationType
+    || raw?.verification_type
+    || '',
+  ).trim().toUpperCase();
+  if (!text) return null;
+  if (text === 'OV' || text.startsWith('ORIGINAL')) return 'OV';
+  if (text === 'RV' || text.startsWith('RE')) return 'RV';
+  return null;
+}
+
+function certificateRcKeysFromRow(row) {
+  const keys = new Set();
+  const add = (value) => {
+    const text = String(value ?? '').trim().toUpperCase();
+    if (text) keys.add(text);
+  };
+  const raw = row?.raw && typeof row.raw === 'object' && !Array.isArray(row.raw) ? row.raw : null;
+  const nested = raw && (raw.rc || raw.rcOffice || raw.regionalCenter);
+  const nestedRc = nested && typeof nested === 'object' && !Array.isArray(nested) ? nested : null;
+  add(row?.rcCode);
+  add(row?.rcId);
+  add(raw?.rcId);
+  add(raw?.rcCode);
+  add(nestedRc?.id);
+  add(nestedRc?.code);
+  add(nestedRc?.rcCode);
+  if (row?.yesoneVisible === true || isYesoneIwpCertificateRow(row)) keys.add(YESONE_RC_CODE);
+  return [...keys];
+}
+
 export async function listCertificatesForOps(max = 10000, filter = {}) {
   const cap = Math.min(20000, Math.max(1, Number(max) || 10000));
+  const rcId = String(filter.rcId ?? '').trim();
   const wanted = String(filter.rcCode ?? '').trim().toUpperCase();
+  const ovOnly = filter.ovOnly !== false;
   const col = getFirestore().collection(YESGATC_CERTIFICATES);
   let docs = [];
   try {
@@ -490,15 +540,25 @@ export async function listCertificatesForOps(max = 10000, filter = {}) {
   for (const doc of docs) {
     if (seen.has(doc.id) || rows.length >= cap) break;
     seen.add(doc.id);
-    rows.push(publicCertificateRow(mapCertificateDoc(doc)));
+    rows.push(mapCertificateDoc(doc));
   }
-  if (!wanted) return rows;
-  const matched = rows.filter(row => (
-    wanted === YESONE_RC_CODE
-      ? isYesoneIwpCertificateRow(row)
-      : String(row.rcCode ?? '').trim().toUpperCase() === wanted
-  ));
-  return matched.length ? matched : rows;
+
+  let rcCodeFromDoc = '';
+  if (rcId) {
+    const snap = await getFirestore().collection(YESGATC_RC_DETAILS).doc(rcId).get();
+    rcCodeFromDoc = String(snap.data()?.code ?? '').trim().toUpperCase();
+  }
+  const wantedKeys = new Set([rcId.toUpperCase(), wanted, rcCodeFromDoc].filter(Boolean));
+  const iwp = (!rcId && (!wanted || wanted === YESONE_RC_CODE))
+    || wanted === YESONE_RC_CODE
+    || rcId.toUpperCase() === YESONE_RC_CODE;
+
+  return rows.filter(row => {
+    if (ovOnly && verificationKindFromCert(row) !== 'OV') return false;
+    if (!wantedKeys.size) return true;
+    if (iwp) return isYesoneIwpCertificateRow(row);
+    return certificateRcKeysFromRow(row).some(key => wantedKeys.has(key));
+  }).map(publicCertificateRow);
 }
 
 export async function listRcDetailsForOps(max = 400) {

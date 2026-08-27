@@ -1,16 +1,23 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { Loader2, Search, X } from 'lucide-react';
 import { useAuth } from '../../../context/AuthContext';
 import { fetchDealers } from '../../../lib/dealers';
 import { canLinkYesGatcRc } from '../../../lib/staffAccess';
 import {
+  countYesGatcLifetimeOvRv,
   listYesGatcRcDetails,
   saveYesGatcRcDealerLink,
+  yesGatcOvRvForRc,
   yesGatcRcOfficeName,
+  type YesGatcOvRvTotals,
   type YesGatcRcDetail,
 } from '../../../lib/yesgatcRecords';
 import type { ZohoDealer } from '../../../types/dealers';
+
+function formatCount(value: number): string {
+  return value.toLocaleString('en-IN');
+}
 
 function dealerLabel(dealer: ZohoDealer): string {
   return dealer.companyName?.trim() || dealer.contactName?.trim() || dealer.id;
@@ -162,6 +169,8 @@ export const RcDetailsTab: React.FC = () => {
   const { user } = useAuth();
   const canLink = canLinkYesGatcRc(user);
   const [rows, setRows] = useState<YesGatcRcDetail[]>([]);
+  const [ovRv, setOvRv] = useState<Map<string, YesGatcOvRvTotals>>(() => new Map());
+  const [ovRvReady, setOvRvReady] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [picking, setPicking] = useState<YesGatcRcDetail | null>(null);
@@ -179,9 +188,40 @@ export const RcDetailsTab: React.FC = () => {
     }
   }, []);
 
+  const rcCountKey = rows.map(row => `${row.id}:${row.code}`).join('|');
+
   useEffect(() => {
     void load();
   }, [load]);
+
+  useEffect(() => {
+    if (loading || rows.length === 0) return;
+    let cancelled = false;
+    setOvRvReady(false);
+    void countYesGatcLifetimeOvRv(rows)
+      .then(totals => {
+        if (!cancelled) setOvRv(totals);
+      })
+      .catch(() => {
+        if (!cancelled) setOvRv(new Map());
+      })
+      .finally(() => {
+        if (!cancelled) setOvRvReady(true);
+      });
+    return () => {
+      cancelled = true;
+    };
+    // Recount when the RC set changes, not when a dealer is linked.
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- rcCountKey captures id/code
+  }, [loading, rcCountKey]);
+
+  const sortedRows = useMemo(() => (
+    [...rows].sort((a, b) => {
+      const ovDiff = yesGatcOvRvForRc(ovRv, b).ov - yesGatcOvRvForRc(ovRv, a).ov;
+      if (ovDiff !== 0) return ovDiff;
+      return yesGatcRcOfficeName(a).localeCompare(yesGatcRcOfficeName(b), 'en', { sensitivity: 'base' });
+    })
+  ), [ovRv, rows]);
 
   return (
     <section className="settings-locations panel glass">
@@ -197,27 +237,47 @@ export const RcDetailsTab: React.FC = () => {
         <p className="settings-locations__empty">No RC details yet.</p>
       ) : (
         <div className="yesgatc-rc-list">
-          {rows.map(row => (
+          {sortedRows.map(row => {
+            const qty = yesGatcOvRvForRc(ovRv, row);
+            return (
             <article key={row.id} className="yesgatc-rc-row">
-              <div className="yesgatc-rc-row__text">
-                <p className="yesgatc-rc-row__name">{yesGatcRcOfficeName(row)}</p>
+              <p className="yesgatc-rc-row__name">{yesGatcRcOfficeName(row)}</p>
+              <div className="yesgatc-rc-row__meta">
                 <p className="yesgatc-rc-row__code">{row.code || '—'}</p>
+                {row.dealerId ? (
+                  <span className="yesgatc-rc-row__linked">Linked</span>
+                ) : canLink ? (
+                  <button
+                    type="button"
+                    className="btn btn-primary btn-sm yesgatc-rc-row__select"
+                    onClick={() => setPicking(row)}
+                  >
+                    Select
+                  </button>
+                ) : (
+                  <span className="yesgatc-rc-row__unlinked">Not linked</span>
+                )}
+                <p className="yesgatc-rc-row__qty" aria-label="Lifetime OV and invoice links">
+                  <span>
+                    OV
+                    {' '}
+                    <strong>{ovRvReady ? formatCount(qty.ov) : '…'}</strong>
+                  </span>
+                  <span>
+                    Linked
+                    {' '}
+                    <strong>{ovRvReady ? formatCount(qty.linked) : '…'}</strong>
+                  </span>
+                  {ovRvReady && qty.ov - qty.linked > 0 ? (
+                    <span className="yesgatc-rc-row__diff" title="OV not linked to an invoice">
+                      {formatCount(qty.ov - qty.linked)}
+                    </span>
+                  ) : null}
+                </p>
               </div>
-              {row.dealerId ? (
-                <span className="yesgatc-rc-row__linked">Linked</span>
-              ) : canLink ? (
-                <button
-                  type="button"
-                  className="btn btn-primary btn-sm yesgatc-rc-row__select"
-                  onClick={() => setPicking(row)}
-                >
-                  Select
-                </button>
-              ) : (
-                <span className="yesgatc-rc-row__unlinked">Not linked</span>
-              )}
             </article>
-          ))}
+            );
+          })}
         </div>
       )}
       {picking ? (

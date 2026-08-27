@@ -17,10 +17,13 @@ export type SerialNumberAllotment = {
   count: number;
   createdAt: string;
   createdBy: string | null;
+  pushedAt: string | null;
+  pushError: string | null;
 };
 
 export type SerialNumberAllotmentDoc = {
   allotments: SerialNumberAllotment[];
+  webhookUrl: string | null;
   updatedAt: string | null;
   updatedBy: string | null;
 };

@@ -1,5 +1,6 @@
 import { collectionGroup, doc, getDoc, getDocs, setDoc } from 'firebase/firestore';
-import { db } from '../firebase';
+import { getFunctions, httpsCallable } from 'firebase/functions';
+import { app, db } from '../firebase';
 import { serialNumbersFromLineItem } from './invoices';
 import type {
   SerialNumberAllotment,
@@ -19,6 +20,8 @@ export function normalizeSerialSeries(
 }
 
 export const SERIAL_NUMBER_ALLOTMENT_DOC_ID = 'serialNumberAllotment';
+
+const functions = getFunctions(app, 'asia-south1');
 
 type ParsedSerial = {
   prefix: string;
@@ -192,6 +195,8 @@ export function allotmentFromPreview(
     count: preview.count,
     createdAt,
     createdBy: createdBy?.trim() || null,
+    pushedAt: null,
+    pushError: null,
   };
 }
 
@@ -300,11 +305,34 @@ function normalizeAllotment(raw: unknown): SerialNumberAllotment | null {
     count: preview.count,
     createdAt: String(data.createdAt ?? '').trim() || new Date().toISOString(),
     createdBy: String(data.createdBy ?? '').trim() || null,
+    pushedAt: String(data.pushedAt ?? '').trim() || null,
+    pushError: String(data.pushError ?? '').trim() || null,
   };
 }
 
 export function emptySerialNumberAllotmentDoc(): SerialNumberAllotmentDoc {
-  return { allotments: [], updatedAt: null, updatedBy: null };
+  return { allotments: [], webhookUrl: null, updatedAt: null, updatedBy: null };
+}
+
+export function pendingSerialAllotmentCount(
+  allotments: ReadonlyArray<Pick<SerialNumberAllotment, 'pushedAt'>>,
+): number {
+  return allotments.filter(row => !row.pushedAt).length;
+}
+
+export function normalizeSerialWebhookUrl(raw: string): string {
+  const text = String(raw ?? '').trim();
+  if (!text) return '';
+  let parsed: URL;
+  try {
+    parsed = new URL(text);
+  } catch {
+    throw new Error('Enter a valid webhook URL.');
+  }
+  if (parsed.protocol !== 'https:') {
+    throw new Error('Webhook URL must use https.');
+  }
+  return parsed.toString();
 }
 
 export async function loadSerialNumberAllotments(): Promise<SerialNumberAllotmentDoc> {
@@ -317,26 +345,83 @@ export async function loadSerialNumberAllotments(): Promise<SerialNumberAllotmen
       return next ? [next] : [];
     })
     : [];
+  const webhookUrl = typeof data.webhookUrl === 'string' ? data.webhookUrl.trim() : '';
   return {
     allotments,
+    webhookUrl: webhookUrl || null,
     updatedAt: typeof data.updatedAt === 'string' ? data.updatedAt : null,
     updatedBy: typeof data.updatedBy === 'string' ? data.updatedBy : null,
   };
+}
+
+function mergePushStatus(
+  next: SerialNumberAllotment[],
+  existing: SerialNumberAllotment[],
+): SerialNumberAllotment[] {
+  const prevById = new Map(existing.map(row => [row.id, row]));
+  return next.map(row => {
+    const prev = prevById.get(row.id);
+    if (!row.pushedAt && prev?.pushedAt) {
+      return { ...row, pushedAt: prev.pushedAt, pushError: prev.pushError };
+    }
+    return row;
+  });
 }
 
 export async function saveSerialNumberAllotments(
   allotments: SerialNumberAllotment[],
   updatedBy?: string | null,
 ): Promise<SerialNumberAllotmentDoc> {
-  const normalized = allotments.flatMap(row => {
-    const next = normalizeAllotment(row);
-    return next ? [next] : [];
-  });
+  const ref = doc(db, 'appSettings', SERIAL_NUMBER_ALLOTMENT_DOC_ID);
+  const current = await loadSerialNumberAllotments();
+  const normalized = mergePushStatus(
+    allotments.flatMap(row => {
+      const next = normalizeAllotment(row);
+      return next ? [next] : [];
+    }),
+    current.allotments,
+  );
   const payload: SerialNumberAllotmentDoc = {
     allotments: normalized,
+    webhookUrl: current.webhookUrl,
     updatedAt: new Date().toISOString(),
     updatedBy: updatedBy?.trim() || null,
   };
-  await setDoc(doc(db, 'appSettings', SERIAL_NUMBER_ALLOTMENT_DOC_ID), payload, { merge: true });
+  await setDoc(ref, payload, { merge: true });
   return payload;
+}
+
+export async function saveSerialAllotmentWebhookUrl(
+  webhookUrl: string,
+  updatedBy?: string | null,
+): Promise<string> {
+  const value = normalizeSerialWebhookUrl(webhookUrl);
+  await setDoc(doc(db, 'appSettings', SERIAL_NUMBER_ALLOTMENT_DOC_ID), {
+    webhookUrl: value || null,
+    updatedAt: new Date().toISOString(),
+    updatedBy: updatedBy?.trim() || null,
+  }, { merge: true });
+  return value;
+}
+
+export type PushSerialAllotmentsResult = {
+  ok: boolean;
+  test: boolean;
+  sent: number;
+  pending: number;
+  webhookUrl: string;
+};
+
+export async function pushSerialAllotmentsToYesGatc(input: {
+  mode: 'test' | 'ids';
+  ids?: string[];
+  webhookUrl?: string;
+  actorName: string;
+}): Promise<PushSerialAllotmentsResult> {
+  const fn = httpsCallable<typeof input, PushSerialAllotmentsResult>(
+    functions,
+    'pushSerialAllotmentsToYesGatcFn',
+    { timeout: 60_000 },
+  );
+  return (await fn(input)).data;
 }

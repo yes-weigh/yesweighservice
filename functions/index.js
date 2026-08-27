@@ -340,10 +340,12 @@ import {
   loadWebhookSecret,
   readProvidedSecret,
 } from './lib/yesgatc-webhook.js';
+import { pushSerialAllotmentsToYesGatc } from './lib/yesgatc-serial-push.js';
 import {
   linkYesGatcCertificatesToInvoices,
   manualLinkYesGatcCertificateInvoice,
 } from './lib/yesgatc-invoice-link.js';
+import { linkYesGatcOvCertificatesByInvoiceQty } from './lib/yesgatc-ov-invoice-qty-link.js';
 import { CI_BUILD_TAG } from './lib/ci-build.js';
 
 // CI smoke-test marker (shared bundle entry — triggers full functions deploy in CI).
@@ -7362,6 +7364,35 @@ export const rotateYesGatcWebhookFn = onCall(
   },
 );
 
+/** POST serial allotments to the YesGATC destination URL (test + pending, or new ids). */
+export const pushSerialAllotmentsToYesGatcFn = onCall(
+  {
+    region: 'asia-south1',
+    timeoutSeconds: 60,
+    memory: '256MiB',
+  },
+  async request => {
+    await requireActiveUser(request.auth?.uid, SUPER_ADMIN_ROLES);
+    try {
+      const ids = Array.isArray(request.data?.ids)
+        ? request.data.ids.map(id => String(id ?? '').trim()).filter(Boolean)
+        : [];
+      return await pushSerialAllotmentsToYesGatc({
+        mode: String(request.data?.mode ?? 'test'),
+        ids,
+        webhookUrl: String(request.data?.webhookUrl ?? ''),
+        actorName: String(request.data?.actorName ?? '').trim() || 'YESWEIGH',
+      });
+    } catch (err) {
+      if (err instanceof HttpsError) throw err;
+      throw new HttpsError(
+        'failed-precondition',
+        err?.message ?? 'Could not push serial allotments to YesGATC.',
+      );
+    }
+  },
+);
+
 export const listYesGatcCertificatesFn = onCall(
   {
     region: 'asia-south1',
@@ -7373,7 +7404,9 @@ export const listYesGatcCertificatesFn = onCall(
     try {
       const max = Math.min(20000, Math.max(1, Number(request.data?.max) || 10000));
       const rcCode = String(request.data?.rcCode ?? '').trim();
-      return { rows: await listCertificatesForOps(max, { rcCode }) };
+      const rcId = String(request.data?.rcId ?? '').trim();
+      const ovOnly = request.data?.ovOnly !== false;
+      return { rows: await listCertificatesForOps(max, { rcCode, rcId, ovOnly }) };
     } catch (err) {
       if (err instanceof HttpsError) throw err;
       throw new HttpsError('internal', err?.message ?? 'Could not load certificates.');
@@ -7426,6 +7459,44 @@ export const linkYesGatcInvoicesScheduled = onSchedule(
       console.log('Scheduled GATC invoice link:', result);
     } catch (err) {
       console.error('Scheduled GATC invoice link failed:', err?.message ?? err);
+    }
+  },
+);
+
+export const linkYesGatcOvByInvoiceQtyScheduled = onSchedule(
+  {
+    schedule: '45 2 * * *',
+    timeZone: 'Asia/Kolkata',
+    region: 'asia-south1',
+    timeoutSeconds: 540,
+    memory: '1GiB',
+  },
+  async () => {
+    try {
+      const ovQty = await linkYesGatcOvCertificatesByInvoiceQty();
+      console.log('Scheduled GATC OV qty invoice link:', ovQty);
+    } catch (err) {
+      console.error('Scheduled GATC OV qty invoice link failed:', err?.message ?? err);
+    }
+  },
+);
+
+export const linkYesGatcOvByInvoiceQtyFn = onCall(
+  {
+    region: 'asia-south1',
+    timeoutSeconds: 540,
+    memory: '1GiB',
+  },
+  async request => {
+    await requireActiveUser(request.auth?.uid, SUPER_ADMIN_ROLES);
+    try {
+      const minDate = String(request.data?.minDate ?? '').trim() || undefined;
+      return await linkYesGatcOvCertificatesByInvoiceQty({
+        ...(minDate ? { minDate } : {}),
+      });
+    } catch (err) {
+      console.error('linkYesGatcOvByInvoiceQtyFn failed:', err);
+      throw new HttpsError('internal', err?.message ?? 'Could not link OV certificates to invoices.');
     }
   },
 );

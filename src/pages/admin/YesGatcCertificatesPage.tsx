@@ -7,7 +7,9 @@ import { canUseYesGatcFilters } from '../../lib/staffAccess';
 import {
   YESONE_RC_CODE,
   compareYesGatcCertificateLatestFirst,
-  countYesGatcIwpCertificates,
+  certificateMatchesRc,
+  isYesGatcOvCertificate,
+  isYesoneIwpRcDetail,
   listYesGatcCertificates,
   listYesGatcRcDetails,
   withDefaultIwpRc,
@@ -75,22 +77,43 @@ export const YesGatcCertificatesPage: React.FC = () => {
       .catch(() => setRcs(withDefaultIwpRc([])));
   }, []);
 
+  useEffect(() => {
+    const iwp = rcs.find(isYesoneIwpRcDetail);
+    if (!iwp) return;
+    setAppliedRc(current => (
+      current === YESONE_RC_CODE || current === yesGatcRcKey(iwp) ? iwp.id : current
+    ));
+    setDraftRc(current => (
+      current === YESONE_RC_CODE || current === yesGatcRcKey(iwp) ? iwp.id : current
+    ));
+  }, [rcs]);
+
+  const selectedRc = useMemo(
+    () => rcs.find(row => row.id === appliedRc) ?? rcs.find(row => yesGatcRcKey(row) === appliedRc) ?? null,
+    [appliedRc, rcs],
+  );
+  const defaultRcId = useMemo(
+    () => rcs.find(isYesoneIwpRcDetail)?.id ?? YESONE_RC_CODE,
+    [rcs],
+  );
+
   const load = useCallback(async () => {
     setLoading(true);
     setError('');
     try {
-      const [listed, counted] = await Promise.all([
-        listYesGatcCertificates(10000, { rcCode: appliedRc }),
-        countYesGatcIwpCertificates(appliedRc).catch(() => 0),
-      ]);
+      const listed = await listYesGatcCertificates(10000, {
+        rcId: selectedRc?.id || appliedRc,
+        rcCode: selectedRc ? yesGatcRcKey(selectedRc) : appliedRc,
+        ovOnly: true,
+      });
       setRows(listed);
-      setStoredCount(Math.max(listed.length, counted));
+      setStoredCount(listed.length);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Could not load certificates.');
     } finally {
       setLoading(false);
     }
-  }, [appliedRc]);
+  }, [appliedRc, selectedRc]);
 
   useEffect(() => {
     void load();
@@ -101,7 +124,7 @@ export const YesGatcCertificatesPage: React.FC = () => {
   }, [canFilter]);
 
   const hasActiveFilters = appliedPeriod !== 'lifetime'
-    || appliedRc !== YESONE_RC_CODE
+    || Boolean(selectedRc && !isYesoneIwpRcDetail(selectedRc))
     || appliedLink !== 'all';
 
   const visibleRows = useMemo(() => {
@@ -109,6 +132,8 @@ export const YesGatcCertificatesPage: React.FC = () => {
     const { start, end } = periodBounds(appliedPeriod);
     return rows
       .filter(row => {
+        if (!isYesGatcOvCertificate(row)) return false;
+        if (selectedRc && !certificateMatchesRc(row, selectedRc)) return false;
         if (needle) {
           const blob = `${row.certificateNumber} ${row.serialNumber} ${row.invoiceNumber ?? ''}`.toLowerCase();
           if (!blob.includes(needle)) return false;
@@ -124,11 +149,11 @@ export const YesGatcCertificatesPage: React.FC = () => {
         return true;
       })
       .sort(compareYesGatcCertificateLatestFirst);
-  }, [appliedLink, appliedPeriod, rows, search]);
+  }, [appliedLink, appliedPeriod, rows, search, selectedRc]);
 
   useEffect(() => {
     setPage(1);
-  }, [appliedLink, appliedPeriod, search]);
+  }, [appliedLink, appliedPeriod, appliedRc, search]);
 
   const totalPages = Math.max(1, Math.ceil(visibleRows.length / PAGE_SIZE));
   const safePage = Math.min(page, totalPages);
@@ -244,7 +269,7 @@ export const YesGatcCertificatesPage: React.FC = () => {
                 aria-label="Regional center"
               >
                 {rcs.map(rc => (
-                  <option key={rc.id} value={yesGatcRcKey(rc)}>
+                  <option key={rc.id} value={rc.id}>
                     {yesGatcRcLabel(rc)}
                   </option>
                 ))}
@@ -296,16 +321,16 @@ export const YesGatcCertificatesPage: React.FC = () => {
                 disabled={
                   draftPeriod === 'lifetime'
                   && appliedPeriod === 'lifetime'
-                  && draftRc === YESONE_RC_CODE
-                  && appliedRc === YESONE_RC_CODE
+                  && draftRc === defaultRcId
+                  && appliedRc === defaultRcId
                   && draftLink === 'all'
                   && appliedLink === 'all'
                 }
                 onClick={() => {
                   setDraftPeriod('lifetime');
                   setAppliedPeriod('lifetime');
-                  setDraftRc(YESONE_RC_CODE);
-                  setAppliedRc(YESONE_RC_CODE);
+                  setDraftRc(defaultRcId);
+                  setAppliedRc(defaultRcId);
                   setDraftLink('all');
                   setAppliedLink('all');
                 }}
@@ -324,6 +349,7 @@ export const YesGatcCertificatesPage: React.FC = () => {
         <div className="yesgatc-certs-scroll">
           <YesGatcCertificateList
             rows={pageRows}
+            rcs={rcs}
             loading={loading}
             empty={search || hasActiveFilters
               ? 'No GATC certificates match.'

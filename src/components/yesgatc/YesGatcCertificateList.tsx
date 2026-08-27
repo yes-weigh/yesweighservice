@@ -3,7 +3,14 @@ import { createPortal } from 'react-dom';
 import { Download, Loader2, Pencil, Search, X } from 'lucide-react';
 import { FetchingLoader } from '../FetchingLoader';
 import { shareCatalogMediaFile } from '../../lib/catalogMedia/share';
-import { prefersNativePdfViewer } from '../../lib/pdfViewer';
+import {
+  downloadAdminInvoiceDocument,
+  invoiceDocumentToBlob,
+  invoiceErrorMessage,
+  saveInvoiceDocumentFile,
+} from '../../lib/invoices';
+import { base64ToUint8Array, prefersNativePdfViewer } from '../../lib/pdfViewer';
+import type { InvoiceDocumentDownload } from '../../types/invoices';
 import {
   fetchAdminInvoicesPage,
   searchAdminInvoicesAutocomplete,
@@ -11,9 +18,13 @@ import {
 } from '../../lib/admin-invoices';
 import {
   isYesGatcCertificateSigned,
+  isYesGatcOvCertificate,
+  loadYesGatcInvoicePartyNames,
   saveYesGatcCertificateInvoice,
-  type YesGatcCertificate,
+  yesGatcCertificateRcDisplayName,
   yesGatcCertifiedAt,
+  type YesGatcCertificate,
+  type YesGatcRcDetail,
 } from '../../lib/yesgatcRecords';
 
 const InvoicePdfCanvas = lazy(() =>
@@ -33,6 +44,143 @@ function pdfFileName(row: YesGatcCertificate): string {
     .replace(/[^\w.\-]+/g, '_')
     .slice(0, 80);
   return raw.toLowerCase().endsWith('.pdf') ? raw : `${raw}.pdf`;
+}
+
+function YesGatcInvoiceViewDialog({
+  row,
+  onClose,
+}: {
+  row: YesGatcCertificate;
+  onClose: () => void;
+}) {
+  const useNativeViewer = useMemo(() => prefersNativePdfViewer(), []);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState('');
+  const [pdfBytes, setPdfBytes] = useState<Uint8Array | null>(null);
+  const [pdfUrl, setPdfUrl] = useState<string | null>(null);
+  const [loadingPdf, setLoadingPdf] = useState(true);
+  const [file, setFile] = useState<InvoiceDocumentDownload | null>(null);
+
+  useEffect(() => {
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === 'Escape' && !saving) onClose();
+    };
+    window.addEventListener('keydown', onKey);
+    return () => {
+      document.body.style.overflow = previousOverflow;
+      window.removeEventListener('keydown', onKey);
+    };
+  }, [onClose, saving]);
+
+  useEffect(() => {
+    const customerId = row.invoiceCustomerId?.trim();
+    const invoiceId = row.invoiceId?.trim();
+    if (!customerId || !invoiceId) {
+      setError('This certificate has no invoice linked.');
+      setLoadingPdf(false);
+      return;
+    }
+    let cancelled = false;
+    let objectUrl: string | null = null;
+    setLoadingPdf(true);
+    setError('');
+    void downloadAdminInvoiceDocument(customerId, invoiceId, 'invoice')
+      .then(doc => {
+        if (cancelled) return;
+        setFile(doc);
+        const bytes = base64ToUint8Array(doc.contentBase64);
+        if (useNativeViewer) {
+          objectUrl = URL.createObjectURL(invoiceDocumentToBlob(doc));
+          setPdfUrl(objectUrl);
+        } else {
+          setPdfBytes(bytes);
+        }
+      })
+      .catch(err => {
+        if (!cancelled) setError(invoiceErrorMessage(err));
+      })
+      .finally(() => {
+        if (!cancelled) setLoadingPdf(false);
+      });
+    return () => {
+      cancelled = true;
+      if (objectUrl) URL.revokeObjectURL(objectUrl);
+    };
+  }, [row.invoiceCustomerId, row.invoiceId, useNativeViewer]);
+
+  const download = () => {
+    if (!file || saving) return;
+    setSaving(true);
+    try {
+      saveInvoiceDocumentFile(file);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return createPortal(
+    <div
+      className="dealers-modal-backdrop yesgatc-share-dialog__backdrop"
+      role="presentation"
+      onClick={() => {
+        if (!saving) onClose();
+      }}
+    >
+      <div
+        className="yesgatc-share-dialog"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="yesgatc-invoice-view-title"
+        onClick={event => event.stopPropagation()}
+      >
+        <div className="yesgatc-share-dialog__actions">
+          <button
+            type="button"
+            className="yesgatc-share-dialog__btn"
+            onClick={onClose}
+            disabled={saving}
+          >
+            Close
+          </button>
+          <button
+            type="button"
+            className="yesgatc-share-dialog__btn"
+            onClick={download}
+            disabled={saving || !file}
+          >
+            {saving ? <Loader2 size={16} className="spin-icon" aria-hidden /> : null}
+            Download
+          </button>
+        </div>
+        <h2 id="yesgatc-invoice-view-title" className="yesgatc-share-dialog__title">
+          {row.invoiceNumber || 'Invoice'}
+        </h2>
+        {error ? <p className="yesgatc-share-dialog__error">{error}</p> : null}
+        {loadingPdf ? (
+          <div className="yesgatc-share-dialog__loader">
+            <FetchingLoader label="Loading invoice…" />
+          </div>
+        ) : pdfUrl ? (
+          <iframe
+            className="yesgatc-share-dialog__frame"
+            title={row.invoiceNumber || 'Invoice PDF'}
+            src={pdfUrl}
+          />
+        ) : pdfBytes ? (
+          <div className="yesgatc-share-dialog__canvas">
+            <Suspense fallback={<FetchingLoader label="Preparing viewer…" />}>
+              <InvoicePdfCanvas data={pdfBytes} maxScale={1.2} />
+            </Suspense>
+          </div>
+        ) : error ? null : (
+          <p className="yesgatc-share-dialog__empty">No PDF is attached to this invoice.</p>
+        )}
+      </div>
+    </div>,
+    document.body,
+  );
 }
 
 function YesGatcCertificateShareDialog({
@@ -338,17 +486,40 @@ function YesGatcInvoicePicker({
 
 export function YesGatcCertificateList({
   rows,
+  rcs = [],
   loading,
   empty,
   onLinked,
 }: {
   rows: YesGatcCertificate[];
+  rcs?: readonly YesGatcRcDetail[];
   loading: boolean;
   empty: string;
   onLinked?: (next: YesGatcCertificate) => void;
 }) {
   const [shareRow, setShareRow] = useState<YesGatcCertificate | null>(null);
+  const [invoiceRow, setInvoiceRow] = useState<YesGatcCertificate | null>(null);
   const [picking, setPicking] = useState<YesGatcCertificate | null>(null);
+  const [partyNames, setPartyNames] = useState<Map<string, string>>(() => new Map());
+
+  useEffect(() => {
+    const linked = rows.filter(row => row.invoiceCustomerId && row.invoiceId);
+    if (!linked.length) {
+      setPartyNames(new Map());
+      return;
+    }
+    let cancelled = false;
+    void loadYesGatcInvoicePartyNames(linked)
+      .then(names => {
+        if (!cancelled) setPartyNames(names);
+      })
+      .catch(() => {
+        if (!cancelled) setPartyNames(new Map());
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [rows]);
 
   if (loading) {
     return <p className="settings-locations__loading">Loading…</p>;
@@ -359,13 +530,17 @@ export function YesGatcCertificateList({
 
   return (
     <div className="yesgatc-cert-list">
-      {rows.map(row => (
+      {rows.map(row => {
+        const rcName = yesGatcCertificateRcDisplayName(row, rcs);
+        const partyName = partyNames.get(row.id) || '';
+        const canLinkInvoice = isYesGatcOvCertificate(row);
+        return (
         <article key={row.id} className="yesgatc-cert-row">
-          <div className="yesgatc-cert-row__head">
-            <p className="yesgatc-cert-row__number">{row.certificateNumber || '—'}</p>
+          <p className="yesgatc-cert-row__number">{row.certificateNumber || '—'}</p>
+          <div className="yesgatc-cert-row__aside">
             {row.invoiceNumber ? (
               <p className="yesgatc-cert-row__invoice">{row.invoiceNumber}</p>
-            ) : (
+            ) : canLinkInvoice ? (
               <button
                 type="button"
                 className="yesgatc-cert-row__pencil"
@@ -375,17 +550,36 @@ export function YesGatcCertificateList({
               >
                 <Pencil size={16} strokeWidth={2.25} />
               </button>
-            )}
+            ) : null}
+            <div className="yesgatc-cert-row__actions">
+              {row.invoiceNumber && row.invoiceId && row.invoiceCustomerId ? (
+                <button
+                  type="button"
+                  className="yesgatc-cert-row__file yesgatc-cert-row__file--inv"
+                  aria-label={`View invoice ${row.invoiceNumber}`}
+                  title="View invoice"
+                  onClick={() => setInvoiceRow(row)}
+                >
+                  <span className="yesgatc-cert-row__file-icon">
+                    <Download size={18} strokeWidth={2.25} />
+                  </span>
+                  <span className="yesgatc-cert-row__file-tag">INV</span>
+                </button>
+              ) : null}
+              <button
+                type="button"
+                className="yesgatc-cert-row__file yesgatc-cert-row__file--vc"
+                aria-label={`Download ${row.certificateNumber || 'certificate'}`}
+                title="Download certificate"
+                onClick={() => setShareRow(row)}
+              >
+                <span className="yesgatc-cert-row__file-icon">
+                  <Download size={18} strokeWidth={2.25} />
+                </span>
+                <span className="yesgatc-cert-row__file-tag">VC</span>
+              </button>
+            </div>
           </div>
-          <button
-            type="button"
-            className="yesgatc-cert-row__download"
-            aria-label={`Download ${row.certificateNumber || 'certificate'}`}
-            title="Download"
-            onClick={() => setShareRow(row)}
-          >
-            <Download size={18} strokeWidth={2.25} />
-          </button>
           <div className="yesgatc-cert-row__meta">
             <span>
               <em>Serial</em>
@@ -402,10 +596,24 @@ export function YesGatcCertificateList({
               {yesGatcCertifiedAt(row, true)}
             </span>
           </div>
+          <div className="yesgatc-cert-row__parties">
+            <span className="yesgatc-cert-row__rc">
+              <em>RC</em>
+              <strong>{rcName || '—'}</strong>
+            </span>
+            <span>
+              <em>INV:</em>
+              <strong>{row.invoiceNumber ? (partyName || '—') : '—'}</strong>
+            </span>
+          </div>
         </article>
-      ))}
+        );
+      })}
       {shareRow ? (
         <YesGatcCertificateShareDialog row={shareRow} onClose={() => setShareRow(null)} />
+      ) : null}
+      {invoiceRow ? (
+        <YesGatcInvoiceViewDialog row={invoiceRow} onClose={() => setInvoiceRow(null)} />
       ) : null}
       {picking ? (
         <YesGatcInvoicePicker

@@ -54,6 +54,7 @@ export type YesGatcCertificate = {
   invoiceNumber: string | null;
   invoiceDate: string | null;
   invoiceCustomerId: string | null;
+  verificationType?: string | null;
   raw: unknown;
 };
 
@@ -336,6 +337,10 @@ function mapCertificate(id: string, data: Record<string, unknown>): YesGatcCerti
     invoiceNumber: nullable(data.invoiceNumber),
     invoiceDate: nullable(data.invoiceDate),
     invoiceCustomerId: nullable(data.invoiceCustomerId),
+    verificationType: nullable(data.verificationType)
+      || (data.raw && typeof data.raw === 'object' && !Array.isArray(data.raw)
+        ? nullable((data.raw as Record<string, unknown>).verificationType)
+        : null),
     raw: data.raw ?? null,
   };
 }
@@ -458,7 +463,7 @@ export function isYesoneIwpCertificate(row: YesGatcCertificate): boolean {
   return looksLikeIwpRc(row.rcCode, row.rcName, row.raw);
 }
 
-export function isYesoneIwpRcDetail(row: YesGatcRcDetail): boolean {
+export function isYesoneIwpRcDetail(row: Pick<YesGatcRcDetail, 'code' | 'name' | 'raw'>): boolean {
   return looksLikeIwpRc(row.code, row.name, row.raw);
 }
 
@@ -477,6 +482,46 @@ export function yesGatcRcOfficeName(row: YesGatcRcDetail): string {
 
 export function yesGatcRcLabel(row: YesGatcRcDetail): string {
   return str(row.dealerName) || yesGatcRcOfficeName(row);
+}
+
+export function yesGatcCertificateRcDisplayName(
+  row: YesGatcCertificate,
+  rcs: ReadonlyArray<YesGatcRcDetail> = [],
+): string {
+  const match = rcs.find(rc => certificateMatchesRc(row, rc));
+  if (match) return yesGatcRcOfficeName(match) || yesGatcRcLabel(match);
+  return str(row.rcName);
+}
+
+export async function loadYesGatcInvoicePartyNames(
+  rows: ReadonlyArray<Pick<YesGatcCertificate, 'id' | 'invoiceCustomerId' | 'invoiceId'>>,
+): Promise<Map<string, string>> {
+  const names = new Map<string, string>();
+  const customerCache = new Map<string, string>();
+  await Promise.all(rows.map(async row => {
+    const customerId = str(row.invoiceCustomerId);
+    const invoiceId = str(row.invoiceId);
+    if (!customerId) return;
+    if (invoiceId) {
+      const snap = await getDoc(doc(db, 'zohoCustomers', customerId, 'invoices', invoiceId));
+      const fromInvoice = str(snap.data()?.customerName);
+      if (fromInvoice) {
+        names.set(row.id, fromInvoice);
+        return;
+      }
+    }
+    if (!customerCache.has(customerId)) {
+      const snap = await getDoc(doc(db, 'zohoCustomers', customerId));
+      const data = (snap.data() ?? {}) as Record<string, unknown>;
+      customerCache.set(
+        customerId,
+        str(data.companyName) || str(data.customerName) || str(data.contactName) || str(data.displayName),
+      );
+    }
+    const name = customerCache.get(customerId) || '';
+    if (name) names.set(row.id, name);
+  }));
+  return names;
 }
 
 export function withDefaultIwpRc(rows: YesGatcRcDetail[]): YesGatcRcDetail[] {
@@ -511,10 +556,160 @@ export function withDefaultIwpRc(rows: YesGatcRcDetail[]): YesGatcRcDetail[] {
   });
 }
 
-export function certificateMatchesRc(row: YesGatcCertificate, rcCode: string): boolean {
-  const wanted = str(rcCode).toUpperCase() || YESONE_RC_CODE;
-  if (wanted === YESONE_RC_CODE) return isYesoneIwpCertificate(row);
-  return str(row.rcCode).toUpperCase() === wanted;
+export function yesGatcCertificateRcKeys(
+  row: Pick<YesGatcCertificate, 'rcCode' | 'rcName' | 'yesoneVisible' | 'raw'>,
+): string[] {
+  return certificateRcIndexKeys({
+    rcCode: row.rcCode,
+    rcName: row.rcName,
+    yesoneVisible: row.yesoneVisible === true,
+    raw: row.raw,
+  });
+}
+
+export function isYesGatcOvCertificate(row: YesGatcCertificate): boolean {
+  return yesGatcVerificationKind(row) === 'OV';
+}
+
+export function certificateMatchesRc(
+  row: YesGatcCertificate,
+  rc: string | Pick<YesGatcRcDetail, 'id' | 'code' | 'name' | 'raw'>,
+): boolean {
+  if (typeof rc === 'string') {
+    const wanted = str(rc).toUpperCase() || YESONE_RC_CODE;
+    if (wanted === YESONE_RC_CODE) return isYesoneIwpCertificate(row);
+    return yesGatcCertificateRcKeys(row).includes(wanted);
+  }
+  if (isYesoneIwpRcDetail(rc) || str(rc.code).toUpperCase() === YESONE_RC_CODE) {
+    return isYesoneIwpCertificate(row);
+  }
+  const wanted = new Set(
+    [str(rc.id).toUpperCase(), str(rc.code).toUpperCase()].filter(Boolean),
+  );
+  return yesGatcCertificateRcKeys(row).some(key => wanted.has(key));
+}
+
+export type YesGatcVerificationKind = 'OV' | 'RV';
+export type YesGatcOvRvTotals = { ov: number; rv: number; linked: number };
+
+export function emptyYesGatcOvRvTotals(): YesGatcOvRvTotals {
+  return { ov: 0, rv: 0, linked: 0 };
+}
+
+export function yesGatcVerificationKind(source: unknown): YesGatcVerificationKind | null {
+  if (source == null) return null;
+  let text = '';
+  if (typeof source === 'string') text = source;
+  else if (typeof source === 'object' && !Array.isArray(source)) {
+    const record = source as Record<string, unknown>;
+    const raw = record.raw && typeof record.raw === 'object' && !Array.isArray(record.raw)
+      ? record.raw as Record<string, unknown>
+      : null;
+    text = str(record.verificationType)
+      || str(raw?.verificationType)
+      || str(raw?.verification_type)
+      || str(record.verification_type);
+  }
+  const upper = text.trim().toUpperCase();
+  if (!upper) return null;
+  if (upper === 'OV' || upper.startsWith('ORIGINAL')) return 'OV';
+  if (upper === 'RV' || upper.startsWith('RE')) return 'RV';
+  return null;
+}
+
+function recordFromUnknown(value: unknown): Record<string, unknown> | null {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+  return value as Record<string, unknown>;
+}
+
+function certificateRcIndexKeys(data: Record<string, unknown>): string[] {
+  const keys = new Set<string>();
+  const add = (value: unknown) => {
+    const text = str(value).toUpperCase();
+    if (text) keys.add(text);
+  };
+  const raw = recordFromUnknown(data.raw);
+  const nestedRc = recordFromUnknown(raw?.rc)
+    || recordFromUnknown(raw?.rcOffice)
+    || recordFromUnknown(raw?.regionalCenter);
+  add(data.rcCode);
+  add(data.rcId);
+  add(raw?.rcId);
+  add(raw?.rcCode);
+  add(nestedRc?.id);
+  add(nestedRc?.code);
+  add(nestedRc?.rcCode);
+  if (data.yesoneVisible === true || looksLikeIwpRc(str(data.rcCode), str(data.rcName), raw)) {
+    keys.add(YESONE_RC_CODE);
+  }
+  return [...keys];
+}
+
+function isInvoiceLinkedCertificate(data: Record<string, unknown>): boolean {
+  return Boolean(str(data.invoiceNumber) || str(data.invoiceId));
+}
+
+function isVoidedCertificate(data: Record<string, unknown>): boolean {
+  if (data.voided === true) return true;
+  const raw = recordFromUnknown(data.raw);
+  return raw?.voided === true;
+}
+
+export function yesGatcOvRvForRc(
+  totals: Map<string, YesGatcOvRvTotals>,
+  rc: Pick<YesGatcRcDetail, 'id' | 'code' | 'name' | 'raw'>,
+): YesGatcOvRvTotals {
+  return totals.get(rc.id) ?? emptyYesGatcOvRvTotals();
+}
+
+export async function countYesGatcLifetimeOvRv(
+  rcs: ReadonlyArray<YesGatcRcDetail>,
+): Promise<Map<string, YesGatcOvRvTotals>> {
+  const totals = new Map<string, YesGatcOvRvTotals>();
+  for (const rc of rcs) totals.set(rc.id, emptyYesGatcOvRvTotals());
+  if (rcs.length === 0) return totals;
+
+  const keyToRcIds = new Map<string, string[]>();
+  for (const rc of rcs) {
+    const keys = [rc.id, str(rc.code).toUpperCase()].filter(Boolean);
+    if (isYesoneIwpRcDetail(rc)) keys.push(YESONE_RC_CODE);
+    for (const key of keys) {
+      const list = keyToRcIds.get(key) ?? [];
+      if (!list.includes(rc.id)) list.push(rc.id);
+      keyToRcIds.set(key, list);
+    }
+  }
+
+  const col = collection(db, YESGATC_CERTIFICATES);
+  const pageSize = 400;
+  let cursor: QueryDocumentSnapshot<DocumentData> | null = null;
+  for (;;) {
+    const snap: QuerySnapshot<DocumentData> = await getDocs(
+      cursor
+        ? query(col, startAfter(cursor), limit(pageSize))
+        : query(col, limit(pageSize)),
+    );
+    for (const docSnap of snap.docs) {
+      const data = docSnap.data() as Record<string, unknown>;
+      if (isVoidedCertificate(data)) continue;
+      const kind = yesGatcVerificationKind(data);
+      if (kind !== 'OV') continue;
+      const hit = new Set<string>();
+      for (const key of certificateRcIndexKeys(data)) {
+        for (const rcId of keyToRcIds.get(key) ?? []) hit.add(rcId);
+      }
+      for (const rcId of hit) {
+        const slot = totals.get(rcId) ?? emptyYesGatcOvRvTotals();
+        slot.ov += 1;
+        if (isInvoiceLinkedCertificate(data)) slot.linked += 1;
+        totals.set(rcId, slot);
+      }
+    }
+    if (snap.size < pageSize) break;
+    cursor = snap.docs[snap.docs.length - 1] ?? null;
+    if (!cursor) break;
+  }
+  return totals;
 }
 
 async function loadCertificatesWhere(
@@ -566,9 +761,14 @@ export async function countYesGatcIwpCertificates(rcCode = YESONE_RC_CODE): Prom
 
 export async function listYesGatcCertificates(
   max = 10000,
-  filter: { rcCode?: string } = {},
+  filter: { rcCode?: string; rcId?: string; ovOnly?: boolean } = {},
 ): Promise<YesGatcCertificate[]> {
-  const rcCode = str(filter.rcCode).toUpperCase() || YESONE_RC_CODE;
+  const rcId = str(filter.rcId);
+  const rcCode = str(filter.rcCode).toUpperCase();
+  const ovOnly = filter.ovOnly !== false;
+  const iwp = (!rcId && !rcCode)
+    || rcCode === YESONE_RC_CODE
+    || rcId.toUpperCase() === YESONE_RC_CODE;
   const merge = new Map<string, YesGatcCertificate>();
   const take = (rows: YesGatcCertificate[]) => {
     for (const row of rows) {
@@ -597,7 +797,13 @@ export async function listYesGatcCertificates(
     }
   };
 
-  if (rcCode === YESONE_RC_CODE) {
+  const matchesFilter = (row: YesGatcCertificate) => {
+    if (ovOnly && !isYesGatcOvCertificate(row)) return false;
+    if (iwp) return isYesoneIwpCertificate(row);
+    return certificateMatchesRc(row, { id: rcId, code: rcCode, name: '', raw: null });
+  };
+
+  if (iwp) {
     try {
       take(await loadCertificatesWhere('yesoneVisible', true));
     } catch {
@@ -609,36 +815,50 @@ export async function listYesGatcCertificates(
       // ignore
     }
   } else {
-    try {
-      take(await loadCertificatesWhere('rcCode', rcCode));
-    } catch {
-      // ignore
+    if (rcId) {
+      try {
+        take(await loadCertificatesWhere('rcCode', rcId));
+      } catch {
+        // ignore
+      }
+    }
+    if (rcCode && rcCode !== rcId.toUpperCase()) {
+      try {
+        take(await loadCertificatesWhere('rcCode', rcCode));
+      } catch {
+        // ignore
+      }
     }
   }
 
-  if (merge.size === 0) {
+  let matched = [...merge.values()].filter(matchesFilter);
+
+  if (matched.length === 0) {
     try {
       take(await loadCertificatesWhere(null, null));
     } catch {
       // Rules missing — callable fallback below.
     }
+    matched = [...merge.values()].filter(matchesFilter);
   }
 
-  if (merge.size === 0) {
+  if (matched.length === 0) {
     try {
-      const fn = httpsCallable<{ max?: number; rcCode?: string }, { rows: YesGatcCertificate[] }>(
+      const fn = httpsCallable<
+        { max?: number; rcCode?: string; rcId?: string; ovOnly?: boolean },
+        { rows: YesGatcCertificate[] }
+      >(
         functions,
         'listYesGatcCertificatesFn',
       );
-      take((await fn({ max, rcCode })).data.rows ?? []);
+      take((await fn({ max, rcCode, rcId, ovOnly })).data.rows ?? []);
+      matched = [...merge.values()].filter(matchesFilter);
     } catch {
       // Callable unavailable.
     }
   }
 
-  const all = [...merge.values()];
-  const matched = all.filter(row => certificateMatchesRc(row, rcCode));
-  return (matched.length ? matched : all).sort(compareYesGatcCertificateLatestFirst);
+  return matched.sort(compareYesGatcCertificateLatestFirst);
 }
 
 export async function listYesGatcRcDetails(max = 400): Promise<YesGatcRcDetail[]> {
@@ -823,6 +1043,18 @@ export async function runYesGatcInvoiceLink(minDate?: string): Promise<{
     { minDate?: string },
     { matched?: number; written?: number }
   >(functions, 'linkYesGatcInvoicesFn', { timeout: 540_000 });
+  return (await fn(minDate ? { minDate } : {})).data ?? {};
+}
+
+export async function runYesGatcOvInvoiceQtyLink(minDate?: string): Promise<{
+  assigned?: number;
+  written?: number;
+  unlinkedOv?: number;
+}> {
+  const fn = httpsCallable<
+    { minDate?: string },
+    { assigned?: number; written?: number; unlinkedOv?: number }
+  >(functions, 'linkYesGatcOvByInvoiceQtyFn', { timeout: 540_000 });
   return (await fn(minDate ? { minDate } : {})).data ?? {};
 }
 

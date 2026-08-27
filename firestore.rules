@@ -1,5 +1,5 @@
 rules_version = '2';
-// CI smoke-test marker — 2026-08-26
+// CI smoke-test marker — 2026-08-27
 
 service cloud.firestore {
   match /databases/{database}/documents {

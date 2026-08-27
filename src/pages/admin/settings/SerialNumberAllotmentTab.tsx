@@ -1,12 +1,15 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { Plus } from 'lucide-react';
+import { Plus, Send } from 'lucide-react';
 import { useAuth } from '../../../context/AuthContext';
 import {
   allotmentFromPreview,
   countLinkedUnused,
   loadInvoicedSerialKeys,
   loadSerialNumberAllotments,
+  pendingSerialAllotmentCount,
   previewSerialRange,
+  pushSerialAllotmentsToYesGatc,
+  saveSerialAllotmentWebhookUrl,
   saveSerialNumberAllotments,
   totalAllottedCount,
 } from '../../../lib/serialNumberAllotment';
@@ -43,8 +46,10 @@ function AllotmentStat({
 export const SerialNumberAllotmentTab: React.FC = () => {
   const { user } = useAuth();
   const [allotments, setAllotments] = useState<SerialNumberAllotment[]>([]);
+  const [webhookUrl, setWebhookUrl] = useState('');
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
+  const [testing, setTesting] = useState(false);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
   const [series, setSeries] = useState<SerialSeriesId>(DEFAULT_SERIAL_SERIES);
@@ -74,6 +79,7 @@ export const SerialNumberAllotmentTab: React.FC = () => {
     [allotments, series],
   );
   const totalCount = useMemo(() => totalAllottedCount(seriesRows), [seriesRows]);
+  const pendingCount = useMemo(() => pendingSerialAllotmentCount(allotments), [allotments]);
   const actorName = user?.displayName?.trim() || user?.email?.trim() || 'YESWEIGH';
 
   const load = useCallback(async () => {
@@ -82,6 +88,7 @@ export const SerialNumberAllotmentTab: React.FC = () => {
     try {
       const doc = await loadSerialNumberAllotments();
       setAllotments(doc.allotments);
+      setWebhookUrl(doc.webhookUrl || '');
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Could not load serial number allotments.');
     } finally {
@@ -118,10 +125,54 @@ export const SerialNumberAllotmentTab: React.FC = () => {
       const saved = await saveSerialNumberAllotments(next, actorName);
       setAllotments(saved.allotments);
       setSuccess(message);
+      return saved;
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Could not save serial number allotments.');
+      return null;
     } finally {
       setBusy(false);
+    }
+  };
+
+  const handleSaveWebhookUrl = async () => {
+    try {
+      const saved = await saveSerialAllotmentWebhookUrl(webhookUrl, actorName);
+      setWebhookUrl(saved);
+      return saved;
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Could not save the webhook URL.');
+      return null;
+    }
+  };
+
+  const handleTest = async () => {
+    setTesting(true);
+    setError('');
+    setSuccess('');
+    try {
+      const savedUrl = await handleSaveWebhookUrl();
+      if (savedUrl == null) return;
+      if (!savedUrl) {
+        setError('Add a YesGATC webhook destination URL first.');
+        return;
+      }
+      const result = await pushSerialAllotmentsToYesGatc({
+        mode: 'test',
+        webhookUrl: savedUrl,
+        actorName,
+      });
+      const refreshed = await loadSerialNumberAllotments();
+      setAllotments(refreshed.allotments);
+      setWebhookUrl(result.webhookUrl || refreshed.webhookUrl || savedUrl);
+      setSuccess(
+        result.sent
+          ? `YesGATC test OK. Sent ${result.sent.toLocaleString('en-IN')} pending range${result.sent === 1 ? '' : 's'}.`
+          : 'YesGATC test OK. Nothing pending to send.',
+      );
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Could not reach the YesGATC webhook.');
+    } finally {
+      setTesting(false);
     }
   };
 
@@ -138,13 +189,45 @@ export const SerialNumberAllotmentTab: React.FC = () => {
     }
     const row = allotmentFromPreview(preview, series, actorName);
     const next = [row, ...allotments];
-    await persist(
+    const saved = await persist(
       next,
       `Saved ${preview.count.toLocaleString('en-IN')} allotted serial${preview.count === 1 ? '' : 's'}.`,
     );
+    if (!saved) return;
     setFrom('');
     setTo('');
     setMissingText('');
+    const destination = webhookUrl.trim();
+    if (!destination) {
+      setSuccess(
+        `Saved ${preview.count.toLocaleString('en-IN')} allotted serial${preview.count === 1 ? '' : 's'}. Pending until you add a webhook URL and tap Test.`,
+      );
+      return;
+    }
+    setBusy(true);
+    try {
+      await saveSerialAllotmentWebhookUrl(destination, actorName);
+      const result = await pushSerialAllotmentsToYesGatc({
+        mode: 'ids',
+        ids: [row.id],
+        webhookUrl: destination,
+        actorName,
+      });
+      const refreshed = await loadSerialNumberAllotments();
+      setAllotments(refreshed.allotments);
+      setSuccess(
+        `Saved and sent ${preview.count.toLocaleString('en-IN')} serial${preview.count === 1 ? '' : 's'} to YesGATC.`
+        + (result.pending ? ` ${result.pending} still pending.` : ''),
+      );
+    } catch (err) {
+      setError(
+        err instanceof Error
+          ? `Saved locally. YesGATC push failed — tap Test to retry. ${err.message}`
+          : 'Saved locally. YesGATC push failed — tap Test to retry.',
+      );
+    } finally {
+      setBusy(false);
+    }
   };
 
   const previewError = Boolean(preview.error && (from.trim() || to.trim()));
@@ -162,6 +245,39 @@ export const SerialNumberAllotmentTab: React.FC = () => {
 
       {error && <p className="settings-locations__error text-sm">{error}</p>}
       {success && <p className="settings-locations__success text-sm">{success}</p>}
+
+      <div className="settings-serial-allotment__webhook">
+        <label className="settings-serial-allotment__field settings-serial-allotment__field--webhook">
+          <span>YesGATC webhook URL</span>
+          <input
+            type="url"
+            value={webhookUrl}
+            disabled={busy || testing}
+            placeholder="https://yesgatc.in/webhooks/yesone"
+            autoComplete="off"
+            spellCheck={false}
+            onChange={e => setWebhookUrl(e.target.value)}
+            onBlur={() => {
+              if (!webhookUrl.trim()) return;
+              void handleSaveWebhookUrl();
+            }}
+          />
+        </label>
+        <button
+          type="button"
+          className="btn btn-secondary btn-sm"
+          disabled={busy || testing || loading || !webhookUrl.trim()}
+          onClick={() => void handleTest()}
+        >
+          <Send size={15} aria-hidden />
+          {testing ? 'Sending…' : 'Test'}
+        </button>
+        <p className="text-muted text-sm settings-serial-allotment__webhook-hint">
+          {pendingCount
+            ? `${pendingCount.toLocaleString('en-IN')} range${pendingCount === 1 ? '' : 's'} pending. Test sends them now; new Add also pushes live.`
+            : 'New ranges push as soon as you tap Add. Test pings YesGATC and sends anything still pending.'}
+        </p>
+      </div>
 
       <div className="settings-serial-allotment__form">
         <div className="settings-serial-allotment__range">
@@ -236,7 +352,7 @@ export const SerialNumberAllotmentTab: React.FC = () => {
           <button
             type="button"
             className="btn btn-primary btn-sm"
-            disabled={busy || Boolean(preview.error) || !from.trim() || !to.trim()}
+            disabled={busy || testing || Boolean(preview.error) || !from.trim() || !to.trim()}
             onClick={() => void handleAdd()}
           >
             <Plus size={15} aria-hidden />
@@ -288,6 +404,9 @@ export const SerialNumberAllotmentTab: React.FC = () => {
                 <p className="settings-serial-allotment__added">
                   <span>Added</span>
                   <strong>{row.createdBy || '—'}</strong>
+                  <span className={`settings-serial-allotment__push ${row.pushedAt ? 'is-sent' : 'is-pending'}`}>
+                    {row.pushedAt ? 'YesGATC sent' : 'YesGATC pending'}
+                  </span>
                 </p>
               </li>
             );

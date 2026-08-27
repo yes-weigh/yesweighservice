@@ -1569,11 +1569,12 @@ button.incentive-report__adjust-col:focus-visible {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
   grid-template-areas:
-    'number download'
-    'meta download';
-  column-gap: 0.5rem;
+    'number aside'
+    'meta aside'
+    'parties aside';
+  column-gap: 0.55rem;
   row-gap: 0.38rem;
-  align-items: center;
+  align-items: start;
   padding: 0.95rem 0.55rem 0.95rem 0.7rem;
   border-top: 1px solid rgba(255, 255, 255, 0.07);
 }
@@ -1582,35 +1583,33 @@ button.incentive-report__adjust-col:focus-visible {
   border-top: 0;
 }
 
-.yesgatc-cert-row__head {
-  grid-area: number;
-  display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: 0.45rem;
-  min-width: 0;
-}
-
 .yesgatc-cert-row__number {
+  grid-area: number;
   margin: 0;
   min-width: 0;
-  font-size: 0.98rem;
+  font-size: 0.78rem;
   font-weight: 700;
   line-height: 1.25;
-  letter-spacing: 0.01em;
-  overflow-wrap: anywhere;
+  letter-spacing: 0;
+  white-space: nowrap;
+}
+
+.yesgatc-cert-row__aside {
+  grid-area: aside;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 0.35rem;
 }
 
 .yesgatc-cert-row__invoice {
-  flex: 0 1 auto;
   margin: 0;
-  max-width: 48%;
   color: #fb923c;
-  font-size: 0.88rem;
+  font-size: 0.78rem;
   font-weight: 700;
   line-height: 1.25;
   text-align: right;
-  overflow-wrap: anywhere;
+  white-space: nowrap;
 }
 
 .yesgatc-cert-row__pencil {
@@ -1633,19 +1632,67 @@ button.incentive-report__adjust-col:focus-visible {
   color: #fdba74;
 }
 
-.yesgatc-cert-row__download {
-  grid-area: download;
+.yesgatc-cert-row__actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 0.4rem;
+}
+
+.yesgatc-cert-row__file {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.18rem;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  cursor: pointer;
+}
+
+.yesgatc-cert-row__file-icon {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  flex-shrink: 0;
   width: 1.9rem;
   height: 1.9rem;
-  border: none;
   border-radius: 8px;
   background: rgba(255, 255, 255, 0.06);
   color: #e2e8f0;
-  cursor: pointer;
+}
+
+.yesgatc-cert-row__file-tag {
+  font-size: 0.62rem;
+  font-weight: 800;
+  letter-spacing: 0.05em;
+  line-height: 1;
+  text-transform: uppercase;
+}
+
+.yesgatc-cert-row__file--vc .yesgatc-cert-row__file-tag {
+  color: var(--gatc-green, #4ade80);
+}
+
+.yesgatc-cert-row__file--inv .yesgatc-cert-row__file-icon {
+  background: rgba(251, 146, 60, 0.16);
+  color: #fb923c;
+}
+
+.yesgatc-cert-row__file--inv .yesgatc-cert-row__file-tag {
+  color: #fb923c;
+}
+
+.yesgatc-cert-row__file--vc:hover .yesgatc-cert-row__file-icon,
+.yesgatc-cert-row__file--vc:focus-visible .yesgatc-cert-row__file-icon {
+  background: rgba(74, 222, 128, 0.18);
+  color: #fff;
+}
+
+.yesgatc-cert-row__file--inv:hover .yesgatc-cert-row__file-icon,
+.yesgatc-cert-row__file--inv:focus-visible .yesgatc-cert-row__file-icon {
+  background: rgba(251, 146, 60, 0.28);
+  color: #fdba74;
 }
 
 .yesgatc-cert-row__meta {
@@ -1693,9 +1740,54 @@ button.incentive-report__adjust-col:focus-visible {
   color: var(--gatc-green, #4ade80);
 }
 
-.yesgatc-cert-row__download:hover {
-  background: rgba(245, 130, 32, 0.18);
-  color: #fff;
+.yesgatc-cert-row__parties {
+  grid-area: parties;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.18rem;
+  min-width: 0;
+  font-size: 0.82rem;
+  line-height: 1.3;
+  color: #e2e8f0;
+}
+
+.yesgatc-cert-row__parties span {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 0.28rem;
+  min-width: 0;
+  max-width: 100%;
+}
+
+.yesgatc-cert-row__parties span:last-child {
+  flex: 0 1 auto;
+}
+
+.yesgatc-cert-row__parties em {
+  font-style: normal;
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+  color: #cbd5e1;
+  flex-shrink: 0;
+}
+
+.yesgatc-cert-row__parties strong {
+  font-weight: 650;
+  overflow-wrap: anywhere;
+  white-space: normal;
+}
+
+.yesgatc-cert-row__rc em,
+.yesgatc-cert-row__rc strong {
+  color: #c4b5fd;
+}
+
+.yesgatc-cert-row__rc em {
+  font-size: 1rem;
+  letter-spacing: 0.04em;
 }
 
 .yesgatc-share-dialog__backdrop {
@@ -1792,28 +1884,69 @@ button.incentive-report__adjust-col:focus-visible {
 
 .yesgatc-rc-row {
   display: flex;
-  align-items: center;
-  gap: 0.75rem;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.2rem;
   padding: 0.75rem 0.85rem;
   border-top: 1px solid rgba(255, 255, 255, 0.07);
 }
 
+.yesgatc-rc-row__meta {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  width: 100%;
+  min-width: 0;
+}
+
+.yesgatc-rc-row__qty {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: flex-end;
+  gap: 0.7rem;
+  margin: 0 0 0 auto;
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+  color: #94a3b8;
+}
+
+.yesgatc-rc-row__qty strong {
+  font-size: 0.82rem;
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0;
+  text-transform: none;
+  color: #f8fafc;
+}
+
+.yesgatc-rc-row__diff {
+  color: #fb923c;
+  font-size: 0.82rem;
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0;
+  text-transform: none;
+}
+
 .yesgatc-rc-row__select,
 .yesgatc-rc-row__linked {
-  min-width: 4.6rem;
+  flex: 0 0 auto;
 }
 
 .yesgatc-rc-row__linked {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  min-height: 2rem;
-  padding: 0.28rem 0.75rem;
+  min-height: 1.55rem;
+  padding: 0.15rem 0.55rem;
   border-radius: 999px;
   border: 0;
   background: #166534;
   color: #86efac;
-  font-size: 0.78rem;
+  font-size: 0.72rem;
   font-weight: 700;
   cursor: default;
 }
@@ -1822,11 +1955,6 @@ button.incentive-report__adjust-col:focus-visible {
   color: #94a3b8;
   font-size: 0.75rem;
   font-weight: 650;
-}
-
-.yesgatc-rc-row__text {
-  flex: 1 1 auto;
-  min-width: 0;
 }
 
 .yesgatc-rc-row__name {
@@ -1838,7 +1966,7 @@ button.incentive-report__adjust-col:focus-visible {
 }
 
 .yesgatc-rc-row__code {
-  margin: 0.15rem 0 0;
+  margin: 0;
   color: #94a3b8;
   font-size: 0.75rem;
   font-weight: 650;
@@ -1847,6 +1975,9 @@ button.incentive-report__adjust-col:focus-visible {
 
 .yesgatc-rc-row .btn {
   flex: 0 0 auto;
+  min-height: 1.55rem;
+  padding: 0.15rem 0.6rem;
+  font-size: 0.72rem;
 }
 
 .yesgatc-rc-picker {
@@ -8194,6 +8325,27 @@ button.incentive-report__adjust-col:focus-visible {
   background: transparent;
 }
 
+.settings-serial-allotment__webhook {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: end;
+  gap: 0.4rem;
+  margin: 0 0 0.85rem;
+}
+
+.settings-serial-allotment__webhook .btn {
+  height: 2.75rem;
+  min-height: 2.75rem;
+  padding: 0 0.85rem;
+  white-space: nowrap;
+}
+
+.settings-serial-allotment__webhook-hint {
+  grid-column: 1 / -1;
+  margin: 0;
+  line-height: 1.35;
+}
+
 .settings-serial-allotment__range {
   display: grid;
   grid-template-columns: minmax(0, 1fr) 6.15rem 6.15rem 3.6rem;
@@ -8413,7 +8565,8 @@ button.incentive-report__adjust-col:focus-visible {
 .settings-serial-allotment__added {
   display: flex;
   align-items: baseline;
-  gap: 0.4rem;
+  flex-wrap: wrap;
+  gap: 0.35rem 0.55rem;
   margin: 0;
   min-width: 0;
 }
@@ -8433,6 +8586,18 @@ button.incentive-report__adjust-col:focus-visible {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.settings-serial-allotment__added .settings-serial-allotment__push {
+  margin-left: auto;
+}
+
+.settings-serial-allotment__added .settings-serial-allotment__push.is-pending {
+  color: #fbbf24;
+}
+
+.settings-serial-allotment__added .settings-serial-allotment__push.is-sent {
+  color: #86efac;
 }
 
 .settings-serial-allotment__meta {
@@ -8468,6 +8633,11 @@ button.incentive-report__adjust-col:focus-visible {
   .settings-serial-allotment__range {
     grid-template-columns: minmax(0, 1fr) 5.55rem 5.55rem 3.2rem;
     gap: 0.35rem;
+  }
+
+  .settings-serial-allotment__webhook .btn {
+    height: 2.75rem;
+    padding: 0 0.7rem;
   }
 
   .settings-serial-allotment__metrics-row {
