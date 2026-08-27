@@ -14,10 +14,96 @@ function isZohoNotAuthorized(err) {
   return /not authorized to perform this operation/i.test(String(err?.message ?? ''));
 }
 
-function lineAllowsWarehouse(line) {
+/** Goods that Zoho can stock at a warehouse. Freight/SAC/empty-warehouse lines must not send warehouse_id. */
+export function lineAllowsWarehouse(line) {
   if (isFreightOrderLine(line)) return false;
   if (isSacHsn(line.hsn)) return false;
+  const sku = String(line?.sku ?? '').trim().toUpperCase();
+  const name = String(line?.name ?? '').trim().toUpperCase();
+  const warehouses = Array.isArray(line?.warehouses) ? line.warehouses : null;
+  if (
+    (sku.includes('FREIGHT') || name.includes('FREIGHT'))
+    && (!warehouses || warehouses.length === 0)
+  ) {
+    return false;
+  }
+  if (warehouses && warehouses.length === 0) return false;
   return true;
+}
+
+function warehouseIdForLine(line, fallbackWarehouseId) {
+  if (!lineAllowsWarehouse(line)) return null;
+  const fallback = fallbackWarehouseId != null && String(fallbackWarehouseId).trim()
+    ? String(fallbackWarehouseId).trim()
+    : null;
+  if (!fallback) return null;
+  if (Array.isArray(line?.warehouses)) {
+    const hasFallback = line.warehouses.some((row) => {
+      const id = String(row?.warehouseId ?? row?.warehouse_id ?? '').trim();
+      return id === fallback;
+    });
+    return hasFallback ? fallback : null;
+  }
+  return fallback;
+}
+
+function inlineShippingAddress(address) {
+  if (!address || typeof address !== 'object') return null;
+  return {
+    attention: address.attention || '',
+    address: address.address || '',
+    street2: address.street2 || '',
+    city: address.city || '',
+    state: address.state || '',
+    zip: address.zip || '',
+    country: address.country || 'India',
+    phone: address.phone || '',
+  };
+}
+
+function cloneSalesOrderBody(body) {
+  return {
+    ...body,
+    line_items: (body.line_items || []).map(line => ({ ...line })),
+  };
+}
+
+function withoutLineWarehouses(body) {
+  const next = cloneSalesOrderBody(body);
+  next.line_items = next.line_items.map(({ warehouse_id: _id, ...line }) => line);
+  return next;
+}
+
+function withoutSalesperson(body) {
+  const next = cloneSalesOrderBody(body);
+  delete next.salesperson_id;
+  return next;
+}
+
+function withInlineShippingBody(body, address) {
+  const shipping = inlineShippingAddress(address);
+  if (!shipping) return body;
+  const next = cloneSalesOrderBody(body);
+  delete next.shipping_address_id;
+  next.shipping_address = shipping;
+  return next;
+}
+
+function uniqueSalesOrderCreateAttempts(body, shippingInline) {
+  const attempts = [cloneSalesOrderBody(body)];
+  const hasWarehouse = body.line_items.some(line => line.warehouse_id);
+  if (hasWarehouse) attempts.push(withoutLineWarehouses(body));
+  if (body.salesperson_id) {
+    attempts.push(withoutSalesperson(body));
+    if (hasWarehouse) attempts.push(withoutSalesperson(withoutLineWarehouses(body)));
+  }
+  if (body.shipping_address_id && shippingInline) {
+    attempts.push(withInlineShippingBody(
+      withoutSalesperson(withoutLineWarehouses(body)),
+      shippingInline,
+    ));
+  }
+  return attempts;
 }
 
 async function zohoJson(accessToken, orgId, path, { method = 'GET', body } = {}) {
@@ -63,19 +149,19 @@ function lineItemsFromOrder(order, warehouseId = null) {
   // Multi-warehouse orgs accept warehouse_id; location_id is rejected when Locations is off.
   // SAC/service lines (software keys, GATC, freight) must not send warehouse_id —
   // Zoho returns "You are not authorized to perform this operation".
-  const warehouse = warehouseId != null && String(warehouseId).trim()
-    ? String(warehouseId).trim()
-    : null;
-  return lines.map(line => ({
-    item_id: String(line.itemId || line.productId),
-    name: String(line.name || 'Item'),
-    rate: Number(line.rate || 0),
-    quantity: Number(line.quantity || 0),
-    unit: String(line.unit || 'pcs'),
-    ...(line.description ? { description: String(line.description) } : {}),
-    ...(line.hsn ? { hsn_or_sac: String(line.hsn) } : {}),
-    ...(warehouse && lineAllowsWarehouse(line) ? { warehouse_id: warehouse } : {}),
-  })).filter(line => line.quantity > 0 && line.item_id);
+  return lines.map(line => {
+    const warehouse = warehouseIdForLine(line, warehouseId);
+    return {
+      item_id: String(line.itemId || line.productId),
+      name: String(line.name || 'Item'),
+      rate: Number(line.rate || 0),
+      quantity: Number(line.quantity || 0),
+      unit: String(line.unit || 'pcs'),
+      ...(line.description ? { description: String(line.description) } : {}),
+      ...(line.hsn ? { hsn_or_sac: String(line.hsn) } : {}),
+      ...(warehouse ? { warehouse_id: warehouse } : {}),
+    };
+  }).filter(line => line.quantity > 0 && line.item_id);
 }
 
 function zohoLineAllowsWarehouse(item) {
@@ -320,36 +406,39 @@ export async function createSalesOrderFromDealerOrder(secrets, configuredOrgId, 
   }
   if (order.shippingAddressId) {
     body.shipping_address_id = String(order.shippingAddressId);
-  } else if (order.shippingAddressInline && typeof order.shippingAddressInline === 'object') {
-    body.shipping_address = {
-      attention: order.shippingAddressInline.attention || '',
-      address: order.shippingAddressInline.address || '',
-      street2: order.shippingAddressInline.street2 || '',
-      city: order.shippingAddressInline.city || '',
-      state: order.shippingAddressInline.state || '',
-      zip: order.shippingAddressInline.zip || '',
-      country: order.shippingAddressInline.country || 'India',
-      phone: order.shippingAddressInline.phone || '',
-    };
+  } else {
+    const shipping = inlineShippingAddress(order.shippingAddressInline);
+    if (shipping) body.shipping_address = shipping;
   }
 
-  const payload = await zohoJson(accessToken, orgId, '/salesorders', {
-    method: 'POST',
-    body,
-  }).catch(async (err) => {
-    const hasWarehouse = body.line_items.some(line => line.warehouse_id);
-    if (!hasWarehouse || !isZohoNotAuthorized(err)) throw err;
-    // Some Zoho items (freight, fees, non-warehoused goods) reject warehouse_id
-    // with "You are not authorized to perform this operation".
-    const retryBody = {
-      ...body,
-      line_items: body.line_items.map(({ warehouse_id: _warehouseId, ...line }) => line),
-    };
-    return zohoJson(accessToken, orgId, '/salesorders', {
-      method: 'POST',
-      body: retryBody,
-    });
-  });
+  const attempts = uniqueSalesOrderCreateAttempts(body, order.shippingAddressInline);
+  let payload = null;
+  let lastErr = null;
+  for (let i = 0; i < attempts.length; i += 1) {
+    try {
+      payload = await zohoJson(accessToken, orgId, '/salesorders', {
+        method: 'POST',
+        body: attempts[i],
+      });
+      lastErr = null;
+      break;
+    } catch (err) {
+      lastErr = err;
+      if (!isZohoNotAuthorized(err)) throw err;
+      console.warn('Zoho sales order create not authorized', {
+        attempt: i + 1,
+        of: attempts.length,
+        items: attempts[i].line_items.map(line => ({
+          item_id: line.item_id,
+          warehouse: Boolean(line.warehouse_id),
+          hsn: line.hsn_or_sac || null,
+        })),
+        salesperson: Boolean(attempts[i].salesperson_id),
+        shippingAddressId: Boolean(attempts[i].shipping_address_id),
+      });
+    }
+  }
+  if (lastErr) throw lastErr;
 
   const so = payload?.salesorder;
   if (!so?.salesorder_id) {

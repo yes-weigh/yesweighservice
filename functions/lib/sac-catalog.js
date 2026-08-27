@@ -3,8 +3,9 @@
  * These are services/fees — force in_stock via effectiveCatalogStockStatus.
  */
 export function isSacHsn(hsn) {
-  const normalized = String(hsn ?? '').replace(/\s+/g, '').trim();
-  return /^99\d{4,}$/.test(normalized);
+  const digits = String(hsn ?? '').replace(/\D/g, '');
+  // GST chapter 99 = services (4–8 digit SAC). Inventory items are 01–98.
+  return digits.startsWith('99') && digits.length >= 2;
 }
 
 export function effectiveCatalogStockStatus(stockStatus, hsn) {

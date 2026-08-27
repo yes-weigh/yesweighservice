@@ -8,6 +8,7 @@ import { resolveZohoCustomerIdForUser } from './zoho-invoices.js';
 import {
   confirmSalesOrder,
   createSalesOrderFromDealerOrder,
+  lineAllowsWarehouse,
   voidSalesOrder,
 } from './zoho-sales-orders.js';
 import {
@@ -49,7 +50,7 @@ import { initYesOneSalesOrderWorkflow } from './sales-order-workflow.js';
 import { yesOneGatcPersistFields } from './gatc-report.js';
 import { resolveShippingAddressId } from './zoho-contact-addresses.js';
 import { isQuantityExcludedLineItem } from './invoice-category.js';
-import { effectiveCatalogStockStatus, isSacHsn } from './sac-catalog.js';
+import { effectiveCatalogStockStatus } from './sac-catalog.js';
 import {
   appendWeighingScaleDescription,
   loadWeighingScaleCategoryIdSet,
@@ -266,7 +267,6 @@ async function loadBlueDartPinForZip(zip) {
 function stripInternalLineFields(line) {
   const {
     catalogRate: _catalogRate,
-    warehouses: _warehouses,
     packageInfo: _packageInfo,
     freightInventorySite: _freightInventorySite,
     freightHostSegment: _freightHostSegment,
@@ -525,14 +525,15 @@ async function createSegmentSalesOrders({
       ? orderNumberBase
       : `${orderNumberBase}-${segmentSiteOrderSuffix(segment, site)}`;
 
-    // Resolve from pre-mapper lines — pricedLineMapper strips warehouses[] for Zoho.
-    // Software / SAC-only buckets are not warehouse-stocked in Zoho. Forcing Head Office
-    // warehouse_id on those lines is rejected as "You are not authorized to perform this operation".
+    // Keep warehouses[] on mapped lines so Zoho only gets warehouse_id on stocked goods.
+    // Software / SAC / freight / empty-warehouse lines are rejected as
+    // "You are not authorized to perform this operation" if warehouse_id is sent.
     const needsZohoWarehouse = segment !== 'software'
-      && bucket.lines.some(line => !isFreightOrderLine(line) && !isSacHsn(line.hsn));
+      && bucket.lines.some(line => lineAllowsWarehouse(line));
     let locationId = null;
     if (needsZohoWarehouse) {
       for (const line of bucket.lines) {
+        if (!lineAllowsWarehouse(line)) continue;
         locationId = warehouseIdFromLineWarehouses(site, line.warehouses);
         if (locationId) break;
       }
@@ -564,7 +565,7 @@ async function createSegmentSalesOrders({
             ? `${remarks}\n[${bucketLabel}]`
             : `[${bucketLabel}]`),
         shippingAddressId: shippingResolved.shippingAddressId,
-        shippingAddressInline: shippingResolved.useInline ? shippingResolved.address : null,
+        shippingAddressInline: shippingResolved.address || null,
         salespersonId: salesperson?.id || null,
       });
     } catch (err) {
@@ -574,7 +575,7 @@ async function createSegmentSalesOrders({
           'failed-precondition',
           segment === 'software'
             ? 'Zoho rejected the software sales order. Software items are billed as Cloud Charges (not your salesperson) and are not warehouse-stocked. Confirm “Cloud Charges” is an active Zoho salesperson, then try again.'
-            : 'Zoho rejected this sales order (not authorized). This is a Zoho Inventory setting, not your YesOne login. Freight and service items cannot be warehouse-stocked — try again. If it still fails, check the item and warehouse in Zoho.',
+            : 'Zoho rejected this sales order (not authorized). This is a Zoho Inventory setting, not your YesOne login. Freight and service items cannot be warehouse-stocked, and the Zoho salesperson must be active. Try again, or check the item, warehouse, and salesperson in Zoho.',
         );
       }
       throw err;

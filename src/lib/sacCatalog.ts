@@ -5,8 +5,9 @@ import type { StockStatus } from '../types/catalog';
  * These are services/fees — treated as in stock in the catalog.
  */
 export function isSacHsn(hsn: string | null | undefined): boolean {
-  const normalized = String(hsn ?? '').replace(/\s+/g, '').trim();
-  return /^99\d{4,}$/.test(normalized);
+  const digits = String(hsn ?? '').replace(/\D/g, '');
+  // GST chapter 99 = services (4–8 digit SAC). Inventory items are 01–98.
+  return digits.startsWith('99') && digits.length >= 2;
 }
 
 /** Force SAC catalog rows to appear / behave as in stock. */

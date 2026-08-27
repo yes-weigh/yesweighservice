@@ -36,16 +36,29 @@ export function normalizeStaffZohoSalespersonIds(data = {}) {
   return [...ids];
 }
 
-/** Prefer primary, else first linked — skipping portal-hidden Zoho salespersons. */
+/** Prefer primary, else first linked — skipping hidden or inactive Zoho salespersons. */
 async function pickUsableSalespersonId(user) {
   const linkedIds = normalizeStaffZohoSalespersonIds(user);
   if (!linkedIds.length) return null;
   const hidden = await loadHiddenZohoSalespersonIds();
-  const usable = linkedIds.filter(id => !hidden.has(id));
-  if (!usable.length) return null;
   const primary = String(user.zohoSalespersonId ?? '').trim();
-  if (primary && usable.includes(primary)) return primary;
-  return usable[0];
+  const ordered = [];
+  if (primary && linkedIds.includes(primary)) ordered.push(primary);
+  for (const id of linkedIds) {
+    if (!ordered.includes(id)) ordered.push(id);
+  }
+  const db = getFirestore();
+  for (const id of ordered) {
+    if (hidden.has(id)) continue;
+    try {
+      const snap = await db.collection('zohoSalespersons').doc(id).get();
+      if (snap.exists && snap.data()?.active === false) continue;
+    } catch {
+      // If status cannot be read, still try the id.
+    }
+    return id;
+  }
+  return null;
 }
 
 async function resolveSalespersonName(user, salespersonId) {
