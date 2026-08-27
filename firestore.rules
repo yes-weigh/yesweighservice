@@ -561,7 +561,7 @@ service cloud.firestore {
       allow write: if false;
     }
 
-    // YesGATC ingest: all RCs stored; client may only read Interweighing (IWP).
+    // YesGATC ingest: all RCs stored; certificate list stays Interweighing (IWP) only.
     match /yesgatcCertificates/{certificateId} {
       allow get, list: if isOpsUser()
         && (
@@ -572,11 +572,7 @@ service cloud.firestore {
     }
 
     match /yesgatcRcDetails/{rcId} {
-      allow get, list: if isOpsUser()
-        && (
-          resource.data.get('yesoneVisible', false) == true
-          || resource.data.get('code', '') == 'IWP'
-        );
+      allow get, list: if isOpsUser();
       allow write: if false;
     }
 

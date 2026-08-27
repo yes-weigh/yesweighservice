@@ -1373,14 +1373,23 @@ button.incentive-report__adjust-col:focus-visible {
 
 .yesgatc-filters {
   display: flex;
-  flex-wrap: wrap;
-  align-items: flex-end;
-  gap: 0.55rem;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 0.7rem;
   margin-bottom: 0.85rem;
   padding: 0.75rem;
   border-radius: 12px;
   border: 1px solid rgba(148, 163, 184, 0.18);
   background: rgba(15, 23, 42, 0.35);
+}
+
+.yesgatc-filters__actions {
+  display: flex;
+  gap: 0.55rem;
+}
+
+.yesgatc-filters__actions .btn {
+  flex: 1 1 0;
 }
 
 .yesgatc-records__search {

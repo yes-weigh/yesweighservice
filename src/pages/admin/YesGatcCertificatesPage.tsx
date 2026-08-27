@@ -3,24 +3,39 @@ import { Search, SlidersHorizontal, X } from 'lucide-react';
 import { YesGatcCertificateList } from '../../components/yesgatc/YesGatcCertificateList';
 import { useCatalogPageHeader, useTopBarAction } from '../../context/PageHeaderContext';
 import {
+  YESONE_RC_CODE,
   compareYesGatcCertificateLatestFirst,
   countYesGatcIwpCertificates,
   listYesGatcCertificates,
+  listYesGatcRcDetails,
+  withDefaultIwpRc,
+  yesGatcCertifiedTimeMs,
+  yesGatcRcKey,
+  yesGatcRcLabel,
   type YesGatcCertificate,
+  type YesGatcRcDetail,
 } from '../../lib/yesgatcRecords';
 
 const PAGE_SIZE = 30;
 
-function dayStartMs(ymd: string): number | null {
-  if (!ymd) return null;
-  const date = new Date(`${ymd}T00:00:00`);
-  return Number.isNaN(date.getTime()) ? null : date.getTime();
-}
+const GATC_PERIODS = [
+  { value: 'today', label: 'Today' },
+  { value: 'this_month', label: 'This Month' },
+  { value: 'this_qtr', label: 'This Qtr' },
+  { value: 'this_year', label: 'This Year' },
+  { value: 'lifetime', label: 'Life Time' },
+] as const;
 
-function dayEndMs(ymd: string): number | null {
-  if (!ymd) return null;
-  const date = new Date(`${ymd}T23:59:59.999`);
-  return Number.isNaN(date.getTime()) ? null : date.getTime();
+type GatcPeriod = (typeof GATC_PERIODS)[number]['value'];
+
+function periodBounds(period: GatcPeriod, now = new Date()): { start: number | null; end: number | null } {
+  if (period === 'lifetime') return { start: null, end: null };
+  const end = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59, 999);
+  const start = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  if (period === 'this_month') start.setDate(1);
+  else if (period === 'this_qtr') start.setMonth(Math.floor(now.getMonth() / 3) * 3, 1);
+  else if (period === 'this_year') start.setMonth(0, 1);
+  return { start: start.getTime(), end: end.getTime() };
 }
 
 export const YesGatcCertificatesPage: React.FC = () => {
@@ -28,20 +43,28 @@ export const YesGatcCertificatesPage: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [search, setSearch] = useState('');
-  const [filtersOpen, setFiltersOpen] = useState(false);
-  const [dealerQuery, setDealerQuery] = useState('');
-  const [fromDate, setFromDate] = useState('');
-  const [toDate, setToDate] = useState('');
+  const [filtersOpen, setFiltersOpen] = useState(true);
+  const [draftPeriod, setDraftPeriod] = useState<GatcPeriod>('lifetime');
+  const [appliedPeriod, setAppliedPeriod] = useState<GatcPeriod>('lifetime');
+  const [draftRc, setDraftRc] = useState(YESONE_RC_CODE);
+  const [appliedRc, setAppliedRc] = useState(YESONE_RC_CODE);
+  const [rcs, setRcs] = useState<YesGatcRcDetail[]>(() => withDefaultIwpRc([]));
   const [page, setPage] = useState(1);
   const [storedCount, setStoredCount] = useState<number | null>(null);
+
+  useEffect(() => {
+    void listYesGatcRcDetails()
+      .then(rows => setRcs(withDefaultIwpRc(rows)))
+      .catch(() => setRcs(withDefaultIwpRc([])));
+  }, []);
 
   const load = useCallback(async () => {
     setLoading(true);
     setError('');
     try {
       const [listed, counted] = await Promise.all([
-        listYesGatcCertificates(),
-        countYesGatcIwpCertificates().catch(() => 0),
+        listYesGatcCertificates(10000, { rcCode: appliedRc }),
+        countYesGatcIwpCertificates(appliedRc).catch(() => 0),
       ]);
       setRows(listed);
       setStoredCount(Math.max(listed.length, counted));
@@ -50,40 +73,37 @@ export const YesGatcCertificatesPage: React.FC = () => {
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [appliedRc]);
 
   useEffect(() => {
     void load();
   }, [load]);
 
-  const hasActiveFilters = Boolean(dealerQuery.trim() || fromDate || toDate);
+  const hasActiveFilters = appliedPeriod !== 'lifetime' || appliedRc !== YESONE_RC_CODE;
 
   const visibleRows = useMemo(() => {
     const needle = search.trim().toLowerCase();
-    const dealerNeedle = dealerQuery.trim().toLowerCase();
-    const fromMs = dayStartMs(fromDate);
-    const toMs = dayEndMs(toDate);
+    const { start, end } = periodBounds(appliedPeriod);
     return rows
       .filter(row => {
         if (needle) {
           const blob = `${row.certificateNumber} ${row.serialNumber}`.toLowerCase();
           if (!blob.includes(needle)) return false;
         }
-        if (dealerNeedle && !row.dealerName.toLowerCase().includes(dealerNeedle)) return false;
-        if (fromMs != null || toMs != null) {
-          const received = row.receivedAt ? new Date(row.receivedAt).getTime() : NaN;
-          if (Number.isNaN(received)) return false;
-          if (fromMs != null && received < fromMs) return false;
-          if (toMs != null && received > toMs) return false;
+        if (start != null || end != null) {
+          const certified = yesGatcCertifiedTimeMs(row);
+          if (certified == null) return false;
+          if (start != null && certified < start) return false;
+          if (end != null && certified > end) return false;
         }
         return true;
       })
       .sort(compareYesGatcCertificateLatestFirst);
-  }, [dealerQuery, fromDate, rows, search, toDate]);
+  }, [appliedPeriod, rows, search]);
 
   useEffect(() => {
     setPage(1);
-  }, [dealerQuery, fromDate, search, toDate]);
+  }, [appliedPeriod, search]);
 
   const totalPages = Math.max(1, Math.ceil(visibleRows.length / PAGE_SIZE));
   const safePage = Math.min(page, totalPages);
@@ -119,7 +139,13 @@ export const YesGatcCertificatesPage: React.FC = () => {
             filtersOpen ? 'catalog-header-filter-btn--open' : '',
             hasActiveFilters ? 'catalog-header-filter-btn--active' : '',
           ].filter(Boolean).join(' ')}
-          onClick={() => setFiltersOpen(open => !open)}
+          onClick={() => setFiltersOpen(open => {
+            if (!open) {
+              setDraftPeriod(appliedPeriod);
+              setDraftRc(appliedRc);
+            }
+            return !open;
+          })}
           aria-expanded={filtersOpen}
           aria-label="Filter certificates"
           title="Filters"
@@ -128,7 +154,7 @@ export const YesGatcCertificatesPage: React.FC = () => {
         </button>
       </div>
     ),
-    [filtersOpen, hasActiveFilters, search],
+    [appliedPeriod, appliedRc, filtersOpen, hasActiveFilters, search],
   );
 
   useCatalogPageHeader({ title: 'GATC' }, true);
@@ -138,7 +164,7 @@ export const YesGatcCertificatesPage: React.FC = () => {
     <>
       <span className="invoices-pagination__info text-muted text-sm">
         {(safePage - 1) * PAGE_SIZE + 1}–{Math.min(safePage * PAGE_SIZE, visibleRows.length)} of {visibleRows.length.toLocaleString('en-IN')}
-        {storedCount != null && !search && !dealerQuery && !fromDate && !toDate
+        {storedCount != null && !search && !hasActiveFilters
           ? ` · ${storedCount.toLocaleString('en-IN')} stored`
           : ''}
       </span>
@@ -171,35 +197,59 @@ export const YesGatcCertificatesPage: React.FC = () => {
       <section className="settings-locations panel glass yesgatc-certs-panel">
         {filtersOpen ? (
           <div className="yesgatc-filters">
-            <label className="settings-locations__field">
-              <span>From</span>
-              <input type="date" value={fromDate} onChange={event => setFromDate(event.target.value)} />
-            </label>
-            <label className="settings-locations__field">
-              <span>To</span>
-              <input type="date" value={toDate} onChange={event => setToDate(event.target.value)} />
+            <label className="settings-locations__field settings-locations__field--grow">
+              <span>RC</span>
+              <select
+                value={draftRc}
+                onChange={event => setDraftRc(event.target.value)}
+                aria-label="Regional center"
+              >
+                {rcs.map(rc => (
+                  <option key={rc.id} value={yesGatcRcKey(rc)}>
+                    {yesGatcRcLabel(rc)}
+                  </option>
+                ))}
+              </select>
             </label>
             <label className="settings-locations__field settings-locations__field--grow">
-              <span>Dealer</span>
-              <input
-                type="search"
-                value={dealerQuery}
-                onChange={event => setDealerQuery(event.target.value)}
-                placeholder="Dealer name"
-              />
+              <span>Period</span>
+              <select
+                value={draftPeriod}
+                onChange={event => setDraftPeriod(event.target.value as GatcPeriod)}
+                aria-label="Certificate period"
+              >
+                {GATC_PERIODS.map(option => (
+                  <option key={option.value} value={option.value}>
+                    {option.label}
+                  </option>
+                ))}
+              </select>
             </label>
-            <button
-              type="button"
-              className="btn btn-secondary"
-              disabled={!hasActiveFilters}
-              onClick={() => {
-                setDealerQuery('');
-                setFromDate('');
-                setToDate('');
-              }}
-            >
-              Clear
-            </button>
+            <div className="yesgatc-filters__actions">
+              <button
+                type="button"
+                className="btn btn-primary"
+                onClick={() => {
+                  setAppliedPeriod(draftPeriod);
+                  setAppliedRc(draftRc);
+                }}
+              >
+                Apply
+              </button>
+              <button
+                type="button"
+                className="btn btn-secondary"
+                disabled={draftPeriod === 'lifetime' && appliedPeriod === 'lifetime' && draftRc === YESONE_RC_CODE && appliedRc === YESONE_RC_CODE}
+                onClick={() => {
+                  setDraftPeriod('lifetime');
+                  setAppliedPeriod('lifetime');
+                  setDraftRc(YESONE_RC_CODE);
+                  setAppliedRc(YESONE_RC_CODE);
+                }}
+              >
+                Clear
+              </button>
+            </div>
           </div>
         ) : null}
         {error ? <p className="settings-locations__error">{error}</p> : null}
@@ -212,7 +262,9 @@ export const YesGatcCertificatesPage: React.FC = () => {
           <YesGatcCertificateList
             rows={pageRows}
             loading={loading}
-            empty="No GATC certificates match."
+            empty={search || hasActiveFilters
+              ? 'No GATC certificates match.'
+              : 'No GATC certificates.'}
           />
         </div>
         {pagination ? (

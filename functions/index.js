@@ -7333,7 +7333,8 @@ export const listYesGatcCertificatesFn = onCall(
     await requireActiveUser(request.auth?.uid, SYNC_ROLES, { allowViewOnly: true });
     try {
       const max = Math.min(20000, Math.max(1, Number(request.data?.max) || 10000));
-      return { rows: await listCertificatesForOps(max) };
+      const rcCode = String(request.data?.rcCode ?? '').trim();
+      return { rows: await listCertificatesForOps(max, { rcCode }) };
     } catch (err) {
       if (err instanceof HttpsError) throw err;
       throw new HttpsError('internal', err?.message ?? 'Could not load certificates.');

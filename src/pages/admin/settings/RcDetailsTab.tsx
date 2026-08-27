@@ -46,7 +46,7 @@ export const RcDetailsTab: React.FC = () => {
         <div>
           <h3>RC details</h3>
           <p className="text-muted text-sm">
-            Regional Center records pushed from YesGATC.
+            All Regional Center records pushed from YesGATC.
           </p>
         </div>
       </header>

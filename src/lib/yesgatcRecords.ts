@@ -329,17 +329,27 @@ function mapCertificate(id: string, data: Record<string, unknown>): YesGatcCerti
 }
 
 function mapRc(id: string, data: Record<string, unknown>): YesGatcRcDetail {
+  const raw = data.raw && typeof data.raw === 'object' && !Array.isArray(data.raw)
+    ? data.raw as Record<string, unknown>
+    : null;
+  const code = str(data.code) || str(raw?.code) || str(raw?.rcCode) || str(raw?.rc_code);
+  let name = str(data.name)
+    || str(raw?.name)
+    || str(raw?.rcName)
+    || str(raw?.officeName)
+    || str(raw?.title);
+  if (!name && looksLikeIwpRc(code, name, raw)) name = YESONE_RC_NAME;
   return {
     id,
-    code: str(data.code),
-    name: str(data.name),
-    address: nullable(data.address),
-    city: nullable(data.city),
-    state: nullable(data.state),
-    pincode: nullable(data.pincode),
-    phone: nullable(data.phone),
-    email: nullable(data.email),
-    status: nullable(data.status),
+    code,
+    name,
+    address: nullable(data.address) ?? nullable(raw?.address),
+    city: nullable(data.city) ?? nullable(raw?.city),
+    state: nullable(data.state) ?? nullable(raw?.state),
+    pincode: nullable(data.pincode) ?? nullable(raw?.pincode),
+    phone: nullable(data.phone) ?? nullable(raw?.phone) ?? nullable(raw?.mobile),
+    email: nullable(data.email) ?? nullable(raw?.email),
+    status: nullable(data.status) ?? nullable(raw?.status),
     receivedAt: isoFromUnknown(data.receivedAt),
     raw: data.raw ?? null,
   };
@@ -385,6 +395,53 @@ export function isYesoneIwpRcDetail(row: YesGatcRcDetail): boolean {
   return looksLikeIwpRc(row.code, row.name, row.raw);
 }
 
+export function yesGatcRcKey(row: Pick<YesGatcRcDetail, 'id' | 'code'>): string {
+  return str(row.code).toUpperCase() || row.id;
+}
+
+export function yesGatcRcLabel(row: YesGatcRcDetail): string {
+  if (isYesoneIwpRcDetail(row) || str(row.code).toUpperCase() === YESONE_RC_CODE) {
+    return row.name || YESONE_RC_NAME;
+  }
+  return row.name || row.code || row.id;
+}
+
+export function withDefaultIwpRc(rows: YesGatcRcDetail[]): YesGatcRcDetail[] {
+  const list = rows.map(row => (
+    isYesoneIwpRcDetail(row) && !row.name
+      ? { ...row, name: YESONE_RC_NAME }
+      : row
+  ));
+  if (!list.some(isYesoneIwpRcDetail)) {
+    list.unshift({
+      id: YESONE_RC_CODE,
+      code: YESONE_RC_CODE,
+      name: YESONE_RC_NAME,
+      address: null,
+      city: null,
+      state: null,
+      pincode: null,
+      phone: null,
+      email: null,
+      status: null,
+      receivedAt: null,
+      raw: null,
+    });
+  }
+  return list.sort((a, b) => {
+    const aIwp = isYesoneIwpRcDetail(a) ? 0 : 1;
+    const bIwp = isYesoneIwpRcDetail(b) ? 0 : 1;
+    if (aIwp !== bIwp) return aIwp - bIwp;
+    return yesGatcRcLabel(a).localeCompare(yesGatcRcLabel(b), 'en', { sensitivity: 'base' });
+  });
+}
+
+export function certificateMatchesRc(row: YesGatcCertificate, rcCode: string): boolean {
+  const wanted = str(rcCode).toUpperCase() || YESONE_RC_CODE;
+  if (wanted === YESONE_RC_CODE) return isYesoneIwpCertificate(row);
+  return str(row.rcCode).toUpperCase() === wanted;
+}
+
 async function loadCertificatesWhere(
   field: 'yesoneVisible' | 'rcCode',
   value: string | boolean,
@@ -409,12 +466,16 @@ async function loadCertificatesWhere(
   return rows;
 }
 
-export async function countYesGatcIwpCertificates(): Promise<number> {
+export async function countYesGatcIwpCertificates(rcCode = YESONE_RC_CODE): Promise<number> {
   const col = collection(db, YESGATC_CERTIFICATES);
-  const counts = await Promise.allSettled([
-    getCountFromServer(query(col, where('yesoneVisible', '==', true))),
-    getCountFromServer(query(col, where('rcCode', '==', YESONE_RC_CODE))),
-  ]);
+  const wanted = str(rcCode).toUpperCase() || YESONE_RC_CODE;
+  const queries = wanted === YESONE_RC_CODE
+    ? [
+      getCountFromServer(query(col, where('yesoneVisible', '==', true))),
+      getCountFromServer(query(col, where('rcCode', '==', YESONE_RC_CODE))),
+    ]
+    : [getCountFromServer(query(col, where('rcCode', '==', wanted)))];
+  const counts = await Promise.allSettled(queries);
   let best = 0;
   for (const result of counts) {
     if (result.status === 'fulfilled') {
@@ -424,33 +485,39 @@ export async function countYesGatcIwpCertificates(): Promise<number> {
   return best;
 }
 
-export async function listYesGatcCertificates(max = 10000): Promise<YesGatcCertificate[]> {
+export async function listYesGatcCertificates(
+  max = 10000,
+  filter: { rcCode?: string } = {},
+): Promise<YesGatcCertificate[]> {
+  const rcCode = str(filter.rcCode).toUpperCase() || YESONE_RC_CODE;
   const merge = new Map<string, YesGatcCertificate>();
   const take = (rows: YesGatcCertificate[]) => {
     for (const row of rows) {
-      if (merge.size >= max || merge.has(row.id) || !isYesoneIwpCertificate(row)) continue;
+      if (merge.size >= max || merge.has(row.id) || !certificateMatchesRc(row, rcCode)) continue;
       merge.set(row.id, withCertificateSpecs(row));
     }
   };
 
-  try {
-    take(await loadCertificatesWhere('yesoneVisible', true));
-  } catch {
-    // Rules or index missing — rcCode query still runs.
+  if (rcCode === YESONE_RC_CODE) {
+    try {
+      take(await loadCertificatesWhere('yesoneVisible', true));
+    } catch {
+      // Rules or index missing — rcCode query still runs.
+    }
   }
   try {
-    take(await loadCertificatesWhere('rcCode', YESONE_RC_CODE));
+    take(await loadCertificatesWhere('rcCode', rcCode));
   } catch {
     // Rules or index missing.
   }
 
-  if (merge.size === 0) {
+  if (merge.size === 0 || rcCode !== YESONE_RC_CODE) {
     try {
-      const fn = httpsCallable<{ max?: number }, { rows: YesGatcCertificate[] }>(
+      const fn = httpsCallable<{ max?: number; rcCode?: string }, { rows: YesGatcCertificate[] }>(
         functions,
         'listYesGatcCertificatesFn',
       );
-      take((await fn({ max })).data.rows ?? []);
+      take((await fn({ max, rcCode })).data.rows ?? []);
     } catch {
       // Callable unavailable.
     }
@@ -460,28 +527,42 @@ export async function listYesGatcCertificates(max = 10000): Promise<YesGatcCerti
 }
 
 export async function listYesGatcRcDetails(max = 400): Promise<YesGatcRcDetail[]> {
+  const merge = new Map<string, YesGatcRcDetail>();
+  const take = (rows: YesGatcRcDetail[]) => {
+    for (const row of rows) {
+      if (merge.size >= max || merge.has(row.id)) continue;
+      merge.set(row.id, mapRc(row.id, row as unknown as Record<string, unknown>));
+    }
+  };
+
   try {
     const fn = httpsCallable<{ max?: number }, { rows: YesGatcRcDetail[] }>(
       functions,
       'listYesGatcRcDetailsFn',
     );
-    return ((await fn({ max })).data.rows ?? []).filter(isYesoneIwpRcDetail);
+    take((await fn({ max })).data.rows ?? []);
   } catch {
-    const col = collection(db, YESGATC_RC_DETAILS);
+    // Callable unavailable — Firestore reads still run.
+  }
+
+  const col = collection(db, YESGATC_RC_DETAILS);
+  for (const next of [
+    () => getDocs(query(col, limit(max))),
+    () => getDocs(query(col, where('yesoneVisible', '==', true), limit(max))),
+    () => getDocs(query(col, where('code', '==', YESONE_RC_CODE), limit(max))),
+  ]) {
     try {
-      const snap = await getDocs(query(col, where('yesoneVisible', '==', true), limit(max)));
-      return snap.docs
-        .map(row => mapRc(row.id, row.data() as Record<string, unknown>))
-        .filter(isYesoneIwpRcDetail)
-        .sort((a, b) => String(b.receivedAt ?? '').localeCompare(String(a.receivedAt ?? '')));
+      const snap = await next();
+      take(snap.docs.map(row => mapRc(row.id, row.data() as Record<string, unknown>)));
+      if (merge.size > 1) break;
     } catch {
-      const snap = await getDocs(query(col, where('code', '==', YESONE_RC_CODE), limit(max)));
-      return snap.docs
-        .map(row => mapRc(row.id, row.data() as Record<string, unknown>))
-        .filter(isYesoneIwpRcDetail)
-        .sort((a, b) => String(b.receivedAt ?? '').localeCompare(String(a.receivedAt ?? '')));
+      // Rules or index missing — try the next query.
     }
   }
+
+  return [...merge.values()].sort((a, b) => (
+    String(b.receivedAt ?? '').localeCompare(String(a.receivedAt ?? ''))
+  ));
 }
 
 export function formatYesGatcWhen(iso: string | null | undefined): string {
@@ -506,9 +587,9 @@ function firstDateText(value: unknown): string {
   return Number.isNaN(parsed.getTime()) ? '' : parsed.toISOString();
 }
 
-export function yesGatcCertifiedAt(row: YesGatcCertificate): string {
+export function yesGatcCertifiedIso(row: YesGatcCertificate): string | null {
   const fromFields = firstDateText(row.issuedAt);
-  if (fromFields) return formatYesGatcWhen(fromFields);
+  if (fromFields) return fromFields;
   if (row.raw && typeof row.raw === 'object' && !Array.isArray(row.raw)) {
     const record = row.raw as Record<string, unknown>;
     const nested = firstDateText(
@@ -520,9 +601,20 @@ export function yesGatcCertifiedAt(row: YesGatcCertificate): string {
       ?? record.certifiedOn
       ?? record.dateOfCertification,
     );
-    if (nested) return formatYesGatcWhen(nested);
+    if (nested) return nested;
   }
-  return formatYesGatcWhen(row.receivedAt);
+  return firstDateText(row.receivedAt) || null;
+}
+
+export function yesGatcCertifiedTimeMs(row: YesGatcCertificate): number | null {
+  const iso = yesGatcCertifiedIso(row);
+  if (!iso) return null;
+  const ms = new Date(iso).getTime();
+  return Number.isNaN(ms) ? null : ms;
+}
+
+export function yesGatcCertifiedAt(row: YesGatcCertificate): string {
+  return formatYesGatcWhen(yesGatcCertifiedIso(row));
 }
 
 function signedFlag(value: unknown): boolean {

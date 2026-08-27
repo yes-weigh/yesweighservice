@@ -403,10 +403,13 @@ function mapCertificateDoc(row) {
 
 function mapRcDoc(row) {
   const data = row.data() || {};
+  const code = String(data.code ?? '');
+  const name = String(data.name ?? '')
+    || (isIwpCode(code) || isIwpName(data.name) ? YESONE_RC_NAME : '');
   return {
     id: row.id,
-    code: String(data.code ?? ''),
-    name: String(data.name ?? ''),
+    code,
+    name,
     yesoneVisible: data.yesoneVisible === true,
     address: data.address != null ? String(data.address) : null,
     city: data.city != null ? String(data.city) : null,
@@ -459,26 +462,34 @@ export function isYesoneIwpCertificateRow(row) {
   });
 }
 
-export async function listCertificatesForOps(max = 10000) {
+export async function listCertificatesForOps(max = 10000, filter = {}) {
   const cap = Math.min(20000, Math.max(1, Number(max) || 10000));
+  const wanted = String(filter.rcCode ?? YESONE_RC_CODE).trim().toUpperCase() || YESONE_RC_CODE;
+  const isIwp = wanted === YESONE_RC_CODE;
   const col = getFirestore().collection(YESGATC_CERTIFICATES);
   const seen = new Set();
   const out = [];
+
+  const matches = (row) => {
+    if (isIwp) return isYesoneIwpCertificateRow(row);
+    return String(row.rcCode ?? '').trim().toUpperCase() === wanted;
+  };
 
   const take = (docs) => {
     for (const doc of docs) {
       if (seen.has(doc.id) || out.length >= cap) continue;
       const row = mapCertificateDoc(doc);
-      if (!isYesoneIwpCertificateRow(row)) continue;
+      if (!matches(row)) continue;
       seen.add(doc.id);
       out.push(publicCertificateRow(row));
     }
   };
 
-  for (const queryBase of [
-    col.where('yesoneVisible', '==', true),
-    col.where('rcCode', '==', YESONE_RC_CODE),
-  ]) {
+  const queries = isIwp
+    ? [col.where('yesoneVisible', '==', true), col.where('rcCode', '==', YESONE_RC_CODE)]
+    : [col.where('rcCode', '==', wanted)];
+
+  for (const queryBase of queries) {
     try {
       take(await paginateQuery(queryBase));
     } catch {
@@ -487,15 +498,18 @@ export async function listCertificatesForOps(max = 10000) {
     if (out.length >= cap) return out;
   }
 
-  try {
-    take(await paginateQuery(col.orderBy('receivedAt', 'desc')));
-  } catch {
-    take(await paginateQuery(col));
+  if (out.length === 0) {
+    try {
+      take(await paginateQuery(col.orderBy('receivedAt', 'desc')));
+    } catch {
+      take(await paginateQuery(col));
+    }
   }
   return out;
 }
 
 export async function listRcDetailsForOps(max = 400) {
-  const pool = await listCollection(YESGATC_RC_DETAILS, mapRcDoc, Math.min(500, Math.max(max * 4, 80)));
-  return pool.filter(isYesoneIwpCertificateRow).slice(0, max);
+  const cap = Math.min(500, Math.max(1, Number(max) || 400));
+  const pool = await listCollection(YESGATC_RC_DETAILS, mapRcDoc, cap);
+  return pool.sort((a, b) => String(b.receivedAt ?? '').localeCompare(String(a.receivedAt ?? '')));
 }
