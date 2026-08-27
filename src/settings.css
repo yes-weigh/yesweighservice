@@ -1679,6 +1679,142 @@ button.incentive-report__adjust-col:focus-visible {
   background: #0b0f14;
 }
 
+.yesgatc-rc-list {
+  display: flex;
+  flex-direction: column;
+}
+
+.yesgatc-rc-row {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.75rem 0.85rem;
+  border-top: 1px solid rgba(255, 255, 255, 0.07);
+}
+
+.yesgatc-rc-row__select {
+  min-width: 4.6rem;
+}
+
+.yesgatc-rc-row__text {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.yesgatc-rc-row__name {
+  margin: 0;
+  font-size: 0.88rem;
+  font-weight: 700;
+  line-height: 1.3;
+  overflow-wrap: anywhere;
+}
+
+.yesgatc-rc-row__code {
+  margin: 0.15rem 0 0;
+  color: #94a3b8;
+  font-size: 0.75rem;
+  font-weight: 650;
+  letter-spacing: 0.04em;
+}
+
+.yesgatc-rc-row .btn {
+  flex: 0 0 auto;
+}
+
+.yesgatc-rc-picker {
+  display: flex;
+  flex-direction: column;
+  width: min(100%, 26rem);
+  max-height: calc(100dvh - 1.5rem);
+  margin: auto;
+  padding: 0.85rem;
+  border-radius: 16px;
+  border: 1px solid rgba(148, 163, 184, 0.18);
+  background: #10151d;
+}
+
+.yesgatc-rc-picker__head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.75rem;
+  margin-bottom: 0.7rem;
+}
+
+.yesgatc-rc-picker__head h3 {
+  margin: 0;
+  font-size: 1rem;
+}
+
+.yesgatc-rc-picker__head p {
+  margin: 0.2rem 0 0;
+}
+
+.yesgatc-rc-picker__close {
+  border: 0;
+  background: transparent;
+  color: inherit;
+  padding: 0.2rem;
+  cursor: pointer;
+}
+
+.yesgatc-rc-picker__search {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  margin-bottom: 0.65rem;
+  padding: 0.4rem 0.65rem;
+  border-radius: 8px;
+  border: 1px solid rgba(148, 163, 184, 0.18);
+  background: rgba(15, 23, 42, 0.35);
+}
+
+.yesgatc-rc-picker__search input {
+  flex: 1;
+  min-width: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  outline: none;
+}
+
+.yesgatc-rc-picker__list {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: auto;
+  display: flex;
+  flex-direction: column;
+}
+
+.yesgatc-rc-picker__item {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.15rem;
+  padding: 0.65rem 0.2rem;
+  border: 0;
+  border-top: 1px solid rgba(255, 255, 255, 0.07);
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.yesgatc-rc-picker__item strong {
+  font-size: 0.88rem;
+}
+
+.yesgatc-rc-picker__item span {
+  color: #94a3b8;
+  font-size: 0.72rem;
+}
+
+.yesgatc-rc-picker__clear {
+  margin-top: 0.65rem;
+}
+
 .settings-locations__grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(min(100%, 16rem), 1fr));

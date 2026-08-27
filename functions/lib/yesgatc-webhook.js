@@ -464,48 +464,28 @@ export function isYesoneIwpCertificateRow(row) {
 
 export async function listCertificatesForOps(max = 10000, filter = {}) {
   const cap = Math.min(20000, Math.max(1, Number(max) || 10000));
-  const wanted = String(filter.rcCode ?? YESONE_RC_CODE).trim().toUpperCase() || YESONE_RC_CODE;
-  const isIwp = wanted === YESONE_RC_CODE;
+  const wanted = String(filter.rcCode ?? '').trim().toUpperCase();
   const col = getFirestore().collection(YESGATC_CERTIFICATES);
+  let docs = [];
+  try {
+    docs = await paginateQuery(col.orderBy('receivedAt', 'desc'));
+  } catch {
+    docs = await paginateQuery(col);
+  }
+  const rows = [];
   const seen = new Set();
-  const out = [];
-
-  const matches = (row) => {
-    if (isIwp) return isYesoneIwpCertificateRow(row);
-    return String(row.rcCode ?? '').trim().toUpperCase() === wanted;
-  };
-
-  const take = (docs) => {
-    for (const doc of docs) {
-      if (seen.has(doc.id) || out.length >= cap) continue;
-      const row = mapCertificateDoc(doc);
-      if (!matches(row)) continue;
-      seen.add(doc.id);
-      out.push(publicCertificateRow(row));
-    }
-  };
-
-  const queries = isIwp
-    ? [col.where('yesoneVisible', '==', true), col.where('rcCode', '==', YESONE_RC_CODE)]
-    : [col.where('rcCode', '==', wanted)];
-
-  for (const queryBase of queries) {
-    try {
-      take(await paginateQuery(queryBase));
-    } catch {
-      // Missing index or field — fall through to the full scan.
-    }
-    if (out.length >= cap) return out;
+  for (const doc of docs) {
+    if (seen.has(doc.id) || rows.length >= cap) break;
+    seen.add(doc.id);
+    rows.push(publicCertificateRow(mapCertificateDoc(doc)));
   }
-
-  if (out.length === 0) {
-    try {
-      take(await paginateQuery(col.orderBy('receivedAt', 'desc')));
-    } catch {
-      take(await paginateQuery(col));
-    }
-  }
-  return out;
+  if (!wanted) return rows;
+  const matched = rows.filter(row => (
+    wanted === YESONE_RC_CODE
+      ? isYesoneIwpCertificateRow(row)
+      : String(row.rcCode ?? '').trim().toUpperCase() === wanted
+  ));
+  return matched.length ? matched : rows;
 }
 
 export async function listRcDetailsForOps(max = 400) {

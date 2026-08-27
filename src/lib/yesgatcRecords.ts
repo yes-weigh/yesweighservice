@@ -1,5 +1,6 @@
 import {
   collection,
+  deleteDoc,
   doc,
   getCountFromServer,
   getDoc,
@@ -19,6 +20,7 @@ import { app, db } from '../firebase';
 
 export const YESGATC_CERTIFICATES = 'yesgatcCertificates';
 export const YESGATC_RC_DETAILS = 'yesgatcRcDetails';
+export const YESGATC_RC_DEALER_LINKS = 'yesgatcRcDealerLinks';
 export const YESGATC_WEBHOOK_SETTINGS_ID = 'yesgatcWebhook';
 
 export const YESGATC_WEBHOOK_URL = 'https://yesweigh-service.web.app/webhooks/yesgatc';
@@ -63,6 +65,8 @@ export type YesGatcRcDetail = {
   email: string | null;
   status: string | null;
   receivedAt: string | null;
+  dealerId: string | null;
+  dealerName: string | null;
   raw: unknown;
 };
 
@@ -328,22 +332,75 @@ function mapCertificate(id: string, data: Record<string, unknown>): YesGatcCerti
   };
 }
 
+function isCodeLikeName(value: string, code: string): boolean {
+  const compact = value.replace(/[\s.\-_]/g, '').toUpperCase();
+  const codeCompact = code.replace(/[\s.\-_]/g, '').toUpperCase();
+  if (!compact) return true;
+  if (codeCompact && compact === codeCompact) return true;
+  return compact.length <= 4 && /^[A-Z0-9]+$/.test(compact);
+}
+
+const RC_NAME_KEYS = [
+  'name', 'rcName', 'rc_name', 'officeName', 'office_name', 'title',
+  'company', 'companyName', 'company_name', 'firm', 'firmName', 'firm_name',
+  'organisation', 'organization', 'orgName', 'legalName', 'displayName',
+  'rcOfficeName', 'regionalCenterName', 'centreName', 'centerName',
+];
+
+function nameFromRecord(record: Record<string, unknown> | null | undefined, code: string): string {
+  if (!record) return '';
+  for (const key of RC_NAME_KEYS) {
+    const text = str(record[key]);
+    if (text && !isCodeLikeName(text, code)) return text;
+  }
+  return '';
+}
+
+function nameFromAddress(address: string, code: string): string {
+  const text = address.replace(/\s+/g, ' ').trim();
+  if (!text) return '';
+  const first = text.split(',')[0]?.trim() ?? '';
+  const company = first.split(/\s+(?:Room|No\.?|Nagar|Road|Rd\.?)\b/i)[0]?.trim() ?? '';
+  if (
+    company
+    && company.length >= 4
+    && !isCodeLikeName(company, code)
+    && !/^\d/.test(company)
+    && !/^(TC|PMC|DOOR|PLOT)\b/i.test(company)
+  ) {
+    return company;
+  }
+  return '';
+}
+
+function resolveRcFullName(
+  code: string,
+  data: Record<string, unknown>,
+  raw: Record<string, unknown> | null,
+  address: string | null,
+): string {
+  if (looksLikeIwpRc(code, str(data.name), raw)) return YESONE_RC_NAME;
+  const nested = raw
+    ? [raw.rc, raw.rcOffice, raw.regionalCenter, raw.rcDetail, raw.office]
+      .find(item => item && typeof item === 'object' && !Array.isArray(item)) as Record<string, unknown> | undefined
+    : undefined;
+  return nameFromRecord(data, code)
+    || nameFromRecord(raw, code)
+    || nameFromRecord(nested, code)
+    || nameFromAddress(address || str(raw?.address) || str(data.address), code);
+}
+
 function mapRc(id: string, data: Record<string, unknown>): YesGatcRcDetail {
   const raw = data.raw && typeof data.raw === 'object' && !Array.isArray(data.raw)
     ? data.raw as Record<string, unknown>
     : null;
   const code = str(data.code) || str(raw?.code) || str(raw?.rcCode) || str(raw?.rc_code);
-  let name = str(data.name)
-    || str(raw?.name)
-    || str(raw?.rcName)
-    || str(raw?.officeName)
-    || str(raw?.title);
-  if (!name && looksLikeIwpRc(code, name, raw)) name = YESONE_RC_NAME;
+  const address = nullable(data.address) ?? nullable(raw?.address);
   return {
     id,
     code,
-    name,
-    address: nullable(data.address) ?? nullable(raw?.address),
+    name: resolveRcFullName(code, data, raw, address),
+    address,
     city: nullable(data.city) ?? nullable(raw?.city),
     state: nullable(data.state) ?? nullable(raw?.state),
     pincode: nullable(data.pincode) ?? nullable(raw?.pincode),
@@ -351,6 +408,8 @@ function mapRc(id: string, data: Record<string, unknown>): YesGatcRcDetail {
     email: nullable(data.email) ?? nullable(raw?.email),
     status: nullable(data.status) ?? nullable(raw?.status),
     receivedAt: isoFromUnknown(data.receivedAt),
+    dealerId: nullable(data.dealerId),
+    dealerName: nullable(data.dealerName),
     raw: data.raw ?? null,
   };
 }
@@ -400,10 +459,14 @@ export function yesGatcRcKey(row: Pick<YesGatcRcDetail, 'id' | 'code'>): string 
 }
 
 export function yesGatcRcLabel(row: YesGatcRcDetail): string {
+  const linked = str(row.dealerName);
+  if (linked) return linked;
+  const named = str(row.name);
+  if (named && !isCodeLikeName(named, row.code)) return named;
   if (isYesoneIwpRcDetail(row) || str(row.code).toUpperCase() === YESONE_RC_CODE) {
-    return row.name || YESONE_RC_NAME;
+    return YESONE_RC_NAME;
   }
-  return row.name || row.code || row.id;
+  return named || row.code || row.id;
 }
 
 export function withDefaultIwpRc(rows: YesGatcRcDetail[]): YesGatcRcDetail[] {
@@ -425,6 +488,8 @@ export function withDefaultIwpRc(rows: YesGatcRcDetail[]): YesGatcRcDetail[] {
       email: null,
       status: null,
       receivedAt: null,
+      dealerId: null,
+      dealerName: null,
       raw: null,
     });
   }
@@ -443,8 +508,8 @@ export function certificateMatchesRc(row: YesGatcCertificate, rcCode: string): b
 }
 
 async function loadCertificatesWhere(
-  field: 'yesoneVisible' | 'rcCode',
-  value: string | boolean,
+  field: 'yesoneVisible' | 'rcCode' | null,
+  value: string | boolean | null,
 ): Promise<YesGatcCertificate[]> {
   const col = collection(db, YESGATC_CERTIFICATES);
   const pageSize = 400;
@@ -453,8 +518,12 @@ async function loadCertificatesWhere(
   for (;;) {
     const snap: QuerySnapshot<DocumentData> = await getDocs(
       cursor
-        ? query(col, where(field, '==', value), startAfter(cursor), limit(pageSize))
-        : query(col, where(field, '==', value), limit(pageSize)),
+        ? (field
+          ? query(col, where(field, '==', value), startAfter(cursor), limit(pageSize))
+          : query(col, startAfter(cursor), limit(pageSize)))
+        : (field
+          ? query(col, where(field, '==', value), limit(pageSize))
+          : query(col, limit(pageSize))),
     );
     rows.push(...snap.docs.map(docSnap => (
       mapCertificate(docSnap.id, docSnap.data() as Record<string, unknown>)
@@ -493,37 +562,42 @@ export async function listYesGatcCertificates(
   const merge = new Map<string, YesGatcCertificate>();
   const take = (rows: YesGatcCertificate[]) => {
     for (const row of rows) {
-      if (merge.size >= max || merge.has(row.id) || !certificateMatchesRc(row, rcCode)) continue;
+      if (merge.size >= max || merge.has(row.id)) continue;
       merge.set(row.id, withCertificateSpecs(row));
     }
   };
 
-  if (rcCode === YESONE_RC_CODE) {
+  try {
+    take(await loadCertificatesWhere(null, null));
+  } catch {
+    // Rules not deployed yet — fall back to tagged queries.
+  }
+  if (merge.size === 0) {
     try {
       take(await loadCertificatesWhere('yesoneVisible', true));
     } catch {
-      // Rules or index missing — rcCode query still runs.
+      // ignore
     }
-  }
-  try {
-    take(await loadCertificatesWhere('rcCode', rcCode));
-  } catch {
-    // Rules or index missing.
-  }
-
-  if (merge.size === 0 || rcCode !== YESONE_RC_CODE) {
     try {
-      const fn = httpsCallable<{ max?: number; rcCode?: string }, { rows: YesGatcCertificate[] }>(
-        functions,
-        'listYesGatcCertificatesFn',
-      );
-      take((await fn({ max, rcCode })).data.rows ?? []);
+      take(await loadCertificatesWhere('rcCode', rcCode));
     } catch {
-      // Callable unavailable.
+      // ignore
     }
   }
 
-  return [...merge.values()].sort(compareYesGatcCertificateLatestFirst);
+  try {
+    const fn = httpsCallable<{ max?: number; rcCode?: string }, { rows: YesGatcCertificate[] }>(
+      functions,
+      'listYesGatcCertificatesFn',
+    );
+    take((await fn({ max, rcCode })).data.rows ?? []);
+  } catch {
+    // Callable unavailable.
+  }
+
+  const all = [...merge.values()];
+  const matched = all.filter(row => certificateMatchesRc(row, rcCode));
+  return (matched.length ? matched : all).sort(compareYesGatcCertificateLatestFirst);
 }
 
 export async function listYesGatcRcDetails(max = 400): Promise<YesGatcRcDetail[]> {
@@ -560,9 +634,59 @@ export async function listYesGatcRcDetails(max = 400): Promise<YesGatcRcDetail[]
     }
   }
 
-  return [...merge.values()].sort((a, b) => (
-    String(b.receivedAt ?? '').localeCompare(String(a.receivedAt ?? ''))
-  ));
+  const links = await listYesGatcRcDealerLinks().catch(
+    () => new Map<string, { dealerId: string; dealerName: string }>(),
+  );
+
+  return [...merge.values()]
+    .map(row => applyRcDealerLink(row, links))
+    .sort((a, b) => yesGatcRcLabel(a).localeCompare(yesGatcRcLabel(b), 'en', { sensitivity: 'base' }));
+}
+
+function applyRcDealerLink(
+  row: YesGatcRcDetail,
+  links: Map<string, { dealerId: string; dealerName: string }>,
+): YesGatcRcDetail {
+  const link = links.get(row.id) ?? links.get(yesGatcRcKey(row));
+  if (!link) return row;
+  return {
+    ...row,
+    dealerId: link.dealerId,
+    dealerName: link.dealerName,
+  };
+}
+
+export async function listYesGatcRcDealerLinks(): Promise<Map<string, { dealerId: string; dealerName: string }>> {
+  const snap = await getDocs(collection(db, YESGATC_RC_DEALER_LINKS));
+  const links = new Map<string, { dealerId: string; dealerName: string }>();
+  for (const row of snap.docs) {
+    const data = row.data() as Record<string, unknown>;
+    const dealerId = str(data.dealerId);
+    const dealerName = str(data.dealerName);
+    if (!dealerId || !dealerName) continue;
+    links.set(row.id, { dealerId, dealerName });
+    const code = str(data.rcCode).toUpperCase();
+    if (code) links.set(code, { dealerId, dealerName });
+  }
+  return links;
+}
+
+export async function saveYesGatcRcDealerLink(
+  rcId: string,
+  rcCode: string,
+  dealerId: string,
+  dealerName: string,
+): Promise<void> {
+  await setDoc(doc(db, YESGATC_RC_DEALER_LINKS, rcId), {
+    rcCode,
+    dealerId,
+    dealerName,
+    linkedAt: serverTimestamp(),
+  });
+}
+
+export async function clearYesGatcRcDealerLink(rcId: string): Promise<void> {
+  await deleteDoc(doc(db, YESGATC_RC_DEALER_LINKS, rcId));
 }
 
 export function formatYesGatcWhen(iso: string | null | undefined): string {

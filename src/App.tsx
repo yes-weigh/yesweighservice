@@ -430,6 +430,7 @@ const App: React.FC = () => (
                 {hrNestedRoutes('/staff/settings', false)}
                 <Route path="training" element={<DealerMenuPages.Training />} />
                 <Route path="price-level" element={<DealerLevelDefinitionsPanel />} />
+                <Route path="rc-details" element={<RcDetailsTab />} />
               </Route>
               <Route path="profile" element={<StaffProfileEntry />} />
             </Route>

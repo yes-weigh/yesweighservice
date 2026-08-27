@@ -561,19 +561,18 @@ service cloud.firestore {
       allow write: if false;
     }
 
-    // YesGATC ingest: all RCs stored; certificate list stays Interweighing (IWP) only.
     match /yesgatcCertificates/{certificateId} {
-      allow get, list: if isOpsUser()
-        && (
-          resource.data.get('yesoneVisible', false) == true
-          || resource.data.get('rcCode', '') == 'IWP'
-        );
+      allow get, list: if isOpsUser();
       allow write: if false;
     }
 
     match /yesgatcRcDetails/{rcId} {
       allow get, list: if isOpsUser();
       allow write: if false;
+    }
+
+    match /yesgatcRcDealerLinks/{rcId} {
+      allow read, write: if isOpsUser();
     }
 
     // Super-admin line exclusions on the incentive report (hike / discount lines).
