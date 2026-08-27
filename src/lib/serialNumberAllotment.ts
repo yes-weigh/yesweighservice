@@ -180,6 +180,7 @@ export function newAllotmentId(): string {
 export function allotmentFromPreview(
   preview: SerialRangePreview,
   series: SerialSeriesId = DEFAULT_SERIAL_SERIES,
+  createdBy: string | null = null,
   createdAt = new Date().toISOString(),
 ): SerialNumberAllotment {
   return {
@@ -190,6 +191,7 @@ export function allotmentFromPreview(
     missing: preview.missing,
     count: preview.count,
     createdAt,
+    createdBy: createdBy?.trim() || null,
   };
 }
 
@@ -297,6 +299,7 @@ function normalizeAllotment(raw: unknown): SerialNumberAllotment | null {
     missing: preview.missing,
     count: preview.count,
     createdAt: String(data.createdAt ?? '').trim() || new Date().toISOString(),
+    createdBy: String(data.createdBy ?? '').trim() || null,
   };
 }
 

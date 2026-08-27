@@ -1,7 +1,9 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState, Suspense, lazy } from 'react';
 import { createPortal } from 'react-dom';
 import { Download, Loader2, Pencil, Search, X } from 'lucide-react';
+import { FetchingLoader } from '../FetchingLoader';
 import { shareCatalogMediaFile } from '../../lib/catalogMedia/share';
+import { prefersNativePdfViewer } from '../../lib/pdfViewer';
 import {
   fetchAdminInvoicesPage,
   searchAdminInvoicesAutocomplete,
@@ -13,6 +15,10 @@ import {
   type YesGatcCertificate,
   yesGatcCertifiedAt,
 } from '../../lib/yesgatcRecords';
+
+const InvoicePdfCanvas = lazy(() =>
+  import('../invoices/InvoicePdfCanvas').then(m => ({ default: m.InvoicePdfCanvas })),
+);
 
 const INVOICE_MIN_DATE = '2026-04-05';
 
@@ -36,8 +42,13 @@ function YesGatcCertificateShareDialog({
   row: YesGatcCertificate;
   onClose: () => void;
 }) {
+  const useNativeViewer = useMemo(() => prefersNativePdfViewer(), []);
   const [sharing, setSharing] = useState(false);
   const [shareError, setShareError] = useState('');
+  const [pdfBytes, setPdfBytes] = useState<Uint8Array | null>(null);
+  const [pdfBlob, setPdfBlob] = useState<Blob | null>(null);
+  const [loadingPdf, setLoadingPdf] = useState(() => Boolean(row.pdfUrl) && !useNativeViewer);
+  const [useIframeFallback, setUseIframeFallback] = useState(() => !row.pdfUrl || useNativeViewer);
 
   useEffect(() => {
     const previousOverflow = document.body.style.overflow;
@@ -52,6 +63,34 @@ function YesGatcCertificateShareDialog({
     };
   }, [onClose, sharing]);
 
+  useEffect(() => {
+    if (!row.pdfUrl || useNativeViewer) return;
+    let cancelled = false;
+    setLoadingPdf(true);
+    setUseIframeFallback(false);
+    void fetch(row.pdfUrl)
+      .then(response => {
+        if (!response.ok) throw new Error('Could not load PDF.');
+        return response.arrayBuffer();
+      })
+      .then(buffer => {
+        if (cancelled) return;
+        const bytes = new Uint8Array(buffer.byteLength);
+        bytes.set(new Uint8Array(buffer));
+        setPdfBytes(bytes);
+        setPdfBlob(new Blob([bytes], { type: 'application/pdf' }));
+      })
+      .catch(() => {
+        if (!cancelled) setUseIframeFallback(true);
+      })
+      .finally(() => {
+        if (!cancelled) setLoadingPdf(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [row.pdfUrl, useNativeViewer]);
+
   const share = async () => {
     if (sharing) return;
     setSharing(true);
@@ -64,6 +103,7 @@ function YesGatcCertificateShareDialog({
           fileName: pdfFileName(row),
           contentType: 'application/pdf',
           title,
+          blob: pdfBlob,
         });
       } else if (typeof navigator.share === 'function') {
         await navigator.share({
@@ -120,11 +160,25 @@ function YesGatcCertificateShareDialog({
         </h2>
         {shareError ? <p className="yesgatc-share-dialog__error">{shareError}</p> : null}
         {row.pdfUrl ? (
-          <iframe
-            className="yesgatc-share-dialog__frame"
-            title={row.certificateNumber || 'Certificate PDF'}
-            src={row.pdfUrl}
-          />
+          useIframeFallback ? (
+            <iframe
+              className="yesgatc-share-dialog__frame"
+              title={row.certificateNumber || 'Certificate PDF'}
+              src={row.pdfUrl}
+            />
+          ) : loadingPdf && !pdfBytes ? (
+            <div className="yesgatc-share-dialog__loader">
+              <FetchingLoader label="Loading certificate…" />
+            </div>
+          ) : pdfBytes ? (
+            <div className="yesgatc-share-dialog__canvas">
+              <Suspense fallback={<FetchingLoader label="Preparing viewer…" />}>
+                <InvoicePdfCanvas data={pdfBytes} maxScale={1.2} />
+              </Suspense>
+            </div>
+          ) : (
+            <p className="yesgatc-share-dialog__empty">No PDF is attached to this certificate.</p>
+          )
         ) : (
           <p className="yesgatc-share-dialog__empty">No PDF is attached to this certificate.</p>
         )}

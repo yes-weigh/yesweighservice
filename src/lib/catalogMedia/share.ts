@@ -49,19 +49,22 @@ export async function shareCatalogMediaFile(input: {
   fileName: string;
   contentType?: string | null;
   title?: string | null;
+  blob?: Blob | null;
 }): Promise<void> {
   const url = input.url.trim();
-  if (!url) throw new Error('Nothing to share.');
+  if (!url && !input.blob) throw new Error('Nothing to share.');
   const mimeType = String(input.contentType ?? '').split(';')[0].trim() || 'application/octet-stream';
   const fileName = fallbackFileName(input.fileName, mimeType);
   const title = String(input.title ?? '').trim() || fileName;
 
-  let blob: Blob | null = null;
-  try {
-    const response = await fetch(url);
-    if (response.ok) blob = await response.blob();
-  } catch {
-    blob = null;
+  let blob: Blob | null = input.blob && input.blob.size > 0 ? input.blob : null;
+  if (!blob && url) {
+    try {
+      const response = await fetch(url);
+      if (response.ok) blob = await response.blob();
+    } catch {
+      blob = null;
+    }
   }
 
   if (blob && Capacitor.isNativePlatform() && blob.size > 0 && blob.size <= MAX_NATIVE_SHARE_BYTES) {

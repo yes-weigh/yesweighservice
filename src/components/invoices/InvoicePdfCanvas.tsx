@@ -2,7 +2,10 @@ import React, { useEffect, useRef, useState } from 'react';
 import { FetchingLoader } from '../FetchingLoader';
 import { pdfjs } from '../../lib/pdfjsSetup';
 
-export const InvoicePdfCanvas: React.FC<{ data: Uint8Array }> = ({ data }) => {
+export const InvoicePdfCanvas: React.FC<{ data: Uint8Array; maxScale?: number }> = ({
+  data,
+  maxScale = 2.5,
+}) => {
   const containerRef = useRef<HTMLDivElement>(null);
   const [error, setError] = useState('');
   const [rendering, setRendering] = useState(true);
@@ -33,9 +36,9 @@ export const InvoicePdfCanvas: React.FC<{ data: Uint8Array }> = ({ data }) => {
 
           const page = await pdf.getPage(pageNum);
           const baseViewport = page.getViewport({ scale: 1 });
-          const scale = Math.min(Math.max((containerWidth - 12) / baseViewport.width, 0.5), 2.5);
+          const scale = Math.min(Math.max((containerWidth - 12) / baseViewport.width, 0.5), maxScale);
           const viewport = page.getViewport({ scale });
-          const outputScale = Math.min(window.devicePixelRatio || 1, 2);
+          const outputScale = Math.min(window.devicePixelRatio || 1, maxScale <= 1.25 ? 1.5 : 2);
 
           const canvas = document.createElement('canvas');
           canvas.className = 'invoice-detail-pdf__page';
@@ -54,6 +57,7 @@ export const InvoicePdfCanvas: React.FC<{ data: Uint8Array }> = ({ data }) => {
             viewport,
             canvas,
           }).promise;
+          if (pageNum === 1 && !cancelled) setRendering(false);
         }
       } catch (err) {
         if (!cancelled) {
@@ -67,7 +71,7 @@ export const InvoicePdfCanvas: React.FC<{ data: Uint8Array }> = ({ data }) => {
     return () => {
       cancelled = true;
     };
-  }, [data]);
+  }, [data, maxScale]);
 
   return (
     <div className="invoice-detail-pdf__canvas-wrap">

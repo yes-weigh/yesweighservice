@@ -16,6 +16,7 @@ export type SerialNumberAllotment = {
   missing: string[];
   count: number;
   createdAt: string;
+  createdBy: string | null;
 };
 
 export type SerialNumberAllotmentDoc = {

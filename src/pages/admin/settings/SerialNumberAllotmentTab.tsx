@@ -1,7 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { Plus, Trash2 } from 'lucide-react';
+import { Plus } from 'lucide-react';
 import { useAuth } from '../../../context/AuthContext';
-import { useConfirm } from '../../../context/ConfirmContext';
 import {
   allotmentFromPreview,
   countLinkedUnused,
@@ -14,21 +13,12 @@ import {
 import type { SerialNumberAllotment, SerialSeriesId } from '../../../types/serial-number-allotment';
 import { DEFAULT_SERIAL_SERIES, SERIAL_SERIES } from '../../../types/serial-number-allotment';
 
-function formatWhen(iso: string | null): string {
-  if (!iso) return '';
-  const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return iso;
-  return d.toLocaleString(undefined, {
-    year: 'numeric',
-    month: 'short',
-    day: 'numeric',
-    hour: '2-digit',
-    minute: '2-digit',
-  });
-}
-
 function formatCount(value: number): string {
   return value.toLocaleString('en-IN');
+}
+
+function seriesLabel(id: SerialSeriesId): string {
+  return SERIAL_SERIES.find(option => option.id === id)?.label ?? id;
 }
 
 function AllotmentStat({
@@ -52,10 +42,7 @@ function AllotmentStat({
 
 export const SerialNumberAllotmentTab: React.FC = () => {
   const { user } = useAuth();
-  const confirm = useConfirm();
   const [allotments, setAllotments] = useState<SerialNumberAllotment[]>([]);
-  const [updatedAt, setUpdatedAt] = useState<string | null>(null);
-  const [updatedBy, setUpdatedBy] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
@@ -95,8 +82,6 @@ export const SerialNumberAllotmentTab: React.FC = () => {
     try {
       const doc = await loadSerialNumberAllotments();
       setAllotments(doc.allotments);
-      setUpdatedAt(doc.updatedAt);
-      setUpdatedBy(doc.updatedBy);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Could not load serial number allotments.');
     } finally {
@@ -132,8 +117,6 @@ export const SerialNumberAllotmentTab: React.FC = () => {
     try {
       const saved = await saveSerialNumberAllotments(next, actorName);
       setAllotments(saved.allotments);
-      setUpdatedAt(saved.updatedAt);
-      setUpdatedBy(saved.updatedBy);
       setSuccess(message);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Could not save serial number allotments.');
@@ -153,7 +136,7 @@ export const SerialNumberAllotmentTab: React.FC = () => {
       setSuccess('');
       return;
     }
-    const row = allotmentFromPreview(preview, series);
+    const row = allotmentFromPreview(preview, series, actorName);
     const next = [row, ...allotments];
     await persist(
       next,
@@ -162,20 +145,6 @@ export const SerialNumberAllotmentTab: React.FC = () => {
     setFrom('');
     setTo('');
     setMissingText('');
-  };
-
-  const handleRemove = async (row: SerialNumberAllotment) => {
-    const ok = await confirm({
-      title: 'Remove allotment?',
-      message: `Remove ${row.from}–${row.to} (${row.count.toLocaleString('en-IN')} allotted)?`,
-      confirmLabel: 'Remove',
-      destructive: true,
-    });
-    if (!ok) return;
-    await persist(
-      allotments.filter(item => item.id !== row.id),
-      'Allotment removed.',
-    );
   };
 
   const previewError = Boolean(preview.error && (from.trim() || to.trim()));
@@ -241,7 +210,7 @@ export const SerialNumberAllotmentTab: React.FC = () => {
           />
         </div>
         <label className="settings-serial-allotment__field settings-serial-allotment__missing-field">
-          <span>Missing number</span>
+          <span>Missing</span>
           <textarea
             className="settings-serial-allotment__missing"
             rows={2}
@@ -253,7 +222,7 @@ export const SerialNumberAllotmentTab: React.FC = () => {
         </label>
         <div className="settings-serial-allotment__usage">
           <AllotmentStat
-            label="Linked with invoice"
+            label="Linked"
             tone="linked"
             value={previewError ? '—' : usageValue(previewUsage.linked)}
           />
@@ -291,46 +260,39 @@ export const SerialNumberAllotmentTab: React.FC = () => {
             return (
               <li key={row.id} className="settings-serial-allotment__row">
                 <div className="settings-serial-allotment__metrics">
-                  <AllotmentStat label="Start" value={row.from} />
-                  <AllotmentStat label="End" value={row.to} />
-                  <AllotmentStat label="Qty" tone="qty" value={formatCount(row.count)} />
-                  <AllotmentStat label="Missing number" value={formatCount(row.missing.length)} />
-                  <AllotmentStat
-                    label="Linked with invoice"
-                    tone="linked"
-                    value={usageValue(usage.linked)}
-                  />
-                  <AllotmentStat
-                    label="Unused"
-                    tone="unused"
-                    value={usageValue(usage.unused)}
-                  />
+                  <div className="settings-serial-allotment__metrics-row">
+                    <AllotmentStat label="Series" value={seriesLabel(row.series)} />
+                    <AllotmentStat label="Start" value={row.from} />
+                    <AllotmentStat label="End" value={row.to} />
+                    <AllotmentStat label="Qty" tone="qty" value={formatCount(row.count)} />
+                  </div>
+                  <div className="settings-serial-allotment__metrics-row settings-serial-allotment__metrics-row--usage">
+                    <AllotmentStat label="Missing" value={formatCount(row.missing.length)} />
+                    <AllotmentStat
+                      label="Linked"
+                      tone="linked"
+                      value={usageValue(usage.linked)}
+                    />
+                    <AllotmentStat
+                      label="Unused"
+                      tone="unused"
+                      value={usageValue(usage.unused)}
+                    />
+                  </div>
                 </div>
                 {row.missing.length > 0 ? (
                   <p className="settings-serial-allotment__missing-list">
                     {row.missing.join(', ')}
                   </p>
                 ) : null}
-                <button
-                  type="button"
-                  className="settings-spare-boxes__remove settings-serial-allotment__remove"
-                  disabled={busy}
-                  aria-label={`Remove ${row.from} to ${row.to}`}
-                  onClick={() => void handleRemove(row)}
-                >
-                  <Trash2 size={15} aria-hidden />
-                </button>
+                <p className="settings-serial-allotment__added">
+                  <span>Added</span>
+                  <strong>{row.createdBy || '—'}</strong>
+                </p>
               </li>
             );
           })}
         </ul>
-      ) : null}
-
-      {updatedAt ? (
-        <p className="text-muted text-sm settings-serial-allotment__meta">
-          Last saved {formatWhen(updatedAt)}
-          {updatedBy ? ` · ${updatedBy}` : ''}
-        </p>
       ) : null}
     </section>
   );
