@@ -13,7 +13,6 @@ export const YESGATC_OV_INVOICE_MIN_DATE = '2026-02-01';
 export const YESGATC_OV_MACHINE_HSN = Object.freeze([
   '84238190',
   '84238290',
-  '84239020',
   '84231000',
 ]);
 

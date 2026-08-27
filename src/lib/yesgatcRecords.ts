@@ -6,6 +6,7 @@ import {
   getDoc,
   getDocs,
   limit,
+  orderBy,
   query,
   serverTimestamp,
   setDoc,
@@ -29,6 +30,8 @@ export const YESGATC_WEBHOOK_FUNCTION_URL =
 
 export const YESONE_RC_CODE = 'IWP';
 export const YESONE_RC_NAME = 'INTERWEIGHING PVT LTD';
+export const YESGATC_OV_MACHINE_HSN = ['84238190', '84238290', '84231000'] as const;
+export const YESGATC_HSN_SOLD_MIN_DATE = '2026-02-01';
 
 const functions = getFunctions(app, 'asia-south1');
 
@@ -708,6 +711,155 @@ export async function countYesGatcLifetimeOvRv(
     if (snap.size < pageSize) break;
     cursor = snap.docs[snap.docs.length - 1] ?? null;
     if (!cursor) break;
+  }
+  return totals;
+}
+
+function hsnDigits(value: unknown): string {
+  return str(value).replace(/\D/g, '');
+}
+
+function invoiceDateKey(value: unknown): string {
+  if (value == null || value === '') return '';
+  if (typeof value === 'object' && typeof (value as { toDate?: () => Date }).toDate === 'function') {
+    try {
+      return (value as { toDate: () => Date }).toDate().toISOString().slice(0, 10);
+    } catch {
+      return '';
+    }
+  }
+  const text = str(value);
+  if (/^\d{4}-\d{2}-\d{2}/.test(text)) return text.slice(0, 10);
+  const parsed = Date.parse(text);
+  if (!Number.isNaN(parsed)) return new Date(parsed).toISOString().slice(0, 10);
+  return '';
+}
+
+function isVoidInvoice(data: Record<string, unknown>): boolean {
+  const status = str(data.status).toLowerCase();
+  return status === 'void' || status === 'cancelled' || status === 'canceled';
+}
+
+async function catalogHsnByItemIds(itemIds: Iterable<string>): Promise<Map<string, string>> {
+  const map = new Map<string, string>();
+  const unique = [...new Set([...itemIds].map(id => str(id)).filter(Boolean))];
+  for (let i = 0; i < unique.length; i += 20) {
+    const chunk = unique.slice(i, i + 20);
+    const snaps = await Promise.all(chunk.map(id => getDoc(doc(db, 'catalogProducts', id))));
+    snaps.forEach((snap, index) => {
+      const hsn = hsnDigits(snap.data()?.hsn);
+      if (hsn) map.set(chunk[index], hsn);
+    });
+  }
+  return map;
+}
+
+async function sumDealerMachineQty(
+  dealerId: string,
+  minDate: string,
+  wanted: Set<string>,
+  pendingByItemId: Map<string, number>,
+): Promise<number> {
+  const pageSize = 400;
+  const col = collection(db, 'zohoCustomers', dealerId, 'invoices');
+  const loadPage = async (
+    filterByDate: boolean,
+    cursor: QueryDocumentSnapshot<DocumentData> | null,
+  ) => getDocs(
+    filterByDate
+      ? (cursor
+        ? query(col, where('date', '>=', minDate), orderBy('date', 'desc'), startAfter(cursor), limit(pageSize))
+        : query(col, where('date', '>=', minDate), orderBy('date', 'desc'), limit(pageSize)))
+      : (cursor
+        ? query(col, startAfter(cursor), limit(pageSize))
+        : query(col, limit(pageSize))),
+  );
+
+  let qty = 0;
+  const addLines = (data: Record<string, unknown>) => {
+    if (isVoidInvoice(data)) return;
+    const date = invoiceDateKey(data.date);
+    if (!date || date < minDate) return;
+    const lines = Array.isArray(data.lineItems)
+      ? data.lineItems
+      : (Array.isArray(data.line_items) ? data.line_items : []);
+    for (const raw of lines) {
+      if (!raw || typeof raw !== 'object') continue;
+      const line = raw as Record<string, unknown>;
+      const lineQty = Number(line.quantity ?? 0);
+      if (!Number.isFinite(lineQty) || lineQty <= 0) continue;
+      const hsn = hsnDigits(line.hsn ?? line.hsnOrSac ?? line.hsn_or_sac);
+      if (wanted.has(hsn)) {
+        qty += Math.round(lineQty);
+        continue;
+      }
+      if (hsn) continue;
+      const itemId = str(line.itemId ?? line.item_id);
+      if (!itemId) continue;
+      pendingByItemId.set(itemId, (pendingByItemId.get(itemId) || 0) + Math.round(lineQty));
+    }
+  };
+
+  const scan = async (filterByDate: boolean) => {
+    let cursor: QueryDocumentSnapshot<DocumentData> | null = null;
+    for (;;) {
+      const snap: QuerySnapshot<DocumentData> = await loadPage(filterByDate, cursor);
+      for (const docSnap of snap.docs) addLines(docSnap.data() as Record<string, unknown>);
+      if (snap.size < pageSize) break;
+      cursor = snap.docs[snap.docs.length - 1] ?? null;
+      if (!cursor) break;
+    }
+  };
+
+  try {
+    await scan(true);
+  } catch {
+    qty = 0;
+    pendingByItemId.clear();
+    await scan(false);
+  }
+  return qty;
+}
+
+/**
+ * Machine qty sold on each RC's linked dealer invoices from 1 Feb 2026
+ * for HSN 84238190, 84238290, 84231000.
+ */
+export async function sumYesGatcRcHsnSoldQty(
+  rcs: ReadonlyArray<Pick<YesGatcRcDetail, 'id' | 'dealerId'>>,
+  minDate = YESGATC_HSN_SOLD_MIN_DATE,
+): Promise<Map<string, number>> {
+  const totals = new Map<string, number>();
+  const wanted = new Set<string>(YESGATC_OV_MACHINE_HSN);
+  const pendingByRc = new Map<string, Map<string, number>>();
+  for (const rc of rcs) {
+    totals.set(rc.id, 0);
+    pendingByRc.set(rc.id, new Map());
+  }
+  await Promise.all(rcs.map(async rc => {
+    const dealerId = str(rc.dealerId);
+    if (!dealerId) return;
+    const pending = pendingByRc.get(rc.id) ?? new Map<string, number>();
+    try {
+      totals.set(rc.id, await sumDealerMachineQty(dealerId, minDate, wanted, pending));
+      pendingByRc.set(rc.id, pending);
+    } catch {
+      totals.set(rc.id, 0);
+    }
+  }));
+  const itemIds = new Set<string>();
+  for (const pending of pendingByRc.values()) {
+    for (const itemId of pending.keys()) itemIds.add(itemId);
+  }
+  if (itemIds.size) {
+    const catalog = await catalogHsnByItemIds(itemIds);
+    for (const [rcId, pending] of pendingByRc) {
+      let extra = 0;
+      for (const [itemId, qty] of pending) {
+        if (wanted.has(catalog.get(itemId) || '')) extra += qty;
+      }
+      if (extra) totals.set(rcId, (totals.get(rcId) || 0) + extra);
+    }
   }
   return totals;
 }

@@ -8,6 +8,7 @@ import {
   countYesGatcLifetimeOvRv,
   listYesGatcRcDetails,
   saveYesGatcRcDealerLink,
+  sumYesGatcRcHsnSoldQty,
   yesGatcOvRvForRc,
   yesGatcRcOfficeName,
   type YesGatcOvRvTotals,
@@ -171,6 +172,8 @@ export const RcDetailsTab: React.FC = () => {
   const [rows, setRows] = useState<YesGatcRcDetail[]>([]);
   const [ovRv, setOvRv] = useState<Map<string, YesGatcOvRvTotals>>(() => new Map());
   const [ovRvReady, setOvRvReady] = useState(false);
+  const [soldQty, setSoldQty] = useState<Map<string, number>>(() => new Map());
+  const [soldReady, setSoldReady] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [picking, setPicking] = useState<YesGatcRcDetail | null>(null);
@@ -215,6 +218,28 @@ export const RcDetailsTab: React.FC = () => {
     // eslint-disable-next-line react-hooks/exhaustive-deps -- rcCountKey captures id/code
   }, [loading, rcCountKey]);
 
+  const soldKey = rows.map(row => `${row.id}:${row.dealerId || ''}`).join('|');
+
+  useEffect(() => {
+    if (loading || rows.length === 0) return;
+    let cancelled = false;
+    setSoldReady(false);
+    void sumYesGatcRcHsnSoldQty(rows)
+      .then(qty => {
+        if (!cancelled) setSoldQty(qty);
+      })
+      .catch(() => {
+        if (!cancelled) setSoldQty(new Map());
+      })
+      .finally(() => {
+        if (!cancelled) setSoldReady(true);
+      });
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- soldKey captures id/dealer
+  }, [loading, soldKey]);
+
   const sortedRows = useMemo(() => (
     [...rows].sort((a, b) => {
       const ovDiff = yesGatcOvRvForRc(ovRv, b).ov - yesGatcOvRvForRc(ovRv, a).ov;
@@ -224,7 +249,7 @@ export const RcDetailsTab: React.FC = () => {
   ), [ovRv, rows]);
 
   return (
-    <section className="settings-locations panel glass">
+    <section className="settings-locations panel glass yesgatc-rc-details">
       <header className="settings-locations__header">
         <div>
           <h3>RC details</h3>
@@ -257,19 +282,27 @@ export const RcDetailsTab: React.FC = () => {
                 ) : (
                   <span className="yesgatc-rc-row__unlinked">Not linked</span>
                 )}
-                <p className="yesgatc-rc-row__qty" aria-label="Lifetime OV and invoice links">
-                  <span>
+                <p className="yesgatc-rc-row__qty" aria-label="Sold, OV, linked, and balance">
+                  <span
+                    className="yesgatc-rc-row__sold"
+                    title="HSN 84238190, 84238290, 84231000 from 1 Feb 2026"
+                  >
+                    Sold
+                    {' '}
+                    <strong>{soldReady ? formatCount(soldQty.get(row.id) || 0) : '…'}</strong>
+                  </span>
+                  <span className="yesgatc-rc-row__ov">
                     OV
                     {' '}
                     <strong>{ovRvReady ? formatCount(qty.ov) : '…'}</strong>
                   </span>
-                  <span>
+                  <span className="yesgatc-rc-row__linked-qty">
                     Linked
                     {' '}
                     <strong>{ovRvReady ? formatCount(qty.linked) : '…'}</strong>
                   </span>
                   {ovRvReady && qty.ov - qty.linked > 0 ? (
-                    <span className="yesgatc-rc-row__diff" title="OV not linked to an invoice">
+                    <span className="yesgatc-rc-row__diff" title="Balance to be linked">
                       {formatCount(qty.ov - qty.linked)}
                     </span>
                   ) : null}
