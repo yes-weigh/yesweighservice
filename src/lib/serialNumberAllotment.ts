@@ -4,7 +4,19 @@ import { serialNumbersFromLineItem } from './invoices';
 import type {
   SerialNumberAllotment,
   SerialNumberAllotmentDoc,
+  SerialSeriesId,
 } from '../types/serial-number-allotment';
+import { DEFAULT_SERIAL_SERIES, SERIAL_SERIES } from '../types/serial-number-allotment';
+
+const SERIES_IDS = new Set<string>(SERIAL_SERIES.map(row => row.id));
+
+export function normalizeSerialSeries(
+  raw: unknown,
+  fallback: SerialSeriesId = 'non_gatc',
+): SerialSeriesId {
+  const value = String(raw ?? '').trim();
+  return SERIES_IDS.has(value) ? value as SerialSeriesId : fallback;
+}
 
 export const SERIAL_NUMBER_ALLOTMENT_DOC_ID = 'serialNumberAllotment';
 
@@ -167,10 +179,12 @@ export function newAllotmentId(): string {
 
 export function allotmentFromPreview(
   preview: SerialRangePreview,
+  series: SerialSeriesId = DEFAULT_SERIAL_SERIES,
   createdAt = new Date().toISOString(),
 ): SerialNumberAllotment {
   return {
     id: newAllotmentId(),
+    series: normalizeSerialSeries(series),
     from: preview.from,
     to: preview.to,
     missing: preview.missing,
@@ -277,6 +291,7 @@ function normalizeAllotment(raw: unknown): SerialNumberAllotment | null {
   if (preview.error) return null;
   return {
     id: String(data.id || '').trim() || newAllotmentId(),
+    series: normalizeSerialSeries(data.series),
     from: preview.from,
     to: preview.to,
     missing: preview.missing,

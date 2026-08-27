@@ -11,7 +11,8 @@ import {
   saveSerialNumberAllotments,
   totalAllottedCount,
 } from '../../../lib/serialNumberAllotment';
-import type { SerialNumberAllotment } from '../../../types/serial-number-allotment';
+import type { SerialNumberAllotment, SerialSeriesId } from '../../../types/serial-number-allotment';
+import { DEFAULT_SERIAL_SERIES, SERIAL_SERIES } from '../../../types/serial-number-allotment';
 
 function formatWhen(iso: string | null): string {
   if (!iso) return '';
@@ -59,6 +60,7 @@ export const SerialNumberAllotmentTab: React.FC = () => {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
+  const [series, setSeries] = useState<SerialSeriesId>(DEFAULT_SERIAL_SERIES);
   const [from, setFrom] = useState('');
   const [to, setTo] = useState('');
   const [missingText, setMissingText] = useState('');
@@ -80,7 +82,11 @@ export const SerialNumberAllotmentTab: React.FC = () => {
     [invoicedKeys, preview.count, preview.from, preview.missing, preview.to],
   );
 
-  const totalCount = useMemo(() => totalAllottedCount(allotments), [allotments]);
+  const seriesRows = useMemo(
+    () => allotments.filter(row => row.series === series),
+    [allotments, series],
+  );
+  const totalCount = useMemo(() => totalAllottedCount(seriesRows), [seriesRows]);
   const actorName = user?.displayName?.trim() || user?.email?.trim() || 'YESWEIGH';
 
   const load = useCallback(async () => {
@@ -147,7 +153,7 @@ export const SerialNumberAllotmentTab: React.FC = () => {
       setSuccess('');
       return;
     }
-    const row = allotmentFromPreview(preview);
+    const row = allotmentFromPreview(preview, series);
     const next = [row, ...allotments];
     await persist(
       next,
@@ -176,7 +182,7 @@ export const SerialNumberAllotmentTab: React.FC = () => {
   const usageValue = (value: number) => (usageReady ? formatCount(value) : '…');
 
   return (
-    <section className="settings-locations panel glass">
+    <section className="settings-locations panel glass settings-serial-allotment">
       <header className="settings-locations__header settings-serial-allotment__header">
         <h3>Serial number allotment</h3>
         <div className="settings-serial-allotment__total" aria-live="polite">
@@ -190,6 +196,21 @@ export const SerialNumberAllotmentTab: React.FC = () => {
 
       <div className="settings-serial-allotment__form">
         <div className="settings-serial-allotment__range">
+          <label className="settings-serial-allotment__field settings-serial-allotment__field--series">
+            <span>Series</span>
+            <select
+              value={series}
+              disabled={busy}
+              aria-label="Serial series"
+              onChange={e => setSeries(e.target.value as SerialSeriesId)}
+            >
+              {SERIAL_SERIES.map(option => (
+                <option key={option.id} value={option.id}>
+                  {option.label}
+                </option>
+              ))}
+            </select>
+          </label>
           <label className="settings-serial-allotment__field">
             <span>Start</span>
             <input
@@ -263,13 +284,9 @@ export const SerialNumberAllotmentTab: React.FC = () => {
 
       {loading ? (
         <p className="settings-locations__loading text-muted text-sm">Loading allotments…</p>
-      ) : allotments.length === 0 ? (
-        <p className="settings-locations__empty text-muted text-sm">
-          No allotments yet. Enter a range, list any missing serials, then Add.
-        </p>
-      ) : (
+      ) : seriesRows.length > 0 ? (
         <ul className="settings-serial-allotment__list">
-          {allotments.map(row => {
+          {seriesRows.map(row => {
             const usage = countLinkedUnused(row, invoicedKeys);
             return (
               <li key={row.id} className="settings-serial-allotment__row">
@@ -307,7 +324,7 @@ export const SerialNumberAllotmentTab: React.FC = () => {
             );
           })}
         </ul>
-      )}
+      ) : null}
 
       {updatedAt ? (
         <p className="text-muted text-sm settings-serial-allotment__meta">
