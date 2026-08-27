@@ -566,13 +566,19 @@ service cloud.firestore {
       allow write: if false;
     }
 
+    match /yesgatcSerialLinks/{serialId} {
+      allow read: if isOpsUser();
+      allow write: if false;
+    }
+
     match /yesgatcRcDetails/{rcId} {
       allow get, list: if isOpsUser();
       allow write: if false;
     }
 
     match /yesgatcRcDealerLinks/{rcId} {
-      allow read, write: if isOpsUser();
+      allow read: if isOpsUser();
+      allow write: if isFullSuperAdmin() || staffHasPermission('yesgatc.rc_link');
     }
 
     // Super-admin line exclusions on the incentive report (hike / discount lines).

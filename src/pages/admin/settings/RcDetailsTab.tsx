@@ -1,12 +1,13 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { Loader2, Search, X } from 'lucide-react';
+import { useAuth } from '../../../context/AuthContext';
 import { fetchDealers } from '../../../lib/dealers';
+import { canLinkYesGatcRc } from '../../../lib/staffAccess';
 import {
-  clearYesGatcRcDealerLink,
   listYesGatcRcDetails,
   saveYesGatcRcDealerLink,
-  yesGatcRcLabel,
+  yesGatcRcOfficeName,
   type YesGatcRcDetail,
 } from '../../../lib/yesgatcRecords';
 import type { ZohoDealer } from '../../../types/dealers';
@@ -17,10 +18,12 @@ function dealerLabel(dealer: ZohoDealer): string {
 
 function RcDealerPicker({
   row,
+  takenDealerIds,
   onClose,
   onLinked,
 }: {
   row: YesGatcRcDetail;
+  takenDealerIds: Set<string>;
   onClose: () => void;
   onLinked: (next: YesGatcRcDetail) => void;
 }) {
@@ -85,19 +88,7 @@ function RcDealerPicker({
     }
   };
 
-  const unlink = async () => {
-    if (saving) return;
-    setSaving(true);
-    setError('');
-    try {
-      await clearYesGatcRcDealerLink(row.id);
-      onLinked({ ...row, dealerId: null, dealerName: null });
-      onClose();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Could not clear this dealer.');
-      setSaving(false);
-    }
-  };
+  const available = dealers.filter(dealer => !takenDealerIds.has(dealer.id));
 
   return createPortal(
     <div
@@ -118,7 +109,7 @@ function RcDealerPicker({
           <div>
             <h3 id="yesgatc-rc-picker-title">Select dealer</h3>
             <p className="text-muted text-sm">
-              {yesGatcRcLabel(row)}
+              {yesGatcRcOfficeName(row)}
               {row.code ? ` · ${row.code}` : ''}
             </p>
           </div>
@@ -142,10 +133,10 @@ function RcDealerPicker({
             <p className="settings-locations__loading">
               <Loader2 size={16} className="spin-icon" aria-hidden /> Loading dealers…
             </p>
-          ) : dealers.length === 0 ? (
-            <p className="settings-locations__empty">No dealers match.</p>
+          ) : available.length === 0 ? (
+            <p className="settings-locations__empty">No available dealers.</p>
           ) : (
-            dealers.map(dealer => (
+            available.map(dealer => (
               <button
                 key={dealer.id}
                 type="button"
@@ -154,16 +145,13 @@ function RcDealerPicker({
                 onClick={() => void pick(dealer)}
               >
                 <strong>{dealerLabel(dealer)}</strong>
-                <span>{[dealer.billingState, dealer.district, dealer.phone || dealer.mobile].filter(Boolean).join(' · ')}</span>
+                <span>
+                  {[dealer.billingState, dealer.district, dealer.phone || dealer.mobile].filter(Boolean).join(' · ')}
+                </span>
               </button>
             ))
           )}
         </div>
-        {row.dealerId ? (
-          <button type="button" className="btn btn-secondary yesgatc-rc-picker__clear" disabled={saving} onClick={() => void unlink()}>
-            Clear dealer
-          </button>
-        ) : null}
       </div>
     </div>,
     document.body,
@@ -171,10 +159,13 @@ function RcDealerPicker({
 }
 
 export const RcDetailsTab: React.FC = () => {
+  const { user } = useAuth();
+  const canLink = canLinkYesGatcRc(user);
   const [rows, setRows] = useState<YesGatcRcDetail[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [picking, setPicking] = useState<YesGatcRcDetail | null>(null);
+  const takenDealerIds = new Set(rows.map(row => row.dealerId).filter((id): id is string => Boolean(id)));
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -209,16 +200,22 @@ export const RcDetailsTab: React.FC = () => {
           {rows.map(row => (
             <article key={row.id} className="yesgatc-rc-row">
               <div className="yesgatc-rc-row__text">
-                <p className="yesgatc-rc-row__name">{yesGatcRcLabel(row)}</p>
+                <p className="yesgatc-rc-row__name">{yesGatcRcOfficeName(row)}</p>
                 <p className="yesgatc-rc-row__code">{row.code || '—'}</p>
               </div>
-              <button
-                type="button"
-                className="btn btn-primary btn-sm yesgatc-rc-row__select"
-                onClick={() => setPicking(row)}
-              >
-                Select
-              </button>
+              {row.dealerId ? (
+                <span className="yesgatc-rc-row__linked">Linked</span>
+              ) : canLink ? (
+                <button
+                  type="button"
+                  className="btn btn-primary btn-sm yesgatc-rc-row__select"
+                  onClick={() => setPicking(row)}
+                >
+                  Select
+                </button>
+              ) : (
+                <span className="yesgatc-rc-row__unlinked">Not linked</span>
+              )}
             </article>
           ))}
         </div>
@@ -226,6 +223,7 @@ export const RcDetailsTab: React.FC = () => {
       {picking ? (
         <RcDealerPicker
           row={picking}
+          takenDealerIds={takenDealerIds}
           onClose={() => setPicking(null)}
           onLinked={next => {
             setRows(current => current.map(row => (row.id === next.id ? next : row)));

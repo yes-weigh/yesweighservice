@@ -279,6 +279,18 @@ async function upsertOneInvoice(input) {
     console.warn(`Invoice summary/rollup update failed for CSV ${invoiceId}:`, err?.message ?? err);
   }
 
+  try {
+    const { syncYesGatcLinksAfterInvoiceUpsert } = await import('./yesgatc-invoice-link.js');
+    await syncYesGatcLinksAfterInvoiceUpsert({
+      ...doc,
+      id: invoiceId,
+      invoiceId,
+      customerId,
+    });
+  } catch (err) {
+    console.warn(`YesGATC certificate link failed for CSV ${invoiceId}:`, err?.message ?? err);
+  }
+
   return {
     status: exists ? 'updated' : 'created',
     invoiceId,

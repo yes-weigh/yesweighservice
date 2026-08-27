@@ -50,6 +50,10 @@ export type YesGatcCertificate = {
   max: string;
   min: string;
   e: string;
+  invoiceId: string | null;
+  invoiceNumber: string | null;
+  invoiceDate: string | null;
+  invoiceCustomerId: string | null;
   raw: unknown;
 };
 
@@ -328,6 +332,10 @@ function mapCertificate(id: string, data: Record<string, unknown>): YesGatcCerti
     max: specs.max,
     min: specs.min,
     e: specs.e,
+    invoiceId: nullable(data.invoiceId),
+    invoiceNumber: nullable(data.invoiceNumber),
+    invoiceDate: nullable(data.invoiceDate),
+    invoiceCustomerId: nullable(data.invoiceCustomerId),
     raw: data.raw ?? null,
   };
 }
@@ -458,15 +466,17 @@ export function yesGatcRcKey(row: Pick<YesGatcRcDetail, 'id' | 'code'>): string 
   return str(row.code).toUpperCase() || row.id;
 }
 
-export function yesGatcRcLabel(row: YesGatcRcDetail): string {
-  const linked = str(row.dealerName);
-  if (linked) return linked;
+export function yesGatcRcOfficeName(row: YesGatcRcDetail): string {
   const named = str(row.name);
   if (named && !isCodeLikeName(named, row.code)) return named;
   if (isYesoneIwpRcDetail(row) || str(row.code).toUpperCase() === YESONE_RC_CODE) {
     return YESONE_RC_NAME;
   }
   return named || row.code || row.id;
+}
+
+export function yesGatcRcLabel(row: YesGatcRcDetail): string {
+  return str(row.dealerName) || yesGatcRcOfficeName(row);
 }
 
 export function withDefaultIwpRc(rows: YesGatcRcDetail[]): YesGatcRcDetail[] {
@@ -562,8 +572,28 @@ export async function listYesGatcCertificates(
   const merge = new Map<string, YesGatcCertificate>();
   const take = (rows: YesGatcCertificate[]) => {
     for (const row of rows) {
-      if (merge.size >= max || merge.has(row.id)) continue;
-      merge.set(row.id, withCertificateSpecs(row));
+      const next = withCertificateSpecs({
+        ...row,
+        invoiceId: row.invoiceId ?? null,
+        invoiceNumber: row.invoiceNumber ?? null,
+        invoiceDate: row.invoiceDate ?? null,
+        invoiceCustomerId: row.invoiceCustomerId ?? null,
+      });
+      const prev = merge.get(row.id);
+      if (!prev) {
+        if (merge.size >= max) continue;
+        merge.set(row.id, next);
+        continue;
+      }
+      if (!prev.invoiceNumber && next.invoiceNumber) {
+        merge.set(row.id, {
+          ...prev,
+          invoiceId: next.invoiceId,
+          invoiceNumber: next.invoiceNumber,
+          invoiceDate: next.invoiceDate,
+          invoiceCustomerId: next.invoiceCustomerId,
+        });
+      }
     }
   };
 
@@ -677,6 +707,14 @@ export async function saveYesGatcRcDealerLink(
   dealerId: string,
   dealerName: string,
 ): Promise<void> {
+  const snap = await getDocs(collection(db, YESGATC_RC_DEALER_LINKS));
+  for (const row of snap.docs) {
+    if (row.id === rcId) continue;
+    const data = row.data() as Record<string, unknown>;
+    if (str(data.dealerId) === dealerId) {
+      throw new Error('This dealer is already linked to another RC. One dealer can be used only once.');
+    }
+  }
   await setDoc(doc(db, YESGATC_RC_DEALER_LINKS, rcId), {
     rcCode,
     dealerId,
@@ -689,17 +727,13 @@ export async function clearYesGatcRcDealerLink(rcId: string): Promise<void> {
   await deleteDoc(doc(db, YESGATC_RC_DEALER_LINKS, rcId));
 }
 
-export function formatYesGatcWhen(iso: string | null | undefined): string {
+export function formatYesGatcWhen(iso: string | null | undefined, compact = false): string {
   if (!iso) return '—';
   const date = new Date(iso);
   if (Number.isNaN(date.getTime())) return iso;
-  return date.toLocaleString('en-IN', {
-    day: '2-digit',
-    month: 'short',
-    year: 'numeric',
-    hour: '2-digit',
-    minute: '2-digit',
-  });
+  return date.toLocaleString('en-IN', compact
+    ? { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' }
+    : { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' });
 }
 
 function firstDateText(value: unknown): string {
@@ -737,8 +771,8 @@ export function yesGatcCertifiedTimeMs(row: YesGatcCertificate): number | null {
   return Number.isNaN(ms) ? null : ms;
 }
 
-export function yesGatcCertifiedAt(row: YesGatcCertificate): string {
-  return formatYesGatcWhen(yesGatcCertifiedIso(row));
+export function yesGatcCertifiedAt(row: YesGatcCertificate, compact = false): string {
+  return formatYesGatcWhen(yesGatcCertifiedIso(row), compact);
 }
 
 function signedFlag(value: unknown): boolean {
@@ -768,4 +802,43 @@ export function isYesGatcCertificateSigned(row: YesGatcCertificate): boolean {
     if (/\bsigned\b/.test(message)) return true;
   }
   return false;
+}
+
+export async function runYesGatcInvoiceLink(minDate?: string): Promise<{
+  matched?: number;
+  written?: number;
+}> {
+  const fn = httpsCallable<
+    { minDate?: string },
+    { matched?: number; written?: number }
+  >(functions, 'linkYesGatcInvoicesFn', { timeout: 540_000 });
+  return (await fn(minDate ? { minDate } : {})).data ?? {};
+}
+
+export async function saveYesGatcCertificateInvoice(input: {
+  certificateId: string;
+  serialNumber?: string | null;
+  invoiceId: string;
+  invoiceNumber: string;
+  invoiceDate?: string | null;
+  invoiceCustomerId?: string | null;
+}): Promise<{
+  invoiceId: string | null;
+  invoiceNumber: string;
+  invoiceDate: string | null;
+  invoiceCustomerId: string | null;
+}> {
+  const fn = httpsCallable<typeof input, {
+    invoiceId?: string | null;
+    invoiceNumber?: string;
+    invoiceDate?: string | null;
+    invoiceCustomerId?: string | null;
+  }>(functions, 'linkYesGatcCertificateInvoiceFn');
+  const data = (await fn(input)).data ?? {};
+  return {
+    invoiceId: data.invoiceId ?? input.invoiceId,
+    invoiceNumber: data.invoiceNumber ?? input.invoiceNumber,
+    invoiceDate: data.invoiceDate ?? input.invoiceDate ?? null,
+    invoiceCustomerId: data.invoiceCustomerId ?? input.invoiceCustomerId ?? null,
+  };
 }

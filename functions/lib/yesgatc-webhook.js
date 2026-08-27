@@ -273,7 +273,16 @@ export async function handleYesgatcPush(body) {
       return { path: `${YESGATC_RC_DETAILS}/${docKey}`, data: rest };
     }),
   ];
-  const written = await commitChunks(writes);
+  let outgoing = writes;
+  if (certificates.length) {
+    try {
+      const { attachInvoiceFieldsToCertificateWrites } = await import('./yesgatc-invoice-link.js');
+      outgoing = await attachInvoiceFieldsToCertificateWrites(writes);
+    } catch (err) {
+      console.warn('YesGATC invoice link attach failed:', err?.message ?? err);
+    }
+  }
+  const written = await commitChunks(outgoing);
   return {
     ok: true,
     certificates: certificates.length,
@@ -397,6 +406,10 @@ function mapCertificateDoc(row) {
     min: data.min != null ? String(data.min) : '',
     e: data.e != null ? String(data.e) : '',
     receivedAt: isoFromAdmin(data.receivedAt),
+    invoiceId: data.invoiceId != null ? String(data.invoiceId) : null,
+    invoiceNumber: data.invoiceNumber != null ? String(data.invoiceNumber) : null,
+    invoiceDate: data.invoiceDate != null ? String(data.invoiceDate) : null,
+    invoiceCustomerId: data.invoiceCustomerId != null ? String(data.invoiceCustomerId) : null,
     raw: data.raw ?? null,
   };
 }

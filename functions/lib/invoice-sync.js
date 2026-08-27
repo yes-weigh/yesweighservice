@@ -760,6 +760,18 @@ export async function upsertInvoiceFromRaw(accessToken, orgId, invoiceRaw, optio
     console.warn(`GATC report index failed for invoice ${invoiceId}:`, err?.message ?? err);
   }
 
+  try {
+    const { syncYesGatcLinksAfterInvoiceUpsert } = await import('./yesgatc-invoice-link.js');
+    await syncYesGatcLinksAfterInvoiceUpsert({
+      ...doc,
+      id: invoiceId,
+      invoiceId,
+      customerId,
+    });
+  } catch (err) {
+    console.warn(`YesGATC certificate link failed for invoice ${invoiceId}:`, err?.message ?? err);
+  }
+
   return { customerId, invoiceId, updated: true };
 }
 

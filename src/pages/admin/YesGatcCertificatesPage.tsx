@@ -1,13 +1,16 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { Search, SlidersHorizontal, X } from 'lucide-react';
 import { YesGatcCertificateList } from '../../components/yesgatc/YesGatcCertificateList';
+import { useAuth } from '../../context/AuthContext';
 import { useCatalogPageHeader, useTopBarAction } from '../../context/PageHeaderContext';
+import { canUseYesGatcFilters, isFullSuperAdmin } from '../../lib/staffAccess';
 import {
   YESONE_RC_CODE,
   compareYesGatcCertificateLatestFirst,
   countYesGatcIwpCertificates,
   listYesGatcCertificates,
   listYesGatcRcDetails,
+  runYesGatcInvoiceLink,
   withDefaultIwpRc,
   yesGatcCertifiedTimeMs,
   yesGatcRcKey,
@@ -26,7 +29,18 @@ const GATC_PERIODS = [
   { value: 'lifetime', label: 'Life Time' },
 ] as const;
 
+const GATC_LINK_STATES = [
+  { value: 'all', label: 'All' },
+  { value: 'linked', label: 'Linked' },
+  { value: 'unlinked', label: 'Unlinked' },
+] as const;
+
 type GatcPeriod = (typeof GATC_PERIODS)[number]['value'];
+type GatcLinkState = (typeof GATC_LINK_STATES)[number]['value'];
+
+function isCertificateLinked(row: YesGatcCertificate): boolean {
+  return Boolean(row.invoiceNumber?.trim() || row.invoiceId?.trim());
+}
 
 function periodBounds(period: GatcPeriod, now = new Date()): { start: number | null; end: number | null } {
   if (period === 'lifetime') return { start: null, end: null };
@@ -38,19 +52,26 @@ function periodBounds(period: GatcPeriod, now = new Date()): { start: number | n
   return { start: start.getTime(), end: end.getTime() };
 }
 
+const INVOICE_LINK_FLAG = 'yesgatcInvoiceLinkV5';
+
 export const YesGatcCertificatesPage: React.FC = () => {
+  const { user } = useAuth();
+  const canFilter = canUseYesGatcFilters(user);
   const [rows, setRows] = useState<YesGatcCertificate[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [search, setSearch] = useState('');
-  const [filtersOpen, setFiltersOpen] = useState(true);
+  const [filtersOpen, setFiltersOpen] = useState(false);
   const [draftPeriod, setDraftPeriod] = useState<GatcPeriod>('lifetime');
   const [appliedPeriod, setAppliedPeriod] = useState<GatcPeriod>('lifetime');
   const [draftRc, setDraftRc] = useState(YESONE_RC_CODE);
   const [appliedRc, setAppliedRc] = useState(YESONE_RC_CODE);
+  const [draftLink, setDraftLink] = useState<GatcLinkState>('all');
+  const [appliedLink, setAppliedLink] = useState<GatcLinkState>('all');
   const [rcs, setRcs] = useState<YesGatcRcDetail[]>(() => withDefaultIwpRc([]));
   const [page, setPage] = useState(1);
   const [storedCount, setStoredCount] = useState<number | null>(null);
+  const [linkingInvoices, setLinkingInvoices] = useState(false);
 
   useEffect(() => {
     void listYesGatcRcDetails()
@@ -79,7 +100,31 @@ export const YesGatcCertificatesPage: React.FC = () => {
     void load();
   }, [load]);
 
-  const hasActiveFilters = appliedPeriod !== 'lifetime' || appliedRc !== YESONE_RC_CODE;
+  useEffect(() => {
+    if (!canFilter) setFiltersOpen(false);
+  }, [canFilter]);
+
+  useEffect(() => {
+    if (!isFullSuperAdmin(user)) return;
+    if (typeof sessionStorage === 'undefined') return;
+    if (sessionStorage.getItem(INVOICE_LINK_FLAG)) return;
+    sessionStorage.setItem(INVOICE_LINK_FLAG, '1');
+    setLinkingInvoices(true);
+    void runYesGatcInvoiceLink()
+      .then(() => {
+        void load();
+      })
+      .catch(() => {
+        sessionStorage.removeItem(INVOICE_LINK_FLAG);
+      })
+      .finally(() => {
+        setLinkingInvoices(false);
+      });
+  }, [user, load]);
+
+  const hasActiveFilters = appliedPeriod !== 'lifetime'
+    || appliedRc !== YESONE_RC_CODE
+    || appliedLink !== 'all';
 
   const visibleRows = useMemo(() => {
     const needle = search.trim().toLowerCase();
@@ -87,7 +132,7 @@ export const YesGatcCertificatesPage: React.FC = () => {
     return rows
       .filter(row => {
         if (needle) {
-          const blob = `${row.certificateNumber} ${row.serialNumber}`.toLowerCase();
+          const blob = `${row.certificateNumber} ${row.serialNumber} ${row.invoiceNumber ?? ''}`.toLowerCase();
           if (!blob.includes(needle)) return false;
         }
         if (start != null || end != null) {
@@ -96,14 +141,16 @@ export const YesGatcCertificatesPage: React.FC = () => {
           if (start != null && certified < start) return false;
           if (end != null && certified > end) return false;
         }
+        if (appliedLink === 'linked' && !isCertificateLinked(row)) return false;
+        if (appliedLink === 'unlinked' && isCertificateLinked(row)) return false;
         return true;
       })
       .sort(compareYesGatcCertificateLatestFirst);
-  }, [appliedPeriod, rows, search]);
+  }, [appliedLink, appliedPeriod, rows, search]);
 
   useEffect(() => {
     setPage(1);
-  }, [appliedPeriod, search]);
+  }, [appliedLink, appliedPeriod, search]);
 
   const totalPages = Math.max(1, Math.ceil(visibleRows.length / PAGE_SIZE));
   const safePage = Math.min(page, totalPages);
@@ -132,29 +179,32 @@ export const YesGatcCertificatesPage: React.FC = () => {
             </button>
           ) : null}
         </div>
-        <button
-          type="button"
-          className={[
-            'catalog-header-filter-btn',
-            filtersOpen ? 'catalog-header-filter-btn--open' : '',
-            hasActiveFilters ? 'catalog-header-filter-btn--active' : '',
-          ].filter(Boolean).join(' ')}
-          onClick={() => setFiltersOpen(open => {
-            if (!open) {
-              setDraftPeriod(appliedPeriod);
-              setDraftRc(appliedRc);
-            }
-            return !open;
-          })}
-          aria-expanded={filtersOpen}
-          aria-label="Filter certificates"
-          title="Filters"
-        >
-          <SlidersHorizontal size={20} strokeWidth={2.25} />
-        </button>
+        {canFilter ? (
+          <button
+            type="button"
+            className={[
+              'catalog-header-filter-btn',
+              filtersOpen ? 'catalog-header-filter-btn--open' : '',
+              hasActiveFilters ? 'catalog-header-filter-btn--active' : '',
+            ].filter(Boolean).join(' ')}
+            onClick={() => setFiltersOpen(open => {
+              if (!open) {
+                setDraftPeriod(appliedPeriod);
+                setDraftRc(appliedRc);
+                setDraftLink(appliedLink);
+              }
+              return !open;
+            })}
+            aria-expanded={filtersOpen}
+            aria-label="Filter certificates"
+            title="Filters"
+          >
+            <SlidersHorizontal size={20} strokeWidth={2.25} />
+          </button>
+        ) : null}
       </div>
     ),
-    [appliedPeriod, appliedRc, filtersOpen, hasActiveFilters, search],
+    [appliedLink, appliedPeriod, appliedRc, canFilter, filtersOpen, hasActiveFilters, search],
   );
 
   useCatalogPageHeader({ title: 'GATC' }, true);
@@ -195,8 +245,19 @@ export const YesGatcCertificatesPage: React.FC = () => {
   return (
     <div className="page-content fade-in yesgatc-certs-page">
       <section className="settings-locations panel glass yesgatc-certs-panel">
-        {filtersOpen ? (
+        {canFilter && filtersOpen ? (
           <div className="yesgatc-filters">
+            <div className="yesgatc-filters__top">
+              <span className="yesgatc-filters__title">Filters</span>
+              <button
+                type="button"
+                className="yesgatc-filters__close"
+                onClick={() => setFiltersOpen(false)}
+                aria-label="Close filters"
+              >
+                <X size={18} />
+              </button>
+            </div>
             <label className="settings-locations__field settings-locations__field--grow">
               <span>RC</span>
               <select
@@ -225,6 +286,20 @@ export const YesGatcCertificatesPage: React.FC = () => {
                 ))}
               </select>
             </label>
+            <label className="settings-locations__field settings-locations__field--grow">
+              <span>Link</span>
+              <select
+                value={draftLink}
+                onChange={event => setDraftLink(event.target.value as GatcLinkState)}
+                aria-label="Invoice link status"
+              >
+                {GATC_LINK_STATES.map(option => (
+                  <option key={option.value} value={option.value}>
+                    {option.label}
+                  </option>
+                ))}
+              </select>
+            </label>
             <div className="yesgatc-filters__actions">
               <button
                 type="button"
@@ -232,6 +307,7 @@ export const YesGatcCertificatesPage: React.FC = () => {
                 onClick={() => {
                   setAppliedPeriod(draftPeriod);
                   setAppliedRc(draftRc);
+                  setAppliedLink(draftLink);
                 }}
               >
                 Apply
@@ -239,12 +315,21 @@ export const YesGatcCertificatesPage: React.FC = () => {
               <button
                 type="button"
                 className="btn btn-secondary"
-                disabled={draftPeriod === 'lifetime' && appliedPeriod === 'lifetime' && draftRc === YESONE_RC_CODE && appliedRc === YESONE_RC_CODE}
+                disabled={
+                  draftPeriod === 'lifetime'
+                  && appliedPeriod === 'lifetime'
+                  && draftRc === YESONE_RC_CODE
+                  && appliedRc === YESONE_RC_CODE
+                  && draftLink === 'all'
+                  && appliedLink === 'all'
+                }
                 onClick={() => {
                   setDraftPeriod('lifetime');
                   setAppliedPeriod('lifetime');
                   setDraftRc(YESONE_RC_CODE);
                   setAppliedRc(YESONE_RC_CODE);
+                  setDraftLink('all');
+                  setAppliedLink('all');
                 }}
               >
                 Clear
@@ -253,6 +338,9 @@ export const YesGatcCertificatesPage: React.FC = () => {
           </div>
         ) : null}
         {error ? <p className="settings-locations__error">{error}</p> : null}
+        {linkingInvoices ? (
+          <p className="settings-locations__loading">Matching invoice serials…</p>
+        ) : null}
         {pagination ? (
           <div className="invoices-pagination yesgatc-certs-pagination yesgatc-certs-pagination--top" role="navigation" aria-label="Certificate list pagination">
             {pagination}
@@ -265,6 +353,9 @@ export const YesGatcCertificatesPage: React.FC = () => {
             empty={search || hasActiveFilters
               ? 'No GATC certificates match.'
               : 'No GATC certificates.'}
+            onLinked={next => {
+              setRows(current => current.map(row => (row.id === next.id ? next : row)));
+            }}
           />
         </div>
         {pagination ? (

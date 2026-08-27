@@ -339,6 +339,10 @@ import {
   loadWebhookSecret,
   readProvidedSecret,
 } from './lib/yesgatc-webhook.js';
+import {
+  linkYesGatcCertificatesToInvoices,
+  manualLinkYesGatcCertificateInvoice,
+} from './lib/yesgatc-invoice-link.js';
 import { CI_BUILD_TAG } from './lib/ci-build.js';
 
 // CI smoke-test marker (shared bundle entry — triggers full functions deploy in CI).
@@ -7338,6 +7342,55 @@ export const listYesGatcCertificatesFn = onCall(
     } catch (err) {
       if (err instanceof HttpsError) throw err;
       throw new HttpsError('internal', err?.message ?? 'Could not load certificates.');
+    }
+  },
+);
+
+export const linkYesGatcInvoicesFn = onCall(
+  {
+    region: 'asia-south1',
+    secrets: [zohoClientId, zohoClientSecret, zohoRefreshToken],
+    timeoutSeconds: 540,
+    memory: '2GiB',
+  },
+  async request => {
+    await requireActiveUser(request.auth?.uid, SUPER_ADMIN_ROLES);
+    try {
+      const minDate = String(request.data?.minDate ?? '').trim() || undefined;
+      return await linkYesGatcCertificatesToInvoices({
+        ...(minDate ? { minDate } : {}),
+        zoho: {
+          secrets: zohoSecrets(),
+          orgId: zohoOrganizationId.value(),
+        },
+      });
+    } catch (err) {
+      console.error('linkYesGatcInvoicesFn failed:', err);
+      throw new HttpsError('internal', err?.message ?? 'Could not link GATC certificates to invoices.');
+    }
+  },
+);
+
+export const linkYesGatcCertificateInvoiceFn = onCall(
+  {
+    region: 'asia-south1',
+    timeoutSeconds: 60,
+    memory: '256MiB',
+  },
+  async request => {
+    await requireActiveUser(request.auth?.uid, SYNC_ROLES);
+    try {
+      return await manualLinkYesGatcCertificateInvoice({
+        certificateId: request.data?.certificateId,
+        serialNumber: request.data?.serialNumber,
+        invoiceId: request.data?.invoiceId,
+        invoiceNumber: request.data?.invoiceNumber,
+        invoiceDate: request.data?.invoiceDate,
+        invoiceCustomerId: request.data?.invoiceCustomerId,
+      });
+    } catch (err) {
+      if (err instanceof HttpsError) throw err;
+      throw new HttpsError('invalid-argument', err?.message ?? 'Could not link this invoice.');
     }
   },
 );

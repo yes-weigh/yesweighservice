@@ -19,6 +19,7 @@ import { SYSTEM_STAFF_ROLE_IDS } from '../types/staff-role';
 const SUPER_ADMIN_WRITE_PERMISSIONS = new Set<StaffPermission>([
   'dealers.edit',
   'dealers.sync',
+  'yesgatc.rc_link',
   'leads.manage',
   'support.manage',
   'support.service',
@@ -129,6 +130,28 @@ export function hasStaffPermission(
   permission: StaffPermission,
 ): boolean {
   return resolveStaffPermissions(user).includes(permission);
+}
+
+export function canLinkYesGatcRc(user: User | null | undefined): boolean {
+  return isFullSuperAdmin(user) || hasStaffPermission(user, 'yesgatc.rc_link');
+}
+
+const YESGATC_FILTER_ADMIN_NAMES = ['developer', 'shalima', 'faisal'] as const;
+
+function yesGatcFilterIdentityParts(user: Pick<User, 'displayName' | 'loginId' | 'email'>): string[] {
+  return [user.displayName, user.loginId, user.email]
+    .flatMap(value => String(value ?? '').toLowerCase().split(/[\s@._-]+/))
+    .map(part => part.trim())
+    .filter(Boolean);
+}
+
+/** GATC list filters: only these three super admins may change RC / period / link. */
+export function canUseYesGatcFilters(user: User | null | undefined): boolean {
+  if (user?.role !== 'super_admin') return false;
+  const login = String(user.loginId ?? user.email ?? '').trim().toLowerCase();
+  if (login === 'admin@yesweigh.in') return true;
+  const parts = new Set(yesGatcFilterIdentityParts(user));
+  return YESGATC_FILTER_ADMIN_NAMES.some(name => parts.has(name));
 }
 
 export function canViewHr(user: User | null | undefined): boolean {

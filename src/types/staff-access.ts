@@ -22,6 +22,7 @@ export type StaffPermission =
   | 'dealers.view'
   | 'dealers.edit'
   | 'dealers.sync'
+  | 'yesgatc.rc_link'
   | 'leads.view'
   | 'leads.manage'
   | 'support.view'
@@ -49,6 +50,7 @@ export const ALL_STAFF_PERMISSIONS: StaffPermission[] = [
   'dealers.view',
   'dealers.edit',
   'dealers.sync',
+  'yesgatc.rc_link',
   'leads.view',
   'leads.manage',
   'support.view',
@@ -77,6 +79,7 @@ export const STAFF_PERMISSION_LABELS: Record<StaffPermission, string> = {
   'dealers.view': 'View dealers',
   'dealers.edit': 'Edit dealers',
   'dealers.sync': 'Sync dealers from Zoho',
+  'yesgatc.rc_link': 'Link GATC regional centers to dealers',
   'leads.view': 'View leads',
   'leads.manage': 'Manage leads',
   'support.view': 'View support tickets',
@@ -109,7 +112,7 @@ export const STAFF_PERMISSION_GROUPS: Array<{
   {
     id: 'dealers',
     label: 'Dealers',
-    permissions: ['dealers.view', 'dealers.edit', 'dealers.sync'],
+    permissions: ['dealers.view', 'dealers.edit', 'dealers.sync', 'yesgatc.rc_link'],
   },
   {
     id: 'leads',
