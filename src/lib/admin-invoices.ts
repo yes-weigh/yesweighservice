@@ -2532,6 +2532,11 @@ export function mapAdminInvoiceDetail(
       : null,
     yesOneFreightPartner: mapInvoiceLocalFreightPartner(data.yesOneFreightPartner),
     sparePackaging,
+    yesgatcRcPushedAt: data.yesgatcRcPushedAt != null ? String(data.yesgatcRcPushedAt) : null,
+    yesgatcRcPushedBy: data.yesgatcRcPushedBy != null ? String(data.yesgatcRcPushedBy) : null,
+    yesgatcRcPushError: data.yesgatcRcPushError != null ? String(data.yesgatcRcPushError) : null,
+    yesgatcRcCode: data.yesgatcRcCode != null ? String(data.yesgatcRcCode) : null,
+    yesgatcRcName: data.yesgatcRcName != null ? String(data.yesgatcRcName) : null,
   };
 }
 

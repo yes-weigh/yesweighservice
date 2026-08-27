@@ -1259,6 +1259,20 @@ export async function verifySalesOrderPayment(uid, role, salesOrderId, secrets, 
       }
     }
 
+    try {
+      await syncSingleInvoiceFromZoho(secrets, orgId, invoiceId, {
+        skipPdfs: true,
+        skipImages: true,
+        skipFreightDiffSettle: true,
+        source: 'payment_verify_pre_einvoice',
+      });
+    } catch (syncErr) {
+      console.warn(
+        `Invoice mirror before e-invoice failed for ${invoiceId} (SO ${id}):`,
+        syncErr?.message ?? syncErr,
+      );
+    }
+
     let einvoicePushStatus = 'skipped_not_b2b';
     let einvoicePushError = null;
     const customer = await resolveCustomerForEinvoice(secrets, orgId, data.customerId);

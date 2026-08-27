@@ -208,6 +208,61 @@ export function compactSerialKey(raw: string): string {
   return String(raw ?? '').toUpperCase().replace(/[^A-Z0-9]/g, '');
 }
 
+export const SHALIMA_ALLOTMENT_CREATED_BY = 'SHALIMA K T';
+
+export function serialAllotmentRangeKey(
+  row: Pick<SerialNumberAllotment, 'series' | 'from' | 'to'>,
+): string {
+  return `${normalizeSerialSeries(row.series)}:${compactSerialKey(row.from)}:${compactSerialKey(row.to)}`;
+}
+
+function allotmentKeepScore(row: SerialNumberAllotment): string {
+  return [
+    row.pushedAt ? '1' : '0',
+    row.createdBy ? '1' : '0',
+    row.createdAt || '',
+  ].join('|');
+}
+
+/** Keep one row per series + start + end. Prefer pushed, then named adder, then newest. */
+export function dedupeSerialAllotments(
+  rows: ReadonlyArray<SerialNumberAllotment>,
+): SerialNumberAllotment[] {
+  const winnerByKey = new Map<string, SerialNumberAllotment>();
+  for (const row of rows) {
+    const key = serialAllotmentRangeKey(row);
+    const prev = winnerByKey.get(key);
+    if (!prev || allotmentKeepScore(row) > allotmentKeepScore(prev)) {
+      winnerByKey.set(key, row);
+    }
+  }
+  const seen = new Set<string>();
+  const out: SerialNumberAllotment[] = [];
+  for (const row of rows) {
+    const key = serialAllotmentRangeKey(row);
+    if (seen.has(key)) continue;
+    const winner = winnerByKey.get(key);
+    if (!winner) continue;
+    seen.add(key);
+    out.push(winner);
+  }
+  return out;
+}
+
+export function withShalimaAllotmentCreatedBy(
+  rows: ReadonlyArray<SerialNumberAllotment>,
+): SerialNumberAllotment[] {
+  return rows.map(row => (
+    row.createdBy ? row : { ...row, createdBy: SHALIMA_ALLOTMENT_CREATED_BY }
+  ));
+}
+
+export function prepareSerialAllotments(
+  rows: ReadonlyArray<SerialNumberAllotment>,
+): SerialNumberAllotment[] {
+  return withShalimaAllotmentCreatedBy(dedupeSerialAllotments(rows));
+}
+
 export function countLinkedUnused(
   input: Pick<SerialNumberAllotment, 'from' | 'to' | 'missing' | 'count'>,
   invoicedKeys: ReadonlySet<string>,
@@ -236,7 +291,7 @@ export function countLinkedUnused(
   return { linked, unused: qty - linked };
 }
 
-const INVOICED_SERIAL_CACHE_KEY = 'yesweigh.invoicedSerialKeys.v1';
+const INVOICED_SERIAL_CACHE_KEY = 'yesweigh.invoicedSerialKeys.v2';
 
 function pushSerialKey(into: Set<string>, raw: unknown): void {
   const key = compactSerialKey(String(raw ?? ''));
@@ -260,6 +315,8 @@ export async function loadInvoicedSerialKeys(): Promise<Set<string>> {
   const snap = await getDocs(collectionGroup(db, 'invoices'));
   for (const docSnap of snap.docs) {
     const data = docSnap.data() as Record<string, unknown>;
+    const status = String(data.status ?? '').trim().toLowerCase();
+    if (status === 'void' || status === 'cancelled' || status === 'canceled') continue;
     if (Array.isArray(data.serialNumbers)) {
       for (const value of data.serialNumbers) pushSerialKey(keys, value);
     }
@@ -374,13 +431,13 @@ export async function saveSerialNumberAllotments(
 ): Promise<SerialNumberAllotmentDoc> {
   const ref = doc(db, 'appSettings', SERIAL_NUMBER_ALLOTMENT_DOC_ID);
   const current = await loadSerialNumberAllotments();
-  const normalized = mergePushStatus(
+  const normalized = prepareSerialAllotments(mergePushStatus(
     allotments.flatMap(row => {
       const next = normalizeAllotment(row);
       return next ? [next] : [];
     }),
     current.allotments,
-  );
+  ));
   const payload: SerialNumberAllotmentDoc = {
     allotments: normalized,
     webhookUrl: current.webhookUrl,

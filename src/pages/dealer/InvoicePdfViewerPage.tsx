@@ -1,5 +1,5 @@
 import React, { Suspense, lazy, useEffect, useMemo, useState } from 'react';
-import { useOutletContext } from 'react-router-dom';
+import { useOutletContext, useSearchParams } from 'react-router-dom';
 import { AlertCircle, Download, ExternalLink, Loader2, Share2 } from 'lucide-react';
 import { FetchingLoader } from '../../components/FetchingLoader';
 import { shareDocumentPdf } from '../../lib/documentWhatsAppShare';
@@ -20,6 +20,8 @@ const InvoicePdfCanvas = lazy(() =>
 
 export const InvoicePdfViewerPage: React.FC = () => {
   const { invoice, invoiceId } = useOutletContext<InvoiceDetailOutletContext>();
+  const [searchParams] = useSearchParams();
+  const fresh = searchParams.get('fresh') || '';
   const useNativeViewer = useMemo(() => prefersNativePdfViewer(), []);
 
   const [document, setDocument] = useState<InvoiceDocumentDownload | null>(null);
@@ -43,7 +45,7 @@ export const InvoicePdfViewerPage: React.FC = () => {
     setPdfUrl(null);
     setPdfBytes(null);
 
-    void downloadDealerInvoiceDocument(invoiceId, 'invoice')
+    void downloadDealerInvoiceDocument(invoiceId, 'invoice', { refresh: true })
       .then(doc => {
         if (cancelled) return;
 
@@ -71,7 +73,7 @@ export const InvoicePdfViewerPage: React.FC = () => {
       cancelled = true;
       if (objectUrl) URL.revokeObjectURL(objectUrl);
     };
-  }, [invoiceId, useNativeViewer]);
+  }, [invoiceId, fresh, useNativeViewer]);
 
   const sharePdf = async () => {
     if (!document || !invoice || sharing) return;

@@ -39976,6 +39976,226 @@ button.invoice-detail-top__card {
   font-weight: 800;
 }
 
+.invoice-nongatc-serials {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.4rem;
+  margin-top: 0.4rem;
+}
+
+.invoice-nongatc-serials--bar {
+  margin: 0.75rem 0;
+  padding: 0.85rem 1rem !important;
+}
+
+.invoice-nongatc-serials__list {
+  margin: 0;
+  font-size: 0.78rem;
+  font-weight: 700;
+  line-height: 1.4;
+  color: #86efac;
+}
+
+.invoice-nongatc-serials__empty {
+  margin: 0;
+  font-size: 0.75rem;
+  font-weight: 650;
+  color: #fbbf24;
+}
+
+.invoice-nongatc-serials__btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.invoice-nongatc-serials__btn--gatc {
+  align-self: stretch;
+  width: 100%;
+  background: #166534;
+  border: 1px solid #4ade80;
+  color: #ecfdf5;
+}
+
+.invoice-nongatc-serials__btn--gatc:hover:not(:disabled) {
+  background: #15803d;
+  color: #ecfdf5;
+}
+
+.invoice-nongatc-serials__error {
+  margin: 0;
+  font-size: 0.8rem;
+  font-weight: 650;
+  color: #fca5a5;
+}
+
+.invoice-nongatc-serials__ok {
+  margin: 0;
+  font-size: 0.8rem;
+  font-weight: 650;
+  color: #86efac;
+}
+
+.invoice-nongatc-serials__yesgatc {
+  margin: 0;
+  font-size: 0.78rem;
+  font-weight: 800;
+  line-height: 1.4;
+  color: #fde047;
+}
+
+.dealers-modal-backdrop.gatc-serial-picker__backdrop {
+  padding: 0;
+  align-items: stretch;
+  justify-content: stretch;
+  background: #0b1017;
+}
+
+.gatc-serial-picker {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  height: 100dvh;
+  max-height: 100dvh;
+  margin: 0;
+  padding: 0.85rem 0.9rem calc(0.85rem + env(safe-area-inset-bottom));
+  border: 0;
+  border-radius: 0;
+  background: #0b1017;
+}
+
+.gatc-serial-picker__head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.75rem;
+  margin-bottom: 0.7rem;
+}
+
+.gatc-serial-picker__head h3 {
+  margin: 0;
+  font-size: 1.05rem;
+}
+
+.gatc-serial-picker__head p {
+  margin: 0.2rem 0 0;
+}
+
+.gatc-serial-picker__close {
+  border: 0;
+  background: transparent;
+  color: inherit;
+  padding: 0.2rem;
+  cursor: pointer;
+}
+
+.gatc-serial-picker__search {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  margin-bottom: 0.45rem;
+  padding: 0.5rem 0.75rem;
+  border-radius: 10px;
+  border: 1px solid rgba(148, 163, 184, 0.18);
+  background: rgba(15, 23, 42, 0.45);
+}
+
+.gatc-serial-picker__search input {
+  flex: 1;
+  min-width: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  outline: none;
+}
+
+.gatc-serial-picker__count {
+  margin: 0 0 0.55rem;
+  font-size: 0.78rem;
+  font-weight: 700;
+  color: #4ade80;
+}
+
+.gatc-serial-picker__status {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.45rem;
+  margin: 2rem 0;
+  font-size: 0.88rem;
+  color: #94a3b8;
+}
+
+.gatc-serial-picker__board {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: auto;
+  padding-bottom: 0.5rem;
+}
+
+.gatc-serial-picker__grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(4.6rem, 1fr));
+  gap: 0.45rem;
+}
+
+.gatc-serial-picker__seat {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.18rem;
+  min-height: 4.35rem;
+  padding: 0.4rem 0.25rem;
+  border-radius: 10px;
+  border: 1px solid rgba(148, 163, 184, 0.22);
+  background: rgba(15, 23, 42, 0.72);
+  color: inherit;
+  font: inherit;
+  text-align: center;
+  cursor: pointer;
+}
+
+.gatc-serial-picker__seat strong {
+  font-size: 0.78rem;
+  font-weight: 800;
+  line-height: 1.15;
+  letter-spacing: 0.01em;
+}
+
+.gatc-serial-picker__seat span {
+  font-size: 0.68rem;
+  font-weight: 650;
+  color: #94a3b8;
+}
+
+.gatc-serial-picker__seat--on {
+  border-color: #4ade80;
+  background: rgba(22, 101, 52, 0.72);
+  color: #ecfdf5;
+  box-shadow: inset 0 0 0 1px rgba(74, 222, 128, 0.35);
+}
+
+.gatc-serial-picker__seat--on span {
+  color: #bbf7d0;
+}
+
+.gatc-serial-picker__seat--locked {
+  opacity: 0.38;
+  cursor: not-allowed;
+}
+
+.gatc-serial-picker__actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.55rem;
+  margin-top: 0.65rem;
+  padding-top: 0.65rem;
+  border-top: 1px solid rgba(255, 255, 255, 0.06);
+}
+
 .goods-receipt-receive__header {
   display: flex;
   align-items: center;
@@ -40946,6 +41166,17 @@ button.invoice-detail-top__card {
   display: inline-flex;
   align-items: center;
   gap: 0.45rem;
+}
+
+.invoice-void-invoice-btn {
+  background: #dc2626;
+  color: #fff;
+  border: 1px solid #b91c1c;
+}
+
+.invoice-void-invoice-btn:hover:not(:disabled) {
+  background: #b91c1c;
+  transform: translateY(-1px);
 }
 
 .invoice-manual-logistics__hint,

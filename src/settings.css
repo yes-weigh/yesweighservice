@@ -19,7 +19,7 @@
 }
 
 .reports-type-filter .top-bar-period__trigger {
-  max-width: 14.5rem;
+  max-width: 15.5rem;
 }
 
 .reports-type-filter .dealer-dash-range-select__option {
@@ -54,8 +54,108 @@
   background: transparent;
 }
 
+.rc-ov-report.gatc-report {
+  gap: 0.35rem;
+  padding-top: 0;
+}
+
+.rc-ov-report .gatc-report__loading,
+.rc-ov-report .gatc-report__empty,
+.rc-ov-report .gatc-report__error {
+  margin: 0;
+  padding: 0.3rem 0;
+  font-size: 0.88rem;
+}
+
+.rc-ov-report__list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.45rem;
+}
+
+.rc-ov-report__head,
+.rc-ov-report__qty {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  align-items: center;
+  gap: 0.3rem 0.4rem;
+}
+
+.rc-ov-report__head {
+  padding: 0 0.85rem 0.1rem;
+  font-size: 0.64rem;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  line-height: 1.2;
+  text-transform: uppercase;
+}
+
+.rc-ov-report__head > span,
+.rc-ov-report__metric {
+  text-align: center;
+}
+
+.rc-ov-report__card {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 0.42rem;
+  padding: 0.7rem 0.85rem;
+  border: 1px solid rgba(148, 163, 184, 0.12);
+  border-radius: 0.85rem;
+  background: #161b24;
+}
+
+.rc-ov-report__identity {
+  min-width: 0;
+}
+
+.rc-ov-report__name {
+  margin: 0;
+  font-size: 0.86rem;
+  font-weight: 800;
+  line-height: 1.25;
+  color: #f8fafc;
+  white-space: nowrap;
+}
+
+.rc-ov-report__place {
+  margin: 0.18rem 0 0;
+  color: #94a3b8;
+  font-size: 0.7rem;
+  font-weight: 600;
+  line-height: 1.25;
+}
+
+.rc-ov-report__metric {
+  display: block;
+  min-width: 0;
+  font-size: 0.92rem;
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0;
+  line-height: 1.2;
+  text-transform: none;
+}
+
+.rc-ov-report .yesgatc-rc-row__ov {
+  color: #60a5fa;
+}
+
+.rc-ov-report .yesgatc-rc-row__diff {
+  font-size: 0.92rem;
+}
+
+.rc-ov-report__foot {
+  margin: 0.1rem 0.15rem 0;
+  color: #64748b;
+  font-size: 0.72rem;
+  font-weight: 600;
+}
+
 .content-area:has(.gatc-report),
-.content-area:has(.incentive-report) {
+.content-area:has(.incentive-report),
+.content-area:has(.rc-ov-report) {
   padding: 0.55rem 0.75rem 0.85rem;
 }
 
@@ -1108,12 +1208,36 @@ button.incentive-report__adjust-col:focus-visible {
   }
 
   .content-area:has(.gatc-report),
-  .content-area:has(.incentive-report) {
-    padding: 0.4rem 0.7rem 0.7rem;
+  .content-area:has(.incentive-report),
+  .content-area:has(.rc-ov-report) {
+    padding: 0.4rem 0.55rem 0.7rem;
   }
 
   .reports-hub__body > .gatc-report {
     padding: 0.35rem 0 0.55rem;
+  }
+
+  .rc-ov-report__head {
+    padding-left: 0.65rem;
+    padding-right: 0.65rem;
+  }
+
+  .rc-ov-report__card {
+    padding: 0.58rem 0.65rem;
+    gap: 0.38rem;
+  }
+
+  .rc-ov-report__name {
+    font-size: 0.78rem;
+  }
+
+  .rc-ov-report__place {
+    font-size: 0.64rem;
+  }
+
+  .rc-ov-report__metric,
+  .rc-ov-report .yesgatc-rc-row__diff {
+    font-size: 0.8rem;
   }
 
   .gatc-report__kpis {
@@ -1971,6 +2095,12 @@ button.incentive-report__adjust-col:focus-visible {
   font-variant-numeric: tabular-nums;
   letter-spacing: 0;
   text-transform: none;
+}
+
+.yesgatc-rc-row__diff strong {
+  color: #fdba74;
+  font-size: inherit;
+  font-weight: inherit;
 }
 
 .yesgatc-rc-row__select,
@@ -8545,55 +8675,129 @@ button.incentive-report__adjust-col:focus-visible {
   padding: 0;
   display: flex;
   flex-direction: column;
-  gap: 0.55rem;
+  gap: 0.65rem;
 }
 
 .settings-serial-allotment__row {
   position: relative;
   display: flex;
   flex-direction: column;
-  gap: 0.5rem;
-  padding: 0.75rem;
-  border-radius: 14px;
-  border: 1px solid rgba(148, 163, 184, 0.16);
-  background: rgba(15, 23, 42, 0.35);
+  gap: 0.7rem;
+  padding: 0.85rem 0.9rem;
+  border-radius: 0.85rem;
+  border: 1px solid rgba(148, 163, 184, 0.14);
+  background: #161b24;
 }
 
 .settings-serial-allotment__metrics {
   display: flex;
   flex-direction: column;
-  gap: 0.55rem;
+  gap: 0.7rem;
 }
 
 .settings-serial-allotment__metrics-row {
   display: grid;
-  grid-template-columns: minmax(0, 1.3fr) minmax(0, 0.95fr) minmax(0, 0.95fr) 3.3rem;
-  gap: 0.4rem;
+  grid-template-columns: minmax(0, 1.35fr) minmax(0, 1fr) minmax(0, 1fr) 3.4rem;
+  gap: 0.45rem;
 }
 
 .settings-serial-allotment__metrics-row--usage {
   grid-template-columns: repeat(3, minmax(0, 1fr));
+  padding-top: 0.55rem;
+  border-top: 1px solid rgba(148, 163, 184, 0.1);
 }
 
 .settings-serial-allotment__metrics .settings-serial-allotment__stat span {
   height: auto;
   min-height: 1rem;
+  color: #64748b;
+  font-size: 0.62rem;
+  letter-spacing: 0.06em;
   overflow: hidden;
   text-overflow: ellipsis;
 }
 
 .settings-serial-allotment__metrics .settings-serial-allotment__stat strong {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.28rem;
   min-height: 0;
   padding: 0;
-  font-size: 0.88rem;
+  font-size: 0.9rem;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
+.settings-serial-allotment__edit-missing {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.35rem;
+  height: 1.35rem;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 0.35rem;
+  background: rgba(148, 163, 184, 0.12);
+  color: #94a3b8;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
+.settings-serial-allotment__edit-missing:hover:not(:disabled) {
+  background: rgba(245, 158, 11, 0.18);
+  color: #fbbf24;
+}
+
+.settings-serial-allotment__edit-missing:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.settings-serial-allotment__missing-edit {
+  display: flex;
+  flex-direction: column;
+  gap: 0.45rem;
+}
+
+.settings-serial-allotment__missing-edit .settings-serial-allotment__missing {
+  min-height: 3.4rem;
+}
+
+.settings-serial-allotment__missing-edit-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.4rem;
+}
+
 .settings-serial-allotment__metrics-row > .settings-serial-allotment__stat:first-child strong {
   white-space: normal;
   line-height: 1.2;
+}
+
+.settings-serial-allotment__stat--series strong {
+  color: #f8fafc;
+}
+
+.settings-serial-allotment__stat--start strong {
+  color: #7dd3fc;
+}
+
+.settings-serial-allotment__stat--end strong {
+  color: #c4b5fd;
+}
+
+.settings-serial-allotment__stat--qty strong {
+  color: #4ade80;
+}
+
+.settings-serial-allotment__stat--linked strong {
+  color: #fb923c;
+}
+
+.settings-serial-allotment__stat--unused strong {
+  color: #38bdf8;
 }
 
 .settings-serial-allotment__missing-list {
@@ -8606,40 +8810,60 @@ button.incentive-report__adjust-col:focus-visible {
 
 .settings-serial-allotment__added {
   display: flex;
-  align-items: baseline;
-  flex-wrap: wrap;
-  gap: 0.35rem 0.55rem;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 0.55rem 0.75rem;
   margin: 0;
+  padding-top: 0.6rem;
+  border-top: 1px solid rgba(148, 163, 184, 0.1);
   min-width: 0;
 }
 
-.settings-serial-allotment__added span {
-  font-size: 0.7rem;
-  font-weight: 700;
-  letter-spacing: 0.03em;
-  text-transform: uppercase;
-  color: #94a3b8;
+.settings-serial-allotment__added-who {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0.2rem 0.45rem;
+  min-width: 0;
 }
 
-.settings-serial-allotment__added strong {
-  font-size: 0.88rem;
-  font-weight: 700;
-  color: #e2e8f0;
-  overflow: hidden;
-  text-overflow: ellipsis;
+.settings-serial-allotment__added-who span {
+  font-size: 0.62rem;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: #64748b;
+}
+
+.settings-serial-allotment__added-who strong {
+  font-size: 0.82rem;
+  font-weight: 800;
+  color: #f8fafc;
+}
+
+.settings-serial-allotment__added-who time {
+  width: 100%;
+  color: #94a3b8;
+  font-size: 0.7rem;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.settings-serial-allotment__push {
+  flex: 0 0 auto;
+  font-size: 0.68rem;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
   white-space: nowrap;
 }
 
-.settings-serial-allotment__added .settings-serial-allotment__push {
-  margin-left: auto;
+.settings-serial-allotment__push.is-pending {
+  color: #facc15;
 }
 
-.settings-serial-allotment__added .settings-serial-allotment__push.is-pending {
-  color: #fbbf24;
-}
-
-.settings-serial-allotment__added .settings-serial-allotment__push.is-sent {
-  color: #86efac;
+.settings-serial-allotment__push.is-sent {
+  color: #4ade80;
 }
 
 .settings-serial-allotment__meta {

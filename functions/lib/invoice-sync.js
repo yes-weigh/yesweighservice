@@ -137,6 +137,8 @@ async function fetchInvoiceRaw(accessToken, orgId, invoiceId) {
 async function fetchZohoPdf(accessToken, orgId, resource, id) {
   const url = new URL(`${ZOHO_API_BASE}/${resource}/${id}`);
   url.searchParams.set('organization_id', orgId);
+  url.searchParams.set('accept', 'pdf');
+  url.searchParams.set('t', String(Date.now()));
   const res = await fetch(url.toString(), {
     headers: {
       ...authHeaders(accessToken, orgId),
@@ -352,7 +354,7 @@ async function uploadPdfToStorage(storagePath, buffer) {
   const file = bucket.file(storagePath);
   await file.save(buffer, {
     contentType: 'application/pdf',
-    metadata: { cacheControl: 'public, max-age=31536000' },
+    metadata: { cacheControl: 'private, max-age=0, must-revalidate' },
     resumable: false,
   });
   return storagePath;
@@ -365,6 +367,34 @@ async function readPdfFromStorage(storagePath) {
   if (!exists) return null;
   const [buffer] = await file.download();
   return buffer.length ? buffer : null;
+}
+
+function millisFromUnknown(value) {
+  if (value == null || value === '') return null;
+  if (typeof value.toMillis === 'function') {
+    try { return value.toMillis(); } catch { return null; }
+  }
+  if (typeof value.toDate === 'function') {
+    try { return value.toDate().getTime(); } catch { return null; }
+  }
+  const seconds = Number(value.seconds ?? value._seconds);
+  if (Number.isFinite(seconds) && seconds > 0) return seconds * 1000;
+  const parsed = Date.parse(String(value));
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+async function cachedInvoicePdfIsStale(storagePath, data) {
+  const zohoMs = millisFromUnknown(data?.zohoLastModified) ?? millisFromUnknown(data?.syncedAt);
+  if (zohoMs == null) return false;
+  const cachedMs = millisFromUnknown(data?.pdfCachedAt);
+  if (cachedMs != null) return zohoMs > cachedMs + 1000;
+  const file = storageBucket().file(storagePath);
+  const [exists] = await file.exists();
+  if (!exists) return true;
+  const [metadata] = await file.getMetadata();
+  const updated = Date.parse(String(metadata.updated || metadata.timeCreated || ''));
+  if (!Number.isFinite(updated)) return false;
+  return zohoMs > updated + 1000;
 }
 
 function zohoContentFingerprint(invoiceRaw) {
@@ -490,6 +520,19 @@ function defaultInvoiceSyncOptions(options = {}) {
     concurrency: options.concurrency ?? 3,
     delayMs: options.delayMs ?? 350,
   };
+}
+
+export async function refreshInvoicePdfFromZoho(accessToken, orgId, customerId, invoiceId) {
+  const id = String(invoiceId || '').trim();
+  const cid = String(customerId || '').trim();
+  if (!id || !cid) throw new Error('Invoice is required.');
+  const pdfBuffer = await fetchZohoPdf(accessToken, orgId, 'invoices', id);
+  const pdfStoragePath = await uploadPdfToStorage(invoicePdfPath(cid, id), pdfBuffer);
+  await invoicesCollection(cid).doc(id).set({
+    pdfStoragePath,
+    pdfCachedAt: FieldValue.serverTimestamp(),
+  }, { merge: true });
+  return pdfStoragePath;
 }
 
 async function cacheInvoicePdfs(accessToken, orgId, customerId, invoiceId, invoiceRaw, salesOrder, options = {}) {
@@ -629,8 +672,11 @@ export async function upsertInvoiceFromRaw(accessToken, orgId, invoiceRaw, optio
     }
   }
 
+  const contentChanged = Boolean(existing?.contentFingerprint)
+    && existing.contentFingerprint !== fingerprint;
   const needsPdf = !options.skipPdfs && (
     options.forcePdfs
+    || contentChanged
     || !existing?.pdfStoragePath
     || (!options.skipSalesOrder && salesOrder?.id && !existing?.salesOrderPdfStoragePath)
   );
@@ -649,7 +695,10 @@ export async function upsertInvoiceFromRaw(accessToken, orgId, invoiceRaw, optio
         salesOrder,
         options,
       );
-      if (pdfPaths.pdfStoragePath) doc.pdfStoragePath = pdfPaths.pdfStoragePath;
+      if (pdfPaths.pdfStoragePath) {
+        doc.pdfStoragePath = pdfPaths.pdfStoragePath;
+        doc.pdfCachedAt = FieldValue.serverTimestamp();
+      }
       if (pdfPaths.salesOrderPdfStoragePath) doc.salesOrderPdfStoragePath = pdfPaths.salesOrderPdfStoragePath;
     }
   } else if (existing) {
@@ -688,10 +737,47 @@ export async function upsertInvoiceFromRaw(accessToken, orgId, invoiceRaw, optio
         doc.balance = 0;
       }
     }
+    if (Array.isArray(doc.lineItems) && Array.isArray(existing.lineItems)) {
+      const { mergePreservedLineSerials } = await import('./non-gatc-serial-allot.js');
+      doc.lineItems = mergePreservedLineSerials(doc.lineItems, existing.lineItems);
+    }
+    if (Array.isArray(existing.nonGatcAllocatedSerials) && existing.nonGatcAllocatedSerials.length) {
+      doc.nonGatcAllocatedSerials = existing.nonGatcAllocatedSerials;
+      if (existing.nonGatcSerialAllottedAt) doc.nonGatcSerialAllottedAt = existing.nonGatcSerialAllottedAt;
+      if (existing.nonGatcSerialAllottedBy) doc.nonGatcSerialAllottedBy = existing.nonGatcSerialAllottedBy;
+    }
+    if (Array.isArray(existing.gatcStampedAllocatedSerials) && existing.gatcStampedAllocatedSerials.length) {
+      doc.gatcStampedAllocatedSerials = existing.gatcStampedAllocatedSerials;
+      if (existing.gatcStampedSerialAllottedAt) {
+        doc.gatcStampedSerialAllottedAt = existing.gatcStampedSerialAllottedAt;
+      }
+      if (existing.gatcStampedSerialAllottedBy) {
+        doc.gatcStampedSerialAllottedBy = existing.gatcStampedSerialAllottedBy;
+      }
+    }
+    if (Array.isArray(existing.yesgatcLinks) && existing.yesgatcLinks.length) {
+      doc.yesgatcLinks = existing.yesgatcLinks;
+      if (existing.yesgatcLinkedAt) doc.yesgatcLinkedAt = existing.yesgatcLinkedAt;
+    }
   }
 
   await invoicesCollection(customerId).doc(invoiceId).set(doc, { merge: true });
   await invoiceIndexRef(invoiceId).set({ customerId, updatedAt: FieldValue.serverTimestamp() });
+
+  try {
+    // Dismantled / no-GATC machine lines only. GATC-stamped serials are
+    // assigned later by warehouse from unlinked Interweighing certificates.
+    const { applyNonGatcSerialAllotmentOnInvoice } = await import('./non-gatc-serial-allot.js');
+    await applyNonGatcSerialAllotmentOnInvoice({
+      customerId,
+      invoiceId,
+      actorName: 'invoice-sync',
+      accessToken,
+      orgId,
+    });
+  } catch (err) {
+    console.warn(`Non-GATC serial allotment failed for ${invoiceId}:`, err?.message ?? err);
+  }
 
   if (Number(doc.total ?? 0) > 50_000) {
     try {
@@ -1441,7 +1527,7 @@ function invoiceDocumentMeta(customerId, invoiceId, data, documentType) {
   throw new Error('Unsupported document type.');
 }
 
-/** Read cached PDF from Storage, or fetch from Zoho once and cache for later views. */
+/** Invoice PDF is always pulled from Zoho so serial updates are not served from cache. */
 export async function ensureInvoiceDocumentPdf(secrets, orgId, customerId, invoiceId, documentType) {
   const snap = await invoicesCollection(String(customerId)).doc(String(invoiceId)).get();
   if (!snap.exists) throw new Error('Invoice not found.');
@@ -1451,7 +1537,11 @@ export async function ensureInvoiceDocumentPdf(secrets, orgId, customerId, invoi
   }
 
   const meta = invoiceDocumentMeta(customerId, invoiceId, data, documentType);
-  let buffer = await readPdfFromStorage(meta.storagePath);
+  const forceFresh = documentType === 'invoice';
+  let buffer = forceFresh ? null : await readPdfFromStorage(meta.storagePath);
+  if (!forceFresh && buffer && await cachedInvoicePdfIsStale(meta.storagePath, data)) {
+    buffer = null;
+  }
 
   if (!buffer) {
     const accessToken = await getAccessToken(secrets);
@@ -1459,7 +1549,10 @@ export async function ensureInvoiceDocumentPdf(secrets, orgId, customerId, invoi
     buffer = await fetchZohoPdf(accessToken, organizationId, meta.zohoResource, meta.zohoId);
     const savedPath = await uploadPdfToStorage(meta.storagePath, buffer);
     await invoicesCollection(String(customerId)).doc(String(invoiceId)).set(
-      { [meta.firestorePathField]: savedPath },
+      {
+        [meta.firestorePathField]: savedPath,
+        ...(documentType === 'invoice' ? { pdfCachedAt: FieldValue.serverTimestamp() } : {}),
+      },
       { merge: true },
     );
   }
@@ -1576,7 +1669,7 @@ export async function handleZohoInvoiceWebhook(secrets, orgId, req) {
 
   const result = await syncSingleInvoiceFromZoho(secrets, orgId, invoiceId, {
     source: 'webhook',
-    skipPdfs: true,
+    skipPdfs: false,
   });
   return { ok: true, status: 200, action: 'synced', invoiceId, result };
 }

@@ -342,6 +342,17 @@ import {
 } from './lib/yesgatc-webhook.js';
 import { pushSerialAllotmentsToYesGatc } from './lib/yesgatc-serial-push.js';
 import {
+  applyNonGatcSerialAllotmentOnInvoice,
+  unlinkNonGatcSerialsFromInvoice,
+} from './lib/non-gatc-serial-allot.js';
+import { voidAdminInvoice } from './lib/void-admin-invoice.js';
+import { pushRcInvoiceSerialsToYesGatc } from './lib/yesgatc-rc-invoice-push.js';
+import {
+  allotGatcStampedSerialsToInvoice,
+  listUnlinkedIwpGatcCertificates,
+  unlinkGatcStampedSerialsFromInvoice,
+} from './lib/yesgatc-stamped-serial-allot.js';
+import {
   linkYesGatcCertificatesToInvoices,
   manualLinkYesGatcCertificateInvoice,
 } from './lib/yesgatc-invoice-link.js';
@@ -430,6 +441,7 @@ async function readUserRole(uid) {
   if (role === 'director') return 'dealer';
   if (role === 'director_staff') return 'dealer_staff';
   if (ALLOWED_ROLES.has(role)) return role;
+  if (role === 'warehouse') return role;
   return null;
 }
 
@@ -7360,6 +7372,185 @@ export const rotateYesGatcWebhookFn = onCall(
     } catch (err) {
       if (err instanceof HttpsError) throw err;
       throw new HttpsError('internal', err?.message ?? 'Could not rotate webhook secret.');
+    }
+  },
+);
+
+const NON_GATC_SERIAL_ROLES = new Set(['staff', 'super_admin', 'warehouse']);
+
+export const allotNonGatcSerialsToInvoiceFn = onCall(
+  {
+    region: 'asia-south1',
+    timeoutSeconds: 60,
+    memory: '512MiB',
+    secrets: [zohoClientId, zohoClientSecret, zohoRefreshToken],
+  },
+  async request => {
+    await requireActiveUser(request.auth?.uid, NON_GATC_SERIAL_ROLES);
+    try {
+      const customerId = String(request.data?.customerId ?? '').trim();
+      const invoiceId = String(request.data?.invoiceId ?? '').trim();
+      if (!customerId || !invoiceId) {
+        throw new HttpsError('invalid-argument', 'Invoice is required.');
+      }
+      const actorName = String(request.data?.actorName ?? '').trim() || 'YESWEIGH';
+      const zoho = {
+        secrets: zohoSecrets(),
+        configuredOrgId: zohoOrganizationId.value(),
+      };
+      if (request.data?.unlink) {
+        return await unlinkNonGatcSerialsFromInvoice({
+          customerId,
+          invoiceId,
+          lineId: String(request.data?.lineId ?? '').trim(),
+          actorName,
+          ...zoho,
+        });
+      }
+      return await applyNonGatcSerialAllotmentOnInvoice({
+        customerId,
+        invoiceId,
+        actorName,
+        force: true,
+        ...zoho,
+      });
+    } catch (err) {
+      if (err instanceof HttpsError) throw err;
+      throw new HttpsError(
+        'failed-precondition',
+        err?.message ?? 'Could not allot non-GATC serial numbers.',
+      );
+    }
+  },
+);
+
+export const listUnlinkedIwpGatcCertificatesFn = onCall(
+  {
+    region: 'asia-south1',
+    timeoutSeconds: 60,
+    memory: '512MiB',
+  },
+  async request => {
+    await requireActiveUser(request.auth?.uid, NON_GATC_SERIAL_ROLES);
+    try {
+      const max = Math.min(5000, Math.max(1, Number(request.data?.max) || 2000));
+      return { rows: await listUnlinkedIwpGatcCertificates(max) };
+    } catch (err) {
+      if (err instanceof HttpsError) throw err;
+      throw new HttpsError('internal', err?.message ?? 'Could not load unlinked GATC serials.');
+    }
+  },
+);
+
+export const allotGatcStampedSerialsToInvoiceFn = onCall(
+  {
+    region: 'asia-south1',
+    timeoutSeconds: 90,
+    memory: '512MiB',
+    secrets: [zohoClientId, zohoClientSecret, zohoRefreshToken],
+  },
+  async request => {
+    await requireActiveUser(request.auth?.uid, NON_GATC_SERIAL_ROLES);
+    try {
+      const customerId = String(request.data?.customerId ?? '').trim();
+      const invoiceId = String(request.data?.invoiceId ?? '').trim();
+      if (!customerId || !invoiceId) {
+        throw new HttpsError('invalid-argument', 'Invoice is required.');
+      }
+      const actorName = String(request.data?.actorName ?? '').trim() || 'YESWEIGH';
+      const zoho = {
+        secrets: zohoSecrets(),
+        configuredOrgId: zohoOrganizationId.value(),
+      };
+      if (request.data?.unlink) {
+        return await unlinkGatcStampedSerialsFromInvoice({
+          customerId,
+          invoiceId,
+          lineId: String(request.data?.lineId ?? '').trim(),
+          actorName,
+          ...zoho,
+        });
+      }
+      return await allotGatcStampedSerialsToInvoice({
+        customerId,
+        invoiceId,
+        lineId: String(request.data?.lineId ?? '').trim(),
+        certificateIds: Array.isArray(request.data?.certificateIds)
+          ? request.data.certificateIds.map(id => String(id ?? '').trim()).filter(Boolean)
+          : [],
+        actorName,
+        ...zoho,
+      });
+    } catch (err) {
+      if (err instanceof HttpsError) throw err;
+      throw new HttpsError(
+        'failed-precondition',
+        err?.message ?? 'Could not allot GATC serial numbers.',
+      );
+    }
+  },
+);
+
+export const voidAdminInvoiceFn = onCall(
+  {
+    region: 'asia-south1',
+    timeoutSeconds: 90,
+    memory: '512MiB',
+    secrets: [zohoClientId, zohoClientSecret, zohoRefreshToken],
+  },
+  async request => {
+    const role = await requireActiveUser(request.auth?.uid, new Set(['super_admin']));
+    try {
+      const customerId = String(request.data?.customerId ?? '').trim();
+      const invoiceId = String(request.data?.invoiceId ?? '').trim();
+      if (!customerId || !invoiceId) {
+        throw new HttpsError('invalid-argument', 'Invoice is required.');
+      }
+      return await voidAdminInvoice({
+        uid: request.auth?.uid,
+        role,
+        customerId,
+        invoiceId,
+        reason: String(request.data?.reason ?? '').trim(),
+        secrets: zohoSecrets(),
+        configuredOrgId: zohoOrganizationId.value(),
+      });
+    } catch (err) {
+      if (err instanceof HttpsError) throw err;
+      throw new HttpsError(
+        'failed-precondition',
+        err?.message ?? 'Could not void this invoice.',
+      );
+    }
+  },
+);
+
+export const pushRcInvoiceToYesGatcFn = onCall(
+  {
+    region: 'asia-south1',
+    timeoutSeconds: 30,
+    memory: '256MiB',
+  },
+  async request => {
+    await requireActiveUser(request.auth?.uid, NON_GATC_SERIAL_ROLES);
+    try {
+      const customerId = String(request.data?.customerId ?? '').trim();
+      const invoiceId = String(request.data?.invoiceId ?? '').trim();
+      if (!customerId || !invoiceId) {
+        throw new HttpsError('invalid-argument', 'Invoice is required.');
+      }
+      return await pushRcInvoiceSerialsToYesGatc({
+        customerId,
+        invoiceId,
+        actorName: String(request.data?.actorName ?? '').trim() || 'YESWEIGH',
+        force: Boolean(request.data?.force),
+      });
+    } catch (err) {
+      if (err instanceof HttpsError) throw err;
+      throw new HttpsError(
+        'failed-precondition',
+        err?.message ?? 'Could not push this invoice to YesGATC.',
+      );
     }
   },
 );

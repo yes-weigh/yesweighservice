@@ -65,8 +65,8 @@ export const YesGatcCertificatesPage: React.FC = () => {
   const [appliedPeriod, setAppliedPeriod] = useState<GatcPeriod>('lifetime');
   const [draftRc, setDraftRc] = useState(YESONE_RC_CODE);
   const [appliedRc, setAppliedRc] = useState(YESONE_RC_CODE);
-  const [draftLink, setDraftLink] = useState<GatcLinkState>('all');
-  const [appliedLink, setAppliedLink] = useState<GatcLinkState>('all');
+  const [draftLink, setDraftLink] = useState<GatcLinkState>('unlinked');
+  const [appliedLink, setAppliedLink] = useState<GatcLinkState>('unlinked');
   const [rcs, setRcs] = useState<YesGatcRcDetail[]>(() => withDefaultIwpRc([]));
   const [page, setPage] = useState(1);
   const [storedCount, setStoredCount] = useState<number | null>(null);
@@ -125,7 +125,7 @@ export const YesGatcCertificatesPage: React.FC = () => {
 
   const hasActiveFilters = appliedPeriod !== 'lifetime'
     || Boolean(selectedRc && !isYesoneIwpRcDetail(selectedRc))
-    || appliedLink !== 'all';
+    || appliedLink !== 'unlinked';
 
   const visibleRows = useMemo(() => {
     const needle = search.trim().toLowerCase();
@@ -311,6 +311,7 @@ export const YesGatcCertificatesPage: React.FC = () => {
                   setAppliedPeriod(draftPeriod);
                   setAppliedRc(draftRc);
                   setAppliedLink(draftLink);
+                  setFiltersOpen(false);
                 }}
               >
                 Apply
@@ -323,16 +324,16 @@ export const YesGatcCertificatesPage: React.FC = () => {
                   && appliedPeriod === 'lifetime'
                   && draftRc === defaultRcId
                   && appliedRc === defaultRcId
-                  && draftLink === 'all'
-                  && appliedLink === 'all'
+                  && draftLink === 'unlinked'
+                  && appliedLink === 'unlinked'
                 }
                 onClick={() => {
                   setDraftPeriod('lifetime');
                   setAppliedPeriod('lifetime');
                   setDraftRc(defaultRcId);
                   setAppliedRc(defaultRcId);
-                  setDraftLink('all');
-                  setAppliedLink('all');
+                  setDraftLink('unlinked');
+                  setAppliedLink('unlinked');
                 }}
               >
                 Clear

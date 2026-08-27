@@ -80,7 +80,7 @@ export const InvoiceDetailTop: React.FC<{ invoiceId: string }> = ({ invoiceId })
             className={`invoice-detail-top__card invoice-detail-top__card--${section.tone} ${active === section.id ? 'is-active' : ''}`}
             onClick={() => {
               if (section.id === 'invoice') {
-                navigate(`${base}/invoices/${invoiceId}/invoice/view`);
+                navigate(`${base}/invoices/${invoiceId}/invoice/view?fresh=${Date.now()}`);
                 return;
               }
               navigate(`${base}/invoices/${invoiceId}/${section.id}`);

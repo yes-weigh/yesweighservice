@@ -164,6 +164,14 @@ export const AdminInvoiceDetailLayout: React.FC = () => {
     return () => { cancelled = true; };
   }, []);
 
+  const loadInvoice = useCallback(async () => {
+    if (!customerId || !invoiceId) return;
+    const data = await fetchAdminInvoiceDetail(customerId, invoiceId);
+    setInvoice(data);
+    if (isInvoiceCustomerPickup(data)) rememberInvoiceCustomerPickup(data.id || invoiceId);
+    if (isInvoiceManuallyDelivered(data)) rememberInvoiceManualDelivery(data.id || invoiceId);
+  }, [customerId, invoiceId]);
+
   useEffect(() => {
     if (!customerId || !invoiceId) return;
     let cancelled = false;
@@ -171,13 +179,9 @@ export const AdminInvoiceDetailLayout: React.FC = () => {
     setLoading(true);
     setError('');
 
-    fetchAdminInvoiceDetail(customerId, invoiceId)
-      .then(data => {
-        if (cancelled) return;
-        setInvoice(data);
-        if (isInvoiceCustomerPickup(data)) rememberInvoiceCustomerPickup(data.id || invoiceId);
-        if (isInvoiceManuallyDelivered(data)) rememberInvoiceManualDelivery(data.id || invoiceId);
-        setError('');
+    loadInvoice()
+      .then(() => {
+        if (!cancelled) setError('');
       })
       .catch(err => {
         if (!cancelled) {
@@ -192,7 +196,7 @@ export const AdminInvoiceDetailLayout: React.FC = () => {
     return () => {
       cancelled = true;
     };
-  }, [customerId, invoiceId]);
+  }, [customerId, invoiceId, loadInvoice]);
 
   /** Existing AWB booking wins; else Book Courier (or Add LR when a freight line exists). */
   useEffect(() => {
@@ -356,6 +360,7 @@ export const AdminInvoiceDetailLayout: React.FC = () => {
     localFreightBusy,
     localFreightError,
     onChangeLocalFreight: handleChangeLocalFreight,
+    reloadInvoice: loadInvoice,
   };
 
   // Shared picking list for product/spare invoices — ops (staff / super admin) only.
@@ -549,7 +554,9 @@ export const AdminInvoiceDetailLayout: React.FC = () => {
                   role="tab"
                   aria-selected
                   className="invoice-detail-top__card invoice-detail-top__card--blue is-active"
-                  onClick={() => navigate(`${invoicesPath}/${customerId}/${invoiceId}/invoice/view`)}
+                  onClick={() => navigate(
+                    `${invoicesPath}/${customerId}/${invoiceId}/invoice/view?fresh=${Date.now()}`,
+                  )}
                 >
                   <span className="invoice-detail-top__card-icon">
                     <FileText size={28} strokeWidth={1.75} aria-hidden />

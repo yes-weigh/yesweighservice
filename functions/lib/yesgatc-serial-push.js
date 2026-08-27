@@ -65,7 +65,7 @@ function pickRows(allotments, mode, ids) {
   return rows.filter(isAllotmentPending);
 }
 
-async function postYesGatcSerialWebhook(url, secret, payload) {
+export async function postYesGatcWebhook(url, secret, payload) {
   const headers = {
     'content-type': 'application/json',
     accept: 'application/json',
@@ -154,7 +154,7 @@ export async function pushSerialAllotmentsToYesGatc({
   };
 
   try {
-    await postYesGatcSerialWebhook(endpoint, secret, payload);
+    await postYesGatcWebhook(endpoint, secret, payload);
   } catch (err) {
     if (selected.length) {
       await ref.set({

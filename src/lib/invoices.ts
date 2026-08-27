@@ -185,17 +185,22 @@ export function readCachedDealerInvoiceDetail(
 export async function downloadDealerInvoiceDocument(
   invoiceId: string,
   documentType: InvoiceDocumentType,
+  options?: { refresh?: boolean },
 ): Promise<InvoiceDocumentDownload> {
   const callable = httpsCallable<
-    { invoiceId: string; documentType: InvoiceDocumentType },
+    { invoiceId: string; documentType: InvoiceDocumentType; refresh?: boolean },
     InvoiceDocumentDownload
   >(
     functions,
     'downloadDealerInvoiceDocument',
-    { timeout: 60_000 },
+    { timeout: 120_000 },
   );
   try {
-    const result = await callable({ invoiceId, documentType });
+    const result = await callable({
+      invoiceId,
+      documentType,
+      refresh: options?.refresh !== false,
+    });
     return result.data;
   } catch (err) {
     throw new Error(invoiceErrorMessage(err));
@@ -206,17 +211,28 @@ export async function downloadAdminInvoiceDocument(
   customerId: string,
   invoiceId: string,
   documentType: InvoiceDocumentType,
+  options?: { refresh?: boolean },
 ): Promise<InvoiceDocumentDownload> {
   const callable = httpsCallable<
-    { customerId: string; invoiceId: string; documentType: InvoiceDocumentType },
+    {
+      customerId: string;
+      invoiceId: string;
+      documentType: InvoiceDocumentType;
+      refresh?: boolean;
+    },
     InvoiceDocumentDownload
   >(
     functions,
     'downloadAdminInvoiceDocument',
-    { timeout: 60_000 },
+    { timeout: 120_000 },
   );
   try {
-    const result = await callable({ customerId, invoiceId, documentType });
+    const result = await callable({
+      customerId,
+      invoiceId,
+      documentType,
+      refresh: options?.refresh !== false,
+    });
     return result.data;
   } catch (err) {
     throw new Error(invoiceErrorMessage(err));

@@ -18,6 +18,7 @@ import {
 } from 'firebase/firestore';
 import { getFunctions, httpsCallable } from 'firebase/functions';
 import { app, db } from '../firebase';
+import { getYesGatcRcOffice, getYesGatcRcOfficeBySourceRcId } from './yesgatcRcOffices';
 
 export const YESGATC_CERTIFICATES = 'yesgatcCertificates';
 export const YESGATC_RC_DETAILS = 'yesgatcRcDetails';
@@ -417,7 +418,10 @@ function mapRc(id: string, data: Record<string, unknown>): YesGatcRcDetail {
     code,
     name: resolveRcFullName(code, data, raw, address),
     address,
-    city: nullable(data.city) ?? nullable(raw?.city),
+    city: nullable(data.city)
+      ?? nullable(raw?.city)
+      ?? nullable(raw?.district)
+      ?? nullable(data.district),
     state: nullable(data.state) ?? nullable(raw?.state),
     pincode: nullable(data.pincode) ?? nullable(raw?.pincode),
     phone: nullable(data.phone) ?? nullable(raw?.phone) ?? nullable(raw?.mobile),
@@ -481,6 +485,72 @@ export function yesGatcRcOfficeName(row: YesGatcRcDetail): string {
     return YESONE_RC_NAME;
   }
   return named || row.code || row.id;
+}
+
+function firstLocationValue(values: unknown[], skip: Set<string>): string {
+  for (const value of values) {
+    const text = str(value).replace(/\s+/g, ' ');
+    if (!text || /^\d{5,6}$/.test(text)) continue;
+    const key = text.toLowerCase();
+    if (skip.has(key)) continue;
+    return text;
+  }
+  return '';
+}
+
+function isStreetishLocation(text: string): boolean {
+  return /^\d/.test(text)
+    || /^(TC|PMC|DOOR|PLOT|ROOM|NO\.?|HNO|H\.?\s*NO)\b/i.test(text)
+    || /\b(road|rd\.?|street|st\.?|lane)\b/i.test(text);
+}
+
+function placeFromAddress(address: string | null, skip: Set<string>): string {
+  const parts = str(address).split(',').map(part => part.replace(/\s+/g, ' ').trim()).filter(Boolean);
+  for (const part of parts) {
+    if (part.length < 3 || isStreetishLocation(part)) continue;
+    const key = part.toLowerCase();
+    if (skip.has(key)) continue;
+    return part;
+  }
+  return '';
+}
+
+export function yesGatcRcPlaceDistrictLine(row: YesGatcRcDetail): string {
+  const raw = recordFromUnknown(row.raw);
+  const nested = raw
+    ? recordFromUnknown(raw.rc)
+      || recordFromUnknown(raw.rcOffice)
+      || recordFromUnknown(raw.regionalCenter)
+      || recordFromUnknown(raw.rcDetail)
+      || recordFromUnknown(raw.office)
+    : null;
+  const skip = new Set(
+    [yesGatcRcOfficeName(row), row.state, raw?.state, nested?.state]
+      .map(value => str(value).toLowerCase())
+      .filter(Boolean),
+  );
+  const district = firstLocationValue([
+    raw?.district,
+    nested?.district,
+    raw?.District,
+    nested?.District,
+    row.city,
+    raw?.city,
+    nested?.city,
+  ], skip);
+  if (district) skip.add(district.toLowerCase());
+  const place = firstLocationValue([
+    raw?.place,
+    nested?.place,
+    raw?.locality,
+    nested?.locality,
+    raw?.town,
+    nested?.town,
+    raw?.taluk,
+    nested?.taluk,
+    placeFromAddress(row.address ?? str(raw?.address), skip),
+  ], skip);
+  return [place, district].filter(Boolean).join(' · ');
 }
 
 export function yesGatcRcLabel(row: YesGatcRcDetail): string {
@@ -1082,6 +1152,41 @@ export async function listYesGatcRcDealerLinks(): Promise<Map<string, { dealerId
     if (code) links.set(code, { dealerId, dealerName });
   }
   return links;
+}
+
+export type YesGatcDealerRcLink = {
+  rcId: string;
+  rcCode: string;
+  rcName: string;
+};
+
+/** Linked regional-center office for a Zoho customer. IWP (company) is not a dealer RC. */
+export async function findYesGatcRcForDealer(
+  dealerId: string,
+): Promise<YesGatcDealerRcLink | null> {
+  const cid = str(dealerId);
+  if (!cid) return null;
+  const snap = await getDocs(
+    query(collection(db, YESGATC_RC_DEALER_LINKS), where('dealerId', '==', cid), limit(1)),
+  );
+  if (snap.empty) return null;
+  const row = snap.docs[0];
+  const data = row.data() as Record<string, unknown>;
+  const rcSnap = await getDoc(doc(db, YESGATC_RC_DETAILS, row.id));
+  const rc = rcSnap.exists()
+    ? mapRc(row.id, rcSnap.data() as Record<string, unknown>)
+    : null;
+  if (rc && isYesoneIwpRcDetail(rc)) return null;
+  const code = str(data.rcCode || rc?.code).toUpperCase();
+  if (code === YESONE_RC_CODE) return null;
+  const office = await getYesGatcRcOffice(code).catch(() => null)
+    ?? await getYesGatcRcOfficeBySourceRcId(row.id).catch(() => null);
+  if (!office) return null;
+  return {
+    rcId: office.sourceRcId || row.id,
+    rcCode: office.code,
+    rcName: office.name,
+  };
 }
 
 export async function saveYesGatcRcDealerLink(

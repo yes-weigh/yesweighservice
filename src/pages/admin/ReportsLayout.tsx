@@ -1,7 +1,7 @@
 import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { Outlet, useLocation, useNavigate } from 'react-router-dom';
-import { BadgeCheck, BarChart3, ChevronDown, Percent } from 'lucide-react';
+import { BadgeCheck, BarChart3, ChevronDown, Percent, Radio } from 'lucide-react';
 import { useCatalogPageHeader, useTopBarAction } from '../../context/PageHeaderContext';
 
 type ReportsLayoutProps = {
@@ -9,7 +9,7 @@ type ReportsLayoutProps = {
 };
 
 type ReportTab = {
-  id: 'audit-report' | 'gatc-report' | 'incentive-report';
+  id: 'audit-report' | 'gatc-report' | 'incentive-report' | 'rc-ov-report';
   label: string;
   path: string;
   icon: React.ReactNode;
@@ -142,6 +142,12 @@ export const ReportsLayout: React.FC<ReportsLayoutProps> = ({ basePath }) => {
       icon: <BadgeCheck size={16} />,
     },
     {
+      id: 'rc-ov-report',
+      label: 'RC OV report',
+      path: `${basePath}/reports/rc-ov-report`,
+      icon: <Radio size={16} />,
+    },
+    {
       id: 'incentive-report',
       label: 'Incentive report',
       path: `${basePath}/reports/incentive-report`,
@@ -185,7 +191,9 @@ export const ReportsLayout: React.FC<ReportsLayoutProps> = ({ basePath }) => {
   );
   useTopBarAction(filter);
 
-  const isLedger = active.id === 'gatc-report' || active.id === 'incentive-report';
+  const isLedger = active.id === 'gatc-report'
+    || active.id === 'incentive-report'
+    || active.id === 'rc-ov-report';
 
   return (
     <div className="reports-hub page-content fade-in">

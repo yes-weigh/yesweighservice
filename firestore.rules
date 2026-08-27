@@ -292,6 +292,11 @@ service cloud.firestore {
     }
 
     // Blue Dart pin serviceability index (seeded from BdService workbook).
+    match /nonGatcSerialAllocations/{serialKey} {
+      allow read: if isOpsUser();
+      allow write: if false;
+    }
+
     match /blueDartPincodes/{pincode} {
       allow read: if signedIn();
       allow write: if isFullSuperAdmin();
@@ -562,7 +567,7 @@ service cloud.firestore {
     }
 
     match /yesgatcCertificates/{certificateId} {
-      allow get, list: if isOpsUser();
+      allow get, list: if isOpsUser() || isWarehouse();
       allow write: if false;
     }
 
@@ -579,6 +584,12 @@ service cloud.firestore {
     match /yesgatcRcDealerLinks/{rcId} {
       allow read: if isOpsUser();
       allow write: if isFullSuperAdmin() || staffHasPermission('yesgatc.rc_link');
+    }
+
+    // Official dealer RC roster (code + name + place). Stats stay computed.
+    match /yesgatcRcOffices/{rcCode} {
+      allow get, list: if isOpsUser() || isWarehouse();
+      allow write: if isFullSuperAdmin();
     }
 
     // Super-admin line exclusions on the incentive report (hike / discount lines).

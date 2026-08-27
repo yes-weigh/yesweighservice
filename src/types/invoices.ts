@@ -132,6 +132,16 @@ export interface DealerInvoiceDetail extends DealerInvoice {
   yesOneFreightPartner?: InvoiceLocalFreightPartner | null;
   /** For spare invoices: admin-entered spare carton LBH + weight (from the SO). */
   sparePackaging?: SpareFreightPackaging[] | null;
+  /** Non-GATC serials allotted from the Settings pool (dismantled machine lines). */
+  nonGatcAllocatedSerials?: string[] | null;
+  nonGatcSerialAllottedAt?: string | null;
+  nonGatcSerialAllottedBy?: string | null;
+  /** YesGATC webhook after RC-dealer serial allotment. */
+  yesgatcRcPushedAt?: string | null;
+  yesgatcRcPushedBy?: string | null;
+  yesgatcRcPushError?: string | null;
+  yesgatcRcCode?: string | null;
+  yesgatcRcName?: string | null;
 }
 
 export type InvoiceCustomerPickup = {

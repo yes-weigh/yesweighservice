@@ -154,6 +154,15 @@ export function canUseYesGatcFilters(user: User | null | undefined): boolean {
   return YESGATC_FILTER_ADMIN_NAMES.some(name => parts.has(name));
 }
 
+const VOID_INVOICE_ADMIN_NAMES = ['faisal', 'shalima'] as const;
+
+/** Void invoice in Zoho: Faisal and Shalima only (full super admin). */
+export function canVoidAdminInvoice(user: User | null | undefined): boolean {
+  if (!isFullSuperAdmin(user) || !user) return false;
+  const parts = new Set(yesGatcFilterIdentityParts(user));
+  return VOID_INVOICE_ADMIN_NAMES.some(name => parts.has(name));
+}
+
 export function canViewHr(user: User | null | undefined): boolean {
   if (!user) return false;
   if (user.role === 'super_admin') return true;

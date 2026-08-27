@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { Plus, Send } from 'lucide-react';
+import { Pencil, Plus, Send } from 'lucide-react';
 import { useAuth } from '../../../context/AuthContext';
 import {
   allotmentFromPreview,
@@ -7,10 +7,13 @@ import {
   loadInvoicedSerialKeys,
   loadSerialNumberAllotments,
   pendingSerialAllotmentCount,
+  prepareSerialAllotments,
   previewSerialRange,
   pushSerialAllotmentsToYesGatc,
   saveSerialAllotmentWebhookUrl,
   saveSerialNumberAllotments,
+  serialAllotmentRangeKey,
+  SHALIMA_ALLOTMENT_CREATED_BY,
   totalAllottedCount,
 } from '../../../lib/serialNumberAllotment';
 import type { SerialNumberAllotment, SerialSeriesId } from '../../../types/serial-number-allotment';
@@ -18,6 +21,21 @@ import { DEFAULT_SERIAL_SERIES, SERIAL_SERIES } from '../../../types/serial-numb
 
 function formatCount(value: number): string {
   return value.toLocaleString('en-IN');
+}
+
+function formatAddedAt(iso: string | null | undefined): string {
+  const raw = String(iso ?? '').trim();
+  if (!raw) return '';
+  const date = new Date(raw);
+  if (Number.isNaN(date.getTime())) return '';
+  return date.toLocaleString('en-IN', {
+    day: '2-digit',
+    month: 'short',
+    year: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: true,
+  }).replace(',', '');
 }
 
 function seriesLabel(id: SerialSeriesId): string {
@@ -29,16 +47,21 @@ function AllotmentStat({
   value,
   tone = 'muted',
   error = false,
+  action,
 }: {
   label: string;
   value: string;
-  tone?: 'qty' | 'linked' | 'unused' | 'muted';
+  tone?: 'qty' | 'linked' | 'unused' | 'start' | 'end' | 'series' | 'muted';
   error?: boolean;
+  action?: React.ReactNode;
 }) {
   return (
     <div className={`settings-serial-allotment__stat settings-serial-allotment__stat--${tone}`}>
       <span>{label}</span>
-      <strong className={error ? 'is-error' : undefined}>{value}</strong>
+      <strong className={error ? 'is-error' : undefined}>
+        {value}
+        {action}
+      </strong>
     </div>
   );
 }
@@ -56,6 +79,8 @@ export const SerialNumberAllotmentTab: React.FC = () => {
   const [from, setFrom] = useState('');
   const [to, setTo] = useState('');
   const [missingText, setMissingText] = useState('');
+  const [editingMissingId, setEditingMissingId] = useState<string | null>(null);
+  const [editMissingText, setEditMissingText] = useState('');
   const [invoicedKeys, setInvoicedKeys] = useState<Set<string>>(() => new Set());
   const [usageReady, setUsageReady] = useState(false);
 
@@ -74,11 +99,11 @@ export const SerialNumberAllotmentTab: React.FC = () => {
     [invoicedKeys, preview.count, preview.from, preview.missing, preview.to],
   );
 
-  const seriesRows = useMemo(
-    () => allotments.filter(row => row.series === series),
-    [allotments, series],
+  const visibleRows = useMemo(
+    () => [...allotments].sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt))),
+    [allotments],
   );
-  const totalCount = useMemo(() => totalAllottedCount(seriesRows), [seriesRows]);
+  const totalCount = useMemo(() => totalAllottedCount(allotments), [allotments]);
   const pendingCount = useMemo(() => pendingSerialAllotmentCount(allotments), [allotments]);
   const actorName = user?.displayName?.trim() || user?.email?.trim() || 'YESWEIGH';
 
@@ -87,8 +112,13 @@ export const SerialNumberAllotmentTab: React.FC = () => {
     setError('');
     try {
       const doc = await loadSerialNumberAllotments();
-      setAllotments(doc.allotments);
+      const cleaned = prepareSerialAllotments(doc.allotments);
+      setAllotments(cleaned);
       setWebhookUrl(doc.webhookUrl || '');
+      const namedMissing = doc.allotments.some(row => !row.createdBy);
+      if (cleaned.length !== doc.allotments.length || namedMissing) {
+        await saveSerialNumberAllotments(cleaned, SHALIMA_ALLOTMENT_CREATED_BY);
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Could not load serial number allotments.');
     } finally {
@@ -162,7 +192,7 @@ export const SerialNumberAllotmentTab: React.FC = () => {
         actorName,
       });
       const refreshed = await loadSerialNumberAllotments();
-      setAllotments(refreshed.allotments);
+      setAllotments(prepareSerialAllotments(refreshed.allotments));
       setWebhookUrl(result.webhookUrl || refreshed.webhookUrl || savedUrl);
       setSuccess(
         result.sent
@@ -188,6 +218,12 @@ export const SerialNumberAllotmentTab: React.FC = () => {
       return;
     }
     const row = allotmentFromPreview(preview, series, actorName);
+    const rangeKey = serialAllotmentRangeKey(row);
+    if (allotments.some(existing => serialAllotmentRangeKey(existing) === rangeKey)) {
+      setError('This range is already allotted.');
+      setSuccess('');
+      return;
+    }
     const next = [row, ...allotments];
     const saved = await persist(
       next,
@@ -214,7 +250,7 @@ export const SerialNumberAllotmentTab: React.FC = () => {
         actorName,
       });
       const refreshed = await loadSerialNumberAllotments();
-      setAllotments(refreshed.allotments);
+      setAllotments(prepareSerialAllotments(refreshed.allotments));
       setSuccess(
         `Saved and sent ${preview.count.toLocaleString('en-IN')} serial${preview.count === 1 ? '' : 's'} to YesGATC.`
         + (result.pending ? ` ${result.pending} still pending.` : ''),
@@ -227,6 +263,49 @@ export const SerialNumberAllotmentTab: React.FC = () => {
       );
     } finally {
       setBusy(false);
+    }
+  };
+
+  const startEditMissing = (row: SerialNumberAllotment) => {
+    setError('');
+    setSuccess('');
+    setEditingMissingId(row.id);
+    setEditMissingText(row.missing.join(', '));
+  };
+
+  const handleSaveMissing = async (row: SerialNumberAllotment) => {
+    const nextPreview = previewSerialRange({
+      from: row.from,
+      to: row.to,
+      missingText: editMissingText,
+    });
+    if (nextPreview.error) {
+      setError(nextPreview.error);
+      setSuccess('');
+      return;
+    }
+    const next = allotments.map(item => (
+      item.id === row.id
+        ? {
+          ...item,
+          missing: nextPreview.missing,
+          count: nextPreview.count,
+          pushedAt: null,
+          pushError: null,
+        }
+        : item
+    ));
+    const saved = await persist(
+      next,
+      nextPreview.missing.length
+        ? `Updated ${nextPreview.missing.length.toLocaleString('en-IN')} missing serial${nextPreview.missing.length === 1 ? '' : 's'}.`
+        : 'Cleared missing serials.',
+    );
+    if (!saved) return;
+    setEditingMissingId(null);
+    setEditMissingText('');
+    if (nextPreview.ignoredMissing.length) {
+      setError(`Ignored (outside range or invalid): ${nextPreview.ignoredMissing.join(', ')}`);
     }
   };
 
@@ -369,21 +448,36 @@ export const SerialNumberAllotmentTab: React.FC = () => {
 
       {loading ? (
         <p className="settings-locations__loading text-muted text-sm">Loading allotments…</p>
-      ) : seriesRows.length > 0 ? (
+      ) : visibleRows.length > 0 ? (
         <ul className="settings-serial-allotment__list">
-          {seriesRows.map(row => {
+          {visibleRows.map(row => {
             const usage = countLinkedUnused(row, invoicedKeys);
+            const addedAt = formatAddedAt(row.createdAt);
             return (
               <li key={row.id} className="settings-serial-allotment__row">
                 <div className="settings-serial-allotment__metrics">
                   <div className="settings-serial-allotment__metrics-row">
-                    <AllotmentStat label="Series" value={seriesLabel(row.series)} />
-                    <AllotmentStat label="Start" value={row.from} />
-                    <AllotmentStat label="End" value={row.to} />
+                    <AllotmentStat label="Series" tone="series" value={seriesLabel(row.series)} />
+                    <AllotmentStat label="Start" tone="start" value={row.from} />
+                    <AllotmentStat label="End" tone="end" value={row.to} />
                     <AllotmentStat label="Qty" tone="qty" value={formatCount(row.count)} />
                   </div>
                   <div className="settings-serial-allotment__metrics-row settings-serial-allotment__metrics-row--usage">
-                    <AllotmentStat label="Missing" value={formatCount(row.missing.length)} />
+                    <AllotmentStat
+                      label="Missing"
+                      value={formatCount(row.missing.length)}
+                      action={(
+                        <button
+                          type="button"
+                          className="settings-serial-allotment__edit-missing"
+                          disabled={busy || testing}
+                          aria-label={`Edit missing serials for ${seriesLabel(row.series)}`}
+                          onClick={() => startEditMissing(row)}
+                        >
+                          <Pencil size={13} strokeWidth={2.2} />
+                        </button>
+                      )}
+                    />
                     <AllotmentStat
                       label="Linked"
                       tone="linked"
@@ -396,18 +490,56 @@ export const SerialNumberAllotmentTab: React.FC = () => {
                     />
                   </div>
                 </div>
-                {row.missing.length > 0 ? (
+                {editingMissingId === row.id ? (
+                  <div className="settings-serial-allotment__missing-edit">
+                    <textarea
+                      className="settings-serial-allotment__missing"
+                      rows={2}
+                      value={editMissingText}
+                      disabled={busy}
+                      placeholder="2408010, 2408022"
+                      autoFocus
+                      onChange={e => setEditMissingText(e.target.value)}
+                    />
+                    <div className="settings-serial-allotment__missing-edit-actions">
+                      <button
+                        type="button"
+                        className="btn btn-secondary btn-sm"
+                        disabled={busy}
+                        onClick={() => {
+                          setEditingMissingId(null);
+                          setEditMissingText('');
+                        }}
+                      >
+                        Cancel
+                      </button>
+                      <button
+                        type="button"
+                        className="btn btn-primary btn-sm"
+                        disabled={busy}
+                        onClick={() => void handleSaveMissing(row)}
+                      >
+                        Save
+                      </button>
+                    </div>
+                  </div>
+                ) : row.missing.length > 0 ? (
                   <p className="settings-serial-allotment__missing-list">
                     {row.missing.join(', ')}
                   </p>
                 ) : null}
-                <p className="settings-serial-allotment__added">
-                  <span>Added</span>
-                  <strong>{row.createdBy || '—'}</strong>
+                <div className="settings-serial-allotment__added">
+                  <div className="settings-serial-allotment__added-who">
+                    <span>Added</span>
+                    <strong>{row.createdBy || '—'}</strong>
+                    {addedAt ? (
+                      <time dateTime={row.createdAt}>{addedAt}</time>
+                    ) : null}
+                  </div>
                   <span className={`settings-serial-allotment__push ${row.pushedAt ? 'is-sent' : 'is-pending'}`}>
                     {row.pushedAt ? 'YesGATC sent' : 'YesGATC pending'}
                   </span>
-                </p>
+                </div>
               </li>
             );
           })}
