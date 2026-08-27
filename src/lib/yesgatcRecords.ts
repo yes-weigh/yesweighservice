@@ -597,17 +597,18 @@ export async function listYesGatcCertificates(
     }
   };
 
-  try {
-    take(await loadCertificatesWhere(null, null));
-  } catch {
-    // Rules not deployed yet — fall back to tagged queries.
-  }
-  if (merge.size === 0) {
+  if (rcCode === YESONE_RC_CODE) {
     try {
       take(await loadCertificatesWhere('yesoneVisible', true));
     } catch {
       // ignore
     }
+    try {
+      take(await loadCertificatesWhere('rcCode', YESONE_RC_CODE));
+    } catch {
+      // ignore
+    }
+  } else {
     try {
       take(await loadCertificatesWhere('rcCode', rcCode));
     } catch {
@@ -615,14 +616,24 @@ export async function listYesGatcCertificates(
     }
   }
 
-  try {
-    const fn = httpsCallable<{ max?: number; rcCode?: string }, { rows: YesGatcCertificate[] }>(
-      functions,
-      'listYesGatcCertificatesFn',
-    );
-    take((await fn({ max, rcCode })).data.rows ?? []);
-  } catch {
-    // Callable unavailable.
+  if (merge.size === 0) {
+    try {
+      take(await loadCertificatesWhere(null, null));
+    } catch {
+      // Rules missing — callable fallback below.
+    }
+  }
+
+  if (merge.size === 0) {
+    try {
+      const fn = httpsCallable<{ max?: number; rcCode?: string }, { rows: YesGatcCertificate[] }>(
+        functions,
+        'listYesGatcCertificatesFn',
+      );
+      take((await fn({ max, rcCode })).data.rows ?? []);
+    } catch {
+      // Callable unavailable.
+    }
   }
 
   const all = [...merge.values()];

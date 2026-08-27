@@ -7371,6 +7371,30 @@ export const linkYesGatcInvoicesFn = onCall(
   },
 );
 
+export const linkYesGatcInvoicesScheduled = onSchedule(
+  {
+    schedule: '30 2 * * *',
+    timeZone: 'Asia/Kolkata',
+    region: 'asia-south1',
+    secrets: [zohoClientId, zohoClientSecret, zohoRefreshToken],
+    timeoutSeconds: 540,
+    memory: '2GiB',
+  },
+  async () => {
+    try {
+      const result = await linkYesGatcCertificatesToInvoices({
+        zoho: {
+          secrets: zohoSecrets(),
+          orgId: zohoOrganizationId.value(),
+        },
+      });
+      console.log('Scheduled GATC invoice link:', result);
+    } catch (err) {
+      console.error('Scheduled GATC invoice link failed:', err?.message ?? err);
+    }
+  },
+);
+
 export const linkYesGatcCertificateInvoiceFn = onCall(
   {
     region: 'asia-south1',

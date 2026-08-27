@@ -319,7 +319,7 @@ export function YesGatcCertificateList({
                 title="Link invoice"
                 onClick={() => setPicking(row)}
               >
-                <Pencil size={14} strokeWidth={2.25} />
+                <Pencil size={16} strokeWidth={2.25} />
               </button>
             )}
           </div>
@@ -330,7 +330,7 @@ export function YesGatcCertificateList({
             title="Download"
             onClick={() => setShareRow(row)}
           >
-            <Download size={16} strokeWidth={2.25} />
+            <Download size={18} strokeWidth={2.25} />
           </button>
           <div className="yesgatc-cert-row__meta">
             <span>

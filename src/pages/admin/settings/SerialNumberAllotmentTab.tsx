@@ -1,9 +1,11 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { Hash, Plus, Trash2 } from 'lucide-react';
+import { Plus, Trash2 } from 'lucide-react';
 import { useAuth } from '../../../context/AuthContext';
 import { useConfirm } from '../../../context/ConfirmContext';
 import {
   allotmentFromPreview,
+  countLinkedUnused,
+  loadInvoicedSerialKeys,
   loadSerialNumberAllotments,
   previewSerialRange,
   saveSerialNumberAllotments,
@@ -24,6 +26,29 @@ function formatWhen(iso: string | null): string {
   });
 }
 
+function formatCount(value: number): string {
+  return value.toLocaleString('en-IN');
+}
+
+function AllotmentStat({
+  label,
+  value,
+  tone = 'muted',
+  error = false,
+}: {
+  label: string;
+  value: string;
+  tone?: 'qty' | 'linked' | 'unused' | 'muted';
+  error?: boolean;
+}) {
+  return (
+    <div className={`settings-serial-allotment__stat settings-serial-allotment__stat--${tone}`}>
+      <span>{label}</span>
+      <strong className={error ? 'is-error' : undefined}>{value}</strong>
+    </div>
+  );
+}
+
 export const SerialNumberAllotmentTab: React.FC = () => {
   const { user } = useAuth();
   const confirm = useConfirm();
@@ -37,10 +62,22 @@ export const SerialNumberAllotmentTab: React.FC = () => {
   const [from, setFrom] = useState('');
   const [to, setTo] = useState('');
   const [missingText, setMissingText] = useState('');
+  const [invoicedKeys, setInvoicedKeys] = useState<Set<string>>(() => new Set());
+  const [usageReady, setUsageReady] = useState(false);
 
   const preview = useMemo(
     () => previewSerialRange({ from, to, missingText }),
     [from, to, missingText],
+  );
+
+  const previewUsage = useMemo(
+    () => countLinkedUnused({
+      from: preview.from,
+      to: preview.to,
+      missing: preview.missing,
+      count: preview.count,
+    }, invoicedKeys),
+    [invoicedKeys, preview.count, preview.from, preview.missing, preview.to],
   );
 
   const totalCount = useMemo(() => totalAllottedCount(allotments), [allotments]);
@@ -64,6 +101,23 @@ export const SerialNumberAllotmentTab: React.FC = () => {
   useEffect(() => {
     void load();
   }, [load]);
+
+  useEffect(() => {
+    let cancelled = false;
+    void loadInvoicedSerialKeys()
+      .then(keys => {
+        if (!cancelled) setInvoicedKeys(keys);
+      })
+      .catch(() => {
+        if (!cancelled) setInvoicedKeys(new Set());
+      })
+      .finally(() => {
+        if (!cancelled) setUsageReady(true);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const persist = async (next: SerialNumberAllotment[], message: string) => {
     setBusy(true);
@@ -89,7 +143,7 @@ export const SerialNumberAllotmentTab: React.FC = () => {
       return;
     }
     if (!preview.from || !preview.to || preview.count < 0) {
-      setError('Enter a valid From and To range.');
+      setError('Enter a valid starting and end number.');
       setSuccess('');
       return;
     }
@@ -118,80 +172,87 @@ export const SerialNumberAllotmentTab: React.FC = () => {
     );
   };
 
+  const previewError = Boolean(preview.error && (from.trim() || to.trim()));
+  const usageValue = (value: number) => (usageReady ? formatCount(value) : '…');
+
   return (
     <section className="settings-locations panel glass">
-      <header className="settings-locations__header">
-        <div>
-          <h3>Serial number allotment</h3>
-          <p className="text-muted text-sm">
-            Define allotted ranges and list missing serials. Count is range size minus those missing numbers.
-          </p>
-        </div>
+      <header className="settings-locations__header settings-serial-allotment__header">
+        <h3>Serial number allotment</h3>
         <div className="settings-serial-allotment__total" aria-live="polite">
           <span>Allotted</span>
-          <strong>{loading ? '…' : totalCount.toLocaleString('en-IN')}</strong>
+          <strong>{loading ? '…' : formatCount(totalCount)}</strong>
         </div>
       </header>
 
       {error && <p className="settings-locations__error text-sm">{error}</p>}
       {success && <p className="settings-locations__success text-sm">{success}</p>}
 
-      <div className="settings-locations__add-form settings-serial-allotment__form">
-        <label className="settings-locations__field">
-          <span>From</span>
-          <input
-            type="text"
-            inputMode="text"
-            value={from}
-            disabled={busy}
-            placeholder="2408001"
-            onChange={e => setFrom(e.target.value)}
+      <div className="settings-serial-allotment__form">
+        <div className="settings-serial-allotment__range">
+          <label className="settings-serial-allotment__field">
+            <span>Start</span>
+            <input
+              type="text"
+              inputMode="numeric"
+              value={from}
+              disabled={busy}
+              placeholder="2408001"
+              onChange={e => setFrom(e.target.value)}
+            />
+          </label>
+          <label className="settings-serial-allotment__field">
+            <span>End</span>
+            <input
+              type="text"
+              inputMode="numeric"
+              value={to}
+              disabled={busy}
+              placeholder="2408500"
+              onChange={e => setTo(e.target.value)}
+            />
+          </label>
+          <AllotmentStat
+            label="Qty"
+            tone="qty"
+            error={previewError}
+            value={previewError ? '—' : formatCount(preview.count)}
           />
-        </label>
-        <label className="settings-locations__field">
-          <span>To</span>
-          <input
-            type="text"
-            inputMode="text"
-            value={to}
-            disabled={busy}
-            placeholder="2408500"
-            onChange={e => setTo(e.target.value)}
-          />
-        </label>
-        <label className="settings-locations__field settings-locations__field--grow">
-          <span>Missing</span>
+        </div>
+        <label className="settings-serial-allotment__field settings-serial-allotment__missing-field">
+          <span>Missing number</span>
           <textarea
             className="settings-serial-allotment__missing"
             rows={2}
             value={missingText}
             disabled={busy}
-            placeholder="e.g. 2408010, 2408022, 2408105"
+            placeholder="2408010, 2408022"
             onChange={e => setMissingText(e.target.value)}
           />
         </label>
-        <div className="settings-serial-allotment__count" aria-live="polite">
-          <span>Count</span>
-          {preview.error && (from.trim() || to.trim()) ? (
-            <strong className="is-error">—</strong>
-          ) : (
-            <strong>{preview.count.toLocaleString('en-IN')}</strong>
-          )}
-          <small>
-            {preview.rangeSize > 0
-              ? `${preview.rangeSize.toLocaleString('en-IN')} in range − ${preview.missingCount.toLocaleString('en-IN')} missing`
-              : 'Range − missing'}
-          </small>
+        <div className="settings-serial-allotment__usage">
+          <AllotmentStat
+            label="Linked with invoice"
+            tone="linked"
+            value={previewError ? '—' : usageValue(previewUsage.linked)}
+          />
+          <AllotmentStat
+            label="Unused"
+            tone="unused"
+            value={previewError ? '—' : usageValue(previewUsage.unused)}
+          />
         </div>
-        <button
-          type="button"
-          className="btn btn-primary btn-sm"
-          disabled={busy || Boolean(preview.error) || !from.trim() || !to.trim()}
-          onClick={() => void handleAdd()}
-        >
-          <Plus size={15} aria-hidden />
-          Add
-        </button>
+        <div className="settings-serial-allotment__actions">
+          <button
+            type="button"
+            className="btn btn-primary btn-sm"
+            disabled={busy || Boolean(preview.error) || !from.trim() || !to.trim()}
+            onClick={() => void handleAdd()}
+          >
+            <Plus size={15} aria-hidden />
+            Add
+          </button>
+        </div>
       </div>
 
       {preview.ignoredMissing.length > 0 ? (
@@ -208,40 +269,43 @@ export const SerialNumberAllotmentTab: React.FC = () => {
         </p>
       ) : (
         <ul className="settings-serial-allotment__list">
-          {allotments.map(row => (
-            <li key={row.id} className="settings-serial-allotment__row">
-              <span className="settings-serial-allotment__icon" aria-hidden>
-                <Hash size={16} />
-              </span>
-              <div className="settings-serial-allotment__copy">
-                <strong>
-                  {row.from}
-                  {' – '}
-                  {row.to}
-                </strong>
+          {allotments.map(row => {
+            const usage = countLinkedUnused(row, invoicedKeys);
+            return (
+              <li key={row.id} className="settings-serial-allotment__row">
+                <div className="settings-serial-allotment__metrics">
+                  <AllotmentStat label="Start" value={row.from} />
+                  <AllotmentStat label="End" value={row.to} />
+                  <AllotmentStat label="Qty" tone="qty" value={formatCount(row.count)} />
+                  <AllotmentStat label="Missing number" value={formatCount(row.missing.length)} />
+                  <AllotmentStat
+                    label="Linked with invoice"
+                    tone="linked"
+                    value={usageValue(usage.linked)}
+                  />
+                  <AllotmentStat
+                    label="Unused"
+                    tone="unused"
+                    value={usageValue(usage.unused)}
+                  />
+                </div>
                 {row.missing.length > 0 ? (
-                  <span className="settings-serial-allotment__missing-list">
-                    Missing {row.missing.join(', ')}
-                  </span>
-                ) : (
-                  <span className="text-muted text-sm">No missing serials</span>
-                )}
-              </div>
-              <div className="settings-serial-allotment__row-count">
-                <strong>{row.count.toLocaleString('en-IN')}</strong>
-                <span>allotted</span>
-              </div>
-              <button
-                type="button"
-                className="settings-spare-boxes__remove"
-                disabled={busy}
-                aria-label={`Remove ${row.from} to ${row.to}`}
-                onClick={() => void handleRemove(row)}
-              >
-                <Trash2 size={15} aria-hidden />
-              </button>
-            </li>
-          ))}
+                  <p className="settings-serial-allotment__missing-list">
+                    {row.missing.join(', ')}
+                  </p>
+                ) : null}
+                <button
+                  type="button"
+                  className="settings-spare-boxes__remove settings-serial-allotment__remove"
+                  disabled={busy}
+                  aria-label={`Remove ${row.from} to ${row.to}`}
+                  onClick={() => void handleRemove(row)}
+                >
+                  <Trash2 size={15} aria-hidden />
+                </button>
+              </li>
+            );
+          })}
         </ul>
       )}
 

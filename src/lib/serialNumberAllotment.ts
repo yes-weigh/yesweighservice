@@ -1,5 +1,6 @@
-import { doc, getDoc, setDoc } from 'firebase/firestore';
+import { collectionGroup, doc, getDoc, getDocs, setDoc } from 'firebase/firestore';
 import { db } from '../firebase';
+import { serialNumbersFromLineItem } from './invoices';
 import type {
   SerialNumberAllotment,
   SerialNumberAllotmentDoc,
@@ -180,6 +181,86 @@ export function allotmentFromPreview(
 
 export function totalAllottedCount(allotments: ReadonlyArray<Pick<SerialNumberAllotment, 'count'>>): number {
   return allotments.reduce((sum, row) => sum + (Number(row.count) || 0), 0);
+}
+
+export function compactSerialKey(raw: string): string {
+  return String(raw ?? '').toUpperCase().replace(/[^A-Z0-9]/g, '');
+}
+
+export function countLinkedUnused(
+  input: Pick<SerialNumberAllotment, 'from' | 'to' | 'missing' | 'count'>,
+  invoicedKeys: ReadonlySet<string>,
+): { linked: number; unused: number } {
+  const qty = Math.max(0, Number(input.count) || 0);
+  if (!qty || invoicedKeys.size === 0) {
+    return { linked: 0, unused: qty };
+  }
+  const from = parseSerialToken(input.from);
+  const to = parseSerialToken(input.to);
+  if (!from || !to || from.prefix !== to.prefix) {
+    return { linked: 0, unused: qty };
+  }
+  const missing = new Set(input.missing.map(compactSerialKey));
+  let linked = 0;
+  for (const key of invoicedKeys) {
+    const parsed = parseSerialToken(key);
+    if (!parsed || parsed.prefix !== from.prefix) continue;
+    if (parsed.n < from.n || parsed.n > to.n) continue;
+    if (missing.has(key) || missing.has(compactSerialKey(formatSerial({ ...from, width: Math.max(from.width, to.width) }, parsed.n)))) {
+      continue;
+    }
+    linked += 1;
+  }
+  if (linked > qty) linked = qty;
+  return { linked, unused: qty - linked };
+}
+
+const INVOICED_SERIAL_CACHE_KEY = 'yesweigh.invoicedSerialKeys.v1';
+
+function pushSerialKey(into: Set<string>, raw: unknown): void {
+  const key = compactSerialKey(String(raw ?? ''));
+  if (key) into.add(key);
+}
+
+export async function loadInvoicedSerialKeys(): Promise<Set<string>> {
+  try {
+    const cached = sessionStorage.getItem(INVOICED_SERIAL_CACHE_KEY);
+    if (cached) {
+      const parsed = JSON.parse(cached) as unknown;
+      if (Array.isArray(parsed)) {
+        return new Set(parsed.map(value => compactSerialKey(String(value))).filter(Boolean));
+      }
+    }
+  } catch {
+    // Ignore a stale or private-mode cache.
+  }
+
+  const keys = new Set<string>();
+  const snap = await getDocs(collectionGroup(db, 'invoices'));
+  for (const docSnap of snap.docs) {
+    const data = docSnap.data() as Record<string, unknown>;
+    if (Array.isArray(data.serialNumbers)) {
+      for (const value of data.serialNumbers) pushSerialKey(keys, value);
+    }
+    if (!Array.isArray(data.lineItems)) continue;
+    for (const raw of data.lineItems) {
+      if (!raw || typeof raw !== 'object') continue;
+      const item = raw as { description?: string | null; serialNumbers?: string[] };
+      for (const serial of serialNumbersFromLineItem({
+        description: item.description ?? null,
+        serialNumbers: item.serialNumbers,
+      })) {
+        pushSerialKey(keys, serial);
+      }
+    }
+  }
+
+  try {
+    sessionStorage.setItem(INVOICED_SERIAL_CACHE_KEY, JSON.stringify([...keys]));
+  } catch {
+    // Quota or private mode — still return the live set.
+  }
+  return keys;
 }
 
 function normalizeAllotment(raw: unknown): SerialNumberAllotment | null {

@@ -3,14 +3,13 @@ import { Search, SlidersHorizontal, X } from 'lucide-react';
 import { YesGatcCertificateList } from '../../components/yesgatc/YesGatcCertificateList';
 import { useAuth } from '../../context/AuthContext';
 import { useCatalogPageHeader, useTopBarAction } from '../../context/PageHeaderContext';
-import { canUseYesGatcFilters, isFullSuperAdmin } from '../../lib/staffAccess';
+import { canUseYesGatcFilters } from '../../lib/staffAccess';
 import {
   YESONE_RC_CODE,
   compareYesGatcCertificateLatestFirst,
   countYesGatcIwpCertificates,
   listYesGatcCertificates,
   listYesGatcRcDetails,
-  runYesGatcInvoiceLink,
   withDefaultIwpRc,
   yesGatcCertifiedTimeMs,
   yesGatcRcKey,
@@ -52,8 +51,6 @@ function periodBounds(period: GatcPeriod, now = new Date()): { start: number | n
   return { start: start.getTime(), end: end.getTime() };
 }
 
-const INVOICE_LINK_FLAG = 'yesgatcInvoiceLinkV5';
-
 export const YesGatcCertificatesPage: React.FC = () => {
   const { user } = useAuth();
   const canFilter = canUseYesGatcFilters(user);
@@ -71,7 +68,6 @@ export const YesGatcCertificatesPage: React.FC = () => {
   const [rcs, setRcs] = useState<YesGatcRcDetail[]>(() => withDefaultIwpRc([]));
   const [page, setPage] = useState(1);
   const [storedCount, setStoredCount] = useState<number | null>(null);
-  const [linkingInvoices, setLinkingInvoices] = useState(false);
 
   useEffect(() => {
     void listYesGatcRcDetails()
@@ -103,24 +99,6 @@ export const YesGatcCertificatesPage: React.FC = () => {
   useEffect(() => {
     if (!canFilter) setFiltersOpen(false);
   }, [canFilter]);
-
-  useEffect(() => {
-    if (!isFullSuperAdmin(user)) return;
-    if (typeof sessionStorage === 'undefined') return;
-    if (sessionStorage.getItem(INVOICE_LINK_FLAG)) return;
-    sessionStorage.setItem(INVOICE_LINK_FLAG, '1');
-    setLinkingInvoices(true);
-    void runYesGatcInvoiceLink()
-      .then(() => {
-        void load();
-      })
-      .catch(() => {
-        sessionStorage.removeItem(INVOICE_LINK_FLAG);
-      })
-      .finally(() => {
-        setLinkingInvoices(false);
-      });
-  }, [user, load]);
 
   const hasActiveFilters = appliedPeriod !== 'lifetime'
     || appliedRc !== YESONE_RC_CODE
@@ -338,9 +316,6 @@ export const YesGatcCertificatesPage: React.FC = () => {
           </div>
         ) : null}
         {error ? <p className="settings-locations__error">{error}</p> : null}
-        {linkingInvoices ? (
-          <p className="settings-locations__loading">Matching invoice serials…</p>
-        ) : null}
         {pagination ? (
           <div className="invoices-pagination yesgatc-certs-pagination yesgatc-certs-pagination--top" role="navigation" aria-label="Certificate list pagination">
             {pagination}
