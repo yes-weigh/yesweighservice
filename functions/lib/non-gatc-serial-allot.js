@@ -12,6 +12,11 @@ import {
   resolveOrganizationId,
   ZOHO_API_BASE,
 } from './zoho.js';
+import {
+  assertCanMutateSerialsAfterDelivery,
+  isMandatorySerialExemptLine,
+  lineIsMandatorySerialCategory,
+} from './mandatory-serials.js';
 
 export const NON_GATC_SERIES = 'non_gatc';
 export const NON_GATC_MACHINE_HSN = Object.freeze(['84238190', '84238290', '84231000']);
@@ -59,9 +64,17 @@ export function invoiceLineHasGatcTag(input) {
 
 export function isNonGatcSerialEligibleLine(line) {
   if (!line || typeof line !== 'object') return false;
-  const hsn = hsnDigits(line.hsn);
-  if (!MACHINE_HSN.has(hsn)) return false;
-  return !invoiceLineHasGatcTag(line);
+  if (isMandatorySerialExemptLine(line)) return false;
+  if (invoiceLineHasGatcTag(line)) return false;
+  if (MACHINE_HSN.has(hsnDigits(line.hsn))) return true;
+  return lineIsMandatorySerialCategory(line);
+}
+
+export function invoiceNeedsNonGatcSerials(lines) {
+  return (Array.isArray(lines) ? lines : []).some(line => (
+    isNonGatcSerialEligibleLine(line)
+    && Math.max(0, Math.round(Number(line.quantity) || 0)) > (Array.isArray(line.serialNumbers) ? line.serialNumbers.length : 0)
+  ));
 }
 
 function parseSerialToken(raw) {
@@ -512,6 +525,7 @@ export async function applyNonGatcSerialAllotmentOnInvoice({
   forceRelease = false,
   serials = [],
   lineId = '',
+  allowWhenDelivered = false,
   accessToken,
   orgId,
   secrets,
@@ -525,6 +539,7 @@ export async function applyNonGatcSerialAllotmentOnInvoice({
   }
   const data = snap.data() || {};
   const lines = Array.isArray(data.lineItems) ? data.lineItems : [];
+  if (!forceRelease) assertCanMutateSerialsAfterDelivery(data, allowWhenDelivered);
 
   if (isVoidInvoiceStatus(data.status) || forceRelease) {
     const released = await releaseAllocationsForInvoice(db, invoiceId);
@@ -742,6 +757,7 @@ export async function unlinkNonGatcSerialsFromInvoice({
   invoiceId,
   lineId = '',
   actorName = 'YESWEIGH',
+  allowWhenDelivered = false,
   accessToken,
   orgId,
   secrets,
@@ -755,6 +771,7 @@ export async function unlinkNonGatcSerialsFromInvoice({
   }
   const data = snap.data() || {};
   const lines = Array.isArray(data.lineItems) ? data.lineItems : [];
+  assertCanMutateSerialsAfterDelivery(data, allowWhenDelivered);
   const targetLineId = str(lineId);
 
   const toRelease = [];

@@ -82,6 +82,24 @@ export async function markInvoiceCustomerPickup(secrets, orgId, input) {
     throw new Error('Invoice not found in portal. Sync invoices from Zoho first.');
   }
   const invoice = snap.data() ?? {};
+  const { enrichInvoiceLinesCatalogCategory } = await import('./mandatory-serials.js');
+  const { isNonGatcSerialEligibleLine } = await import('./non-gatc-serial-allot.js');
+  const { isGatcStampedSerialEligibleLine } = await import('./yesgatc-stamped-serial-allot.js');
+  const lines = await enrichInvoiceLinesCatalogCategory(
+    Array.isArray(invoice.lineItems) ? invoice.lineItems : [],
+  );
+  const missingSerials = lines.some(line => {
+    const need = Math.max(0, Math.round(Number(line.quantity) || 0));
+    if (!need) return false;
+    if (!isNonGatcSerialEligibleLine(line) && !isGatcStampedSerialEligibleLine(line)) return false;
+    const have = Array.isArray(line.serialNumbers)
+      ? line.serialNumbers.filter(Boolean).length
+      : 0;
+    return have < need;
+  });
+  if (missingSerials) {
+    throw new Error('Add serial numbers on weighing-scale lines before customer pickup.');
+  }
 
   const resolvedShipFrom = await resolveInvoiceShipFromSite(db, invoice);
   const effectiveShipFromSite = resolvedShipFrom.site;

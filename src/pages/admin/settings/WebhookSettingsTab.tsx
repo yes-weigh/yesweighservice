@@ -77,21 +77,24 @@ export const WebhookSettingsTab: React.FC = () => {
           <div className="yesgatc-webhook__example">
             <p className="yesgatc-webhook__example-title">Webhook rules</p>
             <p className="text-muted text-sm">
-              YesOne sends serials and qty using YesGATC events
+              For RC dealers, a new or deleted weighing-scale invoice (HSN
               {' '}
-              <code>serial.allotted</code>
-              ,
+              84238190 / 84238290 / 84231000
+              ) updates Sold and sends
               {' '}
-              <code>serial.updated</code>
-              ,
-              {' '}
-              <code>serial.cancelled</code>
-              , or
-              {' '}
-              <code>serial_allotment</code>
+              <code>rc.ov_quota</code>
               .
-              Do not send OV, Linked, or Balance from YesOne. YesGATC posts OV done
-              per RC; YesOne updates the RC OV report from that inbound payload.
+              Warehouse serial allot sends serials with RC code
+              {' '}
+              (<code>serial.allotted</code>
+              {' / '}
+              <code>serial.updated</code>
+              {' / '}
+              <code>serial.cancelled</code>
+              ) and marks the invoice pushed on success.
+              Non-RC invoices stay on Zoho only. Do not send OV, Linked, or
+              Balance from YesOne. YesGATC posts OV done per RC; YesOne updates
+              the RC OV report from that inbound payload.
             </p>
             <pre>{`{
   "event": "rc_ov",

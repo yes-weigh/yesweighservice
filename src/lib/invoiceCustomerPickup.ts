@@ -3,6 +3,7 @@ import { app } from '../firebase';
 import { isEwayBillRequired, invoiceTotalInclGst } from '../constants/ewayBill';
 import { invoiceHasCourierFreightLine, invoiceHasNoCourierFreightLine } from './invoices';
 import { invoiceAllowsLogisticsFulfillment } from './invoiceListStatus';
+import { invoiceNeedsMandatorySerials } from './invoiceSerialGate';
 import type {
   DealerInvoiceDetail,
   InvoiceCustomerPickup,
@@ -74,6 +75,7 @@ export function canMarkInvoiceCustomerPickup(
   hasActiveLogisticsBooking: boolean,
 ): boolean {
   if (!invoice || hasActiveLogisticsBooking) return false;
+  if (invoiceNeedsMandatorySerials(invoice.lineItems)) return false;
   if (isInvoiceCustomerPickup(invoice)) return false;
   if (invoiceHasCourierFreightLine(invoice)) return false;
   if (!invoiceAllowsLogisticsFulfillment(invoice)) return false;

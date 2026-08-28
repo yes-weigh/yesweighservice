@@ -348,7 +348,7 @@ async function loadCatalogHsn(db, itemIds) {
   return map;
 }
 
-async function loadDealerNeedInvoices(db, customerId, minDate) {
+export async function loadDealerNeedInvoices(db, customerId, minDate) {
   const docs = await paginateCollection(db.collection(`zohoCustomers/${customerId}/invoices`));
   const itemIds = [];
   const invoices = [];
@@ -376,6 +376,7 @@ async function loadDealerNeedInvoices(db, customerId, minDate) {
   const catalogHsn = await loadCatalogHsn(db, itemIds);
   const needed = [];
   let sold = 0;
+  let allotted = 0;
   for (const invoice of invoices) {
     const seats = [];
     const fallbackSeats = [];
@@ -386,6 +387,7 @@ async function loadDealerNeedInvoices(db, customerId, minDate) {
       };
       if (!isMachineLine(withHsn, catalogHsn)) continue;
       sold += Math.max(0, Math.round(Number(line.quantity) || 0));
+      allotted += uniqueSerials(line?.serialNumbers).length;
       const need = lineNeed(withHsn);
       if (!need) continue;
       const seat = {
@@ -413,7 +415,7 @@ async function loadDealerNeedInvoices(db, customerId, minDate) {
     if (date) return date;
     return a.invoiceNumber.localeCompare(b.invoiceNumber, 'en', { sensitivity: 'base' });
   });
-  return { invoices: needed, sold };
+  return { invoices: needed, sold, allotted };
 }
 
 export async function planRcNonGatcSerialBackfill({

@@ -12,6 +12,11 @@ import {
   pushSerialsToZohoInvoiceSafe,
 } from './non-gatc-serial-allot.js';
 import {
+  assertCanMutateSerialsAfterDelivery,
+  isMandatorySerialExemptLine,
+  lineIsMandatorySerialCategory,
+} from './mandatory-serials.js';
+import {
   invoiceDateKey,
   invoiceFieldsFromLink,
   normalizeSerial,
@@ -125,8 +130,10 @@ function isVoidedCertificate(data) {
 
 export function isGatcStampedSerialEligibleLine(line) {
   if (!line || typeof line !== 'object') return false;
-  if (!MACHINE_HSN.has(hsnDigits(line.hsn))) return false;
-  return invoiceLineHasGatcTag(line);
+  if (isMandatorySerialExemptLine(line)) return false;
+  if (!invoiceLineHasGatcTag(line)) return false;
+  if (MACHINE_HSN.has(hsnDigits(line.hsn))) return true;
+  return lineIsMandatorySerialCategory(line);
 }
 
 function lineNeed(line) {
@@ -266,6 +273,7 @@ export async function allotGatcStampedSerialsToInvoice({
   lineId,
   certificateIds = [],
   actorName = 'YESWEIGH',
+  allowWhenDelivered = false,
   accessToken,
   orgId,
   secrets,
@@ -276,6 +284,7 @@ export async function allotGatcStampedSerialsToInvoice({
   const snap = await invoiceRef.get();
   if (!snap.exists) throw new Error('Invoice not found.');
   const data = { id: invoiceId, customerId, ...snap.data() };
+  assertCanMutateSerialsAfterDelivery(data, allowWhenDelivered);
   if (isVoidInvoiceStatus(data.status)) {
     throw new Error('Cannot allot GATC serials on a void invoice.');
   }
@@ -410,6 +419,7 @@ export async function unlinkGatcStampedSerialsFromInvoice({
   invoiceId,
   lineId = '',
   actorName = 'YESWEIGH',
+  allowWhenDelivered = false,
   accessToken,
   orgId,
   secrets,
@@ -420,6 +430,7 @@ export async function unlinkGatcStampedSerialsFromInvoice({
   const snap = await invoiceRef.get();
   if (!snap.exists) throw new Error('Invoice not found.');
   const data = { id: invoiceId, customerId, ...snap.data() };
+  assertCanMutateSerialsAfterDelivery(data, allowWhenDelivered);
   const lines = Array.isArray(data.lineItems) ? data.lineItems : [];
   const targetId = str(lineId);
   const result = await releaseGatcStampedSerials({

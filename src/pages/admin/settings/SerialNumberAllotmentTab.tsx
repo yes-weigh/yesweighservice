@@ -354,7 +354,7 @@ export const SerialNumberAllotmentTab: React.FC = () => {
           {testing ? 'Sending…' : 'Test'}
         </button>
         <p className="text-muted text-sm settings-serial-allotment__webhook-hint">
-          Test sends serial.allotted / serial_allotment with serial numbers and counts only. OV / Linked / Balance stay on YesGATC and come back on the inbound webhook.
+          RC invoice create/delete updates Sold. Warehouse serial allot sends serials with RC code and marks Pushed to YesGATC on success. Test sends serial.allotted / serial_allotment with serial numbers and counts only. OV / Linked / Balance stay on YesGATC and come back on the inbound webhook.
           {pendingCount
             ? ` ${pendingCount.toLocaleString('en-IN')} range${pendingCount === 1 ? '' : 's'} still pending.`
             : ''}

@@ -58,7 +58,22 @@ async function loadCatalogMetaForItemIds(itemIds) {
         categoryId: data.categoryId != null ? String(data.categoryId) : null,
         categoryName: data.categoryName != null ? String(data.categoryName) : null,
         imageUrl: data.imageUrl != null ? String(data.imageUrl) : null,
+        isWeighingScale: false,
       });
+    }
+  }
+  const categoryIds = [...new Set(
+    [...map.values()].map(meta => meta.categoryId).filter(Boolean),
+  )];
+  if (categoryIds.length) {
+    const catSnaps = await db.getAll(
+      ...categoryIds.map(id => db.collection('catalogCategories').doc(id)),
+    );
+    const weighing = new Set(
+      catSnaps.filter(snap => snap.exists && snap.data()?.isWeighingScale).map(snap => snap.id),
+    );
+    for (const meta of map.values()) {
+      meta.isWeighingScale = Boolean(meta.categoryId && weighing.has(meta.categoryId));
     }
   }
   return map;
@@ -97,6 +112,9 @@ function normalizeLineItems(rawItems, catalogMap) {
         ? String(item.hsn).trim()
         : (meta?.hsn ?? null),
       serialNumbers,
+      ...(meta?.categoryId ? { categoryId: meta.categoryId } : {}),
+      ...(meta?.categoryName ? { categoryName: meta.categoryName } : {}),
+      ...(meta?.isWeighingScale ? { isWeighingScale: true } : {}),
     };
   });
 }
@@ -289,6 +307,25 @@ async function upsertOneInvoice(input) {
     });
   } catch (err) {
     console.warn(`YesGATC certificate link failed for CSV ${invoiceId}:`, err?.message ?? err);
+  }
+
+  try {
+    const {
+      invoiceMachineSoldQty,
+      notifyRcSoldAfterInvoiceChangeSafe,
+    } = await import('./yesgatc-sold-push.js');
+    const afterDoc = { ...existing, ...doc, id: invoiceId, customerId };
+    if (invoiceMachineSoldQty(exists ? existing : null) !== invoiceMachineSoldQty(afterDoc)) {
+      await notifyRcSoldAfterInvoiceChangeSafe({
+        customerId,
+        invoiceId,
+        before: exists ? existing : null,
+        after: afterDoc,
+        actorName: 'invoice-csv',
+      });
+    }
+  } catch (err) {
+    console.warn(`YesGATC RC sold push failed for CSV ${invoiceId}:`, err?.message ?? err);
   }
 
   return {

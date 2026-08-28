@@ -344,7 +344,22 @@ async function getCatalogMetaForItems(itemIds) {
       categoryId: data.categoryId != null ? String(data.categoryId) : null,
       categoryName: data.categoryName != null ? String(data.categoryName) : null,
       modelNumber: data.modelNumber != null ? String(data.modelNumber).trim() || null : null,
+      isWeighingScale: false,
     });
+  }
+  const categoryIds = [...new Set(
+    [...map.values()].map(meta => meta.categoryId).filter(Boolean),
+  )];
+  if (categoryIds.length) {
+    const catSnaps = await db.getAll(
+      ...categoryIds.map(id => db.collection('catalogCategories').doc(id)),
+    );
+    const weighing = new Set(
+      catSnaps.filter(snap => snap.exists && snap.data()?.isWeighingScale).map(snap => snap.id),
+    );
+    for (const meta of map.values()) {
+      meta.isWeighingScale = Boolean(meta.categoryId && weighing.has(meta.categoryId));
+    }
   }
   return map;
 }
@@ -421,10 +436,17 @@ async function buildFirestoreInvoiceDoc(accessToken, orgId, invoiceRaw, options 
   const lineItems = lineItemsRaw.map(item => {
     const itemId = item.item_id ? String(item.item_id) : null;
     const meta = itemId ? catalogMap.get(itemId) : null;
-    return mapInvoiceLineItem(
+    const mapped = mapInvoiceLineItem(
       item,
       options.skipImages ? null : (meta?.imageUrl ?? null),
     );
+    return {
+      ...mapped,
+      hsn: mapped.hsn || meta?.hsn || null,
+      ...(meta?.categoryId ? { categoryId: meta.categoryId } : {}),
+      ...(meta?.categoryName ? { categoryName: meta.categoryName } : {}),
+      ...(meta?.isWeighingScale ? { isWeighingScale: true } : {}),
+    };
   });
   const classifyInput = lineItemsRaw.map(item => {
     const itemId = item.item_id ? String(item.item_id) : null;
@@ -859,6 +881,25 @@ export async function upsertInvoiceFromRaw(accessToken, orgId, invoiceRaw, optio
     console.warn(`YesGATC certificate link failed for invoice ${invoiceId}:`, err?.message ?? err);
   }
 
+  try {
+    const {
+      invoiceMachineSoldQty,
+      notifyRcSoldAfterInvoiceChangeSafe,
+    } = await import('./yesgatc-sold-push.js');
+    const afterDoc = { ...doc, id: invoiceId, customerId };
+    if (invoiceMachineSoldQty(existing) !== invoiceMachineSoldQty(afterDoc)) {
+      await notifyRcSoldAfterInvoiceChangeSafe({
+        customerId,
+        invoiceId,
+        before: existing || null,
+        after: afterDoc,
+        actorName: 'invoice-sync',
+      });
+    }
+  } catch (err) {
+    console.warn(`YesGATC RC sold push failed for invoice ${invoiceId}:`, err?.message ?? err);
+  }
+
   return { customerId, invoiceId, updated: true };
 }
 
@@ -932,6 +973,18 @@ export async function deleteInvoiceFromFirestore(customerId, invoiceId) {
       // ignore storage delete failures
     }
   }));
+  try {
+    const { notifyRcSoldAfterInvoiceChangeSafe } = await import('./yesgatc-sold-push.js');
+    await notifyRcSoldAfterInvoiceChangeSafe({
+      customerId,
+      invoiceId,
+      before: { ...data, id: invoiceId, customerId },
+      after: null,
+      actorName: 'invoice-delete',
+    });
+  } catch (err) {
+    console.warn(`YesGATC RC sold push failed after delete ${invoiceId}:`, err?.message ?? err);
+  }
   return true;
 }
 
@@ -1251,6 +1304,7 @@ function compactInvoiceLineItemPreview(item, catalogMap) {
       : [],
     ...(catalog?.categoryId != null ? { categoryId: String(catalog.categoryId) } : {}),
     ...(catalog?.categoryName != null ? { categoryName: String(catalog.categoryName) } : {}),
+    ...(catalog?.isWeighingScale ? { isWeighingScale: true } : {}),
     ...(catalog ? { isCatalogSpare: isCatalogSpareMeta(catalog) } : {}),
   };
 }

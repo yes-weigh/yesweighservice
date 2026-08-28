@@ -2,6 +2,7 @@ import type { NavigateFunction } from 'react-router-dom';
 import type { LogisticsPartnerId } from '../constants/logisticsPartners';
 import type { CatalogProduct } from '../types/catalog';
 import type { DealerSupportRequest } from '../types/dealer-support';
+import { invoiceNeedsMandatorySerials } from './invoiceSerialGate';
 import type { DealerInvoiceDetail } from '../types/invoices';
 import type { Role } from '../types';
 import { homePathForRole } from '../types';
@@ -69,7 +70,9 @@ export function canBookCourierForInvoice(
   },
 ): boolean {
   const status = String(invoice.status ?? '').trim().toLowerCase().replace(/\s+/g, '_');
-  return status !== 'void';
+  if (status === 'void') return false;
+  if (invoiceNeedsMandatorySerials(invoice.lineItems)) return false;
+  return true;
 }
 
 /**
@@ -87,6 +90,7 @@ export function canRecordInvoiceLogisticsLr(
   if (invoice.sourceSalesOrderIsPickup) return false;
   if (isInvoiceLocalFreightPickup(invoice)) return false;
   if (invoiceHasNoCourierFreightLine(invoice)) return false;
+  if (invoiceNeedsMandatorySerials(invoice.lineItems)) return false;
   return invoiceAllowsLogisticsFulfillment(invoice);
 }
 

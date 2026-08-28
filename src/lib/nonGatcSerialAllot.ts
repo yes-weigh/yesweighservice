@@ -2,6 +2,10 @@ import { getFunctions, httpsCallable } from 'firebase/functions';
 import { app } from '../firebase';
 import { invoiceLineHasGatcTag } from './invoiceGatcTag';
 import { serialNumbersFromLineItem } from './invoices';
+import {
+  isMandatorySerialExemptLine,
+  lineIsMandatorySerialCategory,
+} from './mandatorySerials';
 import { YESGATC_OV_MACHINE_HSN } from './yesgatcRecords';
 import type { DealerInvoiceLineItem } from '../types/invoices';
 
@@ -18,10 +22,12 @@ export function isVoidOrCancelledInvoiceStatus(status: unknown): boolean {
 
 export function isNonGatcSerialEligibleLine(line: Pick<
   DealerInvoiceLineItem,
-  'hsn' | 'description' | 'quantity'
->): boolean {
-  if (!MACHINE_HSN.has(hsnDigits(line.hsn))) return false;
-  return !invoiceLineHasGatcTag(line);
+  'hsn' | 'description' | 'quantity' | 'sku' | 'itemId' | 'categoryName'
+> & { isWeighingScale?: boolean | null }): boolean {
+  if (isMandatorySerialExemptLine(line)) return false;
+  if (invoiceLineHasGatcTag(line)) return false;
+  if (MACHINE_HSN.has(hsnDigits(line.hsn))) return true;
+  return lineIsMandatorySerialCategory(line);
 }
 
 export function nonGatcSerialShortage(line: DealerInvoiceLineItem): number {

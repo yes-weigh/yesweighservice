@@ -81,6 +81,19 @@ export async function voidAdminInvoice({
     voidReason: note || null,
   }, { merge: true });
 
+  try {
+    const { notifyRcSoldAfterInvoiceChangeSafe } = await import('./yesgatc-sold-push.js');
+    await notifyRcSoldAfterInvoiceChangeSafe({
+      customerId: cid,
+      invoiceId: iid,
+      before: { ...invoice, id: iid, customerId: cid },
+      after: { ...invoice, id: iid, customerId: cid, status: 'void' },
+      actorName,
+    });
+  } catch (err) {
+    console.warn(`YesGATC RC sold push failed after void ${iid}:`, err?.message ?? err);
+  }
+
   const cleanup = await applyNonGatcSerialAllotmentOnInvoice({
     customerId: cid,
     invoiceId: iid,

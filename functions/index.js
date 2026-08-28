@@ -7425,7 +7425,7 @@ export const allotNonGatcSerialsToInvoiceFn = onCall(
     secrets: [zohoClientId, zohoClientSecret, zohoRefreshToken],
   },
   async request => {
-    await requireActiveUser(request.auth?.uid, NON_GATC_SERIAL_ROLES);
+    const role = await requireActiveUser(request.auth?.uid, NON_GATC_SERIAL_ROLES);
     try {
       const customerId = String(request.data?.customerId ?? '').trim();
       const invoiceId = String(request.data?.invoiceId ?? '').trim();
@@ -7433,6 +7433,7 @@ export const allotNonGatcSerialsToInvoiceFn = onCall(
         throw new HttpsError('invalid-argument', 'Invoice is required.');
       }
       const actorName = String(request.data?.actorName ?? '').trim() || 'YESWEIGH';
+      const allowWhenDelivered = role !== 'warehouse';
       const zoho = {
         secrets: zohoSecrets(),
         configuredOrgId: zohoOrganizationId.value(),
@@ -7443,6 +7444,7 @@ export const allotNonGatcSerialsToInvoiceFn = onCall(
           invoiceId,
           lineId: String(request.data?.lineId ?? '').trim(),
           actorName,
+          allowWhenDelivered,
           ...zoho,
         });
       }
@@ -7458,6 +7460,7 @@ export const allotNonGatcSerialsToInvoiceFn = onCall(
         lineId: String(request.data?.lineId ?? '').trim(),
         serials,
         actorName,
+        allowWhenDelivered,
         ...zoho,
       });
     } catch (err) {
@@ -7644,7 +7647,7 @@ export const allotGatcStampedSerialsToInvoiceFn = onCall(
     secrets: [zohoClientId, zohoClientSecret, zohoRefreshToken],
   },
   async request => {
-    await requireActiveUser(request.auth?.uid, NON_GATC_SERIAL_ROLES);
+    const role = await requireActiveUser(request.auth?.uid, NON_GATC_SERIAL_ROLES);
     try {
       const customerId = String(request.data?.customerId ?? '').trim();
       const invoiceId = String(request.data?.invoiceId ?? '').trim();
@@ -7652,6 +7655,7 @@ export const allotGatcStampedSerialsToInvoiceFn = onCall(
         throw new HttpsError('invalid-argument', 'Invoice is required.');
       }
       const actorName = String(request.data?.actorName ?? '').trim() || 'YESWEIGH';
+      const allowWhenDelivered = role !== 'warehouse';
       const zoho = {
         secrets: zohoSecrets(),
         configuredOrgId: zohoOrganizationId.value(),
@@ -7662,6 +7666,7 @@ export const allotGatcStampedSerialsToInvoiceFn = onCall(
           invoiceId,
           lineId: String(request.data?.lineId ?? '').trim(),
           actorName,
+          allowWhenDelivered,
           ...zoho,
         });
       }
@@ -7673,6 +7678,7 @@ export const allotGatcStampedSerialsToInvoiceFn = onCall(
           ? request.data.certificateIds.map(id => String(id ?? '').trim()).filter(Boolean)
           : [],
         actorName,
+        allowWhenDelivered,
         ...zoho,
       });
     } catch (err) {
@@ -7722,7 +7728,7 @@ export const voidAdminInvoiceFn = onCall(
 export const pushRcInvoiceToYesGatcFn = onCall(
   {
     region: 'asia-south1',
-    timeoutSeconds: 30,
+    timeoutSeconds: 60,
     memory: '256MiB',
   },
   async request => {

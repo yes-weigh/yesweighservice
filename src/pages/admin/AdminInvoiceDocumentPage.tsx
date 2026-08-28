@@ -13,7 +13,6 @@ import { useAuth } from '../../context/AuthContext';
 import { isFreightInvoiceLineItem, serialNumbersFromLineItem } from '../../lib/invoices';
 import {
   allotNonGatcSerialsToInvoice,
-  invoiceNeedsNonGatcSerialAllotment,
   isNonGatcSerialEligibleLine,
   isVoidOrCancelledInvoiceStatus,
   nonGatcSerialShortage,
@@ -36,6 +35,10 @@ import {
   overlayLocalFreightOnLineItems,
   type LocalFreightSelectSku,
 } from '../../lib/invoiceLocalFreight';
+import {
+  invoiceIsDeliveredForSerials,
+  invoiceNeedsMandatorySerials,
+} from '../../lib/invoiceSerialGate';
 import { canVoidAdminInvoice, isInternalOpsUser } from '../../lib/staffAccess';
 import { voidAdminInvoice } from '../../lib/voidAdminInvoice';
 import type { AdminInvoiceDetailOutletContext } from './adminInvoiceDetailContext';
@@ -127,12 +130,16 @@ export const AdminInvoiceDocumentPage: React.FC = () => {
     : null;
 
   const invoiceVoid = isVoidOrCancelledInvoiceStatus(invoice.status);
+  const invoiceDelivered = invoiceIsDeliveredForSerials(invoice);
   const canAllotSerials = Boolean(
     user
-    && (isOps || user.role === 'warehouse')
-    && !invoiceVoid,
+    && !invoiceVoid
+    && (
+      isOps
+      || (user.role === 'warehouse' && !invoiceDelivered)
+    ),
   );
-  const needsSerialAllot = invoiceNeedsNonGatcSerialAllotment(displayInvoice.lineItems);
+  const needsSerialAllot = invoiceNeedsMandatorySerials(displayInvoice.lineItems);
   const hasAllottedSerials = displayInvoice.lineItems.some(
     line => isNonGatcSerialEligibleLine(line) && serialNumbersFromLineItem(line).length > 0,
   );
@@ -516,11 +523,26 @@ export const AdminInvoiceDocumentPage: React.FC = () => {
             ) : null}
             {canAllotSerials && needsSerialAllot ? (
               <div className="invoice-nongatc-serials invoice-nongatc-serials--bar panel glass">
+                <p className="invoice-nongatc-serials__empty">
+                  Add serial numbers on weighing-scale lines before booking courier or marking delivered.
+                </p>
                 <button
                   type="button"
                   className="btn btn-primary invoice-nongatc-serials__btn"
                   disabled={allotBusy}
                   onClick={() => {
+                    const gatcLine = displayInvoice.lineItems.find(
+                      item => gatcStampedSerialShortage(item) > 0,
+                    );
+                    if (gatcLine) {
+                      openGatcPicker(
+                        gatcLine.id,
+                        gatcStampedSerialShortage(gatcLine),
+                        gatcLine.name,
+                        invoiceLineStampingCapacityKg(gatcLine),
+                      );
+                      return;
+                    }
                     const line = displayInvoice.lineItems.find(
                       item => nonGatcSerialShortage(item) > 0,
                     );

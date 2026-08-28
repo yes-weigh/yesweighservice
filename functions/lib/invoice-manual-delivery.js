@@ -4,6 +4,9 @@
 import { getFirestore } from 'firebase-admin/firestore';
 import { invoicesCollection } from './invoice-sync.js';
 import { patchInvoiceSummaryListFields } from './invoice-stats.js';
+import { enrichInvoiceLinesCatalogCategory } from './mandatory-serials.js';
+import { isNonGatcSerialEligibleLine } from './non-gatc-serial-allot.js';
+import { isGatcStampedSerialEligibleLine } from './yesgatc-stamped-serial-allot.js';
 
 function normalizeManualDelivery(raw) {
   if (!raw || typeof raw !== 'object') return null;
@@ -78,6 +81,21 @@ export async function markInvoiceDelivered(input) {
 
   if (String(invoice.status ?? '').trim().toLowerCase() === 'void') {
     throw new Error('Void invoices cannot be marked delivered.');
+  }
+  const lines = await enrichInvoiceLinesCatalogCategory(
+    Array.isArray(invoice.lineItems) ? invoice.lineItems : [],
+  );
+  const missingSerials = lines.some(line => {
+    const need = Math.max(0, Math.round(Number(line.quantity) || 0));
+    if (!need) return false;
+    if (!isNonGatcSerialEligibleLine(line) && !isGatcStampedSerialEligibleLine(line)) return false;
+    const have = Array.isArray(line.serialNumbers)
+      ? line.serialNumbers.filter(Boolean).length
+      : 0;
+    return have < need;
+  });
+  if (missingSerials) {
+    throw new Error('Add serial numbers on weighing-scale lines before marking delivered.');
   }
   if (pickupAlreadyMarked(invoice.customerPickup)) {
     throw new Error('This invoice is already customer pickup (delivered).');

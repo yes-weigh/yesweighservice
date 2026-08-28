@@ -4,6 +4,10 @@ import { parseGatcStampingCapacityKg } from './gatcReports';
 import { gatcStampingRangeFromDescription, invoiceLineHasGatcTag } from './invoiceGatcTag';
 import { serialNumbersFromLineItem } from './invoices';
 import {
+  isMandatorySerialExemptLine,
+  lineIsMandatorySerialCategory,
+} from './mandatorySerials';
+import {
   YESGATC_OV_MACHINE_HSN,
   YESONE_RC_CODE,
   isYesGatcOvCertificate,
@@ -35,10 +39,12 @@ export type UnlinkedIwpGatcCertificate = {
 
 export function isGatcStampedSerialEligibleLine(line: Pick<
   DealerInvoiceLineItem,
-  'hsn' | 'description' | 'quantity'
->): boolean {
-  if (!MACHINE_HSN.has(hsnDigits(line.hsn))) return false;
-  return invoiceLineHasGatcTag(line);
+  'hsn' | 'description' | 'quantity' | 'sku' | 'itemId' | 'categoryName'
+> & { isWeighingScale?: boolean | null }): boolean {
+  if (isMandatorySerialExemptLine(line)) return false;
+  if (!invoiceLineHasGatcTag(line)) return false;
+  if (MACHINE_HSN.has(hsnDigits(line.hsn))) return true;
+  return lineIsMandatorySerialCategory(line);
 }
 
 export function gatcStampedSerialShortage(line: DealerInvoiceLineItem): number {

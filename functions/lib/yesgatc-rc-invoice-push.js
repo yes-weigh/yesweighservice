@@ -231,6 +231,8 @@ export function invoiceSerialPayload(invoice, rc, { action = 'upsert', alreadyPu
       status: str(invoice.status) || null,
       customerId: rc.dealerId,
       customerName: str(invoice.customerName) || rc.dealerName,
+      gstin: str(invoice.customerGstin) || null,
+      shippingAddress: str(invoice.shippingAddress) || null,
       qty,
       serialCount: serialNumbers.length,
       startNumber: serialNumbers[0] || null,
@@ -338,6 +340,8 @@ export async function pushRcInvoiceSerialsToYesGatc({
     rc,
     qty: payload.invoice.qty,
     serials: remaining.length,
+    invoiceNumber: str(data.invoiceNumber),
+    invoiceDate: data.date ? String(data.date).slice(0, 10) : null,
     pushedAt: kind === 'unlink' && !remaining.length ? null : now,
   };
 }
@@ -358,3 +362,4 @@ export async function pushRcInvoiceSerialsToYesGatcSafe(input) {
     };
   }
 }
+

@@ -208,7 +208,7 @@ export const RcOvReportTab: React.FC = () => {
             </article>
           </div>
           <p className="rc-ov-report__foot">
-            Sold is YesOne invoice qty from 1 Feb 2026. OV and Linked come from YesGATC.
+            Sold is YesOne invoice qty from 1 Feb 2026. RC add/delete pushes Sold to YesGATC. OV and Linked come from YesGATC.
             Bal is Sold − OV.
           </p>
         </>

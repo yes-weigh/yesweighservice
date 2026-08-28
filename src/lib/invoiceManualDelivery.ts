@@ -2,6 +2,7 @@ import { getFunctions, httpsCallable } from 'firebase/functions';
 import { app } from '../firebase';
 import { invoiceAllowsLogisticsFulfillment } from './invoiceListStatus';
 import { isInvoiceCustomerPickup } from './invoiceCustomerPickup';
+import { invoiceNeedsMandatorySerials } from './invoiceSerialGate';
 import type { DealerInvoiceDetail, InvoiceManualDelivery } from '../types/invoices';
 import type { LogisticsBooking } from '../types/logistics-dispatch';
 
@@ -52,12 +53,19 @@ export function isInvoiceManuallyDelivered(
 export function canMarkInvoiceDelivered(
   invoice: Pick<
     DealerInvoiceDetail,
-    'customerPickup' | 'manualDelivery' | 'manualDeliveredAt' | 'status' | 'categories' | 'invoiceCategory'
+    | 'customerPickup'
+    | 'manualDelivery'
+    | 'manualDeliveredAt'
+    | 'status'
+    | 'categories'
+    | 'invoiceCategory'
+    | 'lineItems'
   > | null | undefined,
   booking?: Pick<LogisticsBooking, 'status'> | null,
 ): boolean {
   if (!invoice) return false;
   if (String(invoice.status ?? '').trim().toLowerCase() === 'void') return false;
+  if (invoiceNeedsMandatorySerials(invoice.lineItems)) return false;
   if (!invoiceAllowsLogisticsFulfillment(invoice)) return false;
   if (isInvoiceCustomerPickup(invoice) || isInvoiceManuallyDelivered(invoice)) return false;
   const logistics = String(booking?.status ?? '').toLowerCase();

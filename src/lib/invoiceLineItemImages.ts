@@ -9,6 +9,7 @@ export type LineItemCatalogMeta = {
   categoryId: string | null;
   categoryName: string | null;
   modelNumber: string | null;
+  isWeighingScale: boolean;
 };
 
 function metaFromCatalogData(data: Record<string, unknown> | undefined): LineItemCatalogMeta {
@@ -23,6 +24,7 @@ function metaFromCatalogData(data: Record<string, unknown> | undefined): LineIte
     categoryId: data?.categoryId != null ? String(data.categoryId) : null,
     categoryName: data?.categoryName != null ? String(data.categoryName) : null,
     modelNumber: data?.modelNumber != null ? String(data.modelNumber).trim() || null : null,
+    isWeighingScale: false,
   };
 }
 
@@ -74,6 +76,27 @@ export async function fetchCatalogMetaForItemIds(
       map.set(docSnap.id, meta);
     }
   }
+  const categoryIds = [...new Set(
+    [...map.values()].map(meta => meta.categoryId).filter((id): id is string => Boolean(id)),
+  )];
+  if (categoryIds.length) {
+    const weighing = new Set<string>();
+    const cats = collection(db, 'catalogCategories');
+    for (let i = 0; i < categoryIds.length; i += 10) {
+      const chunk = categoryIds.slice(i, i + 10);
+      const catSnap = await getDocs(query(cats, where(documentId(), 'in', chunk)));
+      for (const docSnap of catSnap.docs) {
+        if (docSnap.data()?.isWeighingScale) weighing.add(docSnap.id);
+      }
+    }
+    for (const [id, meta] of map) {
+      if (meta.categoryId && weighing.has(meta.categoryId)) {
+        const next = { ...meta, isWeighingScale: true };
+        catalogMetaMemo.set(id, next);
+        map.set(id, next);
+      }
+    }
+  }
   return map;
 }
 
@@ -96,6 +119,7 @@ export function applyCatalogMetaToLineItems(
       hsn: item.hsn || meta.hsn,
       ...(meta.categoryId ? { categoryId: item.categoryId || meta.categoryId } : {}),
       ...(meta.categoryName ? { categoryName: item.categoryName || meta.categoryName } : {}),
+      ...(meta.isWeighingScale || item.isWeighingScale ? { isWeighingScale: true } : {}),
       isCatalogSpare: catalogSpare,
     };
   });

@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { Outlet, useLocation, useNavigate, useParams } from 'react-router-dom';
-import { AlertCircle, CheckCircle2, ClipboardList, FileText, MapPin, UserRound } from 'lucide-react';
+import { AlertCircle, CheckCircle2, ClipboardList, FileText, Hash, MapPin, UserRound } from 'lucide-react';
 import { FetchingLoader } from '../../components/FetchingLoader';
 import { SpareOrderListViewDialog } from '../../components/invoices/SpareOrderListViewDialog';
 import { BookCourierEntryButton } from '../../components/logistics/BookCourierEntryButton';
@@ -40,6 +40,7 @@ import {
   resolveInvoiceCourierPartner,
   type LogisticsEntryState,
 } from '../../lib/logisticsPrefill';
+import { invoiceNeedsMandatorySerials } from '../../lib/invoiceSerialGate';
 import { loadLogisticsSettings } from '../../lib/logisticsSettings';
 import { resolveInvoiceShipFromSiteOrDefault, shipFromSiteLabel } from '../../lib/logisticsShipFrom';
 import {
@@ -301,6 +302,7 @@ export const AdminInvoiceDetailLayout: React.FC = () => {
 
   if (!customerId || !invoiceId) return null;
 
+  const needsMandatorySerials = invoiceNeedsMandatorySerials(invoice?.lineItems);
   const showManualLogistics = Boolean(
     addLrAvailable
     && !existingBooking
@@ -592,6 +594,18 @@ export const AdminInvoiceDetailLayout: React.FC = () => {
                     }
                     variant="card"
                   />
+                ) : needsMandatorySerials && !existingBooking ? (
+                  <button
+                    type="button"
+                    className="invoice-detail-top__card invoice-detail-top__card--amber"
+                    title="Add serial numbers on weighing-scale lines before the next step"
+                    onClick={() => navigate(invoiceSummaryPath)}
+                  >
+                    <span className="invoice-detail-top__card-icon">
+                      <Hash size={28} strokeWidth={1.75} aria-hidden />
+                    </span>
+                    <span className="invoice-detail-top__card-label">Add serials</span>
+                  </button>
                 ) : courierEntry ? (
                   <BookCourierEntryButton entry={courierEntry} variant="card" />
                 ) : customerPickupActive ? (

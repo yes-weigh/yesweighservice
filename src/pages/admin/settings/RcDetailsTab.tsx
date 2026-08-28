@@ -315,7 +315,7 @@ export const RcDetailsTab: React.FC = () => {
       )}
       {!loading && !error && sortedRows.length > 0 ? (
         <p className="text-muted text-sm">
-          Sold is YesOne invoice qty. OV and Linked come from YesGATC.
+          Sold is YesOne invoice qty (RC dealers, weighing-scale HSN from 1 Feb 2026). Add or delete updates YesGATC. OV and Linked come from YesGATC.
         </p>
       ) : null}
       {picking ? (
