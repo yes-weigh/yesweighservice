@@ -11,6 +11,7 @@ import {
   fetchPurchaseOrderBlPreview,
   linkPurchaseOrderBlFromSource,
   listPurchaseOrderBlSources,
+  lookupPurchaseOrderBlSource,
   PURCHASE_ORDER_SHIPPING_LINES,
   purchaseOrderHasBl,
   savePurchaseOrderBl,
@@ -141,6 +142,7 @@ export const PurchaseOrderBlDialog: React.FC<Props> = ({
   const [saving, setSaving] = useState(false);
   const [sharing, setSharing] = useState(false);
   const [error, setError] = useState('');
+  const [previewError, setPreviewError] = useState('');
   const [sources, setSources] = useState<PurchaseOrderBlSource[]>([]);
   const [sourcesLoading, setSourcesLoading] = useState(false);
   const [sourceSearch, setSourceSearch] = useState('');
@@ -161,6 +163,7 @@ export const PurchaseOrderBlDialog: React.FC<Props> = ({
     setEta(purchaseOrder.tracking.arrivalDate || '');
     setFile(null);
     setError('');
+    setPreviewError('');
     setSaving(false);
     setSharing(false);
     setSourceSearch('');
@@ -206,6 +209,33 @@ export const PurchaseOrderBlDialog: React.FC<Props> = ({
   }, [open, canEdit, mode, purchaseOrder.id]);
 
   useEffect(() => {
+    if (!open || !canEdit || mode !== 'link') return;
+    const needle = sourceSearch.trim();
+    if (!needle) return;
+    let cancelled = false;
+    const timer = window.setTimeout(() => {
+      void lookupPurchaseOrderBlSource({
+        query: needle,
+        excludePurchaseOrderId: purchaseOrder.id,
+      }).then(row => {
+        if (cancelled || !row) return;
+        setSources(prev => (
+          prev.some(item => item.purchaseOrderId === row.purchaseOrderId)
+            ? prev
+            : [row, ...prev]
+        ));
+        setSelectedSourceId(row.purchaseOrderId);
+      }).catch(() => {
+        // Keep the scanned list; typed PO may simply not have a BL.
+      });
+    }, 250);
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timer);
+    };
+  }, [open, canEdit, mode, sourceSearch, purchaseOrder.id]);
+
+  useEffect(() => {
     if (!open || file) {
       if (file) {
         setPreviewUrl(null);
@@ -233,13 +263,13 @@ export const PurchaseOrderBlDialog: React.FC<Props> = ({
         if (cancelled) return;
         setPreviewUrl(preview.url);
         setPdfBytes(preview.bytes);
-        setError('');
+        setPreviewError('');
       })
       .catch(err => {
         if (cancelled) return;
         setPreviewUrl(null);
         setPdfBytes(null);
-        setError(invoiceErrorMessage(err));
+        setPreviewError(invoiceErrorMessage(err));
       })
       .finally(() => {
         if (!cancelled) setLoadingPreview(false);
@@ -313,19 +343,26 @@ export const PurchaseOrderBlDialog: React.FC<Props> = ({
 
   const filteredSources = useMemo(() => {
     const needle = sourceSearch.trim().toLowerCase();
-    if (!needle) return sources;
-    return sources.filter(row => {
-      const hay = [
-        row.purchaseOrderNumber,
-        row.vendorName,
-        row.bl.containerNumber,
-        row.bl.blNumber,
-        row.bl.shippingLine,
-        row.bl.fileName,
-      ].filter(Boolean).join(' ').toLowerCase();
-      return hay.includes(needle);
+    const rows = !needle
+      ? sources
+      : sources.filter(row => {
+        const hay = [
+          row.purchaseOrderNumber,
+          row.vendorName,
+          row.bl.containerNumber,
+          row.bl.blNumber,
+          row.bl.shippingLine,
+          row.bl.fileName,
+        ].filter(Boolean).join(' ').toLowerCase();
+        return hay.includes(needle);
+      });
+    if (!selectedSourceId) return rows;
+    return [...rows].sort((a, b) => {
+      if (a.purchaseOrderId === selectedSourceId) return -1;
+      if (b.purchaseOrderId === selectedSourceId) return 1;
+      return 0;
     });
-  }, [sources, sourceSearch]);
+  }, [sources, sourceSearch, selectedSourceId]);
 
   const selectedSource = selectedSourceId
     ? sources.find(s => s.purchaseOrderId === selectedSourceId) ?? null
@@ -354,6 +391,7 @@ export const PurchaseOrderBlDialog: React.FC<Props> = ({
         });
         setFile(null);
         onSaved(next);
+        onClose();
         return;
       }
         const next = await savePurchaseOrderBl({
@@ -506,7 +544,10 @@ export const PurchaseOrderBlDialog: React.FC<Props> = ({
           </div>
         ) : null}
 
-        {error ? <p className="dealers-modal__error">{error}</p> : null}
+        {error ? <p className="dealers-modal__error po-bl-dialog__error">{error}</p> : null}
+        {previewError && !error ? (
+          <p className="dealers-modal__error po-bl-dialog__error">{previewError}</p>
+        ) : null}
 
         <div className="courier-slip-view-dialog__body po-bl-dialog__preview">
           {loadingPreview || (file && file.type.includes('pdf') && !localPdfBytes) ? (

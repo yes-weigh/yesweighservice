@@ -2012,6 +2012,36 @@ export type PurchaseOrderBlSource = {
   bl: PurchaseOrderBl;
 };
 
+function blSourceFromSnap(
+  docSnap: { id: string; data: () => DocumentData },
+  excludeId: string,
+): PurchaseOrderBlSource | null {
+  if (excludeId && docSnap.id === excludeId) return null;
+  const data = docSnap.data();
+  if (isHiddenPurchaseOrderNumber(String(data.purchaseOrderNumber ?? ''))) return null;
+  const bl = parsePurchaseOrderBl(data);
+  if (!purchaseOrderHasBl(bl) || !bl) return null;
+  return {
+    purchaseOrderId: docSnap.id,
+    purchaseOrderNumber: String(data.purchaseOrderNumber ?? docSnap.id),
+    vendorName: data.vendorName ? String(data.vendorName) : null,
+    bl,
+  };
+}
+
+function masterBlSource(row: PurchaseOrderBlSource): PurchaseOrderBlSource {
+  const masterId = row.bl.linkedFromPurchaseOrderId;
+  if (!masterId || masterId === row.purchaseOrderId) {
+    return { ...row, bl: { ...row.bl, linkedFromPurchaseOrderId: null, linkedFromPurchaseOrderNumber: null } };
+  }
+  return {
+    ...row,
+    purchaseOrderId: masterId,
+    purchaseOrderNumber: row.bl.linkedFromPurchaseOrderNumber || row.purchaseOrderNumber,
+    bl: { ...row.bl, linkedFromPurchaseOrderId: null, linkedFromPurchaseOrderNumber: null },
+  };
+}
+
 /** Draft POs that already have a BL file — for “ship together / link same container”. */
 export async function listPurchaseOrderBlSources(options?: {
   excludePurchaseOrderId?: string | null;
@@ -2027,22 +2057,68 @@ export async function listPurchaseOrderBlSources(options?: {
     limit(maxScan),
   );
   const snap = await getDocs(q);
-  const out: PurchaseOrderBlSource[] = [];
+  const byId = new Map<string, PurchaseOrderBlSource>();
+  const missingMasters = new Set<string>();
   for (const docSnap of snap.docs) {
-    if (excludeId && docSnap.id === excludeId) continue;
-    const data = docSnap.data();
-    const bl = parsePurchaseOrderBl(data);
-    if (!purchaseOrderHasBl(bl) || !bl) continue;
-    // Prefer primary (non-linked) BLs so we link to the PO that owns the file.
-    if (bl.linkedFromPurchaseOrderId) continue;
-    out.push({
-      purchaseOrderId: docSnap.id,
-      purchaseOrderNumber: String(data.purchaseOrderNumber ?? docSnap.id),
-      vendorName: data.vendorName ? String(data.vendorName) : null,
-      bl,
-    });
+    const row = blSourceFromSnap(docSnap, excludeId);
+    if (!row) continue;
+    const masterId = row.bl.linkedFromPurchaseOrderId;
+    if (masterId && masterId !== row.purchaseOrderId && masterId !== excludeId) {
+      missingMasters.add(masterId);
+    }
+    if (row.bl.linkedFromPurchaseOrderId) continue;
+    byId.set(row.purchaseOrderId, row);
   }
-  return out;
+  if (PURCHASE_ORDER_KEEP_NUMBERS.length) {
+    const keptSnap = await getDocs(
+      query(
+        collection(db, 'purchaseOrders'),
+        where('purchaseOrderNumber', 'in', [...PURCHASE_ORDER_KEEP_NUMBERS]),
+      ),
+    );
+    for (const docSnap of keptSnap.docs) {
+      const row = blSourceFromSnap(docSnap, excludeId);
+      if (!row || row.bl.linkedFromPurchaseOrderId) continue;
+      byId.set(row.purchaseOrderId, row);
+    }
+  }
+  await Promise.all([...missingMasters].map(async masterId => {
+    if (byId.has(masterId) || masterId === excludeId) return;
+    const masterSnap = await getDoc(doc(db, 'purchaseOrders', masterId));
+    if (!masterSnap.exists()) return;
+    const row = blSourceFromSnap(masterSnap, excludeId);
+    if (row && !row.bl.linkedFromPurchaseOrderId) byId.set(row.purchaseOrderId, row);
+  }));
+  return [...byId.values()];
+}
+
+const PO_NUMBER_SEARCH = /^(?:PO[\s-]*)?(\d{3,})$/i;
+
+/** Resolve a typed PO number (or a linked follower) to the master BL source. */
+export async function lookupPurchaseOrderBlSource(input: {
+  query: string;
+  excludePurchaseOrderId?: string | null;
+}): Promise<PurchaseOrderBlSource | null> {
+  const excludeId = String(input.excludePurchaseOrderId ?? '').trim();
+  const match = PO_NUMBER_SEARCH.exec(String(input.query ?? '').trim());
+  if (!match) return null;
+  const purchaseOrderNumber = `PO-${match[1].padStart(5, '0')}`;
+  const snap = await getDocs(
+    query(
+      collection(db, 'purchaseOrders'),
+      where('purchaseOrderNumber', '==', purchaseOrderNumber),
+      limit(1),
+    ),
+  );
+  const docSnap = snap.docs[0];
+  if (!docSnap) return null;
+  const row = blSourceFromSnap(docSnap, excludeId);
+  if (!row) return null;
+  const master = masterBlSource(row);
+  if (master.purchaseOrderId === row.purchaseOrderId) return master;
+  const masterSnap = await getDoc(doc(db, 'purchaseOrders', master.purchaseOrderId));
+  if (!masterSnap.exists()) return master;
+  return blSourceFromSnap(masterSnap, excludeId) ?? master;
 }
 
 export async function savePurchaseOrderBl(input: {
@@ -2208,7 +2284,7 @@ export async function linkPurchaseOrderBlFromSource(input: {
 
   const sourceSnap = await getDoc(doc(db, 'purchaseOrders', sourceId));
   if (!sourceSnap.exists()) {
-    throw new Error('Source purchase order not found.');
+    throw new Error('That purchase order was not found. Search its PO number and try again.');
   }
   const sourceData = sourceSnap.data();
   const sourceBl = parsePurchaseOrderBl(sourceData);
@@ -2256,23 +2332,36 @@ export async function linkPurchaseOrderBlFromSource(input: {
     etaPort: nextTracking.etaPort,
   };
 
-  await updateDoc(doc(db, 'purchaseOrders', targetId), {
-    blContainerNumber: sourceBl.containerNumber,
-    blShippingLine: sourceBl.shippingLine || null,
-    blNumber: sourceBl.blNumber || null,
-    blVesselName: sourceBl.vesselName || null,
-    blDate: blDate || null,
-    blPortOfLoading: portOfLoading || null,
-    blPortOfDischarge: portOfDischarge || null,
-    blStoragePath: sourceBl.storagePath,
-    blFileName: sourceBl.fileName,
-    blContentType: sourceBl.contentType,
-    blUploadedAt: uploadedAt,
-    blUploadedBy: auth.currentUser?.uid ?? null,
-    blLinkedFromPurchaseOrderId: primaryId,
-    blLinkedFromPurchaseOrderNumber: primaryNumber,
-    tracking: nextTracking,
-  });
+  try {
+    await updateDoc(doc(db, 'purchaseOrders', targetId), {
+      blContainerNumber: sourceBl.containerNumber || null,
+      blShippingLine: sourceBl.shippingLine || null,
+      blNumber: sourceBl.blNumber || null,
+      blVesselName: sourceBl.vesselName || null,
+      blDate: blDate || null,
+      blPortOfLoading: portOfLoading || null,
+      blPortOfDischarge: portOfDischarge || null,
+      blStoragePath: sourceBl.storagePath,
+      blFileName: sourceBl.fileName || null,
+      blContentType: sourceBl.contentType || null,
+      blUploadedAt: uploadedAt,
+      blUploadedBy: auth.currentUser?.uid ?? null,
+      blLinkedFromPurchaseOrderId: primaryId,
+      blLinkedFromPurchaseOrderNumber: primaryNumber,
+      tracking: nextTracking,
+    });
+  } catch (err) {
+    const code = err && typeof err === 'object' && 'code' in err
+      ? String((err as { code: string }).code)
+      : '';
+    if (code === 'permission-denied' || /insufficient permissions/i.test(String((err as Error)?.message ?? ''))) {
+      throw new Error('You do not have permission to link this bill of lading.');
+    }
+    if (code === 'not-found') {
+      throw new Error('This purchase order is missing in Firestore, so the BL could not be linked.');
+    }
+    throw new Error(invoiceErrorMessage(err));
+  }
 
   const bl: PurchaseOrderBl = {
     containerNumber: sourceBl.containerNumber,

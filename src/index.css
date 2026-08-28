@@ -22159,10 +22159,15 @@ body:has(.confirm-inline-bar) .confirm-inline-bar {
   margin: 0;
 }
 
+.po-bl-dialog__error {
+  flex-shrink: 0;
+  padding: 0 0.15rem 0.45rem;
+}
+
 .po-bl-dialog__source-list {
   display: grid;
   gap: 0.4rem;
-  max-height: 10rem;
+  max-height: min(22rem, 36vh);
   overflow: auto;
   padding: 0.15rem;
 }

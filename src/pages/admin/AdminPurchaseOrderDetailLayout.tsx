@@ -339,6 +339,7 @@ export const AdminPurchaseOrderDetailLayout: React.FC = () => {
                   bl: next.bl,
                   tracking: next.tracking,
                 });
+                setBlOpen(false);
               }}
             />
             <PurchaseOrderQcDialog

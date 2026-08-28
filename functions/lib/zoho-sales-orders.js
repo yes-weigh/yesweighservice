@@ -9,7 +9,7 @@ import {
 } from './zoho-api-usage.js';
 import { isSacHsn } from './sac-catalog.js';
 import { isFreightOrderLine } from './freight-lines.js';
-import { fitZohoAddressLines } from './zoho-contact-fields.js';
+import { ZOHO_ADDRESS_LINE_MAX, fitZohoAddressLines } from './zoho-contact-fields.js';
 
 function isZohoNotAuthorized(err) {
   return /not authorized to perform this operation/i.test(String(err?.message ?? ''));
@@ -60,6 +60,20 @@ function inlineShippingAddress(address) {
   return fitted;
 }
 
+function addressLineTooLong(address) {
+  if (!address || typeof address !== 'object') return false;
+  return ['address', 'street', 'street2', 'attention'].some(
+    key => String(address[key] || '').trim().length > ZOHO_ADDRESS_LINE_MAX,
+  );
+}
+
+function stripShippingFromBody(body) {
+  const next = cloneSalesOrderBody(body);
+  delete next.shipping_address_id;
+  delete next.shipping_address;
+  return next;
+}
+
 function cloneSalesOrderBody(body) {
   return {
     ...body,
@@ -79,16 +93,7 @@ function withoutSalesperson(body) {
   return next;
 }
 
-function withInlineShippingBody(body, address) {
-  const shipping = inlineShippingAddress(address);
-  if (!shipping) return body;
-  const next = cloneSalesOrderBody(body);
-  delete next.shipping_address_id;
-  next.shipping_address = shipping;
-  return next;
-}
-
-function uniqueSalesOrderCreateAttempts(body, shippingInline) {
+function uniqueSalesOrderCreateAttempts(body) {
   const attempts = [cloneSalesOrderBody(body)];
   const hasWarehouse = body.line_items.some(line => line.warehouse_id);
   if (hasWarehouse) attempts.push(withoutLineWarehouses(body));
@@ -96,13 +101,65 @@ function uniqueSalesOrderCreateAttempts(body, shippingInline) {
     attempts.push(withoutSalesperson(body));
     if (hasWarehouse) attempts.push(withoutSalesperson(withoutLineWarehouses(body)));
   }
-  if (shippingInline) {
-    attempts.push(withInlineShippingBody(
-      withoutSalesperson(withoutLineWarehouses(body)),
-      shippingInline,
-    ));
+  if (body.shipping_address_id || body.shipping_address) {
+    const stripped = stripShippingFromBody(withoutSalesperson(withoutLineWarehouses(body)));
+    attempts.push(stripped);
   }
   return attempts;
+}
+
+async function putSalesOrderShippingAddress(accessToken, orgId, salesOrderId, {
+  addressId = null,
+  address = null,
+} = {}) {
+  const soId = encodeURIComponent(String(salesOrderId || '').trim());
+  if (!soId) return false;
+  const fitted = inlineShippingAddress(address);
+  const id = String(addressId || '').trim();
+
+  const payloads = [];
+  if (fitted) {
+    payloads.push({
+      ...fitted,
+      is_one_off_address: true,
+      is_update_customer: false,
+    });
+  }
+  if (id) {
+    payloads.push({ address_id: id });
+  }
+  if (!payloads.length) return false;
+
+  const paths = [
+    `/salesorders/${soId}/address/shipping`,
+    `/salesorders/${soId}/address`,
+  ];
+  let lastErr = null;
+  for (const path of paths) {
+    for (const payload of payloads) {
+      try {
+        await zohoJson(accessToken, orgId, path, { method: 'PUT', body: payload });
+        return true;
+      } catch (err) {
+        lastErr = err;
+      }
+    }
+  }
+  if (fitted) {
+    try {
+      await zohoJson(accessToken, orgId, `/salesorders/${soId}`, {
+        method: 'PUT',
+        body: { shipping_address: fitted },
+      });
+      return true;
+    } catch (err) {
+      lastErr = err;
+    }
+  }
+  if (lastErr) {
+    console.warn('Zoho sales order shipping address apply failed:', lastErr?.message || lastErr);
+  }
+  return false;
 }
 
 async function zohoJson(accessToken, orgId, path, { method = 'GET', body } = {}) {
@@ -403,28 +460,30 @@ export async function createSalesOrderFromDealerOrder(secrets, configuredOrgId, 
   if (salespersonId) {
     body.salesperson_id = salespersonId;
   }
-  if (order.shippingAddressId) {
-    body.shipping_address_id = String(order.shippingAddressId);
-  } else {
-    const shipping = inlineShippingAddress(order.shippingAddressInline);
-    if (shipping) body.shipping_address = shipping;
+  const shippingId = String(order.shippingAddressId || '').trim();
+  const shippingInline = order.shippingAddressInline;
+  const shippingIdSafe = Boolean(shippingId) && !addressLineTooLong(shippingInline);
+  if (shippingIdSafe) {
+    body.shipping_address_id = shippingId;
   }
 
-  const attempts = uniqueSalesOrderCreateAttempts(body, order.shippingAddressInline);
+  const attempts = uniqueSalesOrderCreateAttempts(body);
   let payload = null;
   let lastErr = null;
+  let createdBody = null;
   for (let i = 0; i < attempts.length; i += 1) {
     try {
       payload = await zohoJson(accessToken, orgId, '/salesorders', {
         method: 'POST',
         body: attempts[i],
       });
+      createdBody = attempts[i];
       lastErr = null;
       break;
     } catch (err) {
       lastErr = err;
       if (isZohoShippingAddressTooLong(err) && i < attempts.length - 1) {
-        console.warn('Zoho shipping address over 100 characters, retrying with split lines.');
+        console.warn('Zoho shipping address over 100 characters, creating the order without it.');
         continue;
       }
       if (!isZohoNotAuthorized(err)) throw err;
@@ -446,6 +505,16 @@ export async function createSalesOrderFromDealerOrder(secrets, configuredOrgId, 
   const so = payload?.salesorder;
   if (!so?.salesorder_id) {
     throw new Error(payload?.message || 'Zoho did not return a sales order id.');
+  }
+
+  const createdWithShipping = Boolean(
+    createdBody?.shipping_address_id || createdBody?.shipping_address,
+  );
+  if (!createdWithShipping || addressLineTooLong(shippingInline)) {
+    await putSalesOrderShippingAddress(accessToken, orgId, so.salesorder_id, {
+      addressId: shippingId || null,
+      address: shippingInline,
+    });
   }
 
   return {
@@ -614,18 +683,25 @@ export async function updateSalesOrderShippingAddress(
     notes: so.notes || '',
   };
   if (so.salesperson_id) body.salesperson_id = so.salesperson_id;
-  if (shippingAddressId) {
-    body.shipping_address_id = String(shippingAddressId);
-  } else if (shippingAddressInline && typeof shippingAddressInline === 'object') {
-    body.shipping_address = fitZohoAddressLines(shippingAddressInline);
-  } else {
-    throw new Error('shippingAddressId or shippingAddressInline is required.');
-  }
-
-  const payload = await zohoJson(accessToken, orgId, `/salesorders/${soId}`, {
-    method: 'PUT',
-    body,
+  const shippingId = String(shippingAddressId || '').trim();
+  const applied = await putSalesOrderShippingAddress(accessToken, orgId, soId, {
+    addressId: shippingId || null,
+    address: shippingAddressInline,
   });
+  if (!applied) {
+    if (shippingId && !addressLineTooLong(shippingAddressInline)) {
+      body.shipping_address_id = shippingId;
+    } else if (shippingAddressInline && typeof shippingAddressInline === 'object') {
+      body.shipping_address = fitZohoAddressLines(shippingAddressInline);
+    } else {
+      throw new Error('shippingAddressId or shippingAddressInline is required.');
+    }
+    await zohoJson(accessToken, orgId, `/salesorders/${soId}`, {
+      method: 'PUT',
+      body,
+    });
+  }
+  const payload = await zohoJson(accessToken, orgId, `/salesorders/${soId}`);
   const updated = payload?.salesorder;
   return {
     salesOrderId: soId,

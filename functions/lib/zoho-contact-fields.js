@@ -14,22 +14,26 @@ function splitAtBoundary(text, max) {
   };
 }
 
+function capField(value, max = ZOHO_ADDRESS_LINE_MAX) {
+  return String(value || '').replace(/\s+/g, ' ').trim().slice(0, max).trim();
+}
+
 /** Zoho Inventory address / street2 are each max 100 characters. */
 export function fitZohoAddressLines(input = {}) {
-  const first = splitAtBoundary(input.address, ZOHO_ADDRESS_LINE_MAX);
+  const first = splitAtBoundary(input.address || input.street, ZOHO_ADDRESS_LINE_MAX);
   const secondRaw = [first.tail, String(input.street2 || '').replace(/\s+/g, ' ').trim()]
     .filter(Boolean)
     .join(', ');
   const second = splitAtBoundary(secondRaw, ZOHO_ADDRESS_LINE_MAX);
   return {
-    attention: String(input.attention || '').trim(),
+    attention: capField(input.attention),
     address: first.head,
     street2: second.head,
-    city: String(input.city || '').trim(),
-    state: String(input.state || '').trim(),
-    zip: String(input.zip || '').replace(/\s+/g, ''),
-    country: String(input.country || 'India').trim() || 'India',
-    phone: String(input.phone || '').trim(),
+    city: capField(input.city),
+    state: capField(input.state),
+    zip: String(input.zip || '').replace(/\s+/g, '').slice(0, 12),
+    country: capField(input.country || 'India') || 'India',
+    phone: capField(input.phone, 50),
   };
 }
 
