@@ -21,6 +21,8 @@ import {
   postYesGatcWebhook,
   pushSerialAllotmentsToYesGatc,
   resolveYesGatcWebhookUrl,
+  YESGATC_SERIAL_ALLOTMENT,
+  YESGATC_SERIAL_ALLOTTED,
 } from './yesgatc-serial-push.js';
 import { loadWebhookSecret } from './yesgatc-webhook.js';
 
@@ -773,7 +775,8 @@ async function pushRcSerialAllotmentSummary({ actorName, plan, invoiceLinks }) {
       })),
     }));
   const payload = {
-    event: 'rc_serial_allotment',
+    event: YESGATC_SERIAL_ALLOTMENT,
+    type: YESGATC_SERIAL_ALLOTTED,
     source: 'yesone',
     sentAt: new Date().toISOString(),
     series: NON_GATC_SERIES,
@@ -784,6 +787,26 @@ async function pushRcSerialAllotmentSummary({ actorName, plan, invoiceLinks }) {
     minDate: plan.minDate,
     rcCount: rcs.length,
     invoiceCount: invoiceLinks.length,
+    allotments: rcs.map(rc => ({
+      series: NON_GATC_SERIES,
+      seriesLabel: 'non GATC',
+      from: rc.invoices[0]?.startNumber || null,
+      to: rc.invoices.at(-1)?.endNumber || null,
+      count: rc.qty,
+      qty: rc.qty,
+      serialNumbers: rc.invoices.flatMap(row => row.serialNumbers),
+      invoiceLinks: rc.invoices.map(row => ({
+        rcCode: rc.rcCode,
+        rcName: rc.rcName,
+        invoiceId: row.invoiceId,
+        invoiceNumber: row.invoiceNumber,
+        invoiceDate: row.date,
+        qty: row.qty,
+        startNumber: row.startNumber,
+        endNumber: row.endNumber,
+        serialNumbers: row.serialNumbers,
+      })),
+    })),
     rcs,
     invoiceLinks,
   };

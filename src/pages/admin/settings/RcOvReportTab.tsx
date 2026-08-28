@@ -122,6 +122,19 @@ export const RcOvReportTab: React.FC = () => {
 
   const qtyReady = soldReady && ovRvReady;
 
+  const totals = useMemo(() => {
+    let sold = 0;
+    let ov = 0;
+    let linked = 0;
+    for (const row of sortedRows) {
+      const qty = groupOv(row, rows, ovRv);
+      sold += groupSold(row, rows, soldQty);
+      ov += qty.ov;
+      linked += qty.linked;
+    }
+    return { sold, ov, linked, bal: sold - ov };
+  }, [ovRv, rows, soldQty, sortedRows]);
+
   return (
     <section className="gatc-report rc-ov-report" aria-label="RC OV report">
       {error ? <p className="gatc-report__error text-sm">{error}</p> : null}
@@ -171,10 +184,32 @@ export const RcOvReportTab: React.FC = () => {
                 </article>
               );
             })}
+            <article className="rc-ov-report__card rc-ov-report__card--total" aria-label="Total of all offices">
+              <div className="rc-ov-report__identity">
+                <p className="rc-ov-report__name">Total</p>
+                <p className="rc-ov-report__place">
+                  {sortedRows.length} office{sortedRows.length === 1 ? '' : 's'}
+                </p>
+              </div>
+              <div className="rc-ov-report__qty">
+                <span className="yesgatc-rc-row__sold rc-ov-report__metric">
+                  {soldReady ? formatCount(totals.sold) : '…'}
+                </span>
+                <span className="yesgatc-rc-row__ov rc-ov-report__metric">
+                  {ovRvReady ? formatCount(totals.ov) : '…'}
+                </span>
+                <span className="yesgatc-rc-row__linked-qty rc-ov-report__metric">
+                  {ovRvReady ? formatCount(totals.linked) : '…'}
+                </span>
+                <span className="yesgatc-rc-row__diff rc-ov-report__metric" title="Sold minus OV">
+                  {qtyReady ? formatCount(totals.bal) : '…'}
+                </span>
+              </div>
+            </article>
           </div>
           <p className="rc-ov-report__foot">
             Sold is YesOne invoice qty from 1 Feb 2026. OV and Linked come from YesGATC.
-            Bal is Sold − OV. Showing {sortedRows.length} offices.
+            Bal is Sold − OV.
           </p>
         </>
       )}

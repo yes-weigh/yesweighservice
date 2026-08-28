@@ -301,8 +301,8 @@ export const RcDetailsTab: React.FC = () => {
                     {' '}
                     <strong>{ovRvReady ? formatCount(qty.linked) : '…'}</strong>
                   </span>
-                  {ovRvReady && qty.ov - qty.linked > 0 ? (
-                    <span className="yesgatc-rc-row__diff" title="Balance to be linked">
+                  {ovRvReady && qty.linked > 0 && qty.ov > qty.linked ? (
+                    <span className="yesgatc-rc-row__diff" title="OV not yet linked">
                       {formatCount(qty.ov - qty.linked)}
                     </span>
                   ) : null}

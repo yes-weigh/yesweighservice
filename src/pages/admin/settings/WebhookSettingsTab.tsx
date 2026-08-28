@@ -77,7 +77,19 @@ export const WebhookSettingsTab: React.FC = () => {
           <div className="yesgatc-webhook__example">
             <p className="yesgatc-webhook__example-title">Webhook rules</p>
             <p className="text-muted text-sm">
-              YesOne sends serial numbers and qty when they are added or deducted.
+              YesOne sends serials and qty using YesGATC events
+              {' '}
+              <code>serial.allotted</code>
+              ,
+              {' '}
+              <code>serial.updated</code>
+              ,
+              {' '}
+              <code>serial.cancelled</code>
+              , or
+              {' '}
+              <code>serial_allotment</code>
+              .
               Do not send OV, Linked, or Balance from YesOne. YesGATC posts OV done
               per RC; YesOne updates the RC OV report from that inbound payload.
             </p>

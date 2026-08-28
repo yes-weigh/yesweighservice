@@ -1,8 +1,10 @@
 import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { Outlet, useLocation, useNavigate } from 'react-router-dom';
-import { BadgeCheck, BarChart3, ChevronDown, Percent, Radio } from 'lucide-react';
+import { BadgeCheck, BarChart3, Check, ChevronDown, Percent, Radio, RefreshCw } from 'lucide-react';
+import { useAuth } from '../../context/AuthContext';
 import { useCatalogPageHeader, useTopBarAction } from '../../context/PageHeaderContext';
+import { pushRcSoldToYesGatc } from '../../lib/yesgatcRecords';
 
 type ReportsLayoutProps = {
   basePath: '/super-admin' | '/staff';
@@ -130,6 +132,43 @@ function ReportTypeFilter({
   );
 }
 
+function RcSoldSyncButton() {
+  const { user } = useAuth();
+  const [busy, setBusy] = useState(false);
+  const [done, setDone] = useState(false);
+  const actorName = user?.displayName?.trim() || user?.email?.trim() || 'YESWEIGH';
+
+  const sync = async () => {
+    if (busy) return;
+    setBusy(true);
+    setDone(false);
+    try {
+      await pushRcSoldToYesGatc(actorName);
+      setDone(true);
+      window.setTimeout(() => setDone(false), 2400);
+    } catch (err) {
+      window.alert(err instanceof Error ? err.message : 'Could not push Sold to YesGATC.');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <button
+      type="button"
+      className="reports-sold-sync"
+      onClick={() => void sync()}
+      disabled={busy}
+      aria-label="Push Sold to YesGATC"
+      title={done ? 'Sold sent to YesGATC' : 'Push Sold to YesGATC'}
+    >
+      {done
+        ? <Check size={18} strokeWidth={2.6} aria-hidden />
+        : <RefreshCw size={18} strokeWidth={2.4} className={busy ? 'spin-icon' : undefined} aria-hidden />}
+    </button>
+  );
+}
+
 export const ReportsLayout: React.FC<ReportsLayoutProps> = ({ basePath }) => {
   const location = useLocation();
   const navigate = useNavigate();
@@ -178,14 +217,17 @@ export const ReportsLayout: React.FC<ReportsLayoutProps> = ({ basePath }) => {
 
   const filter = useMemo(
     () => (
-      <ReportTypeFilter
-        tabs={tabs}
-        activeId={active.id}
-        onChange={id => {
-          const next = tabs.find(tab => tab.id === id);
-          if (next) navigate(next.path);
-        }}
-      />
+      <div className="reports-top-actions">
+        {active.id === 'rc-ov-report' ? <RcSoldSyncButton /> : null}
+        <ReportTypeFilter
+          tabs={tabs}
+          activeId={active.id}
+          onChange={id => {
+            const next = tabs.find(tab => tab.id === id);
+            if (next) navigate(next.path);
+          }}
+        />
+      </div>
     ),
     [active.id, navigate, tabs],
   );

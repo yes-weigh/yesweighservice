@@ -10,6 +10,22 @@ import { NON_GATC_ALLOCATIONS } from './non-gatc-serial-allot.js';
 
 export const SERIAL_NUMBER_ALLOTMENT_DOC = 'appSettings/serialNumberAllotment';
 
+/** Events YesGATC inbound already handles. */
+export const YESGATC_SERIAL_ALLOTTED = 'serial.allotted';
+export const YESGATC_SERIAL_UPDATED = 'serial.updated';
+export const YESGATC_SERIAL_CANCELLED = 'serial.cancelled';
+export const YESGATC_SERIAL_ALLOTMENT = 'serial_allotment';
+
+export function yesGatcSerialEvent({ action = 'upsert', alreadyPushed = false } = {}) {
+  if (action === 'unlink' || action === 'cancel' || action === 'cancelled') {
+    return YESGATC_SERIAL_CANCELLED;
+  }
+  if (alreadyPushed || action === 'update' || action === 'updated') {
+    return YESGATC_SERIAL_UPDATED;
+  }
+  return YESGATC_SERIAL_ALLOTTED;
+}
+
 const SERIES_LABELS = {
   gatc_50kg: '50Kg GATC',
   gatc_sl: 'Sl printed GATC',
@@ -373,7 +389,8 @@ export async function pushSerialAllotmentsToYesGatc({
     && str(row.to).toUpperCase() === 'G1082'
   )) || null;
   const payload = {
-    event: 'serial_allotment',
+    event: YESGATC_SERIAL_ALLOTMENT,
+    type: YESGATC_SERIAL_ALLOTTED,
     source: 'yesone',
     test: kind === 'test',
     sentAt: new Date().toISOString(),

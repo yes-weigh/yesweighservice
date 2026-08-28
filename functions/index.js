@@ -349,6 +349,7 @@ import {
 } from './lib/non-gatc-serial-allot.js';
 import { voidAdminInvoice } from './lib/void-admin-invoice.js';
 import { pushRcInvoiceSerialsToYesGatc } from './lib/yesgatc-rc-invoice-push.js';
+import { pushRcSoldToYesGatc } from './lib/yesgatc-sold-push.js';
 import {
   applyRcNonGatcSerialBackfill,
   planRcNonGatcSerialBackfill,
@@ -7772,6 +7773,28 @@ export const pushSerialAllotmentsToYesGatcFn = onCall(
       throw new HttpsError(
         'failed-precondition',
         err?.message ?? 'Could not push serial allotments to YesGATC.',
+      );
+    }
+  },
+);
+
+export const pushRcSoldToYesGatcFn = onCall(
+  {
+    region: 'asia-south1',
+    timeoutSeconds: 180,
+    memory: '1GiB',
+  },
+  async request => {
+    await requireActiveUser(request.auth?.uid, SYNC_ROLES);
+    try {
+      return await pushRcSoldToYesGatc({
+        actorName: String(request.data?.actorName ?? '').trim() || 'YESWEIGH',
+      });
+    } catch (err) {
+      if (err instanceof HttpsError) throw err;
+      throw new HttpsError(
+        'failed-precondition',
+        err?.message ?? 'Could not push Sold to YesGATC.',
       );
     }
   },

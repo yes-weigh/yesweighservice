@@ -18,6 +18,37 @@
   overflow: hidden;
 }
 
+.reports-top-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+}
+
+.reports-sold-sync {
+  flex-shrink: 0;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  border-radius: 999px;
+  border: 1px solid #f58220;
+  background: #111111;
+  color: #f58220;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+}
+
+.reports-sold-sync:hover:not(:disabled) {
+  background: #1a1a1a;
+  color: #ff9a3d;
+}
+
+.reports-sold-sync:disabled {
+  opacity: 0.7;
+  cursor: wait;
+}
+
 .reports-type-filter .top-bar-period__trigger {
   max-width: 15.5rem;
 }
@@ -104,6 +135,12 @@
   border: 1px solid rgba(148, 163, 184, 0.12);
   border-radius: 0.85rem;
   background: #161b24;
+}
+
+.rc-ov-report__card--total {
+  margin-top: 0.15rem;
+  border-color: rgba(245, 130, 32, 0.28);
+  background: #1a1510;
 }
 
 .rc-ov-report__identity {

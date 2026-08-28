@@ -117,6 +117,22 @@ function looksLikeRc(record) {
   ));
 }
 
+function isUuidLike(value) {
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
+    String(value || '').trim(),
+  );
+}
+
+function compactRcName(value) {
+  return String(value || '').replace(/[\s\-_.,&]+/g, '').toUpperCase();
+}
+
+function realRcIdentity(value) {
+  const text = String(value || '').trim();
+  if (!text || isUuidLike(text)) return '';
+  return text;
+}
+
 function pickNonNegInt(source, keys) {
   if (!source || typeof source !== 'object') return null;
   for (const key of keys) {
@@ -242,8 +258,8 @@ function normalizeCertificate(record) {
 }
 
 function normalizeRc(record) {
-  const code = pickStr(record, ['code', 'rcCode', 'rc_code', 'rcNumber', 'rc_number', 'rcId']);
-  const name = pickStr(record, ['name', 'rcName', 'officeName', 'office_name', 'title']);
+  const code = realRcIdentity(pickStr(record, ['code', 'rcCode', 'rc_code', 'rcNumber', 'rc_number']));
+  const name = realRcIdentity(pickStr(record, ['name', 'rcName', 'officeName', 'office_name', 'title']));
   const idHint = pickStr(record, ['id', 'docId', '_id', 'uuid', 'rcId']);
   const yesoneVisible = isYesoneIwpRc({ code, name, raw: record });
   const ovCount = pickNonNegInt(record, [
@@ -267,7 +283,7 @@ function normalizeRc(record) {
     email: pickStr(record, ['email']) || null,
     status: pickStr(record, ['status']) || null,
     ...(ovCount != null ? { ovCount } : {}),
-    ...(linkedCount != null ? { linkedCount } : {}),
+    ...(linkedCount != null && linkedCount > 0 ? { linkedCount } : {}),
     ...(quotaAllotted != null ? { quotaAllotted } : {}),
     ...(quotaUsed != null ? { quotaUsed } : {}),
     ...(quotaBalance != null ? { quotaBalance } : {}),
@@ -277,7 +293,7 @@ function normalizeRc(record) {
     raw: rawForStore(record),
     receivedAt: FieldValue.serverTimestamp(),
     source: 'yesgatc',
-    docKey: sanitizeId(idHint || code || name || randomUUID()),
+    docKey: sanitizeId((idHint && !isUuidLike(idHint) ? idHint : '') || code || name || randomUUID()),
   };
 }
 
@@ -319,6 +335,13 @@ export async function loadWebhookSecret() {
 
 async function remapRcWritePaths(writes) {
   const db = getFirestore();
+  let catalog = null;
+  const loadCatalog = async () => {
+    if (catalog) return catalog;
+    const snap = await db.collection(YESGATC_RC_DETAILS).get();
+    catalog = snap.docs;
+    return catalog;
+  };
   const out = [];
   for (const row of writes) {
     if (!String(row.path || '').startsWith(`${YESGATC_RC_DETAILS}/`)) {
@@ -330,23 +353,27 @@ async function remapRcWritePaths(writes) {
       out.push(row);
       continue;
     }
-    const code = String(row.data?.code || '').trim();
-    if (!code) {
-      out.push(row);
-      continue;
-    }
-    const snap = await db.collection(YESGATC_RC_DETAILS).where('code', '==', code).limit(8).get();
-    if (snap.empty) {
-      out.push(row);
-      continue;
-    }
-    for (const docSnap of snap.docs) {
-      const patch = { ...row.data };
-      if (docSnap.data()?.name && !String(row.data?.name || '').trim()) {
-        delete patch.name;
+    const code = realRcIdentity(row.data?.code);
+    const name = realRcIdentity(row.data?.name);
+    const wantedName = compactRcName(name);
+    const matches = (await loadCatalog()).filter(docSnap => {
+      const data = docSnap.data() || {};
+      if (code && realRcIdentity(data.code).toUpperCase() === code.toUpperCase()) return true;
+      return Boolean(wantedName && compactRcName(data.name) === wantedName);
+    });
+    if (matches.length) {
+      for (const docSnap of matches) {
+        const patch = { ...row.data };
+        if (docSnap.data()?.name && !name) delete patch.name;
+        if (docSnap.data()?.code && !code) delete patch.code;
+        out.push({ path: `${YESGATC_RC_DETAILS}/${docSnap.id}`, data: patch });
       }
-      out.push({ path: `${YESGATC_RC_DETAILS}/${docSnap.id}`, data: patch });
+      continue;
     }
+    if (!code && !name) {
+      continue;
+    }
+    out.push(row);
   }
   return out;
 }

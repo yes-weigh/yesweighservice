@@ -530,6 +530,28 @@ function compactRcName(value: string): string {
   return value.replace(/[\s\-_.,&]+/g, '').toUpperCase();
 }
 
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+function isUuidLike(value: string): boolean {
+  return UUID_RE.test(String(value || '').trim());
+}
+
+function maxNullable(a: number | null, b: number | null): number | null {
+  if (a == null) return b;
+  if (b == null) return a;
+  return Math.max(a, b);
+}
+
+/** Nameless UUID webhook leftovers — not a real RC office. */
+export function isYesGatcRcPlaceholder(row: Pick<YesGatcRcDetail, 'id' | 'code' | 'name' | 'dealerId' | 'raw'>): boolean {
+  const name = str(row.name);
+  const code = str(row.code);
+  const named = Boolean(name) && !isUuidLike(name) && !isCodeLikeName(name, code);
+  const coded = Boolean(code) && !isUuidLike(code);
+  if (named || coded || row.dealerId) return false;
+  return isUuidLike(row.id) || isUuidLike(name) || isUuidLike(code);
+}
+
 /** Same office name / dealer — YesGATC often sends a name-only row plus a city row. */
 export function yesGatcRcDedupeKey(row: YesGatcRcDetail): string {
   const name = compactRcName(yesGatcRcOfficeName(row));
@@ -554,11 +576,23 @@ function rcDetailCompleteness(row: YesGatcRcDetail): number {
 export function dedupeYesGatcRcDetails(rows: readonly YesGatcRcDetail[]): YesGatcRcDetail[] {
   const byKey = new Map<string, YesGatcRcDetail>();
   for (const row of rows) {
+    if (isYesGatcRcPlaceholder(row)) continue;
     const key = yesGatcRcDedupeKey(row);
     const prev = byKey.get(key);
-    if (!prev || rcDetailCompleteness(row) > rcDetailCompleteness(prev)) {
+    if (!prev) {
       byKey.set(key, row);
+      continue;
     }
+    const winner = rcDetailCompleteness(row) > rcDetailCompleteness(prev) ? row : prev;
+    const other = winner === row ? prev : row;
+    byKey.set(key, {
+      ...winner,
+      ovCount: maxNullable(winner.ovCount, other.ovCount),
+      linkedCount: maxNullable(winner.linkedCount, other.linkedCount),
+      quotaAllotted: maxNullable(winner.quotaAllotted, other.quotaAllotted),
+      quotaUsed: maxNullable(winner.quotaUsed, other.quotaUsed),
+      quotaBalance: maxNullable(winner.quotaBalance, other.quotaBalance),
+    });
   }
   return [...byKey.values()];
 }
@@ -805,7 +839,7 @@ export async function countYesGatcLifetimeOvRv(
       totals.set(rc.id, {
         ov: rc.ovCount,
         rv: 0,
-        linked: rc.linkedCount ?? rc.ovCount,
+        linked: rc.linkedCount && rc.linkedCount > 0 ? rc.linkedCount : rc.ovCount,
       });
     } else {
       totals.set(rc.id, emptyYesGatcOvRvTotals());
@@ -1194,9 +1228,9 @@ export async function listYesGatcRcDetails(max = 400): Promise<YesGatcRcDetail[]
     () => new Map<string, { dealerId: string; dealerName: string }>(),
   );
 
-  return [...merge.values()]
-    .map(row => applyRcDealerLink(row, links))
-    .sort((a, b) => yesGatcRcLabel(a).localeCompare(yesGatcRcLabel(b), 'en', { sensitivity: 'base' }));
+  return dedupeYesGatcRcDetails(
+    [...merge.values()].map(row => applyRcDealerLink(row, links)),
+  ).sort((a, b) => yesGatcRcLabel(a).localeCompare(yesGatcRcLabel(b), 'en', { sensitivity: 'base' }));
 }
 
 function applyRcDealerLink(
@@ -1386,6 +1420,24 @@ export async function runYesGatcOvInvoiceQtyLink(minDate?: string): Promise<{
     { assigned?: number; written?: number; unlinkedOv?: number }
   >(functions, 'linkYesGatcOvByInvoiceQtyFn', { timeout: 540_000 });
   return (await fn(minDate ? { minDate } : {})).data ?? {};
+}
+
+export async function pushRcSoldToYesGatc(actorName: string): Promise<{
+  ok: boolean;
+  rcCount: number;
+  sold: number;
+}> {
+  const fn = httpsCallable<{ actorName?: string }, { ok?: boolean; rcCount?: number; sold?: number }>(
+    functions,
+    'pushRcSoldToYesGatcFn',
+    { timeout: 180_000 },
+  );
+  const data = (await fn({ actorName })).data ?? {};
+  return {
+    ok: data.ok !== false,
+    rcCount: Number(data.rcCount) || 0,
+    sold: Number(data.sold) || 0,
+  };
 }
 
 export async function saveYesGatcCertificateInvoice(input: {

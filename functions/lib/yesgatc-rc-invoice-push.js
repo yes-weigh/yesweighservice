@@ -13,6 +13,7 @@ import {
 import {
   postYesGatcWebhook,
   resolveYesGatcWebhookUrl,
+  yesGatcSerialEvent,
 } from './yesgatc-serial-push.js';
 import { loadWebhookSecret } from './yesgatc-webhook.js';
 import { loadDealerRcOffice } from './yesgatc-rc-offices.js';
@@ -150,7 +151,7 @@ export async function syncAllotmentInvoiceLinks(db, {
   }, { merge: true });
 }
 
-export function invoiceSerialPayload(invoice, rc, { action = 'upsert' } = {}) {
+export function invoiceSerialPayload(invoice, rc, { action = 'upsert', alreadyPushed = false } = {}) {
   const machineHsn = new Set(NON_GATC_MACHINE_HSN);
   const lines = (Array.isArray(invoice.lineItems) ? invoice.lineItems : [])
     .filter(line => {
@@ -178,14 +179,40 @@ export function invoiceSerialPayload(invoice, rc, { action = 'upsert' } = {}) {
     .filter(line => action === 'unlink' || line.serialNumbers.length);
   const serialNumbers = uniqueSerials(lines.flatMap(line => line.serialNumbers));
   const qty = lines.reduce((sum, line) => sum + (line.serialCount || line.qty), 0) || serialNumbers.length;
+  const event = yesGatcSerialEvent({ action, alreadyPushed });
+  const invoiceLink = {
+    rcCode: str(rc.rcCode) || null,
+    rcName: str(rc.rcName) || null,
+    dealerId: str(rc.dealerId) || null,
+    dealerName: str(rc.dealerName) || str(invoice.customerName) || null,
+    invoiceId: str(invoice.id) || null,
+    invoiceNumber: str(invoice.invoiceNumber) || null,
+    invoiceDate: invoice.date ? String(invoice.date).slice(0, 10) : null,
+    qty,
+    startNumber: serialNumbers[0] || null,
+    endNumber: serialNumbers[serialNumbers.length - 1] || null,
+    serialNumbers,
+  };
+  const allotment = {
+    series: NON_GATC_SERIES,
+    seriesLabel: 'non GATC',
+    from: invoiceLink.startNumber,
+    to: invoiceLink.endNumber,
+    count: serialNumbers.length,
+    qty,
+    serialNumbers,
+    invoiceLinks: [invoiceLink],
+  };
   return {
-    event: 'rc_invoice_serials',
+    event,
+    type: event,
     action,
     source: 'yesone',
     sentAt: new Date().toISOString(),
     condition: 'dismantled',
     series: NON_GATC_SERIES,
     seriesLabel: 'non GATC',
+    allotments: [allotment],
     rc: {
       id: rc.rcId,
       name: rc.rcName,
@@ -248,7 +275,10 @@ export async function pushRcInvoiceSerialsToYesGatc({
     return { pushed: false, skipped: 'not_rc', rc: null };
   }
 
-  const payload = invoiceSerialPayload(data, rc, { action: kind });
+  const payload = invoiceSerialPayload(data, rc, {
+    action: kind,
+    alreadyPushed: Boolean(data.yesgatcRcPushedAt),
+  });
   if (kind === 'upsert' && !payload.invoice.serialNumbers.length) {
     return { pushed: false, skipped: 'no_serials', rc };
   }
