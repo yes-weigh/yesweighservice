@@ -1484,6 +1484,10 @@ button.incentive-report__adjust-col:focus-visible {
   font-weight: 600;
 }
 
+.yesgatc-webhook__example p {
+  margin: 0 0 0.65rem;
+}
+
 .yesgatc-webhook__example pre,
 .yesgatc-records__raw {
   margin: 0;

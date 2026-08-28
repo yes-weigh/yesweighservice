@@ -191,7 +191,7 @@ export const RcDetailsTab: React.FC = () => {
     }
   }, []);
 
-  const rcCountKey = rows.map(row => `${row.id}:${row.code}`).join('|');
+  const rcCountKey = rows.map(row => `${row.id}:${row.code}:${row.ovCount ?? ''}:${row.linkedCount ?? ''}`).join('|');
 
   useEffect(() => {
     void load();
@@ -215,7 +215,7 @@ export const RcDetailsTab: React.FC = () => {
       cancelled = true;
     };
     // Recount when the RC set changes, not when a dealer is linked.
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- rcCountKey captures id/code
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- rcCountKey captures id/code/ov
   }, [loading, rcCountKey]);
 
   const soldKey = rows.map(row => `${row.id}:${row.dealerId || ''}`).join('|');
@@ -313,6 +313,11 @@ export const RcDetailsTab: React.FC = () => {
           })}
         </div>
       )}
+      {!loading && !error && sortedRows.length > 0 ? (
+        <p className="text-muted text-sm">
+          Sold is YesOne invoice qty. OV and Linked come from YesGATC.
+        </p>
+      ) : null}
       {picking ? (
         <RcDealerPicker
           row={picking}

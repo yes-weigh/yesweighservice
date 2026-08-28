@@ -1,5 +1,9 @@
 /**
- * YesGATC → YesOne ingest. Stores certificates and RC details pushed from yesgatc.
+ * YesGATC → YesOne ingest. Stores certificates, RC details, and OV/quota counts.
+ *
+ * YesOne → YesGATC sends serial numbers + qty only (added/deducted).
+ * YesGATC → YesOne should POST OV done per RC, e.g.
+ *   { "event": "rc_ov", "rcs": [{ "rcCode": "ATL", "ov": 589, "linked": 589 }] }
  */
 import { randomBytes, randomUUID } from 'node:crypto';
 import { FieldValue, getFirestore } from 'firebase-admin/firestore';
@@ -84,8 +88,11 @@ function rawForStore(value) {
 }
 
 function looksLikeRc(record) {
-  const type = pickStr(record, ['type', 'kind', 'recordType', 'entity', 'entityType']).toLowerCase();
-  if (['rc', 'rc_detail', 'rc_details', 'rcdetails', 'regional_center', 'regionalcenter', 'rc_office'].includes(type)) {
+  const type = pickStr(record, ['type', 'kind', 'recordType', 'entity', 'entityType', 'event']).toLowerCase();
+  if ([
+    'rc', 'rc_detail', 'rc_details', 'rcdetails', 'regional_center', 'regionalcenter',
+    'rc_office', 'rc_ov', 'ov_update', 'rc_quota',
+  ].includes(type) || type.includes('quota')) {
     return true;
   }
   if (['certificate', 'cert', 'stamping_certificate', 'verification_certificate'].includes(type)) {
@@ -102,7 +109,22 @@ function looksLikeRc(record) {
     || key === 'regionalcenter'
     || key === 'regional_center'
     || key === 'officename'
+    || key === 'ov'
+    || key === 'ovdone'
+    || key === 'ovcount'
+    || key === 'allotted'
+    || key === 'quota'
   ));
+}
+
+function pickNonNegInt(source, keys) {
+  if (!source || typeof source !== 'object') return null;
+  for (const key of keys) {
+    if (source[key] == null || source[key] === '') continue;
+    const n = Number(source[key]);
+    if (Number.isFinite(n) && n >= 0) return Math.round(n);
+  }
+  return null;
 }
 
 function wrapArray(value) {
@@ -131,9 +153,20 @@ function collectRecords(body) {
     ...objectRecords(root.rc_details),
     ...objectRecords(root.rcs),
     ...objectRecords(root.rc),
+    ...objectRecords(root.rcOvQuota),
+    ...objectRecords(root.rcQuota),
+    ...objectRecords(root.ovQuota),
+    ...objectRecords(root.quota),
+    ...objectRecords(root.rcStats),
+    ...objectRecords(root.ovUpdates),
     ...objectRecords(nested.rcDetails),
     ...objectRecords(nested.rc_details),
     ...objectRecords(nested.rcs),
+    ...objectRecords(nested.rcOvQuota),
+    ...objectRecords(nested.rcQuota),
+    ...objectRecords(nested.ovQuota),
+    ...objectRecords(nested.rcStats),
+    ...objectRecords(nested.ovUpdates),
   ];
 
   if (Array.isArray(body)) {
@@ -147,10 +180,11 @@ function collectRecords(body) {
       else certificates.push(item);
     }
   } else if (root && !certificates.length && !rcDetails.length) {
-    const skip = new Set(['secret', 'key', 'token', 'type', 'kind']);
+    const skip = new Set(['secret', 'key', 'token', 'type', 'kind', 'event']);
     const keys = Object.keys(root).filter(key => !skip.has(key));
     if (keys.length > 0) {
-      if (looksLikeRc(root) || String(root.type ?? '').toLowerCase().includes('rc')) {
+      const hint = pickStr(root, ['type', 'kind', 'event']).toLowerCase();
+      if (looksLikeRc(root) || hint.includes('rc') || hint.includes('ov') || hint.includes('quota')) {
         rcDetails.push(root);
       } else {
         certificates.push(root);
@@ -158,8 +192,12 @@ function collectRecords(body) {
     }
   }
 
-  const typeHint = pickStr(root, ['type', 'kind']).toLowerCase();
-  if (typeHint.includes('rc') && certificates.length && !rcDetails.length) {
+  const typeHint = pickStr(root, ['type', 'kind', 'event']).toLowerCase();
+  if (
+    (typeHint.includes('rc') || typeHint.includes('quota') || typeHint.includes('ov'))
+    && certificates.length
+    && !rcDetails.length
+  ) {
     rcDetails.push(...certificates.splice(0, certificates.length));
   }
 
@@ -208,6 +246,15 @@ function normalizeRc(record) {
   const name = pickStr(record, ['name', 'rcName', 'officeName', 'office_name', 'title']);
   const idHint = pickStr(record, ['id', 'docId', '_id', 'uuid', 'rcId']);
   const yesoneVisible = isYesoneIwpRc({ code, name, raw: record });
+  const ovCount = pickNonNegInt(record, [
+    'ov', 'ovDone', 'ov_done', 'ovCount', 'ov_count', 'used',
+  ]);
+  const linkedCount = pickNonNegInt(record, [
+    'linked', 'linkedCount', 'linked_qty', 'linkedQty',
+  ]);
+  const quotaAllotted = pickNonNegInt(record, ['allotted', 'quotaAllotted', 'quota_allotted']);
+  const quotaUsed = pickNonNegInt(record, ['used', 'quotaUsed']);
+  const quotaBalance = pickNonNegInt(record, ['balance', 'bal', 'pending', 'pendingOv']);
   return {
     code: yesoneVisible ? YESONE_RC_CODE : code,
     name,
@@ -219,6 +266,14 @@ function normalizeRc(record) {
     phone: pickStr(record, ['phone', 'mobile', 'contact']) || null,
     email: pickStr(record, ['email']) || null,
     status: pickStr(record, ['status']) || null,
+    ...(ovCount != null ? { ovCount } : {}),
+    ...(linkedCount != null ? { linkedCount } : {}),
+    ...(quotaAllotted != null ? { quotaAllotted } : {}),
+    ...(quotaUsed != null ? { quotaUsed } : {}),
+    ...(quotaBalance != null ? { quotaBalance } : {}),
+    ...(ovCount != null || linkedCount != null || quotaUsed != null
+      ? { ovSyncedAt: FieldValue.serverTimestamp() }
+      : {}),
     raw: rawForStore(record),
     receivedAt: FieldValue.serverTimestamp(),
     source: 'yesgatc',
@@ -262,6 +317,40 @@ export async function loadWebhookSecret() {
   return String(snap.data()?.secret ?? '').trim();
 }
 
+async function remapRcWritePaths(writes) {
+  const db = getFirestore();
+  const out = [];
+  for (const row of writes) {
+    if (!String(row.path || '').startsWith(`${YESGATC_RC_DETAILS}/`)) {
+      out.push(row);
+      continue;
+    }
+    const existing = await db.doc(row.path).get();
+    if (existing.exists) {
+      out.push(row);
+      continue;
+    }
+    const code = String(row.data?.code || '').trim();
+    if (!code) {
+      out.push(row);
+      continue;
+    }
+    const snap = await db.collection(YESGATC_RC_DETAILS).where('code', '==', code).limit(8).get();
+    if (snap.empty) {
+      out.push(row);
+      continue;
+    }
+    for (const docSnap of snap.docs) {
+      const patch = { ...row.data };
+      if (docSnap.data()?.name && !String(row.data?.name || '').trim()) {
+        delete patch.name;
+      }
+      out.push({ path: `${YESGATC_RC_DETAILS}/${docSnap.id}`, data: patch });
+    }
+  }
+  return out;
+}
+
 export async function handleYesgatcPush(body) {
   const { certificates, rcDetails } = collectRecords(body);
   const writes = [
@@ -276,11 +365,12 @@ export async function handleYesgatcPush(body) {
       return { path: `${YESGATC_RC_DETAILS}/${docKey}`, data: rest };
     }),
   ];
-  let outgoing = writes;
+  const remapped = await remapRcWritePaths(writes);
+  let outgoing = remapped;
   if (certificates.length) {
     try {
       const { attachInvoiceFieldsToCertificateWrites } = await import('./yesgatc-invoice-link.js');
-      outgoing = await attachInvoiceFieldsToCertificateWrites(writes);
+      outgoing = await attachInvoiceFieldsToCertificateWrites(remapped);
     } catch (err) {
       console.warn('YesGATC invoice link attach failed:', err?.message ?? err);
     }
@@ -445,6 +535,11 @@ function mapRcDoc(row) {
     phone: data.phone != null ? String(data.phone) : null,
     email: data.email != null ? String(data.email) : null,
     status: data.status != null ? String(data.status) : null,
+    ovCount: Number.isFinite(Number(data.ovCount)) ? Math.round(Number(data.ovCount)) : null,
+    linkedCount: Number.isFinite(Number(data.linkedCount)) ? Math.round(Number(data.linkedCount)) : null,
+    quotaAllotted: Number.isFinite(Number(data.quotaAllotted)) ? Math.round(Number(data.quotaAllotted)) : null,
+    quotaUsed: Number.isFinite(Number(data.quotaUsed)) ? Math.round(Number(data.quotaUsed)) : null,
+    quotaBalance: Number.isFinite(Number(data.quotaBalance)) ? Math.round(Number(data.quotaBalance)) : null,
     receivedAt: isoFromAdmin(data.receivedAt),
     raw: data.raw ?? null,
   };

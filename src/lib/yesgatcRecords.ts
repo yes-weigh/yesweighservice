@@ -76,6 +76,12 @@ export type YesGatcRcDetail = {
   receivedAt: string | null;
   dealerId: string | null;
   dealerName: string | null;
+  /** OV done — last value YesGATC posted on the inbound webhook. */
+  ovCount: number | null;
+  linkedCount: number | null;
+  quotaAllotted: number | null;
+  quotaUsed: number | null;
+  quotaBalance: number | null;
   raw: unknown;
 };
 
@@ -430,6 +436,11 @@ function mapRc(id: string, data: Record<string, unknown>): YesGatcRcDetail {
     receivedAt: isoFromUnknown(data.receivedAt),
     dealerId: nullable(data.dealerId),
     dealerName: nullable(data.dealerName),
+    ovCount: Number.isFinite(Number(data.ovCount)) ? Math.round(Number(data.ovCount)) : null,
+    linkedCount: Number.isFinite(Number(data.linkedCount)) ? Math.round(Number(data.linkedCount)) : null,
+    quotaAllotted: Number.isFinite(Number(data.quotaAllotted)) ? Math.round(Number(data.quotaAllotted)) : null,
+    quotaUsed: Number.isFinite(Number(data.quotaUsed)) ? Math.round(Number(data.quotaUsed)) : null,
+    quotaBalance: Number.isFinite(Number(data.quotaBalance)) ? Math.round(Number(data.quotaBalance)) : null,
     raw: data.raw ?? null,
   };
 }
@@ -663,6 +674,11 @@ export function withDefaultIwpRc(rows: YesGatcRcDetail[]): YesGatcRcDetail[] {
       receivedAt: null,
       dealerId: null,
       dealerName: null,
+      ovCount: null,
+      linkedCount: null,
+      quotaAllotted: null,
+      quotaUsed: null,
+      quotaBalance: null,
       raw: null,
     });
   }
@@ -784,11 +800,23 @@ export async function countYesGatcLifetimeOvRv(
   rcs: ReadonlyArray<YesGatcRcDetail>,
 ): Promise<Map<string, YesGatcOvRvTotals>> {
   const totals = new Map<string, YesGatcOvRvTotals>();
-  for (const rc of rcs) totals.set(rc.id, emptyYesGatcOvRvTotals());
+  for (const rc of rcs) {
+    if (rc.ovCount != null) {
+      totals.set(rc.id, {
+        ov: rc.ovCount,
+        rv: 0,
+        linked: rc.linkedCount ?? rc.ovCount,
+      });
+    } else {
+      totals.set(rc.id, emptyYesGatcOvRvTotals());
+    }
+  }
   if (rcs.length === 0) return totals;
+  const needCertificateCount = rcs.filter(rc => rc.ovCount == null);
+  if (needCertificateCount.length === 0) return totals;
 
   const keyToRcIds = new Map<string, string[]>();
-  for (const rc of rcs) {
+  for (const rc of needCertificateCount) {
     const keys = [rc.id, str(rc.code).toUpperCase()].filter(Boolean);
     if (isYesoneIwpRcDetail(rc)) keys.push(YESONE_RC_CODE);
     for (const key of keys) {

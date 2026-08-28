@@ -318,19 +318,10 @@ export async function pushSerialAllotmentsToYesGatc({
   const secret = await loadWebhookSecret();
   let serialsAllottedToRc = [];
   let rcAllottedSerialDetails = [];
-  let rcOvQuota = [];
   if (kind === 'test') {
-    const { loadYesGatcRcOvQuota } = await import('./rc-nongatc-serial-backfill.js');
-    const [allotted, quota] = await Promise.all([
-      loadRcAllottedSerials(db),
-      loadYesGatcRcOvQuota().catch(err => {
-        console.warn('YesGATC RC OV quota snapshot failed:', err?.message ?? err);
-        return [];
-      }),
-    ]);
+    const allotted = await loadRcAllottedSerials(db);
     serialsAllottedToRc = allotted.rcs;
     rcAllottedSerialDetails = allotted.details;
-    rcOvQuota = quota;
   }
   const generatedSource = withAllotmentInvoiceLinks(
     kind === 'test' ? allotments : selected,
@@ -405,14 +396,11 @@ export async function pushSerialAllotmentsToYesGatc({
         )),
       }
       : null,
-    rcOvQuota,
     totals: {
       rangesGenerated: serialsGenerated.length,
       serialsGenerated: serialsGenerated.reduce((sum, row) => sum + (Number(row.count) || 0), 0),
       generatedSerialDetails: generatedSerialDetails.length,
       serialsAllottedToRc: serialsAllottedToRc.reduce((sum, row) => sum + (Number(row.qty) || 0), 0),
-      rcCount: rcOvQuota.length,
-      pendingOv: rcOvQuota.reduce((sum, row) => sum + (Number(row.pending) || 0), 0),
     },
   };
 

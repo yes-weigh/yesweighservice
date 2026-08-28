@@ -7347,7 +7347,7 @@ export const yesgatcPushWebhook = onRequest(
         ok: true,
         service: 'yesone',
         destination: 'yesgatc',
-        hint: 'POST JSON certificate and RC details here. Include the webhook secret.',
+        hint: 'POST JSON certificates, RC details, or RC OV/quota counts (ov, linked, used). Include the webhook secret.',
       });
       return;
     }

@@ -60,7 +60,7 @@ export const RcOvReportTab: React.FC = () => {
     }
   }, []);
 
-  const rcCountKey = rows.map(row => `${row.id}:${row.code}`).join('|');
+  const rcCountKey = rows.map(row => `${row.id}:${row.code}:${row.ovCount ?? ''}:${row.linkedCount ?? ''}`).join('|');
   const soldKey = rows.map(row => `${row.id}:${row.dealerId || ''}`).join('|');
 
   useEffect(() => {
@@ -89,7 +89,7 @@ export const RcOvReportTab: React.FC = () => {
     return () => {
       cancelled = true;
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- rcCountKey captures id/code
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- rcCountKey captures id/code/ov
   }, [loading, rcCountKey]);
 
   useEffect(() => {
@@ -173,7 +173,8 @@ export const RcOvReportTab: React.FC = () => {
             })}
           </div>
           <p className="rc-ov-report__foot">
-            Showing {sortedRows.length} of {sortedRows.length} offices
+            Sold is YesOne invoice qty from 1 Feb 2026. OV and Linked come from YesGATC.
+            Bal is Sold − OV. Showing {sortedRows.length} offices.
           </p>
         </>
       )}

@@ -199,8 +199,8 @@ export const SerialNumberAllotmentTab: React.FC = () => {
       setWebhookUrl(result.webhookUrl || refreshed.webhookUrl || savedUrl || '');
       setSuccess(
         result.sent
-          ? `YesGATC test OK. Sent generated serials, RC allotments, and OV quota (${result.sent.toLocaleString('en-IN')} range${result.sent === 1 ? '' : 's'}).`
-          : 'YesGATC test OK. Sent generated serials, RC allotments, and OV quota.',
+          ? `YesGATC test OK. Sent serial numbers and counts (${result.sent.toLocaleString('en-IN')} range${result.sent === 1 ? '' : 's'}).`
+          : 'YesGATC test OK. Sent serial numbers and counts.',
       );
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Could not reach the YesGATC webhook.');
@@ -354,7 +354,7 @@ export const SerialNumberAllotmentTab: React.FC = () => {
           {testing ? 'Sending…' : 'Test'}
         </button>
         <p className="text-muted text-sm settings-serial-allotment__webhook-hint">
-          Test sends generated serials, serials allotted to each RC, and Sold / OV / pending quota.
+          Test sends serial numbers and counts only (added or allotted). OV / Linked / Balance stay on YesGATC and come back on the inbound webhook.
           {pendingCount
             ? ` ${pendingCount.toLocaleString('en-IN')} range${pendingCount === 1 ? '' : 's'} still pending.`
             : ''}
