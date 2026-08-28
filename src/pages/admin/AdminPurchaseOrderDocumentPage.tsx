@@ -7,6 +7,7 @@ import { CategoryThumbnail } from '../../components/catalog/CategoryThumbnail';
 import { DocumentLineItemSpec } from '../../components/invoices/DocumentLineItemSpec';
 import { InvoiceDocumentBody } from '../../components/invoices/InvoiceDocumentBody';
 import { SoDetailCatalogAddSheet } from '../../components/salesOrders/SoDetailCatalogAddSheet';
+import { PoLineSerialFields } from '../../components/admin/PoLineSerialFields';
 import { PurchaseOrderVesselMapDialog } from '../../components/admin/PurchaseOrderVesselMapDialog';
 import { PurchaseOrderTrackingUploadDialog } from '../../components/admin/PurchaseOrderTrackingUploadDialog';
 import type { DraftEditLine } from '../../components/salesOrders/SalesOrderDraftLineEditor';
@@ -20,10 +21,17 @@ import {
   purchaseOrderHasBl,
   purchaseOrderHasVendorPi,
   saveWanHaiLiveTrack,
+  saveAdminPurchaseOrderSerialRanges,
   updateAdminPurchaseOrder,
   type AdminPurchaseOrderDetail,
   type WanHaiLiveTrackSnapshot,
 } from '../../lib/admin-purchase-orders';
+import {
+  poLineShowsSerialRange,
+  serialRangeInputsFromLines,
+  serialRangesFingerprint,
+} from '../../lib/purchaseOrderSerials';
+import { previewSerialRange } from '../../lib/serialNumberAllotment';
 import { formatCurrency } from '../../lib/catalog';
 import { newCartLineId } from '../../lib/gatcCart';
 import { formatInvoiceDate, invoiceErrorMessage } from '../../lib/invoices';
@@ -42,6 +50,9 @@ type EditLine = {
   quantity: number;
   rate: number;
   imageUrl: string | null;
+  hsn: string | null;
+  startNumber: string;
+  endNumber: string;
 };
 
 function vendorPlaceParts(
@@ -65,15 +76,25 @@ function purchaseOrderPaidDate(purchaseOrder: AdminPurchaseOrderDetail): string 
 const LOCKED_STATUSES = new Set(['cancelled', 'canceled', 'billed', 'closed', 'void']);
 
 function linesFromPurchaseOrder(po: AdminPurchaseOrderDetail): EditLine[] {
-  return po.lineItems.map(item => ({
-    lineId: item.id || newCartLineId(),
-    productId: String(item.itemId ?? '').trim(),
-    name: item.name,
-    sku: item.sku,
-    quantity: Math.max(1, Math.floor(Number(item.quantity) || 1)),
-    rate: Math.round(Number(item.rate ?? 0) * 100) / 100,
-    imageUrl: item.imageUrl,
-  }));
+  return po.lineItems.map(item => {
+    const lineId = item.id || newCartLineId();
+    const serial = po.serialRangesByLineId[lineId]
+      || (item.itemId
+        ? Object.values(po.serialRangesByLineId).find(row => row.itemId === item.itemId)
+        : undefined);
+    return {
+      lineId,
+      productId: String(item.itemId ?? '').trim(),
+      name: item.name,
+      sku: item.sku,
+      quantity: Math.max(1, Math.floor(Number(item.quantity) || 1)),
+      rate: Math.round(Number(item.rate ?? 0) * 100) / 100,
+      imageUrl: item.imageUrl,
+      hsn: item.hsn ?? null,
+      startNumber: serial?.startNumber ?? '',
+      endNumber: serial?.endNumber ?? '',
+    };
+  });
 }
 
 function toDraftLines(lines: EditLine[]): DraftEditLine[] {
@@ -97,18 +118,26 @@ function toDraftLines(lines: EditLine[]): DraftEditLine[] {
   }));
 }
 
-function fromDraftLines(lines: DraftEditLine[]): EditLine[] {
+function fromDraftLines(lines: DraftEditLine[], previous: EditLine[]): EditLine[] {
+  const prevById = new Map(previous.map(line => [line.lineId, line]));
+  const prevByProduct = new Map(previous.map(line => [line.productId, line]));
   return lines
     .filter(line => line.productId && line.quantity > 0)
-    .map(line => ({
-      lineId: line.lineId || newCartLineId(),
-      productId: line.productId,
-      name: line.name,
-      sku: line.sku,
-      quantity: Math.max(1, Math.floor(line.quantity || 1)),
-      rate: Math.round(Number(line.rate ?? line.catalogRate ?? 0) * 100) / 100,
-      imageUrl: line.imageUrl,
-    }));
+    .map(line => {
+      const prev = prevById.get(line.lineId) || prevByProduct.get(line.productId);
+      return {
+        lineId: line.lineId || newCartLineId(),
+        productId: line.productId,
+        name: line.name,
+        sku: line.sku,
+        quantity: Math.max(1, Math.floor(line.quantity || 1)),
+        rate: Math.round(Number(line.rate ?? line.catalogRate ?? 0) * 100) / 100,
+        imageUrl: line.imageUrl,
+        hsn: prev?.hsn ?? null,
+        startNumber: prev?.startNumber ?? '',
+        endNumber: prev?.endNumber ?? '',
+      };
+    });
 }
 
 function currencySymbol(code: string): string {
@@ -130,6 +159,24 @@ function linesFingerprint(lines: EditLine[]): string {
     quantity: line.quantity,
     rate: line.rate,
   })));
+}
+
+function serialsFingerprint(lines: EditLine[]): string {
+  return serialRangesFingerprint(
+    Object.fromEntries(
+      lines
+        .filter(line => line.startNumber.trim() || line.endNumber.trim())
+        .map(line => [line.lineId, {
+          startNumber: line.startNumber.trim(),
+          endNumber: line.endNumber.trim(),
+          qty: 0,
+          itemId: line.productId || null,
+          sku: line.sku,
+          productName: line.name,
+          imageUrl: line.imageUrl,
+        }]),
+    ),
+  );
 }
 
 type PoTrackEvent = {
@@ -398,6 +445,7 @@ export const AdminPurchaseOrderDocumentPage: React.FC = () => {
 
   const [lines, setLines] = useState<EditLine[]>([]);
   const [baseline, setBaseline] = useState('');
+  const [serialBaseline, setSerialBaseline] = useState('');
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState('');
   const [liveTrackNote, setLiveTrackNote] = useState('');
@@ -412,6 +460,7 @@ export const AdminPurchaseOrderDocumentPage: React.FC = () => {
     const nextLines = linesFromPurchaseOrder(purchaseOrder);
     setLines(nextLines);
     setBaseline(linesFingerprint(nextLines));
+    setSerialBaseline(serialsFingerprint(nextLines));
     setSaveError('');
   }, [purchaseOrder]);
 
@@ -491,10 +540,15 @@ export const AdminPurchaseOrderDocumentPage: React.FC = () => {
     };
   }, [purchaseOrder]);
 
-  const dirty = useMemo(
+  const linesDirty = useMemo(
     () => linesFingerprint(lines) !== baseline,
     [lines, baseline],
   );
+  const serialsDirty = useMemo(
+    () => serialsFingerprint(lines) !== serialBaseline,
+    [lines, serialBaseline],
+  );
+  const dirty = linesDirty || serialsDirty;
 
   const previewItems: DealerInvoiceLineItem[] = useMemo(
     () => lines.map(line => ({
@@ -566,23 +620,42 @@ export const AdminPurchaseOrderDocumentPage: React.FC = () => {
       setSaveError('Add at least one item.');
       return;
     }
+    const serialError = payloadLines
+      .filter(line => poLineShowsSerialRange(line) && (line.startNumber.trim() || line.endNumber.trim()))
+      .map(line => previewSerialRange({
+        from: line.startNumber,
+        to: line.endNumber,
+        missingText: '',
+      }).error)
+      .find(Boolean);
+    if (serialError) {
+      setSaveError(serialError);
+      return;
+    }
+    const serialRanges = serialRangeInputsFromLines(payloadLines);
     setSaving(true);
     setSaveError('');
     try {
-      const next = await updateAdminPurchaseOrder({
-        purchaseOrderId,
-        vendorId: purchaseOrder.vendorId,
-        date: purchaseOrder.date,
-        deliveryDate: purchaseOrder.deliveryDate,
-        referenceNumber: purchaseOrder.referenceNumber,
-        notes: purchaseOrder.notes,
-        lines: payloadLines.map(line => ({
-          productId: line.productId,
-          quantity: line.quantity,
-          rate: line.rate,
-          name: line.name,
-        })),
-      });
+      const next = linesDirty
+        ? await updateAdminPurchaseOrder({
+          purchaseOrderId,
+          vendorId: purchaseOrder.vendorId,
+          date: purchaseOrder.date,
+          deliveryDate: purchaseOrder.deliveryDate,
+          referenceNumber: purchaseOrder.referenceNumber,
+          notes: purchaseOrder.notes,
+          lines: payloadLines.map(line => ({
+            productId: line.productId,
+            quantity: line.quantity,
+            rate: line.rate,
+            name: line.name,
+          })),
+          serialRanges,
+        })
+        : await saveAdminPurchaseOrderSerialRanges({
+          purchaseOrderId,
+          serialRanges,
+        });
       setPurchaseOrder(next);
     } catch (err) {
       setSaveError(invoiceErrorMessage(err));
@@ -639,22 +712,24 @@ export const AdminPurchaseOrderDocumentPage: React.FC = () => {
         <p className="text-muted text-sm mb-3" role="status">{liveTrackNote}</p>
       ) : null}
 
-      {canEdit ? (
+      {canEdit || lines.length > 0 ? (
         <section className="panel glass staff-create-so-page__section">
           <div className="staff-create-so-page__section-head">
             <h2>Items</h2>
-            <button
-              type="button"
-              className="btn btn-secondary btn-sm"
-              disabled={saving}
-              onClick={() => {
-                setCatalogSession(n => n + 1);
-                setCatalogOpen(true);
-              }}
-            >
-              <Plus size={14} aria-hidden />
-              Add item
-            </button>
+            {canEdit ? (
+              <button
+                type="button"
+                className="btn btn-secondary btn-sm"
+                disabled={saving}
+                onClick={() => {
+                  setCatalogSession(n => n + 1);
+                  setCatalogOpen(true);
+                }}
+              >
+                <Plus size={14} aria-hidden />
+                Add item
+              </button>
+            ) : null}
           </div>
           {lines.length === 0 ? (
             <div className="staff-create-so-page__cart-empty">
@@ -691,7 +766,7 @@ export const AdminPurchaseOrderDocumentPage: React.FC = () => {
                           value={line.rate}
                           min={0}
                           decimals={2}
-                          disabled={saving}
+                          disabled={saving || !canEdit}
                           onChange={next => {
                             if (next == null) return;
                             setLines(prev => prev.map(row => (
@@ -709,7 +784,7 @@ export const AdminPurchaseOrderDocumentPage: React.FC = () => {
                       <QuantityStepper
                         value={line.quantity}
                         min={0}
-                        disabled={saving}
+                        disabled={saving || !canEdit}
                         onChange={qty => {
                           setLines(prev => prev.map(row => (
                             row.lineId === line.lineId ? { ...row, quantity: qty } : row
@@ -723,6 +798,22 @@ export const AdminPurchaseOrderDocumentPage: React.FC = () => {
                       <strong>{formatCurrency(line.rate * line.quantity, currency)}</strong>
                     </div>
                   </div>
+                  {poLineShowsSerialRange(line) ? (
+                    <PoLineSerialFields
+                      startNumber={line.startNumber}
+                      endNumber={line.endNumber}
+                      lineQty={line.quantity}
+                      disabled={saving || !canEdit}
+                      name={line.name}
+                      onChange={({ startNumber, endNumber }) => {
+                        setLines(prev => prev.map(row => (
+                          row.lineId === line.lineId
+                            ? { ...row, startNumber, endNumber }
+                            : row
+                        )));
+                      }}
+                    />
+                  ) : null}
                 </li>
               ))}
             </ul>
@@ -765,7 +856,7 @@ export const AdminPurchaseOrderDocumentPage: React.FC = () => {
             disabled={saving || lines.length === 0}
             onClick={() => { void save(); }}
           >
-            {saving ? 'Saving…' : 'Save to Zoho'}
+            {saving ? 'Saving…' : linesDirty ? 'Save to Zoho' : 'Save serial numbers'}
           </button>
         </footer>
       ) : null}
@@ -777,8 +868,8 @@ export const AdminPurchaseOrderDocumentPage: React.FC = () => {
         orderCategory={null}
         allowAllProducts
         onClose={() => setCatalogOpen(false)}
-        onApply={next => {
-          setLines(fromDraftLines(next));
+          onApply={next => {
+          setLines(fromDraftLines(next, lines));
           setCatalogOpen(false);
         }}
       />

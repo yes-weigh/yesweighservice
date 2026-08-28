@@ -19,6 +19,12 @@ export type SerialNumberAllotment = {
   createdBy: string | null;
   pushedAt: string | null;
   pushError: string | null;
+  sku?: string | null;
+  imageUrl?: string | null;
+  productName?: string | null;
+  sourcePoNumber?: string | null;
+  sourceLineId?: string | null;
+  sourceGoodsReceiptId?: string | null;
 };
 
 export type SerialNumberAllotmentDoc = {

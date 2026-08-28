@@ -19,6 +19,7 @@ import {
   sumNonFreightQuantity,
 } from './invoice-category.js';
 import { extractWebhookEvent } from './invoice-sync.js';
+import { writePurchaseOrderSerialRanges } from './purchase-order-serials.js';
 
 const COLLECTION = 'purchaseOrders';
 const META_DOC = 'purchaseOrderMeta/orgSync';
@@ -312,6 +313,8 @@ async function upsertPurchaseOrderFromRaw(raw, options = {}) {
     return { id: mapped.id, purchaseOrderCategory: null, skipped: true };
   }
 
+  const existingSnap = await poCollection().doc(mapped.id).get();
+  const existing = existingSnap.exists ? (existingSnap.data() || {}) : {};
   const catalog = await loadCatalogMeta(mapped.lineItems.map(line => line.itemId).filter(Boolean));
   const categoryBreakdown = classifyInvoiceCategoryBreakdown(mapped.lineItems, catalog);
   const purchaseOrderCategory = categoryBreakdown.categories[0]
@@ -327,6 +330,9 @@ async function upsertPurchaseOrderFromRaw(raw, options = {}) {
     syncedAt: now,
     contentFingerprint: `${mapped.zohoLastModified}|${mapped.lineItems.length}|${mapped.total}`,
     forceKeep: purchaseOrderNumberKept(mapped.purchaseOrderNumber),
+    serialRangesByLineId: existing.serialRangesByLineId && typeof existing.serialRangesByLineId === 'object'
+      ? existing.serialRangesByLineId
+      : {},
   };
 
   await poCollection().doc(mapped.id).set(doc, { merge: true });
@@ -1099,6 +1105,9 @@ export async function createPurchaseOrderInZoho(secrets, orgId, input = {}) {
     throw new Error(payload?.message || 'Zoho did not return a purchase order id.');
   }
   await upsertPurchaseOrderFromRaw(created);
+  if (Array.isArray(input.serialRanges) && input.serialRanges.length) {
+    await writePurchaseOrderSerialRanges(id, input.serialRanges);
+  }
   return {
     id,
     purchaseOrderNumber: created.purchaseorder_number
@@ -1164,6 +1173,9 @@ export async function updatePurchaseOrderInZoho(secrets, orgId, purchaseOrderId,
   );
   const updated = payload?.purchaseorder ?? raw;
   await upsertPurchaseOrderFromRaw(updated);
+  if (Array.isArray(patch.serialRanges)) {
+    await writePurchaseOrderSerialRanges(id, patch.serialRanges);
+  }
   try {
     await storageBucket().file(pdfPath(id)).delete({ ignoreNotFound: true });
     await poCollection().doc(id).set({ pdfStoragePath: FieldValue.delete() }, { merge: true });

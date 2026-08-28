@@ -248,13 +248,15 @@ function unlinkWritesForCertificates(certs, invoicePath, remainingLinks) {
       });
     }
   }
-  writes.push({
-    path: invoicePath,
-    data: {
-      yesgatcLinks: remainingLinks,
-      yesgatcLinkedAt: remainingLinks.length ? FieldValue.serverTimestamp() : null,
-    },
-  });
+  if (str(invoicePath)) {
+    writes.push({
+      path: invoicePath,
+      data: {
+        yesgatcLinks: remainingLinks,
+        yesgatcLinkedAt: remainingLinks.length ? FieldValue.serverTimestamp() : null,
+      },
+    });
+  }
   return writes;
 }
 

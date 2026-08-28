@@ -48,12 +48,18 @@ export type AllotNonGatcSerialsResult = {
   lineItems?: DealerInvoiceLineItem[];
 };
 
+export type AvailableNonGatcSerial = {
+  id: string;
+  serialNumber: string;
+};
+
 type NonGatcSerialCallableInput = {
   customerId: string;
   invoiceId: string;
   actorName: string;
   unlink?: boolean;
   lineId?: string;
+  serials?: string[];
 };
 
 function nonGatcSerialCallable() {
@@ -64,10 +70,21 @@ function nonGatcSerialCallable() {
   );
 }
 
+export async function listAvailableNonGatcSerials(max = 2000): Promise<AvailableNonGatcSerial[]> {
+  const fn = httpsCallable<{ max?: number }, { rows?: AvailableNonGatcSerial[] }>(
+    getFunctions(app, 'asia-south1'),
+    'listAvailableNonGatcSerialsFn',
+    { timeout: 60_000 },
+  );
+  return (await fn({ max })).data.rows ?? [];
+}
+
 export async function allotNonGatcSerialsToInvoice(input: {
   customerId: string;
   invoiceId: string;
   actorName: string;
+  lineId?: string;
+  serials: string[];
 }): Promise<AllotNonGatcSerialsResult> {
   return (await nonGatcSerialCallable()(input)).data;
 }

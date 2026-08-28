@@ -21875,6 +21875,12 @@ body:has(.confirm-inline-bar) .confirm-inline-bar {
   margin: 0.2rem 0 0.45rem;
 }
 
+.staff-create-so-page__cart-info .po-edit-line__serials {
+  width: 100%;
+  margin-top: 0.55rem;
+  padding-top: 0.55rem;
+}
+
 .create-po-page__totals {
   margin-top: 0.85rem;
   padding-top: 0.75rem;
@@ -22045,6 +22051,59 @@ body:has(.confirm-inline-bar) .confirm-inline-bar {
   font-size: 1rem;
   line-height: 1;
   white-space: nowrap;
+}
+
+.po-edit-line__serials {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  gap: 0.75rem 1rem;
+  padding-top: 0.7rem;
+  border-top: 1px solid rgba(148, 163, 184, 0.14);
+}
+
+.po-edit-line__serial-input {
+  width: 8.25rem;
+  height: 2.15rem;
+  padding: 0 0.6rem;
+  font-size: 0.875rem;
+  letter-spacing: 0.02em;
+}
+
+.po-edit-line__serial-input::placeholder {
+  color: rgba(148, 163, 184, 0.55);
+  letter-spacing: 0;
+}
+
+.po-edit-line__serial-qty {
+  margin-left: auto;
+  align-items: flex-end;
+  text-align: right;
+}
+
+.po-edit-line__serial-qty strong {
+  display: inline-flex;
+  align-items: center;
+  height: 2.15rem;
+  color: #86efac;
+  font-size: 1rem;
+  line-height: 1;
+}
+
+.po-edit-line__serial-qty strong.is-error {
+  color: #fca5a5;
+}
+
+.po-edit-line__serial-hint {
+  flex-basis: 100%;
+  margin: 0;
+  color: #94a3b8;
+  font-size: 0.75rem;
+  line-height: 1.35;
+}
+
+.po-edit-line__serial-hint.is-error {
+  color: #fca5a5;
 }
 
 .po-bl-dialog__fields {

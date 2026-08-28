@@ -39,6 +39,12 @@ import type {
   InvoiceSalesEntry,
   KpiPeriod,
 } from '../types/invoices';
+import {
+  bindSerialRangesToLines,
+  parsePurchaseOrderSerialRanges,
+  type PurchaseOrderSerialRangeInput,
+  type PurchaseOrderSerialRangesByLineId,
+} from './purchaseOrderSerials';
 
 const functions = getFunctions(app, 'asia-south1');
 const ADMIN_PO_PAGE_SIZE = 100;
@@ -397,6 +403,8 @@ export interface AdminPurchaseOrderDetail {
   wanHaiTrack: WanHaiLiveTrackSnapshot | null;
   tracking: PurchaseOrderTracking;
   activityLogs: PurchaseOrderActivityLog[];
+  /** Machine serial ranges entered on the PO (Firebase only). Applied on goods receipt. */
+  serialRangesByLineId: PurchaseOrderSerialRangesByLineId;
 }
 
 export interface PurchaseOrderQcImage {
@@ -908,6 +916,7 @@ export function mapAdminPurchaseOrderDetail(
     wanHaiTrack: parseWanHaiLiveTrack(data),
     tracking: parsePurchaseOrderTracking(data),
     activityLogs: parsePurchaseOrderActivityLogs(data),
+    serialRangesByLineId: parsePurchaseOrderSerialRanges(data.serialRangesByLineId),
   };
 }
 
@@ -1070,6 +1079,7 @@ export async function createAdminPurchaseOrder(input: {
     rate: number;
     name?: string;
   }>;
+  serialRanges?: PurchaseOrderSerialRangeInput[];
 }): Promise<{ id: string; purchaseOrderNumber: string }> {
   const callable = httpsCallable<
     typeof input,
@@ -1081,9 +1091,16 @@ export async function createAdminPurchaseOrder(input: {
       date: input.date,
       referenceNumber: input.referenceNumber,
       lines: input.lines,
+      serialRanges: input.serialRanges ?? [],
     });
     const id = String(result.data?.id ?? '').trim();
     if (!id) throw new Error('Zoho did not return a purchase order id.');
+    if (input.serialRanges?.length) {
+      await saveAdminPurchaseOrderSerialRanges({
+        purchaseOrderId: id,
+        serialRanges: input.serialRanges,
+      });
+    }
     return {
       id,
       purchaseOrderNumber: String(result.data?.purchaseOrderNumber ?? ''),
@@ -1106,6 +1123,7 @@ export async function updateAdminPurchaseOrder(input: {
     rate: number;
     name?: string;
   }>;
+  serialRanges?: PurchaseOrderSerialRangeInput[];
 }): Promise<AdminPurchaseOrderDetail> {
   const callable = httpsCallable(functions, 'updatePurchaseOrder', { timeout: 120_000 });
   try {
@@ -1117,6 +1135,30 @@ export async function updateAdminPurchaseOrder(input: {
       referenceNumber: input.referenceNumber ?? null,
       notes: input.notes ?? null,
       lines: input.lines,
+      serialRanges: input.serialRanges ?? [],
+    });
+  } catch (err) {
+    throw new Error(invoiceErrorMessage(err));
+  }
+  if (input.serialRanges) {
+    return saveAdminPurchaseOrderSerialRanges({
+      purchaseOrderId: input.purchaseOrderId,
+      serialRanges: input.serialRanges,
+    });
+  }
+  return fetchAdminPurchaseOrderDetail(input.purchaseOrderId);
+}
+
+export async function saveAdminPurchaseOrderSerialRanges(input: {
+  purchaseOrderId: string;
+  serialRanges: PurchaseOrderSerialRangeInput[];
+}): Promise<AdminPurchaseOrderDetail> {
+  const detail = await fetchAdminPurchaseOrderDetail(input.purchaseOrderId);
+  const serialRangesByLineId = bindSerialRangesToLines(detail.lineItems, input.serialRanges);
+  try {
+    await updateDoc(doc(db, 'purchaseOrders', input.purchaseOrderId), {
+      serialRangesByLineId,
+      serialRangesUpdatedAt: new Date().toISOString(),
     });
   } catch (err) {
     throw new Error(invoiceErrorMessage(err));

@@ -74,6 +74,7 @@ export const AdminInvoiceDocumentPage: React.FC = () => {
     need: number;
     title: string;
     capacityKg: number | null;
+    mode: 'gatc' | 'nongatc';
   } | null>(null);
   const [gatcPickerError, setGatcPickerError] = useState('');
   const [voidBusy, setVoidBusy] = useState(false);
@@ -147,34 +148,10 @@ export const AdminInvoiceDocumentPage: React.FC = () => {
     return '';
   };
 
-  const handleAllotSerials = async () => {
-    if (!canAllotSerials || allotBusy) return;
-    setAllotBusy(true);
-    setAllotError('');
-    setAllotNotice('');
-    try {
-      const result = await allotNonGatcSerialsToInvoice({
-        customerId,
-        invoiceId,
-        actorName,
-      });
-      await reloadInvoice?.();
-      if (result.shortage > 0) {
-        setAllotError(
-          `Allotted ${result.allotted.toLocaleString('en-IN')}. ${result.shortage.toLocaleString('en-IN')} still short — non GATC pool is empty.${zohoNotice(result)}`,
-        );
-      } else if (result.allotted > 0) {
-        setAllotNotice(
-          `Allotted ${result.allotted.toLocaleString('en-IN')} non-GATC serial${result.allotted === 1 ? '' : 's'}.${zohoNotice(result)}${result.yesgatcPushed ? ' Pushed to YesGATC.' : ''}`,
-        );
-      } else {
-        setAllotNotice('No serials needed on this invoice.');
-      }
-    } catch (err) {
-      setAllotError(err instanceof Error ? err.message : 'Could not allot serial numbers.');
-    } finally {
-      setAllotBusy(false);
-    }
+  const openNonGatcPicker = (lineId: string, need: number, title: string) => {
+    if (!canAllotSerials || allotBusy || need <= 0) return;
+    setGatcPickerError('');
+    setGatcPicker({ lineId, need, title, capacityKg: null, mode: 'nongatc' });
   };
 
   const handleUnlinkSerials = async (lineId?: string) => {
@@ -221,21 +198,36 @@ export const AdminInvoiceDocumentPage: React.FC = () => {
   ) => {
     if (!canAllotSerials || allotBusy || need <= 0) return;
     setGatcPickerError('');
-    setGatcPicker({ lineId, need, title, capacityKg });
+    setGatcPicker({ lineId, need, title, capacityKg, mode: 'gatc' });
   };
 
-  const handleSaveGatcSerials = async (certificateIds: string[]) => {
+  const handleSavePickerSerials = async (ids: string[]) => {
     if (!gatcPicker || !canAllotSerials || allotBusy) return;
     setAllotBusy(true);
     setGatcPickerError('');
     setAllotError('');
     setAllotNotice('');
     try {
+      if (gatcPicker.mode === 'nongatc') {
+        const result = await allotNonGatcSerialsToInvoice({
+          customerId,
+          invoiceId,
+          lineId: gatcPicker.lineId,
+          serials: ids,
+          actorName,
+        });
+        await reloadInvoice?.();
+        setGatcPicker(null);
+        setAllotNotice(
+          `Linked ${result.allotted.toLocaleString('en-IN')} serial${result.allotted === 1 ? '' : 's'}.${zohoNotice(result)}${result.yesgatcPushed ? ' Pushed to YesGATC.' : ''}`,
+        );
+        return;
+      }
       const result = await allotGatcStampedSerialsToInvoice({
         customerId,
         invoiceId,
         lineId: gatcPicker.lineId,
-        certificateIds,
+        certificateIds: ids,
         actorName,
       });
       await reloadInvoice?.();
@@ -244,7 +236,13 @@ export const AdminInvoiceDocumentPage: React.FC = () => {
         `Linked ${result.allotted.toLocaleString('en-IN')} GATC serial${result.allotted === 1 ? '' : 's'}.${zohoNotice(result)}`,
       );
     } catch (err) {
-      setGatcPickerError(err instanceof Error ? err.message : 'Could not save GATC serial numbers.');
+      setGatcPickerError(
+        err instanceof Error
+          ? err.message
+          : gatcPicker.mode === 'nongatc'
+            ? 'Could not save serial numbers.'
+            : 'Could not save GATC serial numbers.',
+      );
     } finally {
       setAllotBusy(false);
     }
@@ -417,11 +415,11 @@ export const AdminInvoiceDocumentPage: React.FC = () => {
                   disabled={allotBusy}
                   onClick={e => {
                     e.stopPropagation();
-                    void handleAllotSerials();
+                    openNonGatcPicker(item.id, short, item.name);
                   }}
                 >
                   <Hash size={14} aria-hidden />
-                  {allotBusy ? 'Allotting…' : `Allot serial numbers (${short})`}
+                  {allotBusy ? 'Opening…' : `Add serial number (${short})`}
                 </button>
               ) : null}
               {canAllotSerials && gatcStamped && short > 0 ? (
@@ -506,10 +504,15 @@ export const AdminInvoiceDocumentPage: React.FC = () => {
                   type="button"
                   className="btn btn-primary invoice-nongatc-serials__btn"
                   disabled={allotBusy}
-                  onClick={() => void handleAllotSerials()}
+                  onClick={() => {
+                    const line = displayInvoice.lineItems.find(
+                      item => nonGatcSerialShortage(item) > 0,
+                    );
+                    if (line) openNonGatcPicker(line.id, nonGatcSerialShortage(line), line.name);
+                  }}
                 >
                   <Hash size={16} aria-hidden />
-                  {allotBusy ? 'Allotting…' : 'Allot serial numbers'}
+                  {allotBusy ? 'Opening…' : 'Add serial numbers'}
                 </button>
                 {allotError ? <p className="invoice-nongatc-serials__error">{allotError}</p> : null}
                 {allotNotice ? <p className="invoice-nongatc-serials__ok">{allotNotice}</p> : null}
@@ -607,6 +610,7 @@ export const AdminInvoiceDocumentPage: React.FC = () => {
           title={gatcPicker.title}
           need={gatcPicker.need}
           capacityKg={gatcPicker.capacityKg}
+          mode={gatcPicker.mode}
           saving={allotBusy}
           error={gatcPickerError}
           onClose={() => {
@@ -615,7 +619,7 @@ export const AdminInvoiceDocumentPage: React.FC = () => {
               setGatcPickerError('');
             }
           }}
-          onSave={ids => void handleSaveGatcSerials(ids)}
+          onSave={ids => void handleSavePickerSerials(ids)}
         />
       ) : null}
     </>

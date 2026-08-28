@@ -53,6 +53,10 @@ export function serializeAllotmentForWebhook(row) {
     count: Math.max(0, Number(row?.count) || 0),
     createdAt: str(row?.createdAt) || null,
     createdBy: str(row?.createdBy) || null,
+    sku: str(row?.sku) || null,
+    productName: str(row?.productName) || null,
+    imageUrl: str(row?.imageUrl) || null,
+    sourcePoNumber: str(row?.sourcePoNumber) || null,
   };
 }
 

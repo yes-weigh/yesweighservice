@@ -8780,6 +8780,55 @@ button.incentive-report__adjust-col:focus-visible {
   color: #f8fafc;
 }
 
+.settings-serial-allotment__stat--product strong {
+  align-items: center;
+  gap: 0.45rem;
+  white-space: normal;
+  color: #f8fafc;
+}
+
+.settings-serial-allotment__product-media {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.85rem;
+  height: 1.85rem;
+  border-radius: 0.4rem;
+  overflow: hidden;
+  background: rgba(15, 23, 42, 0.55);
+  color: #94a3b8;
+  flex-shrink: 0;
+}
+
+.settings-serial-allotment__product-media img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+
+.settings-serial-allotment__product-copy {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 0.05rem;
+}
+
+.settings-serial-allotment__product-copy em {
+  font-style: normal;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+}
+
+.settings-serial-allotment__product-copy small {
+  color: #94a3b8;
+  font-size: 0.68rem;
+  font-weight: 500;
+  line-height: 1.2;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .settings-serial-allotment__stat--start strong {
   color: #7dd3fc;
 }

@@ -146,6 +146,7 @@ import {
   updatePurchaseOrderInZoho,
   createPurchaseOrderInZoho,
 } from './lib/purchase-order-sync.js';
+import { writePurchaseOrderSerialRanges } from './lib/purchase-order-serials.js';
 import {
   associateKotakPayoutWithPurchaseOrder as associateKotakPayoutWithPurchaseOrderRecord,
   savePurchaseOrderTracking as savePurchaseOrderTrackingRecord,
@@ -343,6 +344,7 @@ import {
 import { pushSerialAllotmentsToYesGatc } from './lib/yesgatc-serial-push.js';
 import {
   applyNonGatcSerialAllotmentOnInvoice,
+  listAvailableNonGatcSerials,
   unlinkNonGatcSerialsFromInvoice,
 } from './lib/non-gatc-serial-allot.js';
 import { voidAdminInvoice } from './lib/void-admin-invoice.js';
@@ -3824,6 +3826,9 @@ export const createPurchaseOrder = onCall(
           date: request.data?.date,
           referenceNumber: request.data?.referenceNumber ?? request.data?.piNumber,
           lines,
+          serialRanges: Array.isArray(request.data?.serialRanges)
+            ? request.data.serialRanges
+            : [],
         },
       );
     } catch (err) {
@@ -3863,6 +3868,9 @@ export const updatePurchaseOrder = onCall(
           referenceNumber: request.data?.referenceNumber,
           notes: request.data?.notes,
           lines,
+          serialRanges: Array.isArray(request.data?.serialRanges)
+            ? request.data.serialRanges
+            : undefined,
         },
       );
     } catch (err) {
@@ -3872,6 +3880,32 @@ export const updatePurchaseOrder = onCall(
         throw new HttpsError('failed-precondition', message);
       }
       throw new HttpsError('internal', message);
+    }
+  },
+);
+
+/** Save machine serial ranges on a PO (Firestore only — not sent to Zoho). */
+export const savePurchaseOrderSerialRanges = onCall(
+  {
+    region: 'asia-south1',
+    timeoutSeconds: 30,
+    memory: '256MiB',
+  },
+  async request => {
+    await requireActiveUser(request.auth?.uid, SUPER_ADMIN_ROLES);
+    const poId = String(request.data?.purchaseOrderId ?? '').trim();
+    if (!poId) {
+      throw new HttpsError('invalid-argument', 'purchaseOrderId is required.');
+    }
+    try {
+      return await writePurchaseOrderSerialRanges(
+        poId,
+        Array.isArray(request.data?.serialRanges) ? request.data.serialRanges : [],
+      );
+    } catch (err) {
+      console.error('savePurchaseOrderSerialRanges failed:', err);
+      const message = err?.message ?? 'Could not save serial numbers.';
+      throw new HttpsError('invalid-argument', message);
     }
   },
 );
@@ -7407,11 +7441,18 @@ export const allotNonGatcSerialsToInvoiceFn = onCall(
           ...zoho,
         });
       }
+      const serials = Array.isArray(request.data?.serials)
+        ? request.data.serials.map(value => String(value ?? '').trim()).filter(Boolean)
+        : [];
+      if (!serials.length) {
+        throw new HttpsError('invalid-argument', 'Select serial numbers from the available list.');
+      }
       return await applyNonGatcSerialAllotmentOnInvoice({
         customerId,
         invoiceId,
+        lineId: String(request.data?.lineId ?? '').trim(),
+        serials,
         actorName,
-        force: true,
         ...zoho,
       });
     } catch (err) {
@@ -7420,6 +7461,24 @@ export const allotNonGatcSerialsToInvoiceFn = onCall(
         'failed-precondition',
         err?.message ?? 'Could not allot non-GATC serial numbers.',
       );
+    }
+  },
+);
+
+export const listAvailableNonGatcSerialsFn = onCall(
+  {
+    region: 'asia-south1',
+    timeoutSeconds: 60,
+    memory: '512MiB',
+  },
+  async request => {
+    await requireActiveUser(request.auth?.uid, NON_GATC_SERIAL_ROLES);
+    try {
+      const max = Math.min(5000, Math.max(1, Number(request.data?.max) || 2000));
+      return { rows: await listAvailableNonGatcSerials(max) };
+    } catch (err) {
+      if (err instanceof HttpsError) throw err;
+      throw new HttpsError('internal', err?.message ?? 'Could not load available serials.');
     }
   },
 );

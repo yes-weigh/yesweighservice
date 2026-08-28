@@ -21,6 +21,7 @@ import {
   sumNonFreightQuantity,
 } from './invoice-category.js';
 import { extractWebhookEvent } from './invoice-sync.js';
+import { applyPurchaseOrderSerialsOnGoodsReceipt } from './purchase-order-serials.js';
 
 const COLLECTION = 'goodsReceipts';
 const META_DOC = 'goodsReceiptMeta/orgSync';
@@ -567,9 +568,13 @@ async function upsertGoodsReceiptFromRaw(raw) {
   const mapped = mapGoodsReceipt(raw);
   if (!mapped.id) throw new Error('Missing bill_id.');
   mapped.poDate = await resolveGoodsReceiptPoDate(mapped, raw);
+  mapped.purchaseOrderNumber = linkedPurchaseOrderNumber(raw) || mapped.referenceNumber || null;
 
   const existingSnap = await poCollection().doc(mapped.id).get();
   const existing = existingSnap.exists ? (existingSnap.data() || {}) : null;
+  if (!mapped.purchaseOrderNumber && existing?.purchaseOrderNumber) {
+    mapped.purchaseOrderNumber = existing.purchaseOrderNumber;
+  }
 
   // New bills: drafts only. Already-mirrored bills stay after ops opens them in Zoho.
   if (!isDraftBillStatus(mapped.status)) {
@@ -1227,7 +1232,18 @@ export async function markGoodsReceiptReceived(secrets, orgId, {
   const currentStatus = normalizeBillStatus(data.status);
   const stillDraft = currentStatus === 'draft' || !currentStatus;
 
+  const accessToken = await getAccessToken(secrets);
+  const organizationId = await resolveOrganizationId(accessToken, orgId);
+
   if (existingReceivedAt && !stillDraft) {
+    const raw = await fetchBillRaw(accessToken, organizationId, id).catch(() => null);
+    const serialAllotment = await applyPurchaseOrderSerialsOnGoodsReceipt({
+      goodsReceiptId: id,
+      purchaseOrderNumber: linkedPurchaseOrderNumber(raw)
+        || data.purchaseOrderNumber
+        || data.referenceNumber,
+      markedByName,
+    });
     return {
       alreadyReceived: true,
       status: String(data.status ?? 'open'),
@@ -1235,6 +1251,7 @@ export async function markGoodsReceiptReceived(secrets, orgId, {
       opsReceivedAt: existingReceivedAt,
       opsReceivedByUid: data.opsReceivedByUid != null ? String(data.opsReceivedByUid) : null,
       opsReceivedByName: data.opsReceivedByName != null ? String(data.opsReceivedByName) : null,
+      serialAllotment,
     };
   }
 
@@ -1254,8 +1271,6 @@ export async function markGoodsReceiptReceived(secrets, orgId, {
     ? String(data.receivedDate)
     : toIstDateKey(receivedAt);
 
-  const accessToken = await getAccessToken(secrets);
-  const organizationId = await resolveOrganizationId(accessToken, orgId);
   if (stillDraft) {
     await setBillDateInZoho(accessToken, organizationId, id, receivedDate);
     await approveBillInZoho(accessToken, organizationId, id);
@@ -1284,13 +1299,24 @@ export async function markGoodsReceiptReceived(secrets, orgId, {
   }
 
   const status = String(raw.status ?? 'open');
+  const purchaseOrderNumber = linkedPurchaseOrderNumber(raw)
+    || data.purchaseOrderNumber
+    || data.referenceNumber
+    || null;
   await ref.set({
     status,
     receivedDate,
     opsReceivedAt,
+    purchaseOrderNumber,
     opsReceivedByUid: data.opsReceivedByUid ?? markedByUid ?? null,
     opsReceivedByName: data.opsReceivedByName ?? markedByName ?? null,
   }, { merge: true });
+
+  const serialAllotment = await applyPurchaseOrderSerialsOnGoodsReceipt({
+    goodsReceiptId: id,
+    purchaseOrderNumber,
+    markedByName,
+  });
 
   return {
     alreadyReceived: Boolean(existingReceivedAt),
@@ -1303,6 +1329,7 @@ export async function markGoodsReceiptReceived(secrets, orgId, {
     opsReceivedByName: data.opsReceivedByName != null
       ? String(data.opsReceivedByName)
       : (markedByName ?? null),
+    serialAllotment,
   };
 }
 

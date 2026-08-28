@@ -291,7 +291,7 @@ export function countLinkedUnused(
   return { linked, unused: qty - linked };
 }
 
-const INVOICED_SERIAL_CACHE_KEY = 'yesweigh.invoicedSerialKeys.v2';
+const INVOICED_SERIAL_CACHE_KEY = 'yesweigh.invoicedSerialKeys.v3';
 
 function pushSerialKey(into: Set<string>, raw: unknown): void {
   const key = compactSerialKey(String(raw ?? ''));
@@ -364,6 +364,21 @@ function normalizeAllotment(raw: unknown): SerialNumberAllotment | null {
     createdBy: String(data.createdBy ?? '').trim() || null,
     pushedAt: String(data.pushedAt ?? '').trim() || null,
     pushError: String(data.pushError ?? '').trim() || null,
+    sku: typeof data.sku === 'string' && data.sku.trim() ? data.sku.trim() : null,
+    imageUrl: typeof data.imageUrl === 'string' && data.imageUrl.trim() ? data.imageUrl.trim() : null,
+    productName: typeof data.productName === 'string' && data.productName.trim()
+      ? data.productName.trim()
+      : null,
+    sourcePoNumber: typeof data.sourcePoNumber === 'string' && data.sourcePoNumber.trim()
+      ? data.sourcePoNumber.trim()
+      : null,
+    sourceLineId: typeof data.sourceLineId === 'string' && data.sourceLineId.trim()
+      ? data.sourceLineId.trim()
+      : null,
+    sourceGoodsReceiptId: typeof data.sourceGoodsReceiptId === 'string'
+      && data.sourceGoodsReceiptId.trim()
+      ? data.sourceGoodsReceiptId.trim()
+      : null,
   };
 }
 

@@ -483,6 +483,8 @@ service cloud.firestore {
               'kotakPayout',
               'tracking',
               'activityLogs',
+              'serialRangesByLineId',
+              'serialRangesUpdatedAt',
             ]);
     }
 

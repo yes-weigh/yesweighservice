@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { Pencil, Plus, Send } from 'lucide-react';
+import { Package, Pencil, Plus, Send } from 'lucide-react';
+import { CategoryThumbnail } from '../../../components/catalog/CategoryThumbnail';
 import { useAuth } from '../../../context/AuthContext';
 import {
   allotmentFromPreview,
@@ -457,7 +458,26 @@ export const SerialNumberAllotmentTab: React.FC = () => {
               <li key={row.id} className="settings-serial-allotment__row">
                 <div className="settings-serial-allotment__metrics">
                   <div className="settings-serial-allotment__metrics-row">
-                    <AllotmentStat label="Series" tone="series" value={seriesLabel(row.series)} />
+                    {row.sku || row.imageUrl || row.productName ? (
+                      <div className="settings-serial-allotment__stat settings-serial-allotment__stat--product">
+                        <span>Product</span>
+                        <strong>
+                          <span className="settings-serial-allotment__product-media">
+                            {row.imageUrl ? (
+                              <CategoryThumbnail src={row.imageUrl} knockout={false} />
+                            ) : (
+                              <Package size={16} aria-hidden />
+                            )}
+                          </span>
+                          <span className="settings-serial-allotment__product-copy">
+                            <em>{row.sku || '—'}</em>
+                            {row.productName ? <small>{row.productName}</small> : null}
+                          </span>
+                        </strong>
+                      </div>
+                    ) : (
+                      <AllotmentStat label="Series" tone="series" value={seriesLabel(row.series)} />
+                    )}
                     <AllotmentStat label="Start" tone="start" value={row.from} />
                     <AllotmentStat label="End" tone="end" value={row.to} />
                     <AllotmentStat label="Qty" tone="qty" value={formatCount(row.count)} />

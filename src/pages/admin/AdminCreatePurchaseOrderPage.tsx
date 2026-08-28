@@ -19,6 +19,7 @@ import { CatalogBrowse } from '../../components/catalog/CatalogBrowse';
 import { CatalogCategoryChips } from '../../components/catalog/CatalogCategoryChips';
 import { ProductImageFrame } from '../../components/catalog/ProductImageFrame';
 import { StaffSoProductPeek } from '../../components/salesOrders/StaffSoProductPeek';
+import { PoLineSerialFields } from '../../components/admin/PoLineSerialFields';
 import { QuantityStepper } from '../../components/QuantityStepper';
 import { CartProvider } from '../../context/CartProvider';
 import { useAuth } from '../../context/AuthContext';
@@ -48,6 +49,11 @@ import {
   type PurchaseItemCost,
   type PurchaseItemCostSet,
 } from '../../lib/sparePurchaseCosts';
+import {
+  poLineShowsSerialRange,
+  serialRangeInputsFromLines,
+} from '../../lib/purchaseOrderSerials';
+import { previewSerialRange } from '../../lib/serialNumberAllotment';
 import { canUpdatePurchaseOrders } from '../../lib/staffAccess';
 import {
   fetchZohoVendorsLive,
@@ -116,6 +122,9 @@ const CreatePurchaseOrderWizard: React.FC = () => {
   const [piNumber, setPiNumber] = useState('');
   const [poDate, setPoDate] = useState(todayYmd);
   const [creating, setCreating] = useState(false);
+  const [serialByCartLineId, setSerialByCartLineId] = useState<
+    Record<string, { startNumber: string; endNumber: string }>
+  >({});
 
   const [catalogProducts, setCatalogProducts] = useState<CatalogProduct[]>([]);
   const [catalogCategories, setCatalogCategories] = useState<CatalogCategory[]>([]);
@@ -413,6 +422,19 @@ const CreatePurchaseOrderWizard: React.FC = () => {
       setError('Add at least one item from the catalog.');
       return;
     }
+    const serialError = items
+      .map(item => serialByCartLineId[item.cartLineId])
+      .filter(serial => serial && (serial.startNumber.trim() || serial.endNumber.trim()))
+      .map(serial => previewSerialRange({
+        from: serial.startNumber,
+        to: serial.endNumber,
+        missingText: '',
+      }).error)
+      .find(Boolean);
+    if (serialError) {
+      setError(serialError);
+      return;
+    }
     setCreating(true);
     setError('');
     try {
@@ -426,6 +448,15 @@ const CreatePurchaseOrderWizard: React.FC = () => {
           rate: lineRateForVendor(item, poCosts, selectedVendor.currencyCode),
           name: item.name,
         })),
+        serialRanges: serialRangeInputsFromLines(items.map(item => ({
+          lineId: item.cartLineId,
+          productId: item.productId,
+          name: item.name,
+          sku: item.sku,
+          imageUrl: item.imageUrl,
+          startNumber: serialByCartLineId[item.cartLineId]?.startNumber ?? '',
+          endNumber: serialByCartLineId[item.cartLineId]?.endNumber ?? '',
+        }))),
       });
       if (indentPrefill?.indentIds.length) {
         await markSpareIndentsConverted({
@@ -946,6 +977,21 @@ const CreatePurchaseOrderWizard: React.FC = () => {
                           onChange={qty => setQuantity(item.cartLineId, qty)}
                           aria-label={`Quantity for ${item.name}`}
                         />
+                        {poLineShowsSerialRange(item) ? (
+                          <PoLineSerialFields
+                            startNumber={serialByCartLineId[item.cartLineId]?.startNumber ?? ''}
+                            endNumber={serialByCartLineId[item.cartLineId]?.endNumber ?? ''}
+                            lineQty={item.quantity}
+                            disabled={creating}
+                            name={item.name}
+                            onChange={next => {
+                              setSerialByCartLineId(prev => ({
+                                ...prev,
+                                [item.cartLineId]: next,
+                              }));
+                            }}
+                          />
+                        ) : null}
                       </div>
                       <div className="staff-create-so-page__cart-actions">
                         <strong>

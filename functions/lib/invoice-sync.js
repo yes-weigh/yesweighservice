@@ -764,19 +764,20 @@ export async function upsertInvoiceFromRaw(accessToken, orgId, invoiceRaw, optio
   await invoicesCollection(customerId).doc(invoiceId).set(doc, { merge: true });
   await invoiceIndexRef(invoiceId).set({ customerId, updatedAt: FieldValue.serverTimestamp() });
 
-  try {
-    // Dismantled / no-GATC machine lines only. GATC-stamped serials are
-    // assigned later by warehouse from unlinked Interweighing certificates.
-    const { applyNonGatcSerialAllotmentOnInvoice } = await import('./non-gatc-serial-allot.js');
-    await applyNonGatcSerialAllotmentOnInvoice({
-      customerId,
-      invoiceId,
-      actorName: 'invoice-sync',
-      accessToken,
-      orgId,
-    });
-  } catch (err) {
-    console.warn(`Non-GATC serial allotment failed for ${invoiceId}:`, err?.message ?? err);
+  const statusKey = String(doc.status || '').trim().toLowerCase();
+  if (statusKey === 'void' || statusKey === 'cancelled' || statusKey === 'canceled') {
+    try {
+      const { applyNonGatcSerialAllotmentOnInvoice } = await import('./non-gatc-serial-allot.js');
+      await applyNonGatcSerialAllotmentOnInvoice({
+        customerId,
+        invoiceId,
+        actorName: 'invoice-sync',
+        accessToken,
+        orgId,
+      });
+    } catch (err) {
+      console.warn(`Serial release on void invoice ${invoiceId} failed:`, err?.message ?? err);
+    }
   }
 
   if (Number(doc.total ?? 0) > 50_000) {
@@ -861,12 +862,45 @@ export async function upsertInvoiceFromRaw(accessToken, orgId, invoiceRaw, optio
   return { customerId, invoiceId, updated: true };
 }
 
+function isZohoInvoiceMissing(err) {
+  const message = String(err?.message ?? '').toLowerCase();
+  const code = String(err?.code ?? err?.zohoCode ?? '').toLowerCase();
+  return (
+    code === 'not_found'
+    || code === '404'
+    || Number(err?.status) === 404
+    || Number(err?.zohoCode) === 5
+    || message.includes('not found')
+    || message.includes('does not exist')
+    || message.includes('invalid invoice')
+    || /(?:^|\D)404(?:\D|$)/.test(message)
+  );
+}
+
+async function releaseSerialsBeforeInvoiceRemove(customerId, invoiceId, data = {}) {
+  try {
+    const { releaseInvoiceSerialLinks } = await import('./non-gatc-serial-allot.js');
+    return await releaseInvoiceSerialLinks({
+      customerId,
+      invoiceId,
+      invoiceNumber: data.invoiceNumber || data.invoice_number || '',
+      data,
+    });
+  } catch (err) {
+    console.warn(
+      `Serial / GATC release failed for invoice ${invoiceId}:`,
+      err?.message ?? err,
+    );
+    return { released: 0 };
+  }
+}
+
 export async function deleteInvoiceFromFirestore(customerId, invoiceId) {
   const ref = invoicesCollection(customerId).doc(invoiceId);
   const snap = await ref.get();
+  const data = snap.exists ? (snap.data() ?? {}) : {};
+  await releaseSerialsBeforeInvoiceRemove(customerId, invoiceId, data);
   if (!snap.exists) return false;
-
-  const data = snap.data() ?? {};
   const bucket = storageBucket();
   const paths = [data.pdfStoragePath, data.salesOrderPdfStoragePath].filter(Boolean);
   await ref.delete();
@@ -1098,9 +1132,21 @@ export async function syncSingleInvoiceFromZoho(secrets, orgId, invoiceId, optio
   const accessToken = await getAccessToken(secrets);
   const organizationId = await resolveOrganizationId(accessToken, orgId);
   const syncOpts = defaultInvoiceSyncOptions(options);
-  let fullRaw = await fetchInvoiceRaw(accessToken, organizationId, invoiceId);
+  let fullRaw;
+  try {
+    fullRaw = await fetchInvoiceRaw(accessToken, organizationId, invoiceId);
+  } catch (err) {
+    if (!isZohoInvoiceMissing(err)) throw err;
+    fullRaw = null;
+  }
   if (!fullRaw) {
-    return { deleted: false, updated: false, reason: 'not found' };
+    const indexSnap = await invoiceIndexRef(invoiceId).get();
+    if (indexSnap.exists) {
+      await deleteInvoiceFromFirestore(String(indexSnap.data()?.customerId), invoiceId);
+      return { deleted: true, updated: false, reason: 'missing_in_zoho' };
+    }
+    await releaseSerialsBeforeInvoiceRemove('', invoiceId);
+    return { deleted: true, updated: false, reason: 'missing_in_zoho' };
   }
 
   fullRaw = await promoteDraftInvoiceIfPaymentConfirmed(
@@ -1624,13 +1670,32 @@ export function verifyZohoWebhookSignature(req, secret) {
   return false;
 }
 
-export function extractInvoiceIdFromWebhook(body) {
-  if (!body || typeof body !== 'object') return null;
+function normalizeWebhookBody(body) {
+  if (!body || typeof body !== 'object') return {};
+  let next = { ...body };
+  if (typeof body.JSONString === 'string' && body.JSONString.trim()) {
+    try {
+      const parsed = JSON.parse(body.JSONString);
+      if (parsed && typeof parsed === 'object') next = { ...next, ...parsed };
+    } catch {
+      // ignore malformed Zoho JSONString
+    }
+  }
+  return next;
+}
+
+export function extractInvoiceIdFromWebhook(body, query = {}) {
+  const normalized = normalizeWebhookBody(body);
   const candidates = [
-    body.invoice_id,
-    body.invoice?.invoice_id,
-    body.data?.invoice_id,
-    body.payload?.invoice_id,
+    query.invoice_id,
+    query.invoiceId,
+    query.id,
+    normalized.invoice_id,
+    normalized.invoiceId,
+    normalized.invoice?.invoice_id,
+    normalized.invoice?.invoiceId,
+    normalized.data?.invoice_id,
+    normalized.payload?.invoice_id,
   ];
   for (const value of candidates) {
     if (value != null && String(value).trim()) return String(value).trim();
@@ -1638,40 +1703,77 @@ export function extractInvoiceIdFromWebhook(body) {
   return null;
 }
 
-export function extractWebhookEvent(body) {
-  if (!body || typeof body !== 'object') return 'update';
-  const event = body.event_type ?? body.event ?? body.action ?? body.type;
+export function extractWebhookEvent(body, query = {}) {
+  const normalized = normalizeWebhookBody(body);
+  const event = query.action
+    ?? query.event
+    ?? normalized.event_type
+    ?? normalized.event
+    ?? normalized.action
+    ?? normalized.type;
   return String(event ?? 'update').toLowerCase();
 }
 
+function webhookInvoiceNumber(body) {
+  const normalized = normalizeWebhookBody(body);
+  const value = normalized.invoice_number
+    ?? normalized.invoice?.invoice_number
+    ?? normalized.data?.invoice_number;
+  return value != null ? String(value).trim() : '';
+}
+
+function webhookCustomerId(body) {
+  const normalized = normalizeWebhookBody(body);
+  const value = normalized.customer_id
+    ?? normalized.invoice?.customer_id
+    ?? normalized.data?.customer_id;
+  return value != null ? String(value).trim() : '';
+}
+
+async function removeInvoiceFromWebhook(invoiceId, body) {
+  const customerId = webhookCustomerId(body);
+  if (customerId) {
+    await deleteInvoiceFromFirestore(customerId, invoiceId);
+    return { ok: true, status: 200, action: 'deleted', invoiceId };
+  }
+  const indexSnap = await invoiceIndexRef(invoiceId).get();
+  if (indexSnap.exists) {
+    await deleteInvoiceFromFirestore(String(indexSnap.data()?.customerId), invoiceId);
+    return { ok: true, status: 200, action: 'deleted', invoiceId };
+  }
+  await releaseSerialsBeforeInvoiceRemove('', invoiceId, {
+    invoiceNumber: webhookInvoiceNumber(body),
+  });
+  return { ok: true, status: 200, action: 'deleted', invoiceId, reason: 'released_without_local_doc' };
+}
+
 export async function handleZohoInvoiceWebhook(secrets, orgId, req) {
-  const body = req.body ?? {};
-  const invoiceId = extractInvoiceIdFromWebhook(body);
+  const body = normalizeWebhookBody(req.body ?? {});
+  const invoiceId = extractInvoiceIdFromWebhook(body, req.query ?? {});
   if (!invoiceId) {
     return { ok: false, status: 400, message: 'Missing invoice_id' };
   }
 
-  const queryAction = String(req.query?.action ?? '').trim().toLowerCase();
-  const event = queryAction || extractWebhookEvent(body);
+  const event = extractWebhookEvent(body, req.query ?? {});
   if (event.includes('delete')) {
-    const customerId = body.customer_id ?? body.invoice?.customer_id;
-    if (customerId) {
-      await deleteInvoiceFromFirestore(String(customerId), invoiceId);
-      return { ok: true, status: 200, action: 'deleted', invoiceId };
-    }
-    const indexSnap = await invoiceIndexRef(invoiceId).get();
-    if (indexSnap.exists) {
-      await deleteInvoiceFromFirestore(String(indexSnap.data()?.customerId), invoiceId);
-      return { ok: true, status: 200, action: 'deleted', invoiceId };
-    }
-    return { ok: true, status: 200, action: 'ignored', invoiceId, reason: 'unknown customer' };
+    return removeInvoiceFromWebhook(invoiceId, body);
   }
 
-  const result = await syncSingleInvoiceFromZoho(secrets, orgId, invoiceId, {
-    source: 'webhook',
-    skipPdfs: false,
-  });
-  return { ok: true, status: 200, action: 'synced', invoiceId, result };
+  try {
+    const result = await syncSingleInvoiceFromZoho(secrets, orgId, invoiceId, {
+      source: 'webhook',
+      skipPdfs: false,
+    });
+    if (result?.deleted || result?.reason === 'missing_in_zoho') {
+      return { ok: true, status: 200, action: 'deleted', invoiceId, result };
+    }
+    return { ok: true, status: 200, action: 'synced', invoiceId, result };
+  } catch (err) {
+    if (isZohoInvoiceMissing(err)) {
+      return removeInvoiceFromWebhook(invoiceId, body);
+    }
+    throw err;
+  }
 }
 
 export {

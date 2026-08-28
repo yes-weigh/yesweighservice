@@ -1,7 +1,7 @@
 /**
- * Allot continuous non-GATC serials to dismantled weighing-scale invoice lines.
- * Pool: Settings → Serial numbers → series `non_gatc`.
- * Eligible: HSN 84238190 / 84238290 / 84231000 and not GATC-stamped.
+ * Non-GATC (dismantled) serials: warehouse picks unused serials from the
+ * Settings → Serial numbers `non_gatc` pool. Invoice create/sync does not
+ * auto-allot. Eligible: HSN 84238190 / 84238290 / 84231000 and not GATC-stamped.
  * Allot / unlink also PUT the Zoho invoice (line description).
  */
 import { FieldValue, getFirestore } from 'firebase-admin/firestore';
@@ -164,6 +164,19 @@ function lineNeed(line) {
   return Math.max(0, qty - have);
 }
 
+export async function listAvailableNonGatcSerials(max = 2000) {
+  const db = getFirestore();
+  const allotSnap = await db.doc(SERIAL_NUMBER_ALLOTMENT_DOC).get();
+  const pool = expandNonGatcPool(allotSnap.exists ? allotSnap.data()?.allotments : []);
+  const taken = await loadTakenSerialKeys(db);
+  const available = pool.filter(serial => !taken.has(compactSerialKey(serial)));
+  const limit = Math.min(5000, Math.max(1, Number(max) || 2000));
+  return available.slice(0, limit).map(serial => ({
+    id: compactSerialKey(serial),
+    serialNumber: serial,
+  }));
+}
+
 async function loadTakenSerialKeys(db, exceptInvoiceId = '') {
   const taken = new Set();
   const snap = await db.collection(NON_GATC_ALLOCATIONS).get();
@@ -188,6 +201,130 @@ async function releaseAllocationsForInvoice(db, invoiceId) {
   });
   await batch.commit();
   return serials;
+}
+
+/**
+ * Release non-GATC pool serials and unlink GATC certificates for an invoice
+ * that was voided, cancelled, or deleted in Zoho. Skips Zoho PUT so it still
+ * works after the invoice is gone.
+ */
+export async function releaseInvoiceSerialLinks({
+  customerId = '',
+  invoiceId,
+  invoiceNumber = '',
+  data = {},
+} = {}) {
+  const db = getFirestore();
+  const iid = str(invoiceId);
+  let cid = str(customerId || data?.customerId);
+  let invoiceData = data && typeof data === 'object' ? { ...data } : {};
+
+  if (iid && !cid) {
+    const indexSnap = await db.doc(`invoiceIndex/${iid}`).get();
+    if (indexSnap.exists) cid = str(indexSnap.data()?.customerId);
+  }
+  if (iid && cid) {
+    const snap = await db.doc(`zohoCustomers/${cid}/invoices/${iid}`).get();
+    if (snap.exists) invoiceData = { ...snap.data(), ...invoiceData, id: iid, customerId: cid };
+  }
+  if (!str(invoiceData.invoiceNumber) && invoiceNumber) {
+    invoiceData.invoiceNumber = str(invoiceNumber);
+  }
+
+  const released = iid ? await releaseAllocationsForInvoice(db, iid) : [];
+  let gatcReleased = 0;
+  try {
+    const { releaseGatcStampedSerialsOnVoid } = await import('./yesgatc-stamped-serial-allot.js');
+    const gatc = await releaseGatcStampedSerialsOnVoid({
+      customerId: cid,
+      invoiceId: iid,
+      data: { id: iid, ...invoiceData },
+      lines: Array.isArray(invoiceData.lineItems) ? invoiceData.lineItems : [],
+    });
+    gatcReleased = Number(gatc.released) || 0;
+  } catch (err) {
+    console.warn(`GATC unlink on invoice remove failed for ${iid}:`, err?.message ?? err);
+  }
+
+  return {
+    released: released.length + gatcReleased,
+    serials: released,
+    gatcReleased,
+  };
+}
+
+function isGoneInvoiceStatus(status) {
+  return isVoidInvoiceStatus(status);
+}
+
+/** One-shot / webhook repair: allocations and GATC links whose invoice is gone or void. */
+export async function releaseOrphanedInvoiceSerialLinks() {
+  const db = getFirestore();
+  const summary = {
+    allocationsReleased: 0,
+    certificatesUnlinked: 0,
+    invoices: [],
+  };
+
+  const invoiceIds = new Set();
+  const allocSnap = await db.collection(NON_GATC_ALLOCATIONS).get();
+  allocSnap.forEach(doc => {
+    const iid = str(doc.data()?.invoiceId);
+    if (iid) invoiceIds.add(iid);
+  });
+
+  const collectInvoiceId = (value) => {
+    const iid = str(value);
+    if (iid) invoiceIds.add(iid);
+  };
+
+  const certSnap = await db.collection('yesgatcCertificates')
+    .where('invoiceId', '>', '')
+    .get()
+    .catch(() => null);
+  if (certSnap) {
+    certSnap.forEach(doc => collectInvoiceId(doc.data()?.invoiceId));
+  }
+
+  const linkSnap = await db.collection('yesgatcSerialLinks')
+    .where('invoiceId', '>', '')
+    .get()
+    .catch(() => null);
+  if (linkSnap) {
+    linkSnap.forEach(doc => collectInvoiceId(doc.data()?.invoiceId));
+  }
+
+  for (const invoiceId of invoiceIds) {
+    const indexSnap = await db.doc(`invoiceIndex/${invoiceId}`).get();
+    const cid = str(indexSnap.data()?.customerId);
+    let gone = !indexSnap.exists || !cid;
+    let invoiceData = {};
+    if (!gone) {
+      const snap = await db.doc(`zohoCustomers/${cid}/invoices/${invoiceId}`).get();
+      if (!snap.exists || isGoneInvoiceStatus(snap.data()?.status)) {
+        gone = true;
+        invoiceData = snap.exists ? (snap.data() || {}) : {};
+      }
+    }
+    if (!gone) continue;
+    const result = await releaseInvoiceSerialLinks({
+      customerId: cid,
+      invoiceId,
+      data: invoiceData,
+    });
+    if (result.released) {
+      summary.allocationsReleased += (result.serials || []).length;
+      summary.certificatesUnlinked += Number(result.gatcReleased) || 0;
+      summary.invoices.push({
+        invoiceId,
+        customerId: cid || null,
+        released: result.released,
+        serials: result.serials,
+      });
+    }
+  }
+
+  return summary;
 }
 
 function stripReleasedSerials(lines, releasedKeys) {
@@ -373,6 +510,8 @@ export async function applyNonGatcSerialAllotmentOnInvoice({
   actorName = 'YESWEIGH',
   force = false,
   forceRelease = false,
+  serials = [],
+  lineId = '',
   accessToken,
   orgId,
   secrets,
@@ -441,12 +580,17 @@ export async function applyNonGatcSerialAllotmentOnInvoice({
 
   const eligible = lines.filter(isNonGatcSerialEligibleLine);
   const needed = eligible.reduce((sum, line) => sum + lineNeed(line), 0);
+  const selected = uniqueSerials(serials);
+  if (!selected.length) {
+    return { allotted: 0, released: 0, shortage: needed, voided: false, lineItems: lines };
+  }
   if (!needed && !force) {
     return { allotted: 0, released: 0, shortage: 0, voided: false, lineItems: lines };
   }
 
   const allotSnap = await db.doc(SERIAL_NUMBER_ALLOTMENT_DOC).get();
   const pool = expandNonGatcPool(allotSnap.exists ? allotSnap.data()?.allotments : []);
+  const poolKeys = new Set(pool.map(compactSerialKey));
   const taken = await loadTakenSerialKeys(db, invoiceId);
   for (const line of lines) {
     for (const serial of uniqueSerials(line?.serialNumbers)) {
@@ -454,12 +598,40 @@ export async function applyNonGatcSerialAllotmentOnInvoice({
     }
   }
 
-  const available = pool.filter(serial => !taken.has(compactSerialKey(serial)));
+  const available = [];
+  const seenPick = new Set();
+  for (const serial of selected) {
+    const key = compactSerialKey(serial);
+    if (!key || seenPick.has(key)) continue;
+    if (!poolKeys.has(key)) {
+      throw new Error(`${serial} is not in the non-GATC allotted list.`);
+    }
+    if (taken.has(key)) {
+      throw new Error(`${serial} is already linked to an invoice.`);
+    }
+    seenPick.add(key);
+    available.push(pool.find(item => compactSerialKey(item) === key) || serial);
+  }
+  if (!available.length) {
+    return { allotted: 0, released: 0, shortage: needed, voided: false, lineItems: lines };
+  }
+
+  const targetLineId = str(lineId);
+  const targetNeed = targetLineId
+    ? lineNeed(lines.find(line => str(line.id) === targetLineId) || {})
+    : needed;
+  if (available.length !== targetNeed) {
+    throw new Error(
+      `Select exactly ${targetNeed} serial${targetNeed === 1 ? '' : 's'} from the available list.`,
+    );
+  }
+
   let cursor = 0;
   let allotted = 0;
   const newAllocations = [];
   const nextLines = lines.map(line => {
     if (!isNonGatcSerialEligibleLine(line)) return line;
+    if (targetLineId && str(line.id) !== targetLineId) return line;
     const need = lineNeed(line);
     if (!need) return line;
     const take = available.slice(cursor, cursor + need);

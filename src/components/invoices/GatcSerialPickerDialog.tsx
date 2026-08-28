@@ -6,8 +6,16 @@ import {
   listUnlinkedIwpGatcCertificates,
   type UnlinkedIwpGatcCertificate,
 } from '../../lib/gatcStampedSerialAllot';
+import { listAvailableNonGatcSerials } from '../../lib/nonGatcSerialAllot';
 
-function capacityLabel(row: UnlinkedIwpGatcCertificate): string {
+type PickerRow = {
+  id: string;
+  serialNumber: string;
+  max?: string;
+  certificateNumber?: string;
+};
+
+function capacityLabel(row: PickerRow): string {
   const raw = String(row.max ?? '').trim();
   if (!raw) return '—';
   if (/kg|g\b|t\b/i.test(raw)) return raw;
@@ -20,6 +28,7 @@ export function GatcSerialPickerDialog({
   capacityKg,
   saving,
   error,
+  mode = 'gatc',
   onClose,
   onSave,
 }: {
@@ -28,13 +37,14 @@ export function GatcSerialPickerDialog({
   capacityKg?: number | null;
   saving: boolean;
   error: string;
+  mode?: 'gatc' | 'nongatc';
   onClose: () => void;
-  onSave: (certificateIds: string[]) => void;
+  onSave: (ids: string[]) => void;
 }) {
   const [query, setQuery] = useState('');
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState('');
-  const [rows, setRows] = useState<UnlinkedIwpGatcCertificate[]>([]);
+  const [rows, setRows] = useState<PickerRow[]>([]);
   const [selected, setSelected] = useState<string[]>([]);
 
   useEffect(() => {
@@ -54,13 +64,25 @@ export function GatcSerialPickerDialog({
     let cancelled = false;
     setLoading(true);
     setLoadError('');
-    void listUnlinkedIwpGatcCertificates()
+    const load = mode === 'nongatc'
+      ? listAvailableNonGatcSerials().then(list => list.map(row => ({
+        id: row.id || row.serialNumber,
+        serialNumber: row.serialNumber,
+      })))
+      : listUnlinkedIwpGatcCertificates();
+    void load
       .then(list => {
         if (!cancelled) setRows(list);
       })
       .catch(err => {
         if (!cancelled) {
-          setLoadError(err instanceof Error ? err.message : 'Could not load unlinked GATC serials.');
+          setLoadError(
+            err instanceof Error
+              ? err.message
+              : mode === 'nongatc'
+                ? 'Could not load available serials.'
+                : 'Could not load unlinked GATC serials.',
+          );
         }
       })
       .finally(() => {
@@ -69,17 +91,19 @@ export function GatcSerialPickerDialog({
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [mode]);
 
   const visible = useMemo(() => {
     const needle = query.trim().toLowerCase();
     return rows.filter(row => {
-      if (capacityKg != null && certificateCapacityKg(row) !== capacityKg) return false;
+      if (mode === 'gatc' && capacityKg != null && certificateCapacityKg(row as UnlinkedIwpGatcCertificate) !== capacityKg) {
+        return false;
+      }
       if (!needle) return true;
-      const blob = `${row.serialNumber} ${row.max} ${row.certificateNumber}`.toLowerCase();
+      const blob = `${row.serialNumber} ${row.max ?? ''} ${row.certificateNumber ?? ''}`.toLowerCase();
       return blob.includes(needle);
     });
-  }, [capacityKg, query, rows]);
+  }, [capacityKg, mode, query, rows]);
 
   const toggle = (id: string) => {
     if (saving) return;
@@ -108,11 +132,13 @@ export function GatcSerialPickerDialog({
       >
         <header className="gatc-serial-picker__head">
           <div>
-            <h3 id="gatc-serial-picker-title">Add GATC serial number</h3>
+            <h3 id="gatc-serial-picker-title">
+              {mode === 'nongatc' ? 'Add serial number' : 'Add GATC serial number'}
+            </h3>
             <p className="text-muted text-sm">
               {title}
               {need ? ` · select ${need}` : ''}
-              {capacityKg != null ? ` · ${capacityKg} kg` : ''}
+              {mode === 'gatc' && capacityKg != null ? ` · ${capacityKg} kg` : ''}
             </p>
           </div>
           <button
@@ -138,20 +164,23 @@ export function GatcSerialPickerDialog({
         <p className="gatc-serial-picker__count">
           {selected.length} of {need} selected
           {visible.length || !loading ? ` · ${visible.length} available` : ''}
-          {capacityKg != null ? ` · ${capacityKg} kg` : ''}
+          {mode === 'gatc' && capacityKg != null ? ` · ${capacityKg} kg` : ''}
         </p>
         {loadError ? <p className="invoice-nongatc-serials__error">{loadError}</p> : null}
         {error ? <p className="invoice-nongatc-serials__error">{error}</p> : null}
         <div className="gatc-serial-picker__board">
           {loading ? (
             <p className="gatc-serial-picker__status">
-              <Loader2 size={16} className="spin-icon" aria-hidden /> Loading unlinked GATC…
+              <Loader2 size={16} className="spin-icon" aria-hidden />
+              {mode === 'nongatc' ? ' Loading available serials…' : ' Loading unlinked GATC…'}
             </p>
           ) : visible.length === 0 ? (
             <p className="gatc-serial-picker__status">
-              {capacityKg != null
-                ? `No unlinked Interweighing certificates for ${capacityKg} kg.`
-                : 'No unlinked Interweighing certificates.'}
+              {mode === 'nongatc'
+                ? 'No unused serials in the non-GATC allotted list.'
+                : capacityKg != null
+                  ? `No unlinked Interweighing certificates for ${capacityKg} kg.`
+                  : 'No unlinked Interweighing certificates.'}
             </p>
           ) : (
             <div className="gatc-serial-picker__grid">
@@ -172,7 +201,7 @@ export function GatcSerialPickerDialog({
                     onClick={() => toggle(row.id)}
                   >
                     <strong>{row.serialNumber || '—'}</strong>
-                    <span>{capacityLabel(row)}</span>
+                    {mode === 'gatc' ? <span>{capacityLabel(row)}</span> : null}
                   </button>
                 );
               })}
