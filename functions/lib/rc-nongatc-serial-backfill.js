@@ -171,11 +171,17 @@ function certificateRcKeys(data) {
   return [...keys];
 }
 
-async function loadOvCountByRc(db, dealers) {
+function isInvoiceLinkedCertificate(data) {
+  return Boolean(str(data?.invoiceNumber) || str(data?.invoiceId));
+}
+
+async function loadOvStatsByRc(db, dealers) {
   const keyToCodes = new Map();
   const ov = new Map();
+  const linked = new Map();
   for (const dealer of dealers) {
     ov.set(dealer.rcCode, 0);
+    linked.set(dealer.rcCode, 0);
     for (const key of [dealer.rcCode, dealer.rcId].map(value => str(value).toUpperCase()).filter(Boolean)) {
       const list = keyToCodes.get(key) || [];
       if (!list.includes(dealer.rcCode)) list.push(dealer.rcCode);
@@ -191,9 +197,46 @@ async function loadOvCountByRc(db, dealers) {
     for (const key of certificateRcKeys(data)) {
       for (const code of keyToCodes.get(key) || []) hit.add(code);
     }
-    for (const code of hit) ov.set(code, (ov.get(code) || 0) + 1);
+    const hasInvoice = isInvoiceLinkedCertificate(data);
+    for (const code of hit) {
+      ov.set(code, (ov.get(code) || 0) + 1);
+      if (hasInvoice) linked.set(code, (linked.get(code) || 0) + 1);
+    }
   }
-  return ov;
+  return { ov, linked };
+}
+
+async function loadOvCountByRc(db, dealers) {
+  const stats = await loadOvStatsByRc(db, dealers);
+  return stats.ov;
+}
+
+/** Sold / OV / linked / pending (Sold − OV) for each dealer RC. */
+export async function loadYesGatcRcOvQuota(minDate = RC_NONGATC_MIN_DATE) {
+  ensureAdmin();
+  const db = getFirestore();
+  const dealers = await loadRcDealers(db);
+  const stats = await loadOvStatsByRc(db, dealers);
+  const rows = [];
+  for (const dealer of dealers) {
+    const customerId = await resolveCustomerId(db, dealer.dealerId);
+    const loaded = await loadDealerNeedInvoices(db, customerId, minDate);
+    const sold = Number(loaded.sold) || 0;
+    const ov = stats.ov.get(dealer.rcCode) || 0;
+    const linked = stats.linked.get(dealer.rcCode) || 0;
+    rows.push({
+      rcCode: dealer.rcCode,
+      rcName: dealer.rcName,
+      dealerId: customerId,
+      dealerName: dealer.dealerName,
+      sold,
+      ov,
+      linked,
+      pending: Math.max(0, sold - ov),
+      bal: Math.max(0, sold - ov),
+    });
+  }
+  return rows;
 }
 
 async function paginateCollection(ref) {

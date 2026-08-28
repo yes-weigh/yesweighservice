@@ -9,6 +9,7 @@ import {
 } from './zoho-api-usage.js';
 import { isSacHsn } from './sac-catalog.js';
 import { isFreightOrderLine } from './freight-lines.js';
+import { fitZohoAddressLines } from './zoho-contact-fields.js';
 
 function isZohoNotAuthorized(err) {
   return /not authorized to perform this operation/i.test(String(err?.message ?? ''));
@@ -47,18 +48,16 @@ function warehouseIdForLine(line, fallbackWarehouseId) {
   return fallback;
 }
 
+function isZohoShippingAddressTooLong(err) {
+  return /shipping_address.*less than 100|address.*less than 100 characters/i
+    .test(String(err?.message || ''));
+}
+
 function inlineShippingAddress(address) {
   if (!address || typeof address !== 'object') return null;
-  return {
-    attention: address.attention || '',
-    address: address.address || '',
-    street2: address.street2 || '',
-    city: address.city || '',
-    state: address.state || '',
-    zip: address.zip || '',
-    country: address.country || 'India',
-    phone: address.phone || '',
-  };
+  const fitted = fitZohoAddressLines(address);
+  if (!fitted.address && !fitted.city && !fitted.zip) return null;
+  return fitted;
 }
 
 function cloneSalesOrderBody(body) {
@@ -97,7 +96,7 @@ function uniqueSalesOrderCreateAttempts(body, shippingInline) {
     attempts.push(withoutSalesperson(body));
     if (hasWarehouse) attempts.push(withoutSalesperson(withoutLineWarehouses(body)));
   }
-  if (body.shipping_address_id && shippingInline) {
+  if (shippingInline) {
     attempts.push(withInlineShippingBody(
       withoutSalesperson(withoutLineWarehouses(body)),
       shippingInline,
@@ -424,6 +423,10 @@ export async function createSalesOrderFromDealerOrder(secrets, configuredOrgId, 
       break;
     } catch (err) {
       lastErr = err;
+      if (isZohoShippingAddressTooLong(err) && i < attempts.length - 1) {
+        console.warn('Zoho shipping address over 100 characters, retrying with split lines.');
+        continue;
+      }
       if (!isZohoNotAuthorized(err)) throw err;
       console.warn('Zoho sales order create not authorized', {
         attempt: i + 1,
@@ -614,16 +617,7 @@ export async function updateSalesOrderShippingAddress(
   if (shippingAddressId) {
     body.shipping_address_id = String(shippingAddressId);
   } else if (shippingAddressInline && typeof shippingAddressInline === 'object') {
-    body.shipping_address = {
-      attention: shippingAddressInline.attention || '',
-      address: shippingAddressInline.address || '',
-      street2: shippingAddressInline.street2 || '',
-      city: shippingAddressInline.city || '',
-      state: shippingAddressInline.state || '',
-      zip: shippingAddressInline.zip || '',
-      country: shippingAddressInline.country || 'India',
-      phone: shippingAddressInline.phone || '',
-    };
+    body.shipping_address = fitZohoAddressLines(shippingAddressInline);
   } else {
     throw new Error('shippingAddressId or shippingAddressInline is required.');
   }
@@ -811,16 +805,7 @@ function shippingFieldsFromSalesOrder(so) {
   );
   if (!hasBody) return {};
   return {
-    shipping_address: {
-      attention: addr.attention || '',
-      address: addr.address || '',
-      street2: addr.street2 || '',
-      city: addr.city || '',
-      state: addr.state || '',
-      zip: addr.zip || '',
-      country: addr.country || 'India',
-      phone: addr.phone || '',
-    },
+    shipping_address: fitZohoAddressLines(addr),
   };
 }
 

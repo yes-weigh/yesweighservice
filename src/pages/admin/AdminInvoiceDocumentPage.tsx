@@ -148,6 +148,20 @@ export const AdminInvoiceDocumentPage: React.FC = () => {
     return '';
   };
 
+  const yesgatcNotice = (result: {
+    yesgatcPushed?: boolean;
+    yesgatcSkipped?: string | null;
+    yesgatcError?: string | null;
+  }) => {
+    if (result.yesgatcPushed) return ' Pushed to YesGATC.';
+    if (result.yesgatcSkipped === 'not_rc') return '';
+    if (result.yesgatcSkipped === 'no_webhook') {
+      return ' YesGATC pending — paste the YesGATC URL in Serial numbers.';
+    }
+    if (result.yesgatcError) return ` YesGATC: ${result.yesgatcError}`;
+    return '';
+  };
+
   const openNonGatcPicker = (lineId: string, need: number, title: string) => {
     if (!canAllotSerials || allotBusy || need <= 0) return;
     setGatcPickerError('');
@@ -178,7 +192,7 @@ export const AdminInvoiceDocumentPage: React.FC = () => {
       await reloadInvoice?.();
       if (result.released > 0) {
         setAllotNotice(
-          `Unlinked ${result.released.toLocaleString('en-IN')} serial${result.released === 1 ? '' : 's'}.${zohoNotice(result)}`,
+          `Unlinked ${result.released.toLocaleString('en-IN')} serial${result.released === 1 ? '' : 's'}.${zohoNotice(result)}${yesgatcNotice(result)}`,
         );
       } else {
         setAllotNotice('No serial numbers to unlink.');
@@ -219,7 +233,7 @@ export const AdminInvoiceDocumentPage: React.FC = () => {
         await reloadInvoice?.();
         setGatcPicker(null);
         setAllotNotice(
-          `Linked ${result.allotted.toLocaleString('en-IN')} serial${result.allotted === 1 ? '' : 's'}.${zohoNotice(result)}${result.yesgatcPushed ? ' Pushed to YesGATC.' : ''}`,
+          `Linked ${result.allotted.toLocaleString('en-IN')} serial${result.allotted === 1 ? '' : 's'}.${zohoNotice(result)}${yesgatcNotice(result)}`,
         );
         return;
       }
@@ -322,7 +336,7 @@ export const AdminInvoiceDocumentPage: React.FC = () => {
         customerId,
         invoiceId,
         actorName,
-        force: yesgatcPushed,
+        force: true,
       });
       await reloadInvoice?.();
       if (result.pushed) {
@@ -333,6 +347,8 @@ export const AdminInvoiceDocumentPage: React.FC = () => {
         setAllotError('This dealer is not linked as an RC.');
       } else if (result.skipped === 'no_serials') {
         setAllotError('Allot serial numbers before pushing to YesGATC.');
+      } else if (result.skipped === 'no_webhook') {
+        setAllotError('Paste the YesGATC webhook URL in Serial numbers first.');
       } else if (result.skipped === 'already_pushed') {
         setAllotNotice('Already pushed to YesGATC.');
       } else {

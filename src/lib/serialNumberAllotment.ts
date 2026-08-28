@@ -553,7 +553,7 @@ export async function pushSerialAllotmentsToYesGatc(input: {
   const fn = httpsCallable<typeof input, PushSerialAllotmentsResult>(
     functions,
     'pushSerialAllotmentsToYesGatcFn',
-    { timeout: 60_000 },
+    { timeout: 180_000 },
   );
   return (await fn(input)).data;
 }

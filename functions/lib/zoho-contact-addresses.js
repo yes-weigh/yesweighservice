@@ -8,7 +8,7 @@ import {
   recordZohoApiFailure,
   classifyZohoHttpError,
 } from './zoho-api-usage.js';
-import { formatZohoAddress, extractZohoDetailFields } from './zoho-contact-fields.js';
+import { formatZohoAddress, extractZohoDetailFields, fitZohoAddressLines } from './zoho-contact-fields.js';
 import { HttpsError } from 'firebase-functions/v2/https';
 import { getFirestore } from 'firebase-admin/firestore';
 import { resolveZohoCustomerIdForUser } from './zoho-invoices.js';
@@ -442,7 +442,7 @@ export async function listContactAddressesForCustomer(secrets, configuredOrgId, 
 export async function addContactAddress(secrets, configuredOrgId, customerId, rawAddress) {
   const contactId = String(customerId || '').trim();
   if (!contactId) throw new HttpsError('invalid-argument', 'customerId is required.');
-  const addr = normalizeAddressInput(rawAddress);
+  const addr = fitZohoAddressLines(normalizeAddressInput(rawAddress));
   assertCompleteAddress(addr);
 
   const accessToken = await getAccessToken(secrets);
@@ -450,16 +450,7 @@ export async function addContactAddress(secrets, configuredOrgId, customerId, ra
 
   const payload = await zohoJson(accessToken, orgId, `/contacts/${contactId}/address`, {
     method: 'POST',
-    body: {
-      attention: addr.attention,
-      address: addr.address,
-      street2: addr.street2 || '',
-      city: addr.city,
-      state: addr.state,
-      zip: addr.zip,
-      country: addr.country,
-      phone: addr.phone,
-    },
+    body: addr,
   });
 
   const created = payload?.address || payload?.addresses?.[0] || null;
@@ -529,7 +520,7 @@ export async function updateContactAddress(
 ) {
   const contactId = String(customerId || '').trim();
   if (!contactId) throw new HttpsError('invalid-argument', 'customerId is required.');
-  const addr = normalizeAddressInput(address);
+  const addr = fitZohoAddressLines(normalizeAddressInput(address));
   assertCompleteAddress(addr);
 
   const accessToken = await getAccessToken(secrets);
@@ -540,16 +531,7 @@ export async function updateContactAddress(
   if (id) {
     await zohoJson(accessToken, orgId, `/contacts/${contactId}/address/${id}`, {
       method: 'PUT',
-      body: {
-        attention: addr.attention,
-        address: addr.address,
-        street2: addr.street2 || '',
-        city: addr.city,
-        state: addr.state,
-        zip: addr.zip,
-        country: addr.country,
-        phone: addr.phone,
-      },
+      body: addr,
     });
     await clearCachedAddresses(contactId);
     const listed = await listContactAddressesForCustomer(secrets, configuredOrgId, contactId);
@@ -569,16 +551,7 @@ export async function updateContactAddress(
   await zohoJson(accessToken, orgId, `/contacts/${contactId}`, {
     method: 'PUT',
     body: {
-      [contactField]: {
-        attention: addr.attention,
-        address: addr.address,
-        street2: addr.street2 || '',
-        city: addr.city,
-        state: addr.state,
-        zip: addr.zip,
-        country: addr.country,
-        phone: addr.phone,
-      },
+      [contactField]: addr,
     },
   });
   await clearCachedAddresses(contactId);

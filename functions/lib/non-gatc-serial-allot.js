@@ -648,6 +648,14 @@ export async function applyNonGatcSerialAllotmentOnInvoice({
     return applySerialsToLine(line, serialNumbers);
   });
 
+  let rc = null;
+  try {
+    const { findLinkedRcForDealer } = await import('./yesgatc-rc-invoice-push.js');
+    rc = await findLinkedRcForDealer(customerId);
+  } catch {
+    rc = null;
+  }
+
   if (newAllocations.length) {
     const now = new Date().toISOString();
     let batch = db.batch();
@@ -656,8 +664,11 @@ export async function applyNonGatcSerialAllotmentOnInvoice({
       batch.set(db.collection(NON_GATC_ALLOCATIONS).doc(compactSerialKey(row.serial)), {
         serial: row.serial,
         invoiceId: str(invoiceId),
+        invoiceNumber: str(data.invoiceNumber || data.zohoInvoiceNumber) || null,
         customerId: str(customerId),
         lineId: row.lineId,
+        rcCode: rc?.rcCode || null,
+        rcName: rc?.rcName || null,
         allottedAt: now,
         allottedBy: str(actorName) || 'YESWEIGH',
       });
@@ -682,6 +693,10 @@ export async function applyNonGatcSerialAllotmentOnInvoice({
       nonGatcAllocatedSerials: allocatedSerials,
       nonGatcSerialAllottedAt: FieldValue.serverTimestamp(),
       nonGatcSerialAllottedBy: str(actorName) || 'YESWEIGH',
+      ...(rc ? {
+        yesgatcRcCode: rc.rcCode,
+        yesgatcRcName: rc.rcName,
+      } : {}),
     }, { merge: true });
   }
 
@@ -698,13 +713,14 @@ export async function applyNonGatcSerialAllotmentOnInvoice({
     })
     : { zohoPushed: false, zohoError: '' };
 
-  let yesgatc = { pushed: false, skipped: null };
-  if (allotted) {
+  let yesgatc = { pushed: false, skipped: rc ? null : 'not_rc' };
+  if (allotted && rc) {
     const { pushRcInvoiceSerialsToYesGatcSafe } = await import('./yesgatc-rc-invoice-push.js');
     yesgatc = await pushRcInvoiceSerialsToYesGatcSafe({
       customerId,
       invoiceId,
       actorName,
+      force: true,
     });
   }
 
@@ -717,6 +733,7 @@ export async function applyNonGatcSerialAllotmentOnInvoice({
     ...zoho,
     yesgatcPushed: Boolean(yesgatc.pushed),
     yesgatcSkipped: yesgatc.skipped || null,
+    yesgatcError: yesgatc.error || null,
   };
 }
 
@@ -805,6 +822,16 @@ export async function unlinkNonGatcSerialsFromInvoice({
     lines: nextLines,
   });
 
+  let yesgatc = { pushed: false, skipped: null };
+  const { pushRcInvoiceSerialsToYesGatcSafe } = await import('./yesgatc-rc-invoice-push.js');
+  yesgatc = await pushRcInvoiceSerialsToYesGatcSafe({
+    customerId,
+    invoiceId,
+    actorName,
+    force: true,
+    action: remaining.length ? 'upsert' : 'unlink',
+  });
+
   return {
     allotted: 0,
     released: released.length,
@@ -812,5 +839,8 @@ export async function unlinkNonGatcSerialsFromInvoice({
     voided: isVoidInvoiceStatus(data.status),
     lineItems: nextLines,
     ...zoho,
+    yesgatcPushed: Boolean(yesgatc.pushed),
+    yesgatcSkipped: yesgatc.skipped || null,
+    yesgatcError: yesgatc.error || null,
   };
 }

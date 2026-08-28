@@ -45,6 +45,7 @@ export type AllotNonGatcSerialsResult = {
   zohoError?: string;
   yesgatcPushed?: boolean;
   yesgatcSkipped?: string | null;
+  yesgatcError?: string | null;
   lineItems?: DealerInvoiceLineItem[];
 };
 

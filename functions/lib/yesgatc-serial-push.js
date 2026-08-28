@@ -4,7 +4,9 @@
  */
 import { fetch as undiciFetch } from 'undici';
 import { getFirestore } from 'firebase-admin/firestore';
+import { compactSerialKey, expandSerialRange } from './serial-range.js';
 import { loadWebhookSecret } from './yesgatc-webhook.js';
+import { NON_GATC_ALLOCATIONS } from './non-gatc-serial-allot.js';
 
 export const SERIAL_NUMBER_ALLOTMENT_DOC = 'appSettings/serialNumberAllotment';
 
@@ -89,14 +91,20 @@ export function serializeAllotmentForWebhook(row) {
         : [],
     }))
     : [];
+  const missing = Array.isArray(row?.missing) ? row.missing.map(item => str(item)).filter(Boolean) : [];
+  const serialNumbers = expandSerialRange({
+    from: row?.from,
+    to: row?.to,
+    missing,
+  });
   return {
     id: allotmentId(row),
     series,
     seriesLabel: SERIES_LABELS[series] || series,
     from: str(row?.from),
     to: str(row?.to),
-    missing: Array.isArray(row?.missing) ? row.missing.map(item => str(item)).filter(Boolean) : [],
-    count: Math.max(0, Number(row?.count) || 0),
+    missing,
+    count: serialNumbers.length || Math.max(0, Number(row?.count) || 0),
     createdAt: str(row?.createdAt) || null,
     createdBy: str(row?.createdBy) || null,
     sku: str(row?.sku) || null,
@@ -104,7 +112,8 @@ export function serializeAllotmentForWebhook(row) {
     imageUrl: str(row?.imageUrl) || null,
     sourcePoNumber: str(row?.sourcePoNumber) || null,
     invoiceLinks,
-    qty: Math.max(0, Number(row?.count) || 0),
+    serialNumbers,
+    qty: serialNumbers.length || Math.max(0, Number(row?.count) || 0),
   };
 }
 
@@ -114,7 +123,119 @@ function pickRows(allotments, mode, ids) {
     const wanted = new Set((Array.isArray(ids) ? ids : []).map(id => str(id)).filter(Boolean));
     return rows.filter(row => wanted.has(allotmentId(row)));
   }
+  if (mode === 'test') return rows;
   return rows.filter(isAllotmentPending);
+}
+
+function compareSerials(a, b) {
+  return str(a).localeCompare(str(b), 'en', { numeric: true, sensitivity: 'base' });
+}
+
+function serialInAllotmentRange(serial, row) {
+  const token = /^(.*?)(\d+)$/.exec(str(serial));
+  const from = /^(.*?)(\d+)$/.exec(str(row?.from));
+  const to = /^(.*?)(\d+)$/.exec(str(row?.to));
+  if (!token || !from || !to || token[1] !== from[1] || from[1] !== to[1]) return false;
+  const n = Number(token[2]);
+  return n >= Number(from[2]) && n <= Number(to[2]);
+}
+
+async function loadRcAllottedSerials(db) {
+  const snap = await db.collection(NON_GATC_ALLOCATIONS).get();
+  const byRc = new Map();
+  const details = [];
+  snap.forEach(doc => {
+    const data = doc.data() || {};
+    const serial = str(data.serial || doc.id);
+    if (!serial) return;
+    const rcCode = str(data.rcCode).toUpperCase();
+    const key = rcCode || 'UNASSIGNED';
+    const slot = byRc.get(key) || {
+      rcCode: rcCode || null,
+      rcName: str(data.rcName) || null,
+      serialNumbers: [],
+      invoices: new Map(),
+    };
+    if (!slot.rcName && data.rcName) slot.rcName = str(data.rcName);
+    slot.serialNumbers.push(serial);
+    const invoiceId = str(data.invoiceId);
+    if (invoiceId) {
+      const inv = slot.invoices.get(invoiceId) || {
+        invoiceId,
+        invoiceNumber: str(data.invoiceNumber) || null,
+        customerId: str(data.customerId) || null,
+        serialNumbers: [],
+      };
+      inv.serialNumbers.push(serial);
+      if (!inv.invoiceNumber && data.invoiceNumber) inv.invoiceNumber = str(data.invoiceNumber);
+      slot.invoices.set(invoiceId, inv);
+    }
+    byRc.set(key, slot);
+    details.push({
+      serial,
+      rcCode: rcCode || null,
+      rcName: str(data.rcName) || null,
+      invoiceId: invoiceId || null,
+      invoiceNumber: str(data.invoiceNumber) || null,
+      customerId: str(data.customerId) || null,
+      lineId: str(data.lineId) || null,
+      allottedAt: str(data.allottedAt) || null,
+      allottedBy: str(data.allottedBy) || null,
+    });
+  });
+  details.sort((a, b) => compareSerials(a.serial, b.serial));
+  const rcs = [...byRc.values()]
+    .map(row => {
+      const serialNumbers = [...row.serialNumbers].sort(compareSerials);
+      return {
+        rcCode: row.rcCode,
+        rcName: row.rcName,
+        qty: serialNumbers.length,
+        startNumber: serialNumbers[0] || null,
+        endNumber: serialNumbers[serialNumbers.length - 1] || null,
+        serialNumbers,
+        invoices: [...row.invoices.values()].map(inv => {
+          const serials = [...inv.serialNumbers].sort(compareSerials);
+          return {
+            invoiceId: inv.invoiceId,
+            invoiceNumber: inv.invoiceNumber,
+            customerId: inv.customerId,
+            qty: serials.length,
+            startNumber: serials[0] || null,
+            endNumber: serials[serials.length - 1] || null,
+            serialNumbers: serials,
+          };
+        }).sort((a, b) => str(a.invoiceNumber).localeCompare(str(b.invoiceNumber))),
+      };
+    })
+    .sort((a, b) => str(a.rcCode).localeCompare(str(b.rcCode)));
+  return { rcs, details };
+}
+
+function withAllotmentInvoiceLinks(allotments, rcGroups) {
+  return (Array.isArray(allotments) ? allotments : []).map(row => {
+    const links = [];
+    for (const rc of rcGroups || []) {
+      for (const inv of rc.invoices || []) {
+        const serialNumbers = (inv.serialNumbers || []).filter(serial => (
+          serialInAllotmentRange(serial, row)
+        ));
+        if (!serialNumbers.length) continue;
+        links.push({
+          rcCode: rc.rcCode,
+          rcName: rc.rcName,
+          invoiceId: inv.invoiceId,
+          invoiceNumber: inv.invoiceNumber,
+          invoiceDate: inv.invoiceDate || null,
+          qty: serialNumbers.length,
+          startNumber: serialNumbers[0] || null,
+          endNumber: serialNumbers[serialNumbers.length - 1] || null,
+          serialNumbers,
+        });
+      }
+    }
+    return links.length ? { ...row, invoiceLinks: links } : row;
+  });
 }
 
 export async function postYesGatcWebhook(url, secret, payload) {
@@ -133,7 +254,7 @@ export async function postYesGatcWebhook(url, secret, payload) {
     method: 'POST',
     headers,
     body: JSON.stringify(payload),
-    signal: AbortSignal.timeout(20_000),
+    signal: AbortSignal.timeout(120_000),
   });
 
   const text = await response.text();
@@ -195,20 +316,116 @@ export async function pushSerialAllotmentsToYesGatc({
   const kind = String(mode || 'test').trim() === 'ids' ? 'ids' : 'test';
   const selected = pickRows(allotments, kind, ids);
   const secret = await loadWebhookSecret();
+  let serialsAllottedToRc = [];
+  let rcAllottedSerialDetails = [];
+  let rcOvQuota = [];
+  if (kind === 'test') {
+    const { loadYesGatcRcOvQuota } = await import('./rc-nongatc-serial-backfill.js');
+    const [allotted, quota] = await Promise.all([
+      loadRcAllottedSerials(db),
+      loadYesGatcRcOvQuota().catch(err => {
+        console.warn('YesGATC RC OV quota snapshot failed:', err?.message ?? err);
+        return [];
+      }),
+    ]);
+    serialsAllottedToRc = allotted.rcs;
+    rcAllottedSerialDetails = allotted.details;
+    rcOvQuota = quota;
+  }
+  const generatedSource = withAllotmentInvoiceLinks(
+    kind === 'test' ? allotments : selected,
+    serialsAllottedToRc,
+  );
+  const serialsGenerated = generatedSource.map(serializeAllotmentForWebhook);
+  const allottedBySerial = new Map(
+    rcAllottedSerialDetails.map(row => [compactSerialKey(row.serial), row]),
+  );
+  const generatedSerialDetails = [];
+  for (const range of serialsGenerated) {
+    for (const serial of range.serialNumbers || []) {
+      const allotted = allottedBySerial.get(compactSerialKey(serial));
+      generatedSerialDetails.push({
+        serial,
+        series: range.series,
+        seriesLabel: range.seriesLabel,
+        rangeId: range.id,
+        from: range.from,
+        to: range.to,
+        status: allotted ? 'linked' : 'unused',
+        rcCode: allotted?.rcCode || null,
+        rcName: allotted?.rcName || null,
+        invoiceId: allotted?.invoiceId || null,
+        invoiceNumber: allotted?.invoiceNumber || null,
+        customerId: allotted?.customerId || null,
+        allottedAt: allotted?.allottedAt || null,
+        allottedBy: allotted?.allottedBy || null,
+      });
+    }
+  }
+  const generatedSerialBackfill = serialsGenerated.map(range => {
+    const serials = generatedSerialDetails.filter(row => row.rangeId === range.id);
+    return {
+      series: range.series,
+      seriesLabel: range.seriesLabel,
+      from: range.from,
+      to: range.to,
+      qty: serials.length,
+      linked: serials.filter(row => row.status === 'linked').length,
+      unused: serials.filter(row => row.status === 'unused').length,
+      serialNumbers: range.serialNumbers || [],
+      serials,
+    };
+  });
+  const gSeries = serialsGenerated.find(row => (
+    str(row.series) === 'non_gatc'
+    && str(row.from).toUpperCase() === 'G0001'
+    && str(row.to).toUpperCase() === 'G1082'
+  )) || null;
   const payload = {
     event: 'serial_allotment',
     source: 'yesone',
     test: kind === 'test',
     sentAt: new Date().toISOString(),
-    allotments: selected.map(serializeAllotmentForWebhook),
+    allotments: serialsGenerated,
+    serialsGenerated,
+    generatedSerialDetails,
+    generatedSerialBackfill,
+    serialsAllottedToRc,
+    rcAllottedSerialDetails,
+    rcSerialBackfill: gSeries
+      ? {
+        series: 'non_gatc',
+        seriesLabel: 'non GATC',
+        from: 'G0001',
+        to: 'G1082',
+        qty: gSeries.count,
+        rcs: serialsAllottedToRc,
+        serials: rcAllottedSerialDetails.filter(row => (
+          serialInAllotmentRange(row.serial, { from: 'G0001', to: 'G1082' })
+        )),
+      }
+      : null,
+    rcOvQuota,
+    totals: {
+      rangesGenerated: serialsGenerated.length,
+      serialsGenerated: serialsGenerated.reduce((sum, row) => sum + (Number(row.count) || 0), 0),
+      generatedSerialDetails: generatedSerialDetails.length,
+      serialsAllottedToRc: serialsAllottedToRc.reduce((sum, row) => sum + (Number(row.qty) || 0), 0),
+      rcCount: rcOvQuota.length,
+      pendingOv: rcOvQuota.reduce((sum, row) => sum + (Number(row.pending) || 0), 0),
+    },
   };
+
+  const storedAllotments = kind === 'test'
+    ? withAllotmentInvoiceLinks(allotments, serialsAllottedToRc)
+    : allotments;
 
   try {
     await postYesGatcWebhook(endpoint, secret, payload);
   } catch (err) {
     if (selected.length) {
       await ref.set({
-        allotments: markPushResult(allotments, selected.map(allotmentId), err?.message || err),
+        allotments: markPushResult(storedAllotments, selected.map(allotmentId), err?.message || err),
         updatedAt: new Date().toISOString(),
         updatedBy: str(actorName) || 'YESWEIGH',
       }, { merge: true });
@@ -219,7 +436,7 @@ export async function pushSerialAllotmentsToYesGatc({
   const sentIds = selected.map(allotmentId);
   if (sentIds.length) {
     await ref.set({
-      allotments: markPushResult(allotments, sentIds, null),
+      allotments: markPushResult(storedAllotments, sentIds, null),
       webhookUrl: endpoint,
       updatedAt: new Date().toISOString(),
       updatedBy: str(actorName) || 'YESWEIGH',
@@ -237,5 +454,6 @@ export async function pushSerialAllotmentsToYesGatc({
     sent: sentIds.length,
     pending,
     webhookUrl: endpoint,
+    totals: payload.totals,
   };
 }

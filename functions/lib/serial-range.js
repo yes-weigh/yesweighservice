@@ -29,6 +29,22 @@ export function compactSerialKey(raw) {
   return String(raw ?? '').toUpperCase().replace(/[^A-Z0-9]/g, '');
 }
 
+/** Expand a start/end serial range, skipping missing tokens. */
+export function expandSerialRange({ from, to, missing = [] } = {}) {
+  const start = parseSerialToken(from);
+  const end = parseSerialToken(to);
+  if (!start || !end || start.prefix !== end.prefix || start.n > end.n) return [];
+  const width = Math.max(start.width, end.width);
+  const skip = new Set((Array.isArray(missing) ? missing : []).map(compactSerialKey).filter(Boolean));
+  const out = [];
+  for (let n = start.n; n <= end.n; n += 1) {
+    const serial = formatSerial({ ...start, width }, n);
+    if (skip.has(compactSerialKey(serial))) continue;
+    out.push(serial);
+  }
+  return out;
+}
+
 export function previewSerialRange({ from, to, missingText = '' } = {}) {
   const fromRaw = String(from ?? '').trim();
   const toRaw = String(to ?? '').trim();

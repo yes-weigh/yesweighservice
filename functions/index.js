@@ -7562,6 +7562,18 @@ export const applyRcNonGatcSerialBackfillHttp = onRequest(
       return;
     }
     try {
+      if (req.query.pushSnapshot === '1' || req.body?.pushSnapshot === true) {
+        const snapshot = await pushSerialAllotmentsToYesGatc({
+          mode: 'test',
+          actorName: 'YESWEIGH RC snapshot',
+        });
+        res.json({
+          ok: true,
+          sent: snapshot.sent,
+          totals: snapshot.totals || null,
+        });
+        return;
+      }
       const dryRun = req.method === 'GET' || req.query.dryRun === '1' || req.body?.dryRun === true;
       if (dryRun) {
         const plan = await planRcNonGatcSerialBackfill({
@@ -7740,8 +7752,8 @@ export const pushRcInvoiceToYesGatcFn = onCall(
 export const pushSerialAllotmentsToYesGatcFn = onCall(
   {
     region: 'asia-south1',
-    timeoutSeconds: 60,
-    memory: '256MiB',
+    timeoutSeconds: 180,
+    memory: '1GiB',
   },
   async request => {
     await requireActiveUser(request.auth?.uid, SUPER_ADMIN_ROLES);

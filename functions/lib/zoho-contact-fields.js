@@ -1,5 +1,38 @@
 /** Map Zoho Inventory contact API payloads to read-only Firestore fields. */
 
+export const ZOHO_ADDRESS_LINE_MAX = 100;
+
+function splitAtBoundary(text, max) {
+  const value = String(text || '').replace(/\s+/g, ' ').trim();
+  if (value.length <= max) return { head: value, tail: '' };
+  const slice = value.slice(0, max);
+  const breakAt = Math.max(slice.lastIndexOf(', '), slice.lastIndexOf(' '));
+  const at = breakAt >= Math.floor(max * 0.55) ? breakAt : max;
+  return {
+    head: value.slice(0, at).replace(/[,\s]+$/g, '').trim(),
+    tail: value.slice(at).replace(/^[,\s]+/g, '').trim(),
+  };
+}
+
+/** Zoho Inventory address / street2 are each max 100 characters. */
+export function fitZohoAddressLines(input = {}) {
+  const first = splitAtBoundary(input.address, ZOHO_ADDRESS_LINE_MAX);
+  const secondRaw = [first.tail, String(input.street2 || '').replace(/\s+/g, ' ').trim()]
+    .filter(Boolean)
+    .join(', ');
+  const second = splitAtBoundary(secondRaw, ZOHO_ADDRESS_LINE_MAX);
+  return {
+    attention: String(input.attention || '').trim(),
+    address: first.head,
+    street2: second.head,
+    city: String(input.city || '').trim(),
+    state: String(input.state || '').trim(),
+    zip: String(input.zip || '').replace(/\s+/g, ''),
+    country: String(input.country || 'India').trim() || 'India',
+    phone: String(input.phone || '').trim(),
+  };
+}
+
 export function formatZohoAddress(addr) {
   if (!addr || typeof addr !== 'object') return null;
   const parts = [
