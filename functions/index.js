@@ -350,6 +350,10 @@ import {
 import { voidAdminInvoice } from './lib/void-admin-invoice.js';
 import { pushRcInvoiceSerialsToYesGatc } from './lib/yesgatc-rc-invoice-push.js';
 import {
+  applyRcNonGatcSerialBackfill,
+  planRcNonGatcSerialBackfill,
+} from './lib/rc-nongatc-serial-backfill.js';
+import {
   allotGatcStampedSerialsToInvoice,
   listUnlinkedIwpGatcCertificates,
   unlinkGatcStampedSerialsFromInvoice,
@@ -7479,6 +7483,124 @@ export const listAvailableNonGatcSerialsFn = onCall(
     } catch (err) {
       if (err instanceof HttpsError) throw err;
       throw new HttpsError('internal', err?.message ?? 'Could not load available serials.');
+    }
+  },
+);
+
+export const planRcNonGatcSerialBackfillFn = onCall(
+  {
+    region: 'asia-south1',
+    timeoutSeconds: 300,
+    memory: '1GiB',
+  },
+  async request => {
+    await requireActiveUser(request.auth?.uid, SUPER_ADMIN_ROLES);
+    try {
+      const plan = await planRcNonGatcSerialBackfill({
+        minDate: String(request.data?.minDate ?? '').trim() || undefined,
+      });
+      return {
+        minDate: plan.minDate,
+        poolSize: plan.poolSize,
+        available: plan.available,
+        used: plan.used,
+        leftover: plan.leftover,
+        rcs: plan.rcs.map(rc => ({
+          rcCode: rc.rcCode,
+          rcName: rc.rcName,
+          seatNeed: rc.seatNeed,
+          allotted: rc.allotted,
+          invoiceCount: rc.assignments.length,
+        })),
+      };
+    } catch (err) {
+      if (err instanceof HttpsError) throw err;
+      throw new HttpsError('internal', err?.message ?? 'Could not plan RC serial allotment.');
+    }
+  },
+);
+
+export const applyRcNonGatcSerialBackfillFn = onCall(
+  {
+    region: 'asia-south1',
+    secrets: [zohoClientId, zohoClientSecret, zohoRefreshToken],
+    timeoutSeconds: 540,
+    memory: '1GiB',
+  },
+  async request => {
+    const uid = request.auth?.uid;
+    await requireActiveUser(uid, SUPER_ADMIN_ROLES);
+    const userSnap = await getFirestore().doc(`users/${uid}`).get();
+    const actorName = String(
+      userSnap.data()?.displayName ?? userSnap.data()?.loginId ?? 'YESWEIGH',
+    ).trim();
+    try {
+      return await applyRcNonGatcSerialBackfill({
+        minDate: String(request.data?.minDate ?? '').trim() || undefined,
+        actorName,
+        pushYesGatc: request.data?.pushYesGatc !== false,
+      });
+    } catch (err) {
+      if (err instanceof HttpsError) throw err;
+      throw new HttpsError('internal', err?.message ?? 'Could not allot RC serial numbers.');
+    }
+  },
+);
+
+export const applyRcNonGatcSerialBackfillHttp = onRequest(
+  {
+    region: 'asia-south1',
+    timeoutSeconds: 540,
+    memory: '1GiB',
+    cors: true,
+  },
+  async (req, res) => {
+    const secret = await loadWebhookSecret();
+    const provided = String(req.get('x-yesweigh-secret') || req.query.secret || '').trim();
+    if (!secret || provided !== secret) {
+      res.status(403).json({ error: 'forbidden' });
+      return;
+    }
+    try {
+      const dryRun = req.method === 'GET' || req.query.dryRun === '1' || req.body?.dryRun === true;
+      if (dryRun) {
+        const plan = await planRcNonGatcSerialBackfill({
+          minDate: String(req.query.minDate || req.body?.minDate || '').trim() || undefined,
+        });
+        res.json({
+          minDate: plan.minDate,
+          poolSize: plan.poolSize,
+          available: plan.available,
+          used: plan.used,
+          leftover: plan.leftover,
+          rcs: plan.rcs.map(rc => ({
+            rcCode: rc.rcCode,
+            rcName: rc.rcName,
+            sold: rc.sold,
+            ov: rc.ov,
+            cap: rc.cap,
+            seatNeed: rc.seatNeed,
+            allotted: rc.allotted,
+            invoiceCount: rc.assignments.length,
+            invoices: rc.assignments.map(row => ({
+              invoiceNumber: row.invoiceNumber,
+              date: row.date,
+              allotted: row.allotted,
+              startNumber: row.lines[0]?.serials[0] || null,
+              endNumber: row.lines.at(-1)?.serials.at(-1) || null,
+            })),
+          })),
+        });
+        return;
+      }
+      const result = await applyRcNonGatcSerialBackfill({
+        actorName: 'YESWEIGH RC backfill',
+        pushYesGatc: req.body?.pushYesGatc !== false,
+      });
+      res.json(result);
+    } catch (err) {
+      console.error('applyRcNonGatcSerialBackfillHttp failed:', err);
+      res.status(500).json({ error: err?.message ?? 'Allotment failed.' });
     }
   },
 );

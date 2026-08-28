@@ -14,6 +14,37 @@ const SERIES_LABELS = {
   non_gatc: 'non GATC',
 };
 
+export function isInboundYesOneWebhookUrl(raw) {
+  const text = str(raw);
+  if (!text) return false;
+  try {
+    const url = new URL(text);
+    const host = url.hostname.toLowerCase();
+    return (host === 'yesweigh-service.web.app' || host === 'yesweigh-service.firebaseapp.com')
+      && url.pathname.toLowerCase().includes('/webhooks');
+  } catch {
+    return /yesweigh-service\.(web\.app|firebaseapp\.com).*\/webhooks/i.test(text);
+  }
+}
+
+export function outboundYesGatcWebhookUrl(raw) {
+  try {
+    const normalized = raw ? normalizeHttpsWebhookUrl(raw) : '';
+    if (!normalized || isInboundYesOneWebhookUrl(normalized)) return '';
+    return normalized;
+  } catch {
+    return '';
+  }
+}
+
+export async function resolveYesGatcWebhookUrl(preferred = '') {
+  const db = getFirestore();
+  const direct = outboundYesGatcWebhookUrl(preferred);
+  if (direct) return direct;
+  const allotSnap = await db.doc(SERIAL_NUMBER_ALLOTMENT_DOC).get();
+  return outboundYesGatcWebhookUrl(allotSnap.exists ? allotSnap.data()?.webhookUrl : '');
+}
+
 export function normalizeHttpsWebhookUrl(raw) {
   const text = String(raw ?? '').trim();
   if (!text) return '';
@@ -43,6 +74,21 @@ export function isAllotmentPending(row) {
 
 export function serializeAllotmentForWebhook(row) {
   const series = str(row?.series) || 'non_gatc';
+  const invoiceLinks = Array.isArray(row?.invoiceLinks)
+    ? row.invoiceLinks.map(link => ({
+      rcCode: str(link?.rcCode) || null,
+      rcName: str(link?.rcName) || null,
+      invoiceId: str(link?.invoiceId) || null,
+      invoiceNumber: str(link?.invoiceNumber) || null,
+      invoiceDate: str(link?.invoiceDate || link?.date) || null,
+      qty: Math.max(0, Number(link?.qty) || 0),
+      startNumber: str(link?.startNumber || link?.from) || null,
+      endNumber: str(link?.endNumber || link?.to) || null,
+      serialNumbers: Array.isArray(link?.serialNumbers)
+        ? link.serialNumbers.map(item => str(item)).filter(Boolean)
+        : [],
+    }))
+    : [];
   return {
     id: allotmentId(row),
     series,
@@ -57,6 +103,8 @@ export function serializeAllotmentForWebhook(row) {
     productName: str(row?.productName) || null,
     imageUrl: str(row?.imageUrl) || null,
     sourcePoNumber: str(row?.sourcePoNumber) || null,
+    invoiceLinks,
+    qty: Math.max(0, Number(row?.count) || 0),
   };
 }
 
@@ -129,21 +177,19 @@ export async function pushSerialAllotmentsToYesGatc({
   const data = snap.exists ? (snap.data() || {}) : {};
   const allotments = Array.isArray(data.allotments) ? data.allotments : [];
 
-  const nextUrl = webhookUrl !== undefined && webhookUrl !== null
-    ? normalizeHttpsWebhookUrl(webhookUrl)
-    : normalizeHttpsWebhookUrl(data.webhookUrl);
-  const storedUrl = normalizeHttpsWebhookUrl(data.webhookUrl);
-  if (nextUrl && nextUrl !== storedUrl) {
+  const nextUrl = await resolveYesGatcWebhookUrl(webhookUrl);
+  const storedUrl = await resolveYesGatcWebhookUrl(data.webhookUrl);
+  const endpoint = nextUrl || storedUrl;
+  if (endpoint && endpoint !== outboundYesGatcWebhookUrl(data.webhookUrl)) {
     await ref.set({
-      webhookUrl: nextUrl,
+      webhookUrl: endpoint,
       updatedAt: new Date().toISOString(),
       updatedBy: str(actorName) || 'YESWEIGH',
     }, { merge: true });
   }
 
-  const endpoint = nextUrl || storedUrl;
   if (!endpoint) {
-    throw new Error('Add a YesGATC webhook destination URL first.');
+    throw new Error('Paste the YesGATC webhook URL first.');
   }
 
   const kind = String(mode || 'test').trim() === 'ids' ? 'ids' : 'test';

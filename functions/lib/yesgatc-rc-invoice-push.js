@@ -6,11 +6,11 @@ import { FieldValue, getFirestore } from 'firebase-admin/firestore';
 import {
   isNonGatcSerialEligibleLine,
   isVoidInvoiceStatus,
+  NON_GATC_MACHINE_HSN,
 } from './non-gatc-serial-allot.js';
 import {
-  normalizeHttpsWebhookUrl,
   postYesGatcWebhook,
-  SERIAL_NUMBER_ALLOTMENT_DOC,
+  resolveYesGatcWebhookUrl,
 } from './yesgatc-serial-push.js';
 import { loadWebhookSecret } from './yesgatc-webhook.js';
 import { loadDealerRcOffice } from './yesgatc-rc-offices.js';
@@ -66,9 +66,13 @@ export async function findLinkedRcForDealer(customerId) {
   };
 }
 
-function invoiceSerialPayload(invoice, rc) {
+export function invoiceSerialPayload(invoice, rc) {
+  const machineHsn = new Set(NON_GATC_MACHINE_HSN);
   const lines = (Array.isArray(invoice.lineItems) ? invoice.lineItems : [])
-    .filter(line => isNonGatcSerialEligibleLine(line))
+    .filter(line => {
+      const hsn = str(line?.hsn).replace(/\D/g, '');
+      return isNonGatcSerialEligibleLine(line) || machineHsn.has(hsn);
+    })
     .map(line => {
       const serialNumbers = uniqueSerials(line.serialNumbers);
       const qty = Math.max(serialNumbers.length, Math.round(Number(line.quantity) || 0));
@@ -78,7 +82,10 @@ function invoiceSerialPayload(invoice, rc) {
         sku: str(line.sku) || null,
         hsn: str(line.hsn) || null,
         qty,
+        serialCount: serialNumbers.length,
         serialNumbers,
+        startNumber: serialNumbers[0] || null,
+        endNumber: serialNumbers[serialNumbers.length - 1] || null,
       };
     })
     .filter(line => line.serialNumbers.length);
@@ -91,15 +98,23 @@ function invoiceSerialPayload(invoice, rc) {
     rc: {
       id: rc.rcId,
       name: rc.rcName,
+      rcName: rc.rcName,
       code: rc.rcCode,
+      rcCode: rc.rcCode,
+      dealerId: rc.dealerId || null,
+      dealerName: rc.dealerName || str(invoice.customerName) || null,
     },
     invoice: {
       id: str(invoice.id),
       number: str(invoice.invoiceNumber),
+      invoiceNumber: str(invoice.invoiceNumber),
       date: invoice.date ? String(invoice.date).slice(0, 10) : null,
       customerId: rc.dealerId,
       customerName: str(invoice.customerName) || rc.dealerName,
       qty,
+      serialCount: serialNumbers.length,
+      startNumber: serialNumbers[0] || null,
+      endNumber: serialNumbers[serialNumbers.length - 1] || null,
       serialNumbers,
       lines,
     },
@@ -143,8 +158,7 @@ export async function pushRcInvoiceSerialsToYesGatc({
     return { pushed: false, skipped: 'no_serials', rc };
   }
 
-  const allotSnap = await db.doc(SERIAL_NUMBER_ALLOTMENT_DOC).get();
-  const endpoint = normalizeHttpsWebhookUrl(allotSnap.exists ? allotSnap.data()?.webhookUrl : '');
+  const endpoint = await resolveYesGatcWebhookUrl();
   if (!endpoint) {
     throw new Error('Add a YesGATC webhook destination URL in Serial numbers first.');
   }

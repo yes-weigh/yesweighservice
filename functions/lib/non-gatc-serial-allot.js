@@ -97,7 +97,7 @@ function withSerialBlockOnDescription(description, serials) {
   return base ? `${base}\n${block}` : block;
 }
 
-function applySerialsToLine(line, serials) {
+export function applySerialsToLine(line, serials) {
   const serialNumbers = uniqueSerials(serials);
   return {
     ...line,

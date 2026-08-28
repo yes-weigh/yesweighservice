@@ -1,10 +1,12 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   countYesGatcLifetimeOvRv,
+  dedupeYesGatcRcDetails,
   isYesoneIwpRcDetail,
   listYesGatcRcDetails,
   sumYesGatcRcHsnSoldQty,
   yesGatcOvRvForRc,
+  yesGatcRcGroupSiblings,
   yesGatcRcOfficeName,
   yesGatcRcPlaceDistrictLine,
   type YesGatcOvRvTotals,
@@ -13,6 +15,27 @@ import {
 
 function formatCount(value: number): string {
   return value.toLocaleString('en-IN');
+}
+
+function groupSold(
+  row: YesGatcRcDetail,
+  all: readonly YesGatcRcDetail[],
+  soldQty: Map<string, number>,
+): number {
+  return Math.max(0, ...yesGatcRcGroupSiblings(row, all).map(item => soldQty.get(item.id) || 0));
+}
+
+function groupOv(
+  row: YesGatcRcDetail,
+  all: readonly YesGatcRcDetail[],
+  ovRv: Map<string, YesGatcOvRvTotals>,
+): YesGatcOvRvTotals {
+  const siblings = yesGatcRcGroupSiblings(row, all);
+  return {
+    ov: Math.max(0, ...siblings.map(item => yesGatcOvRvForRc(ovRv, item).ov)),
+    rv: Math.max(0, ...siblings.map(item => yesGatcOvRvForRc(ovRv, item).rv)),
+    linked: Math.max(0, ...siblings.map(item => yesGatcOvRvForRc(ovRv, item).linked)),
+  };
 }
 
 export const RcOvReportTab: React.FC = () => {
@@ -90,8 +113,8 @@ export const RcOvReportTab: React.FC = () => {
   }, [loading, soldKey]);
 
   const sortedRows = useMemo(() => (
-    [...rows].sort((a, b) => {
-      const ovDiff = yesGatcOvRvForRc(ovRv, b).ov - yesGatcOvRvForRc(ovRv, a).ov;
+    dedupeYesGatcRcDetails(rows).sort((a, b) => {
+      const ovDiff = groupOv(b, rows, ovRv).ov - groupOv(a, rows, ovRv).ov;
       if (ovDiff !== 0) return ovDiff;
       return yesGatcRcOfficeName(a).localeCompare(yesGatcRcOfficeName(b), 'en', { sensitivity: 'base' });
     })
@@ -116,8 +139,8 @@ export const RcOvReportTab: React.FC = () => {
               <span className="yesgatc-rc-row__diff">Bal</span>
             </div>
             {sortedRows.map(row => {
-              const qty = yesGatcOvRvForRc(ovRv, row);
-              const sold = soldQty.get(row.id) || 0;
+              const qty = groupOv(row, rows, ovRv);
+              const sold = groupSold(row, rows, soldQty);
               const name = yesGatcRcOfficeName(row);
               const placeLine = yesGatcRcPlaceDistrictLine(row);
               return (

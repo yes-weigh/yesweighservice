@@ -515,6 +515,51 @@ function placeFromAddress(address: string | null, skip: Set<string>): string {
   return '';
 }
 
+function compactRcName(value: string): string {
+  return value.replace(/[\s\-_.,&]+/g, '').toUpperCase();
+}
+
+/** Same office name / dealer — YesGATC often sends a name-only row plus a city row. */
+export function yesGatcRcDedupeKey(row: YesGatcRcDetail): string {
+  const name = compactRcName(yesGatcRcOfficeName(row));
+  if (name) return `name:${name}`;
+  const dealerId = str(row.dealerId);
+  if (dealerId) return `dealer:${dealerId}`;
+  const code = str(row.code).toUpperCase();
+  if (code) return `code:${code}`;
+  return `id:${row.id}`;
+}
+
+function rcDetailCompleteness(row: YesGatcRcDetail): number {
+  let score = 0;
+  if (yesGatcRcPlaceDistrictLine(row)) score += 8;
+  if (row.city) score += 4;
+  if (row.address) score += 2;
+  if (row.dealerId) score += 1;
+  if (row.code) score += 1;
+  return score;
+}
+
+export function dedupeYesGatcRcDetails(rows: readonly YesGatcRcDetail[]): YesGatcRcDetail[] {
+  const byKey = new Map<string, YesGatcRcDetail>();
+  for (const row of rows) {
+    const key = yesGatcRcDedupeKey(row);
+    const prev = byKey.get(key);
+    if (!prev || rcDetailCompleteness(row) > rcDetailCompleteness(prev)) {
+      byKey.set(key, row);
+    }
+  }
+  return [...byKey.values()];
+}
+
+export function yesGatcRcGroupSiblings(
+  row: YesGatcRcDetail,
+  all: readonly YesGatcRcDetail[],
+): YesGatcRcDetail[] {
+  const key = yesGatcRcDedupeKey(row);
+  return all.filter(item => yesGatcRcDedupeKey(item) === key);
+}
+
 export function yesGatcRcPlaceDistrictLine(row: YesGatcRcDetail): string {
   const raw = recordFromUnknown(row.raw);
   const nested = raw

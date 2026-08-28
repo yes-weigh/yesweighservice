@@ -25,6 +25,7 @@ export type SerialNumberAllotment = {
   sourcePoNumber?: string | null;
   sourceLineId?: string | null;
   sourceGoodsReceiptId?: string | null;
+  invoiceLinks?: unknown[] | null;
 };
 
 export type SerialNumberAllotmentDoc = {

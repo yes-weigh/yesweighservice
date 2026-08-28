@@ -8,6 +8,7 @@ import {
   loadInvoicedSerialKeys,
   loadSerialNumberAllotments,
   pendingSerialAllotmentCount,
+  resetInboundYesGatcWebhookState,
   prepareSerialAllotments,
   previewSerialRange,
   pushSerialAllotmentsToYesGatc,
@@ -112,7 +113,8 @@ export const SerialNumberAllotmentTab: React.FC = () => {
     setLoading(true);
     setError('');
     try {
-      const doc = await loadSerialNumberAllotments();
+      const doc = await resetInboundYesGatcWebhookState(actorName)
+        .catch(() => loadSerialNumberAllotments());
       const cleaned = prepareSerialAllotments(doc.allotments);
       setAllotments(cleaned);
       setWebhookUrl(doc.webhookUrl || '');
@@ -125,7 +127,7 @@ export const SerialNumberAllotmentTab: React.FC = () => {
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [actorName]);
 
   useEffect(() => {
     void load();
@@ -194,7 +196,7 @@ export const SerialNumberAllotmentTab: React.FC = () => {
       });
       const refreshed = await loadSerialNumberAllotments();
       setAllotments(prepareSerialAllotments(refreshed.allotments));
-      setWebhookUrl(result.webhookUrl || refreshed.webhookUrl || savedUrl);
+      setWebhookUrl(result.webhookUrl || refreshed.webhookUrl || savedUrl || '');
       setSuccess(
         result.sent
           ? `YesGATC test OK. Sent ${result.sent.toLocaleString('en-IN')} pending range${result.sent === 1 ? '' : 's'}.`
@@ -338,7 +340,6 @@ export const SerialNumberAllotmentTab: React.FC = () => {
             spellCheck={false}
             onChange={e => setWebhookUrl(e.target.value)}
             onBlur={() => {
-              if (!webhookUrl.trim()) return;
               void handleSaveWebhookUrl();
             }}
           />

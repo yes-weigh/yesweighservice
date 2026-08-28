@@ -1,4 +1,4 @@
-import { collectionGroup, doc, getDoc, getDocs, setDoc } from 'firebase/firestore';
+import { collection, collectionGroup, doc, getDoc, getDocs, setDoc } from 'firebase/firestore';
 import { getFunctions, httpsCallable } from 'firebase/functions';
 import { app, db } from '../firebase';
 import { serialNumbersFromLineItem } from './invoices';
@@ -291,7 +291,8 @@ export function countLinkedUnused(
   return { linked, unused: qty - linked };
 }
 
-const INVOICED_SERIAL_CACHE_KEY = 'yesweigh.invoicedSerialKeys.v3';
+const INVOICED_SERIAL_CACHE_KEY = 'yesweigh.invoicedSerialKeys.v5';
+const NON_GATC_ALLOCATIONS = 'nonGatcSerialAllocations';
 
 function pushSerialKey(into: Set<string>, raw: unknown): void {
   const key = compactSerialKey(String(raw ?? ''));
@@ -299,19 +300,30 @@ function pushSerialKey(into: Set<string>, raw: unknown): void {
 }
 
 export async function loadInvoicedSerialKeys(): Promise<Set<string>> {
+  const keys = new Set<string>();
+  try {
+    const allocSnap = await getDocs(collection(db, NON_GATC_ALLOCATIONS));
+    for (const row of allocSnap.docs) {
+      pushSerialKey(keys, row.id);
+      pushSerialKey(keys, (row.data() as { serial?: unknown }).serial);
+    }
+  } catch {
+    // Rules or empty — invoice scan still runs.
+  }
+
   try {
     const cached = sessionStorage.getItem(INVOICED_SERIAL_CACHE_KEY);
     if (cached) {
       const parsed = JSON.parse(cached) as unknown;
       if (Array.isArray(parsed)) {
-        return new Set(parsed.map(value => compactSerialKey(String(value))).filter(Boolean));
+        for (const value of parsed) pushSerialKey(keys, value);
+        return keys;
       }
     }
   } catch {
     // Ignore a stale or private-mode cache.
   }
 
-  const keys = new Set<string>();
   const snap = await getDocs(collectionGroup(db, 'invoices'));
   for (const docSnap of snap.docs) {
     const data = docSnap.data() as Record<string, unknown>;
@@ -379,6 +391,7 @@ function normalizeAllotment(raw: unknown): SerialNumberAllotment | null {
       && data.sourceGoodsReceiptId.trim()
       ? data.sourceGoodsReceiptId.trim()
       : null,
+    invoiceLinks: Array.isArray(data.invoiceLinks) ? data.invoiceLinks : null,
   };
 }
 
@@ -392,9 +405,22 @@ export function pendingSerialAllotmentCount(
   return allotments.filter(row => !row.pushedAt).length;
 }
 
+export function isInboundYesOneWebhookUrl(raw: string): boolean {
+  const text = String(raw ?? '').trim();
+  if (!text) return false;
+  try {
+    const url = new URL(text);
+    const host = url.hostname.toLowerCase();
+    return (host === 'yesweigh-service.web.app' || host === 'yesweigh-service.firebaseapp.com')
+      && url.pathname.toLowerCase().includes('/webhooks');
+  } catch {
+    return /yesweigh-service\.(web\.app|firebaseapp\.com).*\/webhooks/i.test(text);
+  }
+}
+
 export function normalizeSerialWebhookUrl(raw: string): string {
   const text = String(raw ?? '').trim();
-  if (!text) return '';
+  if (!text || isInboundYesOneWebhookUrl(text)) return '';
   let parsed: URL;
   try {
     parsed = new URL(text);
@@ -407,6 +433,38 @@ export function normalizeSerialWebhookUrl(raw: string): string {
   return parsed.toString();
 }
 
+function isGSeriesBackfillRange(row: Pick<SerialNumberAllotment, 'series' | 'from' | 'to'>): boolean {
+  return normalizeSerialSeries(row.series) === 'non_gatc'
+    && compactSerialKey(row.from) === 'G0001'
+    && compactSerialKey(row.to) === 'G1082';
+}
+
+/** Drop the YesOne inbound URL and keep G0001–G1082 pending until YesGATC succeeds. */
+export async function resetInboundYesGatcWebhookState(
+  updatedBy?: string | null,
+): Promise<SerialNumberAllotmentDoc> {
+  const ref = doc(db, 'appSettings', SERIAL_NUMBER_ALLOTMENT_DOC_ID);
+  const snap = await getDoc(ref);
+  const data = (snap.exists() ? snap.data() : {}) as Record<string, unknown>;
+  const storedUrl = typeof data.webhookUrl === 'string' ? data.webhookUrl.trim() : '';
+  const allotments = Array.isArray(data.allotments) ? data.allotments : [];
+  if (!isInboundYesOneWebhookUrl(storedUrl)) {
+    return loadSerialNumberAllotments();
+  }
+  await setDoc(ref, {
+    webhookUrl: null,
+    allotments: allotments.map(raw => {
+      if (!raw || typeof raw !== 'object') return raw;
+      const row = raw as SerialNumberAllotment;
+      if (!isGSeriesBackfillRange(row)) return raw;
+      return { ...row, pushedAt: null, pushError: null };
+    }),
+    updatedAt: new Date().toISOString(),
+    updatedBy: updatedBy?.trim() || null,
+  }, { merge: true });
+  return loadSerialNumberAllotments();
+}
+
 export async function loadSerialNumberAllotments(): Promise<SerialNumberAllotmentDoc> {
   const snap = await getDoc(doc(db, 'appSettings', SERIAL_NUMBER_ALLOTMENT_DOC_ID));
   if (!snap.exists()) return emptySerialNumberAllotmentDoc();
@@ -417,7 +475,9 @@ export async function loadSerialNumberAllotments(): Promise<SerialNumberAllotmen
       return next ? [next] : [];
     })
     : [];
-  const webhookUrl = typeof data.webhookUrl === 'string' ? data.webhookUrl.trim() : '';
+  const webhookUrl = normalizeSerialWebhookUrl(
+    typeof data.webhookUrl === 'string' ? data.webhookUrl : '',
+  );
   return {
     allotments,
     webhookUrl: webhookUrl || null,
