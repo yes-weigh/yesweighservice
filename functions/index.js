@@ -362,6 +362,7 @@ import {
 import {
   linkYesGatcCertificatesToInvoices,
   manualLinkYesGatcCertificateInvoice,
+  voidUnlinkedYesGatcCertificate,
 } from './lib/yesgatc-invoice-link.js';
 import { linkYesGatcOvCertificatesByInvoiceQty } from './lib/yesgatc-ov-invoice-qty-link.js';
 import { CI_BUILD_TAG } from './lib/ci-build.js';
@@ -7934,6 +7935,26 @@ export const linkYesGatcCertificateInvoiceFn = onCall(
     } catch (err) {
       if (err instanceof HttpsError) throw err;
       throw new HttpsError('invalid-argument', err?.message ?? 'Could not link this invoice.');
+    }
+  },
+);
+
+export const voidYesGatcCertificateFn = onCall(
+  {
+    region: 'asia-south1',
+    timeoutSeconds: 60,
+    memory: '256MiB',
+  },
+  async request => {
+    await requireActiveUser(request.auth?.uid, SYNC_ROLES);
+    try {
+      return await voidUnlinkedYesGatcCertificate({
+        certificateId: request.data?.certificateId,
+        actorName: String(request.data?.actorName ?? '').trim() || 'YESWEIGH',
+      });
+    } catch (err) {
+      if (err instanceof HttpsError) throw err;
+      throw new HttpsError('failed-precondition', err?.message ?? 'Could not void this certificate.');
     }
   },
 );

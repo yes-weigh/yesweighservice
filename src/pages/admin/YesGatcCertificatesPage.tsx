@@ -132,6 +132,7 @@ export const YesGatcCertificatesPage: React.FC = () => {
     const { start, end } = periodBounds(appliedPeriod);
     return rows
       .filter(row => {
+        if (row.voided) return false;
         if (!isYesGatcOvCertificate(row)) return false;
         if (selectedRc && !certificateMatchesRc(row, selectedRc)) return false;
         if (needle) {
@@ -357,6 +358,10 @@ export const YesGatcCertificatesPage: React.FC = () => {
               : 'No GATC certificates.'}
             onLinked={next => {
               setRows(current => current.map(row => (row.id === next.id ? next : row)));
+            }}
+            onVoided={id => {
+              setRows(current => current.filter(row => row.id !== id));
+              setStoredCount(count => (count != null ? Math.max(0, count - 1) : count));
             }}
           />
         </div>

@@ -1801,7 +1801,7 @@ button.incentive-report__adjust-col:focus-visible {
   display: flex;
   align-items: center;
   justify-content: flex-end;
-  gap: 0.4rem;
+  gap: 1.25rem;
 }
 
 .yesgatc-cert-row__file {
@@ -1846,6 +1846,26 @@ button.incentive-report__adjust-col:focus-visible {
 
 .yesgatc-cert-row__file--inv .yesgatc-cert-row__file-tag {
   color: #fb923c;
+}
+
+.yesgatc-cert-row__file--void .yesgatc-cert-row__file-icon {
+  background: rgba(248, 113, 113, 0.16);
+  color: #f87171;
+}
+
+.yesgatc-cert-row__file--void .yesgatc-cert-row__file-tag {
+  color: #f87171;
+}
+
+.yesgatc-cert-row__file--void:hover .yesgatc-cert-row__file-icon,
+.yesgatc-cert-row__file--void:focus-visible .yesgatc-cert-row__file-icon {
+  background: rgba(248, 113, 113, 0.28);
+  color: #fca5a5;
+}
+
+.yesgatc-cert-row__file--void:disabled {
+  opacity: 0.55;
+  cursor: wait;
 }
 
 .yesgatc-cert-row__file--vc:hover .yesgatc-cert-row__file-icon,
@@ -2193,6 +2213,96 @@ button.incentive-report__adjust-col:focus-visible {
   font-size: 0.72rem;
 }
 
+.yesgatc-void-dialog__backdrop {
+  z-index: 60;
+}
+
+.yesgatc-void-dialog {
+  display: flex;
+  flex-direction: column;
+  width: min(100%, 22rem);
+  margin: auto;
+  padding: 1rem 1rem 1.05rem;
+  border-radius: 16px;
+  border: 1px solid rgba(148, 163, 184, 0.18);
+  background: #10151d;
+}
+
+.yesgatc-void-dialog__head {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.75rem;
+  margin-bottom: 0.85rem;
+}
+
+.yesgatc-void-dialog__icon {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 2.4rem;
+  height: 2.4rem;
+  border-radius: 10px;
+  background: rgba(248, 113, 113, 0.16);
+  color: #f87171;
+}
+
+.yesgatc-void-dialog__head h3 {
+  margin: 0;
+  font-size: 1rem;
+  font-weight: 700;
+}
+
+.yesgatc-void-dialog__head p {
+  margin: 0.28rem 0 0;
+  color: #94a3b8;
+  font-size: 0.82rem;
+  line-height: 1.35;
+}
+
+.yesgatc-void-dialog__facts {
+  margin: 0 0 1rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.55rem;
+}
+
+.yesgatc-void-dialog__facts div {
+  display: flex;
+  flex-direction: column;
+  gap: 0.12rem;
+}
+
+.yesgatc-void-dialog__facts dt {
+  color: #94a3b8;
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.yesgatc-void-dialog__facts dd {
+  margin: 0;
+  font-size: 0.88rem;
+  font-weight: 650;
+  overflow-wrap: anywhere;
+}
+
+.yesgatc-void-dialog__error {
+  margin: 0 0 0.85rem;
+  color: #fca5a5;
+  font-size: 0.82rem;
+}
+
+.yesgatc-void-dialog__actions {
+  display: flex;
+  gap: 0.65rem;
+}
+
+.yesgatc-void-dialog__actions .btn {
+  flex: 1;
+}
+
 .yesgatc-rc-picker {
   display: flex;
   flex-direction: column;
@@ -2281,6 +2391,22 @@ button.incentive-report__adjust-col:focus-visible {
 .yesgatc-rc-picker__item span {
   color: #94a3b8;
   font-size: 0.72rem;
+}
+
+.yesgatc-rc-picker__item.is-selected {
+  background: rgba(251, 146, 60, 0.14);
+  border-radius: 8px;
+  padding-left: 0.55rem;
+  padding-right: 0.55rem;
+}
+
+.yesgatc-rc-picker__actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.5rem;
+  margin-top: 0.75rem;
+  padding-top: 0.7rem;
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
 }
 
 .yesgatc-rc-picker__clear {

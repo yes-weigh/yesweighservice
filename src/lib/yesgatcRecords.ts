@@ -59,6 +59,7 @@ export type YesGatcCertificate = {
   invoiceDate: string | null;
   invoiceCustomerId: string | null;
   verificationType?: string | null;
+  voided?: boolean;
   raw: unknown;
 };
 
@@ -351,6 +352,10 @@ function mapCertificate(id: string, data: Record<string, unknown>): YesGatcCerti
       || (data.raw && typeof data.raw === 'object' && !Array.isArray(data.raw)
         ? nullable((data.raw as Record<string, unknown>).verificationType)
         : null),
+    voided: data.voided === true
+      || (data.raw && typeof data.raw === 'object' && !Array.isArray(data.raw)
+        ? (data.raw as Record<string, unknown>).voided === true
+        : false),
     raw: data.raw ?? null,
   };
 }
@@ -1127,6 +1132,7 @@ export async function listYesGatcCertificates(
   };
 
   const matchesFilter = (row: YesGatcCertificate) => {
+    if (row.voided) return false;
     if (ovOnly && !isYesGatcOvCertificate(row)) return false;
     if (iwp) return isYesoneIwpCertificate(row);
     return certificateMatchesRc(row, { id: rcId, code: rcCode, name: '', raw: null });
@@ -1465,5 +1471,32 @@ export async function saveYesGatcCertificateInvoice(input: {
     invoiceNumber: data.invoiceNumber ?? input.invoiceNumber,
     invoiceDate: data.invoiceDate ?? input.invoiceDate ?? null,
     invoiceCustomerId: data.invoiceCustomerId ?? input.invoiceCustomerId ?? null,
+  };
+}
+
+export async function voidYesGatcCertificate(input: {
+  certificateId: string;
+  actorName: string;
+}): Promise<{
+  ok: boolean;
+  certificateId: string;
+  serialNumber: string | null;
+  yesgatcPushed?: boolean;
+  yesgatcError?: string | null;
+}> {
+  const fn = httpsCallable<typeof input, {
+    ok?: boolean;
+    certificateId?: string;
+    serialNumber?: string | null;
+    yesgatcPushed?: boolean;
+    yesgatcError?: string | null;
+  }>(functions, 'voidYesGatcCertificateFn');
+  const data = (await fn(input)).data ?? {};
+  return {
+    ok: data.ok !== false,
+    certificateId: data.certificateId ?? input.certificateId,
+    serialNumber: data.serialNumber ?? null,
+    yesgatcPushed: Boolean(data.yesgatcPushed),
+    yesgatcError: data.yesgatcError ?? null,
   };
 }

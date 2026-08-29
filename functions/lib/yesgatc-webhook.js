@@ -661,6 +661,7 @@ export async function listCertificatesForOps(max = 10000, filter = {}) {
   const seen = new Set();
   for (const doc of docs) {
     if (seen.has(doc.id) || rows.length >= cap) break;
+    if ((doc.data() || {}).voided === true) continue;
     seen.add(doc.id);
     rows.push(mapCertificateDoc(doc));
   }

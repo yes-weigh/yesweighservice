@@ -258,6 +258,95 @@ export async function manualLinkYesGatcCertificateInvoice({
   return { ok: true, ...link };
 }
 
+function certLooksVoided(data) {
+  if (data?.voided === true) return true;
+  const raw = data?.raw && typeof data.raw === 'object' && !Array.isArray(data.raw) ? data.raw : null;
+  return raw?.voided === true;
+}
+
+/** Unlinked OV certificates only — marks voided and notifies YesGATC. */
+export async function voidUnlinkedYesGatcCertificate({
+  certificateId,
+  actorName = 'YESWEIGH',
+} = {}) {
+  const certId = String(certificateId ?? '').trim();
+  if (!certId) throw new Error('Certificate is required.');
+
+  const db = getFirestore();
+  const ref = db.collection(YESGATC_CERTIFICATES).doc(certId);
+  const snap = await ref.get();
+  if (!snap.exists) throw new Error('Certificate not found.');
+  const cert = snap.data() || {};
+  if (certLooksVoided(cert)) throw new Error('This certificate is already voided.');
+  if (String(cert.invoiceNumber || '').trim() || String(cert.invoiceId || '').trim()) {
+    throw new Error('Unlink the invoice first. Only unlinked certificates can be voided.');
+  }
+
+  const serial = String(cert.serialNumber || '').trim();
+  const now = new Date().toISOString();
+  const actor = String(actorName || 'YESWEIGH').trim() || 'YESWEIGH';
+  const batch = db.batch();
+  batch.set(ref, {
+    voided: true,
+    status: 'voided',
+    voidedAt: now,
+    voidedBy: actor,
+    voidedAtServer: FieldValue.serverTimestamp(),
+  }, { merge: true });
+  if (serial) {
+    const linkId = serialLinkDocId(serial);
+    if (linkId) batch.delete(db.collection(YESGATC_SERIAL_LINKS).doc(linkId));
+  }
+  await batch.commit();
+
+  let yesgatcPushed = false;
+  let yesgatcError = null;
+  try {
+    const {
+      postYesGatcWebhook,
+      resolveYesGatcWebhookUrl,
+      YESGATC_SERIAL_CANCELLED,
+    } = await import('./yesgatc-serial-push.js');
+    const { loadWebhookSecret } = await import('./yesgatc-webhook.js');
+    const endpoint = await resolveYesGatcWebhookUrl();
+    if (endpoint) {
+      await postYesGatcWebhook(endpoint, await loadWebhookSecret(), {
+        event: YESGATC_SERIAL_CANCELLED,
+        type: YESGATC_SERIAL_CANCELLED,
+        action: 'void',
+        source: 'yesone',
+        sentAt: now,
+        sentBy: actor,
+        rc: {
+          code: cert.rcCode || null,
+          rcCode: cert.rcCode || null,
+          name: cert.rcName || null,
+          rcName: cert.rcName || null,
+        },
+        certificate: {
+          id: certId,
+          certificateNumber: String(cert.certificateNumber || '') || null,
+          serialNumber: serial || null,
+          voided: true,
+        },
+        serialNumbers: serial ? [serial] : [],
+      });
+      yesgatcPushed = true;
+    }
+  } catch (err) {
+    yesgatcError = err instanceof Error ? err.message : String(err);
+    console.warn(`YesGATC void push failed for ${certId}:`, yesgatcError);
+  }
+
+  return {
+    ok: true,
+    certificateId: certId,
+    serialNumber: serial || null,
+    yesgatcPushed,
+    yesgatcError,
+  };
+}
+
 export function invoiceFieldsFromLink(link) {
   if (!link?.invoiceNumber) return {};
   return {

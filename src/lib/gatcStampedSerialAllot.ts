@@ -118,6 +118,7 @@ export async function listUnlinkedIwpGatcCertificates(
         isYesoneIwpCertificate(row)
         && isYesGatcOvCertificate(row)
         && isUnlinkedCertificate(row)
+        && !row.voided
         && Boolean(row.serialNumber.trim())
       ))
       .map(toPickerRow);
