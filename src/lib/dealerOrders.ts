@@ -15,8 +15,8 @@ export function dealerOrderErrorMessage(err: unknown): string {
     if (/not authorized to perform this operation/i.test(cleaned)) {
       return (
         'Zoho rejected this step (not authorized). This is a Zoho Inventory setting, not your YesOne login. '
-        + 'If you were creating a sales order, freight and service items cannot be warehouse-stocked '
-        + 'and the Zoho salesperson must be active. '
+        + 'If you were creating a sales order, freight and service items cannot be warehouse-stocked, '
+        + 'the Zoho salesperson must be active, and the shipping address must belong to the dealer in Zoho. '
         + 'If the sales order is already invoiced in Zoho, click Verify & invoice again (or Mark as invoiced). '
         + 'Otherwise confirm the order in Zoho, then check warehouse and salesperson settings.'
       );

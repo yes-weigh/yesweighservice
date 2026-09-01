@@ -528,19 +528,20 @@ async function createSegmentSalesOrders({
     // Keep warehouses[] on mapped lines so Zoho only gets warehouse_id on stocked goods.
     // Software / SAC / freight / empty-warehouse lines are rejected as
     // "You are not authorized to perform this operation" if warehouse_id is sent.
+    // Prefer the live Zoho warehouse id for Cochin / Head Office — catalog ids go stale.
     const needsZohoWarehouse = segment !== 'software'
       && bucket.lines.some(line => lineAllowsWarehouse(line));
     let locationId = null;
     if (needsZohoWarehouse) {
-      for (const line of bucket.lines) {
-        if (!lineAllowsWarehouse(line)) continue;
-        locationId = warehouseIdFromLineWarehouses(site, line.warehouses);
-        if (locationId) break;
-      }
-      if (!locationId) {
-        try {
-          locationId = await resolveZohoLocationIdForSite(site, secrets, orgId);
-        } catch (err) {
+      try {
+        locationId = await resolveZohoLocationIdForSite(site, secrets, orgId);
+      } catch (err) {
+        for (const line of bucket.lines) {
+          if (!lineAllowsWarehouse(line)) continue;
+          locationId = warehouseIdFromLineWarehouses(site, line.warehouses);
+          if (locationId) break;
+        }
+        if (!locationId) {
           throw new HttpsError(
             'failed-precondition',
             err?.message || `Could not resolve Zoho warehouse for ${inventorySiteLabel(site)}.`,
@@ -575,7 +576,7 @@ async function createSegmentSalesOrders({
           'failed-precondition',
           segment === 'software'
             ? 'Zoho rejected the software sales order. Software items are billed as Cloud Charges (not your salesperson) and are not warehouse-stocked. Confirm “Cloud Charges” is an active Zoho salesperson, then try again.'
-            : 'Zoho rejected this sales order (not authorized). This is a Zoho Inventory setting, not your YesOne login. Freight and service items cannot be warehouse-stocked, and the Zoho salesperson must be active. Try again, or check the item, warehouse, and salesperson in Zoho.',
+            : 'Zoho rejected this sales order (not authorized). This is a Zoho Inventory setting, not your YesOne login. Freight and service items cannot be warehouse-stocked, the Zoho salesperson must be active, and the shipping address must belong to the dealer in Zoho. Try again, or check the item, warehouse, salesperson, and shipping address in Zoho.',
         );
       }
       throw err;

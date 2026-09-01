@@ -37,14 +37,7 @@ function warehouseIdForLine(line, fallbackWarehouseId) {
   const fallback = fallbackWarehouseId != null && String(fallbackWarehouseId).trim()
     ? String(fallbackWarehouseId).trim()
     : null;
-  if (!fallback) return null;
-  if (Array.isArray(line?.warehouses)) {
-    const hasFallback = line.warehouses.some((row) => {
-      const id = String(row?.warehouseId ?? row?.warehouse_id ?? '').trim();
-      return id === fallback;
-    });
-    return hasFallback ? fallback : null;
-  }
+  // Use the live site warehouse even when catalog warehouse ids are stale.
   return fallback;
 }
 
@@ -93,17 +86,47 @@ function withoutSalesperson(body) {
   return next;
 }
 
+function salesOrderAttemptKey(body) {
+  return JSON.stringify({
+    salesperson: body.salesperson_id || null,
+    shippingId: body.shipping_address_id || null,
+    shippingInline: Boolean(body.shipping_address),
+    warehouses: (body.line_items || []).map(line => line.warehouse_id || null),
+  });
+}
+
 function uniqueSalesOrderCreateAttempts(body) {
-  const attempts = [cloneSalesOrderBody(body)];
-  const hasWarehouse = body.line_items.some(line => line.warehouse_id);
-  if (hasWarehouse) attempts.push(withoutLineWarehouses(body));
-  if (body.salesperson_id) {
-    attempts.push(withoutSalesperson(body));
-    if (hasWarehouse) attempts.push(withoutSalesperson(withoutLineWarehouses(body)));
+  const attempts = [];
+  const seen = new Set();
+  const push = (next) => {
+    const key = salesOrderAttemptKey(next);
+    if (seen.has(key)) return;
+    seen.add(key);
+    attempts.push(next);
+  };
+
+  const hasWarehouse = (body.line_items || []).some(line => line.warehouse_id);
+  const hasSalesperson = Boolean(body.salesperson_id);
+  const hasShipping = Boolean(body.shipping_address_id || body.shipping_address);
+
+  // Keep warehouse on inventory goods. Shipping can be applied after create;
+  // the old last attempt stripped warehouse + salesperson + shipping together,
+  // so a bad shipping_address_id still failed when Zoho required a warehouse.
+  push(cloneSalesOrderBody(body));
+  if (hasShipping) push(stripShippingFromBody(body));
+  if (hasSalesperson) {
+    push(withoutSalesperson(body));
+    if (hasShipping) push(stripShippingFromBody(withoutSalesperson(body)));
   }
-  if (body.shipping_address_id || body.shipping_address) {
-    const stripped = stripShippingFromBody(withoutSalesperson(withoutLineWarehouses(body)));
-    attempts.push(stripped);
+  if (hasWarehouse) {
+    push(withoutLineWarehouses(body));
+    if (hasShipping) push(stripShippingFromBody(withoutLineWarehouses(body)));
+    if (hasSalesperson) {
+      push(withoutSalesperson(withoutLineWarehouses(body)));
+      if (hasShipping) {
+        push(stripShippingFromBody(withoutSalesperson(withoutLineWarehouses(body))));
+      }
+    }
   }
   return attempts;
 }
