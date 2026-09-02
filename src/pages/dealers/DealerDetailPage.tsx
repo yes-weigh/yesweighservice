@@ -643,10 +643,11 @@ export const DealerDetailPage: React.FC = () => {
       await loadDealer();
       window.setTimeout(() => setDeletePhase(current => (current === 'success' ? null : current)), 1100);
     } catch (err) {
+      const message = dealerErrorMessage(err);
+      setError(message);
       setDeletePhase('fail');
       playDealerFailSound();
-      setError(dealerErrorMessage(err));
-      window.setTimeout(() => setDeletePhase(current => (current === 'fail' ? null : current)), 1600);
+      window.setTimeout(() => setDeletePhase(current => (current === 'fail' ? null : current)), 2200);
     } finally {
       setSaving(false);
     }
@@ -977,7 +978,7 @@ export const DealerDetailPage: React.FC = () => {
           cover="page"
           workingLabel="Deleting dealer…"
           successLabel={deleteSuccessLabel}
-          failLabel="Could not delete dealer"
+          failLabel={error || 'Could not delete dealer'}
         />
       ) : null}
 

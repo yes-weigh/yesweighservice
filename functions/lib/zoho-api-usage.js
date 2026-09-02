@@ -184,6 +184,7 @@ export function classifyZohoHttpError(status, payload) {
   }
   const err = new Error(message || `Zoho API error (${status}).`);
   if (payload?.code != null) err.zohoCode = payload.code;
+  err.status = status;
   return err;
 }
 

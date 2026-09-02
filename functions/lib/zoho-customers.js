@@ -775,13 +775,30 @@ function zohoErrorLooksMissing(err) {
   );
 }
 
+function zohoIsUnavailable(err) {
+  const status = Number(err?.status ?? 0);
+  const message = String(err?.message ?? '');
+  return err?.code === 'RATE_LIMITED'
+    || status === 401
+    || status === 403
+    || status === 429
+    || status >= 500
+    || /rate.?limit|unauthorized|not authorized|invalid token|access token|timed out/i.test(message);
+}
+
+function zohoAlreadyInactive(payload) {
+  const message = String(payload?.message ?? '');
+  return /already/i.test(message) && /inactive/i.test(message);
+}
+
 async function zohoContactAlreadyGone(accessToken, organizationId, contactId, priorErr) {
   if (priorErr && zohoErrorLooksMissing(priorErr)) return true;
   try {
     await fetchRawCustomerDetail(accessToken, organizationId, contactId);
     return false;
   } catch (err) {
-    return zohoErrorLooksMissing(err);
+    if (zohoIsUnavailable(err)) throw err;
+    return true;
   }
 }
 
@@ -803,14 +820,11 @@ async function markZohoContactInactive(accessToken, organizationId, contactId) {
   });
   const { payload } = await parseZohoJsonResponse(res);
   if (res.ok && (payload?.code === 0 || payload?.code == null)) return;
+  if (zohoAlreadyInactive(payload) || zohoContactMissing(res, payload)) return;
 
   let contactName = '';
-  try {
-    const contact = await fetchRawCustomerDetail(accessToken, organizationId, contactId);
-    contactName = String(contact?.contact_name ?? '').trim();
-  } catch {
-    // PUT still needs a name; fall back below.
-  }
+  const contact = await fetchRawCustomerDetail(accessToken, organizationId, contactId);
+  contactName = String(contact?.contact_name ?? '').trim();
   const putUrl = `${ZOHO_API_BASE}/contacts/${contactId}?organization_id=${organizationId}`;
   const putRes = await fetch(putUrl, {
     method: 'PUT',
@@ -825,9 +839,9 @@ async function markZohoContactInactive(accessToken, organizationId, contactId) {
     }),
   });
   const { payload: putPayload } = await parseZohoJsonResponse(putRes);
-  if (!putRes.ok || (putPayload?.code !== 0 && putPayload?.code != null)) {
-    throw new Error(putPayload?.message || 'Zoho could not void this dealer.');
-  }
+  if (putRes.ok && (putPayload?.code === 0 || putPayload?.code == null)) return;
+  if (zohoAlreadyInactive(putPayload) || zohoContactMissing(putRes, putPayload)) return;
+  throw new Error(putPayload?.message || 'Zoho could not void this dealer.');
 }
 
 /** Delete in Zoho when there are no transactions; otherwise mark inactive (void). */
@@ -848,6 +862,12 @@ export async function deleteOrVoidZohoCustomer(id, secrets, orgId) {
     headers: authHeaders(accessToken, organizationId),
   });
   const { payload: delPayload } = await parseZohoJsonResponse(delRes);
+  console.info('deleteDealer zoho DELETE', {
+    id: contactId,
+    status: delRes.status,
+    code: delPayload?.code ?? null,
+    message: delPayload?.message ?? null,
+  });
   const deletedOk = delRes.ok && (delPayload?.code === 0 || delRes.status === 204);
   const missing = zohoContactMissing(delRes, delPayload);
 
