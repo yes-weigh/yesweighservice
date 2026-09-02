@@ -10,6 +10,8 @@ export type LineItemCatalogMeta = {
   categoryName: string | null;
   modelNumber: string | null;
   isWeighingScale: boolean;
+  isCatalogSpare: boolean;
+  spareGroupId: string | null;
 };
 
 function metaFromCatalogData(data: Record<string, unknown> | undefined): LineItemCatalogMeta {
@@ -18,6 +20,9 @@ function metaFromCatalogData(data: Record<string, unknown> | undefined): LineIte
       ?? (Array.isArray(data.imageUrls) ? (data.imageUrls[0] as string | null) : null)
       ?? null
     : null;
+  const spareGroupId = typeof data?.spareGroupId === 'string' && data.spareGroupId.trim()
+    ? data.spareGroupId.trim()
+    : null;
   return {
     imageUrl: withCatalogImageCacheBust(raw, data?.imageUpdatedAt as string | number | null | undefined),
     hsn: data?.hsn != null ? String(data.hsn) : null,
@@ -25,6 +30,12 @@ function metaFromCatalogData(data: Record<string, unknown> | undefined): LineIte
     categoryName: data?.categoryName != null ? String(data.categoryName) : null,
     modelNumber: data?.modelNumber != null ? String(data.modelNumber).trim() || null : null,
     isWeighingScale: false,
+    spareGroupId,
+    isCatalogSpare: Boolean(spareGroupId) || isCatalogSparePartProduct({
+      categoryId: data?.categoryId != null ? String(data.categoryId) : null,
+      categoryName: data?.categoryName != null ? String(data.categoryName) : null,
+      modelNumber: data?.modelNumber != null ? String(data.modelNumber).trim() || null : null,
+    }),
   };
 }
 
@@ -90,6 +101,7 @@ export async function fetchCatalogMetaForItemIds(
       }
     }
     for (const [id, meta] of map) {
+      if (meta.isCatalogSpare) continue;
       if (meta.categoryId && weighing.has(meta.categoryId)) {
         const next = { ...meta, isWeighingScale: true };
         catalogMetaMemo.set(id, next);
@@ -108,7 +120,7 @@ export function applyCatalogMetaToLineItems(
   return lineItems.map(item => {
     const meta = item.itemId ? metaByItemId.get(item.itemId) : undefined;
     if (!meta) return item;
-    const catalogSpare = isCatalogSparePartProduct({
+    const catalogSpare = Boolean(meta.spareGroupId) || isCatalogSparePartProduct({
       categoryId: meta.categoryId,
       categoryName: meta.categoryName,
       modelNumber: meta.modelNumber,
@@ -119,7 +131,7 @@ export function applyCatalogMetaToLineItems(
       hsn: item.hsn || meta.hsn,
       ...(meta.categoryId ? { categoryId: item.categoryId || meta.categoryId } : {}),
       ...(meta.categoryName ? { categoryName: item.categoryName || meta.categoryName } : {}),
-      ...(meta.isWeighingScale || item.isWeighingScale ? { isWeighingScale: true } : {}),
+      ...(meta.isWeighingScale && !catalogSpare ? { isWeighingScale: true } : {}),
       isCatalogSpare: catalogSpare,
     };
   });

@@ -858,6 +858,22 @@
       ]
     },
     {
+      "collectionGroup": "invoices",
+      "fieldPath": "yesgatcRcPushedAt",
+      "ttl": false,
+      "indexes": [
+        { "order": "ASCENDING", "queryScope": "COLLECTION_GROUP" }
+      ]
+    },
+    {
+      "collectionGroup": "invoices",
+      "fieldPath": "yesgatcRcCode",
+      "ttl": false,
+      "indexes": [
+        { "order": "ASCENDING", "queryScope": "COLLECTION_GROUP" }
+      ]
+    },
+    {
       "collectionGroup": "catalogProducts",
       "fieldPath": "sku",
       "ttl": false,

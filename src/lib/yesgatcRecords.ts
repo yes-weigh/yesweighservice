@@ -1,5 +1,6 @@
 import {
   collection,
+  collectionGroup,
   deleteDoc,
   doc,
   getCountFromServer,
@@ -19,6 +20,9 @@ import {
 import { getFunctions, httpsCallable } from 'firebase/functions';
 import { app, db } from '../firebase';
 import { getYesGatcRcOffice, getYesGatcRcOfficeBySourceRcId } from './yesgatcRcOffices';
+import { firstDateTimeValue, isFreightInvoiceLineItem, isGatcFeeInvoiceLineItem, isSoftwareInvoiceLineItem, isStampingInvoiceLineItem, classifyInvoiceLineItem, isGenericSpareCategoryName } from './invoices';
+import { lineIsMandatorySerialCategory } from './mandatorySerials';
+import { fetchCatalogMetaForItemIds } from './invoiceLineItemImages';
 
 export const YESGATC_CERTIFICATES = 'yesgatcCertificates';
 export const YESGATC_RC_DETAILS = 'yesgatcRcDetails';
@@ -32,6 +36,7 @@ export const YESGATC_WEBHOOK_FUNCTION_URL =
 export const YESONE_RC_CODE = 'IWP';
 export const YESONE_RC_NAME = 'INTERWEIGHING PVT LTD';
 export const YESGATC_OV_MACHINE_HSN = ['84238190', '84238290', '84231000'] as const;
+const WEIGHING_SCALE_HSN = new Set<string>(YESGATC_OV_MACHINE_HSN);
 export const YESGATC_HSN_SOLD_MIN_DATE = '2026-02-01';
 
 const functions = getFunctions(app, 'asia-south1');
@@ -1499,4 +1504,606 @@ export async function voidYesGatcCertificate(input: {
     yesgatcPushed: Boolean(data.yesgatcPushed),
     yesgatcError: data.yesgatcError ?? null,
   };
+}
+
+export type YesGatcRcInvoiceReportLine = {
+  id: string;
+  itemId: string | null;
+  name: string;
+  sku: string | null;
+  description?: string;
+  imageUrl: string | null;
+  quantity?: number;
+  serialNumbers: string[];
+  max: string;
+  e: string;
+  hsn?: string | null;
+  categoryName?: string | null;
+  isWeighingScale?: boolean;
+  isCatalogSpare?: boolean;
+  spareGroupId?: string | null;
+  certificateNumbers: string[];
+};
+
+export type YesGatcRcInvoiceReportRow = {
+  id: string;
+  customerId: string;
+  invoiceNumber: string;
+  invoiceDate: string | null;
+  createdTime?: string | null;
+  customerName: string | null;
+  rcCode: string | null;
+  rcName: string | null;
+  serialNumbers: string[];
+  serialCount: number;
+  pushedAt: string | null;
+  pushedBy?: string | null;
+  lines?: YesGatcRcInvoiceReportLine[];
+};
+
+export function gatcRcInvoiceReportErrorMessage(err: unknown): string {
+  const code = err && typeof err === 'object' && 'code' in err
+    ? String((err as { code: string }).code)
+    : '';
+  const message = err instanceof Error ? err.message : '';
+  const text = `${code} ${message}`.toLowerCase();
+  if (code === 'functions/not-found' || text.includes('not-found')) {
+    return 'GATC RC list is not deployed yet. Deploy yesGatcRcInvoiceReportFn.';
+  }
+  if (
+    code === 'functions/internal'
+    || /^internal$/i.test(message.trim())
+    || text.includes('functions/internal')
+    || /requires an index|collection_group/i.test(text)
+  ) {
+    return 'Could not load the GATC RC list. Try Apply again in a moment.';
+  }
+  if (code === 'functions/permission-denied') {
+    return 'You do not have permission to view the GATC RC list.';
+  }
+  if (message && !/^internal$/i.test(message.trim())) return message;
+  return 'Could not load the GATC RC list.';
+}
+
+export async function fetchYesGatcRcInvoiceReport(input: {
+  rcCode?: string;
+  dateStart?: string | null;
+  dateEnd?: string | null;
+}): Promise<{
+  rows: YesGatcRcInvoiceReportRow[];
+  truncated: boolean;
+}> {
+  return fetchYesGatcRcInvoiceReportFromFirestore(input);
+}
+
+function uniqueReportSerials(values: unknown): string[] {
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const value of Array.isArray(values) ? values : []) {
+    const text = str(value);
+    if (!text) continue;
+    const key = text.toUpperCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(text);
+  }
+  return out;
+}
+
+function isReportSerial(value: string): boolean {
+  const text = str(value);
+  if (text.length < 3) return false;
+  if (/^(serials?|numbers?|n\/?a|none|nil|null|mac|id)$/i.test(text)) return false;
+  return true;
+}
+
+function serialPrefix(value: string): string {
+  const match = str(value).match(/^([A-Za-z]+)/);
+  return match ? match[1].toUpperCase() : '';
+}
+
+function sortReportSerials(serials: readonly string[]): string[] {
+  return [...serials].sort((a, b) => a.localeCompare(b, 'en', { numeric: true, sensitivity: 'base' }));
+}
+
+function inReportDateWindow(date: string, dateStart: string, dateEnd: string): boolean {
+  if (!date) return !dateStart && !dateEnd;
+  if (dateStart && date < dateStart) return false;
+  if (dateEnd && date > dateEnd) return false;
+  return true;
+}
+
+function isReportKeepLine(line: {
+  name?: string;
+  sku?: string | null;
+  hsn?: string | null;
+  itemId?: string | null;
+  categoryName?: string | null;
+}): boolean {
+  const name = str(line.name);
+  const sku = line.sku ?? null;
+  const hsn = line.hsn ?? null;
+  if (isFreightInvoiceLineItem({ name, sku, hsn, itemId: line.itemId ?? null })) return false;
+  if (isGatcFeeInvoiceLineItem({ name, sku, hsn })) return false;
+  if (isStampingInvoiceLineItem({ name, sku, hsn })) return false;
+  if (isSoftwareInvoiceLineItem({ name, sku, hsn, categoryName: line.categoryName ?? null })) return false;
+  const kind = classifyInvoiceLineItem({
+    name,
+    sku,
+    hsn,
+    itemId: line.itemId ?? null,
+    categoryName: line.categoryName ?? null,
+  });
+  if (kind === 'service' || kind === 'gatc' || kind === 'software_key') return false;
+  return true;
+}
+
+/** Complete weighing instrument — not a spare component. */
+const WEIGHING_MACHINE_NAME_RE = /\b(?:weighing\s+)?(?:scale|scales|balance)s?\b/;
+
+/** Parts that leak in under scale categories (print heads, SMPS, stickers, …). */
+const SPARE_COMPONENT_NAME_RE = new RegExp(
+  String.raw`\b(?:`
+  + [
+    'print\\s*heads?',
+    'smps',
+    'psu',
+    'sticker(?:\\s+set)?s?',
+    'overlays?',
+    'spare\\s*parts?',
+    'load\\s*cells?',
+    'mother\\s*boards?',
+    'main\\s*boards?',
+    'pcbs?',
+    'power\\s+supply',
+    'power\\s+supplies',
+    'adapt(?:er|or)s?',
+    'chargers?',
+    'batter(?:y|ies)',
+    'keypads?',
+    'cables?',
+    'motors?',
+    'cutters?',
+    'rollers?',
+    'ribbons?',
+    'hoppers?',
+    'sensors?',
+    'transformers?',
+    'fuses?',
+    'fans?',
+    'solenoids?',
+    'belts?',
+    'gears?',
+    'bearings?',
+    'springs?',
+    'knobs?',
+    'covers?',
+    'housings?',
+    'connectors?',
+    'display\\s+boards?',
+    'power\\s+boards?',
+    'io\\s+boards?',
+    'weighing\\s+pans?',
+    'scale\\s+pans?',
+    'keypad\\s+overlays?',
+  ].join('|')
+  + String.raw`)\b`,
+  'i',
+);
+
+/** Currency / note counters (CCM) — not weighing scales. */
+export function isYesGatcRcNonWeighingMachineLine(line: {
+  name?: string | null;
+  sku?: string | null;
+  description?: string | null;
+}): boolean {
+  const blob = `${str(line.name)} ${str(line.sku)} ${str(line.description)}`.toLowerCase();
+  if (!blob.trim()) return false;
+  if (/\b(value|currency|cash|note|bill|money|banknote)\s+count(?:ing)?(?:\s+machine)?\b/.test(blob)) {
+    return true;
+  }
+  if (/\bccm\b/.test(blob) && /\bcount/.test(blob)) return true;
+  if (/^ccm\s*[-–—]/.test(str(line.name).toLowerCase())) return true;
+  return false;
+}
+
+/** Stickers, print heads, SMPS, generic spare parts — not serialled weighing scales. */
+export function isYesGatcRcSparePartLine(line: {
+  name?: string | null;
+  sku?: string | null;
+  description?: string | null;
+  categoryName?: string | null;
+  isCatalogSpare?: boolean;
+  spareGroupId?: string | null;
+}): boolean {
+  if (line.isCatalogSpare || str(line.spareGroupId)) return true;
+  if (isGenericSpareCategoryName(line.categoryName)) return true;
+  const category = str(line.categoryName).toLowerCase();
+  if (/\b(?:spare|spares|accessor(?:y|ies))\b/.test(category)) return true;
+  const blob = `${str(line.name)} ${str(line.sku)}`.toLowerCase();
+  if (!blob.trim() || !SPARE_COMPONENT_NAME_RE.test(blob)) return false;
+  if (WEIGHING_MACHINE_NAME_RE.test(blob) && !/\b(?:print\s*head|smps|sticker|overlay|load\s*cell|pcb|power\s+supply)\b/.test(blob)) {
+    return false;
+  }
+  return true;
+}
+
+export function isYesGatcRcWeighingScaleLine(line: {
+  name?: string | null;
+  sku?: string | null;
+  description?: string | null;
+  hsn?: string | null;
+  categoryName?: string | null;
+  isWeighingScale?: boolean;
+  isCatalogSpare?: boolean;
+  spareGroupId?: string | null;
+  max?: string;
+  e?: string;
+}): boolean {
+  if (isYesGatcRcSparePartLine(line)) return false;
+  if (isYesGatcRcNonWeighingMachineLine(line)) return false;
+  if (line.isWeighingScale) return true;
+  if (lineIsMandatorySerialCategory({
+    categoryName: line.categoryName,
+    isWeighingScale: line.isWeighingScale,
+  })) return true;
+  const hsn = str(line.hsn).replace(/\D/g, '');
+  if (hsn && (WEIGHING_SCALE_HSN.has(hsn) || hsn.startsWith('8423'))) {
+    return true;
+  }
+  return Boolean(str(line.max) || str(line.e));
+}
+
+function keepWeighingScaleReportRows(rows: YesGatcRcInvoiceReportRow[]): YesGatcRcInvoiceReportRow[] {
+  const next: YesGatcRcInvoiceReportRow[] = [];
+  for (const row of rows) {
+    const lines = (row.lines || []).filter(line => isYesGatcRcWeighingScaleLine(line));
+    if (!lines.length) continue;
+    const serialNumbers = uniqueReportSerials(lines.flatMap(line => line.serialNumbers));
+    next.push({
+      ...row,
+      lines,
+      serialNumbers,
+      serialCount: serialNumbers.length,
+    });
+  }
+  return next;
+}
+
+function reportTimestamp(value: unknown): string | null {
+  if (value == null || value === '') return null;
+  if (typeof value === 'string') return value;
+  if (typeof value === 'object' && typeof (value as { toDate?: () => Date }).toDate === 'function') {
+    try {
+      const date = (value as { toDate: () => Date }).toDate();
+      return Number.isNaN(date.getTime()) ? null : date.toISOString();
+    } catch {
+      return null;
+    }
+  }
+  return null;
+}
+
+function mapInvoiceSnapToGatcReportRow(
+  docSnap: QueryDocumentSnapshot<DocumentData>,
+  fallback?: { rcCode?: string | null; rcName?: string | null },
+): YesGatcRcInvoiceReportRow | null {
+  const data = docSnap.data() as Record<string, unknown>;
+  const status = str(data.status).toLowerCase();
+  if (status === 'void' || status === 'voided' || data.voided === true) return null;
+  const rcCode = str(data.yesgatcRcCode).toUpperCase() || str(fallback?.rcCode).toUpperCase() || null;
+  const rcName = str(data.yesgatcRcName) || str(fallback?.rcName) || null;
+  const rawLines = Array.isArray(data.lineItems) ? data.lineItems : [];
+  const lines: YesGatcRcInvoiceReportLine[] = [];
+  for (const raw of rawLines) {
+    const line = raw && typeof raw === 'object' ? raw as Record<string, unknown> : {};
+    if (!isReportKeepLine({
+      name: str(line.name),
+      sku: str(line.sku) || null,
+      hsn: str(line.hsn) || null,
+      itemId: str(line.itemId) || null,
+      categoryName: str(line.categoryName) || null,
+    })) continue;
+    const serialNumbers = uniqueReportSerials(
+      Array.isArray(line.serialNumbers)
+        ? line.serialNumbers.map(value => str(value)).filter(Boolean)
+        : [],
+    ).filter(isReportSerial);
+    lines.push({
+      id: str(line.id) || `${lines.length}`,
+      itemId: str(line.itemId) || null,
+      name: str(line.name) || 'Item',
+      sku: str(line.sku) || null,
+      description: str(line.description) || '',
+      imageUrl: str(line.imageUrl) || null,
+      quantity: Math.max(0, Math.round(Number(line.quantity) || 0)),
+      serialNumbers,
+      max: str(line.max) || '',
+      e: str(line.e) || '',
+      hsn: str(line.hsn) || null,
+      categoryName: str(line.categoryName) || null,
+      isWeighingScale: line.isWeighingScale === true,
+      certificateNumbers: [],
+    });
+  }
+  let leftover = uniqueReportSerials([
+    ...(Array.isArray(data.gatcStampedAllocatedSerials) ? data.gatcStampedAllocatedSerials : []),
+    ...(Array.isArray(data.nonGatcAllocatedSerials) ? data.nonGatcAllocatedSerials : []),
+  ]).filter(serial => isReportSerial(serial) && !lines.some(line => line.serialNumbers.includes(serial)));
+  leftover = sortReportSerials(leftover);
+  for (const line of lines) {
+    if (!isYesGatcRcWeighingScaleLine(line)) continue;
+    const need = Math.max(0, (line.quantity ?? 0) - line.serialNumbers.length);
+    if (!need || !leftover.length) continue;
+    const prefix = serialPrefix(line.serialNumbers[0] || leftover[0] || '');
+    const matched = leftover.filter(serial => !prefix || serialPrefix(serial) === prefix);
+    const take = matched.slice(0, need);
+    leftover = leftover.filter(serial => !take.includes(serial));
+    line.serialNumbers = uniqueReportSerials([...line.serialNumbers, ...take]);
+  }
+  const serialNumbers = uniqueReportSerials(lines.flatMap(line => line.serialNumbers));
+  return {
+    id: docSnap.id,
+    customerId: str(data.customerId) || str(docSnap.ref.parent.parent?.id),
+    invoiceNumber: str(data.invoiceNumber) || docSnap.id,
+    invoiceDate: invoiceDateKey(data.date ?? data.invoiceDate) || null,
+    createdTime: firstDateTimeValue(
+      reportTimestamp(data.createdTime),
+      reportTimestamp(data.zohoCreatedTime),
+      reportTimestamp(data.zohoLastModified),
+      str(data.yesgatcRcPushedAt) || null,
+    ),
+    customerName: str(data.customerName) || null,
+    rcCode,
+    rcName,
+    serialNumbers,
+    serialCount: serialNumbers.length,
+    pushedAt: str(data.yesgatcRcPushedAt) || null,
+    pushedBy: str(data.yesgatcRcPushedBy) || null,
+    lines: lines.length ? lines : [{
+      id: 'invoice',
+      itemId: null,
+      name: str(data.customerName) || 'Invoice',
+      sku: null,
+      description: '',
+      imageUrl: null,
+      quantity: Math.round(Number(data.itemQuantity) || 0),
+      serialNumbers,
+      max: '',
+      e: '',
+      certificateNumbers: [],
+    }],
+  };
+}
+
+async function attachReportCatalogImages(rows: YesGatcRcInvoiceReportRow[]): Promise<void> {
+  const itemIds = [...new Set(
+    rows.flatMap(row => row.lines || []).map(line => line.itemId).filter((id): id is string => Boolean(id)),
+  )];
+  if (!itemIds.length) return;
+  const meta = await fetchCatalogMetaForItemIds(itemIds);
+  for (const row of rows) {
+    for (const line of row.lines || []) {
+      if (!line.itemId) continue;
+      const catalog = meta.get(line.itemId);
+      if (!catalog) continue;
+      if (!line.imageUrl) line.imageUrl = catalog.imageUrl || null;
+      if (!line.hsn && catalog.hsn) line.hsn = catalog.hsn;
+      if (!line.categoryName && catalog.categoryName) line.categoryName = catalog.categoryName;
+      if (catalog.isCatalogSpare || catalog.spareGroupId) {
+        line.isCatalogSpare = true;
+        line.spareGroupId = catalog.spareGroupId;
+        line.isWeighingScale = false;
+      } else if (catalog.isWeighingScale) {
+        line.isWeighingScale = true;
+      }
+    }
+  }
+}
+
+function sortGatcReportRows(rows: YesGatcRcInvoiceReportRow[]): void {
+  rows.sort((a, b) => {
+    const dateCmp = String(b.invoiceDate || '').localeCompare(String(a.invoiceDate || ''));
+    if (dateCmp !== 0) return dateCmp;
+    return String(a.invoiceNumber).localeCompare(String(b.invoiceNumber), 'en');
+  });
+}
+
+async function resolveRcDealer(wantedRc: string): Promise<{
+  dealerId: string;
+  rcCode: string;
+  rcName: string;
+} | null> {
+  const code = str(wantedRc).toUpperCase();
+  if (!code) return null;
+  const [links, rcs] = await Promise.all([
+    listYesGatcRcDealerLinks(),
+    listYesGatcRcDetails(),
+  ]);
+  const rc = rcs.find(row => yesGatcRcKey(row) === code || str(row.code).toUpperCase() === code);
+  const dealerId = str(links.get(code)?.dealerId) || str(rc?.dealerId) || str(links.get(rc?.id || '')?.dealerId);
+  if (!dealerId) return null;
+  return {
+    dealerId,
+    rcCode: str(rc?.code).toUpperCase() || code,
+    rcName: rc ? yesGatcRcOfficeName(rc) : (links.get(code)?.dealerName || code),
+  };
+}
+
+async function fetchDealerInvoicesForGatcReport(input: {
+  dealerId: string;
+  rcCode: string;
+  rcName: string;
+  dateStart: string;
+  dateEnd: string;
+  cap: number;
+}): Promise<{ rows: YesGatcRcInvoiceReportRow[]; truncated: boolean }> {
+  const col = collection(db, 'zohoCustomers', input.dealerId, 'invoices');
+  const constraints = [
+    ...(input.dateStart ? [where('date', '>=', input.dateStart)] : []),
+    ...(input.dateEnd ? [where('date', '<=', input.dateEnd)] : []),
+    orderBy('date', 'desc'),
+  ];
+  const rows: YesGatcRcInvoiceReportRow[] = [];
+  let cursor: QueryDocumentSnapshot<DocumentData> | null = null;
+  let truncated = false;
+  const pageSize = 400;
+  for (;;) {
+    let page: QuerySnapshot<DocumentData>;
+    try {
+      page = await getDocs(
+        cursor
+          ? query(col, ...constraints, startAfter(cursor), limit(pageSize))
+          : query(col, ...constraints, limit(pageSize)),
+      );
+    } catch {
+      page = await getDocs(query(col, limit(input.cap)));
+      for (const docSnap of page.docs) {
+        const row = mapInvoiceSnapToGatcReportRow(docSnap, {
+          rcCode: input.rcCode,
+          rcName: input.rcName,
+        });
+        if (!row) continue;
+        if (!inReportDateWindow(row.invoiceDate || '', input.dateStart, input.dateEnd)) continue;
+        rows.push(row);
+      }
+      sortGatcReportRows(rows);
+      await attachReportCatalogImages(rows);
+      return {
+        rows: keepWeighingScaleReportRows(rows).slice(0, input.cap),
+        truncated: page.size >= input.cap,
+      };
+    }
+    if (page.empty) break;
+    for (const docSnap of page.docs) {
+      const row = mapInvoiceSnapToGatcReportRow(docSnap, {
+        rcCode: input.rcCode,
+        rcName: input.rcName,
+      });
+      if (row) rows.push(row);
+    }
+    cursor = page.docs[page.docs.length - 1] ?? null;
+    if (page.size < pageSize) break;
+    if (rows.length >= input.cap) {
+      truncated = true;
+      break;
+    }
+  }
+  sortGatcReportRows(rows);
+  const sliced = rows.slice(0, input.cap);
+  await attachReportCatalogImages(sliced);
+  return { rows: keepWeighingScaleReportRows(sliced), truncated: truncated || rows.length > input.cap };
+}
+
+async function fetchYesGatcRcInvoiceReportFromFirestore(input: {
+  rcCode?: string;
+  dateStart?: string | null;
+  dateEnd?: string | null;
+}): Promise<{
+  rows: YesGatcRcInvoiceReportRow[];
+  truncated: boolean;
+}> {
+  const wantedRc = str(input.rcCode).toUpperCase();
+  const dateStart = str(input.dateStart).slice(0, 10);
+  const dateEnd = str(input.dateEnd).slice(0, 10);
+  const cap = 5000;
+  if (wantedRc) {
+    const linked = await resolveRcDealer(wantedRc);
+    if (linked) {
+      return fetchDealerInvoicesForGatcReport({
+        dealerId: linked.dealerId,
+        rcCode: linked.rcCode,
+        rcName: linked.rcName,
+        dateStart,
+        dateEnd,
+        cap,
+      });
+    }
+  }
+
+  const invoices = collectionGroup(db, 'invoices');
+  const constraints = [
+    ...(dateStart ? [where('date', '>=', dateStart)] : []),
+    ...(dateEnd ? [where('date', '<=', dateEnd)] : []),
+    orderBy('date', 'desc'),
+  ];
+  const mapped: YesGatcRcInvoiceReportRow[] = [];
+  let cursor: QueryDocumentSnapshot<DocumentData> | null = null;
+  let scanned = 0;
+  let truncated = false;
+  const pageSize = 400;
+
+  for (;;) {
+    const page: QuerySnapshot<DocumentData> = await getDocs(
+      cursor
+        ? query(invoices, ...constraints, startAfter(cursor), limit(pageSize))
+        : query(invoices, ...constraints, limit(pageSize)),
+    );
+    if (page.empty) break;
+    scanned += page.size;
+    for (const docSnap of page.docs) {
+      const data = docSnap.data() as Record<string, unknown>;
+      const rcCode = str(data.yesgatcRcCode).toUpperCase() || null;
+      if (!str(data.yesgatcRcPushedAt) && !rcCode) continue;
+      if (wantedRc && rcCode !== wantedRc) continue;
+      const row = mapInvoiceSnapToGatcReportRow(docSnap);
+      if (!row) continue;
+      if (!inReportDateWindow(row.invoiceDate || '', dateStart, dateEnd)) continue;
+      mapped.push(row);
+    }
+    cursor = page.docs[page.docs.length - 1] ?? null;
+    if (page.size < pageSize) break;
+    if (mapped.length >= cap || scanned >= cap) {
+      truncated = true;
+      break;
+    }
+  }
+
+  sortGatcReportRows(mapped);
+  const rows = mapped.slice(0, cap);
+  await attachReportCatalogImages(rows);
+  return { rows: keepWeighingScaleReportRows(rows), truncated: truncated || mapped.length > cap };
+}
+
+function csvEscape(value: string): string {
+  if (/[",\n]/.test(value)) return `"${value.replace(/"/g, '""')}"`;
+  return value;
+}
+
+export function downloadYesGatcRcInvoiceReportCsv(
+  rows: readonly YesGatcRcInvoiceReportRow[],
+  fileStem: string,
+): void {
+  const headers = [
+    'Invoice No',
+    'Invoice Date',
+    'Dealer',
+    'RC Code',
+    'RC Name',
+    'Serial Count',
+    'Serial Numbers',
+    'Pushed At',
+  ];
+  const lines = [
+    headers.join(','),
+    ...rows.map(row => [
+      row.invoiceNumber || '',
+      row.invoiceDate || '',
+      row.customerName || '',
+      row.rcCode || '',
+      row.rcName || '',
+      String(row.serialCount ?? row.serialNumbers?.length ?? 0),
+      (row.serialNumbers || []).join(' '),
+      row.pushedAt || '',
+    ].map(value => csvEscape(String(value))).join(',')),
+  ];
+  const blob = new Blob([lines.join('\n')], { type: 'text/csv;charset=utf-8' });
+  const url = URL.createObjectURL(blob);
+  const anchor = document.createElement('a');
+  anchor.href = url;
+  const safe = fileStem.replace(/[^\w.\-]+/g, '-').replace(/-+/g, '-').replace(/^-|-$/g, '')
+    || 'gatc-rc-invoices';
+  anchor.download = `${safe}.csv`;
+  anchor.click();
+  URL.revokeObjectURL(url);
 }

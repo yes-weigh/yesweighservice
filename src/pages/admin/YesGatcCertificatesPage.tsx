@@ -43,6 +43,33 @@ function isCertificateLinked(row: YesGatcCertificate): boolean {
   return Boolean(row.invoiceNumber?.trim() || row.invoiceId?.trim());
 }
 
+function specToken(value: string | null | undefined): string {
+  return String(value ?? '').replace(/\s+/g, ' ').trim().toLowerCase();
+}
+
+function parseSpecAmount(value: string): number {
+  const match = String(value).trim().toLowerCase().match(/^(-?\d+(?:\.\d+)?)\s*(kg|g)?/);
+  if (!match) return Number.POSITIVE_INFINITY;
+  const amount = Number(match[1]);
+  if (!Number.isFinite(amount)) return Number.POSITIVE_INFINITY;
+  return match[2] === 'g' ? amount / 1000 : amount;
+}
+
+function buildCapacityOptions(rows: readonly YesGatcCertificate[]): Array<{ value: string; label: string }> {
+  const byKey = new Map<string, string>();
+  for (const row of rows) {
+    const label = row.max.trim();
+    if (!label) continue;
+    const key = specToken(label);
+    if (!key) continue;
+    if (!byKey.has(key)) byKey.set(key, label);
+  }
+  return [...byKey.entries()]
+    .map(([value, label]) => ({ value, label }))
+    .sort((a, b) => parseSpecAmount(a.label) - parseSpecAmount(b.label)
+      || a.label.localeCompare(b.label, 'en'));
+}
+
 function periodBounds(period: GatcPeriod, now = new Date()): { start: number | null; end: number | null } {
   if (period === 'lifetime') return { start: null, end: null };
   const end = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59, 999);
@@ -67,6 +94,8 @@ export const YesGatcCertificatesPage: React.FC = () => {
   const [appliedRc, setAppliedRc] = useState(YESONE_RC_CODE);
   const [draftLink, setDraftLink] = useState<GatcLinkState>('unlinked');
   const [appliedLink, setAppliedLink] = useState<GatcLinkState>('unlinked');
+  const [draftSpec, setDraftSpec] = useState('');
+  const [appliedSpec, setAppliedSpec] = useState('');
   const [rcs, setRcs] = useState<YesGatcRcDetail[]>(() => withDefaultIwpRc([]));
   const [page, setPage] = useState(1);
   const [storedCount, setStoredCount] = useState<number | null>(null);
@@ -125,9 +154,12 @@ export const YesGatcCertificatesPage: React.FC = () => {
 
   const hasActiveFilters = appliedPeriod !== 'lifetime'
     || Boolean(selectedRc && !isYesoneIwpRcDetail(selectedRc))
-    || appliedLink !== 'unlinked';
+    || appliedLink !== 'unlinked'
+    || Boolean(appliedSpec);
 
-  const visibleRows = useMemo(() => {
+  const specOptions = useMemo(() => buildCapacityOptions(rows), [rows]);
+
+  const scopedRows = useMemo(() => {
     const needle = search.trim().toLowerCase();
     const { start, end } = periodBounds(appliedPeriod);
     return rows
@@ -152,9 +184,32 @@ export const YesGatcCertificatesPage: React.FC = () => {
       .sort(compareYesGatcCertificateLatestFirst);
   }, [appliedLink, appliedPeriod, rows, search, selectedRc]);
 
+  const maxTiles = useMemo(() => {
+    const counts = new Map<string, { value: string; label: string; qty: number }>();
+    for (const row of scopedRows) {
+      const label = row.max.trim();
+      if (!label) continue;
+      const value = specToken(label);
+      if (!value) continue;
+      const prev = counts.get(value);
+      if (prev) prev.qty += 1;
+      else counts.set(value, { value, label, qty: 1 });
+    }
+    return [...counts.values()].sort((a, b) => (
+      parseSpecAmount(a.label) - parseSpecAmount(b.label)
+      || a.label.localeCompare(b.label, 'en')
+    ));
+  }, [scopedRows]);
+
+  const visibleRows = useMemo(() => (
+    appliedSpec
+      ? scopedRows.filter(row => specToken(row.max) === appliedSpec)
+      : scopedRows
+  ), [appliedSpec, scopedRows]);
+
   useEffect(() => {
     setPage(1);
-  }, [appliedLink, appliedPeriod, appliedRc, search]);
+  }, [appliedLink, appliedPeriod, appliedRc, appliedSpec, search]);
 
   const totalPages = Math.max(1, Math.ceil(visibleRows.length / PAGE_SIZE));
   const safePage = Math.min(page, totalPages);
@@ -196,6 +251,7 @@ export const YesGatcCertificatesPage: React.FC = () => {
                 setDraftPeriod(appliedPeriod);
                 setDraftRc(appliedRc);
                 setDraftLink(appliedLink);
+                setDraftSpec(appliedSpec);
               }
               return !open;
             })}
@@ -208,7 +264,7 @@ export const YesGatcCertificatesPage: React.FC = () => {
         ) : null}
       </div>
     ),
-    [appliedLink, appliedPeriod, appliedRc, canFilter, filtersOpen, hasActiveFilters, search],
+    [appliedLink, appliedPeriod, appliedRc, appliedSpec, canFilter, filtersOpen, hasActiveFilters, search],
   );
 
   useCatalogPageHeader({ title: 'GATC' }, true);
@@ -304,6 +360,21 @@ export const YesGatcCertificatesPage: React.FC = () => {
                 ))}
               </select>
             </label>
+            <label className="settings-locations__field settings-locations__field--grow">
+              <span>Spec</span>
+              <select
+                value={draftSpec}
+                onChange={event => setDraftSpec(event.target.value)}
+                aria-label="Instrument spec"
+              >
+                <option value="">All</option>
+                {specOptions.map(option => (
+                  <option key={option.value} value={option.value}>
+                    {option.label}
+                  </option>
+                ))}
+              </select>
+            </label>
             <div className="yesgatc-filters__actions">
               <button
                 type="button"
@@ -312,6 +383,7 @@ export const YesGatcCertificatesPage: React.FC = () => {
                   setAppliedPeriod(draftPeriod);
                   setAppliedRc(draftRc);
                   setAppliedLink(draftLink);
+                  setAppliedSpec(draftSpec);
                   setFiltersOpen(false);
                 }}
               >
@@ -327,6 +399,8 @@ export const YesGatcCertificatesPage: React.FC = () => {
                   && appliedRc === defaultRcId
                   && draftLink === 'unlinked'
                   && appliedLink === 'unlinked'
+                  && !draftSpec
+                  && !appliedSpec
                 }
                 onClick={() => {
                   setDraftPeriod('lifetime');
@@ -335,6 +409,8 @@ export const YesGatcCertificatesPage: React.FC = () => {
                   setAppliedRc(defaultRcId);
                   setDraftLink('unlinked');
                   setAppliedLink('unlinked');
+                  setDraftSpec('');
+                  setAppliedSpec('');
                 }}
               >
                 Clear
@@ -343,6 +419,42 @@ export const YesGatcCertificatesPage: React.FC = () => {
           </div>
         ) : null}
         {error ? <p className="settings-locations__error">{error}</p> : null}
+        {!loading && maxTiles.length > 0 ? (
+          <div className="yesgatc-max-tiles" role="tablist" aria-label="Capacity totals">
+            <button
+              type="button"
+              role="tab"
+              aria-selected={!appliedSpec}
+              className={`yesgatc-max-tile${!appliedSpec ? ' is-active' : ''}`}
+              onClick={() => {
+                setAppliedSpec('');
+                setDraftSpec('');
+              }}
+            >
+              <span className="yesgatc-max-tile__max">All</span>
+              <span className="yesgatc-max-tile__qty">{scopedRows.length.toLocaleString('en-IN')}</span>
+            </button>
+            {maxTiles.map(tile => {
+              const active = appliedSpec === tile.value;
+              return (
+                <button
+                  key={tile.value}
+                  type="button"
+                  role="tab"
+                  aria-selected={active}
+                  className={`yesgatc-max-tile${active ? ' is-active' : ''}`}
+                  onClick={() => {
+                    setAppliedSpec(tile.value);
+                    setDraftSpec(tile.value);
+                  }}
+                >
+                  <span className="yesgatc-max-tile__max">{tile.label}</span>
+                  <span className="yesgatc-max-tile__qty">{tile.qty.toLocaleString('en-IN')}</span>
+                </button>
+              );
+            })}
+          </div>
+        ) : null}
         {pagination ? (
           <div className="invoices-pagination yesgatc-certs-pagination yesgatc-certs-pagination--top" role="navigation" aria-label="Certificate list pagination">
             {pagination}

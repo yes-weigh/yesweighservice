@@ -16,6 +16,7 @@ import { useAuth } from '../../context/AuthContext';
 import { salespersonScopeForUser } from '../../lib/salespersonScope';
 import { FetchingLoader } from '../../components/FetchingLoader';
 import { AdminInvoiceDocCard } from '../../components/invoices/AdminInvoiceDocCard';
+import { YesGatcRcInvoiceCheckList } from '../../components/yesgatc/YesGatcRcInvoiceCheckList';
 import {
   DealerMultiFilterPicker,
   type DealerFilterSelection,
@@ -72,12 +73,31 @@ import {
   invoiceMatchesSupportLinks,
   type SupportLinkedInvoiceRefs,
 } from '../../lib/invoiceSupportLinks';
+import {
+  dedupeYesGatcRcDetails,
+  fetchYesGatcRcInvoiceReport,
+  gatcRcInvoiceReportErrorMessage,
+  isYesoneIwpRcDetail,
+  listYesGatcRcDetails,
+  yesGatcRcKey,
+  yesGatcRcOfficeName,
+  type YesGatcRcDetail,
+  type YesGatcRcInvoiceReportRow,
+} from '../../lib/yesgatcRecords';
 import { SALES_RANGE_OPTIONS } from '../../types/invoices';
 import type { InvoiceCategory, SalesRangePreset } from '../../types/invoices';
 
 const LIST_PAGE_SIZE = 25;
 const DEFAULT_RANGE: SalesRangePreset = 'current_month';
 const DEFAULT_SORT: AdminInvoiceSort = 'latest';
+
+function gatcRcOptionLabel(rc: YesGatcRcDetail): string {
+  const code = (rc.code || '').trim().toUpperCase();
+  const name = yesGatcRcOfficeName(rc);
+  if (!code) return name || rc.id;
+  if (!name || name.toUpperCase() === code) return code;
+  return `${code} · ${name}`;
+}
 const DEFAULT_CATEGORY: InvoiceCategory | 'all' = 'product';
 const DEFAULT_STATUS = 'to_dispatch';
 
@@ -167,6 +187,8 @@ function AdminFilterSheet({
   sort,
   dealers,
   aggregate,
+  gatcRcOn,
+  gatcRcCode,
   onClose,
   onApply,
 }: {
@@ -175,18 +197,25 @@ function AdminFilterSheet({
   sort: AdminInvoiceSort;
   dealers: DealerFilterSelection[];
   aggregate: boolean;
+  gatcRcOn: boolean;
+  gatcRcCode: string;
   onClose: () => void;
   onApply: (next: {
     rangePreset: SalesRangePreset;
     sort: AdminInvoiceSort;
     dealers: DealerFilterSelection[];
     aggregate: boolean;
+    gatcRcOn: boolean;
+    gatcRcCode: string;
   }) => void;
 }) {
   const [draftRange, setDraftRange] = useState(rangePreset);
   const [draftSort, setDraftSort] = useState(sort);
   const [draftDealers, setDraftDealers] = useState<DealerFilterSelection[]>(dealers);
   const [draftAggregate, setDraftAggregate] = useState(aggregate);
+  const [draftGatcRc, setDraftGatcRc] = useState(gatcRcCode);
+  const [draftGatcRcOn, setDraftGatcRcOn] = useState(gatcRcOn);
+  const [gatcRcs, setGatcRcs] = useState<YesGatcRcDetail[]>([]);
 
   useEffect(() => {
     if (!open) return;
@@ -194,7 +223,25 @@ function AdminFilterSheet({
     setDraftSort(sort);
     setDraftDealers(dealers);
     setDraftAggregate(aggregate);
-  }, [open, rangePreset, sort, dealers, aggregate]);
+    setDraftGatcRc(gatcRcCode);
+    setDraftGatcRcOn(gatcRcOn);
+  }, [open, rangePreset, sort, dealers, aggregate, gatcRcOn, gatcRcCode]);
+
+  useEffect(() => {
+    if (!open) return;
+    let cancelled = false;
+    void listYesGatcRcDetails()
+      .then(rows => {
+        if (cancelled) return;
+        setGatcRcs(dedupeYesGatcRcDetails(rows).filter(row => !isYesoneIwpRcDetail(row)));
+      })
+      .catch(() => {
+        if (!cancelled) setGatcRcs([]);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [open]);
 
   useEffect(() => {
     if (!open) return;
@@ -210,7 +257,9 @@ function AdminFilterSheet({
   const draftDirty = draftRange !== DEFAULT_RANGE
     || draftSort !== DEFAULT_SORT
     || draftDealers.length > 0
-    || draftAggregate;
+    || draftAggregate
+    || draftGatcRcOn
+    || Boolean(draftGatcRc);
 
   return createPortal(
     <>
@@ -274,6 +323,57 @@ function AdminFilterSheet({
               </button>
             </label>
 
+            <div className="logistics-filter-supermode logistics-filter-supermode--report">
+              <div className="logistics-filter-supermode__head">
+                <span className="logistics-filter-supermode__copy">
+                  <strong>GATC RC</strong>
+                </span>
+                <button
+                  type="button"
+                  role="switch"
+                  aria-checked={draftGatcRcOn}
+                  aria-label="Show GATC RC invoice list"
+                  className={[
+                    'logistics-filter-supermode__switch',
+                    draftGatcRcOn ? 'logistics-filter-supermode__switch--on' : '',
+                  ].filter(Boolean).join(' ')}
+                  onClick={() => {
+                    setDraftGatcRcOn(prev => {
+                      const next = !prev;
+                      if (next) {
+                        setDraftAggregate(false);
+                        setDraftRange('lifetime');
+                      }
+                      return next;
+                    });
+                  }}
+                >
+                  <span className="logistics-filter-supermode__knob" />
+                </button>
+              </div>
+              <label className="logistics-filter-supermode__rc">
+                <select
+                  value={draftGatcRc}
+                  aria-label="Regional center"
+                  onChange={event => {
+                    setDraftGatcRc(event.target.value);
+                    if (event.target.value) {
+                      setDraftGatcRcOn(true);
+                      setDraftAggregate(false);
+                      setDraftRange('lifetime');
+                    }
+                  }}
+                >
+                  <option value="">All</option>
+                  {gatcRcs.map(rc => (
+                    <option key={rc.id} value={yesGatcRcKey(rc)}>
+                      {gatcRcOptionLabel(rc)}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            </div>
+
             <div className="catalog-spares-multi-filters__group">
               <span className="catalog-spares-multi-filters__label">Date range</span>
               <div className="catalog-spares-multi-filters__options" role="radiogroup" aria-label="Date range">
@@ -330,7 +430,9 @@ function AdminFilterSheet({
                   rangePreset: draftRange,
                   sort: draftSort,
                   dealers: draftDealers,
-                  aggregate: draftAggregate,
+                  aggregate: draftGatcRcOn ? false : draftAggregate,
+                  gatcRcOn: draftGatcRcOn,
+                  gatcRcCode: draftGatcRc,
                 });
                 onClose();
               }}
@@ -346,6 +448,8 @@ function AdminFilterSheet({
                 setDraftSort(DEFAULT_SORT);
                 setDraftDealers([]);
                 setDraftAggregate(false);
+                setDraftGatcRc('');
+                setDraftGatcRcOn(false);
               }}
             >
               Clear
@@ -386,6 +490,9 @@ export const AdminInvoicesPage: React.FC = () => {
   const [statusFilter, setStatusFilter] = useState(DEFAULT_STATUS);
   const [supportLinks, setSupportLinks] = useState<SupportLinkedInvoiceRefs | null>(null);
   const [aggregate, setAggregate] = useState(false);
+  const [gatcRcOn, setGatcRcOn] = useState(false);
+  const [gatcRcCode, setGatcRcCode] = useState('');
+  const [gatcReportRows, setGatcReportRows] = useState<YesGatcRcInvoiceReportRow[]>([]);
   const [filterOpen, setFilterOpen] = useState(false);
   const [page, setPage] = useState(1);
   const [selectedDealers, setSelectedDealers] = useState<DealerFilterSelection[]>([]);
@@ -423,12 +530,12 @@ export const AdminInvoicesPage: React.FC = () => {
   const orgWide = salespersonIds == null;
   const lifetimeAggregateAllowed = rangePreset === 'lifetime' && orgWide;
   const aggregateAllowed = Boolean(dateStart && dateEnd) || dealerScoped || lifetimeAggregateAllowed;
-  const useAggregate = aggregate && aggregateAllowed;
+  const useAggregate = aggregate && aggregateAllowed && !gatcRcOn;
   const useLifetimeDealerRollups = useAggregate && lifetimeAggregateAllowed && !dealerScoped;
 
   useEffect(() => {
-    if (aggregate && !aggregateAllowed) setAggregate(false);
-  }, [aggregate, aggregateAllowed]);
+    if (aggregate && (!aggregateAllowed || gatcRcOn)) setAggregate(false);
+  }, [aggregate, aggregateAllowed, gatcRcOn]);
 
   useEffect(() => {
     if (useLifetimeDealerRollups && statusFilter !== DEFAULT_STATUS) {
@@ -477,7 +584,7 @@ export const AdminInvoicesPage: React.FC = () => {
 
   // KPI + category counts (rollups when available, else cheap count/sum queries).
   useEffect(() => {
-    if (dealerScoped) return;
+    if (dealerScoped || gatcRcOn) return;
     let cancelled = false;
     void loadAdminInvoiceKpis({
       dateStart,
@@ -504,11 +611,11 @@ export const AdminInvoicesPage: React.FC = () => {
     return () => {
       cancelled = true;
     };
-  }, [dateStart, dateEnd, salespersonIds, salespersonScopeKey, dealerScoped]);
+  }, [dateStart, dateEnd, salespersonIds, salespersonScopeKey, dealerScoped, gatcRcOn]);
 
   // Refresh amount when category tab changes (rollup path already has by-category amounts).
   useEffect(() => {
-    if (dealerScoped) return;
+    if (dealerScoped || gatcRcOn) return;
     let cancelled = false;
     void loadAdminInvoiceKpis({
       dateStart,
@@ -530,7 +637,7 @@ export const AdminInvoicesPage: React.FC = () => {
     return () => {
       cancelled = true;
     };
-  }, [category, dateStart, dateEnd, salespersonIds, salespersonScopeKey, dealerScoped]);
+  }, [category, dateStart, dateEnd, salespersonIds, salespersonScopeKey, dealerScoped, gatcRcOn]);
 
   useEffect(() => {
     if (statusFilter !== 'support') return;
@@ -551,7 +658,7 @@ export const AdminInvoicesPage: React.FC = () => {
 
   // Org-wide: full date window, then status → category on the client.
   useEffect(() => {
-    if (dealerScoped) return;
+    if (dealerScoped || gatcRcOn) return;
     let cancelled = false;
     const cacheKey = `admin-invoices:${JSON.stringify({
       sort,
@@ -703,13 +810,14 @@ export const AdminInvoicesPage: React.FC = () => {
     statusFilter,
     page,
     orgWide,
+    gatcRcOn,
   ]);
 
   // Reset cursor stack when filters change (search is autocomplete-only — does not reload list).
   useEffect(() => {
     pageCursorStack.current = [null];
     setPage(1);
-  }, [rangePreset, category, statusFilter, sort, selectedCustomerKey, useAggregate, salespersonScopeKey]);
+  }, [rangePreset, category, statusFilter, sort, selectedCustomerKey, useAggregate, salespersonScopeKey, gatcRcOn, gatcRcCode]);
 
   useEffect(() => {
     const timer = window.setTimeout(() => setDebouncedSearch(search.trim()), 250);
@@ -776,7 +884,7 @@ export const AdminInvoicesPage: React.FC = () => {
 
   // Dealer-scoped: fetch invoices for selected customers in the date window.
   useEffect(() => {
-    if (!dealerScoped) return;
+    if (!dealerScoped || gatcRcOn) return;
     let cancelled = false;
     const cacheKey = `admin-invoices-dealer:${JSON.stringify({
       selectedCustomerIds,
@@ -860,7 +968,40 @@ export const AdminInvoicesPage: React.FC = () => {
     sort,
     selectedCustomerIds,
     category,
+    gatcRcOn,
   ]);
+
+  useEffect(() => {
+    if (!gatcRcOn) {
+      setGatcReportRows([]);
+      return;
+    }
+    let cancelled = false;
+    setLoading(true);
+    setError('');
+    setTruncated(false);
+    setHasMore(false);
+    void fetchYesGatcRcInvoiceReport({
+      rcCode: gatcRcCode,
+      dateStart,
+      dateEnd,
+    })
+      .then(({ rows: next, truncated: wasTruncated }) => {
+        if (cancelled) return;
+        setGatcReportRows(next);
+        setTruncated(wasTruncated);
+        setLoading(false);
+      })
+      .catch(err => {
+        if (cancelled) return;
+        setError(gatcRcInvoiceReportErrorMessage(err));
+        setGatcReportRows([]);
+        setLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [gatcRcOn, gatcRcCode, dateStart, dateEnd]);
 
   const serverPaged = orgWide
     && !dealerScoped
@@ -945,6 +1086,11 @@ export const AdminInvoicesPage: React.FC = () => {
     ],
   );
 
+  const gatcPageRows = useMemo(() => {
+    const start = (page - 1) * LIST_PAGE_SIZE;
+    return gatcReportRows.slice(start, start + LIST_PAGE_SIZE);
+  }, [gatcReportRows, page]);
+
   const displayRows = useMemo(
     () => (useAggregate
       ? (useLifetimeDealerRollups
@@ -965,9 +1111,12 @@ export const AdminInvoicesPage: React.FC = () => {
     : clientPaged
       ? displayRows.length
       : (category === 'all' ? categoryCounts.all : categoryCounts[category as InvoiceCategory]);
-  const totalPages = clientPaged
-    ? Math.max(1, Math.ceil(displayRows.length / LIST_PAGE_SIZE))
-    : Math.max(1, Math.ceil(totalCount / LIST_PAGE_SIZE) || 1);
+  const gatcTotalPages = Math.max(1, Math.ceil(gatcReportRows.length / LIST_PAGE_SIZE));
+  const totalPages = gatcRcOn
+    ? gatcTotalPages
+    : clientPaged
+      ? Math.max(1, Math.ceil(displayRows.length / LIST_PAGE_SIZE))
+      : Math.max(1, Math.ceil(totalCount / LIST_PAGE_SIZE) || 1);
 
   const pageRows = useMemo(() => {
     if (serverPaged) return displayRows;
@@ -1115,16 +1264,21 @@ export const AdminInvoicesPage: React.FC = () => {
   const hasActiveFilters = rangePreset !== DEFAULT_RANGE
     || sort !== DEFAULT_SORT
     || selectedDealers.length > 0
-    || aggregate;
+    || aggregate
+    || gatcRcOn;
 
-  const canGoNext = clientPaged ? page < totalPages : (hasMore || page < totalPages);
-  const rangeLabelStart = clientPaged
-    ? (page - 1) * LIST_PAGE_SIZE + 1
-    : (page - 1) * LIST_PAGE_SIZE + 1;
-  const rangeLabelEnd = clientPaged
-    ? Math.min(page * LIST_PAGE_SIZE, displayRows.length)
-    : Math.min(page * LIST_PAGE_SIZE, (page - 1) * LIST_PAGE_SIZE + pageRows.length);
-  const rangeLabelTotal = clientPaged ? displayRows.length : totalCount;
+  const canGoNext = gatcRcOn
+    ? page < gatcTotalPages
+    : clientPaged ? page < totalPages : (hasMore || page < totalPages);
+  const rangeLabelStart = (page - 1) * LIST_PAGE_SIZE + 1;
+  const rangeLabelEnd = gatcRcOn
+    ? Math.min(page * LIST_PAGE_SIZE, gatcReportRows.length)
+    : clientPaged
+      ? Math.min(page * LIST_PAGE_SIZE, displayRows.length)
+      : Math.min(page * LIST_PAGE_SIZE, (page - 1) * LIST_PAGE_SIZE + pageRows.length);
+  const rangeLabelTotal = gatcRcOn
+    ? gatcReportRows.length
+    : clientPaged ? displayRows.length : totalCount;
 
   const headerTools = useMemo(
     () => (
@@ -1251,6 +1405,7 @@ export const AdminInvoicesPage: React.FC = () => {
   return (
     <div className="page-content fade-in admin-invoices-page invoices-page unified-sales-orders-page">
       {searchMenu}
+      {!gatcRcOn ? (
       <section className="invoices-summary" aria-label="Invoice summary">
         <div className="invoices-summary__kpis">
           <div className="invoices-summary__kpi">
@@ -1355,6 +1510,11 @@ export const AdminInvoicesPage: React.FC = () => {
           })}
         </div>
       </section>
+      ) : truncated ? (
+        <p className="unified-so-dealer-filter-note text-muted text-sm">
+          List capped for size — narrow the date range for the rest.
+        </p>
+      ) : null}
 
       <div ref={scrollRef} className="invoices-page__scroll">
       {error && (
@@ -1364,7 +1524,81 @@ export const AdminInvoicesPage: React.FC = () => {
         </div>
       )}
 
-      {loading && rows.length === 0 ? (
+      {gatcRcOn ? (
+        loading && gatcReportRows.length === 0 ? (
+          <FetchingLoader label="Loading GATC RC invoices…" />
+        ) : gatcReportRows.length === 0 ? (
+          <div className="invoices-empty panel glass">
+            <FileText size={40} className="text-muted" aria-hidden />
+            <p>No YesGATC product invoices for this RC and date range.</p>
+          </div>
+        ) : (
+          <>
+            {(gatcTotalPages > 1 || page > 1) && (
+              <div className="invoices-pagination invoices-pagination--top" role="navigation" aria-label="GATC RC list pagination">
+                <span className="invoices-pagination__info text-muted text-sm">
+                  {rangeLabelStart}–{rangeLabelEnd} of {rangeLabelTotal.toLocaleString('en-IN')}
+                </span>
+                <div className="invoices-pagination__btns">
+                  <button
+                    type="button"
+                    className="btn btn-secondary btn-sm"
+                    disabled={page <= 1 || loading}
+                    onClick={() => setPage(p => p - 1)}
+                  >
+                    Prev
+                  </button>
+                  <span className="invoices-pagination__page text-sm">
+                    {page} / {gatcTotalPages}
+                  </span>
+                  <button
+                    type="button"
+                    className="btn btn-secondary btn-sm"
+                    disabled={!canGoNext || loading}
+                    onClick={() => setPage(p => p + 1)}
+                  >
+                    Next
+                  </button>
+                </div>
+              </div>
+            )}
+            <YesGatcRcInvoiceCheckList
+              rows={gatcPageRows}
+              onOpen={row => {
+                navigate(`${basePath}/invoices/${row.customerId}/${row.id}/invoice`);
+              }}
+            />
+            {(gatcTotalPages > 1 || page > 1) && (
+              <footer className="invoices-pagination invoices-pagination--sticky">
+                <span className="invoices-pagination__info text-muted text-sm">
+                  {rangeLabelStart}–{rangeLabelEnd} of {rangeLabelTotal.toLocaleString('en-IN')}
+                </span>
+                <div className="invoices-pagination__btns">
+                  <button
+                    type="button"
+                    className="btn btn-secondary btn-sm"
+                    disabled={page <= 1 || loading}
+                    onClick={() => setPage(p => p - 1)}
+                  >
+                    Prev
+                  </button>
+                  <span className="invoices-pagination__page text-sm">
+                    {page} / {gatcTotalPages}
+                  </span>
+                  <button
+                    type="button"
+                    className="btn btn-secondary btn-sm"
+                    disabled={!canGoNext || loading}
+                    onClick={() => setPage(p => p + 1)}
+                  >
+                    Next
+                  </button>
+                </div>
+              </footer>
+            )}
+          </>
+        )
+      ) : loading && rows.length === 0 ? (
         <FetchingLoader label="Loading invoices…" />
       ) : displayRows.length === 0 ? (
         <div className="invoices-empty panel glass">
@@ -1454,12 +1688,17 @@ export const AdminInvoicesPage: React.FC = () => {
         sort={sort}
         dealers={selectedDealers}
         aggregate={aggregate}
+        gatcRcOn={gatcRcOn}
+        gatcRcCode={gatcRcCode}
         onClose={() => setFilterOpen(false)}
         onApply={next => {
           setRangePreset(next.rangePreset);
           setSort(next.sort);
           setSelectedDealers(next.dealers);
-          setAggregate(next.aggregate);
+          setAggregate(next.gatcRcOn ? false : next.aggregate);
+          setGatcRcOn(next.gatcRcOn);
+          setGatcRcCode(next.gatcRcCode);
+          if (next.gatcRcOn) setRows([]);
           syncDealerParams(next.dealers);
         }}
       />

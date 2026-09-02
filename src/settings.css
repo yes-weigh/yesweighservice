@@ -1590,8 +1590,9 @@ button.incentive-report__adjust-col:focus-visible {
   gap: 0.55rem;
 }
 
-.yesgatc-filters__actions .btn {
-  flex: 1 1 0;
+.yesgatc-filters optgroup {
+  font-weight: 700;
+  color: #fdba74;
 }
 
 .yesgatc-records__search {
@@ -1686,6 +1687,64 @@ button.incentive-report__adjust-col:focus-visible {
 .yesgatc-certs-page .yesgatc-filters {
   flex-shrink: 0;
   margin: 0.55rem 0.75rem 0.45rem;
+}
+
+.yesgatc-max-tiles {
+  flex-shrink: 0;
+  display: flex;
+  gap: 0.4rem;
+  margin: 0.15rem 0.75rem 0.45rem;
+  padding: 0.15rem 0 0.2rem;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+
+.yesgatc-max-tiles::-webkit-scrollbar {
+  display: none;
+}
+
+.yesgatc-max-tile {
+  flex: 0 0 auto;
+  min-width: 4.4rem;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.12rem;
+  margin: 0;
+  padding: 0.45rem 0.55rem 0.4rem;
+  border-radius: 10px;
+  border: 1px solid rgba(148, 163, 184, 0.18);
+  background: rgba(15, 23, 42, 0.55);
+  color: inherit;
+  cursor: pointer;
+}
+
+.yesgatc-max-tile.is-active {
+  border-color: rgba(251, 146, 60, 0.75);
+  background: rgba(251, 146, 60, 0.16);
+}
+
+.yesgatc-max-tile__max {
+  font-size: 0.72rem;
+  font-weight: 750;
+  letter-spacing: 0.02em;
+  white-space: nowrap;
+  color: #e2e8f0;
+}
+
+.yesgatc-max-tile.is-active .yesgatc-max-tile__max {
+  color: #fdba74;
+}
+
+.yesgatc-max-tile__qty {
+  font-size: 0.95rem;
+  font-weight: 800;
+  line-height: 1.1;
+  color: #94a3b8;
+}
+
+.yesgatc-max-tile.is-active .yesgatc-max-tile__qty {
+  color: #fff;
 }
 
 .yesgatc-certs-page .settings-locations__error,

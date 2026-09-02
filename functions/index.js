@@ -365,6 +365,7 @@ import {
   voidUnlinkedYesGatcCertificate,
 } from './lib/yesgatc-invoice-link.js';
 import { linkYesGatcOvCertificatesByInvoiceQty } from './lib/yesgatc-ov-invoice-qty-link.js';
+import { listYesGatcRcInvoiceReport } from './lib/yesgatc-rc-invoice-report.js';
 import { CI_BUILD_TAG } from './lib/ci-build.js';
 
 // CI smoke-test marker (shared bundle entry — triggers full functions deploy in CI).
@@ -7955,6 +7956,30 @@ export const voidYesGatcCertificateFn = onCall(
     } catch (err) {
       if (err instanceof HttpsError) throw err;
       throw new HttpsError('failed-precondition', err?.message ?? 'Could not void this certificate.');
+    }
+  },
+);
+
+export const yesGatcRcInvoiceReportFn = onCall(
+  {
+    region: 'asia-south1',
+    timeoutSeconds: 180,
+    memory: '512MiB',
+  },
+  async request => {
+    await requireActiveUser(request.auth?.uid, SYNC_ROLES, { allowViewOnly: true });
+    try {
+      return await listYesGatcRcInvoiceReport({
+        rcCode: request.data?.rcCode,
+        dateStart: request.data?.dateStart,
+        dateEnd: request.data?.dateEnd,
+      });
+    } catch (err) {
+      if (err instanceof HttpsError) throw err;
+      throw new HttpsError(
+        'failed-precondition',
+        err?.message ?? 'Could not build the GATC RC invoice report.',
+      );
     }
   },
 );

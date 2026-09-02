@@ -764,6 +764,10 @@ export function YesGatcCertificateList({
               <em>Max</em>
               {row.max || '—'}
             </span>
+            <span>
+              <em>e</em>
+              {row.e || '—'}
+            </span>
             <span className="yesgatc-cert-row__when">
               <em className={isYesGatcCertificateSigned(row) ? 'yesgatc-cert-row__certified--signed' : undefined}>
                 Certified
