@@ -32,6 +32,7 @@ import {
   ensureDealersCached,
   peekCachedDealers,
   subscribeDealerCache,
+  upsertCachedDealer,
 } from '../../lib/dealer-cache';
 import {
   findPriceLevelForDealer,
@@ -966,7 +967,9 @@ export function ZohoDealersPage() {
         <CreateDealerModal
           onClose={() => setCreateOpen(false)}
           onCreated={dealer => {
+            upsertCachedDealer(dealer);
             setCreateOpen(false);
+            void ensureDealersCached({ force: true });
             navigate(`${dealersBase}/${dealer.id}`, { state: { dealer } });
           }}
         />

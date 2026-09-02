@@ -40,7 +40,7 @@ import {
   pushDealerChangesToZoho,
   refreshDealerFromZoho,
 } from '../../lib/dealers';
-import { removeCachedDealer } from '../../lib/dealer-cache';
+import { removeCachedDealer, upsertCachedDealer } from '../../lib/dealer-cache';
 import {
   zohoPushableBaseline,
   type ZohoPushableFields,
@@ -406,6 +406,7 @@ export const DealerDetailPage: React.FC = () => {
     setZohoBaseline(zohoPushableBaseline(data));
     setBlankFillableKeys(blankFillableFieldKeys(data));
     setSeparateShipping(!dealerAddressesMatch(next.billing, next.shipping));
+    upsertCachedDealer(data);
   }, []);
 
   const loadDealer = useCallback(async () => {
@@ -563,7 +564,13 @@ export const DealerDetailPage: React.FC = () => {
         shippingAddress: formatDealerAddress(nextShipping) || null,
       });
       const refreshed = await fetchDealerById(dealer.id);
-      applyLoadedDealer(refreshed);
+      const kamName = refreshed.assignedStaffName?.trim()
+        || assignableStaff.find(row => row.uid === refreshed.assignedStaffUid)?.displayName
+        || null;
+      applyLoadedDealer({
+        ...refreshed,
+        assignedStaffName: kamName,
+      });
     } catch (err) {
       setError(dealerErrorMessage(err));
     } finally {

@@ -116,6 +116,19 @@ export function removeCachedDealer(id: string): void {
   commit(entry.dealers.filter(dealer => dealer.id !== id), entry.complete);
 }
 
+/** Insert or replace a dealer in the roster cache so create/search/KAM stay current. */
+export function upsertCachedDealer(dealer: ZohoDealer): void {
+  if (!dealer?.id) return;
+  const entry = memory ?? readSession();
+  const dealers = entry?.dealers ?? [];
+  const existing = dealers.find(row => row.id === dealer.id);
+  const next = existing ? { ...existing, ...dealer } : dealer;
+  commit(
+    [next, ...dealers.filter(row => row.id !== dealer.id)],
+    entry?.complete ?? dealers.length > 0,
+  );
+}
+
 /** Subscribe to cache updates while pages are still loading. */
 export function subscribeDealerCache(listener: DealerCacheListener): () => void {
   listeners.add(listener);

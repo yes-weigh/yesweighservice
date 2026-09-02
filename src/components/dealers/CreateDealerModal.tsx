@@ -36,6 +36,7 @@ import {
   playDealerSuccessSound,
   unlockDealerActionAudio,
 } from '../../lib/dealerActionSound';
+import { upsertCachedDealer } from '../../lib/dealer-cache';
 import type { AssignableStaffOption, ZohoDealer } from '../../types/dealers';
 import { DEALER_STAGES } from '../../types/dealers';
 
@@ -184,7 +185,7 @@ export const CreateDealerModal: React.FC<CreateDealerModalProps> = ({
   const [shopMobile, setShopMobile] = useState('');
   const [mobile, setMobile] = useState('');
   const [email, setEmail] = useState('');
-  const [dealerStage, setDealerStage] = useState('');
+  const [dealerStage, setDealerStage] = useState('Active');
   const [assignedStaffUid, setAssignedStaffUid] = useState('');
   const [billing, setBilling] = useState<DealerAddress>(emptyDealerAddress);
   const [shipping, setShipping] = useState<DealerAddress>(emptyDealerAddress);
@@ -367,9 +368,16 @@ export const CreateDealerModal: React.FC<CreateDealerModalProps> = ({
           console.error('Create dealer price level failed:', err);
         }
       }
+      const staged: ZohoDealer = {
+        ...dealer,
+        dealerStage: dealerStage.trim() || dealer.dealerStage || 'Active',
+        email: mail || dealer.email,
+        assignedStaffUid: assignedStaffUid.trim() || dealer.assignedStaffUid,
+      };
+      upsertCachedDealer(staged);
       setCreatePhase('success');
       playDealerSuccessSound();
-      window.setTimeout(() => onCreated(dealer), 1100);
+      window.setTimeout(() => onCreated(staged), 1100);
     } catch (err) {
       setCreatePhase('fail');
       playDealerFailSound();
