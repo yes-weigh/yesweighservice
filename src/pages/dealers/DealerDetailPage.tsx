@@ -619,8 +619,9 @@ export const DealerDetailPage: React.FC = () => {
     const label = dealer.companyName || dealer.contactName || 'this dealer';
     const ok = await confirm({
       title: 'Delete dealer',
-      message: `Delete ${label} from Zoho and YesOne? If Zoho has transactions, the dealer will be voided instead.`,
+      message: `Delete ${label} from YesOne? If it is already gone from Zoho it will still be removed here. If Zoho has transactions, the dealer will be voided instead.`,
       confirmLabel: 'Delete',
+      destructive: true,
     });
     if (!ok) return;
     unlockDealerActionAudio();

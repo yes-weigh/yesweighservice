@@ -188,9 +188,10 @@ export const HrStaffFormPage: React.FC<HrStaffFormPageProps> = ({ basePath }) =>
       let targetUid = uid;
       const hrPatch = hrProfileToFirestorePatch(hr);
 
+      const zohoFields = zohoLinksToFirestoreFields(zohoLinks);
+      await assertZohoSalespersonIdsAvailable(zohoFields.zohoSalespersonIds, targetUid);
+
       if (isEdit && targetUid && isSuperAdminRecord) {
-        const zohoFields = zohoLinksToFirestoreFields(zohoLinks);
-        await assertZohoSalespersonIdsAvailable(zohoFields.zohoSalespersonIds, targetUid);
         await updateUserProfile(db, targetUid, {
           displayName: account.displayName,
           phone: account.phone || undefined,
@@ -201,19 +202,18 @@ export const HrStaffFormPage: React.FC<HrStaffFormPageProps> = ({ basePath }) =>
       } else if (isEdit && targetUid) {
         if (!roleDraft.roleId) throw new Error('Select a staff role.');
         const accessPayload = staffRoleDraftToPayload(roleDraft);
-        await assertZohoSalespersonIdsAvailable(accessPayload.zohoSalespersonIds, targetUid);
         await updateUserProfile(db, targetUid, {
           displayName: account.displayName,
           phone: account.phone || undefined,
           email: account.email || undefined,
           ...accessPayload,
+          ...zohoFields,
           managerUid: managerUid || null,
           ...hrPatch,
         });
       } else {
         if (!roleDraft.roleId) throw new Error('Select a staff role.');
         const accessPayload = staffRoleDraftToPayload(roleDraft);
-        await assertZohoSalespersonIdsAvailable(accessPayload.zohoSalespersonIds, undefined);
         if (account.password.length < 6) throw new Error('Password must be at least 6 characters.');
         if (!parseLoginId(account.loginId)) {
           throw new Error('Enter a valid email, 10-digit phone, or 12-digit Aadhaar number.');
@@ -226,6 +226,7 @@ export const HrStaffFormPage: React.FC<HrStaffFormPageProps> = ({ basePath }) =>
           phone: account.phone || undefined,
           email: account.email || undefined,
           ...accessPayload,
+          ...zohoFields,
           managerUid: managerUid || null,
           createdByUid: user.uid,
           hr: hrPatch as Parameters<typeof registerUser>[1]['hr'],
@@ -516,21 +517,21 @@ export const HrStaffFormPage: React.FC<HrStaffFormPageProps> = ({ basePath }) =>
             </div>
           </section>
 
-          {isSuperAdminRecord ? (
-            <section className="panel glass hr-staff-form__section hr-staff-form__section--wide">
-              <h3>Zoho salesperson</h3>
-              <p className="hr-staff-form__section-hint text-muted text-sm">
-                Link Zoho salespersons to this Super Admin for dealer / order assignment.
-              </p>
-              <ZohoSalespersonPicker
-                links={zohoLinks}
-                onChange={setZohoLinks}
-                excludeUid={uid ?? null}
-                loadEnabled
-                disabled={submitting}
-              />
-            </section>
-          ) : (
+          <section className="panel glass hr-staff-form__section hr-staff-form__section--wide">
+            <h3>Zoho salesperson</h3>
+            <p className="hr-staff-form__section-hint text-muted text-sm">
+              Link Zoho salespersons so this person can be assigned as KAM on dealers.
+            </p>
+            <ZohoSalespersonPicker
+              links={zohoLinks}
+              onChange={setZohoLinks}
+              excludeUid={uid ?? null}
+              loadEnabled
+              disabled={submitting}
+            />
+          </section>
+
+          {!isSuperAdminRecord ? (
             <section className="panel glass hr-staff-form__section hr-staff-form__section--wide">
               <h3>Access</h3>
               <StaffRoleEditor
@@ -538,11 +539,11 @@ export const HrStaffFormPage: React.FC<HrStaffFormPageProps> = ({ basePath }) =>
                 onChange={setRoleDraft}
                 roles={staffRoles}
                 excludeUid={uid ?? null}
-                zohoManageHref={`${basePath}/dealers?tab=salespersons`}
+                showZoho={false}
                 disabled={submitting}
               />
             </section>
-          )}
+          ) : null}
         </div>
 
         <div className="hr-staff-form__actions">

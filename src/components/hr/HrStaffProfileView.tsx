@@ -11,6 +11,7 @@ import {
 import { resolveProfileLogin } from '../../lib/profileLogin';
 import { formatLoginIdDisplay, loginIdTypeLabel } from '../../lib/loginAuth';
 import { staffDepartmentLabel } from '../../lib/staffAccess';
+import { normalizeZohoSalespersonLinks } from '../../lib/zohoSalespersonStaff';
 import { HrStaffPhoto } from './HrStaffPhoto';
 
 type HrStaffProfileViewProps = {
@@ -67,6 +68,14 @@ export const HrStaffProfileView: React.FC<HrStaffProfileViewProps> = ({
 
       <div className="hr-profile__grid">
         <DetailRow label="Role" value={roleName ?? staffDepartmentLabel(record.staffDepartment)} />
+        <DetailRow
+          label="Zoho salesperson"
+          value={
+            normalizeZohoSalespersonLinks(record)
+              .map(link => link.name || link.id)
+              .join(', ')
+          }
+        />
         <DetailRow label="Employee ID" value={hr.hrEmployeeId} />
         <DetailRow label="Date of birth" value={formatJoinDate(hr.hrDateOfBirth)} />
         <DetailRow label="Join date" value={formatJoinDate(hr.hrJoinDate)} />

@@ -759,7 +759,34 @@ export async function upsertCustomerFromZoho(secrets, orgId, contactId) {
   return { id, created: false };
 }
 
+function zohoContactMissing(res, payload) {
+  const code = Number(payload?.code);
+  const message = String(payload?.message ?? '');
+  return res?.status === 404
+    || code === 1002
+    || code === 5
+    || /invalid contact|not found|does not exist|invalid url passed|resource does not exist|has been deleted/i.test(message);
+}
+
+function zohoErrorLooksMissing(err) {
+  return zohoContactMissing(
+    { status: err?.status ?? 0 },
+    { message: String(err?.message ?? err ?? ''), code: err?.zohoCode ?? err?.code },
+  );
+}
+
+async function zohoContactAlreadyGone(accessToken, organizationId, contactId, priorErr) {
+  if (priorErr && zohoErrorLooksMissing(priorErr)) return true;
+  try {
+    await fetchRawCustomerDetail(accessToken, organizationId, contactId);
+    return false;
+  } catch (err) {
+    return zohoErrorLooksMissing(err);
+  }
+}
+
 function cannotDeleteBecauseTransactions(payload) {
+  if (zohoContactMissing({ status: 0 }, payload)) return false;
   const message = String(payload?.message ?? '').toLowerCase();
   return /transaction|cannot be deleted|associated with|sales order|invoice|has been used|outstanding/i.test(message);
 }
@@ -822,8 +849,7 @@ export async function deleteOrVoidZohoCustomer(id, secrets, orgId) {
   });
   const { payload: delPayload } = await parseZohoJsonResponse(delRes);
   const deletedOk = delRes.ok && (delPayload?.code === 0 || delRes.status === 204);
-  const missing = delRes.status === 404
-    || /invalid contact|not found|does not exist/i.test(String(delPayload?.message ?? ''));
+  const missing = zohoContactMissing(delRes, delPayload);
 
   if (deletedOk || missing) {
     await ref.delete();
@@ -831,7 +857,15 @@ export async function deleteOrVoidZohoCustomer(id, secrets, orgId) {
   }
 
   if (cannotDeleteBecauseTransactions(delPayload)) {
-    await markZohoContactInactive(accessToken, organizationId, contactId);
+    try {
+      await markZohoContactInactive(accessToken, organizationId, contactId);
+    } catch (err) {
+      if (await zohoContactAlreadyGone(accessToken, organizationId, contactId, err)) {
+        await ref.delete();
+        return { action: 'deleted', id: contactId };
+      }
+      throw err;
+    }
     await ref.set({
       status: 'inactive',
       isFiltered: true,
@@ -841,6 +875,11 @@ export async function deleteOrVoidZohoCustomer(id, secrets, orgId) {
       updatedAt: FieldValue.serverTimestamp(),
     }, { merge: true });
     return { action: 'voided', id: contactId };
+  }
+
+  if (await zohoContactAlreadyGone(accessToken, organizationId, contactId)) {
+    await ref.delete();
+    return { action: 'deleted', id: contactId };
   }
 
   throw new Error(delPayload?.message || `Zoho could not delete this dealer (${delRes.status}).`);

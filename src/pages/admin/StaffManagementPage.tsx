@@ -390,7 +390,6 @@ export const StaffManagementPage: React.FC = () => {
                   onChange={setRoleDraft}
                   roles={staffRoles}
                   excludeUid={editingUid}
-                  zohoManageHref="/super-admin/dealers?tab=salespersons"
                   disabled={submitting}
                 />
               </div>

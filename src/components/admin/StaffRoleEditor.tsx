@@ -1,5 +1,4 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { Link } from 'react-router-dom';
 import { ChevronDown, Loader2, Search, Sparkles, X } from 'lucide-react';
 import {
   ALL_STAFF_PERMISSIONS,
@@ -443,8 +442,8 @@ interface StaffRoleEditorProps {
   roles: StaffRoleTemplate[];
   /** Staff uid being edited (keeps their Zoho links selectable). */
   excludeUid?: string | null;
-  /** Deep link to Dealers → Salespersons (Zoho link/unlink hub). */
-  zohoManageHref?: string | null;
+  /** When false, hide Zoho linking (parent form has its own picker). */
+  showZoho?: boolean;
   disabled?: boolean;
 }
 
@@ -452,8 +451,8 @@ export const StaffRoleEditor: React.FC<StaffRoleEditorProps> = ({
   value,
   onChange,
   roles,
-  excludeUid: _excludeUid,
-  zohoManageHref,
+  excludeUid,
+  showZoho = true,
   disabled,
 }) => {
   const [advancedOpen, setAdvancedOpen] = useState(value.accessMode === 'custom');
@@ -523,29 +522,21 @@ export const StaffRoleEditor: React.FC<StaffRoleEditorProps> = ({
         <p className="staff-role-editor__hint text-muted text-sm">{selectedRole.description}</p>
       )}
 
-      <div className="staff-role-editor__section staff-role-editor__zoho-readonly">
-        <span className="staff-role-editor__label">Zoho salesperson</span>
-        {value.zohoSalespersonLinks.length > 0 ? (
-          <ul className="staff-role-editor__zoho-chips" aria-label="Linked Zoho salespersons">
-            {value.zohoSalespersonLinks.map(link => (
-              <li key={link.id} className="staff-role-editor__zoho-chip">
-                {link.name || link.id}
-              </li>
-            ))}
-          </ul>
-        ) : (
-          <p className="staff-role-editor__hint text-muted text-sm">Not linked</p>
-        )}
-        <p className="staff-role-editor__hint text-muted text-sm">
-          Link or unlink Zoho salespersons in{' '}
-          {zohoManageHref ? (
-            <Link to={zohoManageHref}>Dealers → Salespersons</Link>
-          ) : (
-            'Dealers → Salespersons'
-          )}
-          .
-        </p>
-      </div>
+      {showZoho ? (
+        <div className="staff-role-editor__section">
+          <span className="staff-role-editor__label">Zoho salesperson</span>
+          <p className="staff-role-editor__hint text-muted text-sm">
+            Link Zoho salespersons so this person can be assigned as KAM on dealers.
+          </p>
+          <ZohoSalespersonPicker
+            links={value.zohoSalespersonLinks}
+            onChange={links => onChange({ ...value, zohoSalespersonLinks: links })}
+            excludeUid={excludeUid}
+            loadEnabled
+            disabled={disabled}
+          />
+        </div>
+      ) : null}
 
       <details className="staff-role-editor__optional">
         <summary>Optional fields</summary>
