@@ -6255,6 +6255,7 @@ export const bookBlueDartShipmentFn = onCall(
         invoiceNumber: invoiceFields.invoiceNumber,
         invoiceValueInr: invoiceFields.invoiceValueInr,
         sellerGstin: request.data?.sellerGstin,
+        shipmentMode: request.data?.shipmentMode,
         freightBillingMode: request.data?.freightBillingMode,
         registerPickup: request.data?.registerPickup,
       });

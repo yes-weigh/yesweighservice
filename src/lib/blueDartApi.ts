@@ -171,6 +171,7 @@ export type BlueDartBookResult = {
   awb: string;
   env?: BlueDartApiEnv;
   productCode?: string;
+  productType?: number;
   destinationArea?: string | null;
   destinationLocation?: string | null;
   pickupRegistered?: boolean;
@@ -207,6 +208,7 @@ export async function bookBlueDartShipment(input: {
   consignee: BlueDartBookConsignee;
   returnAddress?: BlueDartBookConsignee | null;
   boxes: BlueDartBookBox[];
+  shipmentMode?: 'envelope' | 'box';
   invoiceNumber?: string | null;
   invoiceValueInr?: number | null;
   invoiceId?: string | null;

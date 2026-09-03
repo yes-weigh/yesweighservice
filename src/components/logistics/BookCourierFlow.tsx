@@ -1396,6 +1396,7 @@ export const BookCourierFlow: React.FC<BookCourierFlowProps> = ({
           weightKg: Number.parseFloat(box.weightKg) || undefined,
           quantity: 1,
         })),
+        shipmentMode: draftRef.current.shipmentMode === 'envelope' ? 'envelope' : 'box',
         invoiceId: invoiceId || null,
         zohoCustomerId: customerId || null,
         invoiceNumber: invoiceNumber || draftRef.current.invoiceNumber,

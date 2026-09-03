@@ -32,6 +32,18 @@ export const BLUE_DART_PRODUCT_CODES = Object.freeze({
   bluedart_domestic: 'D',
 });
 
+/** GenerateWayBill ProductType enum: 0 Docs (Dox), 1 Dutiables (Non-Dox). */
+export const BLUE_DART_PRODUCT_TYPE = Object.freeze({
+  docs: 0,
+  dutiables: 1,
+});
+
+/** RegisterPickup DoxNDox: 1 Dox, 2 Non-Dox. */
+export const BLUE_DART_DOX_NDOX = Object.freeze({
+  dox: '1',
+  ndox: '2',
+});
+
 /**
  * PrinterLableSize is a numeric enum (string names 500 the API).
  * 0 A4S single, 1 A4T multi-copy, 2 55×30, 3 89×60.
@@ -68,6 +80,55 @@ export function blueDartBaseUrl(env) {
 export function blueDartProductCode(partnerId) {
   const id = String(partnerId ?? '').trim();
   return BLUE_DART_PRODUCT_CODES[id] || BLUE_DART_PRODUCT_CODES.bluedart_surface;
+}
+
+/** Envelope → Dox (documents). Everything else, including omitted mode, is Dutiables. */
+export function blueDartIsEnvelope(shipmentMode) {
+  return String(shipmentMode ?? '').trim().toLowerCase() === 'envelope';
+}
+
+export function blueDartProductType(shipmentMode) {
+  return blueDartIsEnvelope(shipmentMode)
+    ? BLUE_DART_PRODUCT_TYPE.docs
+    : BLUE_DART_PRODUCT_TYPE.dutiables;
+}
+
+export function blueDartDoxNDox(shipmentMode) {
+  return blueDartIsEnvelope(shipmentMode)
+    ? BLUE_DART_DOX_NDOX.dox
+    : BLUE_DART_DOX_NDOX.ndox;
+}
+
+/** GenerateWayBill SubProductCode: A FOD. Empty = prepaid / account. */
+export function blueDartSubProductCode(freightBillingMode) {
+  return String(freightBillingMode || '').trim().toLowerCase() === 'fod' ? 'A' : '';
+}
+
+function blueDartAlnum(raw, maxLen) {
+  return String(raw || '').replace(/[^a-zA-Z0-9]/g, '').slice(0, maxLen);
+}
+
+function gstin15(raw) {
+  const value = String(raw || '').replace(/[^A-Za-z0-9]/g, '').toUpperCase();
+  return value.length === 15 ? value : '';
+}
+
+export function blueDartCommodity(shipmentMode) {
+  return {
+    CommodityDetail1: blueDartIsEnvelope(shipmentMode) ? 'Documents' : 'WeighingScale',
+  };
+}
+
+export function blueDartItemDetails({ shipmentMode, declaredValue, pieceCount, invoiceNumber }) {
+  if (blueDartIsEnvelope(shipmentMode)) return [];
+  const invoice = blueDartAlnum(invoiceNumber, 20);
+  return [{
+    ItemID: '1',
+    ItemName: 'WeighingScale',
+    ItemValue: declaredValue,
+    Itemquantity: Math.max(1, Number(pieceCount) || 1),
+    ...(invoice ? { InvoiceNumber: invoice } : {}),
+  }];
 }
 
 /**
@@ -839,7 +900,7 @@ export async function registerBlueDartPickupAtAddress(db, input = {}) {
     CustomerName: String(secrets.customerName || 'YESWEIGH').slice(0, 30),
     CustomerPincode: pin,
     CustomerTelephoneNumber: phone,
-    DoxNDox: '1',
+    DoxNDox: blueDartDoxNDox(input.shipmentMode),
     IsForcePickup: true,
     IsReversePickup: false,
     MobileTelNo: phone,
@@ -853,7 +914,7 @@ export async function registerBlueDartPickupAtAddress(db, input = {}) {
     ShipmentPickupTime: pickupTime,
     VolumeWeight: Number(input.weightKg) || 0.5,
     WeightofShipment: Number(input.weightKg) || 0.5,
-    isToPayShipper: false,
+    isToPayShipper: String(input.freightBillingMode || '').toLowerCase() === 'fod',
   };
   const profile = profilePayload(config.env, secrets, 'shipping');
   const paths = ['/pickup/v1RegisterPickup', '/pickup/v1/RegisterPickup'];
@@ -994,6 +1055,8 @@ export async function registerBlueDartPickupForBooking(db, bookingId) {
     phone,
     contactName: secrets.customerName || 'YESWEIGH',
     productCode: blueDartProductCode(partnerId),
+    shipmentMode: data.shipmentMode,
+    freightBillingMode: data.freightBillingMode,
     pieceCount,
     weightKg: weightKg || 0.5,
     pickupMs: pickupDt.getTime(),
@@ -1103,6 +1166,7 @@ export async function cancelBlueDartWaybill(db, awb) {
  *   invoiceNumber?: string | null,
  *   invoiceValueInr?: number | null,
  *   sellerGstin?: string | null,
+ *   shipmentMode?: string | null,
  *   freightBillingMode?: string | null,
  *   registerPickup?: boolean,
  * }} input
@@ -1112,6 +1176,7 @@ export async function bookBlueDartShipment(db, input = {}) {
   const secrets = await loadSecrets(db);
   const partnerId = String(input.partnerId || 'bluedart_surface').trim();
   const productCode = blueDartProductCode(partnerId);
+  const productType = blueDartProductType(input.shipmentMode);
   const consignee = input.consignee && typeof input.consignee === 'object' ? input.consignee : {};
   const boxes = Array.isArray(input.boxes) ? input.boxes : [];
   const destPin = pin6(consignee.pincode);
@@ -1159,16 +1224,19 @@ export async function bookBlueDartShipment(db, input = {}) {
     const kg = Number(box.weightKg);
     return sum + (Number.isFinite(kg) && kg > 0 ? kg : 0);
   }, 0);
-  const pieceCount = Math.max(1, boxes.length || 1);
+  const dimPieces = dims.reduce((sum, row) => sum + row.Count, 0);
+  const pieceCount = Math.max(1, dimPieces || boxes.length || 1);
   const declared = Number(input.invoiceValueInr);
   const declaredValue = Number.isFinite(declared) && declared > 0 ? declared : 1000;
   const pickupDt = nextPickupIst();
   const pickupMs = pickupDt.getTime();
-  const cref = String(input.orderId || input.invoiceNumber || '').trim() || `YW${Date.now()}`;
+  const cref = sanitizeBlueDartRef(input.orderId || input.invoiceNumber) || `YW${Date.now()}`;
+  const invoiceNo = blueDartAlnum(input.invoiceNumber, 10);
   const fod = String(input.freightBillingMode || '').toLowerCase() === 'fod';
+  const subProductCode = blueDartSubProductCode(input.freightBillingMode);
   const registerPickup = input.registerPickup !== false;
-  const gstin = String(consignee.gstin || '').trim().toUpperCase();
-  const sellerGstin = String(input.sellerGstin || '').trim().toUpperCase();
+  const gstin = gstin15(consignee.gstin);
+  const sellerGstin = gstin15(input.sellerGstin);
 
   const payload = {
     Request: {
@@ -1205,23 +1273,29 @@ export async function bookBlueDartShipment(db, input = {}) {
       Services: {
         AWBNo: '',
         ActualWeight: weightKg > 0 ? weightKg.toFixed(2) : '0.50',
-        Commodity: {},
-        CreditReferenceNo: cref.slice(0, 20),
+        Commodity: blueDartCommodity(input.shipmentMode),
+        CreditReferenceNo: cref,
         DeclaredValue: declaredValue,
         Dimensions: dims,
         ECCN: '',
+        InvoiceNo: invoiceNo,
         PDFOutputNotRequired: input.pdfOutputNotRequired === true,
         PackType: '',
         PickupDate: `/Date(${pickupMs})/`,
         PickupTime: '1600',
         PieceCount: String(pieceCount),
         ProductCode: productCode,
-        ProductType: 0,
+        ProductType: productType,
         RegisterPickup: registerPickup,
         SpecialInstruction: '',
-        SubProductCode: '',
+        SubProductCode: subProductCode,
         PrinterLableSize: BLUE_DART_PRINTER_LABEL_A4S,
-        itemdtl: [],
+        itemdtl: blueDartItemDetails({
+          shipmentMode: input.shipmentMode,
+          declaredValue,
+          pieceCount,
+          invoiceNumber: input.invoiceNumber,
+        }),
         noOfDCGiven: 0,
       },
       Shipper: {
@@ -1295,6 +1369,7 @@ export async function bookBlueDartShipment(db, input = {}) {
       awb: recovered.awb,
       env: config.env,
       productCode,
+      productType,
       destinationArea: recovered.destinationArea,
       destinationLocation: recovered.destinationLocation,
       creditReferenceNo: result?.CCRCRDREF || cref,
@@ -1347,6 +1422,7 @@ export async function bookBlueDartShipment(db, input = {}) {
     awb,
     env: config.env,
     productCode,
+    productType,
     destinationArea: result.DestinationArea || null,
     destinationLocation: result.DestinationLocation || null,
     creditReferenceNo: result.CCRCRDREF || cref,
