@@ -32,6 +32,7 @@ import {
   normalizeInvoiceCategories,
   normalizeInvoiceCategoryAmounts,
   parseInvoiceCategory,
+  isSoftwareOnlyInvoiceCategories,
   sumInvoiceProductQuantity,
   firstDateTimeValue,
 } from './invoices';
@@ -356,6 +357,19 @@ export function goodsReceiptShipmentStage(
   return 'scheduled';
 }
 
+/** Software-only bills (Sanoft / software keys / software HSN) are not listed. */
+export function isSoftwareExcludedGoodsReceipt(
+  row: Pick<AdminFirestoreGoodsReceipt, 'goodsReceiptCategory' | 'categories'>,
+): boolean {
+  return isSoftwareOnlyInvoiceCategories(row.categories, row.goodsReceiptCategory);
+}
+
+function excludeSoftwareGoodsReceipts(
+  rows: AdminFirestoreGoodsReceipt[],
+): AdminFirestoreGoodsReceipt[] {
+  return rows.filter(row => !isSoftwareExcludedGoodsReceipt(row));
+}
+
 export function countAdminGoodsReceiptsByShipment(
   rows: AdminFirestoreGoodsReceipt[],
 ): AdminGoodsReceiptShipmentCounts {
@@ -539,7 +553,7 @@ export function subscribeAdminGoodsReceipts(
   return onSnapshot(
     q,
     snap => {
-      onData(snap.docs.map(mapAdminGoodsReceiptDoc));
+      onData(excludeSoftwareGoodsReceipts(snap.docs.map(mapAdminGoodsReceiptDoc)));
     },
     err => {
       onError(err.message || 'Could not load goods receipts from Firestore.');
@@ -552,7 +566,7 @@ export async function fetchAdminGoodsReceiptsPageDetailed(
 ): Promise<AdminGoodsReceiptsPageResult> {
   const snap = await getDocs(buildAdminGoodsReceiptsQuery(options));
   return {
-    rows: snap.docs.map(mapAdminGoodsReceiptDoc),
+    rows: excludeSoftwareGoodsReceipts(snap.docs.map(mapAdminGoodsReceiptDoc)),
     docs: snap.docs,
     lastDoc: snap.docs.length ? snap.docs[snap.docs.length - 1] : null,
   };
@@ -601,18 +615,16 @@ export async function countAdminGoodsReceiptsByLocation(options: {
   dateStart?: string | null;
   dateEnd?: string | null;
 }): Promise<AdminGoodsReceiptLocationCounts> {
-  const base = {
+  const { rows } = await fetchAllAdminGoodsReceiptsInRange({
+    location: 'all',
     dateStart: options.dateStart ?? null,
     dateEnd: options.dateEnd ?? null,
-  } as const;
-
-  const [all, head_office, cochin] = await Promise.all([
-    countAdminGoodsReceipts({ ...base, location: 'all' }),
-    countAdminGoodsReceipts({ ...base, location: 'head_office' }),
-    countAdminGoodsReceipts({ ...base, location: 'cochin' }),
-  ]);
-
-  return { all, head_office, cochin };
+  });
+  return {
+    all: rows.length,
+    head_office: rows.filter(row => row.inventorySite === 'head_office').length,
+    cochin: rows.filter(row => row.inventorySite === 'cochin').length,
+  };
 }
 
 export async function fetchAllAdminGoodsReceiptsInRange(options: {
@@ -637,14 +649,14 @@ export async function fetchAllAdminGoodsReceiptsInRange(options: {
       dateStart: options.dateStart,
       dateEnd: options.dateEnd,
     });
-    if (!result.rows.length) break;
+    if (!result.docs.length) break;
     rows.push(...result.rows);
     cursor = result.lastDoc;
     if (rows.length >= maxRows) {
       truncated = true;
       break;
     }
-    if (result.rows.length < ADMIN_GR_PAGE_SIZE) break;
+    if (result.docs.length < ADMIN_GR_PAGE_SIZE) break;
   }
 
   return { rows: truncated ? rows.slice(0, maxRows) : rows, truncated };
@@ -656,7 +668,7 @@ export function filterAdminGoodsReceipts(
   location: GoodsReceiptLocationFilter = 'all',
   shipment: GoodsReceiptShipmentFilter = 'all',
 ): AdminFirestoreGoodsReceipt[] {
-  let next = rows;
+  let next = excludeSoftwareGoodsReceipts(rows);
   if (location && location !== 'all') {
     next = next.filter(row => row.inventorySite === location);
   }
@@ -881,6 +893,9 @@ export async function fetchAdminGoodsReceiptDetail(
     throw new Error('Goods receipt not found.');
   }
   const detail = mapAdminGoodsReceiptDetail(goodsReceiptId, snap.data());
+  if (isSoftwareExcludedGoodsReceipt(detail)) {
+    throw new Error('Goods receipt not found.');
+  }
   const [withImages, poDate] = await Promise.all([
     enrichInvoiceDetailImages({
       ...detail,

@@ -3,6 +3,7 @@
  * Pattern mirrors purchase-order-sync / invoice-sync; docs live at goodsReceipts/{id}.
  * New bills are pulled as drafts (Scheduled). After ops marks received, the bill is
  * approved to Open in Zoho and kept on the mirror (open/paid). Void/cancelled drop.
+ * Software-only bills (HSN / Software keys / Sanoft) are not mirrored.
  */
 import { getApp } from 'firebase-admin/app';
 import { getFirestore, FieldValue, Timestamp } from 'firebase-admin/firestore';
@@ -17,6 +18,7 @@ import {
 import {
   classifyInvoiceCategoryBreakdown,
   classifyInvoiceFromLineItems,
+  isSoftwareOnlyInvoiceCategories,
   parseInvoiceCategory,
   sumNonFreightQuantity,
 } from './invoice-category.js';
@@ -592,6 +594,10 @@ async function upsertGoodsReceiptFromRaw(raw) {
   const categoryBreakdown = classifyInvoiceCategoryBreakdown(mapped.lineItems, catalog);
   const goodsReceiptCategory = categoryBreakdown.categories[0]
     ?? classifyInvoiceFromLineItems(mapped.lineItems, catalog);
+  if (isSoftwareOnlyInvoiceCategories(categoryBreakdown.categories, goodsReceiptCategory)) {
+    await removeGoodsReceiptDoc(mapped.id);
+    return { id: mapped.id, goodsReceiptCategory, dropped: true };
+  }
   const now = Timestamp.now();
   const doc = {
     ...mapped,
@@ -610,6 +616,7 @@ async function upsertGoodsReceiptFromRaw(raw) {
 
 function detailStillValid(existing, summary) {
   if (!existing) return false;
+  if (isSoftwareOnlyInvoiceCategories(existing.categories, existing.goodsReceiptCategory)) return false;
   if (!Array.isArray(existing.lineItems) || existing.lineItems.length === 0) return false;
   // Force re-pull once after branch/location mapping was added.
   if (!Object.prototype.hasOwnProperty.call(existing, 'branchName')) return false;

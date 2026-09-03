@@ -1250,6 +1250,22 @@ export function parseInvoiceCategory(value: unknown): InvoiceCategory | null {
     : null;
 }
 
+/**
+ * Software-only docs (HSN 85238020/85238010, Software keys / Sanoft category).
+ * Mixed product/spare + software bills are kept.
+ */
+export function isSoftwareOnlyInvoiceCategories(
+  categories?: InvoiceCategory[] | null,
+  primaryCategory?: InvoiceCategory | string | null,
+): boolean {
+  const parsed = normalizeInvoiceCategories(categories);
+  const one = parseInvoiceCategory(primaryCategory);
+  const cats = parsed.length ? parsed : (one ? [one] : []);
+  if (!cats.length) return false;
+  if (cats.some(category => category === 'product' || category === 'spare')) return false;
+  return cats.includes('software_key');
+}
+
 export function invoiceCategoryLabel(category: InvoiceCategory | null | undefined): string {
   switch (category) {
     case 'product':
