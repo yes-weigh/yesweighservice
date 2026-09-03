@@ -9,6 +9,7 @@ import './settings.css';
 import './yes-store.css';
 import App from './App';
 import { hydrateAppDisplayCaches } from './lib/hydrateAppCaches';
+import { nativeAppHasKeepAlive } from './lib/nativeAppKeepAlive';
 
 void hydrateAppDisplayCaches();
 
@@ -41,7 +42,11 @@ if (isNative) {
       backgroundedAt = Date.now();
       return;
     }
-    if (backgroundedAt != null && Date.now() - backgroundedAt >= 20_000) {
+    if (
+      backgroundedAt != null
+      && Date.now() - backgroundedAt >= 20_000
+      && !nativeAppHasKeepAlive()
+    ) {
       window.location.reload();
     }
     backgroundedAt = null;
