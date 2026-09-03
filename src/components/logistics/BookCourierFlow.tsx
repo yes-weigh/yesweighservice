@@ -193,6 +193,13 @@ import { ShippingLabelBitmapPreview } from './ShippingLabelBitmapPreview';
 
 type BoxNumberField = 'lengthCm' | 'widthCm' | 'heightCm' | 'weightKg';
 
+function newPhotoId(): string {
+  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+    return crypto.randomUUID();
+  }
+  return `photo-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
+}
+
 function mergeVaultPhotosIntoDraft(
   prev: LogisticsBookingDraft,
   vaultPhotos: LogisticsVaultPhoto[],
