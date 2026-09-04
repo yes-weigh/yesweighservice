@@ -9,6 +9,7 @@ export const SERIAL_UNITS = 'serialUnits';
 export const PRODUCT_SERIAL_CURSORS = 'productSerialCursors';
 export const WAREHOUSE_RC_CODE = 'IWP';
 export const WAREHOUSE_RC_NAME = 'INTERWEIGHING PVT LTD';
+const NON_GATC_ALLOCATIONS = 'nonGatcSerialAllocations';
 
 export const SERIAL_UNIT_IN_STOCK = 'in_stock';
 export const SERIAL_UNIT_INVOICED = 'invoiced';
@@ -235,6 +236,74 @@ export async function markSerialUnitsUsed(serials) {
     status: SERIAL_UNIT_USED,
     usedAt: new Date().toISOString(),
   });
+}
+
+/** Delete in-stock units for a range. Throws if any serial is invoiced, used, or allotted. */
+export async function assertSerialRangeNeverUsed(row) {
+  const serials = expandSerialRange({
+    from: row?.from,
+    to: row?.to,
+    missing: Array.isArray(row?.missing) ? row.missing : [],
+  });
+  if (!serials.length) return { serials: 0 };
+  const db = getFirestore();
+  const used = [];
+  for (let i = 0; i < serials.length; i += 100) {
+    const slice = serials.slice(i, i + 100);
+    const ids = slice.map(unitId).filter(Boolean);
+    if (!ids.length) continue;
+    const unitRefs = ids.map(id => db.collection(SERIAL_UNITS).doc(id));
+    const allocRefs = ids.map(id => db.collection(NON_GATC_ALLOCATIONS).doc(id));
+    const [unitSnaps, allocSnaps] = await Promise.all([
+      db.getAll(...unitRefs),
+      db.getAll(...allocRefs),
+    ]);
+    for (let j = 0; j < ids.length; j += 1) {
+      const status = str(unitSnaps[j].data()?.status);
+      if (status === SERIAL_UNIT_INVOICED || status === SERIAL_UNIT_USED || allocSnaps[j].exists) {
+        used.push(slice[j] || ids[j]);
+      }
+    }
+  }
+  if (used.length) {
+    const sample = used.slice(0, 8).join(', ');
+    throw new Error(
+      `Cannot delete: ${used.length} serial${used.length === 1 ? '' : 's'} already used (${sample}${used.length > 8 ? '…' : ''}).`,
+    );
+  }
+  return { serials: serials.length };
+}
+
+export async function deleteUnusedSerialUnitsForRange(row) {
+  await assertSerialRangeNeverUsed(row);
+  const serials = expandSerialRange({
+    from: row?.from,
+    to: row?.to,
+    missing: Array.isArray(row?.missing) ? row.missing : [],
+  });
+  if (!serials.length) return { deleted: 0, serials: 0 };
+  const db = getFirestore();
+  let deleted = 0;
+  let batch = db.batch();
+  let count = 0;
+  for (let i = 0; i < serials.length; i += 100) {
+    const ids = serials.slice(i, i + 100).map(unitId).filter(Boolean);
+    if (!ids.length) continue;
+    const snaps = await db.getAll(...ids.map(id => db.collection(SERIAL_UNITS).doc(id)));
+    for (const snap of snaps) {
+      if (!snap.exists) continue;
+      batch.delete(snap.ref);
+      count += 1;
+      deleted += 1;
+      if (count >= WRITE_CHUNK) {
+        await batch.commit();
+        batch = db.batch();
+        count = 0;
+      }
+    }
+  }
+  if (count) await batch.commit();
+  return { deleted, serials: serials.length };
 }
 
 async function patchSerialUnits(serials, patch) {

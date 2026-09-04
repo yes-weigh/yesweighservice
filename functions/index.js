@@ -341,7 +341,10 @@ import {
   loadWebhookSecret,
   readProvidedSecret,
 } from './lib/yesgatc-webhook.js';
-import { pushSerialAllotmentsToYesGatc } from './lib/yesgatc-serial-push.js';
+import {
+  deleteUnusedSerialAllotment,
+  pushSerialAllotmentsToYesGatc,
+} from './lib/yesgatc-serial-push.js';
 import {
   applyNonGatcSerialAllotmentOnInvoice,
   listAvailableNonGatcSerials,
@@ -7765,6 +7768,30 @@ export const pushRcInvoiceToYesGatcFn = onCall(
       throw new HttpsError(
         'failed-precondition',
         err?.message ?? 'Could not push this invoice to YesGATC.',
+      );
+    }
+  },
+);
+
+/** Remove an unused serial allotment and cancel it on YesGATC if it was sent. */
+export const deleteUnusedSerialAllotmentFn = onCall(
+  {
+    region: 'asia-south1',
+    timeoutSeconds: 180,
+    memory: '1GiB',
+  },
+  async request => {
+    await requireActiveUser(request.auth?.uid, SUPER_ADMIN_ROLES);
+    try {
+      return await deleteUnusedSerialAllotment({
+        id: String(request.data?.id ?? '').trim(),
+        actorName: String(request.data?.actorName ?? '').trim() || 'YESWEIGH',
+      });
+    } catch (err) {
+      if (err instanceof HttpsError) throw err;
+      throw new HttpsError(
+        'failed-precondition',
+        err?.message ?? 'Could not delete this serial allotment.',
       );
     }
   },
