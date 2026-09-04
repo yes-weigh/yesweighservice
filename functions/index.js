@@ -7500,6 +7500,7 @@ export const listAvailableNonGatcSerialsFn = onCall(
           max,
           productId: productId || undefined,
           sku: sku || undefined,
+          productName: String(request.data?.productName || '').trim() || undefined,
         }),
       };
     } catch (err) {
@@ -7649,7 +7650,19 @@ export const listUnlinkedIwpGatcCertificatesFn = onCall(
     await requireActiveUser(request.auth?.uid, NON_GATC_SERIAL_ROLES);
     try {
       const max = Math.min(5000, Math.max(1, Number(request.data?.max) || 2000));
-      return { rows: await listUnlinkedIwpGatcCertificates(max) };
+      const productId = String(request.data?.productId || request.data?.itemId || '').trim();
+      const sku = String(request.data?.sku || '').trim();
+      const productName = String(request.data?.productName || '').trim();
+      const capacityKg = request.data?.capacityKg == null ? null : Number(request.data.capacityKg);
+      return {
+        rows: await listUnlinkedIwpGatcCertificates({
+          max,
+          productId: productId || undefined,
+          sku: sku || undefined,
+          productName: productName || undefined,
+          capacityKg: Number.isFinite(capacityKg) ? capacityKg : undefined,
+        }),
+      };
     } catch (err) {
       if (err instanceof HttpsError) throw err;
       throw new HttpsError('internal', err?.message ?? 'Could not load unlinked GATC serials.');

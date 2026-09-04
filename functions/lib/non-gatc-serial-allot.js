@@ -19,6 +19,8 @@ import {
 } from './mandatory-serials.js';
 
 export const NON_GATC_SERIES = 'non_gatc';
+export const GATC_50KG_SERIES = 'gatc_50kg';
+export const GATC_SL_SERIES = 'gatc_sl';
 export const NON_GATC_MACHINE_HSN = Object.freeze(['84238190', '84238290', '84231000']);
 export const NON_GATC_ALLOCATIONS = 'nonGatcSerialAllocations';
 export const SERIAL_NUMBER_ALLOTMENT_DOC = 'appSettings/serialNumberAllotment';
@@ -150,24 +152,56 @@ export function mergePreservedLineSerials(nextLines, existingLines) {
   });
 }
 
-function allotmentMatchesFilter(row, filter = {}) {
-  const wantProduct = compactProductToken(filter.productId);
-  const wantSku = compactProductToken(filter.sku);
-  const rowProduct = compactProductToken(row?.productId || row?.itemId);
-  const rowSku = compactProductToken(row?.sku);
-  const bound = Boolean(rowProduct || rowSku);
-  if (!bound) return true;
-  if (!wantProduct && !wantSku) return false;
-  if (wantProduct && rowProduct === wantProduct) return true;
-  if (wantSku && rowSku === wantSku) return true;
-  return false;
+function productTokens(value) {
+  return [
+    value?.productId,
+    value?.itemId,
+    value?.sku,
+    value?.productName,
+  ].map(compactProductToken).filter(Boolean);
 }
 
-function expandNonGatcPool(allotments, filter = {}) {
+function allotmentIsBound(row) {
+  return productTokens(row).length > 0;
+}
+
+function allotmentMatchesProduct(row, filter = {}) {
+  const want = productTokens(filter);
+  const have = productTokens(row);
+  if (!want.length || !have.length) return false;
+  return want.some(token => have.includes(token));
+}
+
+export function productHasDedicatedAllotment(allotments, filter = {}, series = NON_GATC_SERIES) {
+  const wanted = str(series);
+  return (Array.isArray(allotments) ? allotments : []).some(row => (
+    str(row?.series) === wanted
+    && allotmentIsBound(row)
+    && allotmentMatchesProduct(row, filter)
+  ));
+}
+
+export function productHasDedicatedNonGatcAllotment(allotments, filter = {}) {
+  return productHasDedicatedAllotment(allotments, filter, NON_GATC_SERIES);
+}
+
+function allotmentInPickerPool(row, filter = {}, dedicated = false, series = NON_GATC_SERIES) {
+  if (str(row?.series) !== str(series)) return false;
+  const bound = allotmentIsBound(row);
+  if (dedicated) return bound && allotmentMatchesProduct(row, filter);
+  return !bound;
+}
+
+export function seriesHasAllotments(allotments, series) {
+  const wanted = str(series);
+  return (Array.isArray(allotments) ? allotments : []).some(row => str(row?.series) === wanted);
+}
+
+export function expandSerialAllotmentPool(allotments, filter = {}, series = NON_GATC_SERIES) {
+  const dedicated = productHasDedicatedAllotment(allotments, filter, series);
   const out = [];
   for (const row of Array.isArray(allotments) ? allotments : []) {
-    if (str(row?.series) !== NON_GATC_SERIES) continue;
-    if (!allotmentMatchesFilter(row, filter)) continue;
+    if (!allotmentInPickerPool(row, filter, dedicated, series)) continue;
     const from = parseSerialToken(row.from);
     const to = parseSerialToken(row.to);
     if (!from || !to || from.prefix !== to.prefix || from.n > to.n) continue;
@@ -189,6 +223,10 @@ function expandNonGatcPool(allotments, filter = {}) {
   });
 }
 
+function expandNonGatcPool(allotments, filter = {}) {
+  return expandSerialAllotmentPool(allotments, filter, NON_GATC_SERIES);
+}
+
 function lineNeed(line) {
   const qty = Math.max(0, Math.round(Number(line?.quantity) || 0));
   const have = uniqueSerials(line?.serialNumbers).length;
@@ -199,19 +237,29 @@ export async function listAvailableNonGatcSerials(maxOrOpts = 2000) {
   const opts = maxOrOpts && typeof maxOrOpts === 'object' ? maxOrOpts : { max: maxOrOpts };
   const productId = str(opts.productId || opts.itemId);
   const sku = str(opts.sku);
+  const productName = str(opts.productName);
+  const filter = { productId, sku, productName };
   const limit = Math.min(5000, Math.max(1, Number(opts.max) || 2000));
   const db = getFirestore();
   const allotSnap = await db.doc(SERIAL_NUMBER_ALLOTMENT_DOC).get();
   const allotments = allotSnap.exists ? allotSnap.data()?.allotments : [];
+  const dedicated = productHasDedicatedNonGatcAllotment(allotments, filter);
   const { ensureSerialUnitsFromAllotments, listAvailableSerialUnits } = await import('./serial-units.js');
-  if (productId || sku) {
-    await ensureSerialUnitsFromAllotments(allotments, { productId, sku });
+  if (dedicated) {
+    await ensureSerialUnitsFromAllotments(allotments, filter);
   }
-  const unitRows = await listAvailableSerialUnits({ productId, sku, max: limit });
+  const unitRows = await listAvailableSerialUnits({
+    productId,
+    sku,
+    productName,
+    max: limit,
+    series: NON_GATC_SERIES,
+    exclusiveBound: dedicated,
+  });
   const taken = await loadTakenSerialKeys(db);
   const seen = new Set(unitRows.map(row => compactSerialKey(row.serialNumber || row.id)));
   const extra = [];
-  for (const serial of expandNonGatcPool(allotments, { productId, sku })) {
+  for (const serial of expandNonGatcPool(allotments, filter)) {
     const key = compactSerialKey(serial);
     if (!key || seen.has(key) || taken.has(key)) continue;
     seen.add(key);
@@ -658,12 +706,14 @@ export async function applyNonGatcSerialAllotmentOnInvoice({
     : lines.find(isNonGatcSerialEligibleLine);
   const wantProduct = compactProductToken(targetLine?.itemId);
   const wantSku = compactProductToken(targetLine?.sku);
-
-  const allotSnap = await db.doc(SERIAL_NUMBER_ALLOTMENT_DOC).get();
-  const pool = expandNonGatcPool(allotSnap.exists ? allotSnap.data()?.allotments : [], {
+  const lineFilter = {
     productId: str(targetLine?.itemId),
     sku: str(targetLine?.sku),
-  });
+    productName: str(targetLine?.name || targetLine?.productName),
+  };
+
+  const allotSnap = await db.doc(SERIAL_NUMBER_ALLOTMENT_DOC).get();
+  const pool = expandNonGatcPool(allotSnap.exists ? allotSnap.data()?.allotments : [], lineFilter);
   const poolKeys = new Set(pool.map(compactSerialKey));
   const taken = await loadTakenSerialKeys(db, invoiceId);
   for (const line of lines) {

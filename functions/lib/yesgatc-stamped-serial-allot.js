@@ -6,9 +6,14 @@
 import { FieldValue, getFirestore } from 'firebase-admin/firestore';
 import {
   compactSerialKey,
+  expandSerialAllotmentPool,
+  GATC_50KG_SERIES,
+  GATC_SL_SERIES,
   invoiceLineHasGatcTag,
   isVoidInvoiceStatus,
   NON_GATC_MACHINE_HSN,
+  SERIAL_NUMBER_ALLOTMENT_DOC,
+  seriesHasAllotments,
   pushSerialsToZohoInvoiceSafe,
 } from './non-gatc-serial-allot.js';
 import {
@@ -40,16 +45,56 @@ function compactProductToken(value) {
   return str(value).toUpperCase().replace(/[^A-Z0-9]/g, '');
 }
 
+function parseCapacityKg(value) {
+  const match = str(value).match(/(\d+(?:\.\d+)?)\s*kgs?\b/i);
+  if (!match) return null;
+  const kg = Number(match[1]);
+  return Number.isFinite(kg) ? kg : null;
+}
+
+function isFiftyKg(kg) {
+  return kg != null && Number.isFinite(kg) && Math.abs(kg - 50) < 0.01;
+}
+
+function lineCapacityKg(line) {
+  const fromStamp = str(line?.description).match(/stamping\s*:\s*([^\n]+)/i)?.[1];
+  return parseCapacityKg(fromStamp)
+    || parseCapacityKg(line?.description)
+    || parseCapacityKg(line?.name)
+    || parseCapacityKg(line?.productName);
+}
+
+function certificateCapacityKg(data) {
+  return parseCapacityKg(data?.max);
+}
+
+function certificateIsBound(data) {
+  return Boolean(compactProductToken(data?.sku) || compactProductToken(data?.productId || data?.itemId));
+}
+
 function certificateMatchesLine(data, line) {
-  const haveSku = compactProductToken(data?.sku);
-  const haveProduct = compactProductToken(data?.productId || data?.itemId);
-  if (!haveSku && !haveProduct) return true;
-  const wantSku = compactProductToken(line?.sku);
-  const wantProduct = compactProductToken(line?.itemId || line?.productId);
-  if (!wantSku && !wantProduct) return false;
-  if (haveSku && wantSku && haveSku === wantSku) return true;
-  if (haveProduct && wantProduct && haveProduct === wantProduct) return true;
-  return false;
+  const have = [data?.sku, data?.productId, data?.itemId, data?.productName]
+    .map(compactProductToken)
+    .filter(Boolean);
+  if (!have.length) return true;
+  const want = [line?.sku, line?.itemId, line?.productId, line?.name, line?.productName]
+    .map(compactProductToken)
+    .filter(Boolean);
+  if (!want.length) return false;
+  return want.some(token => have.includes(token));
+}
+
+function certificateAllowedForLine(data, line, dedicated) {
+  const lineKg = lineCapacityKg(line);
+  const certKg = certificateCapacityKg(data);
+  if (isFiftyKg(certKg) && !isFiftyKg(lineKg)) return false;
+  if (isFiftyKg(lineKg) && !isFiftyKg(certKg)) return false;
+  if (lineKg != null && !isFiftyKg(lineKg) && certKg != null && certKg !== lineKg) return false;
+  if (dedicated) {
+    return certificateIsBound(data) && certificateMatchesLine(data, line);
+  }
+  if (certificateIsBound(data) && !certificateMatchesLine(data, line)) return false;
+  return true;
 }
 
 function hsnDigits(value) {
@@ -174,18 +219,65 @@ function publicCert(id, data) {
   };
 }
 
-export async function listUnlinkedIwpGatcCertificates(max = 2000) {
-  const cap = Math.min(5000, Math.max(1, Number(max) || 2000));
+function gatcAllotmentSeriesForLine(lineOrKg) {
+  const kg = typeof lineOrKg === 'number' || lineOrKg == null
+    ? lineOrKg
+    : lineCapacityKg(lineOrKg);
+  return isFiftyKg(kg) ? GATC_50KG_SERIES : GATC_SL_SERIES;
+}
+
+async function loadSerialAllotments(db) {
+  const snap = await db.doc(SERIAL_NUMBER_ALLOTMENT_DOC).get();
+  return snap.exists ? (snap.data()?.allotments || []) : [];
+}
+
+function unusedGatcAllotmentKeys(allotments, filter, series) {
+  if (!seriesHasAllotments(allotments, series)) return null;
+  return new Set(expandSerialAllotmentPool(allotments, filter, series).map(compactSerialKey));
+}
+
+export async function listUnlinkedIwpGatcCertificates(maxOrOpts = 2000) {
+  const opts = maxOrOpts && typeof maxOrOpts === 'object' ? maxOrOpts : { max: maxOrOpts };
+  const cap = Math.min(5000, Math.max(1, Number(opts.max) || 2000));
+  const lineKg = opts.capacityKg == null ? null : Number(opts.capacityKg);
+  const filter = {
+    productId: str(opts.productId || opts.itemId),
+    sku: str(opts.sku),
+    productName: str(opts.productName),
+  };
   const rows = await listCertificatesForOps(10000, {
     rcCode: YESONE_RC_CODE,
     ovOnly: true,
   });
+  const db = getFirestore();
+  const allotments = await loadSerialAllotments(db);
+  const series = gatcAllotmentSeriesForLine(Number.isFinite(lineKg) ? lineKg : null);
+  const allowedKeys = unusedGatcAllotmentKeys(allotments, filter, series);
+  const line = {
+    sku: filter.sku,
+    itemId: filter.productId,
+    productId: filter.productId,
+    name: filter.productName,
+    productName: filter.productName,
+    description: Number.isFinite(lineKg) ? `Stamping: ${lineKg}Kg` : '',
+  };
+  const dedicatedCert = rows.some(row => (
+    !isCertificateLinked(row)
+    && !isVoidedCertificate(row)
+    && certificateIsBound(row)
+    && certificateMatchesLine(row, line)
+  ));
   return rows
     .filter(row => (
       !isCertificateLinked(row)
       && !isVoidedCertificate(row)
       && Boolean(str(row.serialNumber))
     ))
+    .filter(row => certificateAllowedForLine(row, line, dedicatedCert))
+    .filter(row => {
+      if (!allowedKeys) return true;
+      return allowedKeys.has(compactSerialKey(row.serialNumber));
+    })
     .map(row => publicCert(row.id, row))
     .sort((a, b) => String(b.certificateNumber).localeCompare(String(a.certificateNumber), 'en'))
     .slice(0, cap);
@@ -331,6 +423,23 @@ export async function allotGatcStampedSerialsToInvoice({
   }
 
   const certs = await loadCertificatesById(db, wanted);
+  const unused = await listUnlinkedIwpGatcCertificates({
+    max: 5000,
+    productId: str(line.itemId),
+    sku: str(line.sku),
+    productName: str(line.name || line.productName),
+    capacityKg: lineCapacityKg(line),
+  });
+  const allotments = await loadSerialAllotments(db);
+  const series = gatcAllotmentSeriesForLine(line);
+  const allowedKeys = unusedGatcAllotmentKeys(allotments, {
+    productId: str(line.itemId),
+    sku: str(line.sku),
+    productName: str(line.name || line.productName),
+  }, series);
+  const dedicated = unused.some(row => (
+    certificateIsBound(row) && certificateMatchesLine(row, line)
+  ));
   const usedOnInvoice = new Set(
     lines.flatMap(item => uniqueSerials(item?.serialNumbers).map(compactSerialKey)),
   );
@@ -352,9 +461,23 @@ export async function allotGatcStampedSerialsToInvoice({
     if (usedOnInvoice.has(key) || serials.some(item => compactSerialKey(item) === key)) {
       throw new Error(`${serial} is already on this invoice.`);
     }
-    if (!certificateMatchesLine(cert.data, line)) {
+    if (!certificateAllowedForLine(cert.data, line, dedicated)) {
+      const lineKg = lineCapacityKg(line);
+      if (isFiftyKg(certificateCapacityKg(cert.data)) && !isFiftyKg(lineKg)) {
+        throw new Error(`${serial} is a 50 kg GATC serial. Use it only on a 50 kg scale.`);
+      }
+      if (isFiftyKg(lineKg) && !isFiftyKg(certificateCapacityKg(cert.data))) {
+        throw new Error(`${serial} is not a 50 kg GATC serial.`);
+      }
       throw new Error(
         `${serial} belongs to ${str(cert.data.sku || cert.data.productName) || 'another product'}, not this line.`,
+      );
+    }
+    if (allowedKeys && !allowedKeys.has(key)) {
+      throw new Error(
+        isFiftyKg(lineCapacityKg(line))
+          ? `${serial} is not an unused 50 kg GATC serial.`
+          : `${serial} is not an unused SL printed GATC serial.`,
       );
     }
     serials.push(serial);

@@ -142,55 +142,71 @@ export function suggestNextSerial(cursor) {
   return `${parsed.prefix}${raw.padStart(width, '0')}`;
 }
 
+function unitMatchesProduct(data, { productId = '', sku = '', productName = '' } = {}) {
+  const want = [productId, sku, productName].map(compactProductToken).filter(Boolean);
+  const have = [data?.productId, data?.sku, data?.productName].map(compactProductToken).filter(Boolean);
+  if (!want.length || !have.length) return false;
+  return want.some(token => have.includes(token));
+}
+
 export async function listAvailableSerialUnits({
   productId = '',
   sku = '',
+  productName = '',
   max = 2000,
+  series = '',
+  exclusiveBound = false,
 } = {}) {
   const db = getFirestore();
   const limit = Math.min(5000, Math.max(1, Number(max) || 2000));
-  const wantProduct = compactProductToken(productId);
-  const wantSku = compactProductToken(sku);
-  const filtered = Boolean(wantProduct || wantSku);
+  const wantSeries = str(series);
+  const filter = { productId, sku, productName };
+  const filtered = Boolean(compactProductToken(productId) || compactProductToken(sku) || compactProductToken(productName));
   const snap = await db.collection(SERIAL_UNITS)
     .where('status', '==', SERIAL_UNIT_IN_STOCK)
     .limit(5000)
     .get();
-  const rows = [];
+  const matchingBound = [];
+  const unbound = [];
   snap.forEach(doc => {
     const data = doc.data() || {};
-    const unitProduct = compactProductToken(data.productId);
-    const unitSku = compactProductToken(data.sku);
-    const bound = Boolean(unitProduct || unitSku);
-    if (filtered) {
-      if (bound && unitProduct !== wantProduct && unitSku !== wantSku) return;
-    } else if (bound) {
-      return;
-    }
+    if (wantSeries && str(data.series) && str(data.series) !== wantSeries) return;
+    const bound = Boolean(compactProductToken(data.productId) || compactProductToken(data.sku));
     const serial = str(data.serial) || doc.id;
-    rows.push({
+    const row = {
       id: doc.id,
       serialNumber: serial,
       sku: str(data.sku) || null,
       productId: str(data.productId) || null,
       productName: str(data.productName) || null,
-    });
+    };
+    if (bound) {
+      if (filtered && unitMatchesProduct(data, filter)) matchingBound.push(row);
+      return;
+    }
+    unbound.push(row);
   });
+  const rows = exclusiveBound ? matchingBound : unbound;
   rows.sort((a, b) => a.serialNumber.localeCompare(b.serialNumber, 'en', { numeric: true }));
   return rows.slice(0, limit);
 }
 
 export async function ensureSerialUnitsFromAllotments(allotments, filter = {}) {
-  const wantProduct = compactProductToken(filter.productId);
-  const wantSku = compactProductToken(filter.sku);
   const rows = Array.isArray(allotments) ? allotments : [];
   let written = 0;
   for (const row of rows) {
     const productId = compactProductToken(row?.productId || row?.itemId);
     const sku = compactProductToken(row?.sku);
-    if (wantProduct && productId !== wantProduct && sku !== wantSku) continue;
-    if (!wantProduct && wantSku && sku !== wantSku) continue;
     if (!productId && !sku) continue;
+    if (filter.productId || filter.sku || filter.productName) {
+      const have = [row?.productId, row?.itemId, row?.sku, row?.productName]
+        .map(compactProductToken)
+        .filter(Boolean);
+      const want = [filter.productId, filter.sku, filter.productName]
+        .map(compactProductToken)
+        .filter(Boolean);
+      if (!want.some(token => have.includes(token))) continue;
+    }
     const result = await writeSerialUnitsForRange(row);
     written += Number(result?.written) || 0;
   }

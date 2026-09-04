@@ -9,10 +9,6 @@ import {
 } from './mandatorySerials';
 import {
   YESGATC_OV_MACHINE_HSN,
-  YESONE_RC_CODE,
-  isYesGatcOvCertificate,
-  isYesoneIwpCertificate,
-  listYesGatcCertificates,
 } from './yesgatcRecords';
 import type { DealerInvoiceLineItem } from '../types/invoices';
 import type { AllotNonGatcSerialsResult } from './nonGatcSerialAllot';
@@ -74,68 +70,41 @@ export function invoiceNeedsGatcStampedSerialAllotment(
   return (lines ?? []).some(line => gatcStampedSerialShortage(line) > 0);
 }
 
-function toPickerRow(row: {
-  id: string;
-  certificateNumber: string;
-  serialNumber: string;
-  productName: string;
-  productId?: string | null;
-  sku?: string | null;
-  rcCode?: string | null;
-  rcName?: string | null;
-  issuedAt?: string | null;
-  max?: string;
-  min?: string;
-  e?: string;
-}): UnlinkedIwpGatcCertificate {
-  return {
-    id: row.id,
-    certificateNumber: row.certificateNumber,
-    serialNumber: row.serialNumber,
-    productName: row.productName,
-    productId: row.productId ?? null,
-    sku: row.sku ?? null,
-    rcCode: row.rcCode ?? null,
-    rcName: row.rcName ?? null,
-    issuedAt: row.issuedAt ?? null,
-    max: row.max ?? '',
-    min: row.min ?? '',
-    e: row.e ?? '',
-  };
-}
-
-function isUnlinkedCertificate(row: { invoiceNumber?: string | null; invoiceId?: string | null }): boolean {
-  return !String(row.invoiceNumber ?? '').trim() && !String(row.invoiceId ?? '').trim();
-}
-
 export async function listUnlinkedIwpGatcCertificates(
-  max = 2000,
+  maxOrOpts: number | {
+    max?: number;
+    productId?: string | null;
+    sku?: string | null;
+    productName?: string | null;
+    capacityKg?: number | null;
+  } = 2000,
 ): Promise<UnlinkedIwpGatcCertificate[]> {
-  try {
-    const listed = await listYesGatcCertificates(10000, {
-      rcCode: YESONE_RC_CODE,
-      ovOnly: true,
-    });
-    const unlinked = listed
-      .filter(row => (
-        isYesoneIwpCertificate(row)
-        && isYesGatcOvCertificate(row)
-        && isUnlinkedCertificate(row)
-        && !row.voided
-        && Boolean(row.serialNumber.trim())
-      ))
-      .map(toPickerRow);
-    if (unlinked.length) return unlinked.slice(0, max);
-  } catch {
-    // Warehouse / callable — fall through to the dedicated list.
-  }
-
-  const fn = httpsCallable<{ max?: number }, { rows?: UnlinkedIwpGatcCertificate[] }>(
+  const opts = typeof maxOrOpts === 'number' ? { max: maxOrOpts } : maxOrOpts;
+  const fn = httpsCallable<
+    {
+      max?: number;
+      productId?: string;
+      sku?: string;
+      productName?: string;
+      capacityKg?: number;
+    },
+    { rows?: UnlinkedIwpGatcCertificate[] }
+  >(
     getFunctions(app, 'asia-south1'),
     'listUnlinkedIwpGatcCertificatesFn',
     { timeout: 60_000 },
   );
-  return (await fn({ max })).data.rows ?? [];
+  const productId = String(opts.productId ?? '').trim();
+  const sku = String(opts.sku ?? '').trim();
+  const productName = String(opts.productName ?? '').trim();
+  const capacityKg = opts.capacityKg == null ? null : Number(opts.capacityKg);
+  return (await fn({
+    max: opts.max,
+    ...(productId ? { productId } : {}),
+    ...(sku ? { sku } : {}),
+    ...(productName ? { productName } : {}),
+    ...(Number.isFinite(capacityKg) ? { capacityKg } : {}),
+  })).data.rows ?? [];
 }
 
 export async function allotGatcStampedSerialsToInvoice(input: {
