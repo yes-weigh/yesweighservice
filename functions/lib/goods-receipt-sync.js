@@ -205,7 +205,8 @@ function isKeptBillStatus(status) {
 }
 
 function alreadyOpenMessage(message) {
-  return /already|approv|open/i.test(String(message ?? ''));
+  const text = String(message ?? '').trim().toLowerCase();
+  return /already (approved|open)|already in open( status)?|has already been approved|bill is already open/.test(text);
 }
 
 function toIstDateKey(date) {
@@ -279,26 +280,44 @@ async function commentBillReceivedInZoho(accessToken, orgId, billId, description
       method: 'POST',
       body: { description: text },
     });
-  } catch {
-    // Comment is best-effort; opening the bill still succeeds.
+  } catch (err) {
+    console.warn(
+      `Zoho bill ${billId} receive comment failed: ${err?.message ?? err}`,
+    );
   }
 }
 
+/**
+ * Open a draft bill in Zoho. Approval-workflow orgs use /approve; this org
+ * (and PO-converted drafts) must use /status/open. "/approve" returns
+ * "You can only approve the Bill submitted to you." and must not be treated
+ * as already-open.
+ */
 async function approveBillInZoho(accessToken, orgId, billId) {
   try {
-    await zohoJsonRequest(accessToken, orgId, `/bills/${billId}/approve`, {
+    await zohoJsonRequest(accessToken, orgId, `/bills/${billId}/status/open`, {
       method: 'POST',
-      body: {},
     });
-  } catch (err) {
-    if (alreadyOpenMessage(err?.message)) return;
+    return;
+  } catch (openErr) {
+    if (alreadyOpenMessage(openErr?.message)) return;
+    console.warn(
+      `Zoho bill ${billId} status/open failed: ${openErr?.message ?? openErr}`,
+    );
     try {
-      await zohoJsonRequest(accessToken, orgId, `/bills/${billId}/status/open`, {
+      await zohoJsonRequest(accessToken, orgId, `/bills/${billId}/approve`, {
         method: 'POST',
-        body: {},
       });
-    } catch (fallbackErr) {
-      if (alreadyOpenMessage(fallbackErr?.message)) return;
+      return;
+    } catch (approveErr) {
+      if (alreadyOpenMessage(approveErr?.message)) return;
+      console.warn(
+        `Zoho bill ${billId} approve failed: ${approveErr?.message ?? approveErr}`,
+      );
+      const err = new Error(
+        openErr?.message || approveErr?.message || 'Could not open this bill in Zoho.',
+      );
+      err.zohoCode = openErr?.zohoCode ?? approveErr?.zohoCode;
       throw err;
     }
   }
@@ -1300,6 +1319,14 @@ export async function markGoodsReceiptReceived(secrets, orgId, {
 
   const raw = await fetchBillRaw(accessToken, organizationId, id);
   if (!raw) throw new Error('Goods receipt not found in Zoho.');
+  if (!isKeptBillStatus(raw.status) || isDraftBillStatus(raw.status)) {
+    console.error(
+      `Zoho bill ${id} still ${raw.status} after open attempt.`,
+    );
+    throw new Error(
+      `Zoho did not open this bill (still ${String(raw.status || 'draft')}).`,
+    );
+  }
   const upserted = await upsertGoodsReceiptFromRaw(raw);
   if (upserted?.dropped) {
     throw new Error('Could not keep this bill after opening it in Zoho.');

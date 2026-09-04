@@ -540,7 +540,9 @@ export const AdminGoodsReceiptDocumentPage: React.FC = () => {
   };
 
   const alreadyReceived = Boolean(goodsReceipt.opsReceivedAt);
+  const zohoStillDraft = !isReceivedBillStatus(goodsReceipt.status);
   const receiveLocked = alreadyReceived || isReceivedBillStatus(goodsReceipt.status);
+  const needsZohoOpen = alreadyReceived && zohoStillDraft;
 
   const persistReceiveCheck = async (mode: 'draft' | 'post', auditedAt?: string | null) => {
     if (!user?.uid) {
@@ -618,7 +620,7 @@ export const AdminGoodsReceiptDocumentPage: React.FC = () => {
       let nextOpsReceivedAt = goodsReceipt.opsReceivedAt;
       let nextOpsReceivedByUid = goodsReceipt.opsReceivedByUid;
       let nextOpsReceivedByName = goodsReceipt.opsReceivedByName;
-      if (!alreadyReceived) {
+      if (!alreadyReceived || zohoStillDraft) {
         const result = await markGoodsReceiptReceived(goodsReceiptId, receivedAtIso);
         nextStatus = result.status;
         nextReceivedDate = result.receivedDate;
@@ -637,6 +639,32 @@ export const AdminGoodsReceiptDocumentPage: React.FC = () => {
       } : prev));
       setReceiveDialogOpen(false);
       setSaveOk('Goods received');
+    } catch (err) {
+      setSaveError(invoiceErrorMessage(err));
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  const handleRetryZohoOpen = async () => {
+    if (!user || !canMarkReceived || !needsZohoOpen) return;
+    setBusy('post');
+    setSaveError('');
+    setSaveOk('');
+    try {
+      const result = await markGoodsReceiptReceived(
+        goodsReceiptId,
+        goodsReceipt.opsReceivedAt,
+      );
+      setGoodsReceipt(prev => (prev ? {
+        ...prev,
+        status: result.status,
+        receivedDate: result.receivedDate,
+        opsReceivedAt: result.opsReceivedAt,
+        opsReceivedByUid: result.opsReceivedByUid,
+        opsReceivedByName: result.opsReceivedByName,
+      } : prev));
+      setSaveOk('Opened in Zoho');
     } catch (err) {
       setSaveError(invoiceErrorMessage(err));
     } finally {
@@ -1113,6 +1141,34 @@ export const AdminGoodsReceiptDocumentPage: React.FC = () => {
           </ul>
         )}
       </section>
+
+      {canMarkReceived && needsZohoOpen && (
+        <div className="goods-receipt-detail__actions">
+          {saveError && (
+            <div className="products-inline-error panel glass goods-receipt-detail__actions-error" role="alert">
+              <AlertCircle size={16} />
+              <span>{saveError}</span>
+            </div>
+          )}
+          {saveOk && (
+            <p className="goods-receipt-receive__saved text-sm mb-0 goods-receipt-detail__actions-status" role="status">
+              <Check size={14} aria-hidden />
+              {saveOk}
+            </p>
+          )}
+          <div className="goods-receipt-detail__actions-btns">
+            <button
+              type="button"
+              className="btn btn-primary"
+              disabled={saving}
+              onClick={() => void handleRetryZohoOpen()}
+            >
+              <PackageCheck size={16} aria-hidden />
+              {busy === 'post' ? 'Opening in Zoho…' : 'Open bill in Zoho'}
+            </button>
+          </div>
+        </div>
+      )}
 
       {canMarkReceived && !receiveLocked && (
         <div className="goods-receipt-detail__actions">
