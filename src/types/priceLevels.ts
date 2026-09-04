@@ -52,11 +52,13 @@ export interface PriceLevelItemRule {
   percent: number;
   /**
    * Absolute unit price when kind === 'fixed' and slabs are empty.
-   * When slabs exist, this mirrors the minQty=1 (or lowest) slab rate.
+   * When slabs exist this may still mirror the lowest slab for the editor;
+   * charged rate below the first slab’s minQty is catalog list, not this field.
    */
   customRate: number | null;
   /**
    * Qty → unit ₹ tiers (fixed overrides). Empty = single customRate.
+   * A slab applies only when order qty ≥ minQty; below the first slab, list ₹.
    * Example: [{ minQty: 1, rate: 1900 }, { minQty: 11, rate: 1800 }]
    */
   slabs: PriceLevelQtySlab[];

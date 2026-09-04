@@ -183,11 +183,16 @@ export function normalizePriceLevelSlabs(raw) {
     .sort((a, b) => a.minQty - b.minQty);
 }
 
+/**
+ * Unit ₹ from the highest slab whose minQty ≤ qty.
+ * Qty below the first slab keeps fallbackRate (catalog list) — it does not
+ * inherit the first slab’s rate.
+ */
 export function resolveSlabUnitRate(slabs, quantity, fallbackRate) {
   const list = normalizePriceLevelSlabs(slabs);
   if (!list.length) return roundMoney(fallbackRate);
   const qty = clampQty(quantity);
-  let rate = list[0].rate;
+  let rate = roundMoney(fallbackRate);
   for (const slab of list) {
     if (qty >= slab.minQty) rate = slab.rate;
     else break;
@@ -319,7 +324,9 @@ function applyItemOrCategoryRule(listRate, level, rule, productId, reportCategor
     }
     if (itemRule.kind === 'fixed') {
       const slabs = normalizePriceLevelSlabs(itemRule.slabs);
-      const fallback = roundMoney(Number(itemRule.customRate) || 0);
+      const fallback = slabs.length > 0
+        ? listRate
+        : roundMoney(Number(itemRule.customRate) || 0);
       const chargeRate = slabs.length > 0
         ? resolveSlabUnitRate(slabs, quantity, fallback)
         : fallback;
