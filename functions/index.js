@@ -6798,11 +6798,29 @@ export const trackDelhiveryShipmentHttp = onRequest(
     try {
       const awb = String(req.query?.awb ?? req.query?.lrn ?? req.query?.keyword ?? '').trim();
       const masterAwb = String(req.query?.masterAwb ?? req.query?.mwb ?? req.query?.waybill ?? '').trim();
-      const result = await fetchDelhiveryTrack(getFirestore(), awb, {
+      const db = getFirestore();
+      const result = await fetchDelhiveryTrack(db, awb, {
         alternateIds: masterAwb ? [masterAwb] : [],
       });
+      let freight = null;
+      if (result.ok && result.awb) {
+        try {
+          const charges = await fetchDelhiveryFreightCharges(db, [result.awb]);
+          freight = charges.byLrn?.[result.awb]
+            || Object.values(charges.byLrn || {})[0]
+            || null;
+        } catch (freightErr) {
+          console.warn('trackDelhiveryShipmentHttp freight failed:', freightErr);
+        }
+      }
       res.set('Cache-Control', 'no-store');
-      res.status(result.ok ? 200 : 404).type('html').send(renderDelhiveryTrackHtml(result));
+      const wantJson = String(req.query?.format || '').toLowerCase() === 'json'
+        || String(req.headers.accept || '').includes('application/json');
+      if (wantJson) {
+        res.status(result.ok ? 200 : 404).json({ ...result, freight });
+        return;
+      }
+      res.status(result.ok ? 200 : 404).type('html').send(renderDelhiveryTrackHtml(result, freight));
     } catch (err) {
       console.error('trackDelhiveryShipmentHttp failed:', err);
       res.status(500).type('html').send(
