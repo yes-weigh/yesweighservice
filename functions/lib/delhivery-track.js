@@ -680,13 +680,35 @@ export async function fetchDelhiveryTrack(db, rawLrn, options = {}) {
 /**
  * Minimal HTML page for public hosting rewrite (optional).
  * @param {Awaited<ReturnType<typeof fetchDelhiveryTrack>>} track
+ * @param {{
+ *   ok?: boolean,
+ *   totalInr?: number | null,
+ *   chargedWeightKg?: number | null,
+ *   billingMode?: string | null,
+ *   breakup?: Record<string, number | null> | null,
+ *   error?: string | null,
+ * } | null} [freight]
  */
-export function renderDelhiveryTrackHtml(track) {
+export function renderDelhiveryTrackHtml(track, freight = null) {
   const title = track.ok ? `Delhivery ${track.awb}` : 'Delhivery track';
   const status = track.status || track.error || 'Unknown';
   const rows = (track.history || []).map(item => (
     `<tr><td>${escapeHtml(item.at)}</td><td>${escapeHtml(item.location)}</td><td>${escapeHtml(item.activity)}</td></tr>`
   )).join('');
+  const money = (n) => (typeof n === 'number' && Number.isFinite(n) ? `₹${n.toFixed(2)}` : '—');
+  const freightBlock = freight?.ok
+    ? `<p><strong>Freight</strong> ${money(freight.totalInr)} incl. GST`
+      + `${freight.chargedWeightKg != null ? ` · ${escapeHtml(String(freight.chargedWeightKg))} kg` : ''}`
+      + `${freight.billingMode ? ` · ${escapeHtml(String(freight.billingMode).toUpperCase())}` : ''}</p>`
+      + (freight.breakup
+        ? `<p class="muted">Base ${money(freight.breakup.baseFreightCharge)}`
+          + ` · Fuel ${money(freight.breakup.fuelSurcharge)}`
+          + ` · Pre-tax ${money(freight.breakup.preTaxFreight)}`
+          + ` · GST ${money(freight.breakup.gst)}</p>`
+        : '')
+    : (freight?.error
+      ? `<p class="muted">Freight: ${escapeHtml(freight.error)}</p>`
+      : '');
   return `<!doctype html>
 <html lang="en"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/>
 <title>${escapeHtml(title)}</title>
@@ -701,6 +723,7 @@ td,th{border:1px solid #ddd;padding:8px;text-align:left;font-size:14px}
 <p><strong>Status</strong> ${escapeHtml(status)}${track.statusType ? ` (${escapeHtml(track.statusType)})` : ''}</p>
 ${track.origin ? `<p class="muted">Origin: ${escapeHtml(track.origin)}</p>` : ''}
 ${track.destination ? `<p class="muted">Destination: ${escapeHtml(track.destination)}</p>` : ''}
+${freightBlock}
 ${rows ? `<table><thead><tr><th>When</th><th>Location</th><th>Activity</th></tr></thead><tbody>${rows}</tbody></table>` : '<p class="muted">No scan history.</p>'}
 <p class="muted"><a href="${escapeHtml(track.sourceUrl || OFFICIAL_TRACK_URL)}">Official Delhivery page</a></p>
 </body></html>`;
