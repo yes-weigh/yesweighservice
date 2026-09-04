@@ -286,19 +286,32 @@ export const SerialNumberAllotmentTab: React.FC = () => {
     setBusy(true);
     setError('');
     setSuccess('');
+    setAllotments(current => current.filter(item => item.id !== row.id));
     try {
       const result = await deleteUnusedSerialAllotment({
         id: row.id,
         actorName,
+        invoicedKeys,
       });
       const refreshed = await loadSerialNumberAllotments();
       setAllotments(prepareSerialAllotments(refreshed.allotments));
-      setSuccess(
-        `Deleted ${result.from}–${result.to}.`
-        + (result.cancelledOnYesGatc ? ' Cancelled on YesGATC.' : ''),
-      );
+      if (result.cancelWarning) {
+        setSuccess(`Deleted ${result.from}–${result.to}.`);
+        setError(result.cancelWarning);
+      } else {
+        setSuccess(
+          `Deleted ${result.from}–${result.to}.`
+          + (result.cancelledOnYesGatc ? ' Cancelling on YesGATC.' : ''),
+        );
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Could not delete this allotment.');
+      try {
+        const refreshed = await loadSerialNumberAllotments();
+        setAllotments(prepareSerialAllotments(refreshed.allotments));
+      } catch {
+        // Keep the optimistic list; reload failed.
+      }
     } finally {
       setBusy(false);
     }

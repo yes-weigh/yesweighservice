@@ -576,16 +576,8 @@ export type DeleteUnusedSerialAllotmentResult = {
   cancelledOnYesGatc: boolean;
   deletedUnits: number;
   remaining: number;
+  cancelWarning?: string | null;
 };
-
-function isCallableMissing(err: unknown): boolean {
-  const code = typeof err === 'object' && err && err !== null && 'code' in err
-    ? String((err as { code: unknown }).code)
-    : '';
-  return code === 'functions/not-found'
-    || code === 'not-found'
-    || /not found|NOT FOUND/i.test(err instanceof Error ? err.message : String(err ?? ''));
-}
 
 async function cancelAllotmentOnYesGatc(
   webhookUrl: string,
@@ -610,6 +602,7 @@ async function cancelAllotmentOnYesGatc(
       count: row.count,
       series: row.series,
     }),
+    signal: AbortSignal.timeout(90_000),
   });
   if (!response.ok) {
     const text = await response.text().catch(() => '');
@@ -620,51 +613,47 @@ async function cancelAllotmentOnYesGatc(
 async function deleteUnusedSerialAllotmentLocal(
   id: string,
   actorName: string,
+  invoicedKeys?: ReadonlySet<string>,
 ): Promise<DeleteUnusedSerialAllotmentResult> {
   const current = await loadSerialNumberAllotments();
   const row = current.allotments.find(item => item.id === id);
   if (!row) throw new Error('Allotment not found.');
-  const keys = await loadInvoicedSerialKeys();
+  if (Array.isArray(row.invoiceLinks) && row.invoiceLinks.length > 0) {
+    throw new Error('This allotment has invoice links. It cannot be deleted.');
+  }
+  const keys = invoicedKeys ?? await loadInvoicedSerialKeys();
   if (!allotmentIsUnused(row, keys)) {
     throw new Error('This allotment has been used. It cannot be deleted.');
   }
-  let cancelledOnYesGatc = false;
-  if (row.pushedAt) {
-    const destination = current.webhookUrl?.trim() || '';
-    if (!destination) {
-      throw new Error('YesGATC webhook URL missing. Cannot cancel serials that were already sent.');
-    }
-    await cancelAllotmentOnYesGatc(destination, row);
-    cancelledOnYesGatc = true;
-  }
+
   const saved = await saveSerialNumberAllotments(
     current.allotments.filter(item => item.id !== id),
     actorName,
   );
+
+  const destination = row.pushedAt ? (current.webhookUrl?.trim() || '') : '';
+  if (row.pushedAt && destination) {
+    void cancelAllotmentOnYesGatc(destination, row).catch(() => {});
+  }
+
   return {
     ok: true,
     id,
     from: row.from,
     to: row.to,
-    cancelledOnYesGatc,
+    cancelledOnYesGatc: Boolean(destination),
     deletedUnits: 0,
     remaining: saved.allotments.length,
+    cancelWarning: row.pushedAt && !destination
+      ? 'Removed here. YesGATC cancel skipped — webhook URL missing.'
+      : null,
   };
 }
 
 export async function deleteUnusedSerialAllotment(input: {
   id: string;
   actorName: string;
+  invoicedKeys?: ReadonlySet<string>;
 }): Promise<DeleteUnusedSerialAllotmentResult> {
-  const fn = httpsCallable<{ id: string; actorName: string }, DeleteUnusedSerialAllotmentResult>(
-    functions,
-    'deleteUnusedSerialAllotmentFn',
-    { timeout: 180_000 },
-  );
-  try {
-    return (await fn(input)).data;
-  } catch (err) {
-    if (!isCallableMissing(err)) throw err;
-    return deleteUnusedSerialAllotmentLocal(input.id, input.actorName);
-  }
+  return deleteUnusedSerialAllotmentLocal(input.id, input.actorName, input.invoicedKeys);
 }
