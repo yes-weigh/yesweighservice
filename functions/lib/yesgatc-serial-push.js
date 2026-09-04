@@ -7,6 +7,7 @@ import { getFirestore } from 'firebase-admin/firestore';
 import { compactSerialKey, expandSerialRange } from './serial-range.js';
 import { loadWebhookSecret } from './yesgatc-webhook.js';
 import { NON_GATC_ALLOCATIONS } from './non-gatc-serial-allot.js';
+import { WAREHOUSE_RC_CODE, WAREHOUSE_RC_NAME } from './serial-units.js';
 
 export const SERIAL_NUMBER_ALLOTMENT_DOC = 'appSettings/serialNumberAllotment';
 
@@ -124,9 +125,13 @@ export function serializeAllotmentForWebhook(row) {
     createdAt: str(row?.createdAt) || null,
     createdBy: str(row?.createdBy) || null,
     sku: str(row?.sku) || null,
+    productId: str(row?.productId || row?.itemId) || null,
+    itemId: str(row?.itemId || row?.productId) || null,
     productName: str(row?.productName) || null,
     imageUrl: str(row?.imageUrl) || null,
     sourcePoNumber: str(row?.sourcePoNumber) || null,
+    rcCode: str(invoiceLinks[0]?.rcCode) || WAREHOUSE_RC_CODE,
+    rcName: str(invoiceLinks[0]?.rcName) || WAREHOUSE_RC_NAME,
     invoiceLinks,
     serialNumbers,
     qty: serialNumbers.length || Math.max(0, Number(row?.count) || 0),
@@ -359,8 +364,11 @@ export async function pushSerialAllotmentsToYesGatc({
         from: range.from,
         to: range.to,
         status: allotted ? 'linked' : 'unused',
-        rcCode: allotted?.rcCode || null,
-        rcName: allotted?.rcName || null,
+        rcCode: allotted?.rcCode || WAREHOUSE_RC_CODE,
+        rcName: allotted?.rcName || WAREHOUSE_RC_NAME,
+        sku: range.sku || null,
+        productId: range.productId || null,
+        productName: range.productName || null,
         invoiceId: allotted?.invoiceId || null,
         invoiceNumber: allotted?.invoiceNumber || null,
         customerId: allotted?.customerId || null,

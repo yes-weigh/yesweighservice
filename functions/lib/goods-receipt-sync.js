@@ -1245,6 +1245,7 @@ export async function markGoodsReceiptReceived(secrets, orgId, {
   markedByName,
   receivedAt: receivedAtInput,
   allowBackdate,
+  serialRanges,
 }) {
   const id = String(goodsReceiptId ?? '').trim();
   if (!id) throw new Error('goodsReceiptId is required.');
@@ -1269,6 +1270,7 @@ export async function markGoodsReceiptReceived(secrets, orgId, {
         || data.purchaseOrderNumber
         || data.referenceNumber,
       markedByName,
+      serialRanges,
     });
     return {
       alreadyReceived: true,
@@ -1350,6 +1352,7 @@ export async function markGoodsReceiptReceived(secrets, orgId, {
     goodsReceiptId: id,
     purchaseOrderNumber,
     markedByName,
+    serialRanges,
   });
 
   return {

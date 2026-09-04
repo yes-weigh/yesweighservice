@@ -297,6 +297,16 @@ service cloud.firestore {
       allow write: if false;
     }
 
+    match /serialUnits/{serialKey} {
+      allow read: if isOpsUser();
+      allow write: if false;
+    }
+
+    match /productSerialCursors/{productId} {
+      allow read: if isOpsUser();
+      allow write: if false;
+    }
+
     match /blueDartPincodes/{pincode} {
       allow read: if signedIn();
       allow write: if isFullSuperAdmin();

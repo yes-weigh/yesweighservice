@@ -78,6 +78,8 @@ export const AdminInvoiceDocumentPage: React.FC = () => {
     title: string;
     capacityKg: number | null;
     mode: 'gatc' | 'nongatc';
+    productId?: string | null;
+    sku?: string | null;
   } | null>(null);
   const [gatcPickerError, setGatcPickerError] = useState('');
   const [voidBusy, setVoidBusy] = useState(false);
@@ -169,10 +171,16 @@ export const AdminInvoiceDocumentPage: React.FC = () => {
     return '';
   };
 
-  const openNonGatcPicker = (lineId: string, need: number, title: string) => {
+  const openNonGatcPicker = (
+    lineId: string,
+    need: number,
+    title: string,
+    productId?: string | null,
+    sku?: string | null,
+  ) => {
     if (!canAllotSerials || allotBusy || need <= 0) return;
     setGatcPickerError('');
-    setGatcPicker({ lineId, need, title, capacityKg: null, mode: 'nongatc' });
+    setGatcPicker({ lineId, need, title, capacityKg: null, mode: 'nongatc', productId, sku });
   };
 
   const handleUnlinkSerials = async (lineId?: string) => {
@@ -438,7 +446,7 @@ export const AdminInvoiceDocumentPage: React.FC = () => {
                   disabled={allotBusy}
                   onClick={e => {
                     e.stopPropagation();
-                    openNonGatcPicker(item.id, short, item.name);
+                    openNonGatcPicker(item.id, short, item.name, item.itemId, item.sku);
                   }}
                 >
                   <Hash size={14} aria-hidden />
@@ -546,7 +554,7 @@ export const AdminInvoiceDocumentPage: React.FC = () => {
                     const line = displayInvoice.lineItems.find(
                       item => nonGatcSerialShortage(item) > 0,
                     );
-                    if (line) openNonGatcPicker(line.id, nonGatcSerialShortage(line), line.name);
+                    if (line) openNonGatcPicker(line.id, nonGatcSerialShortage(line), line.name, line.itemId, line.sku);
                   }}
                 >
                   <Hash size={16} aria-hidden />
@@ -649,6 +657,8 @@ export const AdminInvoiceDocumentPage: React.FC = () => {
           need={gatcPicker.need}
           capacityKg={gatcPicker.capacityKg}
           mode={gatcPicker.mode}
+          productId={gatcPicker.productId}
+          sku={gatcPicker.sku}
           saving={allotBusy}
           error={gatcPickerError}
           onClose={() => {

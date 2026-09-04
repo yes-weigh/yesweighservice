@@ -805,6 +805,7 @@ export const AdminPurchaseOrderDocumentPage: React.FC = () => {
                       lineQty={line.quantity}
                       disabled={saving || !canEdit}
                       name={line.name}
+                      productId={line.productId}
                       onChange={({ startNumber, endNumber }) => {
                         setLines(prev => prev.map(row => (
                           row.lineId === line.lineId

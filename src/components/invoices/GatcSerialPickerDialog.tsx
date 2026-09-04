@@ -29,6 +29,8 @@ export function GatcSerialPickerDialog({
   saving,
   error,
   mode = 'gatc',
+  productId,
+  sku,
   onClose,
   onSave,
 }: {
@@ -38,6 +40,8 @@ export function GatcSerialPickerDialog({
   saving: boolean;
   error: string;
   mode?: 'gatc' | 'nongatc';
+  productId?: string | null;
+  sku?: string | null;
   onClose: () => void;
   onSave: (ids: string[]) => void;
 }) {
@@ -65,7 +69,7 @@ export function GatcSerialPickerDialog({
     setLoading(true);
     setLoadError('');
     const load = mode === 'nongatc'
-      ? listAvailableNonGatcSerials().then(list => list.map(row => ({
+      ? listAvailableNonGatcSerials({ productId, sku }).then(list => list.map(row => ({
         id: row.id || row.serialNumber,
         serialNumber: row.serialNumber,
       })))
@@ -91,7 +95,7 @@ export function GatcSerialPickerDialog({
     return () => {
       cancelled = true;
     };
-  }, [mode]);
+  }, [mode, productId, sku]);
 
   const visible = useMemo(() => {
     const needle = query.trim().toLowerCase();
@@ -177,7 +181,9 @@ export function GatcSerialPickerDialog({
           ) : visible.length === 0 ? (
             <p className="gatc-serial-picker__status">
               {mode === 'nongatc'
-                ? 'No unused serials in the non-GATC allotted list.'
+                ? (productId || sku
+                  ? 'No unused serials in stock for this product.'
+                  : 'No unused serials in the non-GATC allotted list.')
                 : capacityKg != null
                   ? `No unlinked Interweighing certificates for ${capacityKg} kg.`
                   : 'No unlinked Interweighing certificates.'}

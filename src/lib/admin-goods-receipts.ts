@@ -43,6 +43,7 @@ import type {
   InvoiceSalesEntry,
   KpiPeriod,
 } from '../types/invoices';
+import type { PurchaseOrderSerialRangeInput } from './purchaseOrderSerials';
 
 const functions = getFunctions(app, 'asia-south1');
 const ADMIN_GR_PAGE_SIZE = 100;
@@ -113,6 +114,7 @@ export interface AdminGoodsReceiptDetail {
   total: number;
   balance: number;
   referenceNumber: string | null;
+  purchaseOrderNumber: string | null;
   currencyCode: string;
   vendorId: string;
   vendorName: string | null;
@@ -848,6 +850,9 @@ export function mapAdminGoodsReceiptDetail(
     total: Number(data.total ?? 0),
     balance: Number(data.balance ?? 0),
     referenceNumber: data.referenceNumber ? String(data.referenceNumber) : null,
+    purchaseOrderNumber: data.purchaseOrderNumber
+      ? String(data.purchaseOrderNumber)
+      : (data.referenceNumber ? String(data.referenceNumber) : null),
     currencyCode: data.currencyCode ? String(data.currencyCode).toUpperCase() : 'INR',
     vendorId: String(data.vendorId ?? ''),
     vendorName: data.vendorName ? String(data.vendorName) : null,
@@ -1531,19 +1536,25 @@ export type MarkGoodsReceiptReceivedResult = {
 export async function markGoodsReceiptReceived(
   goodsReceiptId: string,
   receivedAt?: string | null,
+  serialRanges?: PurchaseOrderSerialRangeInput[],
 ): Promise<MarkGoodsReceiptReceivedResult> {
   const callable = httpsCallable<
-    { goodsReceiptId: string; receivedAt?: string | null },
+    {
+      goodsReceiptId: string;
+      receivedAt?: string | null;
+      serialRanges?: PurchaseOrderSerialRangeInput[];
+    },
     MarkGoodsReceiptReceivedResult
   >(
     functions,
     'markGoodsReceiptReceivedFn',
-    { timeout: 120_000 },
+    { timeout: 180_000 },
   );
   try {
     const result = await callable({
       goodsReceiptId,
       receivedAt: receivedAt ?? null,
+      serialRanges: serialRanges?.length ? serialRanges : undefined,
     });
     return result.data;
   } catch (err) {
