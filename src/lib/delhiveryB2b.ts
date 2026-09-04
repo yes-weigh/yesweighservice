@@ -72,6 +72,102 @@ export async function testDelhiveryB2bConnection(): Promise<{
   }
 }
 
+export type DelhiveryFreightChargeEntry = {
+  ok: boolean;
+  lrn: string;
+  totalInr: number | null;
+  chargedWeightKg: number | null;
+  minChargedWeightKg: number | null;
+  breakup: {
+    baseFreightCharge: number | null;
+    fuelSurcharge: number | null;
+    fuelHike: number | null;
+    insuranceRov: number | null;
+    odaFm: number | null;
+    odaLm: number | null;
+    fm: number | null;
+    lm: number | null;
+    green: number | null;
+    preTaxFreight: number | null;
+    gst: number | null;
+    gstPercent: number | null;
+    markup: number | null;
+    otherHandlingCharges: number | null;
+  } | null;
+  billingMode: 'fod' | 'btc' | null;
+  error: string | null;
+  fetchedAt: string;
+};
+
+function asFiniteNumber(raw: unknown): number | null {
+  return typeof raw === 'number' && Number.isFinite(raw) ? raw : null;
+}
+
+function mapFreightChargeEntry(raw: unknown, fallbackLrn: string): DelhiveryFreightChargeEntry {
+  const data = raw && typeof raw === 'object' ? raw as Record<string, unknown> : {};
+  const breakupRaw = data.breakup && typeof data.breakup === 'object'
+    ? data.breakup as Record<string, unknown>
+    : null;
+  const billing = String(data.billingMode ?? '').trim().toLowerCase();
+  return {
+    ok: Boolean(data.ok),
+    lrn: String(data.lrn ?? fallbackLrn),
+    totalInr: asFiniteNumber(data.totalInr),
+    chargedWeightKg: asFiniteNumber(data.chargedWeightKg),
+    minChargedWeightKg: asFiniteNumber(data.minChargedWeightKg),
+    breakup: breakupRaw
+      ? {
+        baseFreightCharge: asFiniteNumber(breakupRaw.baseFreightCharge),
+        fuelSurcharge: asFiniteNumber(breakupRaw.fuelSurcharge),
+        fuelHike: asFiniteNumber(breakupRaw.fuelHike),
+        insuranceRov: asFiniteNumber(breakupRaw.insuranceRov),
+        odaFm: asFiniteNumber(breakupRaw.odaFm),
+        odaLm: asFiniteNumber(breakupRaw.odaLm),
+        fm: asFiniteNumber(breakupRaw.fm),
+        lm: asFiniteNumber(breakupRaw.lm),
+        green: asFiniteNumber(breakupRaw.green),
+        preTaxFreight: asFiniteNumber(breakupRaw.preTaxFreight),
+        gst: asFiniteNumber(breakupRaw.gst),
+        gstPercent: asFiniteNumber(breakupRaw.gstPercent),
+        markup: asFiniteNumber(breakupRaw.markup),
+        otherHandlingCharges: asFiniteNumber(breakupRaw.otherHandlingCharges),
+      }
+      : null,
+    billingMode: billing === 'fod' || billing === 'btc' ? billing : null,
+    error: data.error == null ? null : String(data.error),
+    fetchedAt: String(data.fetchedAt ?? ''),
+  };
+}
+
+/** Billed freight after Delhivery captures weight — GET /lrn/freight-breakup. */
+export async function fetchDelhiveryFreightCharges(lrn: string): Promise<DelhiveryFreightChargeEntry> {
+  const id = String(lrn ?? '').replace(/[^\dA-Za-z]/g, '').trim();
+  if (!id) {
+    throw new Error('Enter an LRN to test freight.');
+  }
+  try {
+    const fn = httpsCallable<
+      { lrn: string },
+      {
+        ok: boolean;
+        error: string | null;
+        byLrn?: Record<string, unknown>;
+      }
+    >(functions, 'fetchDelhiveryFreightChargesFn', { timeout: 60_000 });
+    const result = await fn({ lrn: id });
+    const entry = result.data?.byLrn?.[id]
+      ?? Object.values(result.data?.byLrn || {})[0]
+      ?? null;
+    if (entry) return mapFreightChargeEntry(entry, id);
+    throw new Error(
+      result.data?.error?.trim()
+      || 'Freight not available yet. Delhivery returns billed amount after weight capture.',
+    );
+  } catch (err) {
+    throw callableError(err, 'Could not fetch Delhivery freight charges.');
+  }
+}
+
 export type DelhiveryBookConsignee = {
   name: string;
   phone: string;

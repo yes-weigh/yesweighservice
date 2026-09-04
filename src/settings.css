@@ -5425,6 +5425,57 @@ button.incentive-report__adjust-col:focus-visible {
   margin-top: 0.875rem;
 }
 
+.delhivery-freight-test-dialog {
+  width: min(28rem, calc(100vw - 2rem));
+}
+
+.delhivery-freight-test-dialog__rows {
+  display: grid;
+  gap: 0.45rem;
+  margin: 0.25rem 0 0;
+}
+
+.delhivery-freight-test-dialog__rows > div {
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+  font-size: 0.8125rem;
+}
+
+.delhivery-freight-test-dialog__rows dt {
+  margin: 0;
+  color: #94a3b8;
+  font-weight: 600;
+}
+
+.delhivery-freight-test-dialog__rows dd {
+  margin: 0;
+  font-weight: 700;
+  color: #f8fafc;
+  text-align: right;
+}
+
+.delhivery-freight-test-dialog__rows > div.is-total {
+  margin-top: 0.35rem;
+  padding-top: 0.55rem;
+  border-top: 1px solid rgba(148, 163, 184, 0.25);
+}
+
+.delhivery-freight-test-dialog__rows > div.is-total dt,
+.delhivery-freight-test-dialog__rows > div.is-total dd {
+  color: #86efac;
+  font-size: 0.9375rem;
+  font-weight: 800;
+}
+
+.delhivery-freight-test-dialog__empty {
+  margin: 0.35rem 0 0;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  line-height: 1.45;
+  color: #fca5a5;
+}
+
 .delhivery-b2b-panel__test-result {
   display: flex;
   align-items: flex-start;

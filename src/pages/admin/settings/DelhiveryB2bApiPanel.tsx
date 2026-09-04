@@ -1,9 +1,11 @@
 import React, { useCallback, useEffect, useState } from 'react';
+import { createPortal } from 'react-dom';
 import {
   AlertTriangle,
   CheckCircle2,
   Eye,
   EyeOff,
+  IndianRupee,
   Loader2,
   Pencil,
   PlugZap,
@@ -11,11 +13,15 @@ import {
   X,
 } from 'lucide-react';
 import { DELHIVERY_DEFAULT_PICKUP_BY_SITE } from '../../../constants/delhiveryPickupLocations';
+import { formatCurrency } from '../../../lib/catalog';
 import {
+  fetchDelhiveryFreightCharges,
   getDelhiveryB2bConfig,
   saveDelhiveryB2bCredentials,
   testDelhiveryB2bConnection,
+  type DelhiveryFreightChargeEntry,
 } from '../../../lib/delhiveryB2b';
+import { normalizeDelhiveryId } from '../../../lib/delhiveryTrack';
 import type { DelhiveryB2bEnv, DelhiveryB2bPublicConfig } from '../../../types/delhivery-b2b';
 import { emptyDelhiveryB2bPublicConfig } from '../../../types/delhivery-b2b';
 import {
@@ -43,6 +49,45 @@ function withPickupDefaults(
   };
 }
 
+function money(amount: number | null | undefined): string | null {
+  if (amount == null || !Number.isFinite(amount)) return null;
+  return formatCurrency(amount);
+}
+
+function freightDialogRows(freight: DelhiveryFreightChargeEntry): Array<{ label: string; value: string; emphasize?: boolean }> {
+  const rows: Array<{ label: string; value: string; emphasize?: boolean }> = [];
+  if (freight.lrn) rows.push({ label: 'LRN', value: freight.lrn });
+  if (freight.billingMode) {
+    rows.push({ label: 'Billing', value: freight.billingMode.toUpperCase() });
+  }
+  if (freight.chargedWeightKg != null) {
+    rows.push({ label: 'Charged weight', value: `${freight.chargedWeightKg.toFixed(2)} kg` });
+  }
+  const breakup = freight.breakup;
+  if (breakup) {
+    const add = (label: string, amount: number | null) => {
+      const text = money(amount);
+      if (text) rows.push({ label, value: text });
+    };
+    add('Base freight', breakup.baseFreightCharge);
+    add('Fuel surcharge', breakup.fuelSurcharge);
+    add('Fuel hike', breakup.fuelHike);
+    add('Insurance / ROV', breakup.insuranceRov);
+    add('ODA (first mile)', breakup.odaFm);
+    add('ODA (last mile)', breakup.odaLm);
+    add('First mile', breakup.fm);
+    add('Last mile', breakup.lm);
+    add('Green', breakup.green);
+    add('Other handling', breakup.otherHandlingCharges);
+    add('Markup', breakup.markup);
+    add('Freight (excl. GST)', breakup.preTaxFreight);
+    add('GST', breakup.gst);
+  }
+  const total = money(freight.totalInr);
+  if (total) rows.push({ label: 'Total (incl. GST)', value: total, emphasize: true });
+  return rows;
+}
+
 export const DelhiveryB2bApiPanel: React.FC<Props> = ({ onError }) => {
   const [config, setConfig] = useState<DelhiveryB2bPublicConfig>(emptyDelhiveryB2bPublicConfig);
   const [username, setUsername] = useState('');
@@ -57,6 +102,13 @@ export const DelhiveryB2bApiPanel: React.FC<Props> = ({ onError }) => {
   const [editing, setEditing] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
   const [testResult, setTestResult] = useState<TestResultBanner | null>(null);
+  const [lrn, setLrn] = useState('');
+  const [freightTesting, setFreightTesting] = useState(false);
+  const [freightDialog, setFreightDialog] = useState<{
+    lrn: string;
+    freight: DelhiveryFreightChargeEntry | null;
+    error: string | null;
+  } | null>(null);
 
   const applyConfig = useCallback((next: DelhiveryB2bPublicConfig) => {
     setConfig(next);
@@ -82,6 +134,15 @@ export const DelhiveryB2bApiPanel: React.FC<Props> = ({ onError }) => {
   useEffect(() => {
     void load();
   }, [load]);
+
+  useEffect(() => {
+    if (!freightDialog) return undefined;
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setFreightDialog(null);
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [freightDialog]);
 
   const startEdit = () => {
     setEditing(true);
@@ -172,6 +233,33 @@ export const DelhiveryB2bApiPanel: React.FC<Props> = ({ onError }) => {
     }
   };
 
+  const handleFreightTest = async () => {
+    const id = normalizeDelhiveryId(lrn);
+    if (!id) {
+      onError('Enter an LRN to test freight.');
+      return;
+    }
+    setFreightTesting(true);
+    onError('');
+    try {
+      const freight = await fetchDelhiveryFreightCharges(id);
+      setFreightDialog({
+        lrn: id,
+        freight,
+        error: freight.ok
+          ? null
+          : (freight.error || 'Freight not available yet. Delhivery returns billed amount after weight capture.'),
+      });
+    } catch (err) {
+      const message = err instanceof Error
+        ? err.message
+        : 'Could not fetch Delhivery freight.';
+      setFreightDialog({ lrn: id, freight: null, error: message });
+    } finally {
+      setFreightTesting(false);
+    }
+  };
+
   if (loading) {
     return (
       <div className="settings-courier-rates__loading settings-locations__loading">
@@ -253,7 +341,29 @@ export const DelhiveryB2bApiPanel: React.FC<Props> = ({ onError }) => {
             ) : null}
           </div>
         </label>
+        <label className="settings-courier-rates__field settings-courier-rates__field--plain">
+          <span>LRN</span>
+          <input
+            type="text"
+            inputMode="numeric"
+            value={lrn}
+            onChange={e => setLrn(e.target.value.replace(/[^\dA-Za-z]/g, ''))}
+            onKeyDown={e => {
+              if (e.key === 'Enter') {
+                e.preventDefault();
+                void handleFreightTest();
+              }
+            }}
+            placeholder="314344753"
+            spellCheck={false}
+            autoComplete="off"
+            aria-label="Delhivery LRN for freight test"
+          />
+        </label>
       </div>
+      <p className="text-muted text-sm" style={{ marginTop: 8, marginBottom: 0 }}>
+        Enter an LRN and press Test for billed freight after weight capture.
+      </p>
 
       <div className="settings-courier-rates__inline-fields" style={{ marginTop: 12 }}>
         {STAFF_LOGISTICS_SITES.map(site => (
@@ -305,12 +415,30 @@ export const DelhiveryB2bApiPanel: React.FC<Props> = ({ onError }) => {
           disabled={
             saving
             || testing
+            || freightTesting
             || (editing ? (!config.passwordSet && !password.trim()) : !config.passwordSet)
           }
           onClick={() => void handleTest()}
         >
           {testing ? <Loader2 size={16} className="spin" aria-hidden /> : <PlugZap size={16} aria-hidden />}
           {testing ? 'Testing…' : 'Test connection'}
+        </button>
+        <button
+          type="button"
+          className="btn btn-secondary"
+          disabled={
+            freightTesting
+            || testing
+            || saving
+            || !normalizeDelhiveryId(lrn)
+            || !config.passwordSet
+          }
+          onClick={() => void handleFreightTest()}
+        >
+          {freightTesting
+            ? <Loader2 size={16} className="spin" aria-hidden />
+            : <IndianRupee size={16} aria-hidden />}
+          {freightTesting ? 'Testing…' : 'Test'}
         </button>
       </div>
 
@@ -358,6 +486,63 @@ export const DelhiveryB2bApiPanel: React.FC<Props> = ({ onError }) => {
           </div>
         </div>
       ) : null}
+
+      {freightDialog
+        ? createPortal(
+          <div
+            className="dealers-modal-backdrop delhivery-freight-test-dialog__backdrop"
+            onClick={() => setFreightDialog(null)}
+          >
+            <div
+              className="dealers-modal panel glass delhivery-freight-test-dialog"
+              role="dialog"
+              aria-modal="true"
+              aria-labelledby="delhivery-freight-test-title"
+              onClick={e => e.stopPropagation()}
+            >
+              <header className="dealers-modal__header">
+                <h2 id="delhivery-freight-test-title">Delhivery freight</h2>
+                <button
+                  type="button"
+                  className="dealers-modal__close"
+                  onClick={() => setFreightDialog(null)}
+                  aria-label="Close"
+                >
+                  <X size={18} aria-hidden />
+                </button>
+              </header>
+              {freightDialog.freight?.ok ? (
+                <dl className="delhivery-freight-test-dialog__rows">
+                  {freightDialogRows(freightDialog.freight).map(row => (
+                    <div
+                      key={row.label}
+                      className={row.emphasize ? 'is-total' : undefined}
+                    >
+                      <dt>{row.label}</dt>
+                      <dd>{row.value}</dd>
+                    </div>
+                  ))}
+                </dl>
+              ) : (
+                <p className="delhivery-freight-test-dialog__empty" role="status">
+                  {freightDialog.error
+                    || 'Freight not available yet. Delhivery returns billed amount after weight capture.'}
+                </p>
+              )}
+              <div className="dealers-modal__actions">
+                <button
+                  type="button"
+                  className="btn btn-primary"
+                  onClick={() => setFreightDialog(null)}
+                >
+                  Close
+                </button>
+              </div>
+            </div>
+          </div>,
+          document.body,
+        )
+        : null}
     </div>
   );
 };
