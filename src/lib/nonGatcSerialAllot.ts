@@ -77,13 +77,30 @@ function nonGatcSerialCallable() {
   );
 }
 
-export async function listAvailableNonGatcSerials(max = 2000): Promise<AvailableNonGatcSerial[]> {
-  const fn = httpsCallable<{ max?: number }, { rows?: AvailableNonGatcSerial[] }>(
+export async function listAvailableNonGatcSerials(input: {
+  max?: number;
+  productId?: string | null;
+  sku?: string | null;
+  productName?: string | null;
+} | number = 2000): Promise<AvailableNonGatcSerial[]> {
+  const opts = typeof input === 'number' ? { max: input } : input;
+  const fn = httpsCallable<
+    { max?: number; productId?: string; sku?: string; productName?: string },
+    { rows?: AvailableNonGatcSerial[] }
+  >(
     getFunctions(app, 'asia-south1'),
     'listAvailableNonGatcSerialsFn',
     { timeout: 60_000 },
   );
-  return (await fn({ max })).data.rows ?? [];
+  const productId = String(opts.productId ?? '').trim();
+  const sku = String(opts.sku ?? '').trim();
+  const productName = String(opts.productName ?? '').trim();
+  return (await fn({
+    max: opts.max,
+    ...(productId ? { productId } : {}),
+    ...(sku ? { sku } : {}),
+    ...(productName ? { productName } : {}),
+  })).data.rows ?? [];
 }
 
 export async function allotNonGatcSerialsToInvoice(input: {

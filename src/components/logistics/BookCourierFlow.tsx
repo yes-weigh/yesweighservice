@@ -95,10 +95,19 @@ import {
   bindLogisticsVaultSessionToBooking,
   clearUploadedLogisticsVaultPhotos,
   deleteLogisticsVaultPhoto,
+  forgetLogisticsPhotoSessionKey,
   listLogisticsVaultPhotos,
   logisticsPhotoSessionKey,
   putLogisticsVaultPhoto,
+  rememberLogisticsPhotoSessionKey,
+  type LogisticsVaultPhoto,
 } from '../../lib/logisticsPhotoVault';
+import {
+  clearLogisticsWizardDraft,
+  loadLogisticsWizardDraft,
+  saveLogisticsWizardDraft,
+} from '../../lib/logisticsWizardDraftStore';
+import { holdNativeAppAlive } from '../../lib/nativeAppKeepAlive';
 import { bookDelhiveryShipment } from '../../lib/delhiveryB2b';
 import {
   bookBlueDartShipment,
@@ -185,7 +194,86 @@ import { ShippingLabelBitmapPreview } from './ShippingLabelBitmapPreview';
 type BoxNumberField = 'lengthCm' | 'widthCm' | 'heightCm' | 'weightKg';
 
 function newPhotoId(): string {
-  return `photo-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+    return crypto.randomUUID();
+  }
+  return `photo-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
+}
+
+function mergeVaultPhotosIntoDraft(
+  prev: LogisticsBookingDraft,
+  vaultPhotos: LogisticsVaultPhoto[],
+): LogisticsBookingDraft {
+  if (!vaultPhotos.length) return prev;
+  let changed = false;
+  const boxes = [...prev.boxes];
+  const vaultBoxIds = [...new Set(
+    vaultPhotos
+      .filter(photo => photo.kind === 'box' && photo.boxId)
+      .map(photo => String(photo.boxId)),
+  )];
+  for (const boxId of vaultBoxIds) {
+    if (!boxes.some(box => box.id === boxId)) {
+      boxes.push({ ...emptyShipmentBoxDraft(), id: boxId });
+      changed = true;
+    }
+  }
+
+  const nextBoxes = boxes.map(box => {
+    const vaultForBox = vaultPhotos.filter(
+      photo => photo.kind === 'box' && photo.boxId === box.id,
+    );
+    if (!vaultForBox.length) return box;
+    const photos = [...box.photos];
+    for (const vault of vaultForBox) {
+      const idx = photos.findIndex(photo => photo.id === vault.photoId);
+      if (idx >= 0) {
+        const current = photos[idx];
+        const nextUrl = current.url?.startsWith('data:')
+          ? current.url
+          : (vault.dataUrl || current.url);
+        const nextPath = current.storagePath || vault.storagePath || null;
+        if (nextUrl !== current.url || nextPath !== current.storagePath) {
+          photos[idx] = { ...current, url: nextUrl, storagePath: nextPath };
+          changed = true;
+        }
+      } else if (vault.dataUrl || vault.storagePath) {
+        photos.push({
+          id: vault.photoId,
+          url: vault.dataUrl || '',
+          storagePath: vault.storagePath,
+        });
+        changed = true;
+      }
+    }
+    return photos === box.photos ? box : { ...box, photos };
+  });
+
+  const vaultFinal = vaultPhotos.find(photo => photo.kind === 'final');
+  let finalPackagePhoto = prev.finalPackagePhoto;
+  let finalPackagePhotoStoragePath = prev.finalPackagePhotoStoragePath;
+  if (vaultFinal) {
+    if (!finalPackagePhoto?.trim() && vaultFinal.dataUrl) {
+      finalPackagePhoto = vaultFinal.dataUrl;
+      changed = true;
+    }
+    if (!finalPackagePhotoStoragePath?.trim() && vaultFinal.storagePath) {
+      finalPackagePhotoStoragePath = vaultFinal.storagePath;
+      changed = true;
+    }
+  }
+
+  if (!changed) return prev;
+  return { ...prev, boxes: nextBoxes, finalPackagePhoto, finalPackagePhotoStoragePath };
+}
+
+function sessionKeyForWizard(partnerId: LogisticsPartnerId): string {
+  const stored = loadLogisticsWizardDraft();
+  if (stored?.partnerId === partnerId && stored.sessionKey.trim()) {
+    rememberLogisticsPhotoSessionKey(partnerId, stored.sessionKey);
+    return stored.sessionKey;
+  }
+  return logisticsPhotoSessionKey(null, partnerId);
 }
 
 function boxVolumetric(
@@ -356,7 +444,9 @@ export const BookCourierFlow: React.FC<BookCourierFlowProps> = ({
     const boxes = initialDraft?.boxes?.length
       ? initialDraft.boxes
       : emptyBookingDraft(partnerId).boxes;
-    if (draftBoxesHaveRequiredPhotos(boxes)) return initialStep;
+    const photosReady = draftBoxesHaveRequiredPhotos(boxes)
+      || (boxes.length > 0 && boxes.every(box => box.photos.length > 0));
+    if (photosReady) return initialStep;
     if (initialStep === 'review' || initialStep === 'label' || initialStep === 'final_photo') {
       return 'box';
     }
@@ -390,7 +480,8 @@ export const BookCourierFlow: React.FC<BookCourierFlowProps> = ({
     () => ({ includeEwayBill: showEwayWizardStep, includeClubInvoices }),
     [includeClubInvoices, showEwayWizardStep],
   );
-  const photoSessionKeyRef = useRef(logisticsPhotoSessionKey(null, partnerId));
+  const photoSessionKeyRef = useRef(sessionKeyForWizard(partnerId));
+  const persistEnabledRef = useRef(true);
   const [booking, setBooking] = useState<LogisticsBooking | null>(null);
   const [ewayBillStatus, setEwayBillStatus] = useState<string | null>(null);
   const [ewayBillNumber, setEwayBillNumber] = useState<string | null>(null);
@@ -597,6 +688,9 @@ export const BookCourierFlow: React.FC<BookCourierFlowProps> = ({
   // eslint-disable-next-line react-hooks/exhaustive-deps -- hydrate once per selected Zoho id
   }, [initialDraft?.zohoCustomerId, draft.zohoCustomerId]);
 
+  // Keep the APK from reloading while this wizard is open (screen-off / sticker / camera).
+  useEffect(() => holdNativeAppAlive('book-courier'), []);
+
   // Resume opens with storage paths only — resolve display URLs + restore local vault captures.
   useEffect(() => {
     let cancelled = false;
@@ -608,53 +702,8 @@ export const BookCourierFlow: React.FC<BookCourierFlowProps> = ({
 
       if (!cancelled && vaultPhotos.length) {
         setDraft(prev => {
-          let changed = false;
-          const boxes = prev.boxes.map(box => {
-            const vaultForBox = vaultPhotos.filter(
-              photo => photo.kind === 'box' && photo.boxId === box.id,
-            );
-            if (!vaultForBox.length) return box;
-            const photos = [...box.photos];
-            for (const vault of vaultForBox) {
-              const idx = photos.findIndex(photo => photo.id === vault.photoId);
-              if (idx >= 0) {
-                const current = photos[idx];
-                const nextUrl = current.url?.startsWith('data:')
-                  ? current.url
-                  : (vault.dataUrl || current.url);
-                const nextPath = current.storagePath || vault.storagePath || null;
-                if (nextUrl !== current.url || nextPath !== current.storagePath) {
-                  photos[idx] = { ...current, url: nextUrl, storagePath: nextPath };
-                  changed = true;
-                }
-              } else if (vault.dataUrl || vault.storagePath) {
-                photos.push({
-                  id: vault.photoId,
-                  url: vault.dataUrl || '',
-                  storagePath: vault.storagePath,
-                });
-                changed = true;
-              }
-            }
-            return photos === box.photos ? box : { ...box, photos };
-          });
-
-          const vaultFinal = vaultPhotos.find(photo => photo.kind === 'final');
-          let finalPackagePhoto = prev.finalPackagePhoto;
-          let finalPackagePhotoStoragePath = prev.finalPackagePhotoStoragePath;
-          if (vaultFinal) {
-            if (!finalPackagePhoto?.trim() && vaultFinal.dataUrl) {
-              finalPackagePhoto = vaultFinal.dataUrl;
-              changed = true;
-            }
-            if (!finalPackagePhotoStoragePath?.trim() && vaultFinal.storagePath) {
-              finalPackagePhotoStoragePath = vaultFinal.storagePath;
-              changed = true;
-            }
-          }
-
-          if (!changed) return prev;
-          const next = { ...prev, boxes, finalPackagePhoto, finalPackagePhotoStoragePath };
+          const next = mergeVaultPhotosIntoDraft(prev, vaultPhotos);
+          if (next === prev) return prev;
           draftRef.current = next;
           return next;
         });
@@ -708,6 +757,33 @@ export const BookCourierFlow: React.FC<BookCourierFlowProps> = ({
     void restore().catch(() => undefined);
     return () => { cancelled = true; };
   }, []);
+
+  useEffect(() => {
+    const persist = () => {
+      if (!persistEnabledRef.current) return;
+      saveLogisticsWizardDraft({
+        partnerId,
+        step,
+        dealerQuery,
+        sessionKey: photoSessionKeyRef.current,
+        draft: draftRef.current,
+      });
+    };
+    persist();
+    const timer = window.setTimeout(persist, 250);
+    const onHidden = () => {
+      if (document.visibilityState === 'hidden') persist();
+    };
+    const onPageHide = () => persist();
+    document.addEventListener('visibilitychange', onHidden);
+    window.addEventListener('pagehide', onPageHide);
+    return () => {
+      window.clearTimeout(timer);
+      document.removeEventListener('visibilitychange', onHidden);
+      window.removeEventListener('pagehide', onPageHide);
+      persist();
+    };
+  }, [dealerQuery, partnerId, step, draft]);
 
   useEffect(() => {
     if (step !== 'address') return;
@@ -1396,6 +1472,7 @@ export const BookCourierFlow: React.FC<BookCourierFlowProps> = ({
           weightKg: Number.parseFloat(box.weightKg) || undefined,
           quantity: 1,
         })),
+        shipmentMode: draftRef.current.shipmentMode === 'envelope' ? 'envelope' : 'box',
         invoiceId: invoiceId || null,
         zohoCustomerId: customerId || null,
         invoiceNumber: invoiceNumber || draftRef.current.invoiceNumber,
@@ -1492,6 +1569,12 @@ export const BookCourierFlow: React.FC<BookCourierFlowProps> = ({
     }
   }, [selectedDealer]);
 
+  const discardWizardSnapshot = useCallback(() => {
+    persistEnabledRef.current = false;
+    clearLogisticsWizardDraft();
+    forgetLogisticsPhotoSessionKey(partnerId);
+  }, [partnerId]);
+
   const finishWizardAfterBooking = useCallback((created: LogisticsBooking) => {
     setBooking(created);
     if (showEwayWizardStep && created.ewayBillStatus !== 'generated') {
@@ -1501,21 +1584,23 @@ export const BookCourierFlow: React.FC<BookCourierFlowProps> = ({
       setStep('eway_bill');
       return;
     }
+    discardWizardSnapshot();
     if (isApiCourier) {
       onComplete(created);
       return;
     }
     setStep('complete');
-  }, [isApiCourier, onComplete, showEwayWizardStep]);
+  }, [discardWizardSnapshot, isApiCourier, onComplete, showEwayWizardStep]);
 
   const finishWizardFromEwayStep = useCallback(() => {
     if (!booking) return;
+    discardWizardSnapshot();
     if (isApiCourier) {
       onComplete(booking);
       return;
     }
     setStep('complete');
-  }, [booking, isApiCourier, onComplete]);
+  }, [booking, discardWizardSnapshot, isApiCourier, onComplete]);
 
   const openEwayPdfFromResult = useCallback((contentBase64: string, mimeType: string) => {
     const bytes = base64ToUint8Array(contentBase64);
@@ -1702,16 +1787,18 @@ export const BookCourierFlow: React.FC<BookCourierFlowProps> = ({
     }
     if (wizardHasProgress()) {
       const leave = window.confirm(
-        'Leave without submitting this shipment? Your progress will be lost.',
+        'Leave without submitting this shipment? Captured photos and this booking will be discarded.',
       );
       if (!leave) return;
     }
+    discardWizardSnapshot();
     onClose();
-  }, [ewayEnsuring, finishWizardFromEwayStep, step, saving, wizardHasProgress, onClose]);
+  }, [discardWizardSnapshot, ewayEnsuring, finishWizardFromEwayStep, step, saving, wizardHasProgress, onClose]);
 
   const handleFinish = useCallback(() => {
+    discardWizardSnapshot();
     if (booking) onComplete(booking);
-  }, [booking, onComplete]);
+  }, [booking, discardWizardSnapshot, onComplete]);
 
   const isEnvelope = draft.shipmentMode === 'envelope';
   const isBlueDartAir = partnerId === 'bluedart_air';

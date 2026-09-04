@@ -29,6 +29,10 @@ export function compactSerialKey(raw) {
   return String(raw ?? '').toUpperCase().replace(/[^A-Z0-9]/g, '');
 }
 
+export function compactProductToken(raw) {
+  return compactSerialKey(raw);
+}
+
 /** Expand a start/end serial range, skipping missing tokens. */
 export function expandSerialRange({ from, to, missing = [] } = {}) {
   const start = parseSerialToken(from);

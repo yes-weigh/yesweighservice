@@ -390,6 +390,22 @@ export type BookCourierStep =
   | 'eway_bill'
   | 'complete';
 
+const BOOK_COURIER_STEP_IDS: ReadonlySet<string> = new Set([
+  'scan',
+  'address',
+  'club_invoices',
+  'box',
+  'review',
+  'label',
+  'final_photo',
+  'eway_bill',
+  'complete',
+]);
+
+export function isBookCourierStep(value: unknown): value is BookCourierStep {
+  return typeof value === 'string' && BOOK_COURIER_STEP_IDS.has(value);
+}
+
 /** Visible wizard stages (excludes terminal `complete`). */
 export const BOOK_COURIER_STEPS: ReadonlyArray<{ id: BookCourierStep; label: string }> = [
   { id: 'scan', label: 'Scan' },

@@ -169,12 +169,18 @@ function itemOverrideDisplay(rule: PriceLevelItemRule, listRate: number): {
   }
   const slabs = normalizePriceLevelSlabs(rule.slabs);
   if (slabs.length > 0) {
-    return {
-      kindLabel: 'Slabs',
-      lines: slabs.map(s => ({
+    const lines: Array<{ text: string; emphasize?: boolean }> = [];
+    if (slabs[0].minQty > 1) {
+      lines.push({
+        text: `Qty 1–${slabs[0].minQty - 1} · list ₹${formatOverrideMoney(listRate)}`,
+      });
+    }
+    for (const s of slabs) {
+      lines.push({
         text: `≥${s.minQty} · ₹${formatOverrideMoney(s.rate)}`,
-      })),
-    };
+      });
+    }
+    return { kindLabel: 'Slabs', lines };
   }
   return {
     kindLabel: 'Custom',

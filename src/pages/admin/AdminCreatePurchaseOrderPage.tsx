@@ -984,6 +984,7 @@ const CreatePurchaseOrderWizard: React.FC = () => {
                             lineQty={item.quantity}
                             disabled={creating}
                             name={item.name}
+                            productId={item.productId}
                             onChange={next => {
                               setSerialByCartLineId(prev => ({
                                 ...prev,

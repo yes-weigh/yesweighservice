@@ -240,7 +240,11 @@ export function normalizePriceLevelSlabs(raw: unknown): PriceLevelQtySlab[] {
     .sort((a, b) => a.minQty - b.minQty);
 }
 
-/** Unit ₹ for qty from sorted slabs (highest minQty ≤ qty). */
+/**
+ * Unit ₹ from the highest slab whose minQty ≤ qty.
+ * Qty below the first slab keeps `fallbackRate` (catalog list) — it does not
+ * inherit the first slab’s rate.
+ */
 export function resolveSlabUnitRate(
   slabs: PriceLevelQtySlab[],
   quantity: number,
@@ -249,7 +253,7 @@ export function resolveSlabUnitRate(
   const list = normalizePriceLevelSlabs(slabs);
   if (!list.length) return roundMoney(Number(fallbackRate) || 0);
   const qty = clampQty(quantity);
-  let rate = list[0].rate;
+  let rate = roundMoney(Number(fallbackRate) || 0);
   for (const slab of list) {
     if (qty >= slab.minQty) rate = slab.rate;
     else break;
@@ -568,7 +572,9 @@ function fixedItemSlabRate(item: PriceLevelItemRule, quantity: number): number |
   if (item.kind !== 'fixed') return null;
   const slabs = normalizePriceLevelSlabs(item.slabs);
   if (slabs.length) {
-    const rate = resolveSlabUnitRate(slabs, quantity, item.customRate ?? 0);
+    const qty = clampQty(quantity);
+    if (qty < slabs[0].minQty) return null;
+    const rate = resolveSlabUnitRate(slabs, quantity, 0);
     return rate > 0 ? rate : null;
   }
   const fixed = roundMoney(Number(item.customRate) || 0);
@@ -687,7 +693,9 @@ function applyItemOrCategoryRule(
     }
     if (itemRule.kind === 'fixed') {
       const slabs = normalizePriceLevelSlabs(itemRule.slabs);
-      const fallback = roundMoney(Number(itemRule.customRate) || 0);
+      const fallback = slabs.length > 0
+        ? listRate
+        : roundMoney(Number(itemRule.customRate) || 0);
       const chargeRate = slabs.length > 0
         ? resolveSlabUnitRate(slabs, quantity, fallback)
         : fallback;

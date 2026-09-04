@@ -4,6 +4,7 @@
  */
 import { getFirestore } from 'firebase-admin/firestore';
 import { compactSerialKey, previewSerialRange } from './serial-range.js';
+import { writeSerialUnitsForRange } from './serial-units.js';
 import { pushSerialAllotmentsToYesGatc } from './yesgatc-serial-push.js';
 
 const ALLOTMENT_DOC = 'appSettings/serialNumberAllotment';
@@ -126,6 +127,7 @@ export async function applyPurchaseOrderSerialsOnGoodsReceipt({
   goodsReceiptId,
   purchaseOrderNumber,
   markedByName,
+  serialRanges,
 } = {}) {
   const grId = str(goodsReceiptId);
   if (!grId) return { applied: 0, alreadyApplied: false, pushed: 0 };
@@ -134,19 +136,24 @@ export async function applyPurchaseOrderSerialsOnGoodsReceipt({
   const grRef = db.collection('goodsReceipts').doc(grId);
   const grSnap = await grRef.get();
   const gr = grSnap.exists ? (grSnap.data() || {}) : {};
-
-  if (gr.serialAllotmentAppliedAt) {
-    return { applied: 0, alreadyApplied: true, pushed: 0 };
-  }
-
+  const alreadyApplied = Boolean(gr.serialAllotmentAppliedAt);
   const poNumber = str(purchaseOrderNumber) || str(gr.purchaseOrderNumber) || str(gr.referenceNumber);
   if (!poNumber) {
-    return { applied: 0, alreadyApplied: false, pushed: 0, skipped: 'no_po' };
+    return { applied: 0, alreadyApplied, pushed: 0, skipped: 'no_po' };
   }
 
-  const po = await lookupPurchaseOrderByNumber(poNumber);
+  let po = await lookupPurchaseOrderByNumber(poNumber);
   if (!po) {
-    return { applied: 0, alreadyApplied: false, pushed: 0, skipped: 'po_not_found' };
+    return { applied: 0, alreadyApplied, pushed: 0, skipped: 'po_not_found' };
+  }
+
+  if (Array.isArray(serialRanges) && serialRanges.length) {
+    try {
+      await writePurchaseOrderSerialRanges(po.id, serialRanges);
+      po = await lookupPurchaseOrderByNumber(poNumber) || po;
+    } catch (err) {
+      console.warn(`PO serial range write failed for ${poNumber}:`, err?.message ?? err);
+    }
   }
 
   const ranges = po.data.serialRangesByLineId && typeof po.data.serialRangesByLineId === 'object'
@@ -176,6 +183,8 @@ export async function applyPurchaseOrderSerialsOnGoodsReceipt({
       createdBy: str(markedByName) || 'Goods receipt',
       pushedAt: null,
       pushError: null,
+      productId: str(enriched.itemId) || null,
+      itemId: str(enriched.itemId) || null,
       sku: enriched.sku,
       imageUrl: enriched.imageUrl,
       productName: enriched.productName,
@@ -185,6 +194,7 @@ export async function applyPurchaseOrderSerialsOnGoodsReceipt({
     });
   }
 
+  let added = [];
   if (newRows.length) {
     const allotRef = db.doc(ALLOTMENT_DOC);
     await db.runTransaction(async tx => {
@@ -194,12 +204,28 @@ export async function applyPurchaseOrderSerialsOnGoodsReceipt({
       const seenKeys = new Set(existing.map(serialRangeKey));
       const seenIds = new Set(existing.map(row => str(row?.id)));
       const merged = [...existing];
+      const fresh = [];
       for (const row of newRows) {
-        if (seenKeys.has(serialRangeKey(row)) || seenIds.has(row.id)) continue;
+        const idx = merged.findIndex(existingRow => (
+          str(existingRow?.id) === row.id || serialRangeKey(existingRow) === serialRangeKey(row)
+        ));
+        if (idx >= 0) {
+          merged[idx] = {
+            ...merged[idx],
+            productId: row.productId || merged[idx].productId || null,
+            itemId: row.itemId || merged[idx].itemId || null,
+            sku: row.sku || merged[idx].sku || null,
+            productName: row.productName || merged[idx].productName || null,
+            imageUrl: row.imageUrl || merged[idx].imageUrl || null,
+          };
+          continue;
+        }
         seenKeys.add(serialRangeKey(row));
         seenIds.add(row.id);
         merged.push(row);
+        fresh.push(row);
       }
+      added = fresh;
       tx.set(allotRef, {
         allotments: merged,
         updatedAt: new Date().toISOString(),
@@ -208,18 +234,28 @@ export async function applyPurchaseOrderSerialsOnGoodsReceipt({
     });
   }
 
-  await grRef.set({
-    purchaseOrderNumber: poNumber,
-    serialAllotmentAppliedAt: new Date().toISOString(),
-    serialAllotmentCount: newRows.length,
-  }, { merge: true });
+  if (!alreadyApplied) {
+    await grRef.set({
+      purchaseOrderNumber: poNumber,
+      serialAllotmentAppliedAt: new Date().toISOString(),
+      serialAllotmentCount: newRows.length,
+    }, { merge: true });
+  }
+
+  for (const row of newRows) {
+    try {
+      await writeSerialUnitsForRange(row);
+    } catch (err) {
+      console.warn(`serialUnits write failed for ${row.id}:`, err?.message ?? err);
+    }
+  }
 
   let pushed = 0;
-  if (newRows.length) {
+  if (added.length) {
     try {
       const result = await pushSerialAllotmentsToYesGatc({
         mode: 'ids',
-        ids: newRows.map(row => row.id),
+        ids: added.map(row => row.id),
         actorName: str(markedByName) || 'Goods receipt',
       });
       pushed = Number(result?.sent) || 0;
@@ -228,5 +264,5 @@ export async function applyPurchaseOrderSerialsOnGoodsReceipt({
     }
   }
 
-  return { applied: newRows.length, alreadyApplied: false, pushed };
+  return { applied: added.length, alreadyApplied, pushed };
 }

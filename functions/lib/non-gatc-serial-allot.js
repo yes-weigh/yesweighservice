@@ -19,6 +19,8 @@ import {
 } from './mandatory-serials.js';
 
 export const NON_GATC_SERIES = 'non_gatc';
+export const GATC_50KG_SERIES = 'gatc_50kg';
+export const GATC_SL_SERIES = 'gatc_sl';
 export const NON_GATC_MACHINE_HSN = Object.freeze(['84238190', '84238290', '84231000']);
 export const NON_GATC_ALLOCATIONS = 'nonGatcSerialAllocations';
 export const SERIAL_NUMBER_ALLOTMENT_DOC = 'appSettings/serialNumberAllotment';
@@ -35,6 +37,10 @@ function hsnDigits(value) {
 
 export function compactSerialKey(raw) {
   return str(raw).toUpperCase().replace(/[^A-Z0-9]/g, '');
+}
+
+function compactProductToken(value) {
+  return compactSerialKey(value);
 }
 
 export function isVoidInvoiceStatus(status) {
@@ -146,10 +152,56 @@ export function mergePreservedLineSerials(nextLines, existingLines) {
   });
 }
 
-function expandNonGatcPool(allotments) {
+function productTokens(value) {
+  return [
+    value?.productId,
+    value?.itemId,
+    value?.sku,
+    value?.productName,
+  ].map(compactProductToken).filter(Boolean);
+}
+
+function allotmentIsBound(row) {
+  return productTokens(row).length > 0;
+}
+
+function allotmentMatchesProduct(row, filter = {}) {
+  const want = productTokens(filter);
+  const have = productTokens(row);
+  if (!want.length || !have.length) return false;
+  return want.some(token => have.includes(token));
+}
+
+export function productHasDedicatedAllotment(allotments, filter = {}, series = NON_GATC_SERIES) {
+  const wanted = str(series);
+  return (Array.isArray(allotments) ? allotments : []).some(row => (
+    str(row?.series) === wanted
+    && allotmentIsBound(row)
+    && allotmentMatchesProduct(row, filter)
+  ));
+}
+
+export function productHasDedicatedNonGatcAllotment(allotments, filter = {}) {
+  return productHasDedicatedAllotment(allotments, filter, NON_GATC_SERIES);
+}
+
+function allotmentInPickerPool(row, filter = {}, dedicated = false, series = NON_GATC_SERIES) {
+  if (str(row?.series) !== str(series)) return false;
+  const bound = allotmentIsBound(row);
+  if (dedicated) return bound && allotmentMatchesProduct(row, filter);
+  return !bound;
+}
+
+export function seriesHasAllotments(allotments, series) {
+  const wanted = str(series);
+  return (Array.isArray(allotments) ? allotments : []).some(row => str(row?.series) === wanted);
+}
+
+export function expandSerialAllotmentPool(allotments, filter = {}, series = NON_GATC_SERIES) {
+  const dedicated = productHasDedicatedAllotment(allotments, filter, series);
   const out = [];
   for (const row of Array.isArray(allotments) ? allotments : []) {
-    if (str(row?.series) !== NON_GATC_SERIES) continue;
+    if (!allotmentInPickerPool(row, filter, dedicated, series)) continue;
     const from = parseSerialToken(row.from);
     const to = parseSerialToken(row.to);
     if (!from || !to || from.prefix !== to.prefix || from.n > to.n) continue;
@@ -171,23 +223,52 @@ function expandNonGatcPool(allotments) {
   });
 }
 
+function expandNonGatcPool(allotments, filter = {}) {
+  return expandSerialAllotmentPool(allotments, filter, NON_GATC_SERIES);
+}
+
 function lineNeed(line) {
   const qty = Math.max(0, Math.round(Number(line?.quantity) || 0));
   const have = uniqueSerials(line?.serialNumbers).length;
   return Math.max(0, qty - have);
 }
 
-export async function listAvailableNonGatcSerials(max = 2000) {
+export async function listAvailableNonGatcSerials(maxOrOpts = 2000) {
+  const opts = maxOrOpts && typeof maxOrOpts === 'object' ? maxOrOpts : { max: maxOrOpts };
+  const productId = str(opts.productId || opts.itemId);
+  const sku = str(opts.sku);
+  const productName = str(opts.productName);
+  const filter = { productId, sku, productName };
+  const limit = Math.min(5000, Math.max(1, Number(opts.max) || 2000));
   const db = getFirestore();
   const allotSnap = await db.doc(SERIAL_NUMBER_ALLOTMENT_DOC).get();
-  const pool = expandNonGatcPool(allotSnap.exists ? allotSnap.data()?.allotments : []);
+  const allotments = allotSnap.exists ? allotSnap.data()?.allotments : [];
+  const dedicated = productHasDedicatedNonGatcAllotment(allotments, filter);
+  const { ensureSerialUnitsFromAllotments, listAvailableSerialUnits } = await import('./serial-units.js');
+  if (dedicated) {
+    await ensureSerialUnitsFromAllotments(allotments, filter);
+  }
+  const unitRows = await listAvailableSerialUnits({
+    productId,
+    sku,
+    productName,
+    max: limit,
+    series: NON_GATC_SERIES,
+    exclusiveBound: dedicated,
+  });
   const taken = await loadTakenSerialKeys(db);
-  const available = pool.filter(serial => !taken.has(compactSerialKey(serial)));
-  const limit = Math.min(5000, Math.max(1, Number(max) || 2000));
-  return available.slice(0, limit).map(serial => ({
-    id: compactSerialKey(serial),
-    serialNumber: serial,
-  }));
+  const seen = new Set(unitRows.map(row => compactSerialKey(row.serialNumber || row.id)));
+  const extra = [];
+  for (const serial of expandNonGatcPool(allotments, filter)) {
+    const key = compactSerialKey(serial);
+    if (!key || seen.has(key) || taken.has(key)) continue;
+    seen.add(key);
+    extra.push({
+      id: key,
+      serialNumber: serial,
+    });
+  }
+  return [...unitRows, ...extra].slice(0, limit);
 }
 
 async function loadTakenSerialKeys(db, exceptInvoiceId = '') {
@@ -245,6 +326,14 @@ export async function releaseInvoiceSerialLinks({
   }
 
   const released = iid ? await releaseAllocationsForInvoice(db, iid) : [];
+  if (released.length) {
+    try {
+      const { markSerialUnitsInStock } = await import('./serial-units.js');
+      await markSerialUnitsInStock(released);
+    } catch (err) {
+      console.warn(`serialUnits restock failed for ${iid}:`, err?.message ?? err);
+    }
+  }
   let gatcReleased = 0;
   try {
     const { releaseGatcStampedSerialsOnVoid } = await import('./yesgatc-stamped-serial-allot.js');
@@ -543,6 +632,14 @@ export async function applyNonGatcSerialAllotmentOnInvoice({
 
   if (isVoidInvoiceStatus(data.status) || forceRelease) {
     const released = await releaseAllocationsForInvoice(db, invoiceId);
+    if (released.length) {
+      try {
+        const { markSerialUnitsInStock } = await import('./serial-units.js');
+        await markSerialUnitsInStock(released);
+      } catch (err) {
+        console.warn(`serialUnits restock failed for ${invoiceId}:`, err?.message ?? err);
+      }
+    }
     let workingLines = lines;
     let gatcReleased = 0;
     try {
@@ -603,8 +700,20 @@ export async function applyNonGatcSerialAllotmentOnInvoice({
     return { allotted: 0, released: 0, shortage: 0, voided: false, lineItems: lines };
   }
 
+  const targetLineId = str(lineId);
+  const targetLine = targetLineId
+    ? lines.find(line => str(line.id) === targetLineId)
+    : lines.find(isNonGatcSerialEligibleLine);
+  const wantProduct = compactProductToken(targetLine?.itemId);
+  const wantSku = compactProductToken(targetLine?.sku);
+  const lineFilter = {
+    productId: str(targetLine?.itemId),
+    sku: str(targetLine?.sku),
+    productName: str(targetLine?.name || targetLine?.productName),
+  };
+
   const allotSnap = await db.doc(SERIAL_NUMBER_ALLOTMENT_DOC).get();
-  const pool = expandNonGatcPool(allotSnap.exists ? allotSnap.data()?.allotments : []);
+  const pool = expandNonGatcPool(allotSnap.exists ? allotSnap.data()?.allotments : [], lineFilter);
   const poolKeys = new Set(pool.map(compactSerialKey));
   const taken = await loadTakenSerialKeys(db, invoiceId);
   for (const line of lines) {
@@ -631,7 +740,33 @@ export async function applyNonGatcSerialAllotmentOnInvoice({
     return { allotted: 0, released: 0, shortage: needed, voided: false, lineItems: lines };
   }
 
-  const targetLineId = str(lineId);
+  if (wantProduct || wantSku) {
+    const { SERIAL_UNITS, SERIAL_UNIT_IN_STOCK } = await import('./serial-units.js');
+    for (let i = 0; i < available.length; i += 100) {
+      const slice = available.slice(i, i + 100);
+      const snaps = await db.getAll(
+        ...slice.map(serial => db.collection(SERIAL_UNITS).doc(compactSerialKey(serial))),
+      );
+      for (let j = 0; j < slice.length; j += 1) {
+        const snap = snaps[j];
+        if (!snap.exists) continue;
+        const data = snap.data() || {};
+        const status = str(data.status);
+        if (status && status !== SERIAL_UNIT_IN_STOCK) {
+          throw new Error(`${slice[j]} is already linked to an invoice.`);
+        }
+        const unitProduct = compactProductToken(data.productId);
+        const unitSku = compactProductToken(data.sku);
+        if (!unitProduct && !unitSku) continue;
+        if (unitProduct !== wantProduct && unitSku !== wantSku) {
+          throw new Error(
+            `${slice[j]} belongs to ${str(data.sku || data.productName) || 'another product'}, not this line.`,
+          );
+        }
+      }
+    }
+  }
+
   const targetNeed = targetLineId
     ? lineNeed(lines.find(line => str(line.id) === targetLineId) || {})
     : needed;
@@ -695,6 +830,21 @@ export async function applyNonGatcSerialAllotmentOnInvoice({
       }
     }
     if (count) await batch.commit();
+    try {
+      const { markSerialUnitsInvoiced } = await import('./serial-units.js');
+      await markSerialUnitsInvoiced({
+        serials: newAllocations.map(row => row.serial),
+        invoiceId,
+        invoiceNumber: str(data.invoiceNumber || data.zohoInvoiceNumber),
+        customerId,
+        lineId: targetLineId,
+        rcCode: rc?.rcCode || null,
+        rcName: rc?.rcName || null,
+        actorName,
+      });
+    } catch (err) {
+      console.warn(`serialUnits invoice mark failed for ${invoiceId}:`, err?.message ?? err);
+    }
   }
 
   const allocatedSerials = uniqueSerials([
@@ -810,6 +960,12 @@ export async function unlinkNonGatcSerialsFromInvoice({
     }
   }
   if (count) await batch.commit();
+  try {
+    const { markSerialUnitsInStock } = await import('./serial-units.js');
+    await markSerialUnitsInStock(released);
+  } catch (err) {
+    console.warn(`serialUnits restock failed for ${invoiceId}:`, err?.message ?? err);
+  }
 
   const nextLines = stripReleasedSerials(lines, released);
   const remaining = uniqueSerials([

@@ -4,6 +4,7 @@
  */
 import { getFirestore } from 'firebase-admin/firestore';
 import { isFreightProductId, isFreightSku } from './freight-lines.js';
+import { classifyInvoiceLineItem, isSoftwareOnlyInvoiceCategories } from './invoice-category.js';
 
 /**
  * Sum draft goods-receipt quantities by catalog / Zoho item id.
@@ -19,10 +20,12 @@ export async function scheduledInboundQtyByProductId() {
   for (const doc of snap.docs) {
     const data = doc.data() || {};
     if (data.opsReceivedAt) continue;
+    if (isSoftwareOnlyInvoiceCategories(data.categories, data.goodsReceiptCategory)) continue;
     const lines = Array.isArray(data.lineItems) ? data.lineItems : [];
     for (const line of lines) {
       const id = String(line?.itemId ?? '').trim();
       if (!id || isFreightProductId(id) || isFreightSku(line?.sku)) continue;
+      if (classifyInvoiceLineItem(line) === 'software_key') continue;
       const qty = Number(line?.quantity) || 0;
       if (qty <= 0) continue;
       map[id] = (map[id] || 0) + qty;

@@ -409,6 +409,17 @@ export async function handleYesgatcPush(body) {
     }
   }
   const written = await commitChunks(outgoing);
+  const usedSerials = certificates
+    .map(record => String(normalizeCertificate(record).serialNumber ?? '').trim())
+    .filter(Boolean);
+  if (usedSerials.length) {
+    try {
+      const { markSerialUnitsUsed } = await import('./serial-units.js');
+      await markSerialUnitsUsed(usedSerials);
+    } catch (err) {
+      console.warn('serialUnits used mark failed:', err?.message ?? err);
+    }
+  }
   return {
     ok: true,
     certificates: certificates.length,

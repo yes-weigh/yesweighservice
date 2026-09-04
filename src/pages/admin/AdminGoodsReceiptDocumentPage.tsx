@@ -1,7 +1,8 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useOutletContext } from 'react-router-dom';
 import { AlertCircle, Check, ChevronDown, Eye, EyeOff, Package, PackageCheck, Plus, X } from 'lucide-react';
 import { GoodsReceiptReceivedDialog } from '../../components/admin/GoodsReceiptReceivedDialog';
+import { PoLineSerialFields } from '../../components/admin/PoLineSerialFields';
 import { DocumentLineItemSpec } from '../../components/invoices/DocumentLineItemSpec';
 import { ProductNcSelect } from '../../components/catalog/ProductNcSelect';
 import { ProductPackageInfo } from '../../components/catalog/ProductPackageInfo';
@@ -24,6 +25,11 @@ import {
   resolveCatalogProductsForLineItems,
 } from '../../lib/catalog';
 import { formatInvoiceDate, formatInvoiceDateTime, invoiceErrorMessage, moveFreightLinesToEnd } from '../../lib/invoices';
+import {
+  fetchPurchaseOrderSerialRangesByNumber,
+  poLineShowsSerialRange,
+  serialRangeInputsFromLines,
+} from '../../lib/purchaseOrderSerials';
 import { isFullSuperAdmin, isViewOnlySuperAdmin } from '../../lib/staffAccess';
 import {
   listWarehouseZoneRows,
@@ -237,6 +243,8 @@ export const AdminGoodsReceiptDocumentPage: React.FC = () => {
   const [hidingLineId, setHidingLineId] = useState<string | null>(null);
   const [busy, setBusy] = useState<'draft' | 'post' | null>(null);
   const [receiveDialogOpen, setReceiveDialogOpen] = useState(false);
+  const [serialDrafts, setSerialDrafts] = useState<Record<string, { startNumber: string; endNumber: string }>>({});
+  const serialSeededForRef = useRef('');
 
   const [zones, setZones] = useState<WarehouseZoneDoc[]>([]);
   const [rowsByZone, setRowsByZone] = useState<Record<string, WarehouseZoneRowDoc[]>>({});
@@ -268,6 +276,34 @@ export const AdminGoodsReceiptDocumentPage: React.FC = () => {
     () => lineItems.filter(line => line.id && hiddenLineIds.has(line.id)),
     [lineItems, hiddenLineIds],
   );
+
+  useEffect(() => {
+    if (!goodsReceipt || serialSeededForRef.current === goodsReceiptId) return;
+    const poNumber = String(goodsReceipt.purchaseOrderNumber || goodsReceipt.referenceNumber || '').trim();
+    serialSeededForRef.current = goodsReceiptId;
+    if (!poNumber) return;
+    let cancelled = false;
+    void fetchPurchaseOrderSerialRangesByNumber(poNumber)
+      .then(({ ranges }) => {
+        if (cancelled) return;
+        setSerialDrafts(prev => {
+          const next = { ...prev };
+          const byItem = Object.values(ranges);
+          for (const line of goodsReceipt.lineItems) {
+            if (!line.id || next[line.id]?.startNumber) continue;
+            const row = ranges[line.id]
+              || byItem.find(item => item.itemId && item.itemId === line.itemId);
+            if (!row) continue;
+            next[line.id] = { startNumber: row.startNumber, endNumber: row.endNumber };
+          }
+          return next;
+        });
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [goodsReceipt, goodsReceiptId]);
 
   const defaultZoneId = zones[0]?.id ?? '';
 
@@ -539,8 +575,27 @@ export const AdminGoodsReceiptDocumentPage: React.FC = () => {
     return lines;
   };
 
+  const collectSerialRangeInputs = () => {
+    if (!goodsReceipt) return [];
+    return serialRangeInputsFromLines(
+      goodsReceipt.lineItems
+        .filter(line => poLineShowsSerialRange(line))
+        .map(line => ({
+          lineId: line.id,
+          productId: String(line.itemId ?? '').trim(),
+          name: line.name,
+          sku: line.sku,
+          imageUrl: line.imageUrl ?? null,
+          startNumber: serialDrafts[line.id]?.startNumber,
+          endNumber: serialDrafts[line.id]?.endNumber,
+        })),
+    );
+  };
+
   const alreadyReceived = Boolean(goodsReceipt.opsReceivedAt);
+  const zohoStillDraft = !isReceivedBillStatus(goodsReceipt.status);
   const receiveLocked = alreadyReceived || isReceivedBillStatus(goodsReceipt.status);
+  const needsZohoOpen = alreadyReceived && zohoStillDraft;
 
   const persistReceiveCheck = async (mode: 'draft' | 'post', auditedAt?: string | null) => {
     if (!user?.uid) {
@@ -618,8 +673,9 @@ export const AdminGoodsReceiptDocumentPage: React.FC = () => {
       let nextOpsReceivedAt = goodsReceipt.opsReceivedAt;
       let nextOpsReceivedByUid = goodsReceipt.opsReceivedByUid;
       let nextOpsReceivedByName = goodsReceipt.opsReceivedByName;
-      if (!alreadyReceived) {
-        const result = await markGoodsReceiptReceived(goodsReceiptId, receivedAtIso);
+      const serialRanges = collectSerialRangeInputs();
+      if (!alreadyReceived || zohoStillDraft || serialRanges.length) {
+        const result = await markGoodsReceiptReceived(goodsReceiptId, receivedAtIso, serialRanges);
         nextStatus = result.status;
         nextReceivedDate = result.receivedDate;
         nextOpsReceivedAt = result.opsReceivedAt;
@@ -637,6 +693,52 @@ export const AdminGoodsReceiptDocumentPage: React.FC = () => {
       } : prev));
       setReceiveDialogOpen(false);
       setSaveOk('Goods received');
+    } catch (err) {
+      setSaveError(invoiceErrorMessage(err));
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  const handleRetryZohoOpen = async () => {
+    if (!user || !canMarkReceived || !needsZohoOpen) return;
+    setBusy('post');
+    setSaveError('');
+    setSaveOk('');
+    try {
+      const result = await markGoodsReceiptReceived(
+        goodsReceiptId,
+        goodsReceipt.opsReceivedAt,
+        collectSerialRangeInputs(),
+      );
+      setGoodsReceipt(prev => (prev ? {
+        ...prev,
+        status: result.status,
+        receivedDate: result.receivedDate,
+        opsReceivedAt: result.opsReceivedAt,
+        opsReceivedByUid: result.opsReceivedByUid,
+        opsReceivedByName: result.opsReceivedByName,
+      } : prev));
+      setSaveOk('Opened in Zoho');
+    } catch (err) {
+      setSaveError(invoiceErrorMessage(err));
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  const handleSaveSerialRanges = async () => {
+    if (!user || !canMarkReceived) return;
+    setBusy('post');
+    setSaveError('');
+    setSaveOk('');
+    try {
+      await markGoodsReceiptReceived(
+        goodsReceiptId,
+        goodsReceipt.opsReceivedAt,
+        collectSerialRangeInputs(),
+      );
+      setSaveOk('Serial numbers saved');
     } catch (err) {
       setSaveError(invoiceErrorMessage(err));
     } finally {
@@ -845,6 +947,20 @@ export const AdminGoodsReceiptDocumentPage: React.FC = () => {
                         </button>
                       )}
                     </div>
+
+                    {poLineShowsSerialRange(item) ? (
+                      <PoLineSerialFields
+                        startNumber={serialDrafts[item.id]?.startNumber ?? ''}
+                        endNumber={serialDrafts[item.id]?.endNumber ?? ''}
+                        lineQty={Number(item.quantity ?? 0)}
+                        disabled={saving}
+                        name={item.name}
+                        productId={item.itemId}
+                        onChange={next => {
+                          setSerialDrafts(prev => ({ ...prev, [item.id]: next }));
+                        }}
+                      />
+                    ) : null}
 
                     {showPackageInfo && catalogProduct && expandedPackageIds.has(item.id) && (
                       <div className="goods-receipt-receive__package is-open">
@@ -1113,6 +1229,61 @@ export const AdminGoodsReceiptDocumentPage: React.FC = () => {
           </ul>
         )}
       </section>
+
+      {canMarkReceived && receiveLocked && visibleLineItems.some(item => poLineShowsSerialRange(item)) && (
+        <div className="goods-receipt-detail__actions">
+          {saveError && (
+            <div className="products-inline-error panel glass goods-receipt-detail__actions-error" role="alert">
+              <AlertCircle size={16} />
+              <span>{saveError}</span>
+            </div>
+          )}
+          {saveOk ? (
+            <p className="goods-receipt-receive__saved text-sm mb-0 goods-receipt-detail__actions-status" role="status">
+              <Check size={14} aria-hidden />
+              {saveOk}
+            </p>
+          ) : null}
+          <div className="goods-receipt-detail__actions-btns">
+            <button
+              type="button"
+              className="btn btn-secondary"
+              disabled={saving}
+              onClick={() => void handleSaveSerialRanges()}
+            >
+              {busy === 'post' ? 'Saving…' : 'Save serial numbers'}
+            </button>
+          </div>
+        </div>
+      )}
+
+      {canMarkReceived && needsZohoOpen && (
+        <div className="goods-receipt-detail__actions">
+          {saveError && (
+            <div className="products-inline-error panel glass goods-receipt-detail__actions-error" role="alert">
+              <AlertCircle size={16} />
+              <span>{saveError}</span>
+            </div>
+          )}
+          {saveOk && (
+            <p className="goods-receipt-receive__saved text-sm mb-0 goods-receipt-detail__actions-status" role="status">
+              <Check size={14} aria-hidden />
+              {saveOk}
+            </p>
+          )}
+          <div className="goods-receipt-detail__actions-btns">
+            <button
+              type="button"
+              className="btn btn-primary"
+              disabled={saving}
+              onClick={() => void handleRetryZohoOpen()}
+            >
+              <PackageCheck size={16} aria-hidden />
+              {busy === 'post' ? 'Opening in Zoho…' : 'Open bill in Zoho'}
+            </button>
+          </div>
+        </div>
+      )}
 
       {canMarkReceived && !receiveLocked && (
         <div className="goods-receipt-detail__actions">

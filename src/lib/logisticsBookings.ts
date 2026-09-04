@@ -2419,6 +2419,7 @@ export async function rebookCancelledBookingViaBlueDartDomestic(
         pincode: shipFromPin,
       },
       boxes: boxesForApi,
+      shipmentMode: booking.shipmentMode === 'envelope' ? 'envelope' : 'box',
       invoiceId: booking.invoiceId,
       zohoCustomerId: booking.dealer.zohoCustomerId,
       invoiceNumber: invoiceNumber || null,

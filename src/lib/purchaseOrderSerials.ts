@@ -1,3 +1,5 @@
+import { collection, getDocs, limit, query, where } from 'firebase/firestore';
+import { db } from '../firebase';
 import { YESGATC_OV_MACHINE_HSN } from './yesgatcRecords';
 import { isSacHsn } from './sacCatalog';
 import { previewSerialRange } from './serialNumberAllotment';
@@ -135,4 +137,20 @@ export function bindSerialRangesToLines(
     };
   }
   return out;
+}
+
+export async function fetchPurchaseOrderSerialRangesByNumber(
+  poNumber: string,
+): Promise<{ poId: string; ranges: PurchaseOrderSerialRangesByLineId }> {
+  const number = String(poNumber ?? '').trim();
+  if (!number) return { poId: '', ranges: {} };
+  const snap = await getDocs(
+    query(collection(db, 'purchaseOrders'), where('purchaseOrderNumber', '==', number), limit(1)),
+  );
+  if (snap.empty) return { poId: '', ranges: {} };
+  const docSnap = snap.docs[0];
+  return {
+    poId: docSnap.id,
+    ranges: parsePurchaseOrderSerialRanges(docSnap.data()?.serialRangesByLineId),
+  };
 }

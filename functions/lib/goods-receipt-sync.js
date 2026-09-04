@@ -3,6 +3,7 @@
  * Pattern mirrors purchase-order-sync / invoice-sync; docs live at goodsReceipts/{id}.
  * New bills are pulled as drafts (Scheduled). After ops marks received, the bill is
  * approved to Open in Zoho and kept on the mirror (open/paid). Void/cancelled drop.
+ * Software-only bills (HSN / Software keys / Sanoft) are not mirrored.
  */
 import { getApp } from 'firebase-admin/app';
 import { getFirestore, FieldValue, Timestamp } from 'firebase-admin/firestore';
@@ -17,6 +18,7 @@ import {
 import {
   classifyInvoiceCategoryBreakdown,
   classifyInvoiceFromLineItems,
+  isSoftwareOnlyInvoiceCategories,
   parseInvoiceCategory,
   sumNonFreightQuantity,
 } from './invoice-category.js';
@@ -203,7 +205,8 @@ function isKeptBillStatus(status) {
 }
 
 function alreadyOpenMessage(message) {
-  return /already|approv|open/i.test(String(message ?? ''));
+  const text = String(message ?? '').trim().toLowerCase();
+  return /already (approved|open)|already in open( status)?|has already been approved|bill is already open/.test(text);
 }
 
 function toIstDateKey(date) {
@@ -277,26 +280,44 @@ async function commentBillReceivedInZoho(accessToken, orgId, billId, description
       method: 'POST',
       body: { description: text },
     });
-  } catch {
-    // Comment is best-effort; opening the bill still succeeds.
+  } catch (err) {
+    console.warn(
+      `Zoho bill ${billId} receive comment failed: ${err?.message ?? err}`,
+    );
   }
 }
 
+/**
+ * Open a draft bill in Zoho. Approval-workflow orgs use /approve; this org
+ * (and PO-converted drafts) must use /status/open. "/approve" returns
+ * "You can only approve the Bill submitted to you." and must not be treated
+ * as already-open.
+ */
 async function approveBillInZoho(accessToken, orgId, billId) {
   try {
-    await zohoJsonRequest(accessToken, orgId, `/bills/${billId}/approve`, {
+    await zohoJsonRequest(accessToken, orgId, `/bills/${billId}/status/open`, {
       method: 'POST',
-      body: {},
     });
-  } catch (err) {
-    if (alreadyOpenMessage(err?.message)) return;
+    return;
+  } catch (openErr) {
+    if (alreadyOpenMessage(openErr?.message)) return;
+    console.warn(
+      `Zoho bill ${billId} status/open failed: ${openErr?.message ?? openErr}`,
+    );
     try {
-      await zohoJsonRequest(accessToken, orgId, `/bills/${billId}/status/open`, {
+      await zohoJsonRequest(accessToken, orgId, `/bills/${billId}/approve`, {
         method: 'POST',
-        body: {},
       });
-    } catch (fallbackErr) {
-      if (alreadyOpenMessage(fallbackErr?.message)) return;
+      return;
+    } catch (approveErr) {
+      if (alreadyOpenMessage(approveErr?.message)) return;
+      console.warn(
+        `Zoho bill ${billId} approve failed: ${approveErr?.message ?? approveErr}`,
+      );
+      const err = new Error(
+        openErr?.message || approveErr?.message || 'Could not open this bill in Zoho.',
+      );
+      err.zohoCode = openErr?.zohoCode ?? approveErr?.zohoCode;
       throw err;
     }
   }
@@ -592,6 +613,10 @@ async function upsertGoodsReceiptFromRaw(raw) {
   const categoryBreakdown = classifyInvoiceCategoryBreakdown(mapped.lineItems, catalog);
   const goodsReceiptCategory = categoryBreakdown.categories[0]
     ?? classifyInvoiceFromLineItems(mapped.lineItems, catalog);
+  if (isSoftwareOnlyInvoiceCategories(categoryBreakdown.categories, goodsReceiptCategory)) {
+    await removeGoodsReceiptDoc(mapped.id);
+    return { id: mapped.id, goodsReceiptCategory, dropped: true };
+  }
   const now = Timestamp.now();
   const doc = {
     ...mapped,
@@ -610,6 +635,7 @@ async function upsertGoodsReceiptFromRaw(raw) {
 
 function detailStillValid(existing, summary) {
   if (!existing) return false;
+  if (isSoftwareOnlyInvoiceCategories(existing.categories, existing.goodsReceiptCategory)) return false;
   if (!Array.isArray(existing.lineItems) || existing.lineItems.length === 0) return false;
   // Force re-pull once after branch/location mapping was added.
   if (!Object.prototype.hasOwnProperty.call(existing, 'branchName')) return false;
@@ -1219,6 +1245,7 @@ export async function markGoodsReceiptReceived(secrets, orgId, {
   markedByName,
   receivedAt: receivedAtInput,
   allowBackdate,
+  serialRanges,
 }) {
   const id = String(goodsReceiptId ?? '').trim();
   if (!id) throw new Error('goodsReceiptId is required.');
@@ -1243,6 +1270,7 @@ export async function markGoodsReceiptReceived(secrets, orgId, {
         || data.purchaseOrderNumber
         || data.referenceNumber,
       markedByName,
+      serialRanges,
     });
     return {
       alreadyReceived: true,
@@ -1293,6 +1321,14 @@ export async function markGoodsReceiptReceived(secrets, orgId, {
 
   const raw = await fetchBillRaw(accessToken, organizationId, id);
   if (!raw) throw new Error('Goods receipt not found in Zoho.');
+  if (!isKeptBillStatus(raw.status) || isDraftBillStatus(raw.status)) {
+    console.error(
+      `Zoho bill ${id} still ${raw.status} after open attempt.`,
+    );
+    throw new Error(
+      `Zoho did not open this bill (still ${String(raw.status || 'draft')}).`,
+    );
+  }
   const upserted = await upsertGoodsReceiptFromRaw(raw);
   if (upserted?.dropped) {
     throw new Error('Could not keep this bill after opening it in Zoho.');
@@ -1316,6 +1352,7 @@ export async function markGoodsReceiptReceived(secrets, orgId, {
     goodsReceiptId: id,
     purchaseOrderNumber,
     markedByName,
+    serialRanges,
   });
 
   return {

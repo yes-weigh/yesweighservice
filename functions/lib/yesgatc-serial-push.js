@@ -7,6 +7,7 @@ import { getFirestore } from 'firebase-admin/firestore';
 import { compactSerialKey, expandSerialRange } from './serial-range.js';
 import { loadWebhookSecret } from './yesgatc-webhook.js';
 import { NON_GATC_ALLOCATIONS } from './non-gatc-serial-allot.js';
+import { deleteUnusedSerialUnitsForRange, assertSerialRangeNeverUsed, WAREHOUSE_RC_CODE, WAREHOUSE_RC_NAME } from './serial-units.js';
 
 export const SERIAL_NUMBER_ALLOTMENT_DOC = 'appSettings/serialNumberAllotment';
 
@@ -159,11 +160,15 @@ export function serializeAllotmentForWebhook(row, pasInfo = null) {
     createdAt: str(row?.createdAt) || null,
     createdBy: str(row?.createdBy) || null,
     sku: str(row?.sku) || null,
+    productId: str(row?.productId || row?.itemId) || null,
+    itemId: str(row?.itemId || row?.productId) || null,
     productName: str(row?.productName) || null,
     imageUrl: str(row?.imageUrl) || null,
     sourcePoNumber: str(row?.sourcePoNumber) || null,
     sourceLineId: str(row?.sourceLineId) || null,
     sourceGoodsReceiptId: str(row?.sourceGoodsReceiptId) || null,
+    rcCode: str(invoiceLinks[0]?.rcCode) || WAREHOUSE_RC_CODE,
+    rcName: str(invoiceLinks[0]?.rcName) || WAREHOUSE_RC_NAME,
     invoiceLinks,
     serialNumbers,
     qty: serialNumbers.length || Math.max(0, Number(row?.count) || 0),
@@ -292,7 +297,7 @@ function withAllotmentInvoiceLinks(allotments, rcGroups) {
   });
 }
 
-export async function postYesGatcWebhook(url, secret, payload) {
+export async function postYesGatcWebhook(url, secret, payload, timeoutMs = 120_000) {
   const headers = {
     'content-type': 'application/json',
     accept: 'application/json',
@@ -308,7 +313,7 @@ export async function postYesGatcWebhook(url, secret, payload) {
     method: 'POST',
     headers,
     body: JSON.stringify(payload),
-    signal: AbortSignal.timeout(120_000),
+    signal: AbortSignal.timeout(Math.max(30_000, Number(timeoutMs) || 120_000)),
   });
 
   const text = await response.text();
@@ -404,8 +409,11 @@ export async function pushSerialAllotmentsToYesGatc({
         from: range.from,
         to: range.to,
         status: allotted ? 'linked' : 'unused',
-        rcCode: allotted?.rcCode || null,
-        rcName: allotted?.rcName || null,
+        rcCode: allotted?.rcCode || WAREHOUSE_RC_CODE,
+        rcName: allotted?.rcName || WAREHOUSE_RC_NAME,
+        sku: range.sku || null,
+        productId: range.productId || null,
+        productName: range.productName || null,
         invoiceId: allotted?.invoiceId || null,
         invoiceNumber: allotted?.invoiceNumber || null,
         customerId: allotted?.customerId || null,
@@ -609,4 +617,81 @@ export async function syncPasProductBankToYesGatc(productId) {
   }
 
   return { ok: true, enabled, pushedRanges };
+}
+
+export async function deleteUnusedSerialAllotment({
+  id = '',
+  actorName = 'YESWEIGH',
+} = {}) {
+  const db = getFirestore();
+  const ref = db.doc(SERIAL_NUMBER_ALLOTMENT_DOC);
+  const snap = await ref.get();
+  const data = snap.exists ? (snap.data() || {}) : {};
+  const allotments = Array.isArray(data.allotments) ? data.allotments : [];
+  const wanted = str(id);
+  const row = allotments.find(item => allotmentId(item) === wanted);
+  if (!row) throw new Error('Allotment not found.');
+  if (Array.isArray(row.invoiceLinks) && row.invoiceLinks.length) {
+    throw new Error('This allotment has invoice links. It cannot be deleted.');
+  }
+
+  const missing = Array.isArray(row.missing) ? row.missing.map(item => str(item)).filter(Boolean) : [];
+  const serials = expandSerialRange({
+    from: row.from,
+    to: row.to,
+    missing,
+  });
+  await assertSerialRangeNeverUsed(row);
+  const wasPushed = Boolean(str(row.pushedAt));
+  let cancelledOnYesGatc = false;
+  if (wasPushed) {
+    const endpoint = await resolveYesGatcWebhookUrl(data.webhookUrl);
+    if (!endpoint) {
+      throw new Error('YesGATC webhook URL missing. Cannot cancel serials that were already sent.');
+    }
+    const secret = await loadWebhookSecret();
+    const series = str(row.series) || 'non_gatc';
+    await postYesGatcWebhook(endpoint, secret, {
+      event: YESGATC_SERIAL_CANCELLED,
+      type: YESGATC_SERIAL_CANCELLED,
+      action: 'cancel',
+      source: 'yesone',
+      sentAt: new Date().toISOString(),
+      from: str(row.from),
+      to: str(row.to),
+      missing,
+      qty: serials.length,
+      count: serials.length,
+      series,
+      seriesLabel: SERIES_LABELS[series] || series,
+      allotments: [{
+        id: allotmentId(row),
+        series,
+        seriesLabel: SERIES_LABELS[series] || series,
+        from: str(row.from),
+        to: str(row.to),
+        missing,
+        count: serials.length,
+        qty: serials.length,
+      }],
+    }, 170_000);
+    cancelledOnYesGatc = true;
+  }
+
+  const units = await deleteUnusedSerialUnitsForRange(row);
+  await ref.set({
+    allotments: allotments.filter(item => allotmentId(item) !== wanted),
+    updatedAt: new Date().toISOString(),
+    updatedBy: str(actorName) || 'YESWEIGH',
+  }, { merge: true });
+
+  return {
+    ok: true,
+    id: wanted,
+    from: str(row.from),
+    to: str(row.to),
+    cancelledOnYesGatc,
+    deletedUnits: units.deleted,
+    remaining: allotments.length - 1,
+  };
 }

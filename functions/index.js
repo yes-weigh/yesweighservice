@@ -341,7 +341,10 @@ import {
   loadWebhookSecret,
   readProvidedSecret,
 } from './lib/yesgatc-webhook.js';
-import { pushSerialAllotmentsToYesGatc } from './lib/yesgatc-serial-push.js';
+import {
+  deleteUnusedSerialAllotment,
+  pushSerialAllotmentsToYesGatc,
+} from './lib/yesgatc-serial-push.js';
 import {
   applyNonGatcSerialAllotmentOnInvoice,
   listAvailableNonGatcSerials,
@@ -3910,7 +3913,7 @@ export const savePurchaseOrderSerialRanges = onCall(
     memory: '256MiB',
   },
   async request => {
-    await requireActiveUser(request.auth?.uid, SUPER_ADMIN_ROLES);
+    await requireActiveUser(request.auth?.uid, SYNC_ROLES);
     const poId = String(request.data?.purchaseOrderId ?? '').trim();
     if (!poId) {
       throw new HttpsError('invalid-argument', 'purchaseOrderId is required.');
@@ -4012,8 +4015,8 @@ export const markGoodsReceiptReceivedFn = onCall(
   {
     region: 'asia-south1',
     secrets: [zohoClientId, zohoClientSecret, zohoRefreshToken],
-    timeoutSeconds: 120,
-    memory: '512MiB',
+    timeoutSeconds: 180,
+    memory: '1GiB',
   },
   async request => {
     const uid = request.auth?.uid;
@@ -4022,6 +4025,9 @@ export const markGoodsReceiptReceivedFn = onCall(
     const userData = userSnap.data() ?? {};
     const goodsReceiptId = String(request.data?.goodsReceiptId ?? '').trim();
     const receivedAt = String(request.data?.receivedAt ?? '').trim() || null;
+    const serialRanges = Array.isArray(request.data?.serialRanges)
+      ? request.data.serialRanges
+      : [];
     if (!goodsReceiptId) {
       throw new HttpsError('invalid-argument', 'goodsReceiptId is required.');
     }
@@ -4037,6 +4043,7 @@ export const markGoodsReceiptReceivedFn = onCall(
           ).trim(),
           receivedAt,
           allowBackdate: role === 'super_admin',
+          serialRanges,
         },
       );
     } catch (err) {
@@ -6266,6 +6273,7 @@ export const bookBlueDartShipmentFn = onCall(
         invoiceNumber: invoiceFields.invoiceNumber,
         invoiceValueInr: invoiceFields.invoiceValueInr,
         sellerGstin: request.data?.sellerGstin,
+        shipmentMode: request.data?.shipmentMode,
         freightBillingMode: request.data?.freightBillingMode,
         registerPickup: request.data?.registerPickup,
       });
@@ -7496,7 +7504,16 @@ export const listAvailableNonGatcSerialsFn = onCall(
     await requireActiveUser(request.auth?.uid, NON_GATC_SERIAL_ROLES);
     try {
       const max = Math.min(5000, Math.max(1, Number(request.data?.max) || 2000));
-      return { rows: await listAvailableNonGatcSerials(max) };
+      const productId = String(request.data?.productId || request.data?.itemId || '').trim();
+      const sku = String(request.data?.sku || '').trim();
+      return {
+        rows: await listAvailableNonGatcSerials({
+          max,
+          productId: productId || undefined,
+          sku: sku || undefined,
+          productName: String(request.data?.productName || '').trim() || undefined,
+        }),
+      };
     } catch (err) {
       if (err instanceof HttpsError) throw err;
       throw new HttpsError('internal', err?.message ?? 'Could not load available serials.');
@@ -7644,7 +7661,19 @@ export const listUnlinkedIwpGatcCertificatesFn = onCall(
     await requireActiveUser(request.auth?.uid, NON_GATC_SERIAL_ROLES);
     try {
       const max = Math.min(5000, Math.max(1, Number(request.data?.max) || 2000));
-      return { rows: await listUnlinkedIwpGatcCertificates(max) };
+      const productId = String(request.data?.productId || request.data?.itemId || '').trim();
+      const sku = String(request.data?.sku || '').trim();
+      const productName = String(request.data?.productName || '').trim();
+      const capacityKg = request.data?.capacityKg == null ? null : Number(request.data.capacityKg);
+      return {
+        rows: await listUnlinkedIwpGatcCertificates({
+          max,
+          productId: productId || undefined,
+          sku: sku || undefined,
+          productName: productName || undefined,
+          capacityKg: Number.isFinite(capacityKg) ? capacityKg : undefined,
+        }),
+      };
     } catch (err) {
       if (err instanceof HttpsError) throw err;
       throw new HttpsError('internal', err?.message ?? 'Could not load unlinked GATC serials.');
@@ -7763,6 +7792,30 @@ export const pushRcInvoiceToYesGatcFn = onCall(
       throw new HttpsError(
         'failed-precondition',
         err?.message ?? 'Could not push this invoice to YesGATC.',
+      );
+    }
+  },
+);
+
+/** Remove an unused serial allotment and cancel it on YesGATC if it was sent. */
+export const deleteUnusedSerialAllotmentFn = onCall(
+  {
+    region: 'asia-south1',
+    timeoutSeconds: 180,
+    memory: '1GiB',
+  },
+  async request => {
+    await requireActiveUser(request.auth?.uid, SUPER_ADMIN_ROLES);
+    try {
+      return await deleteUnusedSerialAllotment({
+        id: String(request.data?.id ?? '').trim(),
+        actorName: String(request.data?.actorName ?? '').trim() || 'YESWEIGH',
+      });
+    } catch (err) {
+      if (err instanceof HttpsError) throw err;
+      throw new HttpsError(
+        'failed-precondition',
+        err?.message ?? 'Could not delete this serial allotment.',
       );
     }
   },

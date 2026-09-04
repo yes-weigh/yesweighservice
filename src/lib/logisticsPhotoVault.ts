@@ -153,23 +153,46 @@ export async function clearUploadedLogisticsVaultPhotos(options: {
   );
 }
 
+function photoSessionStorage(): Storage | null {
+  // localStorage survives APK process death; sessionStorage often does not.
+  if (typeof localStorage !== 'undefined') return localStorage;
+  if (typeof sessionStorage !== 'undefined') return sessionStorage;
+  return null;
+}
+
 export function logisticsPhotoSessionKey(
   existingBookingId: string | null | undefined,
   partnerId: string,
 ): string {
   if (existingBookingId?.trim()) return existingBookingId.trim();
-  if (typeof sessionStorage === 'undefined') {
-    return `temp-${partnerId}-${Date.now()}`;
-  }
   const storageKey = `logistics-photo-session:${partnerId}`;
-  const existing = sessionStorage.getItem(storageKey)?.trim();
-  if (existing) return existing;
+  const fromLocal = typeof localStorage !== 'undefined'
+    ? localStorage.getItem(storageKey)?.trim()
+    : '';
+  const fromSession = typeof sessionStorage !== 'undefined'
+    ? sessionStorage.getItem(storageKey)?.trim()
+    : '';
+  const existing = fromLocal || fromSession;
+  if (existing) {
+    rememberLogisticsPhotoSessionKey(partnerId, existing);
+    return existing;
+  }
   const created = `temp-${partnerId}-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
-  sessionStorage.setItem(storageKey, created);
+  rememberLogisticsPhotoSessionKey(partnerId, created);
   return created;
 }
 
 export function rememberLogisticsPhotoSessionKey(partnerId: string, sessionKey: string): void {
-  if (typeof sessionStorage === 'undefined') return;
-  sessionStorage.setItem(`logistics-photo-session:${partnerId}`, sessionKey);
+  const storage = photoSessionStorage();
+  if (!storage) return;
+  storage.setItem(`logistics-photo-session:${partnerId}`, sessionKey);
+}
+
+export function forgetLogisticsPhotoSessionKey(partnerId: string): void {
+  try {
+    localStorage?.removeItem(`logistics-photo-session:${partnerId}`);
+    sessionStorage?.removeItem(`logistics-photo-session:${partnerId}`);
+  } catch {
+    // ignore
+  }
 }

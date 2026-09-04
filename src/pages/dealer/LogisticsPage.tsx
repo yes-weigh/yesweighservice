@@ -38,7 +38,12 @@ import {
   LOGISTICS_DASHBOARD_STATUSES,
   isIncompleteLogisticsBooking,
   isPipelineEnabledPartner,
+  type BookCourierStep,
 } from '../../lib/logisticsBooking';
+import {
+  loadLogisticsWizardDraft,
+  storedWizardMatchesEntry,
+} from '../../lib/logisticsWizardDraftStore';
 import {
   canCreateLogisticsBooking,
   canDeleteLogisticsBooking,
@@ -340,6 +345,7 @@ export const LogisticsPage: React.FC = () => {
   const [flowStep, setFlowStep] = useState<FlowStep>('closed');
   const [selectedPartnerId, setSelectedPartnerId] = useState<LogisticsPartnerId | null>(null);
   const [pendingEntry, setPendingEntry] = useState<LogisticsEntryState | null>(null);
+  const [resumeStep, setResumeStep] = useState<BookCourierStep | undefined>(undefined);
   const [bookings, setBookings] = useState<LogisticsBooking[]>([]);
   const [activeBookingId, setActiveBookingId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
@@ -369,6 +375,7 @@ export const LogisticsPage: React.FC = () => {
   >({});
   const pageRef = useRef<HTMLDivElement>(null);
   const listFiltersRef = useRef<HTMLDivElement>(null);
+  const resumeTriedRef = useRef(false);
 
   const isMobile = useIsMobile();
   const isOps = user ? isInternalOpsUser(user) : false;
@@ -412,10 +419,12 @@ export const LogisticsPage: React.FC = () => {
       ? String(state[LOGISTICS_OPEN_BOOKING_STATE_KEY]).trim()
       : '';
     if (openBookingId) {
+      resumeTriedRef.current = true;
       navigate(location.pathname, { replace: true, state: null });
       setFlowStep('closed');
       setSelectedPartnerId(null);
       setPendingEntry(null);
+      setResumeStep(undefined);
       setActiveBookingId(openBookingId);
       void fetchLogisticsBooking(openBookingId)
         .then(hydrated => {
@@ -433,8 +442,30 @@ export const LogisticsPage: React.FC = () => {
     if (!canCreate) return;
     const entry = state[LOGISTICS_ENTRY_STATE_KEY] as LogisticsEntryState | undefined;
     if (!entry?.draftPatch) return;
-    setPendingEntry(entry);
-    const preferred = entry.draftPatch.partnerId;
+    resumeTriedRef.current = true;
+    const stored = loadLogisticsWizardDraft();
+    const matchesStored = Boolean(
+      stored && storedWizardMatchesEntry(
+        stored,
+        entry.draftPatch.invoiceId,
+        entry.draftPatch.supportRequestId,
+        entry.draftPatch.partnerId,
+      ),
+    );
+    const merged: LogisticsEntryState = matchesStored && stored
+      ? {
+        ...entry,
+        draftPatch: {
+          ...entry.draftPatch,
+          ...stored.draft,
+          partnerId: stored.partnerId,
+        },
+        dealerQuery: stored.dealerQuery || entry.dealerQuery,
+      }
+      : entry;
+    setPendingEntry(merged);
+    setResumeStep(matchesStored && stored ? stored.step : undefined);
+    const preferred = merged.draftPatch.partnerId;
     const preferredOk = Boolean(preferred && isPipelineEnabledPartner(preferred));
     // Freight-derived partner locks the picker; no-freight invoices let ops choose.
     if (preferredOk && entry.lockPartner !== false) {
@@ -446,6 +477,22 @@ export const LogisticsPage: React.FC = () => {
     }
     navigate(location.pathname, { replace: true, state: null });
   }, [canCreate, location.pathname, location.state, navigate]);
+
+  useEffect(() => {
+    if (!canCreate || resumeTriedRef.current) return;
+    if (location.state) return;
+    resumeTriedRef.current = true;
+    const stored = loadLogisticsWizardDraft();
+    if (!stored) return;
+    setPendingEntry({
+      draftPatch: stored.draft,
+      dealerQuery: stored.dealerQuery,
+      lockPartner: true,
+    });
+    setSelectedPartnerId(stored.partnerId);
+    setResumeStep(stored.step);
+    setFlowStep('book');
+  }, [canCreate, location.state]);
 
   useEffect(() => {
     if (!user) return;
@@ -670,6 +717,7 @@ export const LogisticsPage: React.FC = () => {
     setFlowStep('closed');
     setSelectedPartnerId(null);
     setPendingEntry(null);
+    setResumeStep(undefined);
   }, []);
 
   const handleUpdateBooking = useCallback((next: LogisticsBooking) => {
@@ -1589,6 +1637,7 @@ export const LogisticsPage: React.FC = () => {
           user={user}
           initialDraft={pendingEntry?.draftPatch}
           initialDealerQuery={pendingEntry?.dealerQuery}
+          initialStep={resumeStep}
           onClose={closeFlow}
           onComplete={handleBookingComplete}
           onBookingUpdated={handleUpdateBooking}

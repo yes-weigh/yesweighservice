@@ -1,5 +1,6 @@
 import React, { useMemo } from 'react';
 import { previewSerialRange } from '../../lib/serialNumberAllotment';
+import { useProductSerialCursor } from '../../lib/productSerialCursor';
 
 type PoLineSerialFieldsProps = {
   startNumber: string;
@@ -7,6 +8,7 @@ type PoLineSerialFieldsProps = {
   lineQty: number;
   disabled?: boolean;
   name: string;
+  productId?: string | null;
   onChange: (next: { startNumber: string; endNumber: string }) => void;
 };
 
@@ -16,12 +18,14 @@ export const PoLineSerialFields: React.FC<PoLineSerialFieldsProps> = ({
   lineQty,
   disabled,
   name,
+  productId,
   onChange,
 }) => {
   const preview = useMemo(
     () => previewSerialRange({ from: startNumber, to: endNumber, missingText: '' }),
     [startNumber, endNumber],
   );
+  const cursor = useProductSerialCursor(productId);
   const hasInput = Boolean(startNumber.trim() || endNumber.trim());
   const qtyLabel = hasInput && !preview.error ? preview.count.toLocaleString('en-IN') : '—';
   const mismatch = hasInput && !preview.error && preview.count !== lineQty;
@@ -35,7 +39,7 @@ export const PoLineSerialFields: React.FC<PoLineSerialFieldsProps> = ({
           type="text"
           value={startNumber}
           disabled={disabled}
-          placeholder="e.g. YW2408001"
+          placeholder={cursor?.nextSerial || 'e.g. YW2408001'}
           autoComplete="off"
           spellCheck={false}
           aria-label={`Start serial for ${name}`}
@@ -65,6 +69,11 @@ export const PoLineSerialFields: React.FC<PoLineSerialFieldsProps> = ({
       ) : mismatch ? (
         <p className="po-edit-line__serial-hint">
           Range qty {preview.count.toLocaleString('en-IN')} does not match line qty {lineQty.toLocaleString('en-IN')}.
+        </p>
+      ) : cursor?.lastSerial ? (
+        <p className="po-edit-line__serial-hint">
+          Last allotted {cursor.lastSerial}
+          {cursor.nextSerial ? ` · next ${cursor.nextSerial}` : ''}
         </p>
       ) : null}
     </div>

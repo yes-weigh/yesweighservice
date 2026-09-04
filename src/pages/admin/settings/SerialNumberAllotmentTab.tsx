@@ -1,10 +1,13 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { Package, Pencil, Plus, RefreshCw, Send } from 'lucide-react';
+import { Package, Pencil, Plus, RefreshCw, Send, Trash2 } from 'lucide-react';
 import { CategoryThumbnail } from '../../../components/catalog/CategoryThumbnail';
 import { useAuth } from '../../../context/AuthContext';
+import { useConfirm } from '../../../context/ConfirmContext';
 import {
   allotmentFromPreview,
+  allotmentIsUnused,
   countLinkedUnused,
+  deleteUnusedSerialAllotment,
   loadInvoicedSerialKeys,
   loadSerialNumberAllotments,
   pendingSerialAllotmentCount,
@@ -70,6 +73,7 @@ function AllotmentStat({
 
 export const SerialNumberAllotmentTab: React.FC = () => {
   const { user } = useAuth();
+  const confirm = useConfirm();
   const [allotments, setAllotments] = useState<SerialNumberAllotment[]>([]);
   const [webhookUrl, setWebhookUrl] = useState('');
   const [loading, setLoading] = useState(true);
@@ -307,6 +311,50 @@ export const SerialNumberAllotmentTab: React.FC = () => {
     }
   };
 
+  const handleDelete = async (row: SerialNumberAllotment) => {
+    if (busy || testing) return;
+    const ok = await confirm({
+      title: 'Delete this allotment?',
+      message: `${seriesLabel(row.series)} ${row.from}–${row.to} (${formatCount(row.count)} unused). This cannot be undone.`
+        + (row.pushedAt ? ' Serials already sent to YesGATC will be cancelled.' : ''),
+      confirmLabel: 'Delete',
+      destructive: true,
+    });
+    if (!ok) return;
+    setBusy(true);
+    setError('');
+    setSuccess('');
+    setAllotments(current => current.filter(item => item.id !== row.id));
+    try {
+      const result = await deleteUnusedSerialAllotment({
+        id: row.id,
+        actorName,
+        invoicedKeys,
+      });
+      const refreshed = await loadSerialNumberAllotments();
+      setAllotments(prepareSerialAllotments(refreshed.allotments));
+      if (result.cancelWarning) {
+        setSuccess(`Deleted ${result.from}–${result.to}.`);
+        setError(result.cancelWarning);
+      } else {
+        setSuccess(
+          `Deleted ${result.from}–${result.to}.`
+          + (result.cancelledOnYesGatc ? ' Cancelling on YesGATC.' : ''),
+        );
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Could not delete this allotment.');
+      try {
+        const refreshed = await loadSerialNumberAllotments();
+        setAllotments(prepareSerialAllotments(refreshed.allotments));
+      } catch {
+        // Keep the optimistic list; reload failed.
+      }
+    } finally {
+      setBusy(false);
+    }
+  };
+
   const startEditMissing = (row: SerialNumberAllotment) => {
     setError('');
     setSuccess('');
@@ -494,6 +542,7 @@ export const SerialNumberAllotmentTab: React.FC = () => {
           {visibleRows.map(row => {
             const usage = countLinkedUnused(row, invoicedKeys);
             const addedAt = formatAddedAt(row.createdAt);
+            const canDelete = usageReady && allotmentIsUnused(row, invoicedKeys);
             return (
               <li key={row.id} className="settings-serial-allotment__row">
                 <div className="settings-serial-allotment__metrics">
@@ -596,7 +645,7 @@ export const SerialNumberAllotmentTab: React.FC = () => {
                       <time dateTime={row.createdAt}>{addedAt}</time>
                     ) : null}
                   </div>
-                  <div className="settings-serial-allotment__push-wrap">
+                  <div className="settings-serial-allotment__added-actions">
                     <button
                       type="button"
                       className={`settings-serial-allotment__sys${pushingId === row.id ? ' is-busy' : ''}`}
@@ -612,6 +661,17 @@ export const SerialNumberAllotmentTab: React.FC = () => {
                         aria-hidden
                       />
                     </button>
+                    {canDelete ? (
+                      <button
+                        type="button"
+                        className="settings-serial-allotment__delete"
+                        disabled={busy || testing || Boolean(pushingId)}
+                        aria-label={`Delete unused allotment ${row.from} to ${row.to}`}
+                        onClick={() => void handleDelete(row)}
+                      >
+                        <Trash2 size={14} strokeWidth={2.2} />
+                      </button>
+                    ) : null}
                     <span className={`settings-serial-allotment__push ${row.pushedAt ? 'is-sent' : 'is-pending'}`}>
                       {row.pushedAt ? 'YesGATC sent' : 'YesGATC pending'}
                     </span>
