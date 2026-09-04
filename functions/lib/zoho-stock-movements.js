@@ -10,33 +10,72 @@ const REQUEST_GAP_MS = 100;
 const PAGE_SIZE = 200;
 const STOCK_MOVEMENTS_SUB = 'stockMovements';
 const LEGACY_CACHE_PURGE_KEY = 'no-firestore-stock-ledger-v1';
+const SOFTWARE_KEYS_LEDGER_HSN = '997331';
 
 function sleep(ms) {
   return new Promise(resolve => setTimeout(resolve, ms));
 }
 
+function isZohoRateLimit(res, json) {
+  if (res?.status === 429) return true;
+  const code = Number(json?.code);
+  if (code === 57 || code === 42) return true;
+  const message = String(json?.message ?? '').toLowerCase();
+  return message.includes('rate limit') || message.includes('too many requests');
+}
+
 function createZohoGetter(accessToken, organizationId) {
-  let lastCall = 0;
+  let queue = Promise.resolve();
 
-  return async function zohoGet(path) {
-    const elapsed = Date.now() - lastCall;
-    if (elapsed < REQUEST_GAP_MS) await sleep(REQUEST_GAP_MS - elapsed);
-    lastCall = Date.now();
-
+  async function zohoGetOnce(path, attempt) {
+    if (attempt) {
+      await sleep(Math.min(8000, 400 * (2 ** attempt)) + Math.random() * 250);
+    } else {
+      await sleep(REQUEST_GAP_MS);
+    }
     const url = `${ZOHO_API_BASE}${path}${path.includes('?') ? '&' : '?'}organization_id=${encodeURIComponent(organizationId)}`;
     const res = await fetch(url, { headers: { Authorization: `Zoho-oauthtoken ${accessToken}` } });
-    const json = await res.json();
-    if (!res.ok || (json.code != null && json.code !== 0)) {
-      const err = new Error(json.message || res.statusText || `HTTP ${res.status}`);
+    let json = null;
+    try {
+      json = await res.json();
+    } catch {
+      json = null;
+    }
+    if (isZohoRateLimit(res, json)) {
+      const err = new Error(json?.message || 'Zoho rate limit');
+      err.status = 429;
+      err.retryable = true;
+      throw err;
+    }
+    if (!res.ok || (json && json.code != null && json.code !== 0)) {
+      const err = new Error(json?.message || res.statusText || `HTTP ${res.status}`);
       err.status = res.status;
       err.payload = json;
       throw err;
     }
-    return json;
+    return json || {};
+  }
+
+  return function zohoGet(path) {
+    const run = async () => {
+      let lastErr = null;
+      for (let attempt = 0; attempt < 4; attempt += 1) {
+        try {
+          return await zohoGetOnce(path, attempt);
+        } catch (err) {
+          lastErr = err;
+          if (!err?.retryable) throw err;
+        }
+      }
+      throw lastErr || new Error('Zoho rate limit. Try Refresh again.');
+    };
+    const next = queue.then(run, run);
+    queue = next.catch(() => {});
+    return next;
   };
 }
 
-async function listAllItemTransactions(zohoGet, pathSuffix, itemId, listKey) {
+async function listAllItemTransactions(zohoGet, pathSuffix, itemId, listKey, { required = false } = {}) {
   const rows = [];
   let page = 1;
   try {
@@ -53,8 +92,9 @@ async function listAllItemTransactions(zohoGet, pathSuffix, itemId, listKey) {
       page += 1;
       if (page > 100) break;
     }
-  } catch {
-    return rows;
+  } catch (err) {
+    console.warn(`Zoho item transactions/${pathSuffix} failed for ${itemId}:`, err?.message ?? err);
+    if (required && !rows.length) throw err;
   }
   return rows;
 }
@@ -162,8 +202,13 @@ function withStockEffect(movement, signedDelta) {
   };
 }
 
+function rowItemQty(row) {
+  const qty = Number(row?.item_quantity ?? row?.quantity ?? 0);
+  return Number.isFinite(qty) ? qty : 0;
+}
+
 function mapInvoice(row) {
-  const qty = Number(row.item_quantity ?? 0);
+  const qty = rowItemQty(row);
   if (!qty) return null;
   return withStockEffect(baseMovement({
     type: 'invoice',
@@ -183,7 +228,7 @@ function mapInvoice(row) {
 }
 
 function mapBill(row) {
-  const qty = Number(row.item_quantity ?? 0);
+  const qty = rowItemQty(row);
   if (!qty) return null;
   return withStockEffect(baseMovement({
     type: 'bill',
@@ -203,7 +248,7 @@ function mapBill(row) {
 }
 
 function mapCreditNote(row) {
-  const qty = Number(row.item_quantity ?? 0);
+  const qty = rowItemQty(row);
   if (!qty) return null;
   return withStockEffect(baseMovement({
     type: 'creditnote',
@@ -241,7 +286,7 @@ function mapAdjustment(row) {
 }
 
 function mapTransferLike(row, type, typeLabel, idField, numberField) {
-  const qty = Number(row.item_quantity ?? 0);
+  const qty = rowItemQty(row);
   if (!qty) return null;
   return baseMovement({
     type,
@@ -259,7 +304,7 @@ function mapTransferLike(row, type, typeLabel, idField, numberField) {
 }
 
 function mapPurchaseReceive(row) {
-  const qty = Number(row.item_quantity ?? 0);
+  const qty = rowItemQty(row);
   if (!qty) return null;
   // Visibility only — bill already moves accounting stock.
   return baseMovement({
@@ -305,7 +350,8 @@ async function listSalesReturns(zohoGet, itemId) {
     let json;
     try {
       json = await zohoGet(path);
-    } catch {
+    } catch (err) {
+      console.warn(`Zoho salesreturns failed for ${itemId}:`, err?.message ?? err);
       return rows;
     }
     const batch = Array.isArray(json.salesreturns) ? json.salesreturns : [];
@@ -407,6 +453,27 @@ function attachRunningStock(movementsNewestFirst) {
   return movementsNewestFirst;
 }
 
+function itemTracksInventory(item) {
+  const type = String(item?.item_type ?? item?.product_type ?? '').toLowerCase();
+  if (type.includes('service') || type.includes('non_inventory') || type.includes('non-inventory')) {
+    return false;
+  }
+  const hsn = String(item?.hsn_or_sac ?? '').replace(/\D/g, '');
+  if (hsn === SOFTWARE_KEYS_LEDGER_HSN) return false;
+  return true;
+}
+
+function readZohoItemStock(item) {
+  const raw = item?.account_stock_on_hand
+    ?? item?.accounting_stock
+    ?? item?.stock_on_hand
+    ?? item?.available_stock
+    ?? item?.actual_available_stock;
+  if (raw == null || raw === '') return 0;
+  const n = Number(raw);
+  return Number.isFinite(n) ? n : 0;
+}
+
 /**
  * Lifetime stock movements for an item (paginated Zoho item-transaction APIs).
  */
@@ -422,27 +489,42 @@ export async function listCatalogProductLifetimeStockMovements(
   const organizationId = await resolveOrganizationId(accessToken, configuredOrgId);
   const zohoGet = createZohoGetter(accessToken, organizationId);
 
-  const [
-    invoices,
-    bills,
-    creditnotes,
-    adjustments,
-    moveorders,
-    purchasereceives,
-    transferorders,
-    putaways,
-  ] = await Promise.all([
-    listAllItemTransactions(zohoGet, 'invoices', itemId, 'invoices'),
-    listAllItemTransactions(zohoGet, 'bills', itemId, 'bills'),
-    listAllItemTransactions(zohoGet, 'creditnotes', itemId, 'creditnotes'),
-    listAllItemTransactions(zohoGet, 'inventoryadjustments', itemId, 'inventory_adjustments'),
-    listAllItemTransactions(zohoGet, 'moveorders', itemId, 'moveorders'),
-    listAllItemTransactions(zohoGet, 'purchasereceives', itemId, 'purchasereceives'),
-    listAllItemTransactions(zohoGet, 'transferorders', itemId, 'transferorders'),
-    listAllItemTransactions(zohoGet, 'putaways', itemId, 'putaways'),
-  ]);
+  let item = null;
+  try {
+    const itemJson = await zohoGet(`/items/${encodeURIComponent(itemId)}`);
+    item = itemJson.item ?? null;
+  } catch (err) {
+    throw new Error(err?.message || 'Could not load this item from Zoho.');
+  }
 
-  const salesReturns = await listSalesReturns(zohoGet, itemId);
+  const inventory = itemTracksInventory(item);
+  const invoices = await listAllItemTransactions(zohoGet, 'invoices', itemId, 'invoices', { required: true });
+  const creditnotes = await listAllItemTransactions(zohoGet, 'creditnotes', itemId, 'creditnotes');
+  let bills = [];
+  let adjustments = [];
+  let moveorders = [];
+  let purchasereceives = [];
+  let transferorders = [];
+  let putaways = [];
+  let salesReturns = [];
+  if (inventory) {
+    [
+      bills,
+      adjustments,
+      moveorders,
+      purchasereceives,
+      transferorders,
+      putaways,
+    ] = await Promise.all([
+      listAllItemTransactions(zohoGet, 'bills', itemId, 'bills'),
+      listAllItemTransactions(zohoGet, 'inventoryadjustments', itemId, 'inventory_adjustments'),
+      listAllItemTransactions(zohoGet, 'moveorders', itemId, 'moveorders'),
+      listAllItemTransactions(zohoGet, 'purchasereceives', itemId, 'purchasereceives'),
+      listAllItemTransactions(zohoGet, 'transferorders', itemId, 'transferorders'),
+      listAllItemTransactions(zohoGet, 'putaways', itemId, 'putaways'),
+    ]);
+    salesReturns = await listSalesReturns(zohoGet, itemId);
+  }
 
   const movementsRaw = [
     ...invoices.map(mapInvoice),
@@ -463,17 +545,7 @@ export async function listCatalogProductLifetimeStockMovements(
     movements = movementsRaw;
   }
 
-  let currentStock = null;
-  try {
-    const itemJson = await zohoGet(`/items/${encodeURIComponent(itemId)}`);
-    const item = itemJson.item;
-    currentStock = Number(
-      item?.stock_on_hand ?? item?.available_stock ?? item?.actual_available_stock ?? NaN,
-    );
-    if (!Number.isFinite(currentStock)) currentStock = null;
-  } catch {
-    // optional
-  }
+  const currentStock = readZohoItemStock(item);
 
   const txnNet = movements.reduce((sum, m) => sum + (Number(m.qtyDelta) || 0), 0);
   /** Zoho book − sum of listed txns. Non-zero = investigate (missing docs / opening / theft). */
@@ -607,7 +679,7 @@ export async function getLifetimeStockMovements(
   const itemId = String(catalogProductId ?? '').trim();
   if (!itemId) throw new Error('catalogProductId is required.');
 
-  await ensureLegacyStockMovementCachesPurged();
+  void ensureLegacyStockMovementCachesPurged();
   void deleteStockMovementsCache(itemId).catch(() => {});
 
   const fresh = await listCatalogProductLifetimeStockMovements(
@@ -621,8 +693,6 @@ export async function getLifetimeStockMovements(
   });
   return result;
 }
-
-const SOFTWARE_KEYS_LEDGER_HSN = '997331';
 
 function isSoftwareKeysCategoryName(name) {
   return String(name ?? '').trim().toLowerCase() === 'software keys';
