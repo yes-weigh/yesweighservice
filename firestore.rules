@@ -315,6 +315,9 @@ service cloud.firestore {
     match /catalogProducts/{productId} {
       allow read: if true;
       allow write: if false;
+      allow update: if (isFullSuperAdmin() || isStaff())
+        && request.resource.data.diff(resource.data).affectedKeys()
+          .hasOnly(['pas', 'pasModelId', 'syncedAt']);
 
       match /auditLogs/{logId} {
         allow read: if isOpsUser() || isWarehouse();

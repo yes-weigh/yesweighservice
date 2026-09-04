@@ -170,12 +170,11 @@ export async function mutateCatalogProductOverlays(productId, input) {
   }
   const saved = await patchProductOverlays(productId, patch);
   if ('pas' in patch || 'pasModelId' in patch) {
-    try {
-      const { syncPasProductBankToYesGatc } = await import('./yesgatc-serial-push.js');
-      await syncPasProductBankToYesGatc(productId);
-    } catch {
-      // Overlay is saved; Serial numbers → Test retries the product-bank push.
-    }
+    void import('./yesgatc-serial-push.js')
+      .then(({ syncPasProductBankToYesGatc }) => syncPasProductBankToYesGatc(productId))
+      .catch(() => {
+        // Overlay is saved; Serial numbers sync icon retries the product-bank push.
+      });
   }
   return saved;
 }

@@ -1572,8 +1572,8 @@ export const ProductDetailView: React.FC<{
                   : {}),
                 ...(pasChanged || pasModelChanged
                   ? {
-                      pas: overlays.pas === true,
-                      pasModelId: overlays.pas === true
+                      pas: 'pas' in overlays ? overlays.pas === true : pas === true,
+                      pasModelId: ('pas' in overlays ? overlays.pas === true : pas === true)
                         ? (overlays.pasModelId ?? pasModelId)
                         : null,
                     }

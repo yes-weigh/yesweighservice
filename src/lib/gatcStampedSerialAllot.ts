@@ -97,7 +97,7 @@ export async function listUnlinkedIwpGatcCertificates(
   const productId = String(opts.productId ?? '').trim();
   const sku = String(opts.sku ?? '').trim();
   const productName = String(opts.productName ?? '').trim();
-  const capacityKg = opts.capacityKg == null ? null : Number(opts.capacityKg);
+  const capacityKg = Number(opts.capacityKg);
   return (await fn({
     max: opts.max,
     ...(productId ? { productId } : {}),

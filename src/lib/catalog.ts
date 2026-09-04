@@ -1,6 +1,6 @@
 import { Capacitor, CapacitorHttp } from '@capacitor/core';
 import { getFunctions, httpsCallable } from 'firebase/functions';
-import { collection, doc, getDoc, getDocs, limit, query, where } from 'firebase/firestore';
+import { collection, doc, getDoc, getDocs, limit, query, updateDoc, where } from 'firebase/firestore';
 import { WhatsAppShare } from 'whatsapp-share';
 import { app, db } from '../firebase';
 import { isFreightProductId, isFreightSku } from '../constants/freightLines';
@@ -2138,6 +2138,35 @@ export async function updateCatalogProductOverlays(
       pasModelId?: string | null;
     }
   >(functions, 'updateCatalogProductOverlays');
+  const pasWrite = ('pas' in input || 'pasModelId' in input)
+    ? {
+        pas: input.pas === true,
+        pasModelId: input.pas === true
+          ? (String(input.pasModelId ?? '').trim() || null)
+          : null,
+        syncedAt: new Date().toISOString(),
+      }
+    : null;
+  if (pasWrite) {
+    if (pasWrite.pas && !pasWrite.pasModelId) {
+      throw new Error('PAS requires a Model ID.');
+    }
+    try {
+      await updateDoc(doc(db, 'catalogProducts', productId), pasWrite);
+      patchCatalogCacheProduct(productId, {
+        pas: pasWrite.pas,
+        pasModelId: pasWrite.pasModelId,
+      });
+    } catch (err) {
+      const code = err && typeof err === 'object' && 'code' in err
+        ? String((err as { code: string }).code)
+        : '';
+      if (code === 'permission-denied') {
+        throw new Error('Could not save PAS. Deploy the latest Firestore rules, then try again.');
+      }
+      throw new Error(catalogErrorMessage(err));
+    }
+  }
   try {
     const result = await callable({
       productId,
@@ -2162,10 +2191,20 @@ export async function updateCatalogProductOverlays(
       ...('gatcStampingPriceIds' in result.data
         ? { gatcStampingPriceIds: result.data.gatcStampingPriceIds ?? [] }
         : {}),
-      ...('pas' in result.data ? { pas: result.data.pas === true } : {}),
-      ...('pasModelId' in result.data ? { pasModelId: result.data.pasModelId ?? null } : {}),
+      ...(pasWrite
+        ? { pas: pasWrite.pas, pasModelId: pasWrite.pasModelId }
+        : {
+            ...('pas' in result.data ? { pas: result.data.pas === true } : {}),
+            ...('pasModelId' in result.data
+              ? { pasModelId: result.data.pasModelId ?? null }
+              : {}),
+          }),
     };
   } catch (err) {
+    if (pasWrite) {
+      clearCatalogCache();
+      return { pas: pasWrite.pas, pasModelId: pasWrite.pasModelId };
+    }
     throw new Error(catalogErrorMessage(err));
   }
 }
