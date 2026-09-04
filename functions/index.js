@@ -667,6 +667,13 @@ export const getCatalogProductDetail = onCall(
           ),
         ];
       }
+      if (cachedData.pas === true) {
+        detail.pas = true;
+      }
+      const pasModelId = String(cachedData.pasModelId ?? '').trim();
+      if (pasModelId) {
+        detail.pasModelId = pasModelId;
+      }
       if (typeof cachedData.skuChangedAt === 'string' && cachedData.skuChangedAt.trim()) {
         detail.skuChangedAt = cachedData.skuChangedAt.trim();
       }
@@ -1202,10 +1209,12 @@ export const updateCatalogProductOverlays = onCall(
     const hasApproval = 'approvalNumber' in (request.data ?? {});
     const hasSpareGroup = 'spareGroupId' in (request.data ?? {});
     const hasGatc = 'gatcStampingPriceIds' in (request.data ?? {});
-    if (!hasModel && !hasApproval && !hasSpareGroup && !hasGatc) {
+    const hasPas = 'pas' in (request.data ?? {});
+    const hasPasModelId = 'pasModelId' in (request.data ?? {});
+    if (!hasModel && !hasApproval && !hasSpareGroup && !hasGatc && !hasPas && !hasPasModelId) {
       throw new HttpsError(
         'invalid-argument',
-        'modelNumber, approvalNumber, spareGroupId, or gatcStampingPriceIds is required.',
+        'modelNumber, approvalNumber, spareGroupId, gatcStampingPriceIds, or PAS is required.',
       );
     }
 
@@ -1215,6 +1224,8 @@ export const updateCatalogProductOverlays = onCall(
         ...(hasApproval ? { approvalNumber: request.data.approvalNumber } : {}),
         ...(hasSpareGroup ? { spareGroupId: request.data.spareGroupId } : {}),
         ...(hasGatc ? { gatcStampingPriceIds: request.data.gatcStampingPriceIds } : {}),
+        ...(hasPas ? { pas: request.data.pas === true } : {}),
+        ...(hasPasModelId ? { pasModelId: request.data.pasModelId } : {}),
       });
       return { ok: true, ...saved };
     } catch (err) {

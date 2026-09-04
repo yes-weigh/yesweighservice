@@ -542,10 +542,11 @@ export type PushSerialAllotmentsResult = {
   sent: number;
   pending: number;
   webhookUrl: string;
+  unusedSent?: number;
 };
 
 export async function pushSerialAllotmentsToYesGatc(input: {
-  mode: 'test' | 'ids';
+  mode: 'test' | 'ids' | 'unused';
   ids?: string[];
   webhookUrl?: string;
   actorName: string;

@@ -9124,6 +9124,43 @@ button.incentive-report__adjust-col:focus-visible {
   font-variant-numeric: tabular-nums;
 }
 
+.settings-serial-allotment__push-wrap {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  flex: 0 0 auto;
+}
+
+.settings-serial-allotment__sys {
+  appearance: none;
+  width: 1.7rem;
+  height: 1.7rem;
+  padding: 0;
+  border: none;
+  border-radius: 0.42rem;
+  background: transparent;
+  color: #f97316;
+  display: grid;
+  place-items: center;
+  cursor: pointer;
+  transition: color 0.15s ease, background 0.15s ease;
+}
+
+.settings-serial-allotment__sys:hover:not(:disabled) {
+  color: #fb923c;
+  background: rgba(249, 115, 22, 0.16);
+}
+
+.settings-serial-allotment__sys:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.settings-serial-allotment__sys.is-busy {
+  opacity: 1;
+  color: #f97316;
+}
+
 .settings-serial-allotment__push {
   flex: 0 0 auto;
   font-size: 0.68rem;

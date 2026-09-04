@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { Package, Pencil, Plus, Send } from 'lucide-react';
+import { Package, Pencil, Plus, RefreshCw, Send } from 'lucide-react';
 import { CategoryThumbnail } from '../../../components/catalog/CategoryThumbnail';
 import { useAuth } from '../../../context/AuthContext';
 import {
@@ -75,6 +75,7 @@ export const SerialNumberAllotmentTab: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const [testing, setTesting] = useState(false);
+  const [pushingId, setPushingId] = useState<string | null>(null);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
   const [series, setSeries] = useState<SerialSeriesId>(DEFAULT_SERIAL_SERIES);
@@ -206,6 +207,43 @@ export const SerialNumberAllotmentTab: React.FC = () => {
       setError(err instanceof Error ? err.message : 'Could not reach the YesGATC webhook.');
     } finally {
       setTesting(false);
+    }
+  };
+
+  const handlePushUnused = async (row: SerialNumberAllotment) => {
+    const usage = countLinkedUnused(row, invoicedKeys);
+    if (!usageReady || usage.unused < 1) {
+      setError('No unused serials on this range.');
+      setSuccess('');
+      return;
+    }
+    setPushingId(row.id);
+    setError('');
+    setSuccess('');
+    try {
+      const destination = webhookUrl.trim() || await handleSaveWebhookUrl();
+      if (!destination) {
+        setError('Add a YesGATC webhook destination URL first.');
+        return;
+      }
+      const result = await pushSerialAllotmentsToYesGatc({
+        mode: 'unused',
+        ids: [row.id],
+        webhookUrl: destination,
+        actorName,
+      });
+      const refreshed = await loadSerialNumberAllotments();
+      setAllotments(prepareSerialAllotments(refreshed.allotments));
+      setWebhookUrl(result.webhookUrl || refreshed.webhookUrl || destination);
+      const sent = Number(result.unusedSent) || usage.unused;
+      const label = row.sku?.trim() || seriesLabel(row.series);
+      setSuccess(
+        `Pushed ${sent.toLocaleString('en-IN')} unused serial${sent === 1 ? '' : 's'} for ${label} to YesGATC.`,
+      );
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Could not push unused serials to YesGATC.');
+    } finally {
+      setPushingId(null);
     }
   };
 
@@ -347,7 +385,7 @@ export const SerialNumberAllotmentTab: React.FC = () => {
         <button
           type="button"
           className="btn btn-secondary btn-sm"
-          disabled={busy || testing || loading || !webhookUrl.trim()}
+          disabled={busy || testing || Boolean(pushingId) || loading || !webhookUrl.trim()}
           onClick={() => void handleTest()}
         >
           <Send size={15} aria-hidden />
@@ -434,7 +472,7 @@ export const SerialNumberAllotmentTab: React.FC = () => {
           <button
             type="button"
             className="btn btn-primary btn-sm"
-            disabled={busy || testing || Boolean(preview.error) || !from.trim() || !to.trim()}
+            disabled={busy || testing || Boolean(pushingId) || Boolean(preview.error) || !from.trim() || !to.trim()}
             onClick={() => void handleAdd()}
           >
             <Plus size={15} aria-hidden />
@@ -492,7 +530,7 @@ export const SerialNumberAllotmentTab: React.FC = () => {
                         <button
                           type="button"
                           className="settings-serial-allotment__edit-missing"
-                          disabled={busy || testing}
+                          disabled={busy || testing || Boolean(pushingId)}
                           aria-label={`Edit missing serials for ${seriesLabel(row.series)}`}
                           onClick={() => startEditMissing(row)}
                         >
@@ -558,9 +596,26 @@ export const SerialNumberAllotmentTab: React.FC = () => {
                       <time dateTime={row.createdAt}>{addedAt}</time>
                     ) : null}
                   </div>
-                  <span className={`settings-serial-allotment__push ${row.pushedAt ? 'is-sent' : 'is-pending'}`}>
-                    {row.pushedAt ? 'YesGATC sent' : 'YesGATC pending'}
-                  </span>
+                  <div className="settings-serial-allotment__push-wrap">
+                    <button
+                      type="button"
+                      className={`settings-serial-allotment__sys${pushingId === row.id ? ' is-busy' : ''}`}
+                      disabled={busy || testing || Boolean(pushingId) || !usageReady || usage.unused < 1}
+                      title="Push unused serials to YesGATC"
+                      aria-label={`Push ${usage.unused.toLocaleString('en-IN')} unused serials to YesGATC`}
+                      onClick={() => void handlePushUnused(row)}
+                    >
+                      <RefreshCw
+                        size={15}
+                        strokeWidth={2.4}
+                        className={pushingId === row.id ? 'spin-icon' : undefined}
+                        aria-hidden
+                      />
+                    </button>
+                    <span className={`settings-serial-allotment__push ${row.pushedAt ? 'is-sent' : 'is-pending'}`}>
+                      {row.pushedAt ? 'YesGATC sent' : 'YesGATC pending'}
+                    </span>
+                  </div>
                 </div>
               </li>
             );

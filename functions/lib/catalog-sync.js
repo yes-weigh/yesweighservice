@@ -470,6 +470,12 @@ export async function syncCatalogToFirestore(secrets, configuredOrgId, options =
     const approvalNumber = String(existing?.approvalNumber ?? '').trim();
     if (approvalNumber) doc.approvalNumber = approvalNumber;
 
+    if (existing?.pas === true) {
+      doc.pas = true;
+      const pasModelId = String(existing.pasModelId ?? '').trim();
+      if (pasModelId) doc.pasModelId = pasModelId;
+    }
+
     const previousStock = Number(existing?.stock);
     const zohoSyncEntry = buildZohoSyncAuditAdjustment(
       existing?.auditSnapshot,
@@ -884,11 +890,30 @@ export async function patchProductOverlays(productId, input) {
       : [];
   }
 
+  if ('pas' in (input ?? {})) {
+    payload.pas = input.pas === true;
+  }
+  if ('pasModelId' in (input ?? {})) {
+    payload.pasModelId = String(input.pasModelId ?? '').trim() || null;
+  }
+  if (payload.pas === true) {
+    const modelId = String(payload.pasModelId ?? '').trim();
+    if (!modelId) {
+      throw new Error('PAS requires a Model ID.');
+    }
+    payload.pasModelId = modelId;
+  }
+  if (payload.pas === false) {
+    payload.pasModelId = null;
+  }
+
   if (
     !('modelNumber' in payload)
     && !('approvalNumber' in payload)
     && !('spareGroupId' in payload)
     && !('gatcStampingPriceIds' in payload)
+    && !('pas' in payload)
+    && !('pasModelId' in payload)
   ) {
     throw new Error('No Firestore-only fields to update.');
   }
@@ -896,6 +921,15 @@ export async function patchProductOverlays(productId, input) {
   const existing = await getFirestore().collection(PRODUCTS_COLLECTION).doc(id).get();
   if (!existing.exists) {
     throw new Error('Catalog product not found.');
+  }
+
+  const existingData = existing.data() || {};
+  const nextPas = 'pas' in payload ? payload.pas === true : existingData.pas === true;
+  const nextModelId = 'pasModelId' in payload
+    ? String(payload.pasModelId ?? '').trim()
+    : String(existingData.pasModelId ?? '').trim();
+  if (nextPas && !nextModelId) {
+    throw new Error('PAS requires a Model ID.');
   }
 
   await getFirestore().collection(PRODUCTS_COLLECTION).doc(id).set(payload, { merge: true });
@@ -906,6 +940,8 @@ export async function patchProductOverlays(productId, input) {
     ...('gatcStampingPriceIds' in payload
       ? { gatcStampingPriceIds: payload.gatcStampingPriceIds }
       : {}),
+    ...('pas' in payload ? { pas: payload.pas === true } : {}),
+    ...('pasModelId' in payload ? { pasModelId: payload.pasModelId || null } : {}),
   };
 }
 
@@ -932,6 +968,11 @@ function preserveFirestoreOnlyProductFlags(existing, doc) {
     if (existing.restrictedSalesStatesByUid) {
       doc.restrictedSalesStatesByUid = existing.restrictedSalesStatesByUid;
     }
+  }
+  if (existing.pas === true) {
+    doc.pas = true;
+    const pasModelId = String(existing.pasModelId ?? '').trim();
+    if (pasModelId) doc.pasModelId = pasModelId;
   }
 }
 
@@ -2354,6 +2395,12 @@ export async function mirrorCatalogItemFromZoho(secrets, configuredOrgId, itemId
 
   const approvalNumber = String(existing?.approvalNumber ?? '').trim();
   if (approvalNumber) doc.approvalNumber = approvalNumber;
+
+  if (existing?.pas === true) {
+    doc.pas = true;
+    const pasModelId = String(existing.pasModelId ?? '').trim();
+    if (pasModelId) doc.pasModelId = pasModelId;
+  }
 
   const previousStock = Number(existing?.stock);
   const zohoSyncEntry = buildZohoSyncAuditAdjustment(

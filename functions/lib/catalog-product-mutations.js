@@ -8,6 +8,7 @@
  * Firestore-only overlays (never push to Zoho):
  *   packageInfo, modelNumber, approvalNumber (shop/categorized products only),
  *   gatcStampingPriceIds (categorized non-spare), spareGroupId (spares),
+ *   pas / pasModelId (pre-allotted serials → YesGATC product bank),
  *   hiddenFromCatalog, merch flags, restrictedSalesStates,
  *   spare-link maps, catalogSiteInventory, yesStore audit links, displayOrder
  */
@@ -48,6 +49,8 @@ export const FIRESTORE_ONLY_CATALOG_PRODUCT_FIELDS = [
   'approvalNumber',
   'spareGroupId',
   'gatcStampingPriceIds',
+  'pas',
+  'pasModelId',
   'skuChangedAt',
   'nameChangedAt',
   'binLabelPrintedSku',
@@ -139,15 +142,42 @@ export async function mutateCatalogProductOverlays(productId, input) {
       : [];
     patch.gatcStampingPriceIds = ids;
   }
+  if ('pas' in (input ?? {})) {
+    patch.pas = input.pas === true;
+  }
+  if ('pasModelId' in (input ?? {})) {
+    patch.pasModelId = String(input.pasModelId ?? '').trim() || null;
+  }
+  if (patch.pas === true) {
+    const modelId = String(patch.pasModelId ?? input?.pasModelId ?? '').trim();
+    if (!modelId) {
+      throw new Error('PAS requires a Model ID.');
+    }
+    patch.pasModelId = modelId;
+  }
+  if (patch.pas === false) {
+    patch.pasModelId = null;
+  }
   if (
     !('modelNumber' in patch)
     && !('approvalNumber' in patch)
     && !('spareGroupId' in patch)
     && !('gatcStampingPriceIds' in patch)
+    && !('pas' in patch)
+    && !('pasModelId' in patch)
   ) {
     throw new Error('No Firestore-only fields to update.');
   }
-  return patchProductOverlays(productId, patch);
+  const saved = await patchProductOverlays(productId, patch);
+  if ('pas' in patch || 'pasModelId' in patch) {
+    try {
+      const { syncPasProductBankToYesGatc } = await import('./yesgatc-serial-push.js');
+      await syncPasProductBankToYesGatc(productId);
+    } catch {
+      // Overlay is saved; Serial numbers → Test retries the product-bank push.
+    }
+  }
+  return saved;
 }
 
 /** Firestore-only catalogue visibility — does not change Zoho item status. */

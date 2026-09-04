@@ -77,6 +77,10 @@ export interface CatalogProduct {
    * Firestore only — categorized non-spare products; none / one / many.
    */
   gatcStampingPriceIds?: string[];
+  /** Pre-allotted serials (PAS) — Firestore only. Serials push to YesGATC product bank. */
+  pas?: boolean;
+  /** Required when PAS is on. YesGATC product-bank model id. */
+  pasModelId?: string | null;
   /** Set when SKU changes on Zoho — drives spare-rack yellow/green label status. Firestore only. */
   skuChangedAt?: string | null;
   /** Set when name changes on Zoho — drives spare-rack yellow/green label status. Firestore only. */

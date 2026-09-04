@@ -305,6 +305,8 @@ export const ProductDetailView: React.FC<{
   const [editApprovalNumber, setEditApprovalNumber] = useState('');
   const [editSpareGroupId, setEditSpareGroupId] = useState('');
   const [editGatcIds, setEditGatcIds] = useState<string[]>([]);
+  const [editPas, setEditPas] = useState(false);
+  const [editPasModelId, setEditPasModelId] = useState('');
   const [modelNumberOptions, setModelNumberOptions] = useState<string[]>([]);
   const [approvalNumberOptions, setApprovalNumberOptions] = useState<CatalogApprovalNumberOption[]>([]);
   const [spareGroupOptions, setSpareGroupOptions] = useState<CatalogSpareGroupOption[]>([]);
@@ -1285,6 +1287,8 @@ export const ProductDetailView: React.FC<{
     setEditApprovalNumber(product.approvalNumber ?? '');
     setEditSpareGroupId(product.spareGroupId ?? '');
     setEditGatcIds(normalizeGatcIdList(product.gatcStampingPriceIds));
+    setEditPas(product.pas === true);
+    setEditPasModelId(product.pasModelId ?? '');
     setEditCategoryId(product.categoryId ?? '');
     setDetailsError(null);
     setStatusError(null);
@@ -1304,6 +1308,8 @@ export const ProductDetailView: React.FC<{
     setEditApprovalNumber('');
     setEditSpareGroupId('');
     setEditGatcIds([]);
+    setEditPas(false);
+    setEditPasModelId('');
     setEditCategoryId('');
     setCategoryOptions([]);
     setModelNumberOptions([]);
@@ -1456,6 +1462,14 @@ export const ProductDetailView: React.FC<{
     const gatcStampingPriceIds = isCategorizedProduct
       ? normalizeGatcIdList(editGatcIds)
       : undefined;
+    const pas = isCategorizedProduct ? editPas : undefined;
+    const pasModelId = isCategorizedProduct
+      ? (editPas ? editPasModelId.trim() : null)
+      : undefined;
+    if (pas === true && !pasModelId) {
+      setDetailsError('PAS requires a Model ID.');
+      return;
+    }
     const spareGroupId = isSpareItem
       ? (editSpareGroupId.trim() || null)
       : undefined;
@@ -1488,6 +1502,9 @@ export const ProductDetailView: React.FC<{
     const prevGatcIds = normalizeGatcIdList(product.gatcStampingPriceIds);
     const gatcChanged = gatcStampingPriceIds !== undefined
       && !sameGatcIdList(gatcStampingPriceIds, prevGatcIds);
+    const pasChanged = pas !== undefined && pas !== (product.pas === true);
+    const pasModelChanged = pasModelId !== undefined
+      && (pasModelId || null) !== (product.pasModelId ?? null);
     const overlayFieldsChanged = (
       modelNumber !== undefined
       && modelNumber !== (product.modelNumber ?? null)
@@ -1497,7 +1514,9 @@ export const ProductDetailView: React.FC<{
     ) || (
       spareGroupId !== undefined
       && spareGroupId !== (product.spareGroupId ?? null)
-    ) || gatcChanged;
+    ) || gatcChanged
+      || pasChanged
+      || pasModelChanged;
 
     if (!zohoFieldsChanged && !overlayFieldsChanged && !categoryChanged) {
       setProductEditMode(false);
@@ -1511,11 +1530,15 @@ export const ProductDetailView: React.FC<{
         await assignProductCategory(product.id, nextCategoryId, nextCategoryName);
       }
 
+      const pasOverlay = (pasChanged || pasModelChanged)
+        ? { pas: pas === true, pasModelId: pasModelId ?? null }
+        : {};
       const overlayPayload = {
         ...(modelNumber !== undefined ? { modelNumber } : {}),
         ...(approvalNumber !== undefined ? { approvalNumber } : {}),
         ...(spareGroupId !== undefined ? { spareGroupId } : {}),
         ...(gatcStampingPriceIds !== undefined ? { gatcStampingPriceIds } : {}),
+        ...pasOverlay,
       };
 
       const applyOverlayLocally = (
@@ -1524,6 +1547,8 @@ export const ProductDetailView: React.FC<{
           approvalNumber?: string | null;
           spareGroupId?: string | null;
           gatcStampingPriceIds?: string[];
+          pas?: boolean;
+          pasModelId?: string | null;
         },
       ) => {
         setProduct(prev => (
@@ -1545,6 +1570,14 @@ export const ProductDetailView: React.FC<{
                         overlays.gatcStampingPriceIds ?? gatcStampingPriceIds,
                     }
                   : {}),
+                ...(pasChanged || pasModelChanged
+                  ? {
+                      pas: overlays.pas === true,
+                      pasModelId: overlays.pas === true
+                        ? (overlays.pasModelId ?? pasModelId)
+                        : null,
+                    }
+                  : {}),
                 syncedAt: new Date().toISOString(),
                 ...(categoryChanged
                   ? { categoryId: nextCategoryId, categoryName: nextCategoryName }
@@ -1560,6 +1593,7 @@ export const ProductDetailView: React.FC<{
           : {
               ...(spareGroupId !== undefined ? { spareGroupId } : {}),
               ...(gatcStampingPriceIds !== undefined ? { gatcStampingPriceIds } : {}),
+              ...pasOverlay,
             };
         const hasKeys = Object.keys(payload).length > 0;
         if (!hasKeys) return;
@@ -1572,7 +1606,7 @@ export const ProductDetailView: React.FC<{
           )
         ) || (
           spareGroupId !== undefined && spareGroupId !== (product.spareGroupId ?? null)
-        ) || gatcChanged;
+        ) || gatcChanged || pasChanged || pasModelChanged;
         if (!needsCall) return;
         const overlays = await updateCatalogProductOverlays(product.id, payload);
         applyOverlayLocally(overlays);
@@ -1973,6 +2007,7 @@ export const ProductDetailView: React.FC<{
               )}
               {currentSlide?.type !== 'video' && (product.modelNumber?.trim()
                 || product.approvalNumber?.trim()
+                || product.pas === true
                 || gallerySlides.length > 1) && (
                 <div
                   className={[
@@ -1994,6 +2029,19 @@ export const ProductDetailView: React.FC<{
                       title={product.approvalNumber.trim()}
                     >
                       {product.approvalNumber.trim()}
+                    </span>
+                  )}
+                  {product.pas === true && (
+                    <span
+                      className="product-detail-page__model-badge product-detail-page__pas-badge"
+                      title={
+                        product.pasModelId?.trim()
+                          ? `PAS model ID ${product.pasModelId.trim()}`
+                          : 'Pre allotted serial number'
+                      }
+                    >
+                      PAS
+                      {product.pasModelId?.trim() ? ` ${product.pasModelId.trim()}` : ''}
                     </span>
                   )}
                   {gallerySlides.length > 1 && (
@@ -2535,6 +2583,46 @@ export const ProductDetailView: React.FC<{
                         </select>
                       </label>
                     )}
+                  </div>
+                )}
+
+                {isCategorizedProduct && (
+                  <div className="product-detail-page__edit-row">
+                    <div className="product-detail-page__sku-field product-detail-page__edit-row-span product-detail-page__pas">
+                      <div className="product-detail-page__pas-head">
+                        <span className="product-detail-page__pas-copy">
+                          <strong>PAS</strong>
+                          <em>Pre allotted serial number — YesGATC product bank</em>
+                        </span>
+                        <button
+                          type="button"
+                          className={`product-detail-page__pas-switch${editPas ? ' is-on' : ''}`}
+                          role="switch"
+                          aria-checked={editPas}
+                          aria-label="PAS pre allotted serial number"
+                          disabled={detailsSaving}
+                          onClick={() => setEditPas(on => !on)}
+                        >
+                          <span className="product-detail-page__pas-knob" aria-hidden />
+                        </button>
+                      </div>
+                      {editPas && (
+                        <label className="product-detail-page__sku-field">
+                          <span className="product-detail-page__sku-label">Model ID</span>
+                          <input
+                            type="text"
+                            className="product-detail-page__sku-input"
+                            value={editPasModelId}
+                            onChange={e => setEditPasModelId(e.target.value)}
+                            disabled={detailsSaving}
+                            required
+                            autoComplete="off"
+                            placeholder="Required"
+                            aria-label="PAS model ID"
+                          />
+                        </label>
+                      )}
+                    </div>
                   </div>
                 )}
 

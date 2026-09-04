@@ -933,6 +933,10 @@ function mapProduct(data: Record<string, unknown>): CatalogProduct {
           ],
         }
       : {}),
+    ...(data.pas === true ? { pas: true } : {}),
+    ...(typeof data.pasModelId === 'string' && data.pasModelId.trim()
+      ? { pasModelId: data.pasModelId.trim() }
+      : {}),
     ...(typeof data.skuChangedAt === 'string' && data.skuChangedAt.trim()
       ? { skuChangedAt: data.skuChangedAt.trim() }
       : {}),
@@ -2103,12 +2107,16 @@ export async function updateCatalogProductOverlays(
     approvalNumber?: string | null;
     spareGroupId?: string | null;
     gatcStampingPriceIds?: string[];
+    pas?: boolean;
+    pasModelId?: string | null;
   },
 ): Promise<{
   modelNumber?: string | null;
   approvalNumber?: string | null;
   spareGroupId?: string | null;
   gatcStampingPriceIds?: string[];
+  pas?: boolean;
+  pasModelId?: string | null;
 }> {
   const callable = httpsCallable<
     {
@@ -2117,6 +2125,8 @@ export async function updateCatalogProductOverlays(
       approvalNumber?: string | null;
       spareGroupId?: string | null;
       gatcStampingPriceIds?: string[];
+      pas?: boolean;
+      pasModelId?: string | null;
     },
     {
       ok: boolean;
@@ -2124,6 +2134,8 @@ export async function updateCatalogProductOverlays(
       approvalNumber?: string | null;
       spareGroupId?: string | null;
       gatcStampingPriceIds?: string[];
+      pas?: boolean;
+      pasModelId?: string | null;
     }
   >(functions, 'updateCatalogProductOverlays');
   try {
@@ -2135,6 +2147,8 @@ export async function updateCatalogProductOverlays(
       ...('gatcStampingPriceIds' in input
         ? { gatcStampingPriceIds: input.gatcStampingPriceIds ?? [] }
         : {}),
+      ...('pas' in input ? { pas: input.pas === true } : {}),
+      ...('pasModelId' in input ? { pasModelId: input.pasModelId ?? null } : {}),
     });
     clearCatalogCache();
     return {
@@ -2148,6 +2162,8 @@ export async function updateCatalogProductOverlays(
       ...('gatcStampingPriceIds' in result.data
         ? { gatcStampingPriceIds: result.data.gatcStampingPriceIds ?? [] }
         : {}),
+      ...('pas' in result.data ? { pas: result.data.pas === true } : {}),
+      ...('pasModelId' in result.data ? { pasModelId: result.data.pasModelId ?? null } : {}),
     };
   } catch (err) {
     throw new Error(catalogErrorMessage(err));

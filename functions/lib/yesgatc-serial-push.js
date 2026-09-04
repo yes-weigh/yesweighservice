@@ -15,6 +15,10 @@ export const YESGATC_SERIAL_ALLOTTED = 'serial.allotted';
 export const YESGATC_SERIAL_UPDATED = 'serial.updated';
 export const YESGATC_SERIAL_CANCELLED = 'serial.cancelled';
 export const YESGATC_SERIAL_ALLOTMENT = 'serial_allotment';
+export const YESGATC_PRODUCT_BANK = 'product.bank';
+export const YESGATC_PRODUCT_BANK_REMOVE = 'product.bank.remove';
+
+const PRODUCTS_COLLECTION = 'catalogProducts';
 
 export function yesGatcSerialEvent({ action = 'upsert', alreadyPushed = false } = {}) {
   if (action === 'unlink' || action === 'cancel' || action === 'cancelled') {
@@ -82,6 +86,37 @@ function str(value) {
   return value == null ? '' : String(value).trim();
 }
 
+function pasWebhookFields(pasInfo) {
+  if (!pasInfo) return {};
+  return {
+    pas: true,
+    productBank: true,
+    modelId: str(pasInfo.modelId) || null,
+  };
+}
+
+async function loadPasProductsBySku(db) {
+  const map = new Map();
+  try {
+    const snap = await db.collection(PRODUCTS_COLLECTION).where('pas', '==', true).get();
+    snap.forEach(doc => {
+      const data = doc.data() || {};
+      const sku = str(data.sku);
+      if (!sku) return;
+      map.set(sku.toUpperCase(), {
+        id: doc.id,
+        sku,
+        name: str(data.name),
+        imageUrl: str(data.imageUrl),
+        modelId: str(data.pasModelId),
+      });
+    });
+  } catch {
+    return map;
+  }
+  return map;
+}
+
 function allotmentId(row) {
   return str(row?.id);
 }
@@ -90,7 +125,7 @@ export function isAllotmentPending(row) {
   return Boolean(allotmentId(row) && !str(row?.pushedAt));
 }
 
-export function serializeAllotmentForWebhook(row) {
+export function serializeAllotmentForWebhook(row, pasInfo = null) {
   const series = str(row?.series) || 'non_gatc';
   const invoiceLinks = Array.isArray(row?.invoiceLinks)
     ? row.invoiceLinks.map(link => ({
@@ -127,9 +162,12 @@ export function serializeAllotmentForWebhook(row) {
     productName: str(row?.productName) || null,
     imageUrl: str(row?.imageUrl) || null,
     sourcePoNumber: str(row?.sourcePoNumber) || null,
+    sourceLineId: str(row?.sourceLineId) || null,
+    sourceGoodsReceiptId: str(row?.sourceGoodsReceiptId) || null,
     invoiceLinks,
     serialNumbers,
     qty: serialNumbers.length || Math.max(0, Number(row?.count) || 0),
+    ...pasWebhookFields(pasInfo),
   };
 }
 
@@ -329,12 +367,16 @@ export async function pushSerialAllotmentsToYesGatc({
     throw new Error('Paste the YesGATC webhook URL first.');
   }
 
-  const kind = String(mode || 'test').trim() === 'ids' ? 'ids' : 'test';
-  const selected = pickRows(allotments, kind, ids);
+  const rawMode = String(mode || 'test').trim();
+  const kind = rawMode === 'ids' || rawMode === 'unused' ? rawMode : 'test';
+  const selected = pickRows(allotments, kind === 'test' ? 'test' : 'ids', ids);
+  if (kind === 'unused' && !selected.length) {
+    throw new Error('Select a serial range to push unused numbers.');
+  }
   const secret = await loadWebhookSecret();
   let serialsAllottedToRc = [];
   let rcAllottedSerialDetails = [];
-  if (kind === 'test') {
+  if (kind === 'test' || kind === 'unused') {
     const allotted = await loadRcAllottedSerials(db);
     serialsAllottedToRc = allotted.rcs;
     rcAllottedSerialDetails = allotted.details;
@@ -343,11 +385,14 @@ export async function pushSerialAllotmentsToYesGatc({
     kind === 'test' ? allotments : selected,
     serialsAllottedToRc,
   );
-  const serialsGenerated = generatedSource.map(serializeAllotmentForWebhook);
+  const pasBySku = await loadPasProductsBySku(db);
+  let serialsGenerated = generatedSource.map(row => (
+    serializeAllotmentForWebhook(row, pasBySku.get(str(row?.sku).toUpperCase()) || null)
+  ));
   const allottedBySerial = new Map(
     rcAllottedSerialDetails.map(row => [compactSerialKey(row.serial), row]),
   );
-  const generatedSerialDetails = [];
+  let generatedSerialDetails = [];
   for (const range of serialsGenerated) {
     for (const serial of range.serialNumbers || []) {
       const allotted = allottedBySerial.get(compactSerialKey(serial));
@@ -366,7 +411,33 @@ export async function pushSerialAllotmentsToYesGatc({
         customerId: allotted?.customerId || null,
         allottedAt: allotted?.allottedAt || null,
         allottedBy: allotted?.allottedBy || null,
+        ...(range.productBank === true
+          ? pasWebhookFields({ modelId: range.modelId })
+          : {}),
       });
+    }
+  }
+  if (kind === 'unused') {
+    const unusedDetails = generatedSerialDetails.filter(row => row.status !== 'linked');
+    serialsGenerated = serialsGenerated
+      .map(range => {
+        const serialNumbers = unusedDetails
+          .filter(row => row.rangeId === range.id)
+          .map(row => row.serial);
+        return {
+          ...range,
+          serialNumbers,
+          count: serialNumbers.length,
+          qty: serialNumbers.length,
+          unusedOnly: true,
+        };
+      })
+      .filter(range => range.serialNumbers.length > 0);
+    generatedSerialDetails = unusedDetails.filter(row => (
+      serialsGenerated.some(range => range.id === row.rangeId)
+    ));
+    if (!serialsGenerated.length) {
+      throw new Error('No unused serials to push for this range.');
     }
   }
   const generatedSerialBackfill = serialsGenerated.map(range => {
@@ -381,25 +452,32 @@ export async function pushSerialAllotmentsToYesGatc({
       unused: serials.filter(row => row.status === 'unused').length,
       serialNumbers: range.serialNumbers || [],
       serials,
+      ...(range.productBank === true
+        ? pasWebhookFields({ modelId: range.modelId })
+        : {}),
+      ...(range.unusedOnly === true ? { unusedOnly: true } : {}),
     };
   });
-  const gSeries = serialsGenerated.find(row => (
+  const gSeries = kind === 'unused' ? null : serialsGenerated.find(row => (
     str(row.series) === 'non_gatc'
     && str(row.from).toUpperCase() === 'G0001'
     && str(row.to).toUpperCase() === 'G1082'
   )) || null;
+  const pasPush = kind === 'unused' && serialsGenerated.some(row => row.productBank === true);
   const payload = {
-    event: YESGATC_SERIAL_ALLOTMENT,
-    type: YESGATC_SERIAL_ALLOTTED,
+    event: pasPush ? YESGATC_PRODUCT_BANK : YESGATC_SERIAL_ALLOTMENT,
+    type: pasPush ? YESGATC_PRODUCT_BANK : YESGATC_SERIAL_ALLOTTED,
     source: 'yesone',
     test: kind === 'test',
+    unusedOnly: kind === 'unused',
+    productBank: pasPush,
     sentAt: new Date().toISOString(),
     allotments: serialsGenerated,
     serialsGenerated,
     generatedSerialDetails,
     generatedSerialBackfill,
-    serialsAllottedToRc,
-    rcAllottedSerialDetails,
+    serialsAllottedToRc: kind === 'unused' ? [] : serialsAllottedToRc,
+    rcAllottedSerialDetails: kind === 'unused' ? [] : rcAllottedSerialDetails,
     rcSerialBackfill: gSeries
       ? {
         series: 'non_gatc',
@@ -417,7 +495,13 @@ export async function pushSerialAllotmentsToYesGatc({
       rangesGenerated: serialsGenerated.length,
       serialsGenerated: serialsGenerated.reduce((sum, row) => sum + (Number(row.count) || 0), 0),
       generatedSerialDetails: generatedSerialDetails.length,
-      serialsAllottedToRc: serialsAllottedToRc.reduce((sum, row) => sum + (Number(row.qty) || 0), 0),
+      serialsAllottedToRc: kind === 'unused'
+        ? 0
+        : serialsAllottedToRc.reduce((sum, row) => sum + (Number(row.qty) || 0), 0),
+      productBankRanges: serialsGenerated.filter(row => row.productBank === true).length,
+      unusedSerials: kind === 'unused'
+        ? generatedSerialDetails.length
+        : generatedSerialDetails.filter(row => row.status === 'unused').length,
     },
   };
 
@@ -459,6 +543,70 @@ export async function pushSerialAllotmentsToYesGatc({
     sent: sentIds.length,
     pending,
     webhookUrl: endpoint,
+    unusedSent: kind === 'unused' ? Number(payload.totals.unusedSerials) || 0 : 0,
     totals: payload.totals,
   };
+}
+
+/**
+ * Tell YesGATC this SKU lives in the product bank (or no longer does).
+ * When PAS is on, also re-push existing serial ranges for the SKU with productBank flags.
+ */
+export async function syncPasProductBankToYesGatc(productId) {
+  const db = getFirestore();
+  const id = str(productId);
+  if (!id) return { skipped: true };
+
+  const snap = await db.collection(PRODUCTS_COLLECTION).doc(id).get();
+  if (!snap.exists) return { skipped: true };
+
+  const data = snap.data() || {};
+  const sku = str(data.sku);
+  const enabled = data.pas === true;
+  const modelId = str(data.pasModelId);
+  if (enabled && !modelId) {
+    throw new Error('PAS requires a Model ID.');
+  }
+
+  const endpoint = await resolveYesGatcWebhookUrl();
+  if (!endpoint) {
+    return { skipped: true, reason: 'no-webhook' };
+  }
+
+  const secret = await loadWebhookSecret();
+  await postYesGatcWebhook(endpoint, secret, {
+    event: enabled ? YESGATC_PRODUCT_BANK : YESGATC_PRODUCT_BANK_REMOVE,
+    type: enabled ? YESGATC_PRODUCT_BANK : YESGATC_PRODUCT_BANK_REMOVE,
+    source: 'yesone',
+    sentAt: new Date().toISOString(),
+    product: {
+      id,
+      sku: sku || null,
+      name: str(data.name) || null,
+      imageUrl: str(data.imageUrl) || null,
+      pas: enabled,
+      productBank: enabled,
+      modelId: enabled ? modelId : null,
+    },
+  });
+
+  let pushedRanges = 0;
+  if (enabled && sku) {
+    const allotSnap = await db.doc(SERIAL_NUMBER_ALLOTMENT_DOC).get();
+    const allotments = Array.isArray(allotSnap.data()?.allotments) ? allotSnap.data().allotments : [];
+    const ids = allotments
+      .filter(row => str(row?.sku).toUpperCase() === sku.toUpperCase())
+      .map(row => str(row?.id))
+      .filter(Boolean);
+    if (ids.length) {
+      const result = await pushSerialAllotmentsToYesGatc({
+        mode: 'ids',
+        ids,
+        actorName: 'PAS product bank',
+      });
+      pushedRanges = Number(result?.sent) || 0;
+    }
+  }
+
+  return { ok: true, enabled, pushedRanges };
 }
