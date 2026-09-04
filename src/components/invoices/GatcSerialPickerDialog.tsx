@@ -13,7 +13,30 @@ type PickerRow = {
   serialNumber: string;
   max?: string;
   certificateNumber?: string;
+  sku?: string | null;
+  productId?: string | null;
+  productName?: string;
 };
+
+function compactProductToken(value: unknown): string {
+  return String(value ?? '').toUpperCase().replace(/[^A-Z0-9]/g, '');
+}
+
+function certificateMatchesProduct(
+  row: PickerRow,
+  productId?: string | null,
+  sku?: string | null,
+): boolean {
+  const haveSku = compactProductToken(row.sku);
+  const haveProduct = compactProductToken(row.productId);
+  if (!haveSku && !haveProduct) return true;
+  const wantSku = compactProductToken(sku);
+  const wantProduct = compactProductToken(productId);
+  if (!wantSku && !wantProduct) return false;
+  if (haveSku && wantSku && haveSku === wantSku) return true;
+  if (haveProduct && wantProduct && haveProduct === wantProduct) return true;
+  return false;
+}
 
 function capacityLabel(row: PickerRow): string {
   const raw = String(row.max ?? '').trim();
@@ -42,6 +65,7 @@ export function GatcSerialPickerDialog({
   mode?: 'gatc' | 'nongatc';
   productId?: string | null;
   sku?: string | null;
+  productName?: string | null;
   onClose: () => void;
   onSave: (ids: string[]) => void;
 }) {
@@ -73,7 +97,15 @@ export function GatcSerialPickerDialog({
         id: row.id || row.serialNumber,
         serialNumber: row.serialNumber,
       })))
-      : listUnlinkedIwpGatcCertificates();
+      : listUnlinkedIwpGatcCertificates().then(list => list.map(row => ({
+        id: row.id,
+        serialNumber: row.serialNumber,
+        max: row.max,
+        certificateNumber: row.certificateNumber,
+        sku: row.sku,
+        productId: row.productId ?? null,
+        productName: row.productName,
+      })));
     void load
       .then(list => {
         if (!cancelled) setRows(list);
@@ -103,11 +135,14 @@ export function GatcSerialPickerDialog({
       if (mode === 'gatc' && capacityKg != null && certificateCapacityKg(row as UnlinkedIwpGatcCertificate) !== capacityKg) {
         return false;
       }
+      if (mode === 'gatc' && !certificateMatchesProduct(row, productId, sku)) {
+        return false;
+      }
       if (!needle) return true;
-      const blob = `${row.serialNumber} ${row.max ?? ''} ${row.certificateNumber ?? ''}`.toLowerCase();
+      const blob = `${row.serialNumber} ${row.max ?? ''} ${row.certificateNumber ?? ''} ${row.sku ?? ''} ${row.productName ?? ''}`.toLowerCase();
       return blob.includes(needle);
     });
-  }, [capacityKg, mode, query, rows]);
+  }, [capacityKg, mode, productId, query, rows, sku]);
 
   const toggle = (id: string) => {
     if (saving) return;
@@ -185,8 +220,8 @@ export function GatcSerialPickerDialog({
                   ? 'No unused serials in stock for this product.'
                   : 'No unused serials in the non-GATC allotted list.')
                 : capacityKg != null
-                  ? `No unlinked Interweighing certificates for ${capacityKg} kg.`
-                  : 'No unlinked Interweighing certificates.'}
+                  ? `No unlinked Interweighing certificates for this product (${capacityKg} kg).`
+                  : 'No unlinked Interweighing certificates for this product.'}
             </p>
           ) : (
             <div className="gatc-serial-picker__grid">

@@ -28,6 +28,7 @@ export type UnlinkedIwpGatcCertificate = {
   certificateNumber: string;
   serialNumber: string;
   productName: string;
+  productId?: string | null;
   sku: string | null;
   rcCode: string | null;
   rcName: string | null;
@@ -78,6 +79,7 @@ function toPickerRow(row: {
   certificateNumber: string;
   serialNumber: string;
   productName: string;
+  productId?: string | null;
   sku?: string | null;
   rcCode?: string | null;
   rcName?: string | null;
@@ -91,6 +93,7 @@ function toPickerRow(row: {
     certificateNumber: row.certificateNumber,
     serialNumber: row.serialNumber,
     productName: row.productName,
+    productId: row.productId ?? null,
     sku: row.sku ?? null,
     rcCode: row.rcCode ?? null,
     rcName: row.rcName ?? null,

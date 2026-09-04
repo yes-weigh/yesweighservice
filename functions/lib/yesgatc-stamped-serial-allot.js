@@ -36,6 +36,22 @@ function str(value) {
   return value == null ? '' : String(value).trim();
 }
 
+function compactProductToken(value) {
+  return str(value).toUpperCase().replace(/[^A-Z0-9]/g, '');
+}
+
+function certificateMatchesLine(data, line) {
+  const haveSku = compactProductToken(data?.sku);
+  const haveProduct = compactProductToken(data?.productId || data?.itemId);
+  if (!haveSku && !haveProduct) return true;
+  const wantSku = compactProductToken(line?.sku);
+  const wantProduct = compactProductToken(line?.itemId || line?.productId);
+  if (!wantSku && !wantProduct) return false;
+  if (haveSku && wantSku && haveSku === wantSku) return true;
+  if (haveProduct && wantProduct && haveProduct === wantProduct) return true;
+  return false;
+}
+
 function hsnDigits(value) {
   return str(value).replace(/\D/g, '');
 }
@@ -147,6 +163,7 @@ function publicCert(id, data) {
     certificateNumber: str(data.certificateNumber),
     serialNumber: str(data.serialNumber),
     productName: str(data.productName),
+    productId: data.productId != null ? str(data.productId) : null,
     sku: data.sku != null ? str(data.sku) : null,
     rcCode: data.rcCode != null ? str(data.rcCode) : YESONE_RC_CODE,
     rcName: data.rcName != null ? str(data.rcName) : 'INTERWEIGHING PVT LTD',
@@ -334,6 +351,11 @@ export async function allotGatcStampedSerialsToInvoice({
     if (!serial || !key) throw new Error('A selected certificate has no serial number.');
     if (usedOnInvoice.has(key) || serials.some(item => compactSerialKey(item) === key)) {
       throw new Error(`${serial} is already on this invoice.`);
+    }
+    if (!certificateMatchesLine(cert.data, line)) {
+      throw new Error(
+        `${serial} belongs to ${str(cert.data.sku || cert.data.productName) || 'another product'}, not this line.`,
+      );
     }
     serials.push(serial);
   }

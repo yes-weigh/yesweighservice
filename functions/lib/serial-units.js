@@ -3,7 +3,7 @@
  * appSettings/serialNumberAllotment; this collection is the live pool.
  */
 import { getFirestore } from 'firebase-admin/firestore';
-import { compactSerialKey, expandSerialRange, parseSerialToken } from './serial-range.js';
+import { compactSerialKey, compactProductToken, expandSerialRange, parseSerialToken } from './serial-range.js';
 
 export const SERIAL_UNITS = 'serialUnits';
 export const PRODUCT_SERIAL_CURSORS = 'productSerialCursors';
@@ -149,8 +149,9 @@ export async function listAvailableSerialUnits({
 } = {}) {
   const db = getFirestore();
   const limit = Math.min(5000, Math.max(1, Number(max) || 2000));
-  const wantProduct = str(productId);
-  const wantSku = str(sku).toUpperCase();
+  const wantProduct = compactProductToken(productId);
+  const wantSku = compactProductToken(sku);
+  const filtered = Boolean(wantProduct || wantSku);
   const snap = await db.collection(SERIAL_UNITS)
     .where('status', '==', SERIAL_UNIT_IN_STOCK)
     .limit(5000)
@@ -158,10 +159,13 @@ export async function listAvailableSerialUnits({
   const rows = [];
   snap.forEach(doc => {
     const data = doc.data() || {};
-    if (wantProduct || wantSku) {
-      const productOk = Boolean(wantProduct && str(data.productId) === wantProduct);
-      const skuOk = Boolean(wantSku && str(data.sku).toUpperCase() === wantSku);
-      if (!productOk && !skuOk) return;
+    const unitProduct = compactProductToken(data.productId);
+    const unitSku = compactProductToken(data.sku);
+    const bound = Boolean(unitProduct || unitSku);
+    if (filtered) {
+      if (bound && unitProduct !== wantProduct && unitSku !== wantSku) return;
+    } else if (bound) {
+      return;
     }
     const serial = str(data.serial) || doc.id;
     rows.push({
@@ -177,13 +181,13 @@ export async function listAvailableSerialUnits({
 }
 
 export async function ensureSerialUnitsFromAllotments(allotments, filter = {}) {
-  const wantProduct = str(filter.productId);
-  const wantSku = str(filter.sku).toUpperCase();
+  const wantProduct = compactProductToken(filter.productId);
+  const wantSku = compactProductToken(filter.sku);
   const rows = Array.isArray(allotments) ? allotments : [];
   let written = 0;
   for (const row of rows) {
-    const productId = str(row?.productId || row?.itemId);
-    const sku = str(row?.sku).toUpperCase();
+    const productId = compactProductToken(row?.productId || row?.itemId);
+    const sku = compactProductToken(row?.sku);
     if (wantProduct && productId !== wantProduct && sku !== wantSku) continue;
     if (!wantProduct && wantSku && sku !== wantSku) continue;
     if (!productId && !sku) continue;
