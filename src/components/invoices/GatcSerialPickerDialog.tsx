@@ -150,21 +150,26 @@ export function GatcSerialPickerDialog({
     const needle = query.trim().toLowerCase();
     const lineName = productName || title;
     const dedicated = mode === 'gatc' && rows.some(row => (
-      certificateIsBound(row) && certificateMatchesProduct(row, productId, sku, lineName)
+      !String(row.id).startsWith('pool:')
+      && certificateIsBound(row)
+      && certificateMatchesProduct(row, productId, sku, lineName)
     ));
     return rows.filter(row => {
       if (mode === 'gatc') {
+        const poolRow = String(row.id).startsWith('pool:');
         const certKg = certificateCapacityKg(row as UnlinkedIwpGatcCertificate);
         if (isFiftyKg(certKg) && !isFiftyKg(capacityKg)) return false;
         if (isFiftyKg(capacityKg) && !isFiftyKg(certKg)) return false;
         if (capacityKg != null && !isFiftyKg(capacityKg) && certKg != null && certKg !== capacityKg) {
           return false;
         }
-        if (dedicated) {
-          if (!certificateIsBound(row)) return false;
-          if (!certificateMatchesProduct(row, productId, sku, lineName)) return false;
-        } else if (certificateIsBound(row) && !certificateMatchesProduct(row, productId, sku, lineName)) {
-          return false;
+        if (!poolRow) {
+          if (dedicated) {
+            if (!certificateIsBound(row)) return false;
+            if (!certificateMatchesProduct(row, productId, sku, lineName)) return false;
+          } else if (certificateIsBound(row) && !certificateMatchesProduct(row, productId, sku, lineName)) {
+            return false;
+          }
         }
       }
       if (!needle) return true;
@@ -240,7 +245,7 @@ export function GatcSerialPickerDialog({
           {loading ? (
             <p className="gatc-serial-picker__status">
               <Loader2 size={16} className="spin-icon" aria-hidden />
-              {mode === 'nongatc' ? ' Loading available serials…' : ' Loading unlinked GATC…'}
+              {mode === 'nongatc' ? ' Loading available serials…' : ' Loading GATC serials…'}
             </p>
           ) : visible.length === 0 ? (
             <p className="gatc-serial-picker__status">

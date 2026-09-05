@@ -352,30 +352,52 @@ export function seriesHasAllotments(allotments, series) {
   return (Array.isArray(allotments) ? allotments : []).some(row => str(row?.series) === wanted);
 }
 
+function expandAllotmentRange(row) {
+  const from = parseSerialToken(row?.from);
+  const to = parseSerialToken(row?.to);
+  if (!from || !to || from.prefix !== to.prefix || from.n > to.n) return [];
+  const width = Math.max(from.width, to.width);
+  const canonical = { ...from, width };
+  const missing = new Set((Array.isArray(row.missing) ? row.missing : []).map(compactSerialKey));
+  const out = [];
+  for (let n = from.n; n <= to.n; n += 1) {
+    const serial = formatSerial(canonical, n);
+    if (missing.has(compactSerialKey(serial))) continue;
+    out.push(serial);
+  }
+  return out;
+}
+
+function uniqueSerialPool(serials) {
+  const seen = new Set();
+  return serials.filter(serial => {
+    const key = compactSerialKey(serial);
+    if (!key || seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
+
 export function expandSerialAllotmentPool(allotments, filter = {}, series = NON_GATC_SERIES) {
   const dedicated = productHasDedicatedAllotment(allotments, filter, series);
   const out = [];
   for (const row of Array.isArray(allotments) ? allotments : []) {
     if (!allotmentInPickerPool(row, filter, dedicated, series)) continue;
-    const from = parseSerialToken(row.from);
-    const to = parseSerialToken(row.to);
-    if (!from || !to || from.prefix !== to.prefix || from.n > to.n) continue;
-    const width = Math.max(from.width, to.width);
-    const canonical = { ...from, width };
-    const missing = new Set((Array.isArray(row.missing) ? row.missing : []).map(compactSerialKey));
-    for (let n = from.n; n <= to.n; n += 1) {
-      const serial = formatSerial(canonical, n);
-      if (missing.has(compactSerialKey(serial))) continue;
-      out.push(serial);
-    }
+    out.push(...expandAllotmentRange(row));
   }
-  const seen = new Set();
-  return out.filter(serial => {
-    const key = compactSerialKey(serial);
-    if (seen.has(key)) return false;
-    seen.add(key);
-    return true;
-  });
+  return uniqueSerialPool(out);
+}
+
+/** 50 kg / SL GATC picker: dedicated SKU ranges if any, otherwise every range in that series. */
+export function expandGatcPickerPool(allotments, filter = {}, series) {
+  const dedicated = productHasDedicatedAllotment(allotments, filter, series);
+  if (dedicated) return expandSerialAllotmentPool(allotments, filter, series);
+  const out = [];
+  for (const row of Array.isArray(allotments) ? allotments : []) {
+    if (str(row?.series) !== str(series)) continue;
+    out.push(...expandAllotmentRange(row));
+  }
+  return uniqueSerialPool(out);
 }
 
 function expandNonGatcPool(allotments, filter = {}) {

@@ -6,7 +6,7 @@
 import { FieldValue, getFirestore } from 'firebase-admin/firestore';
 import {
   compactSerialKey,
-  expandSerialAllotmentPool,
+  expandGatcPickerPool,
   GATC_50KG_SERIES,
   GATC_SL_SERIES,
   invoiceLineHasGatcTag,
@@ -209,6 +209,16 @@ function lineNeed(line) {
   return Math.max(0, qty - uniqueSerials(line?.serialNumbers).length);
 }
 
+const GATC_POOL_PICK_PREFIX = 'pool:';
+
+function isGatcPoolPickId(id) {
+  return str(id).startsWith(GATC_POOL_PICK_PREFIX);
+}
+
+function serialFromPoolPickId(id) {
+  return str(id).slice(GATC_POOL_PICK_PREFIX.length);
+}
+
 function publicCert(id, data) {
   return {
     id,
@@ -226,6 +236,24 @@ function publicCert(id, data) {
   };
 }
 
+function publicPoolSerial(serial, seriesLabel, maxLabel) {
+  const key = compactSerialKey(serial);
+  return {
+    id: `${GATC_POOL_PICK_PREFIX}${key}`,
+    certificateNumber: '',
+    serialNumber: str(serial),
+    productName: seriesLabel,
+    productId: null,
+    sku: null,
+    rcCode: YESONE_RC_CODE,
+    rcName: 'INTERWEIGHING PVT LTD',
+    issuedAt: null,
+    max: maxLabel,
+    min: '',
+    e: '',
+  };
+}
+
 function gatcAllotmentSeriesForLine(lineOrKg) {
   const kg = typeof lineOrKg === 'number' || lineOrKg == null
     ? lineOrKg
@@ -240,8 +268,7 @@ async function loadSerialAllotments(db) {
 
 function unusedGatcAllotmentKeys(allotments, filter, series) {
   if (!seriesHasAllotments(allotments, series)) return null;
-  const keys = expandSerialAllotmentPool(allotments, filter, series).map(compactSerialKey);
-  // Empty expand (ranges bound to other SKUs, or exhausted) must not hide IWP certificates.
+  const keys = expandGatcPickerPool(allotments, filter, series).map(compactSerialKey);
   if (!keys.length) return null;
   return new Set(keys);
 }
@@ -287,7 +314,7 @@ export async function listUnlinkedIwpGatcCertificates(maxOrOpts = 2000) {
     && certificateIsBound(row)
     && certificateMatchesLine(row, line)
   ));
-  return rows
+  const certRows = rows
     .filter(row => {
       if (isVoidedCertificate(row) || !str(row.serialNumber)) return false;
       if (certificateLinkedToInvoice(row, invoiceId, invoiceNumber)) return true;
@@ -299,8 +326,28 @@ export async function listUnlinkedIwpGatcCertificates(maxOrOpts = 2000) {
       if (certificateLinkedToInvoice(row, invoiceId, invoiceNumber)) return true;
       return allowedKeys.has(compactSerialKey(row.serialNumber));
     })
-    .map(row => publicCert(row.id, row))
-    .sort((a, b) => String(b.certificateNumber).localeCompare(String(a.certificateNumber), 'en'))
+    .map(row => publicCert(row.id, row));
+  const seen = new Set(certRows.map(row => compactSerialKey(row.serialNumber)));
+  const takenElsewhere = new Set();
+  for (const row of rows) {
+    if (!str(row.serialNumber) || isVoidedCertificate(row)) continue;
+    if (isCertificateLinked(row) && !certificateLinkedToInvoice(row, invoiceId, invoiceNumber)) {
+      takenElsewhere.add(compactSerialKey(row.serialNumber));
+    }
+  }
+  const seriesLabel = series === GATC_50KG_SERIES ? '50Kg GATC' : 'SL printed GATC';
+  const maxLabel = Number.isFinite(lineKg)
+    ? `${lineKg}Kg`
+    : (series === GATC_50KG_SERIES ? '50Kg' : '');
+  const extras = [];
+  for (const serial of expandGatcPickerPool(allotments, filter, series)) {
+    const key = compactSerialKey(serial);
+    if (!key || seen.has(key) || takenElsewhere.has(key)) continue;
+    seen.add(key);
+    extras.push(publicPoolSerial(serial, seriesLabel, maxLabel));
+  }
+  return [...certRows, ...extras]
+    .sort((a, b) => String(a.serialNumber).localeCompare(String(b.serialNumber), 'en', { numeric: true }))
     .slice(0, cap);
 }
 
@@ -316,6 +363,25 @@ async function loadCertificatesById(db, ids) {
     }
   }
   return out;
+}
+
+async function findCertificateBySerial(db, serial) {
+  const key = compactSerialKey(serial);
+  const exact = str(serial);
+  if (!key && !exact) return null;
+  const queries = [];
+  if (key) {
+    queries.push(db.collection(YESGATC_CERTIFICATES).where('serialKey', '==', key).limit(5).get());
+  }
+  if (exact) {
+    queries.push(db.collection(YESGATC_CERTIFICATES).where('serialNumber', '==', exact).limit(5).get());
+  }
+  const snaps = await Promise.all(queries);
+  for (const snap of snaps) {
+    const doc = snap.docs[0];
+    if (doc) return { id: doc.id, data: doc.data() || {} };
+  }
+  return null;
 }
 
 export async function gatcSerialsLinkedToInvoice(db, { invoiceId, invoiceNumber }) {
@@ -457,7 +523,6 @@ export async function allotGatcStampedSerialsToInvoice({
     throw new Error(`Select exactly ${need} unlinked GATC serial${need === 1 ? '' : 's'}.`);
   }
 
-  const certs = await loadCertificatesById(db, wanted);
   const unused = await listUnlinkedIwpGatcCertificates({
     max: 5000,
     productId: str(line.itemId),
@@ -467,6 +532,7 @@ export async function allotGatcStampedSerialsToInvoice({
     invoiceId,
     invoiceNumber: str(data.invoiceNumber),
   });
+  const unusedById = new Map(unused.map(row => [row.id, row]));
   const allotments = await loadSerialAllotments(db);
   const series = gatcAllotmentSeriesForLine(line);
   const allowedKeys = unusedGatcAllotmentKeys(allotments, {
@@ -475,46 +541,76 @@ export async function allotGatcStampedSerialsToInvoice({
     productName: str(line.name || line.productName),
   }, series);
   const dedicated = unused.some(row => (
-    certificateIsBound(row) && certificateMatchesLine(row, line)
+    !isGatcPoolPickId(row.id)
+    && certificateIsBound(row)
+    && certificateMatchesLine(row, line)
   ));
   const usedOnInvoice = new Set(
     lines.flatMap(item => uniqueSerials(item?.serialNumbers).map(compactSerialKey)),
   );
+  const certIds = wanted.filter(id => !isGatcPoolPickId(id));
+  const loadedCerts = certIds.length ? await loadCertificatesById(db, certIds) : [];
+  const certById = new Map(loadedCerts.map(cert => [cert.id, cert]));
   const serials = [];
-  for (const cert of certs) {
-    if (!isAllotableIwpCertificate(cert.data, cert.id)) {
-      throw new Error('Only Interweighing (IWP) certificates can be allotted here.');
+  const certs = [];
+  for (const wantedId of wanted) {
+    const poolPick = isGatcPoolPickId(wantedId);
+    let cert = poolPick ? null : certById.get(wantedId);
+    let serial = poolPick
+      ? (str(unusedById.get(wantedId)?.serialNumber) || serialFromPoolPickId(wantedId))
+      : str(cert?.data?.serialNumber);
+    if (poolPick) {
+      const found = await findCertificateBySerial(db, serial);
+      if (found) {
+        serial = str(found.data.serialNumber) || serial;
+        const canLink = isAllotableIwpCertificate(found.data, found.id)
+          && verificationKind(found.data) === 'OV'
+          && !isVoidedCertificate(found.data)
+          && certificateAllowedForLine(found.data, line, dedicated);
+        cert = canLink ? found : null;
+        if (isCertificateLinked(found.data)
+          && !certificateLinkedToInvoice(found.data, invoiceId, data.invoiceNumber)) {
+          throw new Error(`${serial} is already linked.`);
+        }
+        if (isVoidedCertificate(found.data)) {
+          throw new Error(`${serial} is voided.`);
+        }
+      }
+    } else {
+      if (!cert) throw new Error('Certificate not found.');
+      if (!isAllotableIwpCertificate(cert.data, cert.id)) {
+        throw new Error('Only Interweighing (IWP) certificates can be allotted here.');
+      }
+      if (verificationKind(cert.data) !== 'OV') {
+        throw new Error('Only original verification (OV) certificates can be linked.');
+      }
+      if (isVoidedCertificate(cert.data)) throw new Error('A selected certificate is voided.');
+      if (isCertificateLinked(cert.data)
+        && !certificateLinkedToInvoice(cert.data, invoiceId, data.invoiceNumber)) {
+        throw new Error(`${str(cert.data.serialNumber) || 'A certificate'} is already linked.`);
+      }
+      if (!certificateAllowedForLine(cert.data, line, dedicated)) {
+        const lineKg = lineCapacityKg(line);
+        if (isFiftyKg(certificateCapacityKg(cert.data)) && !isFiftyKg(lineKg)) {
+          throw new Error(`${serial} is a 50 kg GATC serial. Use it only on a 50 kg scale.`);
+        }
+        if (isFiftyKg(lineKg) && !isFiftyKg(certificateCapacityKg(cert.data))) {
+          throw new Error(`${serial} is not a 50 kg GATC serial.`);
+        }
+        throw new Error(
+          `${serial} belongs to ${str(cert.data.sku || cert.data.productName) || 'another product'}, not this line.`,
+        );
+      }
     }
-    if (verificationKind(cert.data) !== 'OV') {
-      throw new Error('Only original verification (OV) certificates can be linked.');
-    }
-    if (isVoidedCertificate(cert.data)) throw new Error('A selected certificate is voided.');
-    if (isCertificateLinked(cert.data)
-      && !certificateLinkedToInvoice(cert.data, invoiceId, data.invoiceNumber)) {
-      throw new Error(`${str(cert.data.serialNumber) || 'A certificate'} is already linked.`);
-    }
-    const serial = str(cert.data.serialNumber);
     const key = compactSerialKey(serial);
-    if (!serial || !key) throw new Error('A selected certificate has no serial number.');
+    if (!serial || !key) throw new Error('A selected GATC serial has no serial number.');
     if (usedOnInvoice.has(key) || serials.some(item => compactSerialKey(item) === key)) {
       throw new Error(`${serial} is already on this invoice.`);
-    }
-    if (!certificateAllowedForLine(cert.data, line, dedicated)) {
-      const lineKg = lineCapacityKg(line);
-      if (isFiftyKg(certificateCapacityKg(cert.data)) && !isFiftyKg(lineKg)) {
-        throw new Error(`${serial} is a 50 kg GATC serial. Use it only on a 50 kg scale.`);
-      }
-      if (isFiftyKg(lineKg) && !isFiftyKg(certificateCapacityKg(cert.data))) {
-        throw new Error(`${serial} is not a 50 kg GATC serial.`);
-      }
-      throw new Error(
-        `${serial} belongs to ${str(cert.data.sku || cert.data.productName) || 'another product'}, not this line.`,
-      );
     }
     if (
       allowedKeys
       && !allowedKeys.has(key)
-      && !certificateLinkedToInvoice(cert.data, invoiceId, data.invoiceNumber)
+      && !(cert && certificateLinkedToInvoice(cert.data, invoiceId, data.invoiceNumber))
     ) {
       throw new Error(
         isFiftyKg(lineCapacityKg(line))
@@ -523,6 +619,7 @@ export async function allotGatcStampedSerialsToInvoice({
       );
     }
     serials.push(serial);
+    if (cert) certs.push(cert);
   }
 
   const nextLine = applySerialsToLine(line, [...uniqueSerials(line.serialNumbers), ...serials]);
