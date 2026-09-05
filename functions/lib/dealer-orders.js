@@ -576,7 +576,13 @@ async function createSegmentSalesOrders({
           'failed-precondition',
           segment === 'software'
             ? 'Zoho rejected the software sales order. Software items are billed as Cloud Charges (not your salesperson) and are not warehouse-stocked. Confirm “Cloud Charges” is an active Zoho salesperson, then try again.'
-            : 'Zoho rejected this sales order (not authorized). This is a Zoho Inventory setting, not your YesOne login. Freight and service items cannot be warehouse-stocked, the Zoho salesperson must be active, and the shipping address must belong to the dealer in Zoho. Try again, or check the item, warehouse, salesperson, and shipping address in Zoho.',
+            : (
+              'Zoho Inventory refused this sales order (not authorized). This is not your YesOne login. '
+              + 'YesOne already retried without warehouse, salesperson, and shipping address. '
+              + 'In Zoho, confirm the customer is active, the product is active and available for sale, '
+              + 'and the connected Zoho user can create sales orders. '
+              + (zohoMessage ? `Zoho: ${zohoMessage}` : '')
+            ),
         );
       }
       throw err;

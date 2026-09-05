@@ -11,13 +11,32 @@ import { isSacHsn } from './sac-catalog.js';
 import { isFreightOrderLine } from './freight-lines.js';
 import { ZOHO_ADDRESS_LINE_MAX, fitZohoAddressLines } from './zoho-contact-fields.js';
 
+function hsnDigits(value) {
+  return String(value ?? '').replace(/\D/g, '');
+}
+
+const SERVICE_WAREHOUSE_HSN = new Set([
+  '998346', // GATC stamping SAC
+  '79061190', // GATC fee HSN used in Zoho
+  '996812', // freight
+]);
+
+function isGatcFeeOrderLine(line) {
+  if (SERVICE_WAREHOUSE_HSN.has(hsnDigits(line?.hsn))) return true;
+  const sku = String(line?.sku ?? '').trim().toUpperCase();
+  if (/^GRV\d/.test(sku)) return true;
+  const name = String(line?.name ?? '').trim().toUpperCase();
+  return name.includes('GATC FEE') || name.includes('STAMPING FEE');
+}
+
 function isZohoNotAuthorized(err) {
   return /not authorized to perform this operation/i.test(String(err?.message ?? ''));
 }
 
-/** Goods that Zoho can stock at a warehouse. Freight/SAC/empty-warehouse lines must not send warehouse_id. */
+/** Goods that Zoho can stock at a warehouse. Freight/SAC/GATC-fee/empty-warehouse lines must not send warehouse_id. */
 export function lineAllowsWarehouse(line) {
   if (isFreightOrderLine(line)) return false;
+  if (isGatcFeeOrderLine(line)) return false;
   if (isSacHsn(line.hsn)) return false;
   const sku = String(line?.sku ?? '').trim().toUpperCase();
   const name = String(line?.name ?? '').trim().toUpperCase();
