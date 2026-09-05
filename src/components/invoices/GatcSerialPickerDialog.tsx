@@ -60,6 +60,8 @@ export function GatcSerialPickerDialog({
   productId,
   sku,
   productName,
+  invoiceId,
+  invoiceNumber,
   onClose,
   onSave,
 }: {
@@ -72,6 +74,8 @@ export function GatcSerialPickerDialog({
   productId?: string | null;
   sku?: string | null;
   productName?: string | null;
+  invoiceId?: string | null;
+  invoiceNumber?: string | null;
   onClose: () => void;
   onSave: (ids: string[]) => void;
 }) {
@@ -108,6 +112,8 @@ export function GatcSerialPickerDialog({
         sku,
         productName: productName || title,
         capacityKg,
+        invoiceId,
+        invoiceNumber,
       }).then(list => list.map(row => ({
         id: row.id,
         serialNumber: row.serialNumber,
@@ -138,7 +144,7 @@ export function GatcSerialPickerDialog({
     return () => {
       cancelled = true;
     };
-  }, [capacityKg, mode, productId, productName, sku, title]);
+  }, [capacityKg, invoiceId, invoiceNumber, mode, productId, productName, sku, title]);
 
   const visible = useMemo(() => {
     const needle = query.trim().toLowerCase();

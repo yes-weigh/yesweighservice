@@ -46,9 +46,16 @@ function compactProductToken(value) {
 }
 
 function parseCapacityKg(value) {
-  const match = str(value).match(/(\d+(?:\.\d+)?)\s*kgs?\b/i);
-  if (!match) return null;
-  const kg = Number(match[1]);
+  const text = str(value);
+  if (!text) return null;
+  const withUnit = text.match(/(\d+(?:\.\d+)?)\s*kgs?\b/i);
+  if (withUnit) {
+    const kg = Number(withUnit[1]);
+    return Number.isFinite(kg) ? kg : null;
+  }
+  const bare = text.match(/^(\d+(?:\.\d+)?)\s*$/);
+  if (!bare) return null;
+  const kg = Number(bare[1]);
   return Number.isFinite(kg) ? kg : null;
 }
 
@@ -233,13 +240,26 @@ async function loadSerialAllotments(db) {
 
 function unusedGatcAllotmentKeys(allotments, filter, series) {
   if (!seriesHasAllotments(allotments, series)) return null;
-  return new Set(expandSerialAllotmentPool(allotments, filter, series).map(compactSerialKey));
+  const keys = expandSerialAllotmentPool(allotments, filter, series).map(compactSerialKey);
+  // Empty expand (ranges bound to other SKUs, or exhausted) must not hide IWP certificates.
+  if (!keys.length) return null;
+  return new Set(keys);
+}
+
+function certificateLinkedToInvoice(row, invoiceId, invoiceNumber) {
+  const iid = str(invoiceId);
+  const number = str(invoiceNumber);
+  if (iid && str(row?.invoiceId) === iid) return true;
+  if (number && str(row?.invoiceNumber) === number) return true;
+  return false;
 }
 
 export async function listUnlinkedIwpGatcCertificates(maxOrOpts = 2000) {
   const opts = maxOrOpts && typeof maxOrOpts === 'object' ? maxOrOpts : { max: maxOrOpts };
   const cap = Math.min(5000, Math.max(1, Number(opts.max) || 2000));
   const lineKg = opts.capacityKg == null ? null : Number(opts.capacityKg);
+  const invoiceId = str(opts.invoiceId);
+  const invoiceNumber = str(opts.invoiceNumber);
   const filter = {
     productId: str(opts.productId || opts.itemId),
     sku: str(opts.sku),
@@ -262,20 +282,21 @@ export async function listUnlinkedIwpGatcCertificates(maxOrOpts = 2000) {
     description: Number.isFinite(lineKg) ? `Stamping: ${lineKg}Kg` : '',
   };
   const dedicatedCert = rows.some(row => (
-    !isCertificateLinked(row)
+    (!isCertificateLinked(row) || certificateLinkedToInvoice(row, invoiceId, invoiceNumber))
     && !isVoidedCertificate(row)
     && certificateIsBound(row)
     && certificateMatchesLine(row, line)
   ));
   return rows
-    .filter(row => (
-      !isCertificateLinked(row)
-      && !isVoidedCertificate(row)
-      && Boolean(str(row.serialNumber))
-    ))
+    .filter(row => {
+      if (isVoidedCertificate(row) || !str(row.serialNumber)) return false;
+      if (certificateLinkedToInvoice(row, invoiceId, invoiceNumber)) return true;
+      return !isCertificateLinked(row);
+    })
     .filter(row => certificateAllowedForLine(row, line, dedicatedCert))
     .filter(row => {
       if (!allowedKeys) return true;
+      if (certificateLinkedToInvoice(row, invoiceId, invoiceNumber)) return true;
       return allowedKeys.has(compactSerialKey(row.serialNumber));
     })
     .map(row => publicCert(row.id, row))
@@ -443,6 +464,8 @@ export async function allotGatcStampedSerialsToInvoice({
     sku: str(line.sku),
     productName: str(line.name || line.productName),
     capacityKg: lineCapacityKg(line),
+    invoiceId,
+    invoiceNumber: str(data.invoiceNumber),
   });
   const allotments = await loadSerialAllotments(db);
   const series = gatcAllotmentSeriesForLine(line);
@@ -466,7 +489,8 @@ export async function allotGatcStampedSerialsToInvoice({
       throw new Error('Only original verification (OV) certificates can be linked.');
     }
     if (isVoidedCertificate(cert.data)) throw new Error('A selected certificate is voided.');
-    if (isCertificateLinked(cert.data)) {
+    if (isCertificateLinked(cert.data)
+      && !certificateLinkedToInvoice(cert.data, invoiceId, data.invoiceNumber)) {
       throw new Error(`${str(cert.data.serialNumber) || 'A certificate'} is already linked.`);
     }
     const serial = str(cert.data.serialNumber);
@@ -487,7 +511,11 @@ export async function allotGatcStampedSerialsToInvoice({
         `${serial} belongs to ${str(cert.data.sku || cert.data.productName) || 'another product'}, not this line.`,
       );
     }
-    if (allowedKeys && !allowedKeys.has(key)) {
+    if (
+      allowedKeys
+      && !allowedKeys.has(key)
+      && !certificateLinkedToInvoice(cert.data, invoiceId, data.invoiceNumber)
+    ) {
       throw new Error(
         isFiftyKg(lineCapacityKg(line))
           ? `${serial} is not an unused 50 kg GATC serial.`

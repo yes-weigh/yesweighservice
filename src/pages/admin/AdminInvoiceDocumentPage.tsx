@@ -681,6 +681,8 @@ export const AdminInvoiceDocumentPage: React.FC = () => {
           productId={gatcPicker.productId}
           sku={gatcPicker.sku}
           productName={gatcPicker.productName || gatcPicker.title}
+          invoiceId={invoiceId}
+          invoiceNumber={invoice.invoiceNumber}
           saving={allotBusy}
           error={gatcPickerError}
           onClose={() => {

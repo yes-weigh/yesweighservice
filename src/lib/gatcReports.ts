@@ -487,11 +487,18 @@ export async function backfillGatcReportsFromInvoices(options?: {
 const LIGHT_SHARE = { yesweigh: 100, contractor: 100 } as const;
 const HEAVY_SHARE = { yesweigh: 150, contractor: 200 } as const;
 
-/** First kg token from a range like "20Kg 2g" or "5Kg 500mg". */
+/** First kg token from a range like "20Kg 2g" or "5Kg 500mg". Bare "50" counts as 50 kg. */
 export function parseGatcStampingCapacityKg(range: string | null | undefined): number | null {
-  const match = String(range ?? '').match(/(\d+(?:\.\d+)?)\s*kgs?\b/i);
-  if (!match) return null;
-  const kg = Number(match[1]);
+  const text = String(range ?? '').trim();
+  if (!text) return null;
+  const withUnit = text.match(/(\d+(?:\.\d+)?)\s*kgs?\b/i);
+  if (withUnit) {
+    const kg = Number(withUnit[1]);
+    return Number.isFinite(kg) ? kg : null;
+  }
+  const bare = text.match(/^(\d+(?:\.\d+)?)\s*$/);
+  if (!bare) return null;
+  const kg = Number(bare[1]);
   return Number.isFinite(kg) ? kg : null;
 }
 
