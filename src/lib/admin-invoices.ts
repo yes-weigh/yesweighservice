@@ -2600,7 +2600,7 @@ export async function fetchAdminInvoiceDetail(
       if (healed.healed && healed.lineItems.length) {
         detail = {
           ...detail,
-          lineItems: healed.lineItems.map(item => mapAdminInvoiceLineItem(item as Record<string, unknown>)),
+          lineItems: healed.lineItems,
         };
       }
     } catch {
