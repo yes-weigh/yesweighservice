@@ -1,11 +1,11 @@
 # Build YesWeigh Service debug APK (Capacitor thin shell)
-# Uses the same Android SDK as D:\census and Microsoft JDK 21.
+# Android SDK lives on D: (dev disk): D:\tools\android-sdk
 
 $ErrorActionPreference = 'Stop'
 $Root = Split-Path -Parent $MyInvocation.MyCommand.Path
 Set-Location $Root
 
-$sdk = 'D:\census\tools\android-sdk'
+$sdk = 'D:\tools\android-sdk'
 $jdk = (Get-ChildItem 'C:\Program Files\Microsoft\jdk-21*' -Directory | Select-Object -First 1).FullName
 if (-not $jdk) { throw 'Microsoft JDK 21 not found. Install with: winget install Microsoft.OpenJDK.21' }
 if (-not (Test-Path $sdk)) { throw "Android SDK not found at $sdk" }

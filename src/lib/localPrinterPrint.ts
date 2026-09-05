@@ -38,7 +38,7 @@ export async function probePrinter(options: {
     await TcpPrint.probe({
       host: options.host,
       port: options.port,
-      timeoutMs: options.timeoutMs ?? 2000,
+      timeoutMs: options.timeoutMs ?? 4000,
     });
     return true;
   } catch {
@@ -80,12 +80,11 @@ export async function pickReachablePrinter(options: {
     return { host: ordered[0]!, port: options.port };
   }
 
-  const errors: string[] = [];
   for (const host of ordered) {
     const ok = await probePrinter({
       host,
       port: options.port,
-      timeoutMs: options.probeTimeoutMs ?? 2000,
+      timeoutMs: options.probeTimeoutMs ?? 4000,
     });
     if (ok) {
       if (options.lastHostKey && typeof localStorage !== 'undefined') {
@@ -97,13 +96,11 @@ export async function pickReachablePrinter(options: {
       }
       return { host, port: options.port };
     }
-    errors.push(host);
   }
 
-  throw new Error(
-    `No logistics printer reachable. Tried: ${errors.join(', ')}. `
-    + 'Check Wi‑Fi and Admin → Settings → Label printing IPs.',
-  );
+  // Empty TCP probe can fail while a real TSPL job still prints (or Wi‑Fi
+  // bind was missing). Attempt the first configured IP instead of aborting.
+  return { host: ordered[0]!, port: options.port };
 }
 
 export function logisticsLastHostStorageKey(): string {
