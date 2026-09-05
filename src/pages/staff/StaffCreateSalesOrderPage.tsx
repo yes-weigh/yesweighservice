@@ -39,6 +39,7 @@ import { loadLogisticsCourierRates } from '../../lib/logisticsCourierRates';
 import { loadLogisticsSettings } from '../../lib/logisticsSettings';
 import {
   applyCourierSelectionForSite,
+  cartLinesAreSpareOnly,
   cartLinesForFreightEstimate,
   estimateAllSitesPickup,
   estimateStCourierCartFreight,
@@ -533,21 +534,15 @@ export const StaffCreateSalesOrderPage: React.FC = () => {
     if (!freightAllowed || !courierRates || !deliveryRules || !partnerStatuses || lines.length === 0) {
       return null;
     }
-    if (!shippingDestination || !inferredFreightZone) return null;
-    const cartHasSpare = lines.some(line => {
-      const catalog = catalogById[line.productId];
-      return classifyOrderLineSegment({
-        productId: line.productId,
-        sku: line.sku,
-        categoryId: catalog?.categoryId ?? null,
-        categoryName: catalog?.categoryName ?? null,
-      }) === 'spare';
-    });
+    const freightCartLines = cartLinesForFreightEstimate(lines, catalogById);
+    const spareOnlyCart = cartLinesAreSpareOnly(freightCartLines);
+    if (!spareOnlyCart && (!shippingDestination || !inferredFreightZone)) return null;
+    const cartHasSpare = freightCartLines.some(line => classifyOrderLineSegment(line) === 'spare');
     const sparePackaging = cartHasSpare
       ? spareFreightPackagingsFromDrafts(sparePackagingDrafts)
       : null;
     return estimateStCourierCartFreight({
-      lines: cartLinesForFreightEstimate(lines, catalogById),
+      lines: freightCartLines,
       destination: shippingDestination,
       rates: courierRates,
       deliveryRules,
@@ -707,6 +702,19 @@ export const StaffCreateSalesOrderPage: React.FC = () => {
     }),
     [lines, catalogById],
   );
+
+  const spareOnlyCart = useMemo(
+    () => cartLinesAreSpareOnly(cartLinesForFreightEstimate(lines, catalogById)),
+    [lines, catalogById],
+  );
+
+  useEffect(() => {
+    if (!spareOnlyCart) return;
+    setCourierBySite((prev) => {
+      if (!Object.values(prev).some(id => isPickupPartner(id))) return prev;
+      return {};
+    });
+  }, [spareOnlyCart]);
 
   const shopProducts = useMemo(() => {
     const visible = excludeHiddenCatalogProducts(catalogProducts, catalogCategories);
@@ -1228,7 +1236,9 @@ export const StaffCreateSalesOrderPage: React.FC = () => {
         stage,
         remarks: cartRemarks.trim(),
         courierBySite: resolveSubmitCourierBySite(freightEstimate, courierBySite),
-        ...(inferredFreightZone ? { freightZone: inferredFreightZone } : {}),
+        ...(inferredFreightZone
+          ? { freightZone: inferredFreightZone }
+          : (spareOnlyCart ? { freightZone: 'other_states' as const } : {})),
         ...((
           (selectedFreightUsesManualRate
             && manualFreightAmount != null
@@ -1855,7 +1865,9 @@ export const StaffCreateSalesOrderPage: React.FC = () => {
                   <p className="text-muted text-sm">
                     {shipping
                       ? 'Freight will calculate once items and destination rates are available.'
-                      : 'Select a shipping address to see freight and courier options.'}
+                      : (spareOnlyCart
+                        ? 'ST Courier freight is available for spare orders without a shipping address (Other states plan until address is set).'
+                        : 'Select a shipping address to see freight and courier options.')}
                   </p>
                 </>
               )}

@@ -69,6 +69,7 @@ import { loadLogisticsSettings } from '../../lib/logisticsSettings';
 import type { InventorySite } from '../../lib/salesOrderSegments';
 import {
   applyCourierSelectionForSite,
+  cartLinesAreSpareOnly,
   cartLinesForFreightEstimate,
   estimateStCourierCartFreight,
   resolveSubmitCourierBySite,
@@ -218,9 +219,11 @@ const DealerCartPage: React.FC = () => {
 
   const freightEstimateBase = useMemo((): StCourierCartFreightEstimate | null => {
     if (!courierRates || !deliveryRules || !partnerStatuses || checkoutItems.length === 0) return null;
-    if (!shippingDestination || !inferredFreightZone) return null;
+    const freightCartLines = cartLinesForFreightEstimate(checkoutItems, catalogById);
+    const spareOnlyCart = cartLinesAreSpareOnly(freightCartLines);
+    if (!spareOnlyCart && (!shippingDestination || !inferredFreightZone)) return null;
     return estimateStCourierCartFreight({
-      lines: cartLinesForFreightEstimate(checkoutItems, catalogById),
+      lines: freightCartLines,
       destination: shippingDestination,
       rates: courierRates,
       deliveryRules,
@@ -940,12 +943,8 @@ const DealerCartPage: React.FC = () => {
                 canEditPackage={false}
                 showFreightChargePlan={false}
                 clubSites
-                hideFreightAmounts={cartIsSpareOnly}
-                deferFreightMessage={
-                  cartIsSpareOnly
-                    ? 'Freight will be updated later by our team after packing (LBH / weight).'
-                    : null
-                }
+                hideFreightAmounts={false}
+                deferFreightMessage={null}
                 catalogById={catalogById}
                 destinationLabel={[
                   shippingDestination?.city,
@@ -953,7 +952,7 @@ const DealerCartPage: React.FC = () => {
                 ].filter(Boolean).join(', ') || null}
                 footerNote={
                   cartIsSpareOnly
-                    ? 'Choose a logistics partner (or Customer Pickup). No freight amount is charged on this order yet.'
+                    ? 'ST Courier is always available for spare orders. Freight uses the ST rate card (Other states plan until a shipping address is set).'
                     : 'Estimated freight for this order. Delhivery BTC uses a live API quote; FOD keeps the Delhivery line at ₹0 (consignee pays).'
                 }
                 freightBillingMode={freightBillingMode}
@@ -982,7 +981,7 @@ const DealerCartPage: React.FC = () => {
                 />
               ) : null}
             </>
-          ) : !shipping && !addressesLoading ? (
+          ) : !shipping && !addressesLoading && !cartIsSpareOnly ? (
             <p className="orders-page__freight-note text-muted text-sm">
               Select a shipping address to see freight and courier options.
             </p>

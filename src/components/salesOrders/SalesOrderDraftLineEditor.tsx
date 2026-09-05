@@ -32,6 +32,7 @@ import {
 import type { InventorySite } from '../../lib/salesOrderSegments';
 import {
   applyCourierSelectionForSite,
+  cartLinesAreSpareOnly,
   cartLinesForFreightEstimate,
   estimateStCourierCartFreight,
   type StCourierCartFreightEstimate,
@@ -294,9 +295,11 @@ export const SalesOrderDraftLineEditor: React.FC<SalesOrderDraftLineEditorProps>
     if (!allowFreight || !courierRates || !deliveryRules || !partnerStatuses || productLines.length === 0) {
       return null;
     }
-    if (!shippingDestination || !inferredFreightZone) return null;
+    const freightCartLines = cartLinesForFreightEstimate(productLines, catalogById);
+    const spareOnlyCart = cartLinesAreSpareOnly(freightCartLines);
+    if (!spareOnlyCart && (!shippingDestination || !inferredFreightZone)) return null;
     return estimateStCourierCartFreight({
-      lines: cartLinesForFreightEstimate(productLines, catalogById),
+      lines: freightCartLines,
       destination: shippingDestination,
       rates: courierRates,
       deliveryRules,

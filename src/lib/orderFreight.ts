@@ -185,9 +185,13 @@ export function orderCourierOptionKey(opt: Pick<OrderCourierOption, 'partnerId' 
   return String(opt.partnerId);
 }
 
+const ST_COURIER_PARTNER_ID: LogisticsPartnerId = 'st_courier';
+
 /**
  * Partners for a ship-from site: delivery-rule list for destination, plus Customer Pickup always.
+ * Spare carts always include ST Courier (address / delivery-rule independent).
  * Default = first enabled preferred partner (rule order), else pickup.
+ * Spare-only default = ST Courier.
  */
 export function listOrderCourierOptions(input: {
   deliveryRules: LogisticsDeliveryRulesMatrix;
@@ -196,6 +200,8 @@ export function listOrderCourierOptions(input: {
   rates: LogisticsCourierRates;
   /** When true, spare-only site can use rate-card partners even if zone ₹/kg is 0. */
   spareOnly?: boolean;
+  /** Spare on this site: always list ST Courier even if rules / inactive / no zone. */
+  alwaysOfferStCourier?: boolean;
   /**
    * Active / Inactive / Manual map from logistics settings.
    * Inactive partners are omitted from SO options (still allowed in rules).
@@ -210,16 +216,34 @@ export function listOrderCourierOptions(input: {
   const fromRules = zone
     ? resolveDeliveryPartnersForRoute(input.deliveryRules, region, input.site)
     : [];
+  const offerStAlways = Boolean(input.spareOnly || input.alwaysOfferStCourier);
 
   const ordered: LogisticsPartnerId[] = [];
   const seen = new Set<LogisticsPartnerId>();
   for (const id of fromRules) {
     if (!isLogisticsPartnerId(id) || seen.has(id)) continue;
-    if (!isPickupPartner(id) && !partnerStatusSelectableOnSalesOrder(statuses[id])) {
+    if (
+      !isPickupPartner(id)
+      && id !== ST_COURIER_PARTNER_ID
+      && !partnerStatusSelectableOnSalesOrder(statuses[id])
+    ) {
+      continue;
+    }
+    if (
+      id === ST_COURIER_PARTNER_ID
+      && !offerStAlways
+      && !partnerStatusSelectableOnSalesOrder(statuses[id])
+    ) {
       continue;
     }
     seen.add(id);
     ordered.push(id);
+  }
+  if (offerStAlways) {
+    if (!seen.has(ST_COURIER_PARTNER_ID)) seen.add(ST_COURIER_PARTNER_ID);
+    const rest = ordered.filter(id => id !== ST_COURIER_PARTNER_ID);
+    ordered.length = 0;
+    ordered.push(ST_COURIER_PARTNER_ID, ...rest);
   }
   if (!seen.has(PICKUP_PARTNER_ID)) {
     ordered.push(PICKUP_PARTNER_ID);
@@ -252,7 +276,8 @@ export function listOrderCourierOptions(input: {
       ? partnerHasZoneRate(input.rates, partnerId, input.site, zone)
       : false;
     const liveApi = partnerUsesLiveApiFreight(partnerId);
-    if (hasRate || input.spareOnly || (allowManual && Boolean(zone)) || (liveApi && Boolean(zone))) {
+    const offerSt = partnerId === ST_COURIER_PARTNER_ID && offerStAlways;
+    if (hasRate || input.spareOnly || offerSt || (allowManual && Boolean(zone)) || (liveApi && Boolean(zone))) {
       options.push({
         partnerId,
         label: logisticsPartnerLabel(partnerId),
@@ -267,12 +292,14 @@ export function listOrderCourierOptions(input: {
     }
   }
 
-  // Preferred = first rule partner that is still offered (active/manual).
-  const preferredId = fromRules.find(id => (
-    isLogisticsPartnerId(id)
-    && (isPickupPartner(id) || partnerStatusSelectableOnSalesOrder(statuses[id]))
-    && options.some(o => o.partnerId === id)
-  )) ?? PICKUP_PARTNER_ID;
+  // Spare-only: ST Courier. Else first rule partner that is still offered.
+  const preferredId = input.spareOnly && options.some(o => o.partnerId === ST_COURIER_PARTNER_ID)
+    ? ST_COURIER_PARTNER_ID
+    : (fromRules.find(id => (
+      isLogisticsPartnerId(id)
+      && (isPickupPartner(id) || partnerStatusSelectableOnSalesOrder(statuses[id]))
+      && options.some(o => o.partnerId === id)
+    )) ?? PICKUP_PARTNER_ID);
   for (const opt of options) {
     opt.preferred = opt.partnerId === preferredId;
   }

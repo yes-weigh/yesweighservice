@@ -477,8 +477,10 @@ export function estimateStCourierCartFreight(input: {
   /** Staff SO freight: do not fall back to 1 kg flat for spares. */
   requireSparePackaging?: boolean;
 }): StCourierCartFreightEstimate | null {
-  const inferredZone = inferStCourierZone(input.destination);
-  if (!inferredZone) return null;
+  const spareOnlyCart = cartLinesAreSpareOnly(input.lines);
+  const inferredFromAddress = inferStCourierZone(input.destination);
+  if (!inferredFromAddress && !spareOnlyCart) return null;
+  const inferredZone = inferredFromAddress ?? 'other_states';
   const zone = input.zoneOverride && isStCourierZone(input.zoneOverride)
     ? input.zoneOverride
     : inferredZone;
@@ -549,12 +551,14 @@ export function estimateStCourierCartFreight(input: {
     const hasSpare = acc.spareLines.length > 0;
     if (!hasProduct && !hasSpare) continue;
 
+    const spareOnly = hasSpare && !hasProduct;
     const { options, defaultPartnerId } = listOrderCourierOptions({
       deliveryRules: input.deliveryRules,
       site,
       destination: input.destination,
       rates: input.rates,
-      spareOnly: hasSpare && !hasProduct,
+      spareOnly,
+      alwaysOfferStCourier: hasSpare,
       partnerStatuses: input.partnerStatuses,
     });
 
@@ -641,7 +645,7 @@ export function estimateStCourierCartFreight(input: {
 
     const optionsWithTotals: OrderCourierOption[] = [];
     for (const opt of options) {
-      if (opt.partnerId === 'st_courier' && stBlockedForTamilNadu) {
+      if (opt.partnerId === 'st_courier' && stBlockedForTamilNadu && hasProduct) {
         continue;
       }
 
@@ -1077,6 +1081,18 @@ export function estimateStCourierCartFreight(input: {
     usable: sites.length > 0,
     warnings,
   };
+}
+
+/** True when freightable lines are only spares (no products). */
+export function cartLinesAreSpareOnly(lines: StCourierCartLine[]): boolean {
+  let spare = false;
+  let product = false;
+  for (const line of lines) {
+    const segment = classifyOrderLineSegment(line);
+    if (segment === 'spare') spare = true;
+    else if (segment === 'product') product = true;
+  }
+  return spare && !product;
 }
 
 /** Build cart freight lines from cart items + catalog package snapshots. */
