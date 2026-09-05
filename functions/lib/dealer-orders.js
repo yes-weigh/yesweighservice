@@ -372,10 +372,12 @@ async function buildLinesFromInput(rawLines, {
         levelName = priced.levelName;
       }
     }
-    // Catalog-equal client rates mean "default" (staff UI always sends a rate).
-    // Only a rate ≠ list is treated as an intentional override so levels can apply.
+    // Catalog-equal client rates mean "default" (staff UI always sends a rate,
+    // including catalog + GATC fee). Only a rate ≠ list and ≠ list+fee is an override.
+    const combinedCatalog = Math.round((catalogBase + gatc.gatcFeePerUnit) * 100) / 100;
     const overrideDiffersFromCatalog = entry.baseOverride != null
-      && Math.round(entry.baseOverride * 100) !== Math.round(catalogBase * 100);
+      && Math.round(entry.baseOverride * 100) !== Math.round(catalogBase * 100)
+      && Math.round(entry.baseOverride * 100) !== Math.round(combinedCatalog * 100);
     const baseRate = overrideDiffersFromCatalog
       ? entry.baseOverride
       : (levelBase != null ? levelBase : catalogBase);
@@ -579,14 +581,15 @@ async function createSegmentSalesOrders({
             : segment === 'spare'
               ? (
                 'Zoho Inventory refused this spare sales order (not authorized). This is not your YesOne login. '
-                + 'YesOne already retried without warehouse, salesperson, and shipping address. '
+                + 'YesOne already retried without salesperson and shipping address. Stocked items still use a warehouse. '
                 + 'In Zoho, confirm the spare SKUs and courier freight item are active and for sale, '
                 + 'salesperson Shibin is active, and the dealer is an active customer. '
                 + (zohoMessage ? `Zoho: ${zohoMessage}` : '')
               )
             : (
               'Zoho Inventory refused this sales order (not authorized). This is not your YesOne login. '
-              + 'YesOne already retried without warehouse, salesperson, and shipping address. '
+              + 'YesOne already retried without salesperson and shipping address. '
+              + 'Stocked items still use a warehouse. '
               + 'In Zoho, confirm the customer is active, the product is active and available for sale, '
               + 'and the connected Zoho user can create sales orders. '
               + (zohoMessage ? `Zoho: ${zohoMessage}` : '')

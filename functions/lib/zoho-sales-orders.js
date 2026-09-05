@@ -33,7 +33,7 @@ function isZohoNotAuthorized(err) {
   return /not authorized to perform this operation/i.test(String(err?.message ?? ''));
 }
 
-/** Goods that Zoho can stock at a warehouse. Freight/SAC/GATC-fee/empty-warehouse lines must not send warehouse_id. */
+/** Goods that Zoho can stock at a warehouse. Freight/SAC/GATC-fee lines must not send warehouse_id. */
 export function lineAllowsWarehouse(line) {
   if (isFreightOrderLine(line)) return false;
   if (isGatcFeeOrderLine(line)) return false;
@@ -47,7 +47,6 @@ export function lineAllowsWarehouse(line) {
   ) {
     return false;
   }
-  if (warehouses && warehouses.length === 0) return false;
   return true;
 }
 
@@ -56,7 +55,11 @@ function warehouseIdForLine(line, fallbackWarehouseId) {
   const fallback = fallbackWarehouseId != null && String(fallbackWarehouseId).trim()
     ? String(fallbackWarehouseId).trim()
     : null;
-  // Use the live site warehouse even when catalog warehouse ids are stale.
+  const ids = (Array.isArray(line?.warehouses) ? line.warehouses : [])
+    .map(row => String(row?.warehouseId ?? row?.warehouse_id ?? '').trim())
+    .filter(Boolean);
+  if (fallback && (ids.length === 0 || ids.includes(fallback))) return fallback;
+  if (ids.length) return ids[0];
   return fallback;
 }
 
@@ -93,12 +96,6 @@ function cloneSalesOrderBody(body) {
   };
 }
 
-function withoutLineWarehouses(body) {
-  const next = cloneSalesOrderBody(body);
-  next.line_items = next.line_items.map(({ warehouse_id: _id, ...line }) => line);
-  return next;
-}
-
 function withoutSalesperson(body) {
   const next = cloneSalesOrderBody(body);
   delete next.salesperson_id;
@@ -111,7 +108,14 @@ function salesOrderAttemptKey(body) {
     shippingId: body.shipping_address_id || null,
     shippingInline: Boolean(body.shipping_address),
     warehouses: (body.line_items || []).map(line => line.warehouse_id || null),
+    descriptions: (body.line_items || []).map(line => String(line.description || '')),
   });
+}
+
+function withoutLineDescriptions(body) {
+  const next = cloneSalesOrderBody(body);
+  next.line_items = next.line_items.map(({ description: _description, ...line }) => line);
+  return next;
 }
 
 function uniqueSalesOrderCreateAttempts(body) {
@@ -124,27 +128,26 @@ function uniqueSalesOrderCreateAttempts(body) {
     attempts.push(next);
   };
 
-  const hasWarehouse = (body.line_items || []).some(line => line.warehouse_id);
   const hasSalesperson = Boolean(body.salesperson_id);
   const hasShipping = Boolean(body.shipping_address_id || body.shipping_address);
+  const hasDescription = (body.line_items || []).some(line => String(line.description || '').trim());
 
-  // Keep warehouse on inventory goods. Shipping can be applied after create;
-  // the old last attempt stripped warehouse + salesperson + shipping together,
-  // so a bad shipping_address_id still failed when Zoho required a warehouse.
+  // Keep warehouse_id on inventory goods. Multi-warehouse Zoho returns
+  // "not authorized" if stocked items are posted without a warehouse — so
+  // never strip warehouses on retry (shipping/salesperson are optional).
   push(cloneSalesOrderBody(body));
   if (hasShipping) push(stripShippingFromBody(body));
   if (hasSalesperson) {
     push(withoutSalesperson(body));
     if (hasShipping) push(stripShippingFromBody(withoutSalesperson(body)));
   }
-  if (hasWarehouse) {
-    push(withoutLineWarehouses(body));
-    if (hasShipping) push(stripShippingFromBody(withoutLineWarehouses(body)));
+  if (hasDescription) {
+    const noDesc = withoutLineDescriptions(body);
+    push(noDesc);
+    if (hasShipping) push(stripShippingFromBody(noDesc));
     if (hasSalesperson) {
-      push(withoutSalesperson(withoutLineWarehouses(body)));
-      if (hasShipping) {
-        push(stripShippingFromBody(withoutSalesperson(withoutLineWarehouses(body))));
-      }
+      push(withoutSalesperson(noDesc));
+      if (hasShipping) push(stripShippingFromBody(withoutSalesperson(noDesc)));
     }
   }
   return attempts;
