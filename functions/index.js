@@ -347,6 +347,7 @@ import {
 } from './lib/yesgatc-serial-push.js';
 import {
   applyNonGatcSerialAllotmentOnInvoice,
+  healInvoiceSerialsOnDocument,
   listAvailableNonGatcSerials,
   unlinkNonGatcSerialsFromInvoice,
 } from './lib/non-gatc-serial-allot.js';
@@ -7517,6 +7518,28 @@ export const listAvailableNonGatcSerialsFn = onCall(
     } catch (err) {
       if (err instanceof HttpsError) throw err;
       throw new HttpsError('internal', err?.message ?? 'Could not load available serials.');
+    }
+  },
+);
+
+export const healInvoiceSerialsFn = onCall(
+  {
+    region: 'asia-south1',
+    timeoutSeconds: 60,
+    memory: '256MiB',
+  },
+  async request => {
+    await requireActiveUser(request.auth?.uid, NON_GATC_SERIAL_ROLES);
+    try {
+      const customerId = String(request.data?.customerId ?? '').trim();
+      const invoiceId = String(request.data?.invoiceId ?? '').trim();
+      if (!customerId || !invoiceId) {
+        throw new HttpsError('invalid-argument', 'Invoice is required.');
+      }
+      return await healInvoiceSerialsOnDocument({ customerId, invoiceId });
+    } catch (err) {
+      if (err instanceof HttpsError) throw err;
+      throw new HttpsError('failed-precondition', err?.message ?? 'Could not restore invoice serials.');
     }
   },
 );

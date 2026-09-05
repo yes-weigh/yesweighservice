@@ -759,9 +759,17 @@ export async function upsertInvoiceFromRaw(accessToken, orgId, invoiceRaw, optio
         doc.balance = 0;
       }
     }
-    if (Array.isArray(doc.lineItems) && Array.isArray(existing.lineItems)) {
-      const { mergePreservedLineSerials } = await import('./non-gatc-serial-allot.js');
-      doc.lineItems = mergePreservedLineSerials(doc.lineItems, existing.lineItems);
+    if (Array.isArray(doc.lineItems)) {
+      const { reattachPreservedSerialsToLines } = await import('./non-gatc-serial-allot.js');
+      doc.lineItems = await reattachPreservedSerialsToLines({
+        lines: doc.lineItems,
+        previousLines: existing.lineItems,
+        invoiceId,
+        invoiceNumber: doc.invoiceNumber || existing.invoiceNumber,
+        nonGatcAllocatedSerials: existing.nonGatcAllocatedSerials,
+        gatcStampedAllocatedSerials: existing.gatcStampedAllocatedSerials,
+        yesgatcLinks: existing.yesgatcLinks,
+      });
     }
     if (Array.isArray(existing.nonGatcAllocatedSerials) && existing.nonGatcAllocatedSerials.length) {
       doc.nonGatcAllocatedSerials = existing.nonGatcAllocatedSerials;

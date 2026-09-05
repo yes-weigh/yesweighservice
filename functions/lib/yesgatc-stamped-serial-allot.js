@@ -297,6 +297,18 @@ async function loadCertificatesById(db, ids) {
   return out;
 }
 
+export async function gatcSerialsLinkedToInvoice(db, { invoiceId, invoiceNumber }) {
+  const linked = await findCertificatesForInvoice(db, { invoiceId, invoiceNumber });
+  return linked
+    .map(cert => ({
+      serial: str(cert.data?.serialNumber),
+      itemId: str(cert.data?.productId || cert.data?.itemId),
+      sku: str(cert.data?.sku),
+      kind: 'gatc',
+    }))
+    .filter(row => row.serial);
+}
+
 async function findCertificatesForInvoice(db, { invoiceId, invoiceNumber }) {
   const seen = new Map();
   const queries = [];
@@ -392,7 +404,9 @@ export async function allotGatcStampedSerialsToInvoice({
   const invoiceRef = db.doc(`zohoCustomers/${customerId}/invoices/${invoiceId}`);
   const snap = await invoiceRef.get();
   if (!snap.exists) throw new Error('Invoice not found.');
-  const data = { id: invoiceId, customerId, ...snap.data() };
+  const { healInvoiceSerialsOnDocument } = await import('./non-gatc-serial-allot.js');
+  const healed = await healInvoiceSerialsOnDocument({ customerId, invoiceId });
+  const data = { id: invoiceId, customerId, ...snap.data(), lineItems: healed.lineItems };
   assertCanMutateSerialsAfterDelivery(data, allowWhenDelivered);
   if (isVoidInvoiceStatus(data.status)) {
     throw new Error('Cannot allot GATC serials on a void invoice.');

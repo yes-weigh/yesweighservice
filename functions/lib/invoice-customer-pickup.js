@@ -83,11 +83,10 @@ export async function markInvoiceCustomerPickup(secrets, orgId, input) {
   }
   const invoice = snap.data() ?? {};
   const { enrichInvoiceLinesCatalogCategory } = await import('./mandatory-serials.js');
-  const { isNonGatcSerialEligibleLine } = await import('./non-gatc-serial-allot.js');
+  const { healInvoiceSerialsOnDocument, isNonGatcSerialEligibleLine } = await import('./non-gatc-serial-allot.js');
   const { isGatcStampedSerialEligibleLine } = await import('./yesgatc-stamped-serial-allot.js');
-  const lines = await enrichInvoiceLinesCatalogCategory(
-    Array.isArray(invoice.lineItems) ? invoice.lineItems : [],
-  );
+  const healed = await healInvoiceSerialsOnDocument({ customerId, invoiceId });
+  const lines = await enrichInvoiceLinesCatalogCategory(healed.lineItems);
   const missingSerials = lines.some(line => {
     const need = Math.max(0, Math.round(Number(line.quantity) || 0));
     if (!need) return false;

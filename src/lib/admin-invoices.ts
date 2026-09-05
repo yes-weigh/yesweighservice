@@ -27,6 +27,8 @@ import {
   type GatcReportDoc,
 } from './gatcReports';
 import { enrichInvoiceDetailImages } from './invoiceLineItemImages';
+import { invoiceNeedsMandatorySerials } from './invoiceSerialGate';
+import { healInvoiceSerials } from './invoiceSerialHeal';
 import { mapInvoiceLocalFreightPartner } from './invoiceLocalFreight';
 import {
   getInvoicePeriodBounds,
@@ -42,6 +44,7 @@ import {
   firstDateTimeValue,
   invoiceDateTimeSortMs,
   freightSkuFromInvoiceLines,
+  serialNumbersFromLineItem,
 } from './invoices';
 import {
   appendSalespersonIdConstraint,
@@ -2428,26 +2431,19 @@ export async function fetchAdminCustomerLocations(
 }
 
 function mapAdminInvoiceSerialNumbers(raw: Record<string, unknown>): string[] {
-  if (Array.isArray(raw.serialNumbers) && raw.serialNumbers.length) {
-    return [...new Set(
-      raw.serialNumbers.map(value => String(value).trim()).filter(Boolean),
-    )];
-  }
   const serials: string[] = [];
-  for (const candidate of [raw.serial_numbers, raw.item_serial_numbers, raw.itemSerialNumbers]) {
-    if (!Array.isArray(candidate)) continue;
-    for (const entry of candidate) {
-      if (typeof entry === 'string' && entry.trim()) {
-        serials.push(entry.trim());
-        continue;
-      }
-      if (!entry || typeof entry !== 'object') continue;
-      const row = entry as Record<string, unknown>;
-      const value = row.serial_number ?? row.serialnumber ?? row.serialNumber;
-      if (value) serials.push(String(value).trim());
+  if (Array.isArray(raw.serialNumbers)) {
+    for (const value of raw.serialNumbers) {
+      if (typeof value === 'string' && value.trim()) serials.push(value.trim());
     }
   }
-  return [...new Set(serials.filter(Boolean))];
+  return [...new Set([
+    ...serials,
+    ...serialNumbersFromLineItem({
+      description: raw.description ? String(raw.description) : null,
+      serialNumbers: serials,
+    }),
+  ])];
 }
 
 function mapAdminInvoiceLineItem(raw: Record<string, unknown>): DealerInvoiceLineItem {
@@ -2463,6 +2459,13 @@ function mapAdminInvoiceLineItem(raw: Record<string, unknown>): DealerInvoiceLin
     total: Number(raw.total ?? 0),
     imageUrl: raw.imageUrl ? String(raw.imageUrl) : null,
     hsn: raw.hsn != null && String(raw.hsn).trim() ? String(raw.hsn) : null,
+    ...(raw.categoryId != null && String(raw.categoryId).trim()
+      ? { categoryId: String(raw.categoryId) }
+      : {}),
+    ...(raw.categoryName != null && String(raw.categoryName).trim()
+      ? { categoryName: String(raw.categoryName) }
+      : {}),
+    ...(raw.isWeighingScale === true ? { isWeighingScale: true } : {}),
     ...(serialNumbers.length ? { serialNumbers } : {}),
   };
 }
@@ -2590,7 +2593,20 @@ export async function fetchAdminInvoiceDetail(
     throw new Error('Invoice not found.');
   }
   const data = snap.data();
-  const detail = mapAdminInvoiceDetail(invoiceId, data);
+  let detail = mapAdminInvoiceDetail(invoiceId, data);
+  if (invoiceNeedsMandatorySerials(detail.lineItems)) {
+    try {
+      const healed = await healInvoiceSerials({ customerId, invoiceId });
+      if (healed.healed && healed.lineItems.length) {
+        detail = {
+          ...detail,
+          lineItems: healed.lineItems.map(item => mapAdminInvoiceLineItem(item as Record<string, unknown>)),
+        };
+      }
+    } catch {
+      // Keep the Firestore snapshot if restore is unavailable.
+    }
+  }
   const preferredAddress = String(
     data.shippingAddress || data.billingAddress || '',
   ).trim() || null;

@@ -1292,23 +1292,43 @@ export function normalizeInvoiceSearchNeedle(text: string): string {
   return text.trim().toLowerCase();
 }
 
+const JUNK_SERIAL_KEYS = new Set(['NUMBERS', 'NUMBER', 'SERIAL', 'SERIALS', 'MAC', 'SN', 'S']);
+
+function isPlausibleInvoiceSerial(value: string | null | undefined): boolean {
+  const text = String(value ?? '').trim();
+  if (!text) return false;
+  const key = text.toUpperCase().replace(/[^A-Z0-9]/g, '');
+  return Boolean(key && key.length >= 3 && !JUNK_SERIAL_KEYS.has(key));
+}
+
+function serialsFromLineDescription(description: string | null | undefined): string[] {
+  const text = String(description ?? '');
+  if (!text.trim()) return [];
+  const serials: string[] = [];
+  const block = /\bserial\s*numbers?\s*:\s*([^\n]+)/i.exec(text);
+  if (block?.[1]) {
+    for (const part of block[1].split(/[,;]+/)) {
+      const token = part.trim();
+      if (isPlausibleInvoiceSerial(token)) serials.push(token);
+    }
+  }
+  const pattern = /\b(?:s\/n|sn|mac(?:\s*id)?)\s*[:#-]\s*([A-Za-z0-9][A-Za-z0-9._/-]{2,})/gi;
+  let match = pattern.exec(text);
+  while (match) {
+    if (isPlausibleInvoiceSerial(match[1])) serials.push(match[1].trim());
+    match = pattern.exec(text);
+  }
+  return [...new Set(serials)];
+}
+
 /** Serial / MAC values from stored line serials or description text. */
 export function serialNumbersFromLineItem(
   item: Pick<DealerInvoiceLineItem, 'description' | 'serialNumbers'>,
 ): string[] {
-  if (item.serialNumbers?.length) {
-    return item.serialNumbers.map(value => value.trim()).filter(Boolean);
-  }
-  if (!item.description) return [];
-
-  const pattern = /\b(?:serial(?:\s*number)?|s\/n|sn|mac(?:\s*id)?)\s*[:#-]?\s*([A-Za-z0-9][A-Za-z0-9._/-]{2,})/gi;
-  const serials: string[] = [];
-  let match = pattern.exec(item.description);
-  while (match) {
-    if (match[1]) serials.push(match[1].trim());
-    match = pattern.exec(item.description);
-  }
-  return [...new Set(serials)];
+  const listed = (item.serialNumbers ?? [])
+    .map(value => value.trim())
+    .filter(isPlausibleInvoiceSerial);
+  return [...new Set([...listed, ...serialsFromLineDescription(item.description)])];
 }
 
 export function lineItemMatchesSerialQuery(

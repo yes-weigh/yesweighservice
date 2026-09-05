@@ -13,6 +13,9 @@ import {
   ZOHO_API_BASE,
 } from './zoho.js';
 import {
+  serialsFromLineDescription,
+} from './invoice-mappers.js';
+import {
   assertCanMutateSerialsAfterDelivery,
   isMandatorySerialExemptLine,
   lineIsMandatorySerialCategory,
@@ -132,24 +135,176 @@ function uniqueSerials(values) {
     const text = str(value);
     const key = compactSerialKey(text);
     if (!text || !key || seen.has(key)) continue;
+    if (key.length < 3 || key === 'NUMBERS' || key === 'NUMBER' || key === 'SERIALS') continue;
     seen.add(key);
     out.push(text);
   }
   return out;
 }
 
+function serialsOnLine(line) {
+  return uniqueSerials([
+    ...(Array.isArray(line?.serialNumbers) ? line.serialNumbers : []),
+    ...serialsFromLineDescription(line?.description),
+  ]);
+}
+
+function lineSerialNeed(line) {
+  const qty = Math.max(0, Math.round(Number(line?.quantity) || 0));
+  return Math.max(0, qty - serialsOnLine(line).length);
+}
+
 export function mergePreservedLineSerials(nextLines, existingLines) {
-  const prevById = new Map(
-    (Array.isArray(existingLines) ? existingLines : [])
-      .map(line => [str(line?.id), line]),
-  );
+  const prevList = Array.isArray(existingLines) ? existingLines : [];
+  const prevById = new Map(prevList.map(line => [str(line?.id), line]));
+  const prevByItem = new Map();
+  for (const line of prevList) {
+    const itemId = str(line?.itemId);
+    if (!itemId) continue;
+    const bucket = prevByItem.get(itemId) || [];
+    bucket.push(line);
+    prevByItem.set(itemId, bucket);
+  }
+  const usedPrev = new Set();
   return (Array.isArray(nextLines) ? nextLines : []).map(line => {
-    const incoming = uniqueSerials(line?.serialNumbers);
-    if (incoming.length) return applySerialsToLine(line, incoming);
-    const prev = prevById.get(str(line?.id));
-    const kept = uniqueSerials(prev?.serialNumbers);
-    return kept.length ? applySerialsToLine(line, kept) : line;
+    let prev = prevById.get(str(line?.id));
+    if (prev) {
+      usedPrev.add(prev);
+    } else {
+      const bucket = prevByItem.get(str(line?.itemId)) || [];
+      prev = bucket.find(item => !usedPrev.has(item) && serialsOnLine(item).length);
+      if (prev) usedPrev.add(prev);
+    }
+    const merged = uniqueSerials([
+      ...serialsOnLine(line),
+      ...serialsOnLine(prev),
+    ]);
+    return merged.length ? applySerialsToLine(line, merged) : line;
   });
+}
+
+function attachSerialsToLine(line, serials) {
+  return applySerialsToLine(line, uniqueSerials([...serialsOnLine(line), ...serials]));
+}
+
+function assignOrphanSerials(lines, orphans) {
+  const next = Array.isArray(lines) ? [...lines] : [];
+  const used = new Set(next.flatMap(line => serialsOnLine(line).map(compactSerialKey)));
+  for (const orphan of orphans || []) {
+    const serial = str(orphan?.serial);
+    const key = compactSerialKey(serial);
+    if (!serial || !key || used.has(key)) continue;
+    const kind = orphan.kind === 'gatc' ? 'gatc' : 'nongatc';
+    const lineId = str(orphan.lineId);
+    const itemId = str(orphan.itemId);
+    let idx = -1;
+    if (lineId) {
+      idx = next.findIndex(line => str(line.id) === lineId && lineSerialNeed(line) > 0);
+    }
+    if (idx < 0 && itemId) {
+      idx = next.findIndex(line => str(line.itemId) === itemId && lineSerialNeed(line) > 0);
+    }
+    if (idx < 0) {
+      idx = next.findIndex(line => (
+        lineSerialNeed(line) > 0
+        && (kind === 'gatc' ? invoiceLineHasGatcTag(line) : isNonGatcSerialEligibleLine(line))
+      ));
+    }
+    if (idx < 0) {
+      idx = next.findIndex(line => lineSerialNeed(line) > 0);
+    }
+    if (idx < 0) continue;
+    next[idx] = attachSerialsToLine(next[idx], [serial]);
+    used.add(key);
+  }
+  return next;
+}
+
+/**
+ * Zoho sync can rewrite line ids / descriptions and drop serials from lines
+ * while allocations still mark them taken. Put them back.
+ */
+export async function reattachPreservedSerialsToLines({
+  lines,
+  previousLines,
+  invoiceId,
+  invoiceNumber,
+  nonGatcAllocatedSerials,
+  gatcStampedAllocatedSerials,
+  yesgatcLinks,
+} = {}) {
+  let next = mergePreservedLineSerials(lines, previousLines);
+  const orphans = [];
+  for (const serial of uniqueSerials(nonGatcAllocatedSerials)) {
+    orphans.push({ serial, kind: 'nongatc' });
+  }
+  for (const serial of uniqueSerials(gatcStampedAllocatedSerials)) {
+    orphans.push({ serial, kind: 'gatc' });
+  }
+  for (const link of Array.isArray(yesgatcLinks) ? yesgatcLinks : []) {
+    if (str(link?.serialNumber)) {
+      orphans.push({ serial: str(link.serialNumber), kind: 'gatc' });
+    }
+  }
+  const iid = str(invoiceId);
+  if (iid) {
+    const db = getFirestore();
+    try {
+      const allocSnap = await db.collection(NON_GATC_ALLOCATIONS)
+        .where('invoiceId', '==', iid)
+        .get();
+      allocSnap.forEach(doc => {
+        const data = doc.data() || {};
+        orphans.push({
+          serial: str(data.serial) || doc.id,
+          lineId: str(data.lineId),
+          kind: 'nongatc',
+        });
+      });
+    } catch (err) {
+      console.warn(`reattach allocations ${iid}:`, err?.message ?? err);
+    }
+    try {
+      const { gatcSerialsLinkedToInvoice } = await import('./yesgatc-stamped-serial-allot.js');
+      const linked = await gatcSerialsLinkedToInvoice(db, {
+        invoiceId: iid,
+        invoiceNumber: str(invoiceNumber),
+      });
+      orphans.push(...linked);
+    } catch (err) {
+      console.warn(`reattach GATC serials ${iid}:`, err?.message ?? err);
+    }
+  }
+  next = assignOrphanSerials(next, orphans);
+  return next;
+}
+
+export async function healInvoiceSerialsOnDocument({ customerId, invoiceId } = {}) {
+  const cid = str(customerId);
+  const iid = str(invoiceId);
+  if (!cid || !iid) throw new Error('Invoice is required.');
+  const db = getFirestore();
+  const invoiceRef = db.doc(`zohoCustomers/${cid}/invoices/${iid}`);
+  const snap = await invoiceRef.get();
+  if (!snap.exists) throw new Error('Invoice not found.');
+  const data = snap.data() || {};
+  const previous = Array.isArray(data.lineItems) ? data.lineItems : [];
+  const lineItems = await reattachPreservedSerialsToLines({
+    lines: previous,
+    previousLines: previous,
+    invoiceId: iid,
+    invoiceNumber: str(data.invoiceNumber),
+    nonGatcAllocatedSerials: data.nonGatcAllocatedSerials,
+    gatcStampedAllocatedSerials: data.gatcStampedAllocatedSerials,
+    yesgatcLinks: data.yesgatcLinks,
+  });
+  const before = previous.map(line => `${str(line.id)}:${serialsOnLine(line).join(',')}`).join('|');
+  const after = lineItems.map(line => `${str(line.id)}:${serialsOnLine(line).join(',')}`).join('|');
+  const healed = before !== after;
+  if (healed) {
+    await invoiceRef.set({ lineItems }, { merge: true });
+  }
+  return { lineItems, healed };
 }
 
 function productTokens(value) {
@@ -626,7 +781,11 @@ export async function applyNonGatcSerialAllotmentOnInvoice({
   if (!snap.exists) {
     throw new Error('Invoice not found.');
   }
-  const data = snap.data() || {};
+  let data = snap.data() || {};
+  if (!forceRelease && !isVoidInvoiceStatus(data.status)) {
+    const healed = await healInvoiceSerialsOnDocument({ customerId, invoiceId });
+    data = { ...data, lineItems: healed.lineItems };
+  }
   const lines = Array.isArray(data.lineItems) ? data.lineItems : [];
   if (!forceRelease) assertCanMutateSerialsAfterDelivery(data, allowWhenDelivered);
 

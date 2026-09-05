@@ -82,9 +82,9 @@ export async function markInvoiceDelivered(input) {
   if (String(invoice.status ?? '').trim().toLowerCase() === 'void') {
     throw new Error('Void invoices cannot be marked delivered.');
   }
-  const lines = await enrichInvoiceLinesCatalogCategory(
-    Array.isArray(invoice.lineItems) ? invoice.lineItems : [],
-  );
+  const { healInvoiceSerialsOnDocument } = await import('./non-gatc-serial-allot.js');
+  const healed = await healInvoiceSerialsOnDocument({ customerId, invoiceId });
+  const lines = await enrichInvoiceLinesCatalogCategory(healed.lineItems);
   const missingSerials = lines.some(line => {
     const need = Math.max(0, Math.round(Number(line.quantity) || 0));
     if (!need) return false;

@@ -120,24 +120,51 @@ export function mapInvoice(raw) {
   };
 }
 
+const JUNK_SERIAL_KEYS = new Set(['NUMBERS', 'NUMBER', 'SERIAL', 'SERIALS', 'MAC', 'SN', 'S']);
+
+export function isPlausibleInvoiceSerial(value) {
+  const text = String(value ?? '').trim();
+  if (!text) return false;
+  const key = text.toUpperCase().replace(/[^A-Z0-9]/g, '');
+  if (!key || key.length < 3 || JUNK_SERIAL_KEYS.has(key)) return false;
+  return true;
+}
+
+/** YesOne writes `Serial Numbers: A, B` on Zoho line descriptions. */
+export function serialsFromLineDescription(description) {
+  const text = String(description ?? '');
+  if (!text.trim()) return [];
+  const serials = [];
+  const block = /\bserial\s*numbers?\s*:\s*([^\n]+)/i.exec(text);
+  if (block?.[1]) {
+    for (const part of block[1].split(/[,;]+/)) {
+      const token = part.trim();
+      if (isPlausibleInvoiceSerial(token)) serials.push(token);
+    }
+  }
+  const pattern = /\b(?:s\/n|sn|mac(?:\s*id)?)\s*[:#-]\s*([A-Za-z0-9][A-Za-z0-9._/-]{2,})/gi;
+  let match = pattern.exec(text);
+  while (match) {
+    if (isPlausibleInvoiceSerial(match[1])) serials.push(match[1].trim());
+    match = pattern.exec(text);
+  }
+  return [...new Set(serials)];
+}
+
 export function extractLineItemSerialNumbers(raw) {
   if (!raw || typeof raw !== 'object') return [];
-
-  if (Array.isArray(raw.serialNumbers) && raw.serialNumbers.length) {
-    return [...new Set(raw.serialNumbers.map(value => String(value).trim()).filter(Boolean))];
-  }
 
   const serials = [];
 
   for (const candidate of [
-    raw.serial_numbers,
     raw.serialNumbers,
+    raw.serial_numbers,
     raw.item_serial_numbers,
     raw.itemSerialNumbers,
   ]) {
     if (!Array.isArray(candidate)) continue;
     for (const entry of candidate) {
-      if (typeof entry === 'string' && entry.trim()) {
+      if (typeof entry === 'string' && isPlausibleInvoiceSerial(entry)) {
         serials.push(entry.trim());
         continue;
       }
@@ -146,7 +173,7 @@ export function extractLineItemSerialNumbers(raw) {
         ?? entry.serialnumber
         ?? entry.serial_number_value
         ?? entry.serialNumber;
-      if (value) serials.push(String(value).trim());
+      if (isPlausibleInvoiceSerial(value)) serials.push(String(value).trim());
     }
   }
 
@@ -154,18 +181,10 @@ export function extractLineItemSerialNumbers(raw) {
     const label = String(field.label ?? field.api_name ?? field.customfield_id ?? '').toLowerCase();
     if (!label.includes('serial') && !label.includes('mac')) continue;
     const value = field.value ?? field.value_formatted;
-    if (value) serials.push(String(value).trim());
+    if (isPlausibleInvoiceSerial(value)) serials.push(String(value).trim());
   }
 
-  const description = raw.description ? String(raw.description) : '';
-  if (description) {
-    const pattern = /\b(?:serial(?:\s*number)?|s\/n|sn|mac(?:\s*id)?)\s*[:#-]?\s*([A-Za-z0-9][A-Za-z0-9._/-]{2,})/gi;
-    let match = pattern.exec(description);
-    while (match) {
-      if (match[1]) serials.push(match[1].trim());
-      match = pattern.exec(description);
-    }
-  }
+  serials.push(...serialsFromLineDescription(raw.description));
 
   return [...new Set(serials.filter(Boolean))];
 }
