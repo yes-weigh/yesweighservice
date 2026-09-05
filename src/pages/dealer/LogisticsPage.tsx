@@ -30,7 +30,7 @@ import {
 import { BookCourierFlow } from '../../components/logistics/BookCourierFlow';
 import { CourierPartnerPicker } from '../../components/logistics/CourierPartnerPicker';
 import { LogisticsBookingDetail } from '../../components/logistics/LogisticsBookingDetail';
-import { LOGISTICS_PARTNERS, isBlueDartLogisticsPartnerId } from '../../constants/logisticsPartners';
+import { LOGISTICS_PARTNERS, isBlueDartLogisticsPartnerId, isTrackonLogisticsPartnerId } from '../../constants/logisticsPartners';
 import { isLogisticsPartnerId } from '../../constants/logisticsPartners';
 import type { LogisticsPartnerId } from '../../constants/logisticsPartners';
 import {
@@ -287,12 +287,7 @@ function displayStatusForBooking(booking: LogisticsBooking): LogisticsBooking['s
     return inferBlueDartUiStatus(booking.courierTrack, booking.status) as LogisticsBooking['status'];
   }
   if (
-    (
-      booking.partnerId === 'st_courier'
-      || booking.partnerId === 'trackon_air'
-      || booking.partnerId === 'trackon_surface'
-      || booking.partnerId === 'trackon'
-    )
+    (booking.partnerId === 'st_courier' || isTrackonLogisticsPartnerId(booking.partnerId))
     && booking.courierTrack
   ) {
     return inferStCourierUiStatus(booking.courierTrack, booking.status) as LogisticsBooking['status'];

@@ -38,7 +38,7 @@ import {
   renderBlueDartWaybillLabelPng,
   renderPdfPagesToLogisticsLabelPngs,
 } from '../../lib/blueDartLabel';
-import { LOGISTICS_PARTNERS, isBlueDartLogisticsPartnerId } from '../../constants/logisticsPartners';
+import { LOGISTICS_PARTNERS, isBlueDartLogisticsPartnerId, isTrackonLogisticsPartnerId } from '../../constants/logisticsPartners';
 import { logisticsPartnerLabel } from '../../constants/logisticsPartners';
 import { formatCurrency } from '../../lib/catalog';
 import {
@@ -456,12 +456,7 @@ export const LogisticsBookingDetail: React.FC<LogisticsBookingDetailProps> = ({
     isBlueDartLogisticsPartnerId(booking.partnerId) && booking.courierTrack
       ? inferBlueDartUiStatus(booking.courierTrack, booking.status)
       : booking.courierTrack
-        && (
-          booking.partnerId === 'st_courier'
-          || booking.partnerId === 'trackon_air'
-          || booking.partnerId === 'trackon_surface'
-          || booking.partnerId === 'trackon'
-        )
+        && (booking.partnerId === 'st_courier' || isTrackonLogisticsPartnerId(booking.partnerId))
         ? inferStCourierUiStatus(booking.courierTrack, booking.status)
         : booking.status
   ) as typeof booking.status;
