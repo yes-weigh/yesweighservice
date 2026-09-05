@@ -17,7 +17,8 @@ export function dealerOrderErrorMessage(err: unknown): string {
       return (
         'Zoho Inventory refused this sales order (not authorized). This is not your YesOne login. '
         + 'YesOne already retried without warehouse, salesperson, and shipping address. '
-        + 'In Zoho, confirm the customer is active, the product is active and available for sale, '
+        + 'For spare orders, confirm the spare SKUs and freight item are active in Zoho and salesperson Shibin is active. '
+        + 'Otherwise confirm the customer is active, the product is available for sale, '
         + 'and the connected Zoho user can create sales orders. '
         + (cleaned ? `Zoho: ${cleaned}` : '')
       );

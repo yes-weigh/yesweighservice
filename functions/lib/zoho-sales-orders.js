@@ -247,16 +247,15 @@ function lineItemsFromOrder(order, warehouseId = null) {
   // Multi-warehouse orgs accept warehouse_id; location_id is rejected when Locations is off.
   // SAC/service lines (software keys, GATC, freight) must not send warehouse_id —
   // Zoho returns "You are not authorized to perform this operation".
+  // Do not send name/unit/hsn with item_id — Zoho treats that as an item edit
+  // (spare freight unit "nos" vs item unit is a common not-authorized).
   return lines.map(line => {
     const warehouse = warehouseIdForLine(line, warehouseId);
     return {
       item_id: String(line.itemId || line.productId),
-      name: String(line.name || 'Item'),
       rate: Number(line.rate || 0),
       quantity: Number(line.quantity || 0),
-      unit: String(line.unit || 'pcs'),
       ...(line.description ? { description: String(line.description) } : {}),
-      ...(line.hsn ? { hsn_or_sac: String(line.hsn) } : {}),
       ...(warehouse ? { warehouse_id: warehouse } : {}),
     };
   }).filter(line => line.quantity > 0 && line.item_id);
