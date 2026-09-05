@@ -65,8 +65,38 @@ function stTrackTextBits(track) {
     .toLowerCase();
 }
 
+function latestTrackActivityText(track) {
+  const history = Array.isArray(track?.history) ? track.history : [];
+  const newest = history.length ? String(history[0]?.activity || '').trim() : '';
+  const status = String(track?.status || '').trim();
+  return newest || status;
+}
+
+export function isOutForDeliveryActivity(text) {
+  return /\bout\s*for\s*delivery\b|\bofd\b|\bout\s*for\s*dlvy\b|\bof\s*delivery\b/i
+    .test(String(text || ''));
+}
+
+function isDeliveredActivity(text) {
+  const raw = String(text || '');
+  if (isOutForDeliveryActivity(raw)) return false;
+  const bits = raw.toLowerCase();
+  return /\bdelivered\b/.test(bits)
+    || /\bdelivery\s+(completed|done|successful)\b/.test(bits);
+}
+
+function isInTransitActivity(text) {
+  const bits = String(text || '').toLowerCase();
+  if (isOutForDeliveryActivity(bits)) return true;
+  return /\b(in\s*transit|reached|arrived|dispatched|manifest|transit|hub|branch)\b/.test(bits)
+    || /\b(undelivered|on\s*hold|held|attempted)\b/.test(bits)
+    || /\b(picked\s*up|pickup|booked|accepted|shipment\s*created|consignment\s*booked)\b/.test(bits);
+}
+
 /**
  * Absolute pipeline status implied by a successful ST track result.
+ * Newest scan wins: Out for Delivery stays in transit even if ST filled
+ * Delivery Date/Time or an older row said Delivered.
  *
  * @param {{
  *   ok?: boolean,
@@ -79,22 +109,32 @@ function stTrackTextBits(track) {
 export function resolveStPipelineStatus(track) {
   if (!track?.ok) return null;
 
+  const newest = latestTrackActivityText(track);
+  const status = String(track?.status || '').trim();
+  if (isOutForDeliveryActivity(newest) || isOutForDeliveryActivity(status)) {
+    return 'in_transit';
+  }
+  if (isDeliveredActivity(newest) || isDeliveredActivity(status)) {
+    return 'delivered';
+  }
+  if (isInTransitActivity(newest) || isInTransitActivity(status)) {
+    return 'in_transit';
+  }
+
   const bits = stTrackTextBits(track);
+  if (isOutForDeliveryActivity(bits)) return 'in_transit';
+
   const looksDelivered = Boolean(String(track.deliveredAt || '').trim())
     || /\bdelivered\b/.test(bits)
-    || /\bdelivery\s+(completed|done|successful)\b/.test(bits)
-    || /\bpod\b/.test(bits);
+    || /\bdelivery\s+(completed|done|successful)\b/.test(bits);
 
   if (looksDelivered) return 'delivered';
 
-  const looksInTransit = /\b(in\s*transit|out\s*for\s*delivery|ofd|reached|arrived|dispatched|manifest|transit|hub|branch)\b/.test(bits)
-    || /\b(out\s*for\s*dlvy|of\s*delivery)\b/.test(bits)
-    || /\b(undelivered|rto|return\s*to\s*origin|on\s*hold|held|attempted)\b/.test(bits)
-    || /\b(picked\s*up|pickup|booked|accepted|shipment\s*created|consignment\s*booked)\b/.test(bits);
+  const looksInTransit = isInTransitActivity(bits)
+    || /\b(rto|return\s*to\s*origin)\b/.test(bits);
 
   if (looksInTransit) return 'in_transit';
 
-  // Successful track with a current status but no delivery signal → treat as in transit.
   if (String(track.status || '').trim()) return 'in_transit';
 
   return null;
@@ -138,6 +178,11 @@ export function inferLogisticsStatusFromStTrack(track, currentStatus, options = 
 
   const resolved = resolveStPipelineStatus(track);
   if (!resolved) return null;
+
+  // Live OFD / transit after a false delivered mark (ST often fills Delivery Date/Time early).
+  if (current === 'delivered' && resolved === 'in_transit') {
+    return 'in_transit';
+  }
 
   // Backfill / correction mode: trust ST when booking was wrongly marked delivered.
   if (correctFalseDelivered && current === 'delivered' && resolved !== 'delivered') {

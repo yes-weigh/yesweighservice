@@ -59,6 +59,7 @@ import {
   type LogisticsBookingListFilters,
 } from '../../lib/logisticsBookings';
 import { inferBlueDartUiStatus } from '../../lib/blueDartApi';
+import { inferStCourierUiStatus } from '../../lib/stCourierTrack';
 import { formatCurrency } from '../../lib/catalog';
 import { listDealerSalesOrders } from '../../lib/dealer-sales-orders';
 import { ewayBillListChip, preferredInvoiceTotalInclGst } from '../../constants/ewayBill';
@@ -284,6 +285,17 @@ function lastTrackedLabel(booking: LogisticsBooking): {
 function displayStatusForBooking(booking: LogisticsBooking): LogisticsBooking['status'] {
   if (isBlueDartLogisticsPartnerId(booking.partnerId) && booking.courierTrack) {
     return inferBlueDartUiStatus(booking.courierTrack, booking.status) as LogisticsBooking['status'];
+  }
+  if (
+    (
+      booking.partnerId === 'st_courier'
+      || booking.partnerId === 'trackon_air'
+      || booking.partnerId === 'trackon_surface'
+      || booking.partnerId === 'trackon'
+    )
+    && booking.courierTrack
+  ) {
+    return inferStCourierUiStatus(booking.courierTrack, booking.status) as LogisticsBooking['status'];
   }
   return booking.status;
 }
@@ -611,7 +623,7 @@ export const LogisticsPage: React.FC = () => {
   const statusFilteredBookings = useMemo(() => {
     const activeStatus = statusFilter || filters.status || '';
     const filtered = activeStatus
-      ? partnerFilteredBookings.filter(booking => booking.status === activeStatus)
+      ? partnerFilteredBookings.filter(booking => displayStatusForBooking(booking) === activeStatus)
       : partnerFilteredBookings;
     return [...filtered].sort(compareLogisticsBookingsByBookingDateDesc);
   }, [partnerFilteredBookings, filters.status, statusFilter]);
@@ -703,7 +715,8 @@ export const LogisticsPage: React.FC = () => {
       returned: 0,
     };
     for (const booking of partnerFilteredBookings) {
-      counts[booking.status] += 1;
+      const status = displayStatusForBooking(booking);
+      if (status in counts) counts[status] += 1;
     }
     return counts;
   }, [partnerFilteredBookings]);
@@ -1322,6 +1335,7 @@ export const LogisticsPage: React.FC = () => {
                 {pageBookings.map(booking => {
                   const partner = LOGISTICS_PARTNERS.find(item => item.id === booking.partnerId);
                   const tone = cardToneForStatus(booking);
+                  const uiStatus = displayStatusForBooking(booking);
                   const waybill = booking.trackingNo || booking.consignmentNo || '—';
                   const freight = freightByBookingId[booking.id];
                   const productItems = freight?.items.filter(
@@ -1494,7 +1508,7 @@ export const LogisticsPage: React.FC = () => {
                               </span>
                             )}
 
-                            {showsRoute(booking.status) ? (
+                            {showsRoute(uiStatus) ? (
                               <div className="logistics-shipment__route">
                                 <span className="logistics-shipment__place logistics-shipment__place--from">
                                   <MapPin size={12} aria-hidden />
@@ -1506,17 +1520,17 @@ export const LogisticsPage: React.FC = () => {
                                   <span>{destinationPlaceLabel(booking)}</span>
                                 </span>
                               </div>
-                            ) : booking.status === 'delivered' ? (
+                            ) : uiStatus === 'delivered' ? (
                               <div className="logistics-shipment__outcome logistics-shipment__outcome--delivered">
                                 <CheckCircle2 size={14} aria-hidden />
                                 <span>Delivered on {formatDeliveredDateTime(booking)}</span>
                               </div>
-                            ) : booking.status === 'cancelled' ? (
+                            ) : uiStatus === 'cancelled' ? (
                               <div className="logistics-shipment__outcome logistics-shipment__outcome--exception">
                                 <AlertCircle size={14} aria-hidden />
                                 <span>Cancelled · {formatShipmentDateTime(booking)}</span>
                               </div>
-                            ) : booking.status === 'returned' ? (
+                            ) : uiStatus === 'returned' ? (
                               <div className="logistics-shipment__outcome logistics-shipment__outcome--exception">
                                 <Undo2 size={14} aria-hidden />
                                 <span>Returned · {formatShipmentDateTime(booking)}</span>

@@ -23,6 +23,7 @@ import { hideDealerStaffCommercials } from '../../lib/dealerAccess';
 import { useConfirm } from '../../context/ConfirmContext';
 import { cancelDelhiveryShipment, createDelhiveryPickupRequest } from '../../lib/delhiveryB2b';
 import { getBlueDartWaybill, inferBlueDartUiStatus } from '../../lib/blueDartApi';
+import { inferStCourierUiStatus } from '../../lib/stCourierTrack';
 import {
   BLUE_DART_LOGO_URL,
   buildBlueDartAwbPdfFromBooking,
@@ -454,7 +455,15 @@ export const LogisticsBookingDetail: React.FC<LogisticsBookingDetailProps> = ({
   const pipelineStatus = (
     isBlueDartLogisticsPartnerId(booking.partnerId) && booking.courierTrack
       ? inferBlueDartUiStatus(booking.courierTrack, booking.status)
-      : booking.status
+      : booking.courierTrack
+        && (
+          booking.partnerId === 'st_courier'
+          || booking.partnerId === 'trackon_air'
+          || booking.partnerId === 'trackon_surface'
+          || booking.partnerId === 'trackon'
+        )
+        ? inferStCourierUiStatus(booking.courierTrack, booking.status)
+        : booking.status
   ) as typeof booking.status;
   const currentIndex = isIncompleteLogisticsBooking(booking)
     ? -1
@@ -2431,14 +2440,8 @@ export const LogisticsBookingDetail: React.FC<LogisticsBookingDetailProps> = ({
                 nextStatus = inferBlueDartUiStatus(track, booking.status) as typeof booking.status;
               } else if (!track.ok) {
                 nextStatus = 'label_generated';
-              } else if (
-                booking.status === 'label_generated'
-                || Boolean(String(track.deliveredAt || '').trim())
-                || /\bdelivered\b/i.test(track.status || '')
-              ) {
-                const delivered = Boolean(String(track.deliveredAt || '').trim())
-                  || /\bdelivered\b/i.test(track.status || '');
-                nextStatus = delivered ? 'delivered' : 'in_transit';
+              } else {
+                nextStatus = inferStCourierUiStatus(track, booking.status) as typeof booking.status;
               }
             }
             const statusType = 'statusType' in track

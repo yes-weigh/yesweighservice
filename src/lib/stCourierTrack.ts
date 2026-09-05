@@ -99,6 +99,67 @@ export function openStCourierOfficialTrackPage(): void {
   window.open(stCourierOfficialTrackingUrl(), '_blank', 'noopener,noreferrer');
 }
 
+const OFD_RE = /\bout\s*for\s*delivery\b|\bofd\b|\bout\s*for\s*dlvy\b|\bof\s*delivery\b/i;
+
+export function isOutForDeliveryActivity(text: string | null | undefined): boolean {
+  return OFD_RE.test(String(text || ''));
+}
+
+function isDeliveredActivity(text: string | null | undefined): boolean {
+  const raw = String(text || '');
+  if (isOutForDeliveryActivity(raw)) return false;
+  const bits = raw.toLowerCase();
+  return /\bdelivered\b/.test(bits) || /\bdelivery\s+(completed|done|successful)\b/.test(bits);
+}
+
+function isInTransitActivity(text: string | null | undefined): boolean {
+  const bits = String(text || '').toLowerCase();
+  if (isOutForDeliveryActivity(bits)) return true;
+  return /\b(in\s*transit|reached|arrived|dispatched|manifest|transit|hub|branch)\b/.test(bits)
+    || /\b(undelivered|on\s*hold|held|attempted)\b/.test(bits)
+    || /\b(picked\s*up|pickup|booked|accepted|shipment\s*created|consignment\s*booked)\b/.test(bits);
+}
+
+function latestTrackActivityText(track: {
+  status?: string | null;
+  history?: Array<{ activity?: string }>;
+}): string {
+  const history = Array.isArray(track.history) ? track.history : [];
+  const newest = history.length ? String(history[0]?.activity || '').trim() : '';
+  return newest || String(track.status || '').trim();
+}
+
+/** Newest scan wins. Out for Delivery is in transit even if Delivery Date/Time is filled. */
+export function resolveStCourierPipelineStatus(
+  track: Pick<StCourierTrackResult, 'ok' | 'status' | 'deliveredAt' | 'history'>,
+): 'in_transit' | 'delivered' | null {
+  if (!track.ok) return null;
+  const newest = latestTrackActivityText(track);
+  const status = String(track.status || '').trim();
+  if (isOutForDeliveryActivity(newest) || isOutForDeliveryActivity(status)) {
+    return 'in_transit';
+  }
+  if (isDeliveredActivity(newest) || isDeliveredActivity(status)) {
+    return 'delivered';
+  }
+  if (isInTransitActivity(newest) || isInTransitActivity(status)) {
+    return 'in_transit';
+  }
+  if (String(track.deliveredAt || '').trim()) return 'delivered';
+  if (status) return 'in_transit';
+  return null;
+}
+
+export function inferStCourierUiStatus(
+  track: Pick<StCourierTrackResult, 'ok' | 'status' | 'deliveredAt' | 'history'>,
+  currentStatus: string,
+): string {
+  if (currentStatus === 'returned' || currentStatus === 'cancelled') return currentStatus;
+  const resolved = resolveStCourierPipelineStatus(track);
+  if (resolved) return resolved;
+  return currentStatus;
+}
+
 export type StCourierDeliveryOfficeResult = {
   pincode: string;
   ok: boolean;

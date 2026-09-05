@@ -21,6 +21,7 @@ import {
   buildCourierTrackSnapshot,
   buildStCourierTrackingPatch,
   inferLogisticsStatusFromStTrack,
+  isOutForDeliveryActivity,
   resolveStPipelineStatus,
 } from './st-courier-track-sync.js';
 
@@ -82,10 +83,20 @@ export function resolveDelhiveryPipelineStatus(track) {
   if (statusType === 'RT') return 'returned';
   if (statusType === 'CN') return 'cancelled';
 
+  const newest = Array.isArray(track.history) && track.history[0]
+    ? String(track.history[0].activity || '')
+    : '';
+  const status = String(track.status || '');
+  if (isOutForDeliveryActivity(newest) || isOutForDeliveryActivity(status)) {
+    return 'in_transit';
+  }
+
   const bits = [
     String(track.status || ''),
     ...(Array.isArray(track.history) ? track.history.map(item => String(item?.activity || '')) : []),
   ].join(' ').toLowerCase();
+
+  if (isOutForDeliveryActivity(bits)) return 'in_transit';
 
   if (
     Boolean(String(track.deliveredAt || '').trim())
@@ -158,6 +169,9 @@ export function inferLogisticsStatusFromDelhiveryTrack(track, currentStatus, opt
 
   if (correctFalseDelivered && current === 'delivered' && resolved !== 'delivered') {
     return resolved;
+  }
+  if (current === 'delivered' && resolved === 'in_transit') {
+    return 'in_transit';
   }
   if (current === 'delivered') return null;
 

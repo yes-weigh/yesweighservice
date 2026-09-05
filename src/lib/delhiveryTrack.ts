@@ -1,7 +1,7 @@
 import { getFunctions, httpsCallable } from 'firebase/functions';
 import { app } from '../firebase';
 import { delhiveryAppTrackingUrl, delhiveryOfficialTrackingUrl } from './logisticsTracking';
-import type { StCourierTrackResult } from './stCourierTrack';
+import { isOutForDeliveryActivity, type StCourierTrackResult } from './stCourierTrack';
 
 const functions = getFunctions(app, 'asia-south1');
 
@@ -186,10 +186,19 @@ export function inferDelhiveryUiStatus(
   if (statusType === 'RT') return 'returned';
   if (statusType === 'CN') return 'cancelled';
 
+  const newest = Array.isArray(track.history) && track.history[0]
+    ? String(track.history[0]?.activity || '')
+    : '';
+  if (isOutForDeliveryActivity(track.status) || isOutForDeliveryActivity(newest)) {
+    return 'in_transit';
+  }
+
   const bits = [
     String(track.status || ''),
     ...(Array.isArray(track.history) ? track.history.map(item => String(item?.activity || '')) : []),
   ].join(' ').toLowerCase();
+
+  if (isOutForDeliveryActivity(bits)) return 'in_transit';
 
   if (
     Boolean(String(track.deliveredAt || '').trim())
