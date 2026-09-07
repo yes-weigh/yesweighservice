@@ -9,6 +9,7 @@ import {
   expandGatcPickerPool,
   GATC_50KG_SERIES,
   GATC_SL_SERIES,
+  productHasGatcPickerLots,
   invoiceLineHasGatcTag,
   isVoidInvoiceStatus,
   NON_GATC_MACHINE_HSN,
@@ -267,10 +268,10 @@ async function loadSerialAllotments(db) {
 }
 
 function unusedGatcAllotmentKeys(allotments, filter, series) {
-  if (!seriesHasAllotments(allotments, series)) return null;
-  const keys = expandGatcPickerPool(allotments, filter, series).map(compactSerialKey);
-  if (!keys.length) return null;
-  return new Set(keys);
+  const hasLots = productHasGatcPickerLots(allotments, filter, series)
+    || seriesHasAllotments(allotments, series);
+  if (!hasLots) return null;
+  return new Set(expandGatcPickerPool(allotments, filter, series).map(compactSerialKey));
 }
 
 function certificateLinkedToInvoice(row, invoiceId, invoiceNumber) {

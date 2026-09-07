@@ -388,13 +388,38 @@ export function expandSerialAllotmentPool(allotments, filter = {}, series = NON_
   return uniqueSerialPool(out);
 }
 
-/** 50 kg / SL GATC picker: dedicated SKU ranges if any, otherwise every range in that series. */
+function gatcLotCompatibleWithLineSeries(rowSeries, lineSeries) {
+  if (str(lineSeries) === GATC_50KG_SERIES) {
+    return rowSeries === GATC_50KG_SERIES || rowSeries === NON_GATC_SERIES;
+  }
+  return rowSeries === GATC_SL_SERIES || rowSeries === NON_GATC_SERIES;
+}
+
+export function productHasGatcPickerLots(allotments, filter = {}, series) {
+  return (Array.isArray(allotments) ? allotments : []).some(row => (
+    allotmentIsBound(row)
+    && allotmentMatchesProduct(row, filter)
+    && gatcLotCompatibleWithLineSeries(str(row?.series), series)
+  ));
+}
+
+/**
+ * GATC invoice picker.
+ * Product with its own lot (often saved as non_gatc from GR) → that range only.
+ * Else shared 50 kg / SL printed series.
+ */
 export function expandGatcPickerPool(allotments, filter = {}, series) {
-  const dedicated = productHasDedicatedAllotment(allotments, filter, series);
-  if (dedicated) return expandSerialAllotmentPool(allotments, filter, series);
+  const rows = Array.isArray(allotments) ? allotments : [];
+  const productLots = rows.filter(row => (
+    allotmentIsBound(row)
+    && allotmentMatchesProduct(row, filter)
+    && gatcLotCompatibleWithLineSeries(str(row?.series), series)
+  ));
+  const source = productLots.length
+    ? productLots
+    : rows.filter(row => str(row?.series) === str(series));
   const out = [];
-  for (const row of Array.isArray(allotments) ? allotments : []) {
-    if (str(row?.series) !== str(series)) continue;
+  for (const row of source) {
     out.push(...expandAllotmentRange(row));
   }
   return uniqueSerialPool(out);
