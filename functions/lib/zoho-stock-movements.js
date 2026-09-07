@@ -378,7 +378,7 @@ async function listSalesReturns(zohoGet, itemId) {
 }
 
 async function listCreditNotesByItem(zohoGet, itemId) {
-  const rows = [];
+  const docs = [];
   let page = 1;
   for (;;) {
     const path = `/creditnotes?item_id=${encodeURIComponent(itemId)}`
@@ -389,20 +389,52 @@ async function listCreditNotesByItem(zohoGet, itemId) {
       json = await zohoGet(path);
     } catch (err) {
       console.warn(`Zoho creditnotes list failed for ${itemId}:`, err?.message ?? err);
-      return rows;
+      return [];
     }
     const batch = Array.isArray(json.creditnotes)
       ? json.creditnotes
       : (Array.isArray(json.credit_notes) ? json.credit_notes : []);
-    for (const row of batch) {
-      const mapped = mapCreditNoteFromDocument(row, itemId);
-      if (mapped) rows.push(mapped);
+    docs.push(...batch);
+    if (docs.length > 200) {
+      console.warn(`creditnotes list ${itemId} returned ${docs.length} docs — treating as unfiltered`);
+      return [];
     }
     if (!json.page_context?.has_more_page || batch.length === 0) break;
     page += 1;
     if (page > 100) break;
   }
+
+  const rows = [];
+  for (const row of docs) {
+    let mapped = mapCreditNoteFromDocument(row, itemId);
+    if (!mapped && row?.creditnote_id) {
+      try {
+        const detail = await zohoGet(`/creditnotes/${encodeURIComponent(row.creditnote_id)}`);
+        mapped = mapCreditNoteFromDocument(detail.creditnote ?? detail, itemId);
+      } catch (err) {
+        console.warn(`Zoho creditnote ${row.creditnote_id} failed:`, err?.message ?? err);
+      }
+    }
+    if (mapped) rows.push(mapped);
+  }
   return rows;
+}
+
+async function loadCreditNoteMovements(zohoGet, itemId, invoiceCount) {
+  let last = { rows: [], failed: false };
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    if (attempt) await sleep(500);
+    last = await listAllItemTransactionsDetailed(zohoGet, 'creditnotes', itemId, 'creditnotes');
+    const mapped = (last.rows || []).map(mapCreditNote).filter(Boolean);
+    if (mapped.length) return { movements: mapped, failed: false };
+  }
+  if (!invoiceCount) return { movements: [], failed: last.failed };
+  const fallback = await listCreditNotesByItem(zohoGet, itemId);
+  if (fallback.length) {
+    console.info(`creditnotes fallback ${itemId}: ${fallback.length} movements`);
+    return { movements: fallback, failed: false };
+  }
+  return { movements: [], failed: last.failed || true };
 }
 
 function mapCreditNoteFromDocument(row, itemId) {
@@ -563,22 +595,9 @@ export async function listCatalogProductLifetimeStockMovements(
 
   const inventory = itemTracksInventory(item);
   const invoices = await listAllItemTransactions(zohoGet, 'invoices', itemId, 'invoices', { required: true });
-  let creditNoteResult = await listAllItemTransactionsDetailed(
-    zohoGet,
-    'creditnotes',
-    itemId,
-    'creditnotes',
-    { required: false },
-  );
-  let creditnoteMovements = (creditNoteResult.rows || []).map(mapCreditNote).filter(Boolean);
-  if (!creditnoteMovements.length && invoices.length) {
-    const fallback = await listCreditNotesByItem(zohoGet, itemId);
-    if (fallback.length) {
-      console.info(`creditnotes fallback ${itemId}: ${fallback.length} docs`);
-      creditnoteMovements = fallback;
-      creditNoteResult = { rows: fallback, failed: false };
-    }
-  }
+  const creditLoaded = await loadCreditNoteMovements(zohoGet, itemId, invoices.length);
+  const creditnoteMovements = creditLoaded.movements;
+  const creditNoteResult = { rows: creditnoteMovements, failed: creditLoaded.failed };
   let bills = [];
   let adjustments = [];
   let moveorders = [];
@@ -852,7 +871,7 @@ export async function syncLedgerClosingStockForProducts(secrets, configuredOrgId
     try {
       await getLifetimeStockMovements(secrets, configuredOrgId, product.id);
       updated += 1;
-      await sleep(250);
+      await sleep(400);
     } catch (err) {
       console.warn(`syncLedgerClosingStock ${product.id}:`, err?.message ?? err);
     }
