@@ -104,19 +104,9 @@ async function listAllItemTransactions(zohoGet, pathSuffix, itemId, listKey, opt
 }
 
 function readTransactionBatch(json, pathSuffix, listKey) {
-  const candidates = [
-    json?.[listKey],
-    json?.[pathSuffix],
-    json?.credit_notes,
-    json?.transactions,
-    json?.item_transactions,
-  ];
-  for (const candidate of candidates) {
-    if (Array.isArray(candidate) && candidate.length) return candidate;
-  }
-  for (const candidate of candidates) {
-    if (Array.isArray(candidate)) return candidate;
-  }
+  if (Array.isArray(json?.[listKey])) return json[listKey];
+  if (pathSuffix !== listKey && Array.isArray(json?.[pathSuffix])) return json[pathSuffix];
+  if (pathSuffix === 'creditnotes' && Array.isArray(json?.credit_notes)) return json.credit_notes;
   return [];
 }
 
@@ -418,13 +408,9 @@ async function listCreditNotesByItem(zohoGet, itemId) {
 function mapCreditNoteFromDocument(row, itemId) {
   const lines = Array.isArray(row?.line_items) ? row.line_items : [];
   let qty = 0;
-  if (lines.length) {
-    for (const line of lines) {
-      if (String(line?.item_id ?? '') !== String(itemId)) continue;
-      qty += Math.abs(Number(line.quantity ?? line.item_quantity ?? 0) || 0);
-    }
-  } else {
-    qty = Math.abs(rowItemQty(row));
+  for (const line of lines) {
+    if (String(line?.item_id ?? '') !== String(itemId)) continue;
+    qty += Math.abs(Number(line.quantity ?? line.item_quantity ?? 0) || 0);
   }
   if (!qty) return null;
   return withStockEffect(baseMovement({
@@ -830,6 +816,18 @@ async function persistLedgerClosingStockIfEligible(catalogProductId, ledgerResul
     console.warn(
       `skip ledgerClosingStock persist for ${catalogProductId}: invoice-only ${next}`
       + (Number.isFinite(existing) ? ` (keeping ${existing})` : ''),
+    );
+    return false;
+  }
+  const invoiceOut = (ledgerResult?.movements ?? [])
+    .filter(row => row?.type === 'invoice')
+    .reduce((sum, row) => sum + Math.abs(Number(row.qtyDelta) || 0), 0);
+  const creditIn = (ledgerResult?.movements ?? [])
+    .filter(row => row?.type === 'creditnote')
+    .reduce((sum, row) => sum + Math.abs(Number(row.qtyDelta) || 0), 0);
+  if (invoiceOut > 0 && creditIn > invoiceOut * 20) {
+    console.warn(
+      `skip ledgerClosingStock persist for ${catalogProductId}: credit-in ${creditIn} vs invoice-out ${invoiceOut}`,
     );
     return false;
   }
