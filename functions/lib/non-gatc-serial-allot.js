@@ -1112,6 +1112,7 @@ export async function unlinkNonGatcSerialsFromInvoice({
   customerId,
   invoiceId,
   lineId = '',
+  serials = [],
   actorName = 'YESWEIGH',
   allowWhenDelivered = false,
   accessToken,
@@ -1129,14 +1130,18 @@ export async function unlinkNonGatcSerialsFromInvoice({
   const lines = Array.isArray(data.lineItems) ? data.lineItems : [];
   assertCanMutateSerialsAfterDelivery(data, allowWhenDelivered);
   const targetLineId = str(lineId);
+  const onlyKeys = new Set(uniqueSerials(serials).map(compactSerialKey));
 
   const toRelease = [];
   for (const line of lines) {
     if (targetLineId && str(line.id) !== targetLineId) continue;
     if (!isNonGatcSerialEligibleLine(line) && !uniqueSerials(line?.serialNumbers).length) continue;
-    toRelease.push(...uniqueSerials(line?.serialNumbers));
+    for (const serial of uniqueSerials(line?.serialNumbers)) {
+      if (onlyKeys.size && !onlyKeys.has(compactSerialKey(serial))) continue;
+      toRelease.push(serial);
+    }
   }
-  if (!toRelease.length && Array.isArray(data.nonGatcAllocatedSerials) && !targetLineId) {
+  if (!toRelease.length && Array.isArray(data.nonGatcAllocatedSerials) && !targetLineId && !onlyKeys.size) {
     toRelease.push(...uniqueSerials(data.nonGatcAllocatedSerials));
   }
 

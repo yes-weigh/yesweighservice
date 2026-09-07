@@ -40317,6 +40317,51 @@ button.invoice-detail-top__card {
   color: #86efac;
 }
 
+.invoice-nongatc-serials__chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+  margin-top: 0.4rem;
+}
+
+.invoice-nongatc-serials__chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.2rem;
+  padding: 0.15rem 0.2rem 0.15rem 0.45rem;
+  border-radius: 999px;
+  background: color-mix(in srgb, #86efac 16%, transparent);
+  border: 1px solid color-mix(in srgb, #86efac 35%, transparent);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 0.75rem;
+  font-weight: 700;
+  letter-spacing: 0.01em;
+}
+
+.invoice-nongatc-serials__chip-x {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.15rem;
+  height: 1.15rem;
+  padding: 0;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+}
+
+.invoice-nongatc-serials__chip-x:hover:not(:disabled) {
+  background: color-mix(in srgb, #f87171 35%, transparent);
+  color: #fecaca;
+}
+
+.invoice-nongatc-serials__chip-x:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
 .invoice-nongatc-serials__empty {
   margin: 0;
   font-size: 0.75rem;

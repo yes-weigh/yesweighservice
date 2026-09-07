@@ -703,6 +703,7 @@ export async function unlinkGatcStampedSerialsFromInvoice({
   customerId,
   invoiceId,
   lineId = '',
+  serials = [],
   actorName = 'YESWEIGH',
   allowWhenDelivered = false,
   accessToken,
@@ -722,6 +723,7 @@ export async function unlinkGatcStampedSerialsFromInvoice({
     data,
     lines,
     lineId: targetId,
+    serials,
     invoicePath: invoiceRef.path,
   });
   if (!result.released) {
@@ -768,15 +770,18 @@ export async function unlinkGatcStampedSerialsFromInvoice({
   };
 }
 
-async function releaseGatcStampedSerials({ data, lines, lineId, invoicePath }) {
+async function releaseGatcStampedSerials({ data, lines, lineId, invoicePath, serials = [] }) {
   const db = getFirestore();
   const targetId = str(lineId);
+  const onlyKeys = new Set(uniqueSerials(serials).map(compactSerialKey));
   const serialKeys = new Set();
   for (const line of lines) {
     if (targetId && str(line.id) !== targetId) continue;
     if (!isGatcStampedSerialEligibleLine(line)) continue;
     for (const serial of uniqueSerials(line?.serialNumbers)) {
-      serialKeys.add(compactSerialKey(serial));
+      const key = compactSerialKey(serial);
+      if (onlyKeys.size && !onlyKeys.has(key)) continue;
+      serialKeys.add(key);
     }
   }
 
@@ -784,17 +789,15 @@ async function releaseGatcStampedSerials({ data, lines, lineId, invoicePath }) {
     invoiceId: data.id,
     invoiceNumber: data.invoiceNumber,
   });
-  const toClear = linked.filter(cert => {
-    if (!targetId) return true;
-    return serialKeys.has(compactSerialKey(cert.data.serialNumber));
-  });
+  const toClear = linked.filter(cert => serialKeys.has(compactSerialKey(cert.data.serialNumber)));
 
   const nextLines = lines.map(line => {
     if (targetId && str(line.id) !== targetId) return line;
-    if (targetId || isGatcStampedSerialEligibleLine(line)) {
-      return applySerialsToLine(line, []);
-    }
-    return line;
+    if (!(targetId || isGatcStampedSerialEligibleLine(line))) return line;
+    const kept = uniqueSerials(line?.serialNumbers).filter(serial => (
+      !serialKeys.has(compactSerialKey(serial))
+    ));
+    return applySerialsToLine(line, kept);
   });
 
   const clearedIds = new Set(toClear.map(row => row.id));

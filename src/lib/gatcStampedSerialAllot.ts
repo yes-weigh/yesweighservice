@@ -135,6 +135,7 @@ export async function unlinkGatcStampedSerialsFromInvoice(input: {
   invoiceId: string;
   actorName: string;
   lineId?: string;
+  serials?: string[];
 }): Promise<AllotNonGatcSerialsResult> {
   const fn = httpsCallable<typeof input & { unlink: true }, AllotNonGatcSerialsResult>(
     getFunctions(app, 'asia-south1'),

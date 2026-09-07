@@ -118,6 +118,7 @@ export async function unlinkNonGatcSerialsFromInvoice(input: {
   invoiceId: string;
   actorName: string;
   lineId?: string;
+  serials?: string[];
 }): Promise<AllotNonGatcSerialsResult> {
   return (await nonGatcSerialCallable()({ ...input, unlink: true })).data;
 }

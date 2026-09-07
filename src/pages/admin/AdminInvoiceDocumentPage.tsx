@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { useOutletContext } from 'react-router-dom';
-import { BadgeCheck, Ban, CheckCircle2, Hash, PackagePlus, Send, Unlink } from 'lucide-react';
+import { BadgeCheck, Ban, CheckCircle2, Hash, PackagePlus, Send, Unlink, X } from 'lucide-react';
 import { DocumentKamStrip } from '../../components/admin/DocumentKamStrip';
 import { DocumentPartyBlock } from '../../components/admin/DocumentPartyBlock';
 import { InvoiceDocumentBody } from '../../components/invoices/InvoiceDocumentBody';
@@ -184,13 +184,16 @@ export const AdminInvoiceDocumentPage: React.FC = () => {
     setGatcPicker({ lineId, need, title, capacityKg: null, mode: 'nongatc', productId, sku });
   };
 
-  const handleUnlinkSerials = async (lineId?: string) => {
+  const handleUnlinkSerials = async (lineId?: string, serial?: string) => {
     if (!canAllotSerials || allotBusy) return;
+    const one = Boolean(serial);
     const ok = await confirm({
-      title: 'Unlink serial numbers',
-      message: lineId
-        ? 'Return these serial numbers to the non-GATC pool and remove them from the Zoho invoice?'
-        : 'Return all allotted serial numbers to the non-GATC pool and remove them from the Zoho invoice?',
+      title: one ? 'Unlink this serial number' : 'Unlink serial numbers',
+      message: one
+        ? `Return ${serial} to the pool and remove it from the Zoho invoice? Other serials on this line stay.`
+        : lineId
+          ? 'Return every serial on this line to the pool and remove them from the Zoho invoice?'
+          : 'Return all allotted serial numbers to the pool and remove them from the Zoho invoice?',
       confirmLabel: 'Unlink',
       destructive: true,
     });
@@ -204,6 +207,7 @@ export const AdminInvoiceDocumentPage: React.FC = () => {
         invoiceId,
         actorName,
         lineId,
+        ...(one ? { serials: [serial as string] } : {}),
       });
       await reloadInvoice?.();
       if (result.released > 0) {
@@ -289,13 +293,16 @@ export const AdminInvoiceDocumentPage: React.FC = () => {
     }
   };
 
-  const handleUnlinkGatcSerials = async (lineId?: string) => {
+  const handleUnlinkGatcSerials = async (lineId?: string, serial?: string) => {
     if (!canAllotSerials || allotBusy) return;
+    const one = Boolean(serial);
     const ok = await confirm({
-      title: 'Unlink GATC serial numbers',
-      message: lineId
-        ? 'Remove these GATC serials from the invoice, unlink the certificates, and update Zoho?'
-        : 'Remove all GATC serials from this invoice, unlink the certificates, and update Zoho?',
+      title: one ? 'Unlink this GATC serial' : 'Unlink GATC serial numbers',
+      message: one
+        ? `Remove ${serial} from this invoice and unlink its certificate? Other serials on this line stay.`
+        : lineId
+          ? 'Remove every GATC serial on this line, unlink the certificates, and update Zoho?'
+          : 'Remove all GATC serials from this invoice, unlink the certificates, and update Zoho?',
       confirmLabel: 'Unlink',
       destructive: true,
     });
@@ -309,6 +316,7 @@ export const AdminInvoiceDocumentPage: React.FC = () => {
         invoiceId,
         actorName,
         lineId,
+        ...(one ? { serials: [serial as string] } : {}),
       });
       await reloadInvoice?.();
       if (result.released > 0) {
@@ -445,9 +453,32 @@ export const AdminInvoiceDocumentPage: React.FC = () => {
           return (
             <div className="invoice-nongatc-serials">
               {serials.length ? (
-                <p className="invoice-nongatc-serials__list">
-                  Serial Numbers {serials.join(', ')}
-                </p>
+                <div className="invoice-nongatc-serials__list">
+                  <span>Serial Numbers</span>
+                  <div className="invoice-nongatc-serials__chips">
+                    {serials.map(serial => (
+                      <span key={serial} className="invoice-nongatc-serials__chip">
+                        {serial}
+                        {canAllotSerials ? (
+                          <button
+                            type="button"
+                            className="invoice-nongatc-serials__chip-x"
+                            disabled={allotBusy}
+                            aria-label={`Unlink ${serial}`}
+                            onClick={e => {
+                              e.stopPropagation();
+                              void (gatcStamped
+                                ? handleUnlinkGatcSerials(item.id, serial)
+                                : handleUnlinkSerials(item.id, serial));
+                            }}
+                          >
+                            <X size={12} aria-hidden />
+                          </button>
+                        ) : null}
+                      </span>
+                    ))}
+                  </div>
+                </div>
               ) : (
                 <p className="invoice-nongatc-serials__empty">No serial numbers</p>
               )}
@@ -497,7 +528,7 @@ export const AdminInvoiceDocumentPage: React.FC = () => {
                   }}
                 >
                   <Unlink size={14} aria-hidden />
-                  {allotBusy ? 'Unlinking…' : gatcStamped ? 'Unlink GATC serial numbers' : 'Unlink serial numbers'}
+                  {allotBusy ? 'Unlinking…' : gatcStamped ? 'Unlink all GATC serials' : 'Unlink all serials'}
                 </button>
               ) : null}
               {canPushYesGatc && yesgatcPushed ? (

@@ -7461,10 +7461,14 @@ export const allotNonGatcSerialsToInvoiceFn = onCall(
         configuredOrgId: zohoOrganizationId.value(),
       };
       if (request.data?.unlink) {
+        const serials = Array.isArray(request.data?.serials)
+          ? request.data.serials.map(value => String(value ?? '').trim()).filter(Boolean)
+          : [];
         return await unlinkNonGatcSerialsFromInvoice({
           customerId,
           invoiceId,
           lineId: String(request.data?.lineId ?? '').trim(),
+          serials,
           actorName,
           allowWhenDelivered,
           ...zoho,
@@ -7730,10 +7734,14 @@ export const allotGatcStampedSerialsToInvoiceFn = onCall(
         configuredOrgId: zohoOrganizationId.value(),
       };
       if (request.data?.unlink) {
+        const serials = Array.isArray(request.data?.serials)
+          ? request.data.serials.map(value => String(value ?? '').trim()).filter(Boolean)
+          : [];
         return await unlinkGatcStampedSerialsFromInvoice({
           customerId,
           invoiceId,
           lineId: String(request.data?.lineId ?? '').trim(),
+          serials,
           actorName,
           allowWhenDelivered,
           ...zoho,
