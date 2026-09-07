@@ -83,9 +83,7 @@ async function listAllItemTransactionsDetailed(zohoGet, pathSuffix, itemId, list
       const path = `/items/transactions/${pathSuffix}?item_id=${encodeURIComponent(itemId)}`
         + `&per_page=${PAGE_SIZE}&page=${page}`;
       const json = await zohoGet(path);
-      const batch = Array.isArray(json[listKey])
-        ? json[listKey]
-        : (Array.isArray(json[pathSuffix]) ? json[pathSuffix] : []);
+      const batch = readTransactionBatch(json, pathSuffix, listKey);
       rows.push(...batch);
       const hasMore = Boolean(json.page_context?.has_more_page);
       if (!hasMore || batch.length === 0) break;
@@ -103,6 +101,23 @@ async function listAllItemTransactionsDetailed(zohoGet, pathSuffix, itemId, list
 async function listAllItemTransactions(zohoGet, pathSuffix, itemId, listKey, options = {}) {
   const { rows } = await listAllItemTransactionsDetailed(zohoGet, pathSuffix, itemId, listKey, options);
   return rows;
+}
+
+function readTransactionBatch(json, pathSuffix, listKey) {
+  const candidates = [
+    json?.[listKey],
+    json?.[pathSuffix],
+    json?.credit_notes,
+    json?.transactions,
+    json?.item_transactions,
+  ];
+  for (const candidate of candidates) {
+    if (Array.isArray(candidate) && candidate.length) return candidate;
+  }
+  for (const candidate of candidates) {
+    if (Array.isArray(candidate)) return candidate;
+  }
+  return [];
 }
 
 function baseMovement(partial) {
@@ -372,6 +387,63 @@ async function listSalesReturns(zohoGet, itemId) {
   return rows;
 }
 
+async function listCreditNotesByItem(zohoGet, itemId) {
+  const rows = [];
+  let page = 1;
+  for (;;) {
+    const path = `/creditnotes?item_id=${encodeURIComponent(itemId)}`
+      + `&filter_by=${encodeURIComponent('Status.All')}`
+      + `&per_page=${PAGE_SIZE}&page=${page}`;
+    let json;
+    try {
+      json = await zohoGet(path);
+    } catch (err) {
+      console.warn(`Zoho creditnotes list failed for ${itemId}:`, err?.message ?? err);
+      return rows;
+    }
+    const batch = Array.isArray(json.creditnotes)
+      ? json.creditnotes
+      : (Array.isArray(json.credit_notes) ? json.credit_notes : []);
+    for (const row of batch) {
+      const mapped = mapCreditNoteFromDocument(row, itemId);
+      if (mapped) rows.push(mapped);
+    }
+    if (!json.page_context?.has_more_page || batch.length === 0) break;
+    page += 1;
+    if (page > 100) break;
+  }
+  return rows;
+}
+
+function mapCreditNoteFromDocument(row, itemId) {
+  const lines = Array.isArray(row?.line_items) ? row.line_items : [];
+  let qty = 0;
+  if (lines.length) {
+    for (const line of lines) {
+      if (String(line?.item_id ?? '') !== String(itemId)) continue;
+      qty += Math.abs(Number(line.quantity ?? line.item_quantity ?? 0) || 0);
+    }
+  } else {
+    qty = Math.abs(rowItemQty(row));
+  }
+  if (!qty) return null;
+  return withStockEffect(baseMovement({
+    type: 'creditnote',
+    typeLabel: 'Credit note',
+    documentId: String(row.creditnote_id ?? ''),
+    documentNumber: String(row.creditnote_number ?? ''),
+    date: String(row.date ?? ''),
+    createdTime: String(row.date ?? ''),
+    createdAt: row.date ? `${row.date}T00:00:00.000Z` : null,
+    status: String(row.status ?? ''),
+    customerOrVendor: String(row.customer_name ?? '').trim() || null,
+    quantity: qty,
+    itemPrice: row.item_price != null ? Number(row.item_price) : null,
+    itemTotal: row.item_total != null ? Number(row.item_total) : Number(row.item_total_price ?? 0) || null,
+    ...parseCurrencyFields(row),
+  }), +qty);
+}
+
 /** Zoho package picks are excluded — stock moves on invoice, not package. */
 const EXCLUDED_LEDGER_TYPES = new Set(['package']);
 
@@ -504,18 +576,23 @@ export async function listCatalogProductLifetimeStockMovements(
   }
 
   const inventory = itemTracksInventory(item);
-  const creditNotesRequired = !inventory;
-  const [invoices, creditNoteResult] = await Promise.all([
-    listAllItemTransactions(zohoGet, 'invoices', itemId, 'invoices', { required: true }),
-    listAllItemTransactionsDetailed(
-      zohoGet,
-      'creditnotes',
-      itemId,
-      'creditnotes',
-      { required: creditNotesRequired },
-    ),
-  ]);
-  const creditnotes = creditNoteResult.rows;
+  const invoices = await listAllItemTransactions(zohoGet, 'invoices', itemId, 'invoices', { required: true });
+  let creditNoteResult = await listAllItemTransactionsDetailed(
+    zohoGet,
+    'creditnotes',
+    itemId,
+    'creditnotes',
+    { required: false },
+  );
+  let creditnoteMovements = (creditNoteResult.rows || []).map(mapCreditNote).filter(Boolean);
+  if (!creditnoteMovements.length && invoices.length) {
+    const fallback = await listCreditNotesByItem(zohoGet, itemId);
+    if (fallback.length) {
+      console.info(`creditnotes fallback ${itemId}: ${fallback.length} docs`);
+      creditnoteMovements = fallback;
+      creditNoteResult = { rows: fallback, failed: false };
+    }
+  }
   let bills = [];
   let adjustments = [];
   let moveorders = [];
@@ -545,7 +622,7 @@ export async function listCatalogProductLifetimeStockMovements(
   const movementsRaw = [
     ...invoices.map(mapInvoice),
     ...bills.map(mapBill),
-    ...creditnotes.map(mapCreditNote),
+    ...creditnoteMovements,
     ...adjustments.map(mapAdjustment),
     ...moveorders.map(r => mapTransferLike(r, 'moveorder', 'Transfer', 'moveorder_id', 'moveorder_number')),
     ...purchasereceives.map(mapPurchaseReceive),
@@ -748,13 +825,11 @@ async function persistLedgerClosingStockIfEligible(catalogProductId, ledgerResul
   const closing = Number(ledgerResult?.netDelta);
   const next = Number.isFinite(closing) ? closing : 0;
   const existing = Number(snap.data()?.ledgerClosingStock);
-  if (
-    ledgerLooksInvoiceOnly(ledgerResult)
-    && Number.isFinite(existing)
-    && existing > next
-  ) {
+  const invoiceOnly = ledgerLooksInvoiceOnly(ledgerResult);
+  if (invoiceOnly) {
     console.warn(
-      `skip ledgerClosingStock persist for ${catalogProductId}: invoice-only ${next} < existing ${existing}`,
+      `skip ledgerClosingStock persist for ${catalogProductId}: invoice-only ${next}`
+      + (Number.isFinite(existing) ? ` (keeping ${existing})` : ''),
     );
     return false;
   }
