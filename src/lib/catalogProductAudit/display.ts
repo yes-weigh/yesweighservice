@@ -89,18 +89,21 @@ export function catalogGridAuditedStockQty(
   return Number.isFinite(qty) ? qty : 0;
 }
 
-/** Software Keys + HSN 997331 — grid qty uses ledger closing stock. */
+/** Software Keys — grid qty uses ledger closing stock (in − out), not audit. */
 export function catalogGridStockUsesLedger(product: CatalogProduct): boolean {
   return isSoftwareKeysLedgerStockProduct(product);
 }
 
 /**
- * Grid stock qty: ledger closing for Software Keys 997331; otherwise audited stock.
+ * Grid stock qty: ledger closing for Software Keys; otherwise audited stock.
+ * If ledger has not been synced yet, fall back to Zoho qty (not audit 0).
  */
 export function catalogGridStockQty(product: CatalogProduct): number {
   if (catalogGridStockUsesLedger(product)) {
     const qty = Number(product.ledgerClosingStock);
-    return Number.isFinite(qty) ? qty : 0;
+    if (Number.isFinite(qty)) return qty;
+    const zoho = Number(product.stock);
+    return Number.isFinite(zoho) ? zoho : 0;
   }
   return catalogGridAuditedStockQty(product.auditSnapshot, product.stock);
 }

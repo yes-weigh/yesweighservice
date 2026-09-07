@@ -102,7 +102,7 @@ export interface CatalogProduct {
    */
   restrictedSalesStates?: string[];
   /**
-   * Lifetime ledger closing stock (Software Keys + HSN 997331 only).
+   * Lifetime ledger closing stock (Software Keys category).
    * Mirrors Stock tab closing qty — Firestore only, synced from Zoho movements.
    */
   ledgerClosingStock?: number | null;

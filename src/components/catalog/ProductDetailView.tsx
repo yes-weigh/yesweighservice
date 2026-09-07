@@ -776,7 +776,7 @@ export const ProductDetailView: React.FC<{
     [product?.stock, product?.auditSnapshot, livePhysicalQty],
   );
 
-  /** Top-left qty pill: audited stock, or ledger in/out closing for Software Keys 997331. */
+  /** Top-left qty pill: audited stock, or ledger in/out closing for Software Keys. */
   const detailGridStockQty = useMemo(
     () => (product && showDetailQty ? catalogGridStockQty(product) : 0),
     [product, showDetailQty],

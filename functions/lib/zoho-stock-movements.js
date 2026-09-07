@@ -75,7 +75,7 @@ function createZohoGetter(accessToken, organizationId) {
   };
 }
 
-async function listAllItemTransactions(zohoGet, pathSuffix, itemId, listKey, { required = false } = {}) {
+async function listAllItemTransactionsDetailed(zohoGet, pathSuffix, itemId, listKey, { required = false } = {}) {
   const rows = [];
   let page = 1;
   try {
@@ -92,10 +92,16 @@ async function listAllItemTransactions(zohoGet, pathSuffix, itemId, listKey, { r
       page += 1;
       if (page > 100) break;
     }
+    return { rows, failed: false };
   } catch (err) {
     console.warn(`Zoho item transactions/${pathSuffix} failed for ${itemId}:`, err?.message ?? err);
-    if (required && !rows.length) throw err;
+    if (required) throw err;
+    return { rows, failed: true };
   }
+}
+
+async function listAllItemTransactions(zohoGet, pathSuffix, itemId, listKey, options = {}) {
+  const { rows } = await listAllItemTransactionsDetailed(zohoGet, pathSuffix, itemId, listKey, options);
   return rows;
 }
 
@@ -499,7 +505,8 @@ export async function listCatalogProductLifetimeStockMovements(
 
   const inventory = itemTracksInventory(item);
   const invoices = await listAllItemTransactions(zohoGet, 'invoices', itemId, 'invoices', { required: true });
-  const creditnotes = await listAllItemTransactions(zohoGet, 'creditnotes', itemId, 'creditnotes');
+  const creditNoteResult = await listAllItemTransactionsDetailed(zohoGet, 'creditnotes', itemId, 'creditnotes');
+  const creditnotes = creditNoteResult.rows;
   let bills = [];
   let adjustments = [];
   let moveorders = [];
@@ -571,6 +578,8 @@ export async function listCatalogProductLifetimeStockMovements(
     openingStock: unexplainedGap,
     fetchedAt: new Date().toISOString(),
     movements: sorted,
+    /** Incomplete credit-note pull — do not persist this net to the catalog card. */
+    ledgerIncomplete: creditNoteResult.failed,
   };
 }
 
@@ -688,9 +697,11 @@ export async function getLifetimeStockMovements(
     itemId,
   );
   const result = stripExcludedLedgerMovements(fresh);
-  void persistLedgerClosingStockIfEligible(itemId, result).catch(err => {
+  try {
+    await persistLedgerClosingStockIfEligible(itemId, result);
+  } catch (err) {
     console.warn(`persistLedgerClosingStockIfEligible ${itemId}:`, err?.message ?? err);
-  });
+  }
   return result;
 }
 
@@ -699,12 +710,14 @@ function isSoftwareKeysCategoryName(name) {
 }
 
 export function isSoftwareKeysLedgerStockProduct(product) {
-  const hsn = String(product?.hsn ?? '').replace(/\s+/g, '').trim();
-  if (hsn !== SOFTWARE_KEYS_LEDGER_HSN) return false;
   return isSoftwareKeysCategoryName(product?.categoryName);
 }
 
 async function persistLedgerClosingStockIfEligible(catalogProductId, ledgerResult) {
+  if (ledgerResult?.ledgerIncomplete) {
+    console.warn(`skip ledgerClosingStock persist for ${catalogProductId}: credit notes incomplete`);
+    return;
+  }
   const db = getFirestore();
   const ref = db.collection('catalogProducts').doc(catalogProductId);
   const snap = await ref.get();
@@ -718,7 +731,7 @@ async function persistLedgerClosingStockIfEligible(catalogProductId, ledgerResul
   }, { merge: true });
 }
 
-/** Refresh ledger closing stock on catalogProducts for Software Keys + HSN 997331. */
+/** Refresh ledger closing stock on catalogProducts for Software Keys. */
 export async function syncLedgerClosingStockForProducts(secrets, configuredOrgId, products) {
   const eligible = (products ?? []).filter(
     p => p?.status === 'active' && isSoftwareKeysLedgerStockProduct(p),

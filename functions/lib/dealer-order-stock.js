@@ -11,9 +11,19 @@ import { scheduledInboundQtyByProductId } from './scheduled-goods-receipt-inboun
 
 const PRODUCTS = 'catalogProducts';
 
+function isSoftwareKeysCategoryName(name) {
+  return String(name ?? '').trim().toLowerCase() === 'software keys';
+}
+
 function catalogAuditedStockQty(product) {
   if (!product) return 0;
   if (isSacHsn(product.hsn)) return 1;
+  if (isSoftwareKeysCategoryName(product.categoryName)) {
+    const ledger = Number(product.ledgerClosingStock);
+    if (Number.isFinite(ledger)) return ledger;
+    const zoho = Number(product.stock);
+    return Number.isFinite(zoho) ? zoho : 0;
+  }
   const stock = Number(product.stock);
   const currentZoho = Number.isFinite(stock) ? stock : 0;
   const snap = product.auditSnapshot;
@@ -40,6 +50,7 @@ function catalogAuditedStockQty(product) {
 export function dealerCanOrderProduct(product, scheduledQty = 0) {
   if (!product) return false;
   if (isSacHsn(product.hsn)) return true;
+  if (isSoftwareKeysCategoryName(product.categoryName)) return true;
   if (catalogAuditedStockQty(product) > 0) return true;
   return Number(scheduledQty) > 0;
 }
@@ -59,6 +70,7 @@ async function loadProductForStock(productId) {
     ledgerClosingStock: data.ledgerClosingStock != null
       ? Number(data.ledgerClosingStock)
       : null,
+    categoryName: data.categoryName != null ? String(data.categoryName) : null,
   };
 }
 

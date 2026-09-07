@@ -10,6 +10,7 @@ import {
 } from '../../lib/catalog';
 import {
   catalogGridStockQty,
+  catalogGridStockUsesLedger,
   resolveAdjustedAuditDisplay,
 } from '../../lib/catalogProductAudit/display';
 import { normalizeGatcIdList, productHasLinkedGatc } from '../../lib/gatcCart';
@@ -250,7 +251,7 @@ export const ProductBrowseCard: React.FC<ProductBrowseCardProps> = ({
     });
   }, [showQty, product.auditSnapshot, product.stock]);
 
-  /** Grid qty pill: audited stock (Zoho + Diff), same as the product detail Audited column. */
+  /** Grid qty pill: audited stock, or ledger closing for Software Keys. */
   const gridStockQty = showQty ? catalogGridStockQty(product) : 0;
 
   const gridStockStatus = gridStockQty <= 0
@@ -265,7 +266,9 @@ export const ProductBrowseCard: React.FC<ProductBrowseCardProps> = ({
       : auditDiff > 0 ? 'over'
         : auditDiff < 0 ? 'under'
           : 'match';
-  const showAuditInfo = auditDisplay?.hasAuditSnapshot === true && auditDiff != null;
+  const showAuditInfo = !catalogGridStockUsesLedger(product)
+    && auditDisplay?.hasAuditSnapshot === true
+    && auditDiff != null;
   const onOrderQty = Number(raisedPoQty);
   const showOnOrderQty = !hideDealerSpareQty
     && !hideTeamQty

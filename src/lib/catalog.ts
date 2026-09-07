@@ -18,6 +18,7 @@ import { prefetchFastImages } from './fastImageCache';
 import { mapAuditSnapshot } from './catalogProductAudit/data';
 import { resolveAdjustedAuditDisplay } from './catalogProductAudit/display';
 import { effectiveCatalogStockStatus, isSacHsn } from './sacCatalog';
+import { isSoftwareKeysCategoryName } from './softwareKeysLedgerStock';
 import {
   clearCatalogCache,
   getCatalogInflight,
@@ -206,7 +207,7 @@ export function isSparesExcludedCategory(category: Pick<CatalogCategory, 'name'>
 }
 
 export function isSoftwareKeysCategory(category: Pick<CatalogCategory, 'name'>): boolean {
-  return category.name.trim().toLowerCase() === 'software keys';
+  return isSoftwareKeysCategoryName(category.name);
 }
 
 /** Cart UI hint — SAC / Software Keys are never shown as out of stock. */
@@ -221,6 +222,7 @@ export function cartLineIsOutOfStock(line: {
 }
 
 export {
+  isSoftwareKeysCategoryName,
   isSoftwareKeysLedgerStockProduct,
   normalizeCatalogHsn,
   SOFTWARE_KEYS_LEDGER_HSN,

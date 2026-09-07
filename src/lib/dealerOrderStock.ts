@@ -1,10 +1,12 @@
 import { catalogGridStockQty } from './catalogProductAudit/display';
 import { isSacHsn } from './sacCatalog';
+import { isSoftwareKeysLedgerStockProduct } from './softwareKeysLedgerStock';
 import type { CatalogProduct } from '../types/catalog';
 
 /**
  * Qty dealers treat as available to order.
  * SAC / services: always orderable.
+ * Software Keys: ledger closing (same as catalog grid).
  * Audited products: Zoho + Diff (catalog grid).
  * Never audited: Zoho stock (do not treat missing audit as zero).
  */
@@ -12,7 +14,7 @@ export function dealerCatalogAvailableQty(
   product: Pick<CatalogProduct, 'hsn' | 'stock' | 'auditSnapshot' | 'ledgerClosingStock' | 'categoryName' | 'categoryId'>,
 ): number {
   if (isSacHsn(product.hsn)) return 1;
-  if (product.auditSnapshot) {
+  if (isSoftwareKeysLedgerStockProduct(product) || product.auditSnapshot) {
     return catalogGridStockQty(product as CatalogProduct);
   }
   const stock = Number(product.stock);
@@ -35,6 +37,7 @@ export function dealerCanOrderProduct(
 ): boolean {
   if (!product) return dealerUpcomingShipmentQty(scheduledQty, raisedPoQty) > 0;
   if (isSacHsn(product.hsn)) return true;
+  if (isSoftwareKeysLedgerStockProduct(product)) return true;
   if (dealerCatalogAvailableQty(product) > 0) return true;
   return dealerUpcomingShipmentQty(scheduledQty, raisedPoQty) > 0;
 }
@@ -53,7 +56,7 @@ export function dealerOrderUsesScheduledInbound(
   scheduledQty = 0,
   raisedPoQty = 0,
 ): boolean {
-  if (!product || isSacHsn(product.hsn)) return false;
+  if (!product || isSacHsn(product.hsn) || isSoftwareKeysLedgerStockProduct(product)) return false;
   return dealerCatalogAvailableQty(product) <= 0
     && dealerUpcomingShipmentQty(scheduledQty, raisedPoQty) > 0;
 }

@@ -27,7 +27,7 @@ async function liveWarehouseQty(productId: string): Promise<number | null> {
 
 /**
  * Live audited qty for SO review / Verify & invoice.
- * Software Keys (997331): ledger closing stock (same as catalog grid).
+ * Software Keys: ledger closing stock (same as catalog grid).
  * Other products: audited stock (Zoho + Diff) from the live catalog doc.
  * If never audited, sum live Head Office + Cochin warehouse qty.
  */
