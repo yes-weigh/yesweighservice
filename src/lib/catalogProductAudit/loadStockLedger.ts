@@ -8,6 +8,7 @@ export async function loadCatalogProductStockLedger(
   return fetchCatalogProductLifetimeStockMovements(catalogProductId);
 }
 
+/** True only when Zoho fetch explicitly failed — an empty ledger is valid. */
 export function isBrokenStockLedger(result: CatalogProductStockMovementsResult): boolean {
-  return (!result.movements?.length) && result.currentStock == null;
+  return Boolean(result.zohoFetchFailed);
 }

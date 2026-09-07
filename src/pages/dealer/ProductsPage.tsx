@@ -48,11 +48,11 @@ export const ProductsPage: React.FC = () => {
   const [syncing, setSyncing] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const loadCatalog = useCallback(async () => {
-    if (!peekCatalogCacheStale()) setLoading(true);
+  const loadCatalog = useCallback(async (opts?: { force?: boolean }) => {
+    if (opts?.force || !peekCatalogCacheStale()) setLoading(true);
     setError(null);
     try {
-      const data = await fetchCatalog();
+      const data = await fetchCatalog({}, { force: opts?.force === true });
       setCatalog(data);
     } catch (err) {
       if (!peekCatalogCacheStale()) {
@@ -162,7 +162,7 @@ export const ProductsPage: React.FC = () => {
     setError(null);
     try {
       await syncCatalog();
-      await loadCatalog();
+      await loadCatalog({ force: true });
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Product sync failed.');
     } finally {

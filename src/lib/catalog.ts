@@ -1525,10 +1525,14 @@ export async function fetchCatalogProductDetail(productId: string): Promise<Cata
       stock: supplemented.stock,
       stockStatus: supplemented.stockStatus,
       auditSnapshot: supplemented.auditSnapshot ?? null,
-      ...(supplemented.ledgerClosingStock != null
-        ? { ledgerClosingStock: supplemented.ledgerClosingStock }
-        : {}),
     });
+    if (supplemented.ledgerClosingStock != null) {
+      publishCatalogLedgerClosingStock(
+        supplemented.id,
+        supplemented.ledgerClosingStock,
+        supplemented.ledgerClosingStockAt,
+      );
+    }
     return supplemented;
   } catch (err) {
     throw new Error(catalogErrorMessage(err));
@@ -1982,6 +1986,26 @@ export async function downloadCatalogProductImage(
     link.click();
   }
   return 'file';
+}
+
+export const CATALOG_LEDGER_STOCK_UPDATED_EVENT = 'yes-catalog-ledger-stock-updated';
+
+/** Write ledger closing onto the session catalog cache and notify the Products grid. */
+export function publishCatalogLedgerClosingStock(
+  productId: string,
+  ledgerClosingStock: number,
+  ledgerClosingStockAt?: string | null,
+): void {
+  const id = String(productId ?? '').trim();
+  if (!id || !Number.isFinite(ledgerClosingStock)) return;
+  patchCatalogCacheProduct(id, {
+    ledgerClosingStock,
+    ...(ledgerClosingStockAt ? { ledgerClosingStockAt } : {}),
+  });
+  if (typeof window === 'undefined') return;
+  window.dispatchEvent(new CustomEvent(CATALOG_LEDGER_STOCK_UPDATED_EVENT, {
+    detail: { productId: id, ledgerClosingStock, ledgerClosingStockAt: ledgerClosingStockAt ?? null },
+  }));
 }
 
 export async function syncCatalog(): Promise<{ syncedCount: number; syncedAt: string }> {

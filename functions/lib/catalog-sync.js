@@ -631,6 +631,11 @@ export async function syncCatalogToFirestore(secrets, configuredOrgId, options =
       console.info(
         `syncLedgerClosingStock: ${ledgerSync.updated}/${ledgerSync.total} software-key products`,
       );
+      // Ledger writes happen after the product batch — bump so the grid refetches.
+      await db.doc(META_DOC).set({
+        lastContentChangeAt: new Date().toISOString(),
+        updatedAt: FieldValue.serverTimestamp(),
+      }, { merge: true });
     }
   } catch (err) {
     console.warn('syncLedgerClosingStockForProducts failed:', err?.message ?? err);

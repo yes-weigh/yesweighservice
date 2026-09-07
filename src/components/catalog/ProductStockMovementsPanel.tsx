@@ -13,7 +13,7 @@ import {
   useLedgerPagination,
 } from './StockLedgerPagination';
 import { loadCatalogProductStockLedger, isBrokenStockLedger } from '../../lib/catalogProductAudit/loadStockLedger';
-import { formatStockQuantity } from '../../lib/catalog';
+import { formatStockQuantity, publishCatalogLedgerClosingStock } from '../../lib/catalog';
 import type { CatalogProduct } from '../../types/catalog';
 import type {
   CatalogProductStockMovementsResult,
@@ -187,6 +187,11 @@ export const ProductStockMovementsPanel: React.FC<{
       const result = await loadCatalogProductStockLedger(product.id);
       if (isBrokenStockLedger(result)) {
         setError('Could not load stock movements from Zoho. Try Refresh again.');
+      } else {
+        const closing = Number(result.netDelta);
+        if (Number.isFinite(closing)) {
+          publishCatalogLedgerClosingStock(product.id, closing, result.fetchedAt ?? null);
+        }
       }
       setData(result);
     } catch (err) {

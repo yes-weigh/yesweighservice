@@ -412,9 +412,9 @@ function recomputeLedgerAggregates(payload) {
   );
   attachRunningStock(movements);
   const netDelta = movements.reduce((sum, m) => sum + (Number(m.qtyDelta) || 0), 0);
-  const currentStock = payload.currentStock != null && Number.isFinite(Number(payload.currentStock))
+  const currentStock = Number.isFinite(Number(payload.currentStock))
     ? Number(payload.currentStock)
-    : null;
+    : 0;
   const unexplainedGap = currentStock != null ? currentStock - netDelta : null;
   return {
     ...payload,
@@ -715,20 +715,20 @@ export function isSoftwareKeysLedgerStockProduct(product) {
 
 async function persistLedgerClosingStockIfEligible(catalogProductId, ledgerResult) {
   if (ledgerResult?.ledgerIncomplete) {
-    console.warn(`skip ledgerClosingStock persist for ${catalogProductId}: credit notes incomplete`);
-    return;
+    console.warn(`persist ledgerClosingStock for ${catalogProductId} without complete credit notes`);
   }
   const db = getFirestore();
   const ref = db.collection('catalogProducts').doc(catalogProductId);
   const snap = await ref.get();
-  if (!snap.exists) return;
-  if (!isSoftwareKeysLedgerStockProduct(snap.data())) return;
+  if (!snap.exists) return false;
+  if (!isSoftwareKeysLedgerStockProduct(snap.data())) return false;
 
   const closing = Number(ledgerResult?.netDelta);
   await ref.set({
     ledgerClosingStock: Number.isFinite(closing) ? closing : 0,
     ledgerClosingStockAt: ledgerResult?.fetchedAt ?? new Date().toISOString(),
   }, { merge: true });
+  return true;
 }
 
 /** Refresh ledger closing stock on catalogProducts for Software Keys. */

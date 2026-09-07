@@ -125,4 +125,6 @@ export interface CatalogProductStockMovementsResult {
   openingStock?: number | null;
   fetchedAt?: string;
   movements: CatalogStockMovement[];
+  /** Set when Zoho item/transaction APIs failed — empty movements alone is not an error. */
+  zohoFetchFailed?: boolean;
 }

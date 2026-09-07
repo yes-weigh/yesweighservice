@@ -73,6 +73,7 @@ import {
   saveCatalogCategoryProductOrder,
   applyCategoryProductDisplayOrder,
   saveCatalogSpareProductLinks,
+  CATALOG_LEDGER_STOCK_UPDATED_EVENT,
   syncCatalog,
   uploadCatalogCategoryThumbnail,
   resolveSkuLabelRackStatus,
@@ -405,6 +406,38 @@ export const CatalogPage: React.FC = () => {
     window.addEventListener('yes-catalog-bin-label-printed', onBinLabelPrinted);
     return () => window.removeEventListener('yes-catalog-bin-label-printed', onBinLabelPrinted);
   }, [loadCatalog]);
+
+  useEffect(() => {
+    const onLedgerStock = (event: Event) => {
+      const detail = (event as CustomEvent<{
+        productId?: string;
+        ledgerClosingStock?: number;
+        ledgerClosingStockAt?: string | null;
+      }>).detail;
+      const productId = String(detail?.productId ?? '').trim();
+      const qty = Number(detail?.ledgerClosingStock);
+      if (!productId || !Number.isFinite(qty)) return;
+      setCatalog(prev => {
+        if (!prev) return prev;
+        return {
+          ...prev,
+          items: prev.items.map(item => (
+            item.id === productId
+              ? {
+                ...item,
+                ledgerClosingStock: qty,
+                ...(detail?.ledgerClosingStockAt
+                  ? { ledgerClosingStockAt: detail.ledgerClosingStockAt }
+                  : {}),
+              }
+              : item
+          )),
+        };
+      });
+    };
+    window.addEventListener(CATALOG_LEDGER_STOCK_UPDATED_EVENT, onLedgerStock);
+    return () => window.removeEventListener(CATALOG_LEDGER_STOCK_UPDATED_EVENT, onLedgerStock);
+  }, []);
 
   useEffect(() => {
     if (!isMedia) return;
@@ -1150,7 +1183,7 @@ export const CatalogPage: React.FC = () => {
     setError(null);
     try {
       await syncCatalog();
-      await loadCatalog();
+      await loadCatalog({ force: true });
       await loadLinkedSpareIds();
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Product sync failed.');
