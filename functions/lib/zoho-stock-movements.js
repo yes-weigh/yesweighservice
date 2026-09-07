@@ -504,8 +504,17 @@ export async function listCatalogProductLifetimeStockMovements(
   }
 
   const inventory = itemTracksInventory(item);
-  const invoices = await listAllItemTransactions(zohoGet, 'invoices', itemId, 'invoices', { required: true });
-  const creditNoteResult = await listAllItemTransactionsDetailed(zohoGet, 'creditnotes', itemId, 'creditnotes');
+  const creditNotesRequired = !inventory;
+  const [invoices, creditNoteResult] = await Promise.all([
+    listAllItemTransactions(zohoGet, 'invoices', itemId, 'invoices', { required: true }),
+    listAllItemTransactionsDetailed(
+      zohoGet,
+      'creditnotes',
+      itemId,
+      'creditnotes',
+      { required: creditNotesRequired },
+    ),
+  ]);
   const creditnotes = creditNoteResult.rows;
   let bills = [];
   let adjustments = [];
@@ -713,9 +722,22 @@ export function isSoftwareKeysLedgerStockProduct(product) {
   return isSoftwareKeysCategoryName(product?.categoryName);
 }
 
+function ledgerLooksInvoiceOnly(ledgerResult) {
+  const movements = Array.isArray(ledgerResult?.movements) ? ledgerResult.movements : [];
+  let invoiceOut = 0;
+  let creditIn = 0;
+  for (const row of movements) {
+    const delta = Number(row?.qtyDelta) || 0;
+    if (row?.type === 'invoice') invoiceOut += delta;
+    if (row?.type === 'creditnote') creditIn += delta;
+  }
+  return invoiceOut < 0 && creditIn === 0;
+}
+
 async function persistLedgerClosingStockIfEligible(catalogProductId, ledgerResult) {
   if (ledgerResult?.ledgerIncomplete) {
-    console.warn(`persist ledgerClosingStock for ${catalogProductId} without complete credit notes`);
+    console.warn(`skip ledgerClosingStock persist for ${catalogProductId}: credit notes incomplete`);
+    return false;
   }
   const db = getFirestore();
   const ref = db.collection('catalogProducts').doc(catalogProductId);
@@ -724,10 +746,24 @@ async function persistLedgerClosingStockIfEligible(catalogProductId, ledgerResul
   if (!isSoftwareKeysLedgerStockProduct(snap.data())) return false;
 
   const closing = Number(ledgerResult?.netDelta);
+  const next = Number.isFinite(closing) ? closing : 0;
+  const existing = Number(snap.data()?.ledgerClosingStock);
+  if (
+    ledgerLooksInvoiceOnly(ledgerResult)
+    && Number.isFinite(existing)
+    && existing > next
+  ) {
+    console.warn(
+      `skip ledgerClosingStock persist for ${catalogProductId}: invoice-only ${next} < existing ${existing}`,
+    );
+    return false;
+  }
+
   await ref.set({
-    ledgerClosingStock: Number.isFinite(closing) ? closing : 0,
+    ledgerClosingStock: next,
     ledgerClosingStockAt: ledgerResult?.fetchedAt ?? new Date().toISOString(),
   }, { merge: true });
+  console.info(`ledgerClosingStock ${catalogProductId}=${next}`);
   return true;
 }
 
@@ -743,6 +779,7 @@ export async function syncLedgerClosingStockForProducts(secrets, configuredOrgId
     try {
       await getLifetimeStockMovements(secrets, configuredOrgId, product.id);
       updated += 1;
+      await sleep(250);
     } catch (err) {
       console.warn(`syncLedgerClosingStock ${product.id}:`, err?.message ?? err);
     }

@@ -544,13 +544,6 @@ export async function syncCatalogToFirestore(secrets, configuredOrgId, options =
 
     preserveFirestoreOnlyProductFlags(existing, doc);
 
-    if (Number.isFinite(Number(existing?.ledgerClosingStock))) {
-      doc.ledgerClosingStock = Number(existing.ledgerClosingStock);
-    }
-    if (typeof existing?.ledgerClosingStockAt === 'string' && existing.ledgerClosingStockAt.trim()) {
-      doc.ledgerClosingStockAt = existing.ledgerClosingStockAt.trim();
-    }
-
     if (batchCount >= batchSize) {
       await commitBatch();
     }
