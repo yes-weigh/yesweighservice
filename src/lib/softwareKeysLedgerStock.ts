@@ -11,6 +11,12 @@ export function isSoftwareKeysCategoryName(name: string | null | undefined): boo
   return String(name ?? '').trim().toLowerCase() === 'software keys';
 }
 
+/** Prior Sync bugs wrote ~800–900 as closing. Real key ledgers stay far below this. */
+export function isImplausibleSoftwareKeyLedgerQty(qty: number | null | undefined): boolean {
+  const n = Number(qty);
+  return Number.isFinite(n) && Math.abs(n) > 200;
+}
+
 /**
  * Software Keys category — grid stock comes from ledger closing (in − out),
  * not warehouse audit. HSN 85238020/997331 both qualify.

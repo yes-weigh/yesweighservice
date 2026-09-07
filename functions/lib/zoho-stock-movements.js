@@ -3,7 +3,7 @@
  * Fetches stock-affecting doc types. Draft/void/cancelled docs stay visible but
  * qtyDelta=0 so Running matches Zoho accounting stock. Always fetched live from Zoho.
  */
-import { getFirestore } from 'firebase-admin/firestore';
+import { FieldValue, getFirestore } from 'firebase-admin/firestore';
 import { getAccessToken, resolveOrganizationId, ZOHO_API_BASE } from './zoho.js';
 
 const REQUEST_GAP_MS = 100;
@@ -830,12 +830,32 @@ async function persistLedgerClosingStockIfEligible(catalogProductId, ledgerResul
   const closing = Number(ledgerResult?.netDelta);
   const next = Number.isFinite(closing) ? closing : 0;
   const existing = Number(snap.data()?.ledgerClosingStock);
+  if (Math.abs(next) > 200) {
+    if (Number.isFinite(existing) && Math.abs(existing) > 200) {
+      await ref.set({
+        ledgerClosingStock: FieldValue.delete(),
+        ledgerClosingStockAt: FieldValue.delete(),
+      }, { merge: true });
+      console.warn(`cleared implausible ledgerClosingStock ${catalogProductId} was ${existing}`);
+    } else {
+      console.warn(`skip ledgerClosingStock persist for ${catalogProductId}: implausible ${next}`);
+    }
+    return false;
+  }
   const invoiceOnly = ledgerLooksInvoiceOnly(ledgerResult);
   if (invoiceOnly) {
-    console.warn(
-      `skip ledgerClosingStock persist for ${catalogProductId}: invoice-only ${next}`
-      + (Number.isFinite(existing) ? ` (keeping ${existing})` : ''),
-    );
+    if (Number.isFinite(existing) && Math.abs(existing) > 200) {
+      await ref.set({
+        ledgerClosingStock: FieldValue.delete(),
+        ledgerClosingStockAt: FieldValue.delete(),
+      }, { merge: true });
+      console.warn(`cleared implausible ledgerClosingStock ${catalogProductId} was ${existing}`);
+    } else {
+      console.warn(
+        `skip ledgerClosingStock persist for ${catalogProductId}: invoice-only ${next}`
+        + (Number.isFinite(existing) ? ` (keeping ${existing})` : ''),
+      );
+    }
     return false;
   }
   const invoiceOut = (ledgerResult?.movements ?? [])
@@ -871,7 +891,7 @@ export async function syncLedgerClosingStockForProducts(secrets, configuredOrgId
     try {
       await getLifetimeStockMovements(secrets, configuredOrgId, product.id);
       updated += 1;
-      await sleep(400);
+      await sleep(800);
     } catch (err) {
       console.warn(`syncLedgerClosingStock ${product.id}:`, err?.message ?? err);
     }

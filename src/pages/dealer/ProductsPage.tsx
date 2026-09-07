@@ -12,6 +12,8 @@ import {
   catalogResponseFromCache,
   peekCatalogCacheStale,
 } from '../../lib/catalog-cache';
+import { useSoftwareKeyLedgerRepair } from '../../hooks/useSoftwareKeyLedgerRepair';
+import { refreshSoftwareKeyLedgerStocks } from '../../lib/softwareKeysLedgerRefresh';
 import {
   excludeHiddenCatalogProducts,
   fetchCatalog,
@@ -20,6 +22,7 @@ import {
   saveCatalogCategoryOrder,
   saveCatalogCategoryProductOrder,
   applyCategoryProductDisplayOrder,
+  CATALOG_LEDGER_STOCK_UPDATED_EVENT,
   syncCatalog,
   uploadCatalogCategoryThumbnail,
 } from '../../lib/catalog';
@@ -44,6 +47,7 @@ export const ProductsPage: React.FC = () => {
     const cached = peekCatalogCacheStale();
     return cached ? catalogResponseFromCache(cached) : null;
   });
+  useSoftwareKeyLedgerRepair(catalog?.items, canSync);
   const [loading, setLoading] = useState(() => !peekCatalogCacheStale());
   const [syncing, setSyncing] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -54,10 +58,12 @@ export const ProductsPage: React.FC = () => {
     try {
       const data = await fetchCatalog({}, { force: opts?.force === true });
       setCatalog(data);
+      return data;
     } catch (err) {
       if (!peekCatalogCacheStale()) {
         setError(err instanceof Error ? err.message : 'Unable to load product catalog.');
       }
+      return null;
     } finally {
       setLoading(false);
     }
@@ -66,6 +72,38 @@ export const ProductsPage: React.FC = () => {
   useEffect(() => {
     void loadCatalog();
   }, [loadCatalog]);
+
+  useEffect(() => {
+    const onLedgerStock = (event: Event) => {
+      const detail = (event as CustomEvent<{
+        productId?: string;
+        ledgerClosingStock?: number;
+        ledgerClosingStockAt?: string | null;
+      }>).detail;
+      const productId = String(detail?.productId ?? '').trim();
+      const qty = Number(detail?.ledgerClosingStock);
+      if (!productId || !Number.isFinite(qty)) return;
+      setCatalog(prev => {
+        if (!prev) return prev;
+        return {
+          ...prev,
+          items: prev.items.map(item => (
+            item.id === productId
+              ? {
+                ...item,
+                ledgerClosingStock: qty,
+                ...(detail?.ledgerClosingStockAt
+                  ? { ledgerClosingStockAt: detail.ledgerClosingStockAt }
+                  : {}),
+              }
+              : item
+          )),
+        };
+      });
+    };
+    window.addEventListener(CATALOG_LEDGER_STOCK_UPDATED_EVENT, onLedgerStock);
+    return () => window.removeEventListener(CATALOG_LEDGER_STOCK_UPDATED_EVENT, onLedgerStock);
+  }, []);
 
   const catalogProductsUnfiltered = useMemo(
     () => excludeHiddenCatalogProducts(
@@ -162,7 +200,10 @@ export const ProductsPage: React.FC = () => {
     setError(null);
     try {
       await syncCatalog();
-      await loadCatalog({ force: true });
+      const data = await loadCatalog({ force: true });
+      if (data?.items.length) {
+        void refreshSoftwareKeyLedgerStocks(data.items);
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Product sync failed.');
     } finally {

@@ -127,4 +127,6 @@ export interface CatalogProductStockMovementsResult {
   movements: CatalogStockMovement[];
   /** Set when Zoho item/transaction APIs failed — empty movements alone is not an error. */
   zohoFetchFailed?: boolean;
+  /** Incomplete credit-note pull — do not persist this net to the catalog card. */
+  ledgerIncomplete?: boolean;
 }

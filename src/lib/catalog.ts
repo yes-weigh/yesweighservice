@@ -18,7 +18,7 @@ import { prefetchFastImages } from './fastImageCache';
 import { mapAuditSnapshot } from './catalogProductAudit/data';
 import { resolveAdjustedAuditDisplay } from './catalogProductAudit/display';
 import { effectiveCatalogStockStatus, isSacHsn } from './sacCatalog';
-import { isSoftwareKeysCategoryName } from './softwareKeysLedgerStock';
+import { isImplausibleSoftwareKeyLedgerQty, isSoftwareKeysCategoryName } from './softwareKeysLedgerStock';
 import {
   clearCatalogCache,
   getCatalogInflight,
@@ -969,6 +969,7 @@ function mapProduct(data: Record<string, unknown>): CatalogProduct {
         }
       : {}),
     ...(Number.isFinite(Number(data.ledgerClosingStock))
+      && !isImplausibleSoftwareKeyLedgerQty(Number(data.ledgerClosingStock))
       ? { ledgerClosingStock: Number(data.ledgerClosingStock) }
       : {}),
     ...(typeof data.ledgerClosingStockAt === 'string' && data.ledgerClosingStockAt.trim()
@@ -1465,6 +1466,7 @@ export function mergeCatalogProductLedgerStock<T extends CatalogProduct>(
 ): T {
   if (!fallback || product.ledgerClosingStock != null) return product;
   if (fallback.ledgerClosingStock == null) return product;
+  if (isImplausibleSoftwareKeyLedgerQty(fallback.ledgerClosingStock)) return product;
   return {
     ...product,
     ledgerClosingStock: fallback.ledgerClosingStock,
@@ -1484,6 +1486,7 @@ async function supplementCatalogProductLedgerStock(
     if (!snap.exists()) return detail;
     const data = snap.data() ?? {};
     if (!Number.isFinite(Number(data.ledgerClosingStock))) return detail;
+    if (isImplausibleSoftwareKeyLedgerQty(Number(data.ledgerClosingStock))) return detail;
     return {
       ...detail,
       ledgerClosingStock: Number(data.ledgerClosingStock),
@@ -1526,7 +1529,10 @@ export async function fetchCatalogProductDetail(productId: string): Promise<Cata
       stockStatus: supplemented.stockStatus,
       auditSnapshot: supplemented.auditSnapshot ?? null,
     });
-    if (supplemented.ledgerClosingStock != null) {
+    if (
+      supplemented.ledgerClosingStock != null
+      && !isImplausibleSoftwareKeyLedgerQty(supplemented.ledgerClosingStock)
+    ) {
       publishCatalogLedgerClosingStock(
         supplemented.id,
         supplemented.ledgerClosingStock,
@@ -1998,6 +2004,7 @@ export function publishCatalogLedgerClosingStock(
 ): void {
   const id = String(productId ?? '').trim();
   if (!id || !Number.isFinite(ledgerClosingStock)) return;
+  if (isImplausibleSoftwareKeyLedgerQty(ledgerClosingStock)) return;
   patchCatalogCacheProduct(id, {
     ledgerClosingStock,
     ...(ledgerClosingStockAt ? { ledgerClosingStockAt } : {}),

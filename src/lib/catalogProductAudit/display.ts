@@ -1,4 +1,7 @@
-import { isSoftwareKeysLedgerStockProduct } from '../softwareKeysLedgerStock';
+import {
+  isImplausibleSoftwareKeyLedgerQty,
+  isSoftwareKeysLedgerStockProduct,
+} from '../softwareKeysLedgerStock';
 import type { CatalogProduct } from '../../types/catalog';
 import type { CatalogProductAuditSnapshot } from '../../types/catalog-product-audit';
 
@@ -101,9 +104,8 @@ export function catalogGridStockUsesLedger(product: CatalogProduct): boolean {
 export function catalogGridStockQty(product: CatalogProduct): number {
   if (catalogGridStockUsesLedger(product)) {
     const qty = Number(product.ledgerClosingStock);
-    if (Number.isFinite(qty)) return qty;
-    const zoho = Number(product.stock);
-    return Number.isFinite(zoho) ? zoho : 0;
+    if (Number.isFinite(qty) && !isImplausibleSoftwareKeyLedgerQty(qty)) return qty;
+    return 0;
   }
   return catalogGridAuditedStockQty(product.auditSnapshot, product.stock);
 }
