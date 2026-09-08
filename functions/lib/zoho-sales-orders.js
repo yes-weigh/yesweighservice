@@ -10,6 +10,7 @@ import {
 import { isSacHsn } from './sac-catalog.js';
 import { isFreightOrderLine } from './freight-lines.js';
 import { ZOHO_ADDRESS_LINE_MAX, fitZohoAddressLines } from './zoho-contact-fields.js';
+import { loadZohoLocationIdsBySite } from './zoho-locations.js';
 
 function hsnDigits(value) {
   return String(value ?? '').replace(/\D/g, '');
@@ -50,16 +51,13 @@ export function lineAllowsWarehouse(line) {
   return true;
 }
 
-function warehouseIdForLine(line, fallbackWarehouseId) {
+export function warehouseIdForLine(line, fallbackWarehouseId) {
   if (!lineAllowsWarehouse(line)) return null;
   const fallback = fallbackWarehouseId != null && String(fallbackWarehouseId).trim()
     ? String(fallbackWarehouseId).trim()
     : null;
-  const ids = (Array.isArray(line?.warehouses) ? line.warehouses : [])
-    .map(row => String(row?.warehouseId ?? row?.warehouse_id ?? '').trim())
-    .filter(Boolean);
-  if (fallback && (ids.length === 0 || ids.includes(fallback))) return fallback;
-  if (ids.length) return ids[0];
+  // Always use the live Cochin / Head Office warehouse. Catalog warehouse ids
+  // go stale and Zoho returns "not authorized" for unknown warehouse_id.
   return fallback;
 }
 
@@ -118,7 +116,19 @@ function withoutLineDescriptions(body) {
   return next;
 }
 
-function uniqueSalesOrderCreateAttempts(body) {
+function replaceLineWarehouses(body, warehouseId) {
+  const next = cloneSalesOrderBody(body);
+  const warehouse = warehouseId != null && String(warehouseId).trim()
+    ? String(warehouseId).trim()
+    : null;
+  if (!warehouse) return next;
+  next.line_items = next.line_items.map(line => (
+    line.warehouse_id ? { ...line, warehouse_id: warehouse } : line
+  ));
+  return next;
+}
+
+function uniqueSalesOrderCreateAttempts(body, { alternateWarehouseId } = {}) {
   const attempts = [];
   const seen = new Set();
   const push = (next) => {
@@ -135,20 +145,41 @@ function uniqueSalesOrderCreateAttempts(body) {
   // Keep warehouse_id on inventory goods. Multi-warehouse Zoho returns
   // "not authorized" if stocked items are posted without a warehouse — so
   // never strip warehouses on retry (shipping/salesperson are optional).
-  push(cloneSalesOrderBody(body));
-  if (hasShipping) push(stripShippingFromBody(body));
-  if (hasSalesperson) {
-    push(withoutSalesperson(body));
-    if (hasShipping) push(stripShippingFromBody(withoutSalesperson(body)));
-  }
-  if (hasDescription) {
-    const noDesc = withoutLineDescriptions(body);
-    push(noDesc);
-    if (hasShipping) push(stripShippingFromBody(noDesc));
+  const pushFieldVariants = (source) => {
+    push(cloneSalesOrderBody(source));
+    if (hasShipping) push(stripShippingFromBody(source));
     if (hasSalesperson) {
-      push(withoutSalesperson(noDesc));
-      if (hasShipping) push(stripShippingFromBody(withoutSalesperson(noDesc)));
+      push(withoutSalesperson(source));
+      if (hasShipping) push(stripShippingFromBody(withoutSalesperson(source)));
     }
+    if (hasDescription) {
+      const noDesc = withoutLineDescriptions(source);
+      push(noDesc);
+      if (hasShipping) push(stripShippingFromBody(noDesc));
+      if (hasSalesperson) {
+        push(withoutSalesperson(noDesc));
+        if (hasShipping) push(stripShippingFromBody(withoutSalesperson(noDesc)));
+      }
+    }
+  };
+
+  pushFieldVariants(body);
+
+  const primaryWarehouse = (body.line_items || [])
+    .map(line => String(line.warehouse_id || '').trim())
+    .find(Boolean) || null;
+  const alternate = alternateWarehouseId != null && String(alternateWarehouseId).trim()
+    ? String(alternateWarehouseId).trim()
+    : null;
+  // Item may only be enabled at the other live warehouse (Cochin ↔ Head Office).
+  if (alternate && alternate !== primaryWarehouse) {
+    const altFull = replaceLineWarehouses(body, alternate);
+    push(altFull);
+    let stripped = altFull;
+    if (hasShipping) stripped = stripShippingFromBody(stripped);
+    if (hasSalesperson) stripped = withoutSalesperson(stripped);
+    if (hasDescription) stripped = withoutLineDescriptions(stripped);
+    push(stripped);
   }
   return attempts;
 }
@@ -473,11 +504,31 @@ export async function createSalesOrderFromDealerOrder(secrets, configuredOrgId, 
   const accessToken = await getAccessToken(secrets);
   const orgId = await resolveOrganizationId(accessToken, configuredOrgId);
   // order.locationId holds the Zoho warehouse_id for Cochin / Head Office.
-  const warehouseId = order.locationId != null && String(order.locationId).trim()
+  let warehouseId = order.locationId != null && String(order.locationId).trim()
     ? String(order.locationId).trim()
     : (order.warehouseId != null && String(order.warehouseId).trim()
       ? String(order.warehouseId).trim()
       : null);
+  let alternateWarehouseId = null;
+  try {
+    const bySite = await loadZohoLocationIdsBySite(secrets, configuredOrgId);
+    const liveIds = [bySite.cochin, bySite.head_office].filter(Boolean);
+    if (warehouseId && liveIds.includes(warehouseId)) {
+      alternateWarehouseId = liveIds.find(id => id !== warehouseId) || null;
+    } else if (liveIds.length) {
+      if (warehouseId) {
+        console.warn('Zoho sales order warehouse id is not a live Cochin/HO warehouse; using live ids', {
+          requested: warehouseId,
+          cochin: bySite.cochin,
+          headOffice: bySite.head_office,
+        });
+      }
+      warehouseId = liveIds.includes(bySite.cochin) ? bySite.cochin : liveIds[0];
+      alternateWarehouseId = liveIds.find(id => id !== warehouseId) || null;
+    }
+  } catch (err) {
+    console.warn('Could not load live Zoho warehouses for sales order create:', err?.message || err);
+  }
   const lineItems = lineItemsFromOrder(order, warehouseId);
   if (!lineItems.length) {
     throw new Error('Order has no valid Zoho line items.');
@@ -511,7 +562,7 @@ export async function createSalesOrderFromDealerOrder(secrets, configuredOrgId, 
     body.shipping_address_id = shippingId;
   }
 
-  const attempts = uniqueSalesOrderCreateAttempts(body);
+  const attempts = uniqueSalesOrderCreateAttempts(body, { alternateWarehouseId });
   let payload = null;
   let lastErr = null;
   let createdBody = null;
@@ -536,7 +587,7 @@ export async function createSalesOrderFromDealerOrder(secrets, configuredOrgId, 
         of: attempts.length,
         items: attempts[i].line_items.map(line => ({
           item_id: line.item_id,
-          warehouse: Boolean(line.warehouse_id),
+          warehouse_id: line.warehouse_id || null,
           hsn: line.hsn_or_sac || null,
         })),
         salesperson: Boolean(attempts[i].salesperson_id),
