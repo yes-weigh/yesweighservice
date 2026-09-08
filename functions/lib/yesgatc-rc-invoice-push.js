@@ -166,6 +166,9 @@ export function invoiceSerialPayload(invoice, rc, { action = 'upsert', alreadyPu
         id: str(line.id),
         name: str(line.name),
         sku: str(line.sku) || null,
+        itemId: str(line.itemId || line.productId) || null,
+        productId: str(line.itemId || line.productId) || null,
+        productName: str(line.name) || null,
         hsn: str(line.hsn) || null,
         qty,
         serialCount: serialNumbers.length,
@@ -179,7 +182,7 @@ export function invoiceSerialPayload(invoice, rc, { action = 'upsert', alreadyPu
     .filter(line => action === 'unlink' || line.serialNumbers.length);
   const serialNumbers = uniqueSerials(lines.flatMap(line => line.serialNumbers));
   const qty = lines.reduce((sum, line) => sum + (line.serialCount || line.qty), 0) || serialNumbers.length;
-  const event = yesGatcSerialEvent({ action, alreadyPushed });
+  const event = yesGatcSerialEvent({ action, alreadyPushed: false });
   const invoiceLink = {
     rcCode: str(rc.rcCode) || null,
     rcName: str(rc.rcName) || null,
@@ -193,26 +196,46 @@ export function invoiceSerialPayload(invoice, rc, { action = 'upsert', alreadyPu
     endNumber: serialNumbers[serialNumbers.length - 1] || null,
     serialNumbers,
   };
-  const allotment = {
+  const allotments = lines.map(line => ({
     series: NON_GATC_SERIES,
     seriesLabel: 'non GATC',
-    from: invoiceLink.startNumber,
-    to: invoiceLink.endNumber,
-    count: serialNumbers.length,
-    qty,
-    serialNumbers,
-    invoiceLinks: [invoiceLink],
-  };
+    sku: str(line.sku) || null,
+    productId: str(line.itemId || line.productId) || null,
+    itemId: str(line.itemId || line.productId) || null,
+    productName: str(line.name) || null,
+    name: str(line.name) || null,
+    from: line.startNumber,
+    to: line.endNumber,
+    count: line.serialNumbers.length,
+    qty: line.serialCount || line.qty,
+    serialNumbers: line.serialNumbers,
+    invoiceLinks: [{
+      ...invoiceLink,
+      qty: line.serialNumbers.length,
+      startNumber: line.startNumber,
+      endNumber: line.endNumber,
+      serialNumbers: line.serialNumbers,
+    }],
+  }));
   return {
     event,
     type: event,
     action,
     source: 'yesone',
     sentAt: new Date().toISOString(),
-    condition: 'dismantled',
+    condition: lines.every(line => line.dismantled) ? 'dismantled' : null,
     series: NON_GATC_SERIES,
     seriesLabel: 'non GATC',
-    allotments: [allotment],
+    allotments: allotments.length ? allotments : [{
+      series: NON_GATC_SERIES,
+      seriesLabel: 'non GATC',
+      from: invoiceLink.startNumber,
+      to: invoiceLink.endNumber,
+      count: serialNumbers.length,
+      qty,
+      serialNumbers,
+      invoiceLinks: [invoiceLink],
+    }],
     rc: {
       id: rc.rcId,
       name: rc.rcName,
@@ -272,10 +295,14 @@ export async function pushRcInvoiceSerialsToYesGatc({
     };
   }
 
-  const rc = await findLinkedRcForDealer(customerId);
-  if (!rc) {
-    return { pushed: false, skipped: 'not_rc', rc: null };
-  }
+  const linked = await findLinkedRcForDealer(customerId);
+  const rc = linked || {
+    rcId: null,
+    rcCode: 'IWP',
+    rcName: 'INTERWEIGHING PVT LTD',
+    dealerId: str(customerId) || null,
+    dealerName: str(data.customerName) || null,
+  };
 
   const payload = invoiceSerialPayload(data, rc, {
     action: kind,

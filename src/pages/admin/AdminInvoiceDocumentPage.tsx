@@ -278,7 +278,7 @@ export const AdminInvoiceDocumentPage: React.FC = () => {
       await reloadInvoice?.();
       setGatcPicker(null);
       setAllotNotice(
-        `Linked ${result.allotted.toLocaleString('en-IN')} GATC serial${result.allotted === 1 ? '' : 's'}.${zohoNotice(result)}`,
+        `Linked ${result.allotted.toLocaleString('en-IN')} GATC serial${result.allotted === 1 ? '' : 's'}.${zohoNotice(result)}${yesgatcNotice(result)}`,
       );
     } catch (err) {
       setGatcPickerError(
@@ -321,7 +321,7 @@ export const AdminInvoiceDocumentPage: React.FC = () => {
       await reloadInvoice?.();
       if (result.released > 0) {
         setAllotNotice(
-          `Unlinked ${result.released.toLocaleString('en-IN')} GATC serial${result.released === 1 ? '' : 's'}.${zohoNotice(result)}`,
+          `Unlinked ${result.released.toLocaleString('en-IN')} GATC serial${result.released === 1 ? '' : 's'}.${zohoNotice(result)}${yesgatcNotice(result)}`,
         );
       } else {
         setAllotNotice('No GATC serial numbers to unlink.');

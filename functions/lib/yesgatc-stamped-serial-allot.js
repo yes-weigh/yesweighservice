@@ -689,6 +689,13 @@ export async function allotGatcStampedSerialsToInvoice({
     lines: nextLines,
   });
 
+  const yesgatc = await notifyYesGatcInvoiceSerials({
+    customerId,
+    invoiceId,
+    actorName,
+    action: 'upsert',
+  });
+
   return {
     allotted: serials.length,
     released: 0,
@@ -696,7 +703,38 @@ export async function allotGatcStampedSerialsToInvoice({
     voided: false,
     lineItems: nextLines,
     ...zoho,
+    yesgatcPushed: Boolean(yesgatc.pushed),
+    yesgatcSkipped: yesgatc.skipped || null,
+    yesgatcError: yesgatc.error || null,
   };
+}
+
+async function notifyYesGatcInvoiceSerials({
+  customerId,
+  invoiceId,
+  actorName = 'YESWEIGH',
+  action = 'upsert',
+} = {}) {
+  try {
+    const { pushRcInvoiceSerialsToYesGatcSafe } = await import('./yesgatc-rc-invoice-push.js');
+    return await pushRcInvoiceSerialsToYesGatcSafe({
+      customerId,
+      invoiceId,
+      actorName,
+      force: true,
+      action,
+    });
+  } catch (err) {
+    console.warn(
+      `YesGATC stamped serial push failed for ${invoiceId}:`,
+      err?.message ?? err,
+    );
+    return {
+      pushed: false,
+      skipped: 'error',
+      error: err instanceof Error ? err.message : String(err),
+    };
+  }
 }
 
 export async function unlinkGatcStampedSerialsFromInvoice({
@@ -760,6 +798,13 @@ export async function unlinkGatcStampedSerialsFromInvoice({
     lines: result.lineItems,
   });
 
+  const yesgatc = await notifyYesGatcInvoiceSerials({
+    customerId,
+    invoiceId,
+    actorName,
+    action: remaining.length ? 'upsert' : 'unlink',
+  });
+
   return {
     allotted: 0,
     released: result.released,
@@ -767,6 +812,9 @@ export async function unlinkGatcStampedSerialsFromInvoice({
     voided: isVoidInvoiceStatus(data.status),
     lineItems: result.lineItems,
     ...zoho,
+    yesgatcPushed: Boolean(yesgatc.pushed),
+    yesgatcSkipped: yesgatc.skipped || null,
+    yesgatcError: yesgatc.error || null,
   };
 }
 
