@@ -6,7 +6,7 @@ import { useCart } from '../context/useCart';
 import { useCartFly } from '../context/useCartFly';
 import { homePathForRole } from '../types';
 import { canUseOrderCart, orderCartPathForUser } from '../lib/salesOrderSegments';
-import { dealerStaffTeam } from '../lib/dealerAccess';
+import { dealerStaffTeam, hideDealerStaffCommercials } from '../lib/dealerAccess';
 import { navigateBack } from '../lib/navigation';
 import { HrStaffPhoto } from './hr/HrStaffPhoto';
 import {
@@ -349,14 +349,19 @@ const LayoutShell: React.FC = () => {
           ...portalNavItems('/dealer', 'dealer'),
           { path: '/dealer/team', icon: <Users size={20} />, label: 'Team' },
         ];
-      case 'dealer_staff':
-        return [
+      case 'dealer_staff': {
+        const items = [
           ...portalNavItems(
             '/dealer-staff',
             dealerStaffTeam(user) === 'admin' ? 'dealer' : 'dealer_staff',
           ),
           { path: '/dealer-staff/team', icon: <Users size={20} />, label: 'Team' },
         ];
+        if (hideDealerStaffCommercials(user)) {
+          return items.filter(item => !item.path.endsWith('/price-list'));
+        }
+        return items;
+      }
       case 'media':
         return [
           { path: '/media', icon: <LayoutDashboard size={20} />, label: 'Home' },

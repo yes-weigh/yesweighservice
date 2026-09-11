@@ -3,6 +3,9 @@ import {
   formatGatcOptionLabel,
   resolveGatcOptionsForProduct,
 } from '../../lib/gatcCart';
+import { isCatalogSparePartProduct } from '../../lib/catalog';
+import { canSeeDealerUnitPrice } from '../../lib/dealerAccess';
+import { useAuth } from '../../context/AuthContext';
 import { loadGatcStampingPrices } from '../../lib/catalogProductSettings';
 import type { CatalogGatcStampingPriceEntry } from '../../constants/catalogProductSettings';
 import type { CatalogProduct } from '../../types/catalog';
@@ -34,6 +37,8 @@ export const GatcStampingInlineControl: React.FC<{
   usedGatcIds = [],
   hasUnstampedSibling = false,
 }) => {
+  const { user } = useAuth();
+  const hideUnitRates = !canSeeDealerUnitPrice(user, isCatalogSparePartProduct(product));
   const [loading, setLoading] = useState(true);
   const [options, setOptions] = useState<CatalogGatcStampingPriceEntry[]>([]);
   const [loadError, setLoadError] = useState('');
@@ -128,18 +133,18 @@ export const GatcStampingInlineControl: React.FC<{
       { value: NONE_VALUE, label: 'Without stamping' },
       ...options.map(opt => ({
         value: opt.id,
-        label: formatGatcOptionLabel(opt),
+        label: formatGatcOptionLabel(opt, { hidePrice: hideUnitRates }),
       })),
     ],
-    [options],
+    [options, hideUnitRates],
   );
 
   const addOptions = useMemo(
     () => unusedStampOptions.map(opt => ({
       value: opt.id,
-      label: formatGatcOptionLabel(opt),
+      label: formatGatcOptionLabel(opt, { hidePrice: hideUnitRates }),
     })),
-    [unusedStampOptions],
+    [unusedStampOptions, hideUnitRates],
   );
 
   if (loading) {

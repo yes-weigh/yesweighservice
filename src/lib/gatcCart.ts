@@ -39,7 +39,11 @@ export function combinedCartRate(baseRate: number, gatcFeePerUnit: number): numb
   return Math.round((base + fee) * 100) / 100;
 }
 
-export function formatGatcOptionLabel(entry: CatalogGatcStampingPriceEntry): string {
+export function formatGatcOptionLabel(
+  entry: CatalogGatcStampingPriceEntry,
+  options?: { hidePrice?: boolean },
+): string {
+  if (options?.hidePrice) return entry.stampingRange;
   const price = entry.price.toLocaleString('en-IN', {
     minimumFractionDigits: 0,
     maximumFractionDigits: 2,

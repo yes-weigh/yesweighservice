@@ -6,7 +6,9 @@ import {
   resolveGatcOptionsForProduct,
 } from '../../lib/gatcCart';
 import { loadGatcStampingPrices } from '../../lib/catalogProductSettings';
-import { formatCurrency } from '../../lib/catalog';
+import { useAuth } from '../../context/AuthContext';
+import { formatCurrency, isCatalogSparePartProduct } from '../../lib/catalog';
+import { canSeeDealerUnitPrice } from '../../lib/dealerAccess';
 import type { CatalogGatcStampingPriceEntry } from '../../constants/catalogProductSettings';
 import type { CatalogProduct } from '../../types/catalog';
 
@@ -42,6 +44,8 @@ export const GatcStampingChoiceDialog: React.FC<{
   title,
   confirmLabel,
 }) => {
+  const { user } = useAuth();
+  const hideUnitRates = !canSeeDealerUnitPrice(user, isCatalogSparePartProduct(product));
   const [loading, setLoading] = useState(true);
   const [options, setOptions] = useState<CatalogGatcStampingPriceEntry[]>([]);
   const [loadError, setLoadError] = useState('');
@@ -176,7 +180,7 @@ export const GatcStampingChoiceDialog: React.FC<{
                 onClick={() => setWithStamping(false)}
               >
                 <strong>Without stamping</strong>
-                <span>{formatCurrency(baseRate)} / unit</span>
+                {hideUnitRates ? null : <span>{formatCurrency(baseRate)} / unit</span>}
               </button>
               <button
                 type="button"
@@ -191,9 +195,11 @@ export const GatcStampingChoiceDialog: React.FC<{
               >
                 <strong>With stamping</strong>
                 <span>
-                  {selected
-                    ? `${formatCurrency(baseRate)} + ${formatCurrency(selected.price)}`
-                    : 'Select a range below'}
+                  {hideUnitRates
+                    ? (selected ? formatGatcOptionLabel(selected, { hidePrice: true }) : 'Select a range below')
+                    : selected
+                      ? `${formatCurrency(baseRate)} + ${formatCurrency(selected.price)}`
+                      : 'Select a range below'}
                 </span>
               </button>
             </div>
@@ -210,13 +216,14 @@ export const GatcStampingChoiceDialog: React.FC<{
                       aria-pressed={selectedOpt}
                       onClick={() => setSelectedId(opt.id)}
                     >
-                      {formatGatcOptionLabel(opt)}
+                      {formatGatcOptionLabel(opt, { hidePrice: hideUnitRates })}
                     </button>
                   );
                 })}
               </div>
             )}
 
+            {hideUnitRates ? null : (
             <p className="gatc-stamp-dialog__summary text-sm">
               Unit price: <strong>{formatCurrency(unitRate)}</strong>
               {withStamping && selected ? (
@@ -225,6 +232,7 @@ export const GatcStampingChoiceDialog: React.FC<{
                 </span>
               ) : null}
             </p>
+            )}
           </>
         )}
 

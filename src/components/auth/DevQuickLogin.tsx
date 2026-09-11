@@ -24,6 +24,12 @@ const DEV_QUICK_LOGIN_PROFILES: readonly DevQuickLoginProfile[] = import.meta.en
         password: 'Pala!7890',
       },
       {
+        id: 'anish',
+        label: 'Anish (ACCURATE TRADE LINKS staff)',
+        loginId: '649578990212',
+        password: 'Test1234',
+      },
+      {
         id: 'biju',
         label: 'Biju (staff)',
         loginId: '494837940091',
