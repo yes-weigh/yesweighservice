@@ -2047,7 +2047,7 @@ export const CatalogPage: React.FC = () => {
         <CatalogUnifiedResults
           query={committedSearchQuery}
           products={catalogShopProducts}
-          spares={catalogSpareParts}
+          spares={showSpareCatalogTab ? catalogSpareParts : []}
           productsBasePath={pathname}
           sparesBasePath={`${pathname}/spare`}
           enableCart={orderCartEnabled}

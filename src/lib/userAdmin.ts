@@ -1,4 +1,4 @@
-import { signOut, type UserCredential } from 'firebase/auth';
+import { deleteUser, signOut, type UserCredential } from 'firebase/auth';
 import { getFunctions, httpsCallable } from 'firebase/functions';
 import {
   doc,
@@ -16,7 +16,8 @@ import {
   parseLoginId,
 } from './loginAuth';
 import { authErrorMessage } from './authErrors';
-import { reserveLoginIndex } from './loginIndex';
+import { dealerStaffTeams, dealerTeamsWriteFields } from './dealerAccess';
+import { releaseLoginIndex, reserveLoginIndex } from './loginIndex';
 import { contactFieldsForLogin } from './profileLogin';
 import type { FirestoreUserDoc, Role, SuperAdminAccess } from '../types';
 import { roleSupportsZohoSalespersonLinks } from './zohoSalespersonStaff';
@@ -40,7 +41,11 @@ export async function createAuthUser(
 }
 
 export async function rollbackCreatedAuthUser(): Promise<void> {
-  await signOut(secondaryAuth);
+  const created = secondaryAuth.currentUser;
+  if (created) {
+    await deleteUser(created).catch(() => undefined);
+  }
+  await signOut(secondaryAuth).catch(() => undefined);
 }
 
 export type UpdateUserProfilePatch = Partial<
@@ -144,6 +149,12 @@ export async function createUserProfile(
   const contacts = contactFieldsForLogin(parsed);
   const contactPhone = contacts.phone ?? input.phone?.trim();
   const contactEmail = contacts.email ?? input.email?.trim().toLowerCase();
+  const dealerStaffWrite = input.role === 'dealer_staff'
+    ? dealerTeamsWriteFields(dealerStaffTeams({
+      staffDepartment: input.staffDepartment,
+      dealerTeams: input.dealerTeams,
+    }))
+    : null;
 
   const docData = omitUndefined({
     loginId: parsed.value,
@@ -158,10 +169,10 @@ export async function createUserProfile(
       : undefined,
     dealerId: input.role === 'dealer_staff' ? input.dealerId?.trim() : undefined,
     zohoCustomerId: input.zohoCustomerId?.trim() || undefined,
-    staffDepartment: input.role === 'staff' || input.role === 'dealer_staff'
+    staffDepartment: input.role === 'staff'
       ? input.staffDepartment
-      : undefined,
-    dealerTeams: input.role === 'dealer_staff' ? input.dealerTeams ?? null : undefined,
+      : dealerStaffWrite?.staffDepartment,
+    dealerTeams: dealerStaffWrite?.dealerTeams,
     staffRoleId: input.role === 'staff' ? input.staffRoleId ?? null : undefined,
     staffAccessMode: input.role === 'staff' ? input.staffAccessMode ?? 'role' : undefined,
     staffPermissions: input.role === 'staff' ? input.staffPermissions ?? [] : undefined,
@@ -218,14 +229,20 @@ export async function registerUser(
 
   await assertLoginIdAvailable(parsed);
 
+  let uid: string | undefined;
   try {
     const cred = await createAuthUser(input.loginId, input.password);
-    await createUserProfile(db, cred.user.uid, input);
-    await reserveLoginIndex(parsed.type, parsed.value, cred.user.uid, input.role);
+    uid = cred.user.uid;
+    await createUserProfile(db, uid, input);
+    await reserveLoginIndex(parsed.type, parsed.value, uid, input.role);
     await signOut(secondaryAuth);
-    return cred.user.uid;
+    return uid;
   } catch (err) {
     await rollbackCreatedAuthUser();
+    if (uid) {
+      await deleteDoc(doc(db, 'users', uid)).catch(() => undefined);
+      await releaseLoginIndex(parsed.type, parsed.value);
+    }
     throw new Error(authErrorMessage(err, 'Failed to create user'), { cause: err });
   }
 }
@@ -235,10 +252,19 @@ export async function updateUserProfile(
   uid: string,
   patch: UpdateUserProfilePatch,
 ): Promise<void> {
+  const next = { ...patch };
+  if ('dealerTeams' in next) {
+    const written = dealerTeamsWriteFields(dealerStaffTeams({
+      staffDepartment: next.staffDepartment,
+      dealerTeams: next.dealerTeams,
+    }));
+    next.staffDepartment = written.staffDepartment;
+    next.dealerTeams = written.dealerTeams;
+  }
   await updateDoc(
     doc(db, 'users', uid),
     omitUndefined({
-      ...patch,
+      ...next,
       updatedAt: new Date().toISOString(),
     }),
   );

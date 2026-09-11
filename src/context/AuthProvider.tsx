@@ -14,7 +14,7 @@ import { normalizeRole, readDealerId } from '../types';
 import { AuthContext } from './auth-context';
 import { authEmailForLoginId, parseLoginId } from '../lib/loginAuth';
 import { contactFieldsForLogin, resolveProfileLogin } from '../lib/profileLogin';
-import { authErrorMessage } from '../lib/authErrors';
+import { authErrorMessage, isFirestorePermissionDenied } from '../lib/authErrors';
 import { clearInvoiceCacheForUser } from '../lib/invoice-cache';
 import { prefetchCatalogForDisplay } from '../lib/catalog';
 import { clearDealerCache, prefetchDealersCache } from '../lib/dealer-cache';
@@ -25,6 +25,31 @@ import { FIRM_NAME } from '../constants/brand';
 import type { DealerTier, DealerPermission, DealerAccessMode } from '../types/dealer-access';
 
 const INACTIVE_MESSAGE = `Your account is inactive. Contact ${FIRM_NAME} super admin.`;
+const PROFILE_MISSING_MESSAGE = `No profile found for this account. Contact ${FIRM_NAME} super admin.`;
+
+async function readSignedInProfile(fbUser: FirebaseUser): Promise<User> {
+  let snap;
+  try {
+    snap = await getDoc(doc(db, 'users', fbUser.uid));
+  } catch (err) {
+    await signOut(auth);
+    if (isFirestorePermissionDenied(err)) throw new Error(PROFILE_MISSING_MESSAGE);
+    throw err;
+  }
+  if (snap.exists()) {
+    const data = snap.data() as FirestoreUserDoc;
+    if (data.active === false) {
+      await signOut(auth);
+      throw new Error(INACTIVE_MESSAGE);
+    }
+  }
+  const resolved = await resolveUser(fbUser);
+  if (!resolved) {
+    await signOut(auth);
+    throw new Error(PROFILE_MISSING_MESSAGE);
+  }
+  return resolved;
+}
 
 async function readParentDealerAccess(dealerId: string): Promise<{
   dealerTier?: DealerTier;
@@ -191,20 +216,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         authEmailForLoginId(parsed.type, parsed.value),
         password,
       );
-      const snap = await getDoc(doc(db, 'users', cred.user.uid));
-      if (snap.exists()) {
-        const data = snap.data() as FirestoreUserDoc;
-        if (data.active === false) {
-          await signOut(auth);
-          throw new Error(INACTIVE_MESSAGE);
-        }
-      }
-      const resolved = await resolveUser(cred.user);
-      if (!resolved) {
-        await signOut(auth);
-        throw new Error(`No profile found for this account. Contact ${FIRM_NAME} super admin.`);
-      }
-      setUser(resolved);
+      setUser(await readSignedInProfile(cred.user));
     } catch (err: unknown) {
       const friendly = authErrorMessage(err, 'Login failed');
       setError(friendly);
@@ -219,20 +231,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     setLoading(true);
     try {
       const cred = await signInWithCustomToken(auth, token);
-      const snap = await getDoc(doc(db, 'users', cred.user.uid));
-      if (snap.exists()) {
-        const data = snap.data() as FirestoreUserDoc;
-        if (data.active === false) {
-          await signOut(auth);
-          throw new Error(INACTIVE_MESSAGE);
-        }
-      }
-      const resolved = await resolveUser(cred.user);
-      if (!resolved) {
-        await signOut(auth);
-        throw new Error(`No profile found for this account. Contact ${FIRM_NAME} super admin.`);
-      }
-      setUser(resolved);
+      setUser(await readSignedInProfile(cred.user));
     } catch (err: unknown) {
       const friendly = authErrorMessage(err, 'Login failed');
       setError(friendly);

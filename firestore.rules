@@ -156,6 +156,7 @@ service cloud.firestore {
 
     function validDealerTeams(teams) {
       return teams == null
+        || (teams is list && teams.size() == 1 && teams[0] == 'admin')
         || (teams is list
             && teams.size() <= 2
             && (teams.size() == 0 || teams[0] == 'sales' || teams[0] == 'service')

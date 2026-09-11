@@ -36,6 +36,24 @@ export function dealerStaffTeams(
   return ['sales'];
 }
 
+/** Persist shape that current Firestore rules accept. Admin is department-only. */
+export function dealerTeamsWriteFields(teams: DealerStaffTeam[]): {
+  staffDepartment: DealerStaffTeam;
+  dealerTeams: Array<'sales' | 'service'> | null;
+} {
+  if (teams.includes('admin')) {
+    return { staffDepartment: 'admin', dealerTeams: null };
+  }
+  const stored = [...new Set(teams.filter((team): team is 'sales' | 'service' => (
+    team === 'sales' || team === 'service'
+  )))];
+  if (!stored.length) stored.push('sales');
+  return {
+    staffDepartment: stored.includes('service') ? 'service' : 'sales',
+    dealerTeams: stored,
+  };
+}
+
 /**
  * Sales vs Service vs Admin on dealer_staff. Missing department is treated as Sales
  * (more restricted). Dealer owners and non-portal roles return null.

@@ -17,7 +17,7 @@ import { authErrorMessage } from '../../lib/authErrors';
 import { useCatalogPageHeader, useTopBarAction } from '../../context/PageHeaderContext';
 import type { FirestoreUserDoc, UserRecord } from '../../types';
 import { BLOOD_GROUPS, normalizeRole } from '../../types';
-import { isDealerAdminStaff } from '../../lib/dealerAccess';
+import { dealerTeamsWriteFields, isDealerAdminStaff } from '../../lib/dealerAccess';
 
 type DealerTeamId = 'sales' | 'service' | 'admin';
 
@@ -38,11 +38,6 @@ function teamsFromRecord(record: UserRecord): DealerTeamId[] {
   if (record.staffDepartment === 'service') return ['service'];
   if (record.staffDepartment === 'sales') return ['sales'];
   return ['sales'];
-}
-
-function primaryDepartment(teams: DealerTeamId[]): 'sales' | 'service' | 'admin' {
-  if (teams.includes('admin')) return 'admin';
-  return teams.includes('service') ? 'service' : 'sales';
 }
 
 function levelLabel(department: string | undefined): string | null {
@@ -279,11 +274,12 @@ export const DealerTeamPage: React.FC = () => {
     setSubmitting(true);
     try {
       if (editingUid) {
+        const access = dealerTeamsWriteFields(teams);
         await updateUserProfile(db, editingUid, {
           displayName,
           phone,
-          staffDepartment: primaryDepartment(teams),
-          dealerTeams: teams,
+          staffDepartment: access.staffDepartment,
+          dealerTeams: access.dealerTeams,
           hrDateOfBirth: dob,
           hrBloodGroup: bloodGroup,
         });
@@ -298,6 +294,7 @@ export const DealerTeamPage: React.FC = () => {
           await resetDealerStaffPassword(editingUid, password);
         }
       } else {
+        const access = dealerTeamsWriteFields(teams);
         const uid = await registerUser(db, {
           loginId: aadharId,
           password,
@@ -305,8 +302,8 @@ export const DealerTeamPage: React.FC = () => {
           role: 'dealer_staff',
           phone,
           dealerId: dealerAccountUid,
-          staffDepartment: primaryDepartment(teams),
-          dealerTeams: teams,
+          staffDepartment: access.staffDepartment,
+          dealerTeams: access.dealerTeams,
           dealerTier: user.dealerTier ?? 'standard',
           dealerAccessMode: user.dealerAccessMode ?? 'tier',
           dealerPermissions: user.dealerPermissions ?? [],

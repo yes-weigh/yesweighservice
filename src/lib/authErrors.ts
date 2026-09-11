@@ -1,3 +1,12 @@
+export function isFirestorePermissionDenied(err: unknown): boolean {
+  const code =
+    typeof err === 'object' && err !== null && 'code' in err
+      ? String((err as { code: string }).code)
+      : '';
+  if (code === 'permission-denied') return true;
+  return err instanceof Error && /missing or insufficient permissions/i.test(err.message);
+}
+
 export function authErrorMessage(err: unknown, fallback: string): string {
   const code =
     typeof err === 'object' && err !== null && 'code' in err

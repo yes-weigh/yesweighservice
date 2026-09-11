@@ -111,11 +111,10 @@ export async function assertLoginIdAvailable(
   await assertLoginIndexAvailable(parsed.type, parsed.value, excludeUid);
 }
 
+/** Leaves secondaryAuth signed in so the caller can delete the user if Firestore setup fails. */
 export async function createAuthUserForLoginId(parsed: ParsedLoginId, password: string) {
   const email = authEmailForLoginId(parsed.type, parsed.value);
-  const cred = await createUserWithEmailAndPassword(secondaryAuth, email, password);
-  await secondaryAuth.signOut();
-  return cred;
+  return createUserWithEmailAndPassword(secondaryAuth, email, password);
 }
 
 export async function syncAuthPassword(
