@@ -10,7 +10,7 @@ import {
 import { isSacHsn } from './sac-catalog.js';
 import { isFreightOrderLine } from './freight-lines.js';
 import { ZOHO_ADDRESS_LINE_MAX, fitZohoAddressLines } from './zoho-contact-fields.js';
-import { loadZohoLocationIdsBySite } from './zoho-locations.js';
+import { KNOWN_ZOHO_WAREHOUSE_IDS, loadZohoLocationIdsBySite } from './zoho-locations.js';
 
 function hsnDigits(value) {
   return String(value ?? '').replace(/\D/g, '');
@@ -128,7 +128,7 @@ function replaceLineWarehouses(body, warehouseId) {
   return next;
 }
 
-function uniqueSalesOrderCreateAttempts(body, { alternateWarehouseId } = {}) {
+function uniqueSalesOrderCreateAttempts(body, { alternateWarehouseId, alternateWarehouseIds } = {}) {
   const attempts = [];
   const seen = new Set();
   const push = (next) => {
@@ -168,11 +168,15 @@ function uniqueSalesOrderCreateAttempts(body, { alternateWarehouseId } = {}) {
   const primaryWarehouse = (body.line_items || [])
     .map(line => String(line.warehouse_id || '').trim())
     .find(Boolean) || null;
-  const alternate = alternateWarehouseId != null && String(alternateWarehouseId).trim()
-    ? String(alternateWarehouseId).trim()
-    : null;
-  // Item may only be enabled at the other live warehouse (Cochin ↔ Head Office).
-  if (alternate && alternate !== primaryWarehouse) {
+  const alternates = [
+    ...(Array.isArray(alternateWarehouseIds) ? alternateWarehouseIds : []),
+    alternateWarehouseId,
+  ]
+    .map(id => (id != null && String(id).trim() ? String(id).trim() : ''))
+    .filter((id, index, all) => id && id !== primaryWarehouse && all.indexOf(id) === index);
+  // Item may only be enabled at the other live warehouse (Cochin ↔ Head Office),
+  // or the catalog Cochin id may be the older location id vs the current warehouse.
+  for (const alternate of alternates) {
     const altFull = replaceLineWarehouses(body, alternate);
     push(altFull);
     let stripped = altFull;
@@ -509,12 +513,12 @@ export async function createSalesOrderFromDealerOrder(secrets, configuredOrgId, 
     : (order.warehouseId != null && String(order.warehouseId).trim()
       ? String(order.warehouseId).trim()
       : null);
-  let alternateWarehouseId = null;
+  let alternateWarehouseIds = [];
   try {
     const bySite = await loadZohoLocationIdsBySite(secrets, configuredOrgId);
     const liveIds = [bySite.cochin, bySite.head_office].filter(Boolean);
     if (warehouseId && liveIds.includes(warehouseId)) {
-      alternateWarehouseId = liveIds.find(id => id !== warehouseId) || null;
+      alternateWarehouseIds = liveIds.filter(id => id !== warehouseId);
     } else if (liveIds.length) {
       if (warehouseId) {
         console.warn('Zoho sales order warehouse id is not a live Cochin/HO warehouse; using live ids', {
@@ -524,10 +528,16 @@ export async function createSalesOrderFromDealerOrder(secrets, configuredOrgId, 
         });
       }
       warehouseId = liveIds.includes(bySite.cochin) ? bySite.cochin : liveIds[0];
-      alternateWarehouseId = liveIds.find(id => id !== warehouseId) || null;
+      alternateWarehouseIds = liveIds.filter(id => id !== warehouseId);
     }
   } catch (err) {
     console.warn('Could not load live Zoho warehouses for sales order create:', err?.message || err);
+  }
+  if (!alternateWarehouseIds.length) {
+    alternateWarehouseIds = [
+      ...KNOWN_ZOHO_WAREHOUSE_IDS.cochin,
+      ...KNOWN_ZOHO_WAREHOUSE_IDS.head_office,
+    ].filter(id => id && id !== warehouseId);
   }
   const lineItems = lineItemsFromOrder(order, warehouseId);
   if (!lineItems.length) {
@@ -562,7 +572,7 @@ export async function createSalesOrderFromDealerOrder(secrets, configuredOrgId, 
     body.shipping_address_id = shippingId;
   }
 
-  const attempts = uniqueSalesOrderCreateAttempts(body, { alternateWarehouseId });
+  const attempts = uniqueSalesOrderCreateAttempts(body, { alternateWarehouseIds });
   let payload = null;
   let lastErr = null;
   let createdBody = null;

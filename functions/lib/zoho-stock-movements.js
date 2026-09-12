@@ -7,8 +7,6 @@
 import { FieldValue, getFirestore } from 'firebase-admin/firestore';
 import { getAccessToken, resolveOrganizationId, ZOHO_API_BASE } from './zoho.js';
 
-const ZOHO_BOOKS_API_BASE = 'https://www.zohoapis.in/books/v3';
-
 const REQUEST_GAP_MS = 100;
 const PAGE_SIZE = 200;
 const STOCK_MOVEMENTS_SUB = 'stockMovements';
@@ -19,15 +17,22 @@ function sleep(ms) {
   return new Promise(resolve => setTimeout(resolve, ms));
 }
 
+function isZohoUnauthorized(res, json) {
+  if (res?.status === 401 || res?.status === 403) return true;
+  const message = String(json?.message ?? '').toLowerCase();
+  return message.includes('not authorized') || message.includes('unauthorized');
+}
+
 function isZohoRateLimit(res, json) {
+  if (isZohoUnauthorized(res, json)) return false;
   if (res?.status === 429) return true;
   const code = Number(json?.code);
-  if (code === 57 || code === 42) return true;
+  if (code === 42) return true;
   const message = String(json?.message ?? '').toLowerCase();
   return message.includes('rate limit') || message.includes('too many requests');
 }
 
-function createZohoGetter(accessToken, organizationId, apiBase = ZOHO_API_BASE) {
+function createZohoGetter(accessToken, organizationId) {
   let queue = Promise.resolve();
 
   async function zohoGetOnce(path, attempt) {
@@ -36,7 +41,7 @@ function createZohoGetter(accessToken, organizationId, apiBase = ZOHO_API_BASE) 
     } else {
       await sleep(REQUEST_GAP_MS);
     }
-    const url = `${apiBase}${path}${path.includes('?') ? '&' : '?'}organization_id=${encodeURIComponent(organizationId)}`;
+    const url = `${ZOHO_API_BASE}${path}${path.includes('?') ? '&' : '?'}organization_id=${encodeURIComponent(organizationId)}`;
     const res = await fetch(url, { headers: { Authorization: `Zoho-oauthtoken ${accessToken}` } });
     let json = null;
     try {
@@ -337,8 +342,8 @@ async function listBillsPages(zohoGet, queryPath, itemId) {
   const docs = [];
   let page = 1;
   for (;;) {
-    const path = `${queryPath}${queryPath.includes('?') ? '&' : '?'}filter_by=${encodeURIComponent('Status.All')}`
-      + `&per_page=${PAGE_SIZE}&page=${page}`;
+    const path = `${queryPath}${queryPath.includes('?') ? '&' : '?'}`
+      + `per_page=${PAGE_SIZE}&page=${page}`;
     let json;
     try {
       json = await zohoGet(path);
@@ -400,20 +405,23 @@ async function listBillsByItemSearch(zohoGet, itemId, item) {
       .map(value => String(value ?? '').trim())
       .filter(Boolean),
   )];
+  const statuses = ['paid', 'open', 'overdue', 'partially_paid', 'draft'];
   const seen = new Set();
   const docs = [];
   for (const query of queries) {
-    const listed = await listBillsPages(
-      zohoGet,
-      `/bills?search_text=${encodeURIComponent(query)}`,
-      itemId,
-    );
-    if (listed.unfiltered || listed.failed) continue;
-    for (const doc of listed.docs) {
-      const id = String(doc?.bill_id ?? '').trim();
-      if (!id || seen.has(id)) continue;
-      seen.add(id);
-      docs.push(doc);
+    for (const status of statuses) {
+      const listed = await listBillsPages(
+        zohoGet,
+        `/bills?search_text=${encodeURIComponent(query)}&status=${encodeURIComponent(status)}`,
+        itemId,
+      );
+      if (listed.unfiltered || listed.failed) continue;
+      for (const doc of listed.docs) {
+        const id = String(doc?.bill_id ?? '').trim();
+        if (!id || seen.has(id)) continue;
+        seen.add(id);
+        docs.push(doc);
+      }
     }
   }
   return mapBillDocs(zohoGet, itemId, docs, item);
@@ -480,27 +488,18 @@ async function loadBillMovementsFromApi(zohoGet, itemId, item, source) {
   return { movements: [], failed: last.failed || fromAll.failed || byItemId.failed };
 }
 
-/**
- * Inventory item-transactions omit bills on service / software-key items.
- * Zoho Books (the Items → Transactions UI) still has them — try that API first
- * when the item does not track warehouse stock.
- */
-async function loadBillMovements(zohoGet, itemId, item, booksGet) {
-  const preferBooks = !itemTracksInventory(item);
-  const sources = preferBooks
-    ? [[booksGet, 'books'], [zohoGet, 'inventory']]
-    : [[zohoGet, 'inventory'], [booksGet, 'books']];
-  let failed = false;
-  for (const [getter, source] of sources) {
-    if (!getter) continue;
-    const result = await loadBillMovementsFromApi(getter, itemId, item, source);
-    if (result.movements.length) return result;
-    failed = failed || result.failed;
+/** Inventory only — Books API is out of scope for this OAuth token. */
+async function loadBillMovements(zohoGet, itemId, item) {
+  try {
+    const result = await loadBillMovementsFromApi(zohoGet, itemId, item, 'inventory');
+    if (!result.movements.length) {
+      console.info(`bills empty ${itemId} sku=${item?.sku ?? ''} name=${item?.name ?? ''}`);
+    }
+    return result;
+  } catch (err) {
+    console.warn(`bills load failed ${itemId}:`, err?.message ?? err);
+    return { movements: [], failed: true };
   }
-  console.info(
-    `bills empty ${itemId} sku=${item?.sku ?? ''} name=${item?.name ?? ''} preferBooks=${preferBooks}`,
-  );
-  return { movements: [], failed };
 }
 
 function mapCreditNote(row) {
@@ -829,7 +828,6 @@ export async function listCatalogProductLifetimeStockMovements(
   const accessToken = await getAccessToken(secrets);
   const organizationId = await resolveOrganizationId(accessToken, configuredOrgId);
   const zohoGet = createZohoGetter(accessToken, organizationId);
-  const booksGet = createZohoGetter(accessToken, organizationId, ZOHO_BOOKS_API_BASE);
 
   let item = null;
   try {
@@ -841,8 +839,8 @@ export async function listCatalogProductLifetimeStockMovements(
 
   const inventory = itemTracksInventory(item);
   const [invoices, billLoaded] = await Promise.all([
-    listAllItemTransactions(zohoGet, 'invoices', itemId, 'invoices', { required: true }),
-    loadBillMovements(zohoGet, itemId, item, booksGet),
+    listAllItemTransactions(zohoGet, 'invoices', itemId, 'invoices'),
+    loadBillMovements(zohoGet, itemId, item),
   ]);
   const creditLoaded = await loadCreditNoteMovements(zohoGet, itemId, invoices.length);
   const creditnoteMovements = creditLoaded.movements;

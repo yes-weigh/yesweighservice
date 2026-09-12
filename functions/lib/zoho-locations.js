@@ -12,6 +12,16 @@ import {
 } from './zoho-api-usage.js';
 
 const WAREHOUSE_CACHE_TTL_MS = 10 * 60 * 1000;
+const ZOHO_BOOKS_API_BASE = 'https://www.zohoapis.in/books/v3';
+
+/**
+ * Last-known Cochin / Head Office warehouse ids from this org's Zoho docs.
+ * Used only when /settings/warehouses is forbidden for the connected user.
+ */
+export const KNOWN_ZOHO_WAREHOUSE_IDS = {
+  cochin: ['99381000000098082', '99381000005077018'],
+  head_office: ['99381000003083031'],
+};
 
 /** @type {{ at: number, bySite: Record<string, string> } | null} */
 let warehouseCache = null;
@@ -27,8 +37,8 @@ const SITE_NAME_MATCHERS = {
   },
 };
 
-async function zohoGetJson(accessToken, orgId, path) {
-  const url = new URL(`${ZOHO_API_BASE}${path}`);
+async function zohoGetJson(accessToken, orgId, path, apiBase = ZOHO_API_BASE) {
+  const url = new URL(`${apiBase}${path}`);
   if (!url.searchParams.has('organization_id')) {
     url.searchParams.set('organization_id', orgId);
   }
@@ -79,13 +89,43 @@ export async function loadZohoLocationIdsBySite(secrets, configuredOrgId) {
 
   const accessToken = await getAccessToken(secrets);
   const orgId = await resolveOrganizationId(accessToken, configuredOrgId);
-  const payload = await zohoGetJson(accessToken, orgId, '/settings/warehouses');
-  const warehouses = Array.isArray(payload?.warehouses) ? payload.warehouses : [];
+  const listAttempts = [
+    [ZOHO_API_BASE, '/settings/warehouses'],
+    [ZOHO_API_BASE, '/warehouses'],
+    [ZOHO_BOOKS_API_BASE, '/settings/warehouses'],
+    [ZOHO_BOOKS_API_BASE, '/settings/locations'],
+  ];
+  let warehouses = [];
+  let lastErr = null;
+  for (const [apiBase, path] of listAttempts) {
+    try {
+      const payload = await zohoGetJson(accessToken, orgId, path, apiBase);
+      const rows = payload?.warehouses
+        || payload?.locations
+        || payload?.settings
+        || [];
+      const list = Array.isArray(rows) ? rows : [];
+      if (list.length) {
+        warehouses = list;
+        lastErr = null;
+        break;
+      }
+    } catch (err) {
+      lastErr = err;
+      console.warn(`Zoho warehouse list ${path} failed:`, err?.message || err);
+    }
+  }
 
   const bySite = {
-    cochin: pickWarehouseId(warehouses, 'cochin'),
-    head_office: pickWarehouseId(warehouses, 'head_office'),
+    cochin: pickWarehouseId(warehouses, 'cochin') || KNOWN_ZOHO_WAREHOUSE_IDS.cochin[0],
+    head_office: pickWarehouseId(warehouses, 'head_office') || KNOWN_ZOHO_WAREHOUSE_IDS.head_office[0],
   };
+  if (!warehouses.length && lastErr) {
+    console.warn(
+      'Using known Cochin/HO warehouse ids; live warehouse list was not authorized.',
+      bySite,
+    );
+  }
   warehouseCache = { at: now, bySite };
   return bySite;
 }
