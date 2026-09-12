@@ -427,6 +427,79 @@ async function listBillsByItemSearch(zohoGet, itemId, item) {
   return mapBillDocs(zohoGet, itemId, docs, item);
 }
 
+const SOFTWARE_BILL_VENDOR_SEARCHES = ['Sanoft', 'Sanoff'];
+
+function itemNeedsVendorBillFallback(item) {
+  if (!itemTracksInventory(item)) return true;
+  const category = String(item?.category_name ?? '').trim().toLowerCase();
+  return category === 'software keys' || category === 'sanoft';
+}
+
+async function listVendorIdsBySearch(zohoGet, query) {
+  try {
+    const json = await zohoGet(
+      `/contacts?contact_type=vendor&search_text=${encodeURIComponent(query)}&per_page=25`,
+    );
+    const contacts = Array.isArray(json.contacts) ? json.contacts : [];
+    return contacts
+      .map(row => String(row?.contact_id ?? '').trim())
+      .filter(Boolean);
+  } catch (err) {
+    console.warn(`Zoho vendor search ${query} failed:`, err?.message ?? err);
+    return [];
+  }
+}
+
+async function listBillsForVendor(zohoGet, vendorId) {
+  const docs = [];
+  let page = 1;
+  for (;;) {
+    const path = `/bills?vendor_id=${encodeURIComponent(vendorId)}`
+      + `&per_page=${PAGE_SIZE}&page=${page}`;
+    let json;
+    try {
+      json = await zohoGet(path);
+    } catch (err) {
+      console.warn(`Zoho bills vendor ${vendorId} failed:`, err?.message ?? err);
+      return docs;
+    }
+    const batch = Array.isArray(json.bills) ? json.bills : [];
+    docs.push(...batch);
+    if (!json.page_context?.has_more_page || batch.length === 0) break;
+    page += 1;
+    if (page > 20 || docs.length > 400) break;
+  }
+  return docs;
+}
+
+/** Software-key bills live on Sanoft vendor bills, not Inventory item-transactions. */
+async function loadBillsFromSoftwareVendors(zohoGet, itemId, item) {
+  const vendorIds = new Set();
+  for (const query of SOFTWARE_BILL_VENDOR_SEARCHES) {
+    for (const id of await listVendorIdsBySearch(zohoGet, query)) {
+      vendorIds.add(id);
+    }
+  }
+  if (!vendorIds.size) return [];
+
+  const seen = new Set();
+  const docs = [];
+  for (const vendorId of vendorIds) {
+    for (const doc of await listBillsForVendor(zohoGet, vendorId)) {
+      const id = String(doc?.bill_id ?? '').trim();
+      if (!id || seen.has(id)) continue;
+      seen.add(id);
+      docs.push(doc);
+    }
+  }
+  docs.sort((a, b) => String(b.date || '').localeCompare(String(a.date || '')));
+  const mapped = await mapBillDocs(zohoGet, itemId, docs.slice(0, 80), item);
+  console.info(
+    `bills vendors ${itemId}: vendors=${vendorIds.size} docs=${docs.length} matched=${mapped.length}`,
+  );
+  return mapped;
+}
+
 async function listBillRowsFromItemTransactions(zohoGet, itemId) {
   const all = await listAllItemTransactionsDetailed(zohoGet, '', itemId, 'transactions');
   const rows = (all.rows || []).filter(isBillTransactionRow);
@@ -484,6 +557,13 @@ async function loadBillMovementsFromApi(zohoGet, itemId, item, source) {
   if (searched.length) {
     console.info(`bills ${source} search ${itemId}: ${searched.length} movements`);
     return { movements: searched, failed: false };
+  }
+
+  if (itemNeedsVendorBillFallback(item)) {
+    const fromVendors = await loadBillsFromSoftwareVendors(zohoGet, itemId, item);
+    if (fromVendors.length) {
+      return { movements: fromVendors, failed: false };
+    }
   }
   return { movements: [], failed: last.failed || fromAll.failed || byItemId.failed };
 }
