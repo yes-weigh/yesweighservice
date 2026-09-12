@@ -193,6 +193,12 @@ export const CatalogPage: React.FC = () => {
   const portalStaffTeams = dealerPortalStaffTeams(user);
   const showProductCatalogTab = !portalStaffTeams || portalStaffTeams.includes('sales');
   const showSpareCatalogTab = !portalStaffTeams || portalStaffTeams.includes('service');
+  const serviceOnlyCatalog = Boolean(
+    portalStaffTeams?.includes('service') && !portalStaffTeams.includes('sales'),
+  );
+  const salesOnlyCatalog = Boolean(
+    portalStaffTeams?.includes('sales') && !portalStaffTeams.includes('service'),
+  );
   const { isProductVisible, restrictedCategoryIds } = useDealerPriceLevels();
   const orderCartEnabled = canUseOrderCart(user);
   const isCartable = useCallback(
@@ -321,9 +327,14 @@ export const CatalogPage: React.FC = () => {
   const adminSection = isSuperAdmin
     ? parseAdminSection(sectionParam, committedSearchQuery)
     : null;
-  const focus = isSuperAdmin && adminSection
+  const parsedFocus = isSuperAdmin && adminSection
     ? adminSectionToFocus(adminSection)
     : parseCatalogFocus(sectionParam, committedSearchQuery, canSync);
+  const focus = serviceOnlyCatalog && parsedFocus === 'browse'
+    ? 'all-spares'
+    : salesOnlyCatalog && parsedFocus === 'all-spares'
+      ? 'browse'
+      : parsedFocus;
 
   const canManagePriceLevels = isSuperAdmin || canViewDealersInHr(user);
 
@@ -1617,7 +1628,7 @@ export const CatalogPage: React.FC = () => {
         <Search size={15} aria-hidden />
         <input
           type="search"
-          placeholder="Search products"
+          placeholder={serviceOnlyCatalog ? 'Search spare parts' : 'Search products'}
           value={searchQuery}
           onChange={e => handleSearchChange(e.target.value)}
           onFocus={() => setSearchFocused(true)}
@@ -1632,7 +1643,7 @@ export const CatalogPage: React.FC = () => {
               handleSearchChange('');
               if (focus === 'search') {
                 if (isSuperAdmin) setAdminSection('categories');
-                else setFocus('browse');
+                else setFocus(serviceOnlyCatalog ? 'all-spares' : 'browse');
               }
             }}
             aria-label="Clear search"
@@ -1643,7 +1654,7 @@ export const CatalogPage: React.FC = () => {
         {scanQrButton}
       </div>
     ),
-    [searchQuery, handleSearchChange, focus, isSuperAdmin, setAdminSection, setFocus, scanQrButton],
+    [searchQuery, handleSearchChange, focus, isSuperAdmin, serviceOnlyCatalog, setAdminSection, setFocus, scanQrButton],
   );
 
   usePageHeaderSlot(headerSearch, showHeaderSearch);
@@ -2046,7 +2057,7 @@ export const CatalogPage: React.FC = () => {
       {focus === 'search' && (
         <CatalogUnifiedResults
           query={committedSearchQuery}
-          products={catalogShopProducts}
+          products={showProductCatalogTab ? catalogShopProducts : []}
           spares={showSpareCatalogTab ? catalogSpareParts : []}
           productsBasePath={pathname}
           sparesBasePath={`${pathname}/spare`}
@@ -2097,14 +2108,16 @@ export const CatalogPage: React.FC = () => {
         </div>
       )}
 
-      {focus === 'browse' && (() => {
+      {focus === 'browse' && showProductCatalogTab && (() => {
         const activeCategory = (catalog?.categories ?? []).find(c => c.id === categoryId);
         const browseBasePath = activeCategory && isGenericSparePartsCategory(activeCategory)
           ? `${pathname}/spare`
           : pathname;
         const browsePanel = (
           <CatalogBrowse
-            products={canUseCatalogFilters ? filteredBrowseProducts : browseProducts}
+            products={showProductCatalogTab
+              ? (canUseCatalogFilters ? filteredBrowseProducts : browseProducts)
+              : []}
             categories={shopCategories}
             isLoading={loading || (isMedia && mediaIndexLoading)}
             showToolbar={false}
