@@ -13,7 +13,8 @@ import {
 import {
   postYesGatcWebhook,
   resolveYesGatcWebhookUrl,
-  yesGatcSerialEvent,
+  YESGATC_SERIAL_ALLOTTED,
+  YESGATC_SERIAL_CANCELLED,
 } from './yesgatc-serial-push.js';
 import { loadWebhookSecret } from './yesgatc-webhook.js';
 import { loadDealerRcOffice } from './yesgatc-rc-offices.js';
@@ -182,7 +183,9 @@ export function invoiceSerialPayload(invoice, rc, { action = 'upsert', alreadyPu
     .filter(line => action === 'unlink' || line.serialNumbers.length);
   const serialNumbers = uniqueSerials(lines.flatMap(line => line.serialNumbers));
   const qty = lines.reduce((sum, line) => sum + (line.serialCount || line.qty), 0) || serialNumbers.length;
-  const event = yesGatcSerialEvent({ action, alreadyPushed: false });
+  const event = action === 'unlink' || action === 'cancel' || action === 'cancelled'
+    ? YESGATC_SERIAL_CANCELLED
+    : YESGATC_SERIAL_ALLOTTED;
   const invoiceLink = {
     rcCode: str(rc.rcCode) || null,
     rcName: str(rc.rcName) || null,
