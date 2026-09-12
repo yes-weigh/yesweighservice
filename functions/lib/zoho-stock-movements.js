@@ -7,6 +7,8 @@
 import { FieldValue, getFirestore } from 'firebase-admin/firestore';
 import { getAccessToken, resolveOrganizationId, ZOHO_API_BASE } from './zoho.js';
 
+const ZOHO_BOOKS_API_BASE = 'https://www.zohoapis.in/books/v3';
+
 const REQUEST_GAP_MS = 100;
 const PAGE_SIZE = 200;
 const STOCK_MOVEMENTS_SUB = 'stockMovements';
@@ -25,7 +27,7 @@ function isZohoRateLimit(res, json) {
   return message.includes('rate limit') || message.includes('too many requests');
 }
 
-function createZohoGetter(accessToken, organizationId) {
+function createZohoGetter(accessToken, organizationId, apiBase = ZOHO_API_BASE) {
   let queue = Promise.resolve();
 
   async function zohoGetOnce(path, attempt) {
@@ -34,7 +36,7 @@ function createZohoGetter(accessToken, organizationId) {
     } else {
       await sleep(REQUEST_GAP_MS);
     }
-    const url = `${ZOHO_API_BASE}${path}${path.includes('?') ? '&' : '?'}organization_id=${encodeURIComponent(organizationId)}`;
+    const url = `${apiBase}${path}${path.includes('?') ? '&' : '?'}organization_id=${encodeURIComponent(organizationId)}`;
     const res = await fetch(url, { headers: { Authorization: `Zoho-oauthtoken ${accessToken}` } });
     let json = null;
     try {
@@ -423,18 +425,20 @@ async function listBillRowsFromItemTransactions(zohoGet, itemId) {
   return { rows, failed: all.failed };
 }
 
-/** Bills for every item type — service / SAC / software keys still have vendor bills. */
-async function loadBillMovements(zohoGet, itemId, item) {
+async function loadBillMovementsFromApi(zohoGet, itemId, item, source) {
   let last = { rows: [], failed: false };
   for (let attempt = 0; attempt < 3; attempt += 1) {
     if (attempt) await sleep(500);
     last = await listAllItemTransactionsDetailed(zohoGet, 'bills', itemId, 'bills');
     const mapped = (last.rows || []).map(mapBill).filter(Boolean);
-    if (mapped.length) return { movements: mapped, failed: false };
+    if (mapped.length) {
+      console.info(`bills ${source} txn ${itemId}: ${mapped.length} movements`);
+      return { movements: mapped, failed: false };
+    }
     if ((last.rows || []).length) {
       const hydrated = await hydrateBillRows(zohoGet, itemId, last.rows, item);
       if (hydrated.length) {
-        console.info(`bills hydrate ${itemId}: ${hydrated.length} movements`);
+        console.info(`bills ${source} hydrate ${itemId}: ${hydrated.length} movements`);
         return { movements: hydrated, failed: false };
       }
     }
@@ -444,13 +448,13 @@ async function loadBillMovements(zohoGet, itemId, item) {
   const fromAll = await listBillRowsFromItemTransactions(zohoGet, itemId);
   const fromAllMapped = fromAll.rows.map(mapBill).filter(Boolean);
   if (fromAllMapped.length) {
-    console.info(`bills transactions ${itemId}: ${fromAllMapped.length} movements`);
+    console.info(`bills ${source} all-txn ${itemId}: ${fromAllMapped.length} movements`);
     return { movements: fromAllMapped, failed: false };
   }
   if (fromAll.rows.length) {
     const hydrated = await hydrateBillRows(zohoGet, itemId, fromAll.rows, item);
     if (hydrated.length) {
-      console.info(`bills transactions hydrate ${itemId}: ${hydrated.length} movements`);
+      console.info(`bills ${source} all-hydrate ${itemId}: ${hydrated.length} movements`);
       return { movements: hydrated, failed: false };
     }
   }
@@ -463,17 +467,40 @@ async function loadBillMovements(zohoGet, itemId, item) {
   if (!byItemId.unfiltered && byItemId.docs.length) {
     const mapped = await mapBillDocs(zohoGet, itemId, byItemId.docs, item);
     if (mapped.length) {
-      console.info(`bills item_id ${itemId}: ${mapped.length} movements`);
+      console.info(`bills ${source} item_id ${itemId}: ${mapped.length} movements`);
       return { movements: mapped, failed: false };
     }
   }
 
   const searched = await listBillsByItemSearch(zohoGet, itemId, item);
   if (searched.length) {
-    console.info(`bills search ${itemId}: ${searched.length} movements`);
+    console.info(`bills ${source} search ${itemId}: ${searched.length} movements`);
     return { movements: searched, failed: false };
   }
   return { movements: [], failed: last.failed || fromAll.failed || byItemId.failed };
+}
+
+/**
+ * Inventory item-transactions omit bills on service / software-key items.
+ * Zoho Books (the Items → Transactions UI) still has them — try that API first
+ * when the item does not track warehouse stock.
+ */
+async function loadBillMovements(zohoGet, itemId, item, booksGet) {
+  const preferBooks = !itemTracksInventory(item);
+  const sources = preferBooks
+    ? [[booksGet, 'books'], [zohoGet, 'inventory']]
+    : [[zohoGet, 'inventory'], [booksGet, 'books']];
+  let failed = false;
+  for (const [getter, source] of sources) {
+    if (!getter) continue;
+    const result = await loadBillMovementsFromApi(getter, itemId, item, source);
+    if (result.movements.length) return result;
+    failed = failed || result.failed;
+  }
+  console.info(
+    `bills empty ${itemId} sku=${item?.sku ?? ''} name=${item?.name ?? ''} preferBooks=${preferBooks}`,
+  );
+  return { movements: [], failed };
 }
 
 function mapCreditNote(row) {
@@ -802,6 +829,7 @@ export async function listCatalogProductLifetimeStockMovements(
   const accessToken = await getAccessToken(secrets);
   const organizationId = await resolveOrganizationId(accessToken, configuredOrgId);
   const zohoGet = createZohoGetter(accessToken, organizationId);
+  const booksGet = createZohoGetter(accessToken, organizationId, ZOHO_BOOKS_API_BASE);
 
   let item = null;
   try {
@@ -814,7 +842,7 @@ export async function listCatalogProductLifetimeStockMovements(
   const inventory = itemTracksInventory(item);
   const [invoices, billLoaded] = await Promise.all([
     listAllItemTransactions(zohoGet, 'invoices', itemId, 'invoices', { required: true }),
-    loadBillMovements(zohoGet, itemId, item),
+    loadBillMovements(zohoGet, itemId, item, booksGet),
   ]);
   const creditLoaded = await loadCreditNoteMovements(zohoGet, itemId, invoices.length);
   const creditnoteMovements = creditLoaded.movements;
