@@ -759,6 +759,51 @@ export function incentiveForRow(
   return row.incentive;
 }
 
+export type IncentiveStaffTarget = {
+  id: string;
+  month: string;
+  kamId: IncentiveKamId;
+  target: number;
+};
+
+export function isIncentiveKamId(value: string): value is IncentiveKamId {
+  return INCENTIVE_KAMS.some(kam => kam.id === value);
+}
+
+export function incentiveTargetDocId(month: string, kamId: IncentiveKamId): string {
+  return `${month.trim()}_${kamId}`;
+}
+
+export function rateCardSalesForRow(
+  row: Pick<IncentiveInvoiceRow, 'rateCardSales' | 'sales'>,
+): number {
+  const value = Number(row.rateCardSales);
+  if (Number.isFinite(value)) return Math.max(0, value);
+  return Math.max(0, Number(row.sales) || 0);
+}
+
+export function parseIncentiveTargetInput(raw: string): number {
+  const cleaned = String(raw ?? '').replace(/[₹\s,]/g, '').trim();
+  if (!cleaned) return 0;
+  const n = Number(cleaned);
+  if (!Number.isFinite(n) || n < 0) return 0;
+  return round2(n);
+}
+
+/** Rate-card sales minus monthly target. Negative when the book misses target. */
+export function incentiveSurplus(rateCardSales: number, target = 0): number {
+  return round2((Number(rateCardSales) || 0) - Math.max(0, round2(target)));
+}
+
+/** Payable incentive: max(0, rate-card sales − target) × rate. */
+export function incentiveOnSurplus(
+  rateCardSales: number,
+  target = 0,
+  rate = INCENTIVE_RATE,
+): number {
+  return incentiveForSales(Math.max(0, incentiveSurplus(rateCardSales, target)), rate);
+}
+
 export function incentiveLineKey(
   line: Pick<IncentiveInvoiceLine, 'itemId' | 'sku' | 'name' | 'qty' | 'rate' | 'total'>,
   index: number,
@@ -931,6 +976,54 @@ export async function clearIncentiveLineExcluded(
 ): Promise<void> {
   const id = incentiveLineExclusionDocId(invoiceId.trim(), lineKey.trim());
   await deleteDoc(doc(db, 'incentiveLineExclusions', id));
+}
+
+export async function listIncentiveStaffTargets(
+  yearMonth: string,
+): Promise<IncentiveStaffTarget[]> {
+  const month = yearMonth.trim();
+  if (!month) return [];
+  const snap = await getDocs(query(
+    collection(db, 'incentiveTargets'),
+    where('month', '==', month),
+  ));
+  return snap.docs.map(row => {
+    const data = row.data();
+    const kamId = String(data.kamId ?? '').trim();
+    if (!isIncentiveKamId(kamId)) return null;
+    return {
+      id: row.id,
+      month: String(data.month ?? month).trim() || month,
+      kamId,
+      target: Math.max(0, round2(Number(data.target) || 0)),
+    };
+  }).filter((row): row is IncentiveStaffTarget => Boolean(row));
+}
+
+export async function setIncentiveStaffTarget(input: {
+  month: string;
+  kamId: IncentiveKamId;
+  target: number;
+  uid?: string | null;
+}): Promise<IncentiveStaffTarget> {
+  const month = input.month.trim();
+  const kamId = input.kamId;
+  if (!month || !isIncentiveKamId(kamId)) {
+    throw new Error('Invalid incentive target.');
+  }
+  const id = incentiveTargetDocId(month, kamId);
+  const target: IncentiveStaffTarget = {
+    id,
+    month,
+    kamId,
+    target: Math.max(0, round2(input.target)),
+  };
+  await setDoc(doc(db, 'incentiveTargets', id), {
+    ...target,
+    updatedAt: serverTimestamp(),
+    updatedBy: input.uid || null,
+  });
+  return target;
 }
 
 export async function persistIncentiveSnapshots(

@@ -614,6 +614,12 @@ service cloud.firestore {
       allow create, update, delete: if isFullSuperAdmin();
     }
 
+    // Monthly sales target per KAM. Incentive = max(0, rate-card sales − target) × 3.5%.
+    match /incentiveTargets/{targetId} {
+      allow read: if isOpsUser();
+      allow create, update, delete: if isFullSuperAdmin();
+    }
+
     // Recalculated incentive (3.5% / 2% on rate-card sales, not invoice value).
     match /incentiveSnapshots/{invoiceId} {
       allow read: if isOpsUser();

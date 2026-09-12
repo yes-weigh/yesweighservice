@@ -8,10 +8,12 @@ import {
   RotateCcw,
   Save,
   Trash2,
+  Users,
 } from 'lucide-react';
 import { useLocation, useNavigate, useParams } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
 import { useConfirm } from '../../context/ConfirmContext';
+import { useTopBarAction } from '../../context/PageHeaderContext';
 import { homePathForRole } from '../../types';
 import { hasStaffPermission } from '../../lib/staffAccess';
 import { DealerAddressBox } from '../../components/dealers/DealerAddressBox';
@@ -659,6 +661,26 @@ export const DealerDetailPage: React.FC = () => {
       setSaving(false);
     }
   };
+
+  const teamButton = useMemo(
+    () => (
+      <button
+        type="button"
+        className="top-bar__action-btn top-bar__action-btn--primary dealer-team__add-btn"
+        onClick={() => {
+          if (!user || !dealerId) return;
+          navigate(`${homePathForRole(user.role)}/dealers/${dealerId}/team`, {
+            state: dealer ? { dealer } : undefined,
+          });
+        }}
+      >
+        <Users size={16} strokeWidth={2.4} />
+        Team
+      </button>
+    ),
+    [dealer, dealerId, navigate, user],
+  );
+  useTopBarAction(teamButton, user?.role === 'super_admin' && Boolean(dealerId));
 
   if (!dealerId) return null;
 

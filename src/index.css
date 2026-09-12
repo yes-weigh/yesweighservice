@@ -49986,13 +49986,31 @@ button.invoice-detail-top__card {
   background: linear-gradient(180deg, rgba(3, 7, 18, 0), var(--bg-app) 32%);
 }
 
-.dealer-team__create {
+.dealer-team__footer--split {
+  display: flex;
+  gap: 0.6rem;
+}
+
+.dealer-team__footer--split .dealer-team__create,
+.dealer-team__footer--split .dealer-team__delete {
+  width: auto;
+  flex: 1;
+}
+
+.dealer-team__create,
+.dealer-team__delete {
   width: 100%;
   justify-content: center;
   min-height: 2.85rem;
   border-radius: 0.85rem;
   font-weight: 800;
   letter-spacing: 0.02em;
+}
+
+.dealer-team__delete {
+  color: #fecaca;
+  border-color: rgba(248, 113, 113, 0.45);
+  background: rgba(127, 29, 29, 0.35);
 }
 
 .dealer-team__list {
@@ -50087,6 +50105,12 @@ button.invoice-detail-top__card {
   border: 1px solid rgba(96, 165, 250, 0.45);
 }
 
+.dealer-team__card-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+}
+
 .dealer-team__card-edit {
   appearance: none;
   display: inline-flex;
@@ -50106,6 +50130,16 @@ button.invoice-detail-top__card {
 .dealer-team__card-edit:hover {
   border-color: var(--accent-primary);
   color: var(--accent-primary);
+}
+
+.dealer-team__card-edit--danger:hover {
+  border-color: #f87171;
+  color: #fca5a5;
+}
+
+.dealer-team__card-edit:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
 }
 
 .dealer-role-editor__section {

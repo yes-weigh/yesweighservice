@@ -560,6 +560,113 @@ button.incentive-report__adjust-col:focus-visible {
   white-space: nowrap;
 }
 
+.incentive-report__formula {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: stretch;
+  gap: 0.32rem 0.45rem;
+  width: 100%;
+  min-width: 0;
+  margin-top: 0.32rem;
+  padding: 0.38rem 0.5rem;
+  border-radius: 10px;
+  border: 1px solid color-mix(in srgb, #fb923c 32%, transparent);
+  background: #11141b;
+}
+
+.incentive-report__formula-term {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.04rem;
+  min-width: 0;
+}
+
+.incentive-report__formula-term strong,
+.incentive-report__formula-result {
+  font-size: 0.88rem;
+  font-weight: 800;
+  letter-spacing: -0.03em;
+  font-variant-numeric: tabular-nums;
+  line-height: 1.15;
+  color: #fff;
+  white-space: nowrap;
+}
+
+.incentive-report__formula-term.is-result strong {
+  color: #fb923c;
+}
+
+.incentive-report__formula-term.is-short strong {
+  color: #f87171;
+}
+
+.incentive-report__formula-label {
+  font-size: 0.58rem;
+  font-weight: 750;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+  line-height: 1.15;
+  color: #94a3b8;
+}
+
+.incentive-report__formula-term.is-target {
+  min-width: 6.8rem;
+}
+
+.incentive-report__formula-term.is-target .incentive-report__formula-label {
+  color: #fb923c;
+}
+
+.incentive-report__formula-op {
+  align-self: flex-end;
+  padding-bottom: 0.08rem;
+  font-size: 0.92rem;
+  font-weight: 700;
+  color: #64748b;
+}
+
+.incentive-report__formula-rate {
+  align-self: flex-end;
+  padding-bottom: 0.08rem;
+  font-size: 0.78rem;
+  font-weight: 800;
+  letter-spacing: 0.02em;
+  color: #fb923c;
+  white-space: nowrap;
+}
+
+.incentive-report__target-input {
+  width: 8.6rem;
+  max-width: 100%;
+  margin: 0;
+  padding: 0 0 0.06rem;
+  border: 0;
+  border-bottom: 1px dashed color-mix(in srgb, #fb923c 55%, transparent);
+  outline: 0;
+  background: transparent;
+  color: #fff;
+  font: inherit;
+  font-size: 0.88rem;
+  font-weight: 800;
+  letter-spacing: -0.03em;
+  font-variant-numeric: tabular-nums;
+  line-height: 1.15;
+}
+
+.incentive-report__target-input::placeholder {
+  color: #64748b;
+  font-weight: 650;
+}
+
+.incentive-report__target-input:focus {
+  color: #fb923c;
+}
+
+.incentive-report__target-input:disabled {
+  opacity: 0.55;
+}
+
 .incentive-report .gatc-report__row-main {
   cursor: pointer;
 }
@@ -1314,6 +1421,20 @@ button.incentive-report__adjust-col:focus-visible {
 
   .incentive-report__adjust-value {
     font-size: 0.78rem;
+  }
+
+  .incentive-report__formula {
+    gap: 0.28rem 0.38rem;
+    padding: 0.32rem 0.42rem;
+  }
+
+  .incentive-report__formula-term strong,
+  .incentive-report__target-input {
+    font-size: 0.82rem;
+  }
+
+  .incentive-report__target-input {
+    width: 7.4rem;
   }
 
   .gatc-report__kpi {

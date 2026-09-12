@@ -16,12 +16,18 @@ import {
   incentiveLineAdjustAmounts,
   incentiveLineHasAdjust,
   incentiveLineKey,
+  incentiveOnSurplus,
   incentiveRowNote,
   incentiveRowTone,
+  incentiveSurplus,
   listIncentiveInvoices,
   listIncentiveLineExclusions,
+  listIncentiveStaffTargets,
+  parseIncentiveTargetInput,
   persistIncentiveSnapshots,
+  rateCardSalesForRow,
   setIncentiveLineExcluded,
+  setIncentiveStaffTarget,
   withRateCardIncentive,
   type IncentiveInvoiceLine,
   type IncentiveInvoiceRow,
@@ -120,6 +126,12 @@ function exportIncentiveCsv(
   rows: IncentiveInvoiceRow[],
   monthLabel: string,
   kamLabel: string,
+  extras: {
+    rateCardSales: number;
+    target: number;
+    surplus: number;
+    incentive: number;
+  },
 ): void {
   const headers = [
     'Invoice No',
@@ -128,9 +140,16 @@ function exportIncentiveCsv(
     'Salesperson',
     'Invoice sales (ex GST, courier, GATC)',
     'Rate card sales',
-    'Incentive',
+    'Invoice incentive (3.5% of rate card)',
   ];
   const lines = [
+    ['Month', monthLabel].map(csvEscape).join(','),
+    ['Staff', kamLabel].map(csvEscape).join(','),
+    ['Rate-card sales', String(extras.rateCardSales)].map(csvEscape).join(','),
+    ['Target', String(extras.target)].map(csvEscape).join(','),
+    ['Surplus (rate-card sales − target)', String(extras.surplus)].map(csvEscape).join(','),
+    ['Incentive ((rate-card sales − target) × 3.5%)', String(extras.incentive)].map(csvEscape).join(','),
+    '',
     headers.join(','),
     ...rows.map(row => [
       row.invoiceNumber,
@@ -174,6 +193,11 @@ export const IncentiveReportTab: React.FC = () => {
   const [linesLoadingId, setLinesLoadingId] = useState<string | null>(null);
   const [exclusions, setExclusions] = useState<IncentiveLineExclusion[]>([]);
   const [exclusionBusyKey, setExclusionBusyKey] = useState<string | null>(null);
+  const [targetsByKam, setTargetsByKam] = useState<Partial<Record<IncentiveKamId, number>>>({});
+  const [targetDraft, setTargetDraft] = useState('');
+  const [targetFocused, setTargetFocused] = useState(false);
+  const [targetSaving, setTargetSaving] = useState(false);
+  const canEditTarget = canExcludeLines;
 
   const loadMonth = useCallback(async (yearMonth: string) => {
     const cacheKey = `incentive:${yearMonth}`;
@@ -188,21 +212,31 @@ export const IncentiveReportTab: React.FC = () => {
     }
     setError('');
     const exclusionKey = `incentive-excl:${yearMonth}`;
+    const targetKey = `incentive-target:${yearMonth}`;
     const localExclusions = peekTableCache<IncentiveLineExclusion[]>(exclusionKey)
       ?? await hydrateTableCache<IncentiveLineExclusion[]>(exclusionKey)
       ?? [];
     if (localExclusions.length) setExclusions(localExclusions);
+    const cachedTargets = peekTableCache<Partial<Record<IncentiveKamId, number>>>(targetKey)
+      ?? await hydrateTableCache<Partial<Record<IncentiveKamId, number>>>(targetKey)
+      ?? {};
+    if (Object.keys(cachedTargets).length) setTargetsByKam(cachedTargets);
     try {
-      const [result, monthExclusions] = await Promise.all([
+      const [result, monthExclusions, monthTargets] = await Promise.all([
         listIncentiveInvoices(yearMonth),
         listIncentiveLineExclusions(yearMonth).catch(() => [] as IncentiveLineExclusion[]),
+        listIncentiveStaffTargets(yearMonth).catch(() => []),
       ]);
       const merged = mergeIncentiveExclusions(localExclusions, monthExclusions);
+      const nextTargets: Partial<Record<IncentiveKamId, number>> = {};
+      for (const item of monthTargets) nextTargets[item.kamId] = item.target;
       setRows(result.rows);
       setTruncated(result.truncated);
       setExclusions(merged);
+      setTargetsByKam(nextTargets);
       setTableCache(cacheKey, result);
       setTableCache(exclusionKey, merged);
+      setTableCache(targetKey, nextTargets);
       void persistIncentiveSnapshots(yearMonth, result.rows);
     } catch (err) {
       if (!cached) {
@@ -310,20 +344,38 @@ export const IncentiveReportTab: React.FC = () => {
     [rowsWithLineAdjust, kam],
   );
 
+  const savedTarget = Math.max(0, targetsByKam[kam] ?? 0);
+
+  useEffect(() => {
+    if (targetFocused) return;
+    setTargetDraft(savedTarget > 0 ? String(savedTarget) : '');
+  }, [savedTarget, kam, month, targetFocused]);
+
   const kpis = useMemo(() => {
     const invoiceCount = kamRows.length;
     const totalSales = kamRows.reduce((sum, row) => sum + row.sales, 0);
-    const totalIncentive = kamRows.reduce((sum, row) => sum + incentiveForRow(row), 0);
-    const incentiveStandard = kamRows.reduce((sum, row) => (
+    const rateCardSales = kamRows.reduce((sum, row) => sum + rateCardSalesForRow(row), 0);
+    const standardRateCardSales = kamRows.reduce((sum, row) => (
       row.rate === INCENTIVE_DIRECTOR_RATE
         ? sum
-        : sum + incentiveForRow(row)
+        : sum + rateCardSalesForRow(row)
     ), 0);
-    const incentiveDirector = kamRows.reduce((sum, row) => (
+    const directorRateCardSales = kamRows.reduce((sum, row) => (
       row.rate === INCENTIVE_DIRECTOR_RATE
-        ? sum + incentiveForRow(row)
+        ? sum + rateCardSalesForRow(row)
         : sum
     ), 0);
+    const target = savedTarget;
+    const surplus = incentiveSurplus(rateCardSales, target);
+    const incentiveStandard = incentiveOnSurplus(standardRateCardSales, target, INCENTIVE_RATE);
+    const incentiveDirector = incentiveOnSurplus(
+      directorRateCardSales,
+      0,
+      INCENTIVE_DIRECTOR_RATE,
+    );
+    const totalIncentive = kam === 'shibin'
+      ? incentiveStandard + incentiveDirector
+      : incentiveOnSurplus(rateCardSales, target, INCENTIVE_RATE);
     const excludedAdjust = incentiveExcludedAdjustTotals(kamSource, exclusions);
     const rawUpsales = kamSource.reduce((sum, row) => sum + row.hikeAmount, 0);
     const rawDownSale = kamSource.reduce((sum, row) => sum + row.discountAmount, 0);
@@ -333,6 +385,9 @@ export const IncentiveReportTab: React.FC = () => {
     return {
       invoiceCount,
       totalSales,
+      rateCardSales,
+      target,
+      surplus,
       totalIncentive,
       incentiveStandard,
       incentiveDirector,
@@ -341,14 +396,43 @@ export const IncentiveReportTab: React.FC = () => {
       netAdjust,
       kamShare: netAdjust * 0.3,
     };
-  }, [kamRows, kamSource, exclusions]);
+  }, [kamRows, kamSource, exclusions, savedTarget, kam]);
 
   const monthLabel = monthOptions.find(opt => opt.value === month)?.label || month;
   const kamLabel = INCENTIVE_KAMS.find(opt => opt.id === kam)?.label || 'Biju';
 
   const handleExport = useCallback(() => {
-    exportIncentiveCsv(listed, monthLabel, kamLabel);
-  }, [listed, monthLabel, kamLabel]);
+    exportIncentiveCsv(listed, monthLabel, kamLabel, {
+      rateCardSales: kpis.rateCardSales,
+      target: kpis.target,
+      surplus: kpis.surplus,
+      incentive: kpis.totalIncentive,
+    });
+  }, [listed, monthLabel, kamLabel, kpis.rateCardSales, kpis.target, kpis.surplus, kpis.totalIncentive]);
+
+  const persistTarget = useCallback(async (raw: string) => {
+    const next = parseIncentiveTargetInput(raw);
+    setTargetDraft(next > 0 ? String(next) : '');
+    if (next === savedTarget) return;
+    setTargetSaving(true);
+    const previous = targetsByKam;
+    setTargetsByKam(current => ({ ...current, [kam]: next }));
+    try {
+      await setIncentiveStaffTarget({
+        month,
+        kamId: kam,
+        target: next,
+        uid: user?.uid,
+      });
+      setTableCache(`incentive-target:${month}`, { ...previous, [kam]: next });
+    } catch {
+      setTargetsByKam(previous);
+      setTargetDraft(savedTarget > 0 ? String(savedTarget) : '');
+      setError('Could not save staff target.');
+    } finally {
+      setTargetSaving(false);
+    }
+  }, [kam, month, savedTarget, targetsByKam, user?.uid]);
 
   const toggleLineExclusion = useCallback(async (
     row: IncentiveInvoiceRow,
@@ -431,8 +515,8 @@ export const IncentiveReportTab: React.FC = () => {
               <div className="incentive-report__kpi-copy">
                 <span className="incentive-report__kpi-label">
                   {kam === 'shibin'
-                    ? 'Incentives (rate card)'
-                    : `Incentives (${(INCENTIVE_RATE * 100).toFixed(1)}% rate card)`}
+                    ? (kpis.target > 0 ? 'Incentives (after target)' : 'Incentives (rate card)')
+                    : `Incentives (${(INCENTIVE_RATE * 100).toFixed(1)}%${kpis.target > 0 ? ' after target' : ' rate card'})`}
                 </span>
                 {kam === 'shibin' ? (
                   <dl className="incentive-report__kpi-split">
@@ -456,6 +540,55 @@ export const IncentiveReportTab: React.FC = () => {
                 )}
               </div>
             </article>
+          </div>
+
+          <div className="incentive-report__formula" aria-label="Incentive formula">
+            <div className="incentive-report__formula-term">
+              <span className="incentive-report__formula-label">Rate card</span>
+              <strong>{formatCurrencyWhole(kpis.rateCardSales)}</strong>
+            </div>
+            <span className="incentive-report__formula-op" aria-hidden>−</span>
+            <label className="incentive-report__formula-term is-target">
+              <span className="incentive-report__formula-label">Target</span>
+              {canEditTarget ? (
+                <input
+                  type="text"
+                  inputMode="decimal"
+                  className="incentive-report__target-input"
+                  aria-label={`${kamLabel} sales target for ${monthLabel}`}
+                  placeholder="₹0"
+                  disabled={targetSaving}
+                  value={targetFocused
+                    ? targetDraft
+                    : (savedTarget > 0 ? formatCurrencyWhole(savedTarget) : '')}
+                  onFocus={() => {
+                    setTargetFocused(true);
+                    setTargetDraft(savedTarget > 0 ? String(Math.round(savedTarget)) : '');
+                  }}
+                  onChange={e => setTargetDraft(e.target.value)}
+                  onBlur={() => {
+                    setTargetFocused(false);
+                    void persistTarget(targetDraft);
+                  }}
+                  onKeyDown={e => {
+                    if (e.key === 'Enter') (e.currentTarget as HTMLInputElement).blur();
+                  }}
+                />
+              ) : (
+                <strong>{formatCurrencyWhole(kpis.target)}</strong>
+              )}
+            </label>
+            <span className="incentive-report__formula-op" aria-hidden>×</span>
+            <span className="incentive-report__formula-rate">
+              {(INCENTIVE_RATE * 100).toFixed(1)}%
+            </span>
+            <span className="incentive-report__formula-op" aria-hidden>=</span>
+            <div className={`incentive-report__formula-term is-result${kpis.surplus < 0 ? ' is-short' : ''}`}>
+              <span className="incentive-report__formula-label">
+                {kpis.surplus < 0 ? 'Below target' : 'Incentive'}
+              </span>
+              <strong>{formatCurrencyWhole(kpis.totalIncentive)}</strong>
+            </div>
           </div>
 
           <div className="incentive-report__adjust" aria-label="Upsales and down sale">
