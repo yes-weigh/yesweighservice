@@ -1,6 +1,7 @@
 /**
  * Zoho item stock movements via /items/transactions/* (includes item_quantity).
- * Fetches stock-affecting doc types. Draft/void/cancelled docs stay visible but
+ * Fetches stock-affecting doc types. Bills are always pulled (inventory and
+ * service / software-key items). Draft/void/cancelled docs stay visible but
  * qtyDelta=0 so Running matches Zoho accounting stock. Always fetched live from Zoho.
  */
 import { FieldValue, getFirestore } from 'firebase-admin/firestore';
@@ -256,6 +257,101 @@ function mapBill(row) {
     itemTotal: row.item_total_price != null ? Number(row.item_total_price) : null,
     ...parseCurrencyFields(row),
   }), +Math.abs(qty));
+}
+
+function mapBillFromDocument(row, itemId) {
+  const lines = Array.isArray(row?.line_items) ? row.line_items : [];
+  let qty = 0;
+  let itemPrice = null;
+  let itemTotal = null;
+  for (const line of lines) {
+    if (String(line?.item_id ?? '') !== String(itemId)) continue;
+    const lineQty = Math.abs(Number(line.quantity ?? line.item_quantity ?? 0) || 0);
+    qty += lineQty;
+    if (line.rate != null && Number.isFinite(Number(line.rate))) {
+      itemPrice = Number(line.rate);
+    } else if (line.item_price != null && Number.isFinite(Number(line.item_price))) {
+      itemPrice = Number(line.item_price);
+    }
+    const lineTotal = Number(line.item_total ?? line.item_total_price ?? NaN);
+    if (Number.isFinite(lineTotal)) {
+      itemTotal = (itemTotal ?? 0) + lineTotal;
+    }
+  }
+  if (!qty) return null;
+  return withStockEffect(baseMovement({
+    type: 'bill',
+    typeLabel: 'Bill',
+    documentId: String(row.bill_id ?? ''),
+    documentNumber: String(row.bill_number ?? ''),
+    date: String(row.date ?? ''),
+    createdTime: String(row.date ?? ''),
+    createdAt: row.date ? `${row.date}T00:00:00.000Z` : null,
+    status: String(row.status ?? ''),
+    customerOrVendor: String(row.vendor_name ?? '').trim() || null,
+    quantity: qty,
+    itemPrice,
+    itemTotal,
+    ...parseCurrencyFields(row),
+  }), +qty);
+}
+
+async function listBillsByItem(zohoGet, itemId) {
+  const docs = [];
+  let page = 1;
+  for (;;) {
+    const path = `/bills?item_id=${encodeURIComponent(itemId)}`
+      + `&filter_by=${encodeURIComponent('Status.All')}`
+      + `&per_page=${PAGE_SIZE}&page=${page}`;
+    let json;
+    try {
+      json = await zohoGet(path);
+    } catch (err) {
+      console.warn(`Zoho bills list failed for ${itemId}:`, err?.message ?? err);
+      return [];
+    }
+    const batch = Array.isArray(json.bills) ? json.bills : [];
+    docs.push(...batch);
+    if (docs.length > 200) {
+      console.warn(`bills list ${itemId} returned ${docs.length} docs — treating as unfiltered`);
+      return [];
+    }
+    if (!json.page_context?.has_more_page || batch.length === 0) break;
+    page += 1;
+    if (page > 100) break;
+  }
+
+  const rows = [];
+  for (const row of docs) {
+    let mapped = mapBillFromDocument(row, itemId);
+    if (!mapped && row?.bill_id) {
+      try {
+        const detail = await zohoGet(`/bills/${encodeURIComponent(row.bill_id)}`);
+        mapped = mapBillFromDocument(detail.bill ?? detail, itemId);
+      } catch (err) {
+        console.warn(`Zoho bill ${row.bill_id} failed:`, err?.message ?? err);
+      }
+    }
+    if (mapped) rows.push(mapped);
+  }
+  return rows;
+}
+
+/** Bills for every item type — service / SAC / software keys still have vendor bills. */
+async function loadBillMovements(zohoGet, itemId) {
+  let last = { rows: [], failed: false };
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    if (attempt) await sleep(500);
+    last = await listAllItemTransactionsDetailed(zohoGet, 'bills', itemId, 'bills');
+    const mapped = (last.rows || []).map(mapBill).filter(Boolean);
+    if (mapped.length) return { movements: mapped, failed: false };
+  }
+  const fallback = await listBillsByItem(zohoGet, itemId);
+  if (fallback.length) {
+    console.info(`bills fallback ${itemId}: ${fallback.length} movements`);
+    return { movements: fallback, failed: false };
+  }
+  return { movements: [], failed: last.failed };
 }
 
 function mapCreditNote(row) {
@@ -594,11 +690,13 @@ export async function listCatalogProductLifetimeStockMovements(
   }
 
   const inventory = itemTracksInventory(item);
-  const invoices = await listAllItemTransactions(zohoGet, 'invoices', itemId, 'invoices', { required: true });
+  const [invoices, billLoaded] = await Promise.all([
+    listAllItemTransactions(zohoGet, 'invoices', itemId, 'invoices', { required: true }),
+    loadBillMovements(zohoGet, itemId),
+  ]);
   const creditLoaded = await loadCreditNoteMovements(zohoGet, itemId, invoices.length);
   const creditnoteMovements = creditLoaded.movements;
   const creditNoteResult = { rows: creditnoteMovements, failed: creditLoaded.failed };
-  let bills = [];
   let adjustments = [];
   let moveorders = [];
   let purchasereceives = [];
@@ -607,14 +705,12 @@ export async function listCatalogProductLifetimeStockMovements(
   let salesReturns = [];
   if (inventory) {
     [
-      bills,
       adjustments,
       moveorders,
       purchasereceives,
       transferorders,
       putaways,
     ] = await Promise.all([
-      listAllItemTransactions(zohoGet, 'bills', itemId, 'bills'),
       listAllItemTransactions(zohoGet, 'inventoryadjustments', itemId, 'inventory_adjustments'),
       listAllItemTransactions(zohoGet, 'moveorders', itemId, 'moveorders'),
       listAllItemTransactions(zohoGet, 'purchasereceives', itemId, 'purchasereceives'),
@@ -626,7 +722,7 @@ export async function listCatalogProductLifetimeStockMovements(
 
   const movementsRaw = [
     ...invoices.map(mapInvoice),
-    ...bills.map(mapBill),
+    ...billLoaded.movements,
     ...creditnoteMovements,
     ...adjustments.map(mapAdjustment),
     ...moveorders.map(r => mapTransferLike(r, 'moveorder', 'Transfer', 'moveorder_id', 'moveorder_number')),
@@ -669,8 +765,8 @@ export async function listCatalogProductLifetimeStockMovements(
     openingStock: unexplainedGap,
     fetchedAt: new Date().toISOString(),
     movements: sorted,
-    /** Incomplete credit-note pull — do not persist this net to the catalog card. */
-    ledgerIncomplete: creditNoteResult.failed,
+    /** Incomplete credit-note or bill pull — do not persist this net to the catalog card. */
+    ledgerIncomplete: creditNoteResult.failed || billLoaded.failed,
   };
 }
 
