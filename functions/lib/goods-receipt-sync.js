@@ -23,6 +23,7 @@ import {
   sumNonFreightQuantity,
 } from './invoice-category.js';
 import { extractWebhookEvent } from './invoice-sync.js';
+import { ackZohoWebhookFailure } from './zoho-webhook-guard.js';
 import { applyPurchaseOrderSerialsOnGoodsReceipt } from './purchase-order-serials.js';
 
 const COLLECTION = 'goodsReceipts';
@@ -1387,12 +1388,18 @@ export async function handleZohoGoodsReceiptWebhook(secrets, orgId, req) {
     return { ok: true, status: 200, action: 'deleted', billId };
   }
 
-  const result = await mirrorGoodsReceiptFromZoho(secrets, orgId, billId);
-  return {
-    ok: true,
-    status: 200,
-    action: 'synced',
-    billId,
-    result,
-  };
+  try {
+    const result = await mirrorGoodsReceiptFromZoho(secrets, orgId, billId);
+    return {
+      ok: true,
+      status: 200,
+      action: 'synced',
+      billId,
+      result,
+    };
+  } catch (err) {
+    const ack = await ackZohoWebhookFailure('goodsreceipt', billId, err);
+    if (ack) return ack;
+    throw err;
+  }
 }

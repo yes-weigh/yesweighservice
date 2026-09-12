@@ -24,7 +24,8 @@ import { reconcileSalesOrderStats } from './sales-order-stats.js';
 import { resolveZohoCustomerIdForUser } from './zoho-invoices.js';
 import { formatZohoAddress } from './zoho-contact-fields.js';
 import { isDealerAdminStaff } from './dealer-staff-team.js';
-import { extractWebhookEvent } from './invoice-sync.js';
+import { extractWebhookEvent, normalizeWebhookBody } from './invoice-sync.js';
+import { ackZohoWebhookFailure } from './zoho-webhook-guard.js';
 import { HttpsError } from 'firebase-functions/v2/https';
 
 const COLLECTION = 'salesOrders';
@@ -1301,20 +1302,6 @@ export async function ensureDealerSalesOrderPdf(secrets, orgId, uid, role, sales
   return ensureSalesOrderPdf(secrets, orgId, salesOrderId);
 }
 
-function normalizeWebhookBody(body) {
-  if (!body || typeof body !== 'object') return {};
-  let next = { ...body };
-  if (typeof body.JSONString === 'string' && body.JSONString.trim()) {
-    try {
-      const parsed = JSON.parse(body.JSONString);
-      if (parsed && typeof parsed === 'object') next = { ...next, ...parsed };
-    } catch {
-      // ignore malformed Zoho JSONString
-    }
-  }
-  return next;
-}
-
 export function extractSalesOrderIdFromWebhook(body, query = {}) {
   const normalized = normalizeWebhookBody(body);
   const candidates = [
@@ -1349,9 +1336,19 @@ export async function deleteSalesOrderFromFirestore(salesOrderId) {
 
 /**
  * Zoho Sales Order webhook — create/edit/delete mirror in Firestore.
- * Create/edit pull full detail from Zoho (1 API call) so line items stay complete.
- * If Zoho says the SO is gone (delete webhook missing/mis-tagged), drop the local mirror.
+ * Prefer a complete webhook payload (line_items present) to skip a Zoho GET.
+ * Quota / 401 ACK 200 and queue retry so Zoho does not disable the webhook.
  */
+function extractSalesOrderRawFromWebhook(body) {
+  const normalized = normalizeWebhookBody(body);
+  const raw = normalized.salesorder
+    || normalized.sales_order
+    || (normalized.salesorder_id && Array.isArray(normalized.line_items) ? normalized : null);
+  if (!raw || typeof raw !== 'object') return null;
+  if (!raw.salesorder_id || !Array.isArray(raw.line_items)) return null;
+  return raw;
+}
+
 export async function handleZohoSalesOrderWebhook(secrets, orgId, req) {
   const body = normalizeWebhookBody(req.body ?? {});
   const salesOrderId = extractSalesOrderIdFromWebhook(body, req.query ?? {});
@@ -1367,6 +1364,18 @@ export async function handleZohoSalesOrderWebhook(secrets, orgId, req) {
   }
 
   try {
+    const payloadRaw = extractSalesOrderRawFromWebhook(body);
+    if (payloadRaw) {
+      const result = await upsertSalesOrderFromRaw(payloadRaw);
+      return {
+        ok: true,
+        status: 200,
+        action: 'synced',
+        salesOrderId,
+        source: 'payload',
+        result,
+      };
+    }
     const result = await mirrorSalesOrderFromZoho(secrets, orgId, salesOrderId);
     return {
       ok: true,
@@ -1398,6 +1407,8 @@ export async function handleZohoSalesOrderWebhook(secrets, orgId, req) {
         reason: 'missing_in_zoho',
       };
     }
+    const ack = await ackZohoWebhookFailure('salesorder', salesOrderId, err);
+    if (ack) return ack;
     throw err;
   }
 }

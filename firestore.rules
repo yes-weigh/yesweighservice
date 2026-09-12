@@ -336,6 +336,16 @@ service cloud.firestore {
       allow write: if false;
     }
 
+    match /zohoMeta/{docId} {
+      allow read: if isOpsUser() && docId == 'apiUsage';
+      allow write: if false;
+    }
+
+    match /zohoWebhookRetries/{retryId} {
+      allow read: if isOpsUser();
+      allow write: if false;
+    }
+
     match /catalogProductSpareMap/{productId} {
       allow read: if true;
       allow write: if false;

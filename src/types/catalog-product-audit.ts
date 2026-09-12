@@ -129,4 +129,8 @@ export interface CatalogProductStockMovementsResult {
   zohoFetchFailed?: boolean;
   /** Incomplete credit-note pull — do not persist this net to the catalog card. */
   ledgerIncomplete?: boolean;
+  /** Served from Firestore cache (no live Zoho pull). */
+  cached?: boolean;
+  /** Quota was exhausted; stale cache returned. */
+  quotaDeferred?: boolean;
 }

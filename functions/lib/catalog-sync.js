@@ -19,8 +19,8 @@ import {
   normaliseCategoryId,
 } from './zoho.js';
 import { buildZohoSyncAuditAdjustment } from './catalog-product-audit.js';
-import { syncLedgerClosingStockForProducts } from './zoho-stock-movements.js';
 import { extractWebhookEvent } from './invoice-sync.js';
+import { ackZohoWebhookFailure } from './zoho-webhook-guard.js';
 import { sanitizeRestrictedSalesStates } from './india-states.js';
 
 const PRODUCTS_COLLECTION = 'catalogProducts';
@@ -613,26 +613,6 @@ export async function syncCatalogToFirestore(secrets, configuredOrgId, options =
   }
 
   await db.doc(META_DOC).set(metaPayload, { merge: true });
-
-  try {
-    const ledgerSync = await syncLedgerClosingStockForProducts(
-      secrets,
-      configuredOrgId,
-      enrichedProducts,
-    );
-    if (ledgerSync.updated > 0) {
-      console.info(
-        `syncLedgerClosingStock: ${ledgerSync.updated}/${ledgerSync.total} software-key products`,
-      );
-      // Ledger writes happen after the product batch — bump so the grid refetches.
-      await db.doc(META_DOC).set({
-        lastContentChangeAt: new Date().toISOString(),
-        updatedAt: FieldValue.serverTimestamp(),
-      }, { merge: true });
-    }
-  } catch (err) {
-    console.warn('syncLedgerClosingStockForProducts failed:', err?.message ?? err);
-  }
 
   return {
     syncedCount,
@@ -2485,9 +2465,15 @@ export async function handleZohoItemWebhook(secrets, orgId, req) {
     return { ok: true, status: 200, action: 'deleted', itemId };
   }
 
-  const result = await mirrorCatalogItemFromZoho(secrets, orgId, itemId, {
-    skipImages: true,
-    source: 'webhook',
-  });
-  return { ok: true, status: 200, action: 'synced', itemId, result };
+  try {
+    const result = await mirrorCatalogItemFromZoho(secrets, orgId, itemId, {
+      skipImages: true,
+      source: 'webhook',
+    });
+    return { ok: true, status: 200, action: 'synced', itemId, result };
+  } catch (err) {
+    const ack = await ackZohoWebhookFailure('item', itemId, err);
+    if (ack) return ack;
+    throw err;
+  }
 }

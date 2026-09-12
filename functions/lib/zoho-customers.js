@@ -8,6 +8,7 @@ import {
 } from './zoho-contact-fields.js';
 import { classifyZohoHttpError, recordZohoApiFailure } from './zoho-api-usage.js';
 import { extractWebhookEvent } from './invoice-sync.js';
+import { ackZohoWebhookFailure } from './zoho-webhook-guard.js';
 
 const CUSTOMERS_COLLECTION = 'zohoCustomers';
 const SETTINGS_COLLECTION = 'dealerSettings';
@@ -936,6 +937,12 @@ export async function handleZohoCustomerWebhook(secrets, orgId, req) {
     return { ok: true, status: 200, action: 'deleted', contactId };
   }
 
-  const result = await upsertCustomerFromZoho(secrets, orgId, contactId);
-  return { ok: true, status: 200, action: 'synced', contactId, result };
+  try {
+    const result = await upsertCustomerFromZoho(secrets, orgId, contactId);
+    return { ok: true, status: 200, action: 'synced', contactId, result };
+  } catch (err) {
+    const ack = await ackZohoWebhookFailure('customer', contactId, err);
+    if (ack) return ack;
+    throw err;
+  }
 }

@@ -169,15 +169,17 @@ export async function fetchCatalogProductStockMovements(
 /** Lifetime Zoho stock ledger (live from Zoho on each request). */
 export async function fetchCatalogProductLifetimeStockMovements(
   catalogProductId: string,
+  options?: { forceRefresh?: boolean },
 ): Promise<CatalogProductStockMovementsResult> {
   const callable = httpsCallable<
-    { catalogProductId: string; lifetime: boolean },
+    { catalogProductId: string; lifetime: boolean; forceRefresh?: boolean },
     CatalogProductStockMovementsResult
   >(functions, 'getCatalogProductStockMovements', { timeout: 180_000 });
 
   const result = await callable({
     catalogProductId: String(catalogProductId ?? '').trim(),
     lifetime: true,
+    forceRefresh: options?.forceRefresh === true,
   });
   return result.data;
 }

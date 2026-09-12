@@ -94,8 +94,6 @@ import type { CatalogSiteInventoryDoc } from '../../types/catalog-site-inventory
 import { reconcileCatalogAuditImagesOnZoho } from '../../lib/yesStore/syncAuditImages';
 import { rememberAuditReturnFocus } from '../../lib/yesStore/auditReturnFocus';
 import { readItemLinkedByName, readItemLinkedByUid, type InventoryAuditLinkedGroup } from '../../lib/yesStore/inventoryAudit';
-import { useSoftwareKeyLedgerRepair } from '../../hooks/useSoftwareKeyLedgerRepair';
-import { refreshSoftwareKeyLedgerStocks } from '../../lib/softwareKeysLedgerRefresh';
 import { canUseOrderCart, isCatalogProductCartable } from '../../lib/salesOrderSegments';
 import { effectiveCatalogStockStatus } from '../../lib/sacCatalog';
 import type { CatalogCategory, CatalogProduct, CatalogResponse } from '../../types/catalog';
@@ -221,7 +219,6 @@ export const CatalogPage: React.FC = () => {
     const cached = peekCatalogCacheStale();
     return cached ? catalogResponseFromCache(cached) : null;
   });
-  useSoftwareKeyLedgerRepair(catalog?.items, canSync);
   const [linkedSpareIds, setLinkedSpareIds] = useState<Set<string> | null>(null);
   const [spareCountByProductId, setSpareCountByProductId] = useState<Map<string, number> | null>(null);
   const [loading, setLoading] = useState(() => !peekCatalogCacheStale());
@@ -1199,11 +1196,8 @@ export const CatalogPage: React.FC = () => {
     setError(null);
     try {
       await syncCatalog();
-      const data = await loadCatalog({ force: true });
+      await loadCatalog({ force: true });
       await loadLinkedSpareIds();
-      if (data?.items.length) {
-        void refreshSoftwareKeyLedgerStocks(data.items);
-      }
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Product sync failed.');
     } finally {

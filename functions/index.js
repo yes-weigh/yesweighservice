@@ -172,6 +172,18 @@ import {
   syncDealerSalesOrdersToFirestore,
   handleZohoSalesOrderWebhook,
 } from './lib/sales-order-sync.js';
+import {
+  drainZohoWebhookRetries,
+  resolveZohoWebhookSecret,
+  ensureZohoWebhookSettings,
+  setZohoWebhookEnforceSignature,
+  ackZohoWebhookFailure,
+} from './lib/zoho-webhook-guard.js';
+import {
+  getZohoApiUsageStatus,
+  peekZohoApiUsageCached,
+  assertZohoDaytimeBudget,
+} from './lib/zoho-api-usage.js';
 import { lookupPincodeLocation } from './lib/location-utils.js';
 import {
   normalizePhone10,
@@ -403,6 +415,45 @@ function zohoSecrets() {
     clientSecret: zohoClientSecret.value(),
     refreshToken: zohoRefreshToken.value(),
   };
+}
+
+function throwIfZohoQuota(err) {
+  if (err instanceof HttpsError) throw err;
+  if (err?.code === 'RATE_LIMITED' || err?.dailyQuota) {
+    throw new HttpsError(
+      'resource-exhausted',
+      err?.message
+        || 'Zoho daily API limit (10,000 calls) has been reached. Wait until the quota resets.',
+    );
+  }
+}
+
+async function dispatchZohoWebhook(req, res, kind, handler) {
+  if (req.method !== 'POST') {
+    res.status(405).send('Method not allowed');
+    return;
+  }
+  const secret = await resolveZohoWebhookSecret(zohoWebhookSecret.value()?.trim());
+  if (secret && !verifyZohoWebhookSignature(req, secret)) {
+    console.warn(`Zoho ${kind} webhook rejected: invalid signature.`);
+    res.status(401).send('Invalid signature');
+    return;
+  }
+  if (!secret) {
+    console.warn('ZOHO_WEBHOOK_SECRET not set — accepting webhook without signature verification.');
+  }
+  try {
+    const result = await handler();
+    res.status(result.status ?? 200).json(result);
+  } catch (err) {
+    const ack = await ackZohoWebhookFailure(kind, '', err);
+    if (ack) {
+      res.status(200).json(ack);
+      return;
+    }
+    console.error(`Zoho ${kind} webhook failed:`, err);
+    res.status(500).json({ ok: false, message: err?.message ?? 'Webhook processing failed.' });
+  }
 }
 
 function meezanCatalogMirrorConfig() {
@@ -739,6 +790,13 @@ export const syncZohoCatalogScheduled = onSchedule(
       return;
     }
 
+    try {
+      await assertZohoDaytimeBudget(zohoSecrets(), zohoOrganizationId.value(), { minRemaining: 3000 });
+    } catch (err) {
+      console.log(`Skipping scheduled catalog sync — ${err?.message ?? err}`);
+      return;
+    }
+
     const result = await syncCatalogToFirestore(
       zohoSecrets(),
       zohoOrganizationId.value(),
@@ -762,13 +820,18 @@ export const syncZohoCatalog = onCall(
   async request => {
     await requireActiveUser(request.auth?.uid, SYNC_ROLES);
 
-    const result = await syncCatalogToFirestore(
-      zohoSecrets(),
-      zohoOrganizationId.value(),
-      { skipNewImages: true },
-    );
-
-    return result;
+    try {
+      await assertZohoDaytimeBudget(zohoSecrets(), zohoOrganizationId.value(), { minRemaining: 200 });
+      const result = await syncCatalogToFirestore(
+        zohoSecrets(),
+        zohoOrganizationId.value(),
+        { skipNewImages: true },
+      );
+      return result;
+    } catch (err) {
+      throwIfZohoQuota(err);
+      throw new HttpsError('internal', err?.message ?? 'Catalog sync failed.');
+    }
   },
 );
 
@@ -1681,6 +1744,7 @@ export const getCatalogProductStockMovements = onCall(
     const catalogProductId = String(request.data?.catalogProductId ?? '').trim();
     const until = String(request.data?.until ?? '').trim();
     const lifetime = Boolean(request.data?.lifetime) || !until;
+    const forceRefresh = request.data?.forceRefresh === true;
 
     if (!catalogProductId) {
       throw new HttpsError('invalid-argument', 'catalogProductId is required.');
@@ -1700,6 +1764,7 @@ export const getCatalogProductStockMovements = onCall(
           zohoSecrets(),
           zohoOrganizationId.value(),
           catalogProductId,
+          { forceRefresh },
         );
       }
 
@@ -1710,6 +1775,7 @@ export const getCatalogProductStockMovements = onCall(
         until,
       );
     } catch (err) {
+      throwIfZohoQuota(err);
       console.error('getCatalogProductStockMovements failed:', err);
       throw new HttpsError('internal', err?.message ?? 'Could not load stock movements.');
     }
@@ -2080,6 +2146,7 @@ export const syncZohoCustomers = onCall(
   async request => {
     await requireActiveUser(request.auth?.uid, SYNC_ROLES);
     try {
+      await assertZohoDaytimeBudget(zohoSecrets(), zohoOrganizationId.value(), { minRemaining: 100 });
       const count = await syncCustomersToFirestore(zohoSecrets(), zohoOrganizationId.value());
       return { syncedCount: count };
     } catch (err) {
@@ -2093,7 +2160,7 @@ export const syncZohoCustomers = onCall(
         throw new HttpsError(
           'resource-exhausted',
           err?.dailyQuota || /maximum call rate limit|10,?000/i.test(message)
-            ? 'Zoho daily API limit (10,000 calls) has been reached for this organization. Wait until the quota resets, then try Sync again. You can check usage under Admin → Invoice Sync.'
+            ? 'Zoho daily API limit (10,000 calls) has been reached for this organization. Wait until the quota resets, then try Sync again. Check usage under Settings → Webhook.'
             : 'Zoho is temporarily rate-limited. Wait a few minutes, then try Sync again.',
         );
       }
@@ -2602,32 +2669,9 @@ export const zohoInvoiceWebhook = onRequest(
     memory: '512MiB',
   },
   async (req, res) => {
-    if (req.method !== 'POST') {
-      res.status(405).send('Method not allowed');
-      return;
-    }
-
-    const secret = zohoWebhookSecret.value()?.trim();
-    if (secret && !verifyZohoWebhookSignature(req, secret)) {
-      console.warn('Zoho invoice webhook rejected: invalid signature.');
-      res.status(401).send('Invalid signature');
-      return;
-    }
-    if (!secret) {
-      console.warn('ZOHO_WEBHOOK_SECRET not set — accepting webhook without signature verification.');
-    }
-
-    try {
-      const result = await handleZohoInvoiceWebhook(
-        zohoSecrets(),
-        zohoOrganizationId.value(),
-        req,
-      );
-      res.status(result.status).json(result);
-    } catch (err) {
-      console.error('Zoho invoice webhook failed:', err);
-      res.status(500).json({ ok: false, message: err?.message ?? 'Webhook processing failed.' });
-    }
+    await dispatchZohoWebhook(req, res, 'invoice', () => (
+      handleZohoInvoiceWebhook(zohoSecrets(), zohoOrganizationId.value(), req)
+    ));
   },
 );
 
@@ -2640,32 +2684,9 @@ export const zohoSalesOrderWebhook = onRequest(
     memory: '512MiB',
   },
   async (req, res) => {
-    if (req.method !== 'POST') {
-      res.status(405).send('Method not allowed');
-      return;
-    }
-
-    const secret = zohoWebhookSecret.value()?.trim();
-    if (secret && !verifyZohoWebhookSignature(req, secret)) {
-      console.warn('Zoho sales order webhook rejected: invalid signature.');
-      res.status(401).send('Invalid signature');
-      return;
-    }
-    if (!secret) {
-      console.warn('ZOHO_WEBHOOK_SECRET not set — accepting webhook without signature verification.');
-    }
-
-    try {
-      const result = await handleZohoSalesOrderWebhook(
-        zohoSecrets(),
-        zohoOrganizationId.value(),
-        req,
-      );
-      res.status(result.status).json(result);
-    } catch (err) {
-      console.error('Zoho sales order webhook failed:', err);
-      res.status(500).json({ ok: false, message: err?.message ?? 'Webhook processing failed.' });
-    }
+    await dispatchZohoWebhook(req, res, 'salesorder', () => (
+      handleZohoSalesOrderWebhook(zohoSecrets(), zohoOrganizationId.value(), req)
+    ));
   },
 );
 
@@ -2678,32 +2699,9 @@ export const zohoPurchaseOrderWebhook = onRequest(
     memory: '512MiB',
   },
   async (req, res) => {
-    if (req.method !== 'POST') {
-      res.status(405).send('Method not allowed');
-      return;
-    }
-
-    const secret = zohoWebhookSecret.value()?.trim();
-    if (secret && !verifyZohoWebhookSignature(req, secret)) {
-      console.warn('Zoho purchase order webhook rejected: invalid signature.');
-      res.status(401).send('Invalid signature');
-      return;
-    }
-    if (!secret) {
-      console.warn('ZOHO_WEBHOOK_SECRET not set — accepting webhook without signature verification.');
-    }
-
-    try {
-      const result = await handleZohoPurchaseOrderWebhook(
-        zohoSecrets(),
-        zohoOrganizationId.value(),
-        req,
-      );
-      res.status(result.status).json(result);
-    } catch (err) {
-      console.error('Zoho purchase order webhook failed:', err);
-      res.status(500).json({ ok: false, message: err?.message ?? 'Webhook processing failed.' });
-    }
+    await dispatchZohoWebhook(req, res, 'purchaseorder', () => (
+      handleZohoPurchaseOrderWebhook(zohoSecrets(), zohoOrganizationId.value(), req)
+    ));
   },
 );
 
@@ -2716,32 +2714,9 @@ export const zohoGoodsReceiptWebhook = onRequest(
     memory: '512MiB',
   },
   async (req, res) => {
-    if (req.method !== 'POST') {
-      res.status(405).send('Method not allowed');
-      return;
-    }
-
-    const secret = zohoWebhookSecret.value()?.trim();
-    if (secret && !verifyZohoWebhookSignature(req, secret)) {
-      console.warn('Zoho goods receipt webhook rejected: invalid signature.');
-      res.status(401).send('Invalid signature');
-      return;
-    }
-    if (!secret) {
-      console.warn('ZOHO_WEBHOOK_SECRET not set — accepting webhook without signature verification.');
-    }
-
-    try {
-      const result = await handleZohoGoodsReceiptWebhook(
-        zohoSecrets(),
-        zohoOrganizationId.value(),
-        req,
-      );
-      res.status(result.status).json(result);
-    } catch (err) {
-      console.error('Zoho goods receipt webhook failed:', err);
-      res.status(500).json({ ok: false, message: err?.message ?? 'Webhook processing failed.' });
-    }
+    await dispatchZohoWebhook(req, res, 'goodsreceipt', () => (
+      handleZohoGoodsReceiptWebhook(zohoSecrets(), zohoOrganizationId.value(), req)
+    ));
   },
 );
 
@@ -2754,32 +2729,9 @@ export const zohoItemWebhook = onRequest(
     memory: '512MiB',
   },
   async (req, res) => {
-    if (req.method !== 'POST') {
-      res.status(405).send('Method not allowed');
-      return;
-    }
-
-    const secret = zohoWebhookSecret.value()?.trim();
-    if (secret && !verifyZohoWebhookSignature(req, secret)) {
-      console.warn('Zoho item webhook rejected: invalid signature.');
-      res.status(401).send('Invalid signature');
-      return;
-    }
-    if (!secret) {
-      console.warn('ZOHO_WEBHOOK_SECRET not set — accepting webhook without signature verification.');
-    }
-
-    try {
-      const result = await handleZohoItemWebhook(
-        zohoSecrets(),
-        zohoOrganizationId.value(),
-        req,
-      );
-      res.status(result.status).json(result);
-    } catch (err) {
-      console.error('Zoho item webhook failed:', err);
-      res.status(500).json({ ok: false, message: err?.message ?? 'Webhook processing failed.' });
-    }
+    await dispatchZohoWebhook(req, res, 'item', () => (
+      handleZohoItemWebhook(zohoSecrets(), zohoOrganizationId.value(), req)
+    ));
   },
 );
 
@@ -2885,32 +2837,9 @@ export const zohoCustomerWebhook = onRequest(
     memory: '512MiB',
   },
   async (req, res) => {
-    if (req.method !== 'POST') {
-      res.status(405).send('Method not allowed');
-      return;
-    }
-
-    const secret = zohoWebhookSecret.value()?.trim();
-    if (secret && !verifyZohoWebhookSignature(req, secret)) {
-      console.warn('Zoho customer webhook rejected: invalid signature.');
-      res.status(401).send('Invalid signature');
-      return;
-    }
-    if (!secret) {
-      console.warn('ZOHO_WEBHOOK_SECRET not set — accepting webhook without signature verification.');
-    }
-
-    try {
-      const result = await handleZohoCustomerWebhook(
-        zohoSecrets(),
-        zohoOrganizationId.value(),
-        req,
-      );
-      res.status(result.status).json(result);
-    } catch (err) {
-      console.error('Zoho customer webhook failed:', err);
-      res.status(500).json({ ok: false, message: err?.message ?? 'Webhook processing failed.' });
-    }
+    await dispatchZohoWebhook(req, res, 'customer', () => (
+      handleZohoCustomerWebhook(zohoSecrets(), zohoOrganizationId.value(), req)
+    ));
   },
 );
 
@@ -3221,6 +3150,126 @@ export const syncZohoSalesOrdersScheduled = onSchedule(
       );
     } catch (err) {
       console.error('Scheduled org SO sync failed:', err?.message ?? err);
+    }
+  },
+);
+
+export const drainZohoWebhookRetriesScheduled = onSchedule(
+  {
+    schedule: '*/20 * * * *',
+    timeZone: 'Asia/Kolkata',
+    region: 'asia-south1',
+    secrets: [zohoClientId, zohoClientSecret, zohoRefreshToken],
+    timeoutSeconds: 300,
+    memory: '512MiB',
+  },
+  async () => {
+    try {
+      await drainZohoWebhookRetries(zohoSecrets(), zohoOrganizationId.value());
+    } catch (err) {
+      console.error('Zoho webhook retry drain failed:', err?.message ?? err);
+    }
+  },
+);
+
+/** Nightly software-key closing stock — not during daytime catalog sync. */
+export const syncSoftwareKeyLedgersScheduled = onSchedule(
+  {
+    schedule: '30 4 * * *',
+    timeZone: 'Asia/Kolkata',
+    region: 'asia-south1',
+    secrets: [zohoClientId, zohoClientSecret, zohoRefreshToken],
+    timeoutSeconds: 540,
+    memory: '1GiB',
+  },
+  async () => {
+    try {
+      const { syncLedgerClosingStockForProducts } = await import('./lib/zoho-stock-movements.js');
+      const snap = await getFirestore().collection('catalogProducts').get();
+      const products = snap.docs.map(doc => ({ id: doc.id, ...(doc.data() || {}) }));
+      const result = await syncLedgerClosingStockForProducts(
+        zohoSecrets(),
+        zohoOrganizationId.value(),
+        products,
+        { maxProducts: 12, skipIfCachedHours: 20, minRemaining: 3000 },
+      );
+      console.log(
+        `Scheduled software-key ledgers: updated=${result.updated}, skipped=${result.skipped}, total=${result.total}.`,
+      );
+    } catch (err) {
+      console.error('Scheduled software-key ledger sync failed:', err?.message ?? err);
+    }
+  },
+);
+
+export const getZohoApiUsageFn = onCall(
+  {
+    region: 'asia-south1',
+    secrets: [zohoClientId, zohoClientSecret, zohoRefreshToken],
+    timeoutSeconds: 30,
+    memory: '256MiB',
+  },
+  async request => {
+    await requireActiveUser(request.auth?.uid, SYNC_ROLES, { allowViewOnly: true });
+    try {
+      if (request.data?.forceRefresh === true) {
+        return await getZohoApiUsageStatus(
+          zohoSecrets(),
+          zohoOrganizationId.value(),
+          { forceRefresh: true },
+        );
+      }
+      return await peekZohoApiUsageCached();
+    } catch (err) {
+      throwIfZohoQuota(err);
+      throw new HttpsError('internal', err?.message ?? 'Could not load Zoho API usage.');
+    }
+  },
+);
+
+export const getZohoWebhookSettingsFn = onCall(
+  {
+    region: 'asia-south1',
+    timeoutSeconds: 30,
+    memory: '256MiB',
+  },
+  async request => {
+    await requireActiveUser(request.auth?.uid, SUPER_ADMIN_ROLES);
+    const actor = request.auth?.uid || 'YESWEIGH';
+    try {
+      const settings = await ensureZohoWebhookSettings(actor);
+      const envSet = Boolean(zohoWebhookSecret.value()?.trim());
+      return {
+        ...settings,
+        envSecretConfigured: envSet,
+        urls: {
+          salesorder: 'https://asia-south1-yesweigh-service.cloudfunctions.net/zohoSalesOrderWebhook',
+          invoice: 'https://asia-south1-yesweigh-service.cloudfunctions.net/zohoInvoiceWebhook',
+          purchaseorder: 'https://asia-south1-yesweigh-service.cloudfunctions.net/zohoPurchaseOrderWebhook',
+          goodsreceipt: 'https://asia-south1-yesweigh-service.cloudfunctions.net/zohoGoodsReceiptWebhook',
+          item: 'https://asia-south1-yesweigh-service.cloudfunctions.net/zohoItemWebhook',
+          customer: 'https://asia-south1-yesweigh-service.cloudfunctions.net/zohoCustomerWebhook',
+        },
+      };
+    } catch (err) {
+      throw new HttpsError('internal', err?.message ?? 'Could not load Zoho webhook settings.');
+    }
+  },
+);
+
+export const setZohoWebhookEnforceFn = onCall(
+  {
+    region: 'asia-south1',
+    timeoutSeconds: 30,
+    memory: '256MiB',
+  },
+  async request => {
+    await requireActiveUser(request.auth?.uid, SUPER_ADMIN_ROLES);
+    const actor = request.auth?.uid || 'YESWEIGH';
+    try {
+      return await setZohoWebhookEnforceSignature(request.data?.enforce === true, actor);
+    } catch (err) {
+      throw new HttpsError('internal', err?.message ?? 'Could not update webhook verification.');
     }
   },
 );

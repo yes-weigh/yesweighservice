@@ -184,7 +184,9 @@ export const ProductStockMovementsPanel: React.FC<{
     else setLoading(true);
     setError(null);
     try {
-      const result = await loadCatalogProductStockLedger(product.id);
+      const result = await loadCatalogProductStockLedger(product.id, {
+        forceRefresh: isManualRefresh,
+      });
       if (isBrokenStockLedger(result)) {
         setError('Could not load stock movements from Zoho. Try Refresh again.');
       } else {

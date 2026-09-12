@@ -136,6 +136,52 @@ export async function fetchZohoOrgApiUsage(accessToken, orgId) {
   };
 }
 
+/** Firestore snapshot only — no Zoho call. Use before expensive daytime work. */
+export async function peekZohoApiUsageCached() {
+  const snap = await USAGE_REF().get();
+  if (!snap.exists) {
+    return formatUsageDoc({
+      source: 'none',
+      callsToday: 0,
+      remaining: ZOHO_DAILY_API_LIMIT,
+      dailyLimit: ZOHO_DAILY_API_LIMIT,
+      status: 'ok',
+    });
+  }
+  return formatUsageDoc(snap.data() || {});
+}
+
+export function zohoUsageBlocksWork(usage, minRemaining = 80) {
+  if (!usage) return false;
+  if (usage.status === 'daily_limit') return true;
+  return Number(usage.remaining ?? 0) <= Number(minRemaining);
+}
+
+/** Throws RATE_LIMITED when the org is at/near the daily cap. */
+export async function assertZohoDaytimeBudget(secrets, orgId, options = {}) {
+  const minRemaining = Number(options.minRemaining ?? 80);
+  let usage = await peekZohoApiUsageCached();
+  const staleMs = Date.now() - (usage.fetchedAt ? Date.parse(usage.fetchedAt) : 0);
+  const cacheStale = !usage.fetchedAt || Number.isNaN(staleMs) || staleMs > 120_000;
+  if (cacheStale && secrets && orgId && usage.status !== 'daily_limit') {
+    try {
+      usage = await getZohoApiUsageStatus(secrets, orgId);
+    } catch {
+      // keep cached
+    }
+  }
+  if (zohoUsageBlocksWork(usage, minRemaining)) {
+    const err = new Error(
+      `Zoho daily API limit (10,000 calls) has been reached or is too low `
+      + `(${usage.remaining ?? 0} remaining). Wait until the quota resets.`,
+    );
+    err.code = 'RATE_LIMITED';
+    err.dailyQuota = true;
+    throw err;
+  }
+  return usage;
+}
+
 export async function getZohoApiUsageStatus(secrets, orgId, options = {}) {
   const snap = await USAGE_REF().get();
   const cached = snap.exists ? snap.data() : null;

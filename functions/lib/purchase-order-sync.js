@@ -19,6 +19,7 @@ import {
   sumNonFreightQuantity,
 } from './invoice-category.js';
 import { extractWebhookEvent } from './invoice-sync.js';
+import { ackZohoWebhookFailure } from './zoho-webhook-guard.js';
 import { writePurchaseOrderSerialRanges } from './purchase-order-serials.js';
 
 const COLLECTION = 'purchaseOrders';
@@ -1232,12 +1233,18 @@ export async function handleZohoPurchaseOrderWebhook(secrets, orgId, req) {
     };
   }
 
-  const result = await mirrorPurchaseOrderFromZoho(secrets, orgId, purchaseOrderId);
-  return {
-    ok: true,
-    status: 200,
-    action: result?.skipped ? 'skipped' : 'synced',
-    purchaseOrderId,
-    result,
-  };
+  try {
+    const result = await mirrorPurchaseOrderFromZoho(secrets, orgId, purchaseOrderId);
+    return {
+      ok: true,
+      status: 200,
+      action: result?.skipped ? 'skipped' : 'synced',
+      purchaseOrderId,
+      result,
+    };
+  } catch (err) {
+    const ack = await ackZohoWebhookFailure('purchaseorder', purchaseOrderId, err);
+    if (ack) return ack;
+    throw err;
+  }
 }

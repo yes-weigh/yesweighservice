@@ -8,6 +8,7 @@ import {
   recordZohoApiFailure,
   classifyZohoHttpError,
 } from './zoho-api-usage.js';
+import { ackZohoWebhookFailure } from './zoho-webhook-guard.js';
 import {
   mapInvoice,
   mapInvoiceLineItem,
@@ -1732,7 +1733,7 @@ export function verifyZohoWebhookSignature(req, secret) {
   return false;
 }
 
-function normalizeWebhookBody(body) {
+export function normalizeWebhookBody(body) {
   if (!body || typeof body !== 'object') return {};
   let next = { ...body };
   if (typeof body.JSONString === 'string' && body.JSONString.trim()) {
@@ -1809,6 +1810,15 @@ async function removeInvoiceFromWebhook(invoiceId, body) {
   return { ok: true, status: 200, action: 'deleted', invoiceId, reason: 'released_without_local_doc' };
 }
 
+function extractInvoiceRawFromWebhook(body) {
+  const normalized = normalizeWebhookBody(body);
+  const raw = normalized.invoice
+    || (normalized.invoice_id && Array.isArray(normalized.line_items) ? normalized : null);
+  if (!raw || typeof raw !== 'object') return null;
+  if (!raw.invoice_id || !Array.isArray(raw.line_items)) return null;
+  return raw;
+}
+
 export async function handleZohoInvoiceWebhook(secrets, orgId, req) {
   const body = normalizeWebhookBody(req.body ?? {});
   const invoiceId = extractInvoiceIdFromWebhook(body, req.query ?? {});
@@ -1822,9 +1832,24 @@ export async function handleZohoInvoiceWebhook(secrets, orgId, req) {
   }
 
   try {
+    const payloadRaw = extractInvoiceRawFromWebhook(body);
+    if (payloadRaw) {
+      const accessToken = await getAccessToken(secrets);
+      const organizationId = await resolveOrganizationId(accessToken, orgId);
+      const result = await upsertInvoiceFromRaw(accessToken, organizationId, payloadRaw, {
+        useProvidedRaw: true,
+        forceDetail: true,
+        skipPdfs: true,
+        skipSalesOrder: true,
+        skipImages: true,
+        source: 'webhook',
+      });
+      return { ok: true, status: 200, action: 'synced', invoiceId, source: 'payload', result };
+    }
+
     const result = await syncSingleInvoiceFromZoho(secrets, orgId, invoiceId, {
       source: 'webhook',
-      skipPdfs: false,
+      skipPdfs: true,
     });
     if (result?.deleted || result?.reason === 'missing_in_zoho') {
       return { ok: true, status: 200, action: 'deleted', invoiceId, result };
@@ -1834,6 +1859,8 @@ export async function handleZohoInvoiceWebhook(secrets, orgId, req) {
     if (isZohoInvoiceMissing(err)) {
       return removeInvoiceFromWebhook(invoiceId, body);
     }
+    const ack = await ackZohoWebhookFailure('invoice', invoiceId, err);
+    if (ack) return ack;
     throw err;
   }
 }

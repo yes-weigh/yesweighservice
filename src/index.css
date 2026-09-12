@@ -4283,6 +4283,29 @@ button.login-hero__forgot {
   border-color: rgba(239, 68, 68, 0.35);
 }
 
+.zoho-api-quota-banner {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.55rem;
+  margin: 0.75rem 1rem 0;
+  padding: 0.7rem 0.9rem;
+  border-radius: 10px;
+  font-size: 0.88rem;
+  line-height: 1.35;
+}
+
+.zoho-api-quota-banner--warn {
+  color: #fde68a;
+  background: rgba(245, 158, 11, 0.12);
+  border: 1px solid rgba(245, 158, 11, 0.35);
+}
+
+.zoho-api-quota-banner--critical {
+  color: #fecaca;
+  background: rgba(239, 68, 68, 0.12);
+  border: 1px solid rgba(239, 68, 68, 0.35);
+}
+
 .products-controls {
   padding: 1rem 1.25rem;
   display: flex;

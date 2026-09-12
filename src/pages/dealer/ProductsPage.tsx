@@ -12,8 +12,6 @@ import {
   catalogResponseFromCache,
   peekCatalogCacheStale,
 } from '../../lib/catalog-cache';
-import { useSoftwareKeyLedgerRepair } from '../../hooks/useSoftwareKeyLedgerRepair';
-import { refreshSoftwareKeyLedgerStocks } from '../../lib/softwareKeysLedgerRefresh';
 import {
   excludeHiddenCatalogProducts,
   fetchCatalog,
@@ -47,7 +45,6 @@ export const ProductsPage: React.FC = () => {
     const cached = peekCatalogCacheStale();
     return cached ? catalogResponseFromCache(cached) : null;
   });
-  useSoftwareKeyLedgerRepair(catalog?.items, canSync);
   const [loading, setLoading] = useState(() => !peekCatalogCacheStale());
   const [syncing, setSyncing] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -200,10 +197,7 @@ export const ProductsPage: React.FC = () => {
     setError(null);
     try {
       await syncCatalog();
-      const data = await loadCatalog({ force: true });
-      if (data?.items.length) {
-        void refreshSoftwareKeyLedgerStocks(data.items);
-      }
+      await loadCatalog({ force: true });
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Product sync failed.');
     } finally {

@@ -52,6 +52,7 @@ import {
 import { getAppVersionLabel } from '../lib/appVersion';
 import { refreshAppAndData } from '../lib/refreshApp';
 import { PageHeaderProvider, usePageHeader } from '../context/PageHeaderContext';
+import { ZohoApiQuotaBanner } from './admin/ZohoApiQuotaBanner';
 
 type NavItem = {
   path: string;
@@ -741,6 +742,7 @@ const LayoutShell: React.FC = () => {
         </header>
 
         <div className="content-area">
+          {(user.role === 'staff' || user.role === 'super_admin') ? <ZohoApiQuotaBanner /> : null}
           <Outlet key={pageRefreshKey} />
         </div>
       </main>

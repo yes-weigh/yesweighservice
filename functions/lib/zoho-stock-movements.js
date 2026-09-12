@@ -6,9 +6,15 @@
  */
 import { FieldValue, getFirestore } from 'firebase-admin/firestore';
 import { getAccessToken, resolveOrganizationId, ZOHO_API_BASE } from './zoho.js';
+import { assertZohoDaytimeBudget, peekZohoApiUsageCached } from './zoho-api-usage.js';
 
 const REQUEST_GAP_MS = 100;
 const PAGE_SIZE = 200;
+/** Lifetime ledger used to paginate 100 pages × many doc types — that burned the 10k cap. */
+const MAX_TRANSACTION_PAGES = 20;
+const LIFETIME_CACHE_MS = 6 * 60 * 60 * 1000;
+const LIFETIME_CACHE_DOC = 'lifetime';
+const BILL_CURRENCY_ENRICH_CAP = 15;
 const STOCK_MOVEMENTS_SUB = 'stockMovements';
 const LEGACY_CACHE_PURGE_KEY = 'no-firestore-stock-ledger-v1';
 const SOFTWARE_KEYS_LEDGER_HSN = '997331';
@@ -109,9 +115,11 @@ async function listAllItemTransactionsDetailed(zohoGet, pathSuffix, itemId, list
       const hasMore = Boolean(json.page_context?.has_more_page);
       if (!hasMore || batch.length === 0) break;
       page += 1;
-      if (page > 100) break;
+      if (page > MAX_TRANSACTION_PAGES) {
+        return { rows, failed: false, truncated: true };
+      }
     }
-    return { rows, failed: false };
+    return { rows, failed: false, truncated: false };
   } catch (err) {
     console.warn(`Zoho item transactions/${pathSuffix} failed for ${itemId}:`, err?.message ?? err);
     if (required) throw err;
@@ -164,7 +172,9 @@ async function enrichBillMovementsWithDocumentCurrency(zohoGet, movements) {
   if (billIds.size === 0) return movements;
 
   const currencyByBillId = new Map();
+  let enriched = 0;
   for (const billId of billIds) {
+    if (enriched >= BILL_CURRENCY_ENRICH_CAP) break;
     try {
       const json = await zohoGet(`/bills/${encodeURIComponent(billId)}`);
       const doc = json.bill ?? json;
@@ -172,6 +182,7 @@ async function enrichBillMovementsWithDocumentCurrency(zohoGet, movements) {
       if (currency.currencyCode || currency.currencySymbol) {
         currencyByBillId.set(billId, currency);
       }
+      enriched += 1;
     } catch {
       // optional enrichment
     }
@@ -1332,17 +1343,61 @@ async function ensureLegacyStockMovementCachesPurged() {
   }
 }
 
-/** Lifetime ledger — always fetched live from Zoho. */
+function lifetimeCacheRef(itemId) {
+  return getFirestore()
+    .collection('catalogProducts')
+    .doc(itemId)
+    .collection('stockLedger')
+    .doc(LIFETIME_CACHE_DOC);
+}
+
+async function readLifetimeCache(itemId) {
+  const snap = await lifetimeCacheRef(itemId).get();
+  if (!snap.exists) return null;
+  const data = snap.data() || {};
+  const fetchedAt = String(data.fetchedAt ?? '');
+  const ageMs = fetchedAt ? Date.now() - Date.parse(fetchedAt) : Number.POSITIVE_INFINITY;
+  if (!data.result || Number.isNaN(ageMs)) return null;
+  return { result: data.result, ageMs, fetchedAt };
+}
+
+async function writeLifetimeCache(itemId, result) {
+  try {
+    await lifetimeCacheRef(itemId).set({
+      result,
+      fetchedAt: result.fetchedAt ?? new Date().toISOString(),
+      updatedAt: FieldValue.serverTimestamp(),
+    });
+  } catch (err) {
+    console.warn(`lifetime ledger cache write skipped for ${itemId}:`, err?.message ?? err);
+  }
+}
+
+/** Lifetime ledger — cached 6h; live Zoho pull only when stale or forced. */
 export async function getLifetimeStockMovements(
   secrets,
   configuredOrgId,
   catalogProductId,
+  options = {},
 ) {
   const itemId = String(catalogProductId ?? '').trim();
   if (!itemId) throw new Error('catalogProductId is required.');
 
   void ensureLegacyStockMovementCachesPurged();
-  void deleteStockMovementsCache(itemId).catch(() => {});
+
+  const forceRefresh = options.forceRefresh === true;
+  const cached = await readLifetimeCache(itemId);
+  if (!forceRefresh && cached && cached.ageMs < LIFETIME_CACHE_MS) {
+    return { ...cached.result, cached: true };
+  }
+
+  const usage = await peekZohoApiUsageCached();
+  if (usage.status === 'daily_limit' || usage.remaining <= 80) {
+    if (cached?.result) {
+      return { ...cached.result, cached: true, quotaDeferred: true };
+    }
+    await assertZohoDaytimeBudget(secrets, configuredOrgId, { minRemaining: 80 });
+  }
 
   const fresh = await listCatalogProductLifetimeStockMovements(
     secrets,
@@ -1350,6 +1405,7 @@ export async function getLifetimeStockMovements(
     itemId,
   );
   const result = stripExcludedLedgerMovements(fresh);
+  await writeLifetimeCache(itemId, result);
   try {
     await persistLedgerClosingStockIfEligible(itemId, result);
   } catch (err) {
@@ -1442,21 +1498,39 @@ async function persistLedgerClosingStockIfEligible(catalogProductId, ledgerResul
 }
 
 /** Refresh ledger closing stock on catalogProducts for Software Keys. */
-export async function syncLedgerClosingStockForProducts(secrets, configuredOrgId, products) {
+export async function syncLedgerClosingStockForProducts(secrets, configuredOrgId, products, options = {}) {
   const eligible = (products ?? []).filter(
     p => p?.status === 'active' && isSoftwareKeysLedgerStockProduct(p),
   );
-  if (eligible.length === 0) return { updated: 0, total: 0 };
+  if (eligible.length === 0) return { updated: 0, total: 0, skipped: 0 };
+
+  const maxProducts = Math.min(eligible.length, Math.max(1, Number(options.maxProducts) || 8));
+  const skipIfCachedHours = Number(options.skipIfCachedHours ?? 20);
+  const minRemaining = Number(options.minRemaining ?? 3000);
+  const usage = await peekZohoApiUsageCached();
+  if (usage.status === 'daily_limit' || usage.remaining <= minRemaining) {
+    console.log(
+      `syncLedgerClosingStock skipped (remaining=${usage.remaining}, status=${usage.status}).`,
+    );
+    return { updated: 0, total: eligible.length, skipped: eligible.length, reason: 'quota' };
+  }
 
   let updated = 0;
-  for (const product of eligible) {
+  let skipped = 0;
+  for (const product of eligible.slice(0, maxProducts)) {
     try {
+      const cached = await readLifetimeCache(product.id);
+      if (cached && cached.ageMs < skipIfCachedHours * 60 * 60 * 1000) {
+        skipped += 1;
+        continue;
+      }
       await getLifetimeStockMovements(secrets, configuredOrgId, product.id);
       updated += 1;
       await sleep(800);
     } catch (err) {
       console.warn(`syncLedgerClosingStock ${product.id}:`, err?.message ?? err);
+      if (err?.dailyQuota || err?.code === 'RATE_LIMITED') break;
     }
   }
-  return { updated, total: eligible.length };
+  return { updated, total: eligible.length, skipped };
 }

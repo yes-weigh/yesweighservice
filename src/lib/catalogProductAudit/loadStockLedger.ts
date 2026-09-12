@@ -1,11 +1,12 @@
 import { fetchCatalogProductLifetimeStockMovements } from './data';
 import type { CatalogProductStockMovementsResult } from '../../types/catalog-product-audit';
 
-/** Load lifetime stock ledger live from Zoho. */
+/** Load lifetime stock ledger (cached 6h; forceRefresh hits Zoho if quota allows). */
 export async function loadCatalogProductStockLedger(
   catalogProductId: string,
+  options?: { forceRefresh?: boolean },
 ): Promise<CatalogProductStockMovementsResult> {
-  return fetchCatalogProductLifetimeStockMovements(catalogProductId);
+  return fetchCatalogProductLifetimeStockMovements(catalogProductId, options);
 }
 
 /** True only when Zoho fetch explicitly failed — an empty ledger is valid. */

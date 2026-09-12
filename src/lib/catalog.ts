@@ -747,8 +747,11 @@ function catalogErrorMessage(err: unknown): string {
 
     if (
       code === 'functions/resource-exhausted'
-      || /rate.?limit|blocked for some time|too many requests|exceeded the maximum number of requests/i.test(message)
+      || /rate.?limit|blocked for some time|too many requests|exceeded the maximum number of requests|maximum call rate limit|10,?000/i.test(message)
     ) {
+      if (/maximum call rate limit|10,?000|daily/i.test(message)) {
+        return 'Zoho daily API limit (10,000 calls) has been reached. Wait until the quota resets. Check usage under Settings → Webhook.';
+      }
       return 'Zoho is temporarily rate-limited after heavy updates. Wait a few minutes, then try again.';
     }
 
