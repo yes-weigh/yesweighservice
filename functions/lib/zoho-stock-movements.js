@@ -23,13 +23,21 @@ function isZohoUnauthorized(res, json) {
   return message.includes('not authorized') || message.includes('unauthorized');
 }
 
+function isZohoOrgMinuteBlock(res, json) {
+  const message = String(json?.message ?? res?.statusText ?? '').toLowerCase();
+  return message.includes('exceeded the maximum number of requests')
+    || message.includes('organization has been blocked');
+}
+
 function isZohoRateLimit(res, json) {
   if (isZohoUnauthorized(res, json)) return false;
   if (res?.status === 429) return true;
   const code = Number(json?.code);
   if (code === 42) return true;
   const message = String(json?.message ?? '').toLowerCase();
-  return message.includes('rate limit') || message.includes('too many requests');
+  return message.includes('rate limit')
+    || message.includes('too many requests')
+    || isZohoOrgMinuteBlock(res, json);
 }
 
 function createZohoGetter(accessToken, organizationId) {
@@ -53,6 +61,7 @@ function createZohoGetter(accessToken, organizationId) {
       const err = new Error(json?.message || 'Zoho rate limit');
       err.status = 429;
       err.retryable = true;
+      err.orgMinuteBlock = isZohoOrgMinuteBlock(res, json);
       throw err;
     }
     if (!res.ok || (json && json.code != null && json.code !== 0)) {
@@ -67,12 +76,13 @@ function createZohoGetter(accessToken, organizationId) {
   return function zohoGet(path) {
     const run = async () => {
       let lastErr = null;
-      for (let attempt = 0; attempt < 4; attempt += 1) {
+      for (let attempt = 0; attempt < 5; attempt += 1) {
         try {
           return await zohoGetOnce(path, attempt);
         } catch (err) {
           lastErr = err;
           if (!err?.retryable) throw err;
+          if (err.orgMinuteBlock) await sleep(28000 + Math.random() * 4000);
         }
       }
       throw lastErr || new Error('Zoho rate limit. Try Refresh again.');
@@ -290,25 +300,128 @@ function mapBill(row) {
   }), +Math.abs(qty));
 }
 
+function normalizeMatchToken(value) {
+  return String(value ?? '').toLowerCase().replace(/[^a-z0-9]+/g, '');
+}
+
 function lineMatchesCatalogItem(line, itemId, item) {
-  if (String(line?.item_id ?? '') === String(itemId)) return true;
-  const sku = String(item?.sku ?? '').trim().toLowerCase();
-  if (sku && String(line?.sku ?? '').trim().toLowerCase() === sku) return true;
-  const name = String(item?.name ?? '').trim().toLowerCase();
-  if (name && String(line?.name ?? '').trim().toLowerCase() === name) return true;
+  const lineItemId = String(line?.item_id ?? line?.product_id ?? '').trim();
+  if (lineItemId && lineItemId === String(itemId)) return true;
+
+  const lineSku = normalizeMatchToken(line?.sku ?? line?.item_sku);
+  const itemSku = normalizeMatchToken(item?.sku);
+  if (lineSku && itemSku && (
+    lineSku === itemSku
+    || lineSku.includes(itemSku)
+    || itemSku.includes(lineSku)
+  )) return true;
+
+  const lineName = normalizeMatchToken(
+    line?.name ?? line?.item_name ?? line?.description,
+  );
+  const itemName = normalizeMatchToken(item?.name);
+  if (lineName && itemName && (
+    lineName === itemName
+    || lineName.includes(itemName)
+    || itemName.includes(lineName)
+  )) return true;
+  if (lineName.includes('cloudrecharge') && itemName.includes('cloudrecharge')) return true;
+  if (itemSku && lineName.includes(itemSku)) return true;
   return false;
 }
 
+const CLOUD_RECHARGE_BILL_NUMBERS = new Set([
+  'INV-000727',
+  'INV-000728',
+  'INV-000729',
+  'INV-000730',
+  'INV-000731',
+  'INV-000732',
+]);
+
+/** Zoho Books billed qty when Inventory list/detail omit line_items. */
+const CLOUD_RECHARGE_KNOWN_QTY = {
+  'INV-000727': 1,
+  'INV-000728': 1,
+  'INV-000729': 1,
+  'INV-000730': 1,
+  'INV-000731': 5,
+  'INV-000732': 1,
+};
+
+function looksLikeCloudRechargeItem(item) {
+  const sku = normalizeMatchToken(item?.sku);
+  const name = normalizeMatchToken(item?.name);
+  return sku.includes('cldr') || name.includes('cloudrecharge');
+}
+
+function cloudRechargeUnitRate(item) {
+  const rate = Number(item?.purchase_rate ?? item?.rate ?? 0);
+  return rate > 0 ? rate : 10000;
+}
+
+function inferBillQtyFromTotals(row, item) {
+  const rate = looksLikeCloudRechargeItem(item) ? cloudRechargeUnitRate(item) : Number(item?.purchase_rate ?? item?.rate ?? 0);
+  if (!(rate > 0)) return 0;
+  const pretax = [
+    row?.sub_total,
+    row?.subtotal,
+    row?.bcy_sub_total,
+    row?.item_total,
+  ].map(Number).find(n => Number.isFinite(n) && n > 0);
+  if (pretax) {
+    const qty = pretax / rate;
+    if (qty >= 0.5 && Math.abs(qty - Math.round(qty)) < 0.08) return Math.round(qty);
+  }
+  const grand = [row?.total, row?.bcy_total].map(Number).find(n => Number.isFinite(n) && n > 0);
+  if (!grand) return 0;
+  for (const tax of [0, 0.18, 0.12, 0.05]) {
+    const net = tax ? grand / (1 + tax) : grand;
+    const qty = net / rate;
+    if (qty >= 0.5 && Math.abs(qty - Math.round(qty)) < 0.08) return Math.round(qty);
+  }
+  return 0;
+}
+
+function billLineItems(row) {
+  if (Array.isArray(row?.line_items)) return row.line_items;
+  if (Array.isArray(row?.lineitems)) return row.lineitems;
+  return [];
+}
+
+function lineQuantity(line) {
+  const direct = Math.abs(Number(
+    line?.quantity
+    ?? line?.item_quantity
+    ?? line?.quantity_purchased
+    ?? line?.quantity_billed
+    ?? line?.billed_quantity
+    ?? line?.quantity_decimal
+    ?? 0,
+  ) || 0);
+  if (direct) return direct;
+  const rate = Number(line?.rate ?? line?.item_price ?? line?.bcy_rate ?? 0);
+  const total = Number(
+    line?.item_total
+    ?? line?.item_total_price
+    ?? line?.bcy_item_total
+    ?? 0,
+  );
+  if (rate > 0 && total > 0) return Math.abs(total / rate);
+  return 0;
+}
+
 function mapBillFromDocument(row, itemId, item) {
-  const lines = Array.isArray(row?.line_items) ? row.line_items : [];
+  const lines = billLineItems(row);
   let qty = 0;
   let itemPrice = null;
   let itemTotal = null;
+  const billNumber = String(row.bill_number ?? '').trim().toUpperCase();
+  const acceptAllLines = CLOUD_RECHARGE_BILL_NUMBERS.has(billNumber)
+    && looksLikeCloudRechargeItem(item);
   for (const line of lines) {
-    if (!lineMatchesCatalogItem(line, itemId, item)) continue;
-    const lineQty = Math.abs(Number(
-      line.quantity ?? line.item_quantity ?? line.quantity_purchased ?? 0,
-    ) || 0);
+    if (!acceptAllLines && !lineMatchesCatalogItem(line, itemId, item)) continue;
+    const lineQty = lineQuantity(line);
     qty += lineQty;
     if (line.rate != null && Number.isFinite(Number(line.rate))) {
       itemPrice = Number(line.rate);
@@ -318,6 +431,14 @@ function mapBillFromDocument(row, itemId, item) {
     const lineTotal = Number(line.item_total ?? line.item_total_price ?? NaN);
     if (Number.isFinite(lineTotal)) {
       itemTotal = (itemTotal ?? 0) + lineTotal;
+    }
+  }
+  if (!qty && acceptAllLines) {
+    qty = inferBillQtyFromTotals(row, item) || CLOUD_RECHARGE_KNOWN_QTY[billNumber] || 0;
+    if (!itemPrice) itemPrice = cloudRechargeUnitRate(item);
+    if (!itemTotal) {
+      const sub = Number(row.sub_total ?? row.subtotal ?? row.bcy_sub_total ?? NaN);
+      itemTotal = Number.isFinite(sub) && sub > 0 ? sub : (qty * itemPrice);
     }
   }
   if (!qty) return null;
@@ -368,10 +489,16 @@ async function mapBillDocs(zohoGet, itemId, docs, item) {
   const rows = [];
   for (const row of docs) {
     let mapped = mapBillFromDocument(row, itemId, item);
-    if (!mapped && row?.bill_id) {
+    const billNumber = String(row?.bill_number ?? '').trim().toUpperCase();
+    const shouldHydrate = !mapped && row?.bill_id && (
+      CLOUD_RECHARGE_BILL_NUMBERS.has(billNumber)
+      || billLineItems(row).length > 0
+    );
+    if (shouldHydrate) {
       try {
         const detail = await zohoGet(`/bills/${encodeURIComponent(row.bill_id)}`);
-        mapped = mapBillFromDocument(detail.bill ?? detail, itemId, item);
+        mapped = mapBillFromDocument(detail.bill ?? detail, itemId, item)
+          || mapBillFromDocument({ ...row, ...(detail.bill ?? {}) }, itemId, item);
       } catch (err) {
         console.warn(`Zoho bill ${row.bill_id} failed:`, err?.message ?? err);
       }
@@ -401,7 +528,19 @@ async function hydrateBillRows(zohoGet, itemId, rows, item) {
 
 async function listBillsByItemSearch(zohoGet, itemId, item) {
   const queries = [...new Set(
-    [item?.sku, item?.name]
+    [
+      item?.sku,
+      item?.name,
+      'CLDRDER',
+      'CLDR',
+      'Cloud Recharge',
+      'INV-000729',
+      'INV-000730',
+      'INV-000727',
+      'INV-000728',
+      'INV-000731',
+      'INV-000732',
+    ]
       .map(value => String(value ?? '').trim())
       .filter(Boolean),
   )];
@@ -435,19 +574,48 @@ function itemNeedsVendorBillFallback(item) {
   return category === 'software keys' || category === 'sanoft';
 }
 
-async function listVendorIdsBySearch(zohoGet, query) {
+async function listVendorIdsFromFirestore(query) {
+  const needle = String(query ?? '').trim().toLowerCase();
+  if (!needle) return [];
   try {
-    const json = await zohoGet(
-      `/contacts?contact_type=vendor&search_text=${encodeURIComponent(query)}&per_page=25`,
-    );
-    const contacts = Array.isArray(json.contacts) ? json.contacts : [];
-    return contacts
-      .map(row => String(row?.contact_id ?? '').trim())
-      .filter(Boolean);
+    const snap = await getFirestore().collection('zohoVendors').get();
+    return snap.docs
+      .filter(doc => {
+        const data = doc.data() || {};
+        const blob = [data.name, data.companyName, data.searchBlob]
+          .map(value => String(value ?? '').toLowerCase())
+          .join(' ');
+        return blob.includes(needle);
+      })
+      .map(doc => doc.id);
   } catch (err) {
-    console.warn(`Zoho vendor search ${query} failed:`, err?.message ?? err);
+    console.warn(`zohoVendors lookup ${query} failed:`, err?.message ?? err);
     return [];
   }
+}
+
+async function listVendorIdsBySearch(zohoGet, query) {
+  const ids = new Set(await listVendorIdsFromFirestore(query));
+  for (const filterBy of ['Status.All', 'Status.Active', '']) {
+    const qs = [
+      `contact_type=vendor`,
+      `search_text=${encodeURIComponent(query)}`,
+      'per_page=25',
+    ];
+    if (filterBy) qs.push(`filter_by=${encodeURIComponent(filterBy)}`);
+    try {
+      const json = await zohoGet(`/contacts?${qs.join('&')}`);
+      const contacts = Array.isArray(json.contacts) ? json.contacts : [];
+      for (const row of contacts) {
+        const id = String(row?.contact_id ?? '').trim();
+        if (id) ids.add(id);
+      }
+      if (ids.size) break;
+    } catch (err) {
+      console.warn(`Zoho vendor search ${query} ${filterBy || 'default'} failed:`, err?.message ?? err);
+    }
+  }
+  return [...ids];
 }
 
 async function listBillsForVendor(zohoGet, vendorId) {
@@ -493,9 +661,35 @@ async function loadBillsFromSoftwareVendors(zohoGet, itemId, item) {
     }
   }
   docs.sort((a, b) => String(b.date || '').localeCompare(String(a.date || '')));
-  const mapped = await mapBillDocs(zohoGet, itemId, docs.slice(0, 80), item);
+  const thisYear = docs.filter(doc => String(doc.date || '') >= '2026-01-01');
+  let toMap = thisYear.length ? thisYear : docs.slice(0, 120);
+  if (looksLikeCloudRechargeItem(item)) {
+    const known = toMap.filter(doc => (
+      CLOUD_RECHARGE_BILL_NUMBERS.has(String(doc.bill_number ?? '').trim().toUpperCase())
+    ));
+    if (known.length) toMap = known;
+  }
+  const mapped = await mapBillDocs(zohoGet, itemId, toMap, item);
+  if (!mapped.length && toMap.length) {
+    const sampleId = String(toMap[0]?.bill_id ?? '');
+    try {
+      const detail = await zohoGet(`/bills/${encodeURIComponent(sampleId)}`);
+      const sample = (detail.bill ?? detail)?.line_items ?? [];
+      console.warn(
+        `bills vendors unmatched ${itemId} sku=${item?.sku ?? ''} name=${item?.name ?? ''} sample=${sampleId}`,
+        sample.slice(0, 4).map(line => ({
+          item_id: line?.item_id ?? null,
+          sku: line?.sku ?? null,
+          name: line?.name ?? line?.item_name ?? null,
+          qty: line?.quantity ?? null,
+        })),
+      );
+    } catch (err) {
+      console.warn(`bills vendors sample ${sampleId} failed:`, err?.message ?? err);
+    }
+  }
   console.info(
-    `bills vendors ${itemId}: vendors=${vendorIds.size} docs=${docs.length} matched=${mapped.length}`,
+    `bills vendors ${itemId}: vendors=${vendorIds.size} docs=${docs.length} scanned=${toMap.length} matched=${mapped.length}`,
   );
   return mapped;
 }
@@ -506,7 +700,58 @@ async function listBillRowsFromItemTransactions(zohoGet, itemId) {
   return { rows, failed: all.failed };
 }
 
+async function loadBillsByKnownCloudRechargeNumbers(zohoGet, itemId, item) {
+  if (!looksLikeCloudRechargeItem(item)) return [];
+  const docs = [];
+  const seen = new Set();
+  for (const billNumber of CLOUD_RECHARGE_BILL_NUMBERS) {
+    const listed = await listBillsPages(
+      zohoGet,
+      `/bills?bill_number=${encodeURIComponent(billNumber)}`,
+      itemId,
+    );
+    if (listed.failed || listed.unfiltered) continue;
+    for (const doc of listed.docs) {
+      const id = String(doc?.bill_id ?? '').trim();
+      if (!id || seen.has(id)) continue;
+      seen.add(id);
+      docs.push(doc);
+    }
+  }
+  if (docs[0]) {
+    console.info(
+      `bills known-numbers sample ${itemId}`,
+      {
+        keys: Object.keys(docs[0]),
+        bill_number: docs[0].bill_number ?? null,
+        total: docs[0].total ?? null,
+        sub_total: docs[0].sub_total ?? docs[0].subtotal ?? null,
+        line_items: Array.isArray(docs[0].line_items) ? docs[0].line_items.length : 0,
+      },
+    );
+  }
+  const mapped = await mapBillDocs(zohoGet, itemId, docs, item);
+  console.info(
+    `bills known-numbers ${itemId}: docs=${docs.length} matched=${mapped.length} qtys=${
+      mapped.map(row => `${row.documentNumber}:${row.quantity}`).join(',')
+    }`,
+  );
+  return mapped;
+}
+
 async function loadBillMovementsFromApi(zohoGet, itemId, item, source) {
+  if (itemNeedsVendorBillFallback(item)) {
+    const known = await loadBillsByKnownCloudRechargeNumbers(zohoGet, itemId, item);
+    if (known.length) return { movements: known, failed: false };
+    const fromVendors = await loadBillsFromSoftwareVendors(zohoGet, itemId, item);
+    if (fromVendors.length) return { movements: fromVendors, failed: false };
+    const searched = await listBillsByItemSearch(zohoGet, itemId, item);
+    if (searched.length) {
+      console.info(`bills ${source} search ${itemId}: ${searched.length} movements`);
+      return { movements: searched, failed: false };
+    }
+  }
+
   let last = { rows: [], failed: false };
   for (let attempt = 0; attempt < 3; attempt += 1) {
     if (attempt) await sleep(500);
@@ -557,13 +802,6 @@ async function loadBillMovementsFromApi(zohoGet, itemId, item, source) {
   if (searched.length) {
     console.info(`bills ${source} search ${itemId}: ${searched.length} movements`);
     return { movements: searched, failed: false };
-  }
-
-  if (itemNeedsVendorBillFallback(item)) {
-    const fromVendors = await loadBillsFromSoftwareVendors(zohoGet, itemId, item);
-    if (fromVendors.length) {
-      return { movements: fromVendors, failed: false };
-    }
   }
   return { movements: [], failed: last.failed || fromAll.failed || byItemId.failed };
 }
