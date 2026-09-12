@@ -19,7 +19,7 @@ import {
   sumNonFreightQuantity,
 } from './invoice-category.js';
 import { extractWebhookEvent } from './invoice-sync.js';
-import { ackZohoWebhookFailure } from './zoho-webhook-guard.js';
+import { ackZohoWebhookFailure, ackIfDailyQuotaBlocked } from './zoho-webhook-guard.js';
 import { writePurchaseOrderSerialRanges } from './purchase-order-serials.js';
 
 const COLLECTION = 'purchaseOrders';
@@ -1234,6 +1234,8 @@ export async function handleZohoPurchaseOrderWebhook(secrets, orgId, req) {
   }
 
   try {
+    const blocked = await ackIfDailyQuotaBlocked('purchaseorder', purchaseOrderId);
+    if (blocked) return blocked;
     const result = await mirrorPurchaseOrderFromZoho(secrets, orgId, purchaseOrderId);
     return {
       ok: true,

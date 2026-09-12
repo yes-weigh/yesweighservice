@@ -20,7 +20,7 @@ export const ZohoApiQuotaBanner: React.FC = () => {
       <AlertTriangle size={16} aria-hidden />
       <span>
         {exhausted
-          ? `Zoho API quota exhausted (${usage.callsToday.toLocaleString('en-IN')} / ${usage.dailyLimit.toLocaleString('en-IN')} today). Webhooks are queued until midnight IST. Skip catalog Sync and stock ledgers.`
+          ? `Zoho API quota exhausted (${usage.callsToday.toLocaleString('en-IN')} / ${usage.dailyLimit.toLocaleString('en-IN')} today). Inventory API is blocked until midnight IST. Webhooks are queued.`
           : `Zoho API quota low — ${usage.remaining.toLocaleString('en-IN')} of ${usage.dailyLimit.toLocaleString('en-IN')} calls left. Avoid lifetime stock ledgers and full catalog Sync.`}
       </span>
     </div>

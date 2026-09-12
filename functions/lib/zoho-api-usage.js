@@ -5,6 +5,110 @@ export const ZOHO_DAILY_API_LIMIT = 10_000;
 const USAGE_REF = () => getFirestore().collection('zohoMeta').doc('apiUsage');
 /** Avoid hitting Zoho on every admin poll (page refreshes every 5–10s). */
 const LIVE_CACHE_MS = 25_000;
+const IST_OFFSET_MS = 5.5 * 60 * 60 * 1000;
+const LATCH_MEMO_MS = 10_000;
+
+/** @type {{ blockedUntilMs: number, dayKey: string | null, readAt: number }} */
+let latchMemo = { blockedUntilMs: 0, dayKey: null, readAt: 0 };
+
+function pad2(n) {
+  return String(n).padStart(2, '0');
+}
+
+export function zohoIstDayKey(ms = Date.now()) {
+  const d = new Date(ms + IST_OFFSET_MS);
+  return `${d.getUTCFullYear()}-${pad2(d.getUTCMonth() + 1)}-${pad2(d.getUTCDate())}`;
+}
+
+export function nextIstMidnightMs(ms = Date.now()) {
+  const d = new Date(ms + IST_OFFSET_MS);
+  return Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate() + 1, 0, 0, 0) - IST_OFFSET_MS;
+}
+
+function blockedUntilMsFromData(data) {
+  const raw = data?.blockedUntil;
+  if (raw?.toDate) {
+    const t = raw.toDate().getTime();
+    return Number.isFinite(t) ? t : 0;
+  }
+  if (typeof raw === 'string' && raw.trim()) {
+    const t = Date.parse(raw);
+    return Number.isFinite(t) ? t : 0;
+  }
+  return 0;
+}
+
+export function zohoDailyQuotaError(blockedUntilIso = null) {
+  const until = blockedUntilIso
+    ? ` until ${blockedUntilIso}`
+    : ' until midnight IST';
+  const err = new Error(
+    `Zoho daily API limit (10,000 calls) has been reached. No further Inventory API calls${until}.`,
+  );
+  err.code = 'RATE_LIMITED';
+  err.dailyQuota = true;
+  return err;
+}
+
+function latchActiveFromFields(blockedUntilMs, _dayKey, now = Date.now()) {
+  return Number(blockedUntilMs) > now;
+}
+
+function rememberLatch(blockedUntilMs, dayKey) {
+  latchMemo = { blockedUntilMs: blockedUntilMs || 0, dayKey: dayKey || null, readAt: Date.now() };
+}
+
+/** First daily-cap hit: freeze Inventory API until next midnight IST. */
+export async function markZohoDailyQuotaBlocked(options = {}) {
+  const now = Date.now();
+  const dayKey = zohoIstDayKey(now);
+  const blockedUntilMs = nextIstMidnightMs(now);
+  const blockedUntil = new Date(blockedUntilMs).toISOString();
+  rememberLatch(blockedUntilMs, dayKey);
+  await USAGE_REF().set({
+    status: 'daily_limit',
+    remaining: 0,
+    usagePct: 100,
+    dayKey,
+    blockedUntil,
+    lastOperation: options.operation ?? null,
+    lastSource: options.source ?? null,
+    lastError: String(options.lastError ?? 'Zoho daily API limit (10,000)').slice(0, 500),
+    lastRateLimitAt: FieldValue.serverTimestamp(),
+    updatedAt: FieldValue.serverTimestamp(),
+  }, { merge: true }).catch(() => {});
+  console.warn(`Zoho daily quota latch set until ${blockedUntil} (IST day ${dayKey}).`);
+  return { dayKey, blockedUntil, blockedUntilMs };
+}
+
+export async function isZohoDailyQuotaBlocked() {
+  const now = Date.now();
+  if (now - latchMemo.readAt < LATCH_MEMO_MS) {
+    return latchActiveFromFields(latchMemo.blockedUntilMs, latchMemo.dayKey, now);
+  }
+  const snap = await USAGE_REF().get();
+  const data = snap.exists ? (snap.data() || {}) : {};
+  const blockedUntilMs = blockedUntilMsFromData(data);
+  const dayKey = typeof data.dayKey === 'string' ? data.dayKey : null;
+  rememberLatch(blockedUntilMs, dayKey);
+  const active = latchActiveFromFields(blockedUntilMs, dayKey, now);
+  if (active) return true;
+  if (data.status === 'daily_limit' && dayKey === zohoIstDayKey(now)) {
+    // Same IST day, cap already hit, blockedUntil missing (older docs).
+    return true;
+  }
+  return false;
+}
+
+/** Throws RATE_LIMITED+dailyQuota when today's latch is on. No Zoho call. */
+export async function assertZohoInventoryAllowed() {
+  if (await isZohoDailyQuotaBlocked()) {
+    const until = latchMemo.blockedUntilMs
+      ? new Date(latchMemo.blockedUntilMs).toISOString()
+      : null;
+    throw zohoDailyQuotaError(until);
+  }
+}
 
 function parseRateLimitHeaders(response) {
   if (!response?.headers) return {};
@@ -56,21 +160,39 @@ function normalizeUserDetails(raw) {
 }
 
 function formatUsageDoc(data) {
+  const now = Date.now();
   const dailyLimit = Number(data.dailyLimit ?? ZOHO_DAILY_API_LIMIT);
-  const callsToday = Number(data.callsToday ?? 0);
-  const remaining = Number(data.remaining ?? Math.max(0, dailyLimit - callsToday));
+  const blockedUntilMs = blockedUntilMsFromData(data);
+  const dayKey = typeof data.dayKey === 'string' ? data.dayKey : (data.dayKey ?? null);
+  const latchOn = latchActiveFromFields(blockedUntilMs, dayKey, now)
+    || (data.status === 'daily_limit' && dayKey === zohoIstDayKey(now));
+  const callsToday = latchOn
+    ? Number(data.callsToday ?? dailyLimit)
+    : Number(data.callsToday ?? 0);
+  const remaining = latchOn
+    ? 0
+    : Number(data.remaining ?? Math.max(0, dailyLimit - callsToday));
   const usagePct = dailyLimit > 0 ? Math.min(100, Math.round((callsToday / dailyLimit) * 100)) : 0;
   const resetSec = data.resetSec ?? null;
-  const resetAt = resetSec != null ? new Date(Date.now() + resetSec * 1000).toISOString() : null;
+  const resetAt = blockedUntilMs > now
+    ? new Date(blockedUntilMs).toISOString()
+    : (resetSec != null ? new Date(now + resetSec * 1000).toISOString() : null);
+
+  let status = data.status ?? deriveStatus(remaining, dailyLimit);
+  if (latchOn) status = 'daily_limit';
+  else if (status === 'daily_limit' && dayKey && dayKey !== zohoIstDayKey(now)) {
+    status = deriveStatus(remaining > 0 ? remaining : dailyLimit, dailyLimit);
+  }
 
   return {
     source: data.source ?? 'zoho',
-    dayKey: data.dayKey ?? null,
-    callsToday,
+    dayKey: dayKey ?? null,
+    callsToday: latchOn ? callsToday : (status === 'ok' && dayKey && dayKey !== zohoIstDayKey(now) ? 0 : callsToday),
     dailyLimit,
-    remaining,
-    usagePct,
-    status: data.status ?? deriveStatus(remaining, dailyLimit),
+    remaining: latchOn ? 0 : (dayKey && dayKey !== zohoIstDayKey(now) ? dailyLimit : remaining),
+    usagePct: latchOn ? 100 : usagePct,
+    status,
+    blockedUntil: blockedUntilMs > now ? new Date(blockedUntilMs).toISOString() : null,
     windowLimit: data.windowLimit ?? null,
     windowRemaining: data.windowRemaining ?? null,
     resetSec,
@@ -133,6 +255,7 @@ export async function fetchZohoOrgApiUsage(accessToken, orgId) {
     retryAfterSec: headers.retryAfterSec,
     userDetails: normalizeUserDetails(data.user_details),
     fetchedAt: new Date().toISOString(),
+    dayKey: zohoIstDayKey(),
   };
 }
 
@@ -154,16 +277,18 @@ export async function peekZohoApiUsageCached() {
 export function zohoUsageBlocksWork(usage, minRemaining = 80) {
   if (!usage) return false;
   if (usage.status === 'daily_limit') return true;
+  if (usage.blockedUntil && Date.parse(usage.blockedUntil) > Date.now()) return true;
   return Number(usage.remaining ?? 0) <= Number(minRemaining);
 }
 
 /** Throws RATE_LIMITED when the org is at/near the daily cap. */
 export async function assertZohoDaytimeBudget(secrets, orgId, options = {}) {
+  await assertZohoInventoryAllowed();
   const minRemaining = Number(options.minRemaining ?? 80);
   let usage = await peekZohoApiUsageCached();
   const staleMs = Date.now() - (usage.fetchedAt ? Date.parse(usage.fetchedAt) : 0);
   const cacheStale = !usage.fetchedAt || Number.isNaN(staleMs) || staleMs > 120_000;
-  if (cacheStale && secrets && orgId && usage.status !== 'daily_limit') {
+  if (cacheStale && secrets && orgId && usage.status !== 'daily_limit' && !usage.blockedUntil) {
     try {
       usage = await getZohoApiUsageStatus(secrets, orgId);
     } catch {
@@ -171,18 +296,16 @@ export async function assertZohoDaytimeBudget(secrets, orgId, options = {}) {
     }
   }
   if (zohoUsageBlocksWork(usage, minRemaining)) {
-    const err = new Error(
-      `Zoho daily API limit (10,000 calls) has been reached or is too low `
-      + `(${usage.remaining ?? 0} remaining). Wait until the quota resets.`,
-    );
-    err.code = 'RATE_LIMITED';
-    err.dailyQuota = true;
-    throw err;
+    throw zohoDailyQuotaError(usage.blockedUntil);
   }
   return usage;
 }
 
 export async function getZohoApiUsageStatus(secrets, orgId, options = {}) {
+  if (await isZohoDailyQuotaBlocked()) {
+    return peekZohoApiUsageCached();
+  }
+
   const snap = await USAGE_REF().get();
   const cached = snap.exists ? snap.data() : null;
   const fetchedAtMs = cached?.fetchedAt?.toDate?.()?.getTime?.() ?? 0;
@@ -198,14 +321,32 @@ export async function getZohoApiUsageStatus(secrets, orgId, options = {}) {
     const accessToken = await getAccessToken(secrets);
     const organizationId = await resolveOrganizationId(accessToken, orgId);
     const live = await fetchZohoOrgApiUsage(accessToken, organizationId);
+    if (live.remaining <= 0 || live.status === 'daily_limit') {
+      await markZohoDailyQuotaBlocked({
+        operation: 'apiusage',
+        source: 'zoho-api-usage',
+        lastError: 'Zoho apiusage remaining is 0.',
+      });
+      return peekZohoApiUsageCached();
+    }
     await USAGE_REF().set({
       ...live,
+      blockedUntil: null,
       lastError: null,
       fetchedAt: FieldValue.serverTimestamp(),
       updatedAt: FieldValue.serverTimestamp(),
     }, { merge: true });
+    rememberLatch(0, live.dayKey ?? zohoIstDayKey());
     return live;
   } catch (err) {
+    if (err?.dailyQuota || isDailyQuotaMessage(err?.message)) {
+      await markZohoDailyQuotaBlocked({
+        operation: 'apiusage',
+        source: 'zoho-api-usage',
+        lastError: err?.message,
+      });
+      return peekZohoApiUsageCached();
+    }
     if (cached?.source === 'zoho') {
       return formatUsageDoc({
         ...cached,
@@ -237,12 +378,20 @@ export function classifyZohoHttpError(status, payload) {
 /** Optional: stash last rate-limit for debugging (does not drive the admin counter). */
 export async function recordZohoApiFailure(err, options = {}) {
   if (err?.code !== 'RATE_LIMITED' && !isDailyQuotaMessage(err?.message)) return;
+  if (err?.dailyQuota || isDailyQuotaMessage(err?.message)) {
+    await markZohoDailyQuotaBlocked({
+      operation: options.operation ?? null,
+      source: options.source ?? null,
+      lastError: err?.message ?? err,
+    });
+    return;
+  }
   await USAGE_REF().set({
     lastOperation: options.operation ?? null,
     lastSource: options.source ?? null,
     lastError: String(err?.message ?? err).slice(0, 500),
     lastRateLimitAt: FieldValue.serverTimestamp(),
-    status: isDailyQuotaMessage(err?.message) ? 'daily_limit' : 'throttled',
+    status: 'throttled',
     updatedAt: FieldValue.serverTimestamp(),
   }, { merge: true }).catch(() => {});
 }

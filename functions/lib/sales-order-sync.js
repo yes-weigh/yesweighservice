@@ -25,7 +25,7 @@ import { resolveZohoCustomerIdForUser } from './zoho-invoices.js';
 import { formatZohoAddress } from './zoho-contact-fields.js';
 import { isDealerAdminStaff } from './dealer-staff-team.js';
 import { extractWebhookEvent, normalizeWebhookBody } from './invoice-sync.js';
-import { ackZohoWebhookFailure } from './zoho-webhook-guard.js';
+import { ackZohoWebhookFailure, ackIfDailyQuotaBlocked } from './zoho-webhook-guard.js';
 import { HttpsError } from 'firebase-functions/v2/https';
 
 const COLLECTION = 'salesOrders';
@@ -1376,6 +1376,8 @@ export async function handleZohoSalesOrderWebhook(secrets, orgId, req) {
         result,
       };
     }
+    const blocked = await ackIfDailyQuotaBlocked('salesorder', salesOrderId);
+    if (blocked) return blocked;
     const result = await mirrorSalesOrderFromZoho(secrets, orgId, salesOrderId);
     return {
       ok: true,

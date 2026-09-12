@@ -110,6 +110,9 @@ export function normaliseItem(raw) {
 }
 
 export async function getAccessToken(secrets) {
+  const { assertZohoInventoryAllowed } = await import('./zoho-api-usage.js');
+  await assertZohoInventoryAllowed();
+
   if (tokenCache && tokenCache.expiresAt > Date.now() + 60_000) {
     return tokenCache.token;
   }

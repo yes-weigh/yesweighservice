@@ -7,8 +7,9 @@ import {
   recordZohoApiResponse,
   recordZohoApiFailure,
   classifyZohoHttpError,
+  isZohoDailyQuotaBlocked,
 } from './zoho-api-usage.js';
-import { ackZohoWebhookFailure } from './zoho-webhook-guard.js';
+import { ackZohoWebhookFailure, ackIfDailyQuotaBlocked } from './zoho-webhook-guard.js';
 import {
   mapInvoice,
   mapInvoiceLineItem,
@@ -1834,8 +1835,9 @@ export async function handleZohoInvoiceWebhook(secrets, orgId, req) {
   try {
     const payloadRaw = extractInvoiceRawFromWebhook(body);
     if (payloadRaw) {
-      const accessToken = await getAccessToken(secrets);
-      const organizationId = await resolveOrganizationId(accessToken, orgId);
+      const blocked = await isZohoDailyQuotaBlocked();
+      const accessToken = blocked ? '' : await getAccessToken(secrets);
+      const organizationId = blocked ? '' : await resolveOrganizationId(accessToken, orgId);
       const result = await upsertInvoiceFromRaw(accessToken, organizationId, payloadRaw, {
         useProvidedRaw: true,
         forceDetail: true,
@@ -1847,6 +1849,8 @@ export async function handleZohoInvoiceWebhook(secrets, orgId, req) {
       return { ok: true, status: 200, action: 'synced', invoiceId, source: 'payload', result };
     }
 
+    const blocked = await ackIfDailyQuotaBlocked('invoice', invoiceId);
+    if (blocked) return blocked;
     const result = await syncSingleInvoiceFromZoho(secrets, orgId, invoiceId, {
       source: 'webhook',
       skipPdfs: true,

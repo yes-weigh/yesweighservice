@@ -20,7 +20,7 @@ import {
 } from './zoho.js';
 import { buildZohoSyncAuditAdjustment } from './catalog-product-audit.js';
 import { extractWebhookEvent } from './invoice-sync.js';
-import { ackZohoWebhookFailure } from './zoho-webhook-guard.js';
+import { ackZohoWebhookFailure, ackIfDailyQuotaBlocked } from './zoho-webhook-guard.js';
 import { sanitizeRestrictedSalesStates } from './india-states.js';
 
 const PRODUCTS_COLLECTION = 'catalogProducts';
@@ -2466,6 +2466,8 @@ export async function handleZohoItemWebhook(secrets, orgId, req) {
   }
 
   try {
+    const blocked = await ackIfDailyQuotaBlocked('item', itemId);
+    if (blocked) return blocked;
     const result = await mirrorCatalogItemFromZoho(secrets, orgId, itemId, {
       skipImages: true,
       source: 'webhook',

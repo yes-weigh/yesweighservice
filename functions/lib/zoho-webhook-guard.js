@@ -3,7 +3,7 @@
  * Queue the id and drain when quota recovers so Zoho does not disable the webhook.
  */
 import { getFirestore, FieldValue } from 'firebase-admin/firestore';
-import { peekZohoApiUsageCached } from './zoho-api-usage.js';
+import { peekZohoApiUsageCached, isZohoDailyQuotaBlocked, zohoDailyQuotaError } from './zoho-api-usage.js';
 
 export const WEBHOOK_RETRY_COLLECTION = 'zohoWebhookRetries';
 const RETRY_META = 'zohoMeta/webhookRetry';
@@ -130,19 +130,25 @@ async function processRetry(secrets, orgId, row) {
   return { skipped: true, kind };
 }
 
+export async function ackIfDailyQuotaBlocked(kind, entityId) {
+  if (!(await isZohoDailyQuotaBlocked())) return null;
+  return ackZohoWebhookFailure(kind, entityId, zohoDailyQuotaError());
+}
+
 export async function drainZohoWebhookRetries(secrets, orgId, options = {}) {
   const max = Math.min(80, Math.max(1, Number(options.max) || DRAIN_MAX_PER_RUN));
-  const usage = await peekZohoApiUsageCached();
-  if (usage.status === 'daily_limit' || usage.remaining <= DRAIN_MIN_REMAINING) {
+  if (await isZohoDailyQuotaBlocked()) {
+    const usage = await peekZohoApiUsageCached();
     const summary = {
       drained: 0,
       failed: 0,
-      skipped: 'quota',
+      skipped: 'quota_latch',
       remaining: usage.remaining,
       status: usage.status,
+      blockedUntil: usage.blockedUntil,
     };
     console.log(
-      `Zoho webhook retry drain skipped (quota remaining=${usage.remaining}, status=${usage.status}).`,
+      `Zoho webhook retry drain skipped (daily latch until ${usage.blockedUntil}).`,
     );
     await getFirestore().doc(RETRY_META).set({
       lastDrainAt: FieldValue.serverTimestamp(),
