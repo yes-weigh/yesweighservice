@@ -81,7 +81,10 @@ async function listAllItemTransactionsDetailed(zohoGet, pathSuffix, itemId, list
   let page = 1;
   try {
     for (;;) {
-      const path = `/items/transactions/${pathSuffix}?item_id=${encodeURIComponent(itemId)}`
+      const prefix = pathSuffix
+        ? `/items/transactions/${pathSuffix}`
+        : '/items/transactions';
+      const path = `${prefix}?item_id=${encodeURIComponent(itemId)}`
         + `&per_page=${PAGE_SIZE}&page=${page}`;
       const json = await zohoGet(path);
       const batch = readTransactionBatch(json, pathSuffix, listKey);
@@ -108,6 +111,7 @@ function readTransactionBatch(json, pathSuffix, listKey) {
   if (Array.isArray(json?.[listKey])) return json[listKey];
   if (pathSuffix !== listKey && Array.isArray(json?.[pathSuffix])) return json[pathSuffix];
   if (pathSuffix === 'creditnotes' && Array.isArray(json?.credit_notes)) return json.credit_notes;
+  if (Array.isArray(json?.transactions)) return json.transactions;
   return [];
 }
 
@@ -215,7 +219,14 @@ function withStockEffect(movement, signedDelta) {
 }
 
 function rowItemQty(row) {
-  const qty = Number(row?.item_quantity ?? row?.quantity ?? 0);
+  const qty = Number(
+    row?.item_quantity
+    ?? row?.quantity_purchased
+    ?? row?.quantity_billed
+    ?? row?.billed_quantity
+    ?? row?.quantity
+    ?? 0,
+  );
   return Number.isFinite(qty) ? qty : 0;
 }
 
@@ -239,19 +250,32 @@ function mapInvoice(row) {
   }), -Math.abs(qty));
 }
 
+function isBillTransactionRow(row) {
+  const type = String(row?.transaction_type ?? row?.entity_type ?? row?.type ?? '').toLowerCase();
+  if (type.includes('invoice') && !type.includes('bill')) return false;
+  return Boolean(
+    row?.bill_id
+    || type === 'bill'
+    || type === 'bills'
+    || type === 'vendor_bill'
+    || type === 'purchase',
+  );
+}
+
 function mapBill(row) {
   const qty = rowItemQty(row);
   if (!qty) return null;
+  const date = String(row.date ?? row.transaction_date ?? '');
   return withStockEffect(baseMovement({
     type: 'bill',
     typeLabel: 'Bill',
-    documentId: String(row.bill_id ?? ''),
-    documentNumber: String(row.bill_number ?? ''),
-    date: String(row.date ?? ''),
-    createdTime: String(row.date ?? ''),
-    createdAt: row.date ? `${row.date}T00:00:00.000Z` : null,
+    documentId: String(row.bill_id ?? row.transaction_id ?? ''),
+    documentNumber: String(row.bill_number ?? row.transaction_number ?? ''),
+    date,
+    createdTime: date,
+    createdAt: date ? `${date}T00:00:00.000Z` : null,
     status: String(row.status ?? ''),
-    customerOrVendor: String(row.vendor_name ?? '').trim() || null,
+    customerOrVendor: String(row.vendor_name ?? row.customer_name ?? '').trim() || null,
     quantity: Math.abs(qty),
     itemPrice: row.item_price != null ? Number(row.item_price) : null,
     itemTotal: row.item_total_price != null ? Number(row.item_total_price) : null,
@@ -259,14 +283,25 @@ function mapBill(row) {
   }), +Math.abs(qty));
 }
 
-function mapBillFromDocument(row, itemId) {
+function lineMatchesCatalogItem(line, itemId, item) {
+  if (String(line?.item_id ?? '') === String(itemId)) return true;
+  const sku = String(item?.sku ?? '').trim().toLowerCase();
+  if (sku && String(line?.sku ?? '').trim().toLowerCase() === sku) return true;
+  const name = String(item?.name ?? '').trim().toLowerCase();
+  if (name && String(line?.name ?? '').trim().toLowerCase() === name) return true;
+  return false;
+}
+
+function mapBillFromDocument(row, itemId, item) {
   const lines = Array.isArray(row?.line_items) ? row.line_items : [];
   let qty = 0;
   let itemPrice = null;
   let itemTotal = null;
   for (const line of lines) {
-    if (String(line?.item_id ?? '') !== String(itemId)) continue;
-    const lineQty = Math.abs(Number(line.quantity ?? line.item_quantity ?? 0) || 0);
+    if (!lineMatchesCatalogItem(line, itemId, item)) continue;
+    const lineQty = Math.abs(Number(
+      line.quantity ?? line.item_quantity ?? line.quantity_purchased ?? 0,
+    ) || 0);
     qty += lineQty;
     if (line.rate != null && Number.isFinite(Number(line.rate))) {
       itemPrice = Number(line.rate);
@@ -296,38 +331,40 @@ function mapBillFromDocument(row, itemId) {
   }), +qty);
 }
 
-async function listBillsByItem(zohoGet, itemId) {
+async function listBillsPages(zohoGet, queryPath, itemId) {
   const docs = [];
   let page = 1;
   for (;;) {
-    const path = `/bills?item_id=${encodeURIComponent(itemId)}`
-      + `&filter_by=${encodeURIComponent('Status.All')}`
+    const path = `${queryPath}${queryPath.includes('?') ? '&' : '?'}filter_by=${encodeURIComponent('Status.All')}`
       + `&per_page=${PAGE_SIZE}&page=${page}`;
     let json;
     try {
       json = await zohoGet(path);
     } catch (err) {
       console.warn(`Zoho bills list failed for ${itemId}:`, err?.message ?? err);
-      return [];
+      return { docs: [], unfiltered: false, failed: true };
     }
     const batch = Array.isArray(json.bills) ? json.bills : [];
     docs.push(...batch);
     if (docs.length > 200) {
       console.warn(`bills list ${itemId} returned ${docs.length} docs — treating as unfiltered`);
-      return [];
+      return { docs: [], unfiltered: true, failed: false };
     }
     if (!json.page_context?.has_more_page || batch.length === 0) break;
     page += 1;
     if (page > 100) break;
   }
+  return { docs, unfiltered: false, failed: false };
+}
 
+async function mapBillDocs(zohoGet, itemId, docs, item) {
   const rows = [];
   for (const row of docs) {
-    let mapped = mapBillFromDocument(row, itemId);
+    let mapped = mapBillFromDocument(row, itemId, item);
     if (!mapped && row?.bill_id) {
       try {
         const detail = await zohoGet(`/bills/${encodeURIComponent(row.bill_id)}`);
-        mapped = mapBillFromDocument(detail.bill ?? detail, itemId);
+        mapped = mapBillFromDocument(detail.bill ?? detail, itemId, item);
       } catch (err) {
         console.warn(`Zoho bill ${row.bill_id} failed:`, err?.message ?? err);
       }
@@ -337,21 +374,106 @@ async function listBillsByItem(zohoGet, itemId) {
   return rows;
 }
 
+async function hydrateBillRows(zohoGet, itemId, rows, item) {
+  const mapped = [];
+  const seen = new Set();
+  for (const row of rows) {
+    const id = String(row?.bill_id ?? row?.transaction_id ?? '').trim();
+    if (!id || seen.has(id)) continue;
+    seen.add(id);
+    try {
+      const detail = await zohoGet(`/bills/${encodeURIComponent(id)}`);
+      const movement = mapBillFromDocument(detail.bill ?? detail, itemId, item);
+      if (movement) mapped.push(movement);
+    } catch (err) {
+      console.warn(`Zoho bill ${id} failed:`, err?.message ?? err);
+    }
+  }
+  return mapped;
+}
+
+async function listBillsByItemSearch(zohoGet, itemId, item) {
+  const queries = [...new Set(
+    [item?.sku, item?.name]
+      .map(value => String(value ?? '').trim())
+      .filter(Boolean),
+  )];
+  const seen = new Set();
+  const docs = [];
+  for (const query of queries) {
+    const listed = await listBillsPages(
+      zohoGet,
+      `/bills?search_text=${encodeURIComponent(query)}`,
+      itemId,
+    );
+    if (listed.unfiltered || listed.failed) continue;
+    for (const doc of listed.docs) {
+      const id = String(doc?.bill_id ?? '').trim();
+      if (!id || seen.has(id)) continue;
+      seen.add(id);
+      docs.push(doc);
+    }
+  }
+  return mapBillDocs(zohoGet, itemId, docs, item);
+}
+
+async function listBillRowsFromItemTransactions(zohoGet, itemId) {
+  const all = await listAllItemTransactionsDetailed(zohoGet, '', itemId, 'transactions');
+  const rows = (all.rows || []).filter(isBillTransactionRow);
+  return { rows, failed: all.failed };
+}
+
 /** Bills for every item type — service / SAC / software keys still have vendor bills. */
-async function loadBillMovements(zohoGet, itemId) {
+async function loadBillMovements(zohoGet, itemId, item) {
   let last = { rows: [], failed: false };
   for (let attempt = 0; attempt < 3; attempt += 1) {
     if (attempt) await sleep(500);
     last = await listAllItemTransactionsDetailed(zohoGet, 'bills', itemId, 'bills');
     const mapped = (last.rows || []).map(mapBill).filter(Boolean);
     if (mapped.length) return { movements: mapped, failed: false };
+    if ((last.rows || []).length) {
+      const hydrated = await hydrateBillRows(zohoGet, itemId, last.rows, item);
+      if (hydrated.length) {
+        console.info(`bills hydrate ${itemId}: ${hydrated.length} movements`);
+        return { movements: hydrated, failed: false };
+      }
+    }
+    if (!last.failed) break;
   }
-  const fallback = await listBillsByItem(zohoGet, itemId);
-  if (fallback.length) {
-    console.info(`bills fallback ${itemId}: ${fallback.length} movements`);
-    return { movements: fallback, failed: false };
+
+  const fromAll = await listBillRowsFromItemTransactions(zohoGet, itemId);
+  const fromAllMapped = fromAll.rows.map(mapBill).filter(Boolean);
+  if (fromAllMapped.length) {
+    console.info(`bills transactions ${itemId}: ${fromAllMapped.length} movements`);
+    return { movements: fromAllMapped, failed: false };
   }
-  return { movements: [], failed: last.failed };
+  if (fromAll.rows.length) {
+    const hydrated = await hydrateBillRows(zohoGet, itemId, fromAll.rows, item);
+    if (hydrated.length) {
+      console.info(`bills transactions hydrate ${itemId}: ${hydrated.length} movements`);
+      return { movements: hydrated, failed: false };
+    }
+  }
+
+  const byItemId = await listBillsPages(
+    zohoGet,
+    `/bills?item_id=${encodeURIComponent(itemId)}`,
+    itemId,
+  );
+  if (!byItemId.unfiltered && byItemId.docs.length) {
+    const mapped = await mapBillDocs(zohoGet, itemId, byItemId.docs, item);
+    if (mapped.length) {
+      console.info(`bills item_id ${itemId}: ${mapped.length} movements`);
+      return { movements: mapped, failed: false };
+    }
+  }
+
+  const searched = await listBillsByItemSearch(zohoGet, itemId, item);
+  if (searched.length) {
+    console.info(`bills search ${itemId}: ${searched.length} movements`);
+    return { movements: searched, failed: false };
+  }
+  return { movements: [], failed: last.failed || fromAll.failed || byItemId.failed };
 }
 
 function mapCreditNote(row) {
@@ -692,7 +814,7 @@ export async function listCatalogProductLifetimeStockMovements(
   const inventory = itemTracksInventory(item);
   const [invoices, billLoaded] = await Promise.all([
     listAllItemTransactions(zohoGet, 'invoices', itemId, 'invoices', { required: true }),
-    loadBillMovements(zohoGet, itemId),
+    loadBillMovements(zohoGet, itemId, item),
   ]);
   const creditLoaded = await loadCreditNoteMovements(zohoGet, itemId, invoices.length);
   const creditnoteMovements = creditLoaded.movements;
