@@ -361,6 +361,7 @@ import {
   applyNonGatcSerialAllotmentOnInvoice,
   healInvoiceSerialsOnDocument,
   listAvailableNonGatcSerials,
+  pushSerialsToZohoInvoiceSafe,
   unlinkNonGatcSerialsFromInvoice,
 } from './lib/non-gatc-serial-allot.js';
 import { voidAdminInvoice } from './lib/void-admin-invoice.js';
@@ -7723,6 +7724,54 @@ export const applyRcNonGatcSerialBackfillHttp = onRequest(
     } catch (err) {
       console.error('applyRcNonGatcSerialBackfillHttp failed:', err);
       res.status(500).json({ error: err?.message ?? 'Allotment failed.' });
+    }
+  },
+);
+
+/** Push current Firestore invoice serials onto the Zoho invoice line description. */
+export const pushInvoiceSerialsToZohoHttp = onRequest(
+  {
+    region: 'asia-south1',
+    timeoutSeconds: 120,
+    memory: '256MiB',
+    cors: true,
+    secrets: [zohoClientId, zohoClientSecret, zohoRefreshToken],
+  },
+  async (req, res) => {
+    const secret = await loadWebhookSecret();
+    const provided = String(req.get('x-yesweigh-secret') || req.query.secret || '').trim();
+    if (!secret || provided !== secret) {
+      res.status(403).json({ error: 'forbidden' });
+      return;
+    }
+    const customerId = String(req.query.customerId || req.body?.customerId || '').trim();
+    const invoiceId = String(req.query.invoiceId || req.body?.invoiceId || '').trim();
+    if (!customerId || !invoiceId) {
+      res.status(400).json({ error: 'customerId and invoiceId are required.' });
+      return;
+    }
+    try {
+      const snap = await getFirestore().doc(`zohoCustomers/${customerId}/invoices/${invoiceId}`).get();
+      if (!snap.exists) {
+        res.status(404).json({ error: 'Invoice not found.' });
+        return;
+      }
+      const data = snap.data() || {};
+      const result = await pushSerialsToZohoInvoiceSafe({
+        secrets: zohoSecrets(),
+        configuredOrgId: zohoOrganizationId.value(),
+        invoiceId,
+        lines: Array.isArray(data.lineItems) ? data.lineItems : [],
+      });
+      res.status(result.zohoPushed ? 200 : 502).json({
+        ok: Boolean(result.zohoPushed),
+        invoiceId,
+        invoiceNumber: data.invoiceNumber || null,
+        ...result,
+      });
+    } catch (err) {
+      console.error('pushInvoiceSerialsToZohoHttp failed:', err);
+      res.status(500).json({ error: err?.message ?? 'Zoho serial push failed.' });
     }
   },
 );
