@@ -378,7 +378,71 @@ async function remapRcWritePaths(writes) {
   return out;
 }
 
+export function isYesgatcVerificationDeletedEvent(body) {
+  const event = pickStr(body, ['event', 'type', 'kind']).toLowerCase();
+  return event === 'verification.deleted' || event === 'certificate.deleted';
+}
+
+async function deleteYesgatcVerification(body) {
+  const cert = (body?.certificate && typeof body.certificate === 'object' && !Array.isArray(body.certificate))
+    ? body.certificate
+    : {};
+  const idHint = pickStr(cert, ['id', 'docId', '_id']) || pickStr(body, ['id']);
+  const serialNumber = pickStr(cert, ['serialNumber', 'serial'])
+    || pickStr(body, ['serialNumber', 'serial']);
+  const docKey = sanitizeId(idHint || serialNumber);
+  const db = getFirestore();
+  if (docKey) {
+    await db.collection(YESGATC_CERTIFICATES).doc(docKey).delete();
+  }
+  let unmarked = 0;
+  if (serialNumber) {
+    try {
+      const { unmarkSerialUnitsUsed } = await import('./serial-units.js');
+      unmarked = Number((await unmarkSerialUnitsUsed([serialNumber]))?.updated) || 0;
+    } catch (err) {
+      console.warn('serialUnits used unmark failed:', err?.message ?? err);
+    }
+  }
+  const quota = (body?.quota && typeof body.quota === 'object' && !Array.isArray(body.quota))
+    ? body.quota
+    : null;
+  const rc = (body?.rc && typeof body.rc === 'object' && !Array.isArray(body.rc))
+    ? body.rc
+    : null;
+  let rcWritten = 0;
+  if (rc || quota) {
+    const merged = {
+      ...(rc || {}),
+      ...(quota || {}),
+      used: quota?.used ?? quota?.ovQuotaUsed ?? rc?.ovUsed ?? rc?.ovQuotaUsed,
+      ov: quota?.used ?? quota?.ovDone ?? rc?.ovUsed,
+      allotted: quota?.allotted ?? rc?.ovQuota,
+      balance: quota?.balance ?? rc?.ovBalance,
+    };
+    const data = normalizeRc(merged);
+    const { docKey: rcKey, ...rest } = data;
+    if (rcKey) {
+      await db.collection(YESGATC_RC_DETAILS).doc(rcKey).set(rest, { merge: true });
+      rcWritten = 1;
+    }
+  }
+  return {
+    ok: true,
+    deleted: true,
+    certificates: 0,
+    rcDetails: rcWritten,
+    written: rcWritten + (docKey ? 1 : 0),
+    certificateId: docKey || null,
+    serialNumber: serialNumber || null,
+    serialsUnmarked: unmarked,
+  };
+}
+
 export async function handleYesgatcPush(body) {
+  if (isYesgatcVerificationDeletedEvent(body)) {
+    return deleteYesgatcVerification(body);
+  }
   const { certificates, rcDetails } = collectRecords(body);
   const writes = [
     ...certificates.map(record => {

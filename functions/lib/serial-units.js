@@ -258,6 +258,41 @@ export async function markSerialUnitsUsed(serials) {
   });
 }
 
+export async function unmarkSerialUnitsUsed(serials) {
+  const list = (Array.isArray(serials) ? serials : []).map(str).filter(Boolean);
+  if (!list.length) return { updated: 0 };
+  const db = getFirestore();
+  const now = new Date().toISOString();
+  const ids = list.map(unitId).filter(Boolean);
+  if (!ids.length) return { updated: 0 };
+  const snaps = await db.getAll(...ids.map(id => db.collection(SERIAL_UNITS).doc(id)));
+  let batch = db.batch();
+  let count = 0;
+  let updated = 0;
+  for (let i = 0; i < snaps.length; i += 1) {
+    const snap = snaps[i];
+    if (!snap.exists) continue;
+    const status = str(snap.data()?.status);
+    if (status !== SERIAL_UNIT_USED) continue;
+    const data = snap.data() || {};
+    const allotted = Boolean(str(data.rcCode) || str(data.invoiceId) || str(data.invoiceNumber));
+    batch.set(snap.ref, {
+      status: allotted ? SERIAL_UNIT_INVOICED : SERIAL_UNIT_IN_STOCK,
+      usedAt: null,
+      updatedAt: now,
+    }, { merge: true });
+    count += 1;
+    updated += 1;
+    if (count >= WRITE_CHUNK) {
+      await batch.commit();
+      batch = db.batch();
+      count = 0;
+    }
+  }
+  if (count) await batch.commit();
+  return { updated };
+}
+
 /** Delete in-stock units for a range. Throws if any serial is invoiced, used, or allotted. */
 export async function assertSerialRangeNeverUsed(row) {
   const serials = expandSerialRange({
