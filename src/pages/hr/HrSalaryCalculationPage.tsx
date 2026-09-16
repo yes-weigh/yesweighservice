@@ -22,9 +22,11 @@ import {
   createOvertimeEntry,
   createSalaryProject,
   createSalaryReceiptEntry,
+  createWorklogEntry,
   createWorkShiftEntry,
   computeExpenseSettlement,
   calendarDayHoverTitle,
+  datesWithWorklog,
   dayEarningsByDate,
   dropRegularMarksWhenOtOnClosedDays,
   formatInr,
@@ -63,6 +65,7 @@ import {
   type HrSalaryReceiptEntry,
   type HrSalaryReceiptKind,
   type HrWorkDayEntry,
+  type HrWorklogEntry,
   type HrWorkShiftEntry,
 } from '../../types/hr-salary';
 import {
@@ -86,6 +89,7 @@ type DraftRow = {
   workShiftEntries: HrWorkShiftEntry[];
   dayJoinEntries: HrDayJoinEntry[];
   overtimeEntries: HrOvertimeEntry[];
+  worklogEntries: HrWorklogEntry[];
   expenseEntries: HrExpenseEntry[];
   receiptEntries: HrSalaryReceiptEntry[];
   dirty: boolean;
@@ -127,6 +131,7 @@ function emptyDraft(row: HrSalaryStaffRow): DraftRow {
     workShiftEntries: (row.workShiftEntries ?? []).map(e => ({ ...e })),
     dayJoinEntries: (row.dayJoinEntries ?? []).map(e => ({ ...e })),
     overtimeEntries: row.overtimeEntries.map(e => ({ ...e })),
+    worklogEntries: (row.worklogEntries ?? []).map(e => ({ ...e })),
     expenseEntries: (row.expenseEntries ?? []).map(e => ({ ...e })),
     receiptEntries: (row.receiptEntries ?? []).map(e => ({ ...e })),
     dirty: false,
@@ -250,6 +255,7 @@ export const HrSalaryCalculationPage: React.FC<Props> = ({ basePath: _basePath }
       const workShiftEntries = draft.workShiftEntries.map(e => ({ ...e }));
       const dayJoinEntries = draft.dayJoinEntries.map(e => ({ ...e }));
       const overtimeEntries = draft.overtimeEntries.map(e => ({ ...e }));
+      const worklogEntries = draft.worklogEntries.map(e => ({ ...e }));
       const expenseEntries = draft.expenseEntries.map(e => ({ ...e }));
       const receiptEntries = draft.receiptEntries.map(e => ({ ...e }));
       const cleaned = dropRegularMarksWhenOtOnClosedDays(periodNow, holidaysNow, {
@@ -271,6 +277,7 @@ export const HrSalaryCalculationPage: React.FC<Props> = ({ basePath: _basePath }
           workShiftEntries: cleaned.workShiftEntries,
           dayJoinEntries: cleaned.dayJoinEntries,
           overtimeEntries,
+          worklogEntries,
           expenseEntries,
           receiptEntries,
         },
@@ -297,6 +304,7 @@ export const HrSalaryCalculationPage: React.FC<Props> = ({ basePath: _basePath }
             workShiftEntries: cleaned.workShiftEntries,
             dayJoinEntries: cleaned.dayJoinEntries,
             overtimeEntries,
+            worklogEntries,
             expenseEntries,
             receiptEntries,
             holidays: monthHs.map(h => ({ date: h.date, name: h.name })),
@@ -331,6 +339,7 @@ export const HrSalaryCalculationPage: React.FC<Props> = ({ basePath: _basePath }
           workShiftEntries: cleaned.workShiftEntries,
           dayJoinEntries: cleaned.dayJoinEntries,
           overtimeEntries,
+          worklogEntries,
           expenseEntries,
           receiptEntries,
           calc,
@@ -349,6 +358,7 @@ export const HrSalaryCalculationPage: React.FC<Props> = ({ basePath: _basePath }
           || JSON.stringify(cur.workShiftEntries) !== JSON.stringify(cleaned.workShiftEntries)
           || JSON.stringify(cur.dayJoinEntries) !== JSON.stringify(cleaned.dayJoinEntries)
           || JSON.stringify(cur.overtimeEntries) !== JSON.stringify(overtimeEntries)
+          || JSON.stringify(cur.worklogEntries) !== JSON.stringify(worklogEntries)
           || JSON.stringify(cur.expenseEntries) !== JSON.stringify(expenseEntries)
           || JSON.stringify(cur.receiptEntries) !== JSON.stringify(receiptEntries)
         );
@@ -661,6 +671,37 @@ export const HrSalaryCalculationPage: React.FC<Props> = ({ basePath: _basePath }
     });
   };
 
+  const addWorklogEntry = (uid: string, date: string) => {
+    if (!canEdit) return;
+    const draft = drafts[uid];
+    if (!draft) return;
+    updateDraft(uid, {
+      worklogEntries: [...draft.worklogEntries, createWorklogEntry(date)],
+    });
+  };
+
+  const patchWorklogEntry = (
+    uid: string,
+    entryId: string,
+    patch: Partial<Pick<HrWorklogEntry, 'text'>>,
+  ) => {
+    const draft = drafts[uid];
+    if (!draft) return;
+    updateDraft(uid, {
+      worklogEntries: draft.worklogEntries.map(entry => (
+        entry.id === entryId ? { ...entry, ...patch } : entry
+      )),
+    });
+  };
+
+  const removeWorklogEntry = (uid: string, entryId: string) => {
+    const draft = drafts[uid];
+    if (!draft) return;
+    updateDraft(uid, {
+      worklogEntries: draft.worklogEntries.filter(entry => entry.id !== entryId),
+    });
+  };
+
   const addExpenseEntry = (uid: string, date: string) => {
     if (!canEdit) return;
     const draft = drafts[uid];
@@ -745,6 +786,7 @@ export const HrSalaryCalculationPage: React.FC<Props> = ({ basePath: _basePath }
           workShiftEntries: draft.workShiftEntries,
           dayJoinEntries: draft.dayJoinEntries,
           overtimeEntries: draft.overtimeEntries,
+          worklogEntries: draft.worklogEntries,
           expenseEntries: draft.expenseEntries,
           receiptEntries: draft.receiptEntries,
           holidays: monthHs.map(h => ({ date: h.date, name: h.name })),
@@ -888,6 +930,7 @@ export const HrSalaryCalculationPage: React.FC<Props> = ({ basePath: _basePath }
           workShiftEntries: [],
           dayJoinEntries: [],
           overtimeEntries: [],
+          worklogEntries: [],
           expenseEntries: [],
           receiptEntries: [],
         },
@@ -1105,6 +1148,7 @@ export const HrSalaryCalculationPage: React.FC<Props> = ({ basePath: _basePath }
                 draft.workShiftEntries,
               );
               const leadingPads = new Date(period.year, period.month - 1, 1).getDay();
+              const worklogDates = datesWithWorklog(draft.worklogEntries);
               const monthlyValue = Number.parseFloat(draft.monthlySalary) || 0;
               const otPerDayValue = Number.parseFloat(draft.otPerDaySalary) || 0;
               const dayEarnings = expanded
@@ -1405,6 +1449,7 @@ export const HrSalaryCalculationPage: React.FC<Props> = ({ basePath: _basePath }
                                   ))}
                                   {cells.map(cell => {
                                     const hasOt = cell.overtimeHours > 0;
+                                    const hasWorklog = worklogDates.has(cell.date);
                                     const sunday = isSundayDate(cell.date);
                                     const fullLeave = (
                                       cell.kind === 'leave' || cell.leaveKind === 'full'
@@ -1428,6 +1473,7 @@ export const HrSalaryCalculationPage: React.FC<Props> = ({ basePath: _basePath }
                                       cell,
                                       dayEarnings?.get(cell.date),
                                       sunday,
+                                      hasWorklog,
                                     );
                                     const dayEarn = dayEarnings?.get(cell.date);
                                     return (
@@ -1439,6 +1485,7 @@ export const HrSalaryCalculationPage: React.FC<Props> = ({ basePath: _basePath }
                                           'hr-salary__day',
                                           hasWork ? 'has-work' : '',
                                           hasOt ? 'has-ot' : '',
+                                          hasWorklog ? 'has-worklog' : '',
                                           showAsWorkday ? 'is-regular' : '',
                                           sunday && hasOt ? 'is-sunday-ot' : '',
                                           cell.hasUnassignedRegular ? 'has-unassigned' : '',
@@ -1455,6 +1502,9 @@ export const HrSalaryCalculationPage: React.FC<Props> = ({ basePath: _basePath }
                                         <span className="hr-salary__day-num">{cell.day}</span>
                                         {hasOt ? (
                                           <span className="hr-salary__day-ot-badge">OT</span>
+                                        ) : null}
+                                        {hasWorklog ? (
+                                          <span className="hr-salary__day-log-badge" aria-hidden />
                                         ) : null}
                                         {cell.projectColors.length > 0 || cell.hasUnassignedRegular ? (
                                           <span className="hr-salary__day-dots" aria-hidden>
@@ -1517,6 +1567,10 @@ export const HrSalaryCalculationPage: React.FC<Props> = ({ basePath: _basePath }
                                 <span className="hr-salary__legend-item">
                                   <span className="hr-salary__legend-ot-badge">OT</span>
                                   Overtime
+                                </span>
+                                <span className="hr-salary__legend-item">
+                                  <span className="hr-salary__legend-log-badge" aria-hidden />
+                                  Worklog
                                 </span>
                                 {draft.projects.map(project => (
                                   <span key={project.id} className="hr-salary__legend-item">
@@ -1590,6 +1644,14 @@ export const HrSalaryCalculationPage: React.FC<Props> = ({ basePath: _basePath }
                                     onAddOt={() => addOtEntry(row.staffUid, selectedDate)}
                                     onPatchOt={(entryId, patch) => patchOtEntry(row.staffUid, entryId, patch)}
                                     onRemoveOt={entryId => removeOtEntry(row.staffUid, entryId)}
+                                    worklogs={draft.worklogEntries.filter(e => e.date === selectedDate)}
+                                    onAddWorklog={() => addWorklogEntry(row.staffUid, selectedDate)}
+                                    onPatchWorklog={(entryId, patch) => patchWorklogEntry(
+                                      row.staffUid,
+                                      entryId,
+                                      patch,
+                                    )}
+                                    onRemoveWorklog={entryId => removeWorklogEntry(row.staffUid, entryId)}
                                     expenses={draft.expenseEntries.filter(e => e.date === selectedDate)}
                                     receipts={draft.receiptEntries.filter(e => e.date === selectedDate)}
                                     onAddExpense={() => addExpenseEntry(row.staffUid, selectedDate)}

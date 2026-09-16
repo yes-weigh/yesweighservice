@@ -19,7 +19,9 @@ import {
   type HrSalaryProject,
   type HrSalaryReceiptEntry,
   type HrSalaryReceiptKind,
+  type HrWorklogEntry,
   type HrWorkShiftEntry,
+  HR_WORKLOG_TEXT_MAX,
 } from '../../types/hr-salary';
 
 function formatDayLabel(date: string): string {
@@ -66,6 +68,13 @@ export type DayAttendanceSheetProps = {
     patch: Partial<Pick<HrOvertimeEntry, 'startTime' | 'endTime' | 'projectId'>>,
   ) => void;
   onRemoveOt: (entryId: string) => void;
+  worklogs: HrWorklogEntry[];
+  onAddWorklog: () => void;
+  onPatchWorklog: (
+    entryId: string,
+    patch: Partial<Pick<HrWorklogEntry, 'text'>>,
+  ) => void;
+  onRemoveWorklog: (entryId: string) => void;
   expenses: HrExpenseEntry[];
   receipts: HrSalaryReceiptEntry[];
   onAddExpense: () => void;
@@ -262,6 +271,54 @@ function MoneyList({
   );
 }
 
+function WorklogList({
+  canEdit,
+  rows,
+  onPatch,
+  onRemove,
+}: {
+  canEdit: boolean;
+  rows: HrWorklogEntry[];
+  onPatch: (entryId: string, patch: Partial<Pick<HrWorklogEntry, 'text'>>) => void;
+  onRemove: (entryId: string) => void;
+}) {
+  return (
+    <ul className="hr-salary__worklog-list">
+      {rows.map((entry, index) => (
+        <li key={entry.id} className="hr-salary__worklog-row">
+          <label>
+            {canEdit ? (
+              <textarea
+                className="input-field hr-salary__worklog-input"
+                value={entry.text}
+                rows={2}
+                maxLength={HR_WORKLOG_TEXT_MAX}
+                aria-label={`Worklog ${index + 1}`}
+                placeholder="What was done today"
+                onChange={e => onPatch(entry.id, {
+                  text: e.target.value.slice(0, HR_WORKLOG_TEXT_MAX),
+                })}
+              />
+            ) : (
+              <p className="hr-salary__worklog-text">{entry.text.trim() || '—'}</p>
+            )}
+          </label>
+          {canEdit ? (
+            <button
+              type="button"
+              className="btn btn-secondary btn-sm hr-salary__ot-remove"
+              aria-label="Remove worklog"
+              onClick={() => onRemove(entry.id)}
+            >
+              <Trash2 size={14} aria-hidden />
+            </button>
+          ) : null}
+        </li>
+      ))}
+    </ul>
+  );
+}
+
 function ExtraEmpty({
   label,
   hint,
@@ -340,6 +397,10 @@ export function DayAttendanceSheet({
   onAddOt,
   onPatchOt,
   onRemoveOt,
+  worklogs,
+  onAddWorklog,
+  onPatchWorklog,
+  onRemoveWorklog,
   expenses,
   receipts,
   onAddExpense,
@@ -359,6 +420,12 @@ export function DayAttendanceSheet({
   );
   const dayExpenseTotal = expenses.reduce((sum, e) => sum + e.amount, 0);
   const dayReceiptTotal = receipts.reduce((sum, e) => sum + e.amount, 0);
+  const worklogFilled = worklogs.filter(e => e.text.trim()).length;
+  const worklogMeta = worklogFilled === 0
+    ? 'Draft'
+    : worklogFilled === 1
+      ? '1 note'
+      : `${worklogFilled} notes`;
   const hasWorkShifts = workShifts.length > 0;
   const shiftClockIn = hasWorkShifts
     ? workShifts.reduce(
@@ -550,6 +617,37 @@ export function DayAttendanceSheet({
         ) : null}
 
         <div className="hr-salary__day-extras">
+          {worklogs.length === 0 ? (
+            canEdit ? (
+              <ExtraEmpty
+                label="Worklog"
+                hint="None"
+                actions={(
+                  <button type="button" className="hr-salary__day-extra-add" onClick={onAddWorklog}>
+                    <Plus size={13} aria-hidden />
+                    Add
+                  </button>
+                )}
+              />
+            ) : null
+          ) : (
+            <ExtraFilled
+              label="Worklog"
+              meta={worklogMeta}
+              live={worklogFilled > 0}
+              canEdit={canEdit}
+              addLabel="Add worklog"
+              onAdd={onAddWorklog}
+            >
+              <WorklogList
+                canEdit={canEdit}
+                rows={worklogs}
+                onPatch={onPatchWorklog}
+                onRemove={onRemoveWorklog}
+              />
+            </ExtraFilled>
+          )}
+
           {entries.length === 0 ? (
             canEdit ? (
               <ExtraEmpty

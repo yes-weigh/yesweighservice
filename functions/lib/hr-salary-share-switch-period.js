@@ -172,6 +172,7 @@ export async function switchPublicSalarySharePeriod(payload = {}) {
   const rates = resolveRates(monthData, shareFallback, payrollDefaults, year, month, holidays);
 
   const leaveEntries = Array.isArray(monthData?.leaveEntries) ? monthData.leaveEntries : [];
+  const worklogEntries = Array.isArray(monthData?.worklogEntries) ? monthData.worklogEntries : [];
   const expenseEntries = Array.isArray(monthData?.expenseEntries) ? monthData.expenseEntries : [];
   const receiptEntries = Array.isArray(monthData?.receiptEntries) ? monthData.receiptEntries : [];
   const projects = Array.isArray(monthData?.projects) ? monthData.projects : [];
@@ -203,6 +204,7 @@ export async function switchPublicSalarySharePeriod(payload = {}) {
     workDayEntries: cleaned.workDayEntries,
     workShiftEntries: cleaned.workShiftEntries,
     dayJoinEntries: cleaned.dayJoinEntries,
+    worklogEntries,
     expenseEntries,
     receiptEntries,
     overtimeEntries,

@@ -32,12 +32,14 @@ import type {
   HrSalaryProject,
   HrSalaryReceiptEntry,
   HrWorkDayEntry,
+  HrWorklogEntry,
   HrWorkShiftEntry,
 } from '../types/hr-salary';
 import {
   HR_SALARY_HOURS_PER_DAY,
   HR_SALARY_STANDARD_END_TIME,
   HR_SALARY_STANDARD_START_TIME,
+  HR_WORKLOG_TEXT_MAX,
   salaryPeriodKey,
 } from '../types/hr-salary';
 import type { StaffDepartment } from '../types/staff-access';
@@ -63,6 +65,7 @@ export type HrSalaryStaffRow = {
   workShiftEntries: HrWorkShiftEntry[];
   dayJoinEntries: HrDayJoinEntry[];
   overtimeEntries: HrOvertimeEntry[];
+  worklogEntries: HrWorklogEntry[];
   expenseEntries: HrExpenseEntry[];
   receiptEntries: HrSalaryReceiptEntry[];
   /** Reused when copying a public share link for this staff+period. */
@@ -278,6 +281,48 @@ export function createWorkShiftEntry(
     endTime,
     projectId,
   };
+}
+
+export function createWorklogEntry(
+  date: string,
+  text = '',
+): HrWorklogEntry {
+  return {
+    id: newOvertimeEntryId(),
+    date,
+    text: text.trim().slice(0, HR_WORKLOG_TEXT_MAX),
+  };
+}
+
+export function normalizeWorklogEntries(
+  entries: HrWorklogEntry[],
+  period: HrSalaryPeriod,
+): HrWorklogEntry[] {
+  const key = salaryPeriodKey(period);
+  return entries
+    .map(entry => ({
+      id: String(entry.id || newOvertimeEntryId()),
+      date: String(entry.date || '').trim(),
+      text: String(entry.text ?? '').trim().slice(0, HR_WORKLOG_TEXT_MAX),
+    }))
+    // Keep empty draft rows so "Add worklog" survives autosave before the user types.
+    .filter(entry => entry.date.startsWith(key))
+    .sort((a, b) => {
+      const byDate = a.date.localeCompare(b.date);
+      if (byDate !== 0) return byDate;
+      return a.id.localeCompare(b.id);
+    });
+}
+
+/** Dates that have at least one non-empty worklog line. */
+export function datesWithWorklog(
+  entries: Array<{ date: string; text: string }> | undefined,
+): Set<string> {
+  const dates = new Set<string>();
+  for (const entry of entries ?? []) {
+    if (entry.text.trim()) dates.add(entry.date);
+  }
+  return dates;
 }
 
 export function createExpenseEntry(
@@ -939,12 +984,14 @@ export function calendarDayHoverTitle(
   >,
   earnings: HrDayEarnings | undefined,
   isSunday: boolean,
+  hasWorklog = false,
 ): string {
   const extras = [
     cell.hasUnassignedRegular
       ? 'Unassigned regular day — set a whole-day project or daytime shifts'
       : null,
     cell.overtimeHours > 0 ? `${formatOtHours(cell.overtimeHours)} OT` : null,
+    hasWorklog ? 'Worklog' : null,
     cell.kind === 'holiday' ? cell.holidayName : null,
     isSunday && !(cell.overtimeHours > 0) ? 'Sunday' : null,
     cell.kind === 'leave' || cell.leaveKind === 'full' ? 'Full-day leave' : null,
@@ -1647,6 +1694,18 @@ function mapDayJoinEntries(data: Record<string, unknown>): HrDayJoinEntry[] {
   }).filter(e => e.date && TIME_RE.test(e.joinedAt));
 }
 
+function mapWorklogEntries(data: Record<string, unknown>): HrWorklogEntry[] {
+  if (!Array.isArray(data.worklogEntries)) return [];
+  return data.worklogEntries.map((raw, index) => {
+    const row = (raw && typeof raw === 'object') ? raw as Record<string, unknown> : {};
+    return {
+      id: String(row.id ?? `worklog_${index}`),
+      date: String(row.date ?? ''),
+      text: String(row.text ?? '').trim().slice(0, HR_WORKLOG_TEXT_MAX),
+    };
+  }).filter(e => e.date);
+}
+
 function mapExpenseEntries(data: Record<string, unknown>): HrExpenseEntry[] {
   if (!Array.isArray(data.expenseEntries)) return [];
   return data.expenseEntries.map((raw, index) => {
@@ -1690,6 +1749,7 @@ function mapSalaryDoc(id: string, data: Record<string, unknown>): HrSalaryMonthR
     workShiftEntries: mapWorkShiftEntries(data),
     dayJoinEntries: mapDayJoinEntries(data),
     overtimeEntries: mapOvertimeEntries(data),
+    worklogEntries: mapWorklogEntries(data),
     expenseEntries: mapExpenseEntries(data),
     receiptEntries: mapSalaryReceiptEntries(data),
     publicShareToken: data.publicShareToken != null && String(data.publicShareToken).trim()
@@ -1749,6 +1809,7 @@ export async function saveSalaryMonth(
   const workDayEntriesSaved = cleaned.workDayEntries;
   const workShiftEntriesSaved = cleaned.workShiftEntries;
   const dayJoinEntries = cleaned.dayJoinEntries;
+  const worklogEntries = normalizeWorklogEntries(input.worklogEntries ?? [], period);
   const expenseEntries = normalizeExpenseEntries(input.expenseEntries ?? [], period);
   const receiptEntries = normalizeSalaryReceiptEntries(input.receiptEntries ?? [], period);
   const monthlySalary = Math.max(0, Number(input.monthlySalary) || 0);
@@ -1773,6 +1834,7 @@ export async function saveSalaryMonth(
       workShiftEntries: workShiftEntriesSaved,
       dayJoinEntries,
       overtimeEntries,
+      worklogEntries,
       expenseEntries,
       receiptEntries,
       overtimeDates: [],
@@ -1828,6 +1890,7 @@ export async function buildSalaryCalculationRows(
       const workDayEntries = cleaned.workDayEntries;
       const workShiftEntries = cleaned.workShiftEntries;
       const dayJoinEntries = cleaned.dayJoinEntries;
+      const worklogEntries = saved?.worklogEntries ?? [];
       const expenseEntries = saved?.expenseEntries ?? [];
       const receiptEntries = saved?.receiptEntries ?? [];
       return {
@@ -1847,6 +1910,7 @@ export async function buildSalaryCalculationRows(
         workShiftEntries,
         dayJoinEntries,
         overtimeEntries,
+        worklogEntries,
         expenseEntries,
         receiptEntries,
         publicShareToken: saved?.publicShareToken ?? null,

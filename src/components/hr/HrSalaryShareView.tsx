@@ -11,6 +11,7 @@ import {
   computeExpenseSettlement,
   computeOvertimePayWithMakeup,
   computeSalaryCalc,
+  datesWithWorklog,
   dayEarningsByDate,
   formatInr,
   formatOtHours,
@@ -37,6 +38,7 @@ import {
   type HrSalaryReceiptEntry,
   type HrSalaryReceiptKind,
   type HrWorkDayEntry,
+  type HrWorklogEntry,
   type HrWorkShiftEntry,
 } from '../../types/hr-salary';
 import type { HrSalaryShareHoliday } from '../../types/hr-salary-share';
@@ -66,6 +68,12 @@ export type HrSalaryShareEditHandlers = {
     patch: Partial<Pick<HrOvertimeEntry, 'startTime' | 'endTime' | 'projectId'>>,
   ) => void;
   onRemoveOt: (entryId: string) => void;
+  onAddWorklog: (date: string) => void;
+  onPatchWorklog: (
+    entryId: string,
+    patch: Partial<Pick<HrWorklogEntry, 'text'>>,
+  ) => void;
+  onRemoveWorklog: (entryId: string) => void;
   onAddExpense: (date: string) => void;
   onPatchExpense: (
     entryId: string,
@@ -92,6 +100,7 @@ export type HrSalaryShareViewProps = {
   workDayEntries: HrWorkDayEntry[];
   workShiftEntries?: HrWorkShiftEntry[];
   dayJoinEntries?: HrDayJoinEntry[];
+  worklogEntries?: HrWorklogEntry[];
   expenseEntries?: HrExpenseEntry[];
   receiptEntries?: HrSalaryReceiptEntry[];
   overtimeEntries: HrOvertimeEntry[];
@@ -141,6 +150,7 @@ export function HrSalaryShareView({
   workDayEntries,
   workShiftEntries = [],
   dayJoinEntries = [],
+  worklogEntries = [],
   expenseEntries = [],
   receiptEntries = [],
   overtimeEntries,
@@ -215,6 +225,10 @@ export function HrSalaryShareView({
       dayJoinEntries,
     ),
     [period, holidays, leaveEntries, overtimeEntries, projects, workDayEntries, workShiftEntries, dayJoinEntries],
+  );
+  const worklogDates = useMemo(
+    () => datesWithWorklog(worklogEntries),
+    [worklogEntries],
   );
   const dayEarnings = useMemo(
     () => dayEarningsByDate(
@@ -476,6 +490,7 @@ export function HrSalaryShareView({
               ))}
               {cells.map(cell => {
                 const hasOt = cell.overtimeHours > 0;
+                const hasWorklog = worklogDates.has(cell.date);
                 const sunday = isSundayDate(cell.date);
                 const fullLeave = cell.kind === 'leave' || cell.leaveKind === 'full';
                 const halfLeave = cell.kind === 'leave_half' || cell.leaveKind === 'half';
@@ -486,7 +501,7 @@ export function HrSalaryShareView({
                 );
                 const showAsWorkday = hasWork && !fullLeave && !halfLeave && !sunday;
                 const dayEarn = dayEarnings.get(cell.date);
-                const dayTitle = calendarDayHoverTitle(cell, dayEarn, sunday);
+                const dayTitle = calendarDayHoverTitle(cell, dayEarn, sunday, hasWorklog);
                 const DayTag = editable ? 'button' : 'div';
                 const dayProps = editable && edit
                   ? {
@@ -504,6 +519,7 @@ export function HrSalaryShareView({
                       editable ? '' : 'is-readonly',
                       hasWork ? 'has-work' : '',
                       hasOt ? 'has-ot' : '',
+                      hasWorklog ? 'has-worklog' : '',
                       showAsWorkday ? 'is-regular' : '',
                       sunday && hasOt ? 'is-sunday-ot' : '',
                       cell.hasUnassignedRegular ? 'has-unassigned' : '',
@@ -515,6 +531,7 @@ export function HrSalaryShareView({
                   >
                     <span className="hr-salary__day-num">{cell.day}</span>
                     {hasOt ? <span className="hr-salary__day-ot-badge">OT</span> : null}
+                    {hasWorklog ? <span className="hr-salary__day-log-badge" aria-hidden /> : null}
                     {cell.projectColors.length > 0 || cell.hasUnassignedRegular ? (
                       <span className="hr-salary__day-dots" aria-hidden>
                         {cell.projectColors.map(color => (
@@ -575,6 +592,10 @@ export function HrSalaryShareView({
               <span className="hr-salary__legend-ot-badge">OT</span>
               Overtime
             </span>
+            <span className="hr-salary__legend-item">
+              <span className="hr-salary__legend-log-badge" aria-hidden />
+              Worklog
+            </span>
             {projects.map(project => (
               <span key={project.id} className="hr-salary__legend-item">
                 <i
@@ -625,6 +646,10 @@ export function HrSalaryShareView({
                   onAddOt={() => edit.onAddOt(selectedDate)}
                   onPatchOt={edit.onPatchOt}
                   onRemoveOt={edit.onRemoveOt}
+                  worklogs={worklogEntries.filter(e => e.date === selectedDate)}
+                  onAddWorklog={() => edit.onAddWorklog(selectedDate)}
+                  onPatchWorklog={edit.onPatchWorklog}
+                  onRemoveWorklog={edit.onRemoveWorklog}
                   expenses={expenseEntries.filter(e => e.date === selectedDate)}
                   receipts={receiptEntries.filter(e => e.date === selectedDate)}
                   onAddExpense={() => edit.onAddExpense(selectedDate)}

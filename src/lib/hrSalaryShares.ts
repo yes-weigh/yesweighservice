@@ -12,9 +12,10 @@ import type {
   HrSalaryProject,
   HrSalaryReceiptEntry,
   HrWorkDayEntry,
+  HrWorklogEntry,
   HrWorkShiftEntry,
 } from '../types/hr-salary';
-import { salaryPeriodKey } from '../types/hr-salary';
+import { HR_WORKLOG_TEXT_MAX, salaryPeriodKey } from '../types/hr-salary';
 import type { HrHoliday } from '../types/hr-holiday';
 import {
   perDayFromMonthly,
@@ -102,6 +103,16 @@ function mapShareDoc(token: string, data: Record<string, unknown>): HrSalaryShar
         };
       }).filter(e => e.date && e.joinedAt)
     : [];
+  const worklogEntries = Array.isArray(data.worklogEntries)
+    ? data.worklogEntries.map(raw => {
+        const row = raw as Record<string, unknown>;
+        return {
+          id: String(row.id ?? ''),
+          date: String(row.date ?? ''),
+          text: String(row.text ?? '').trim().slice(0, HR_WORKLOG_TEXT_MAX),
+        };
+      }).filter(e => e.id && e.date)
+    : [];
   const expenseEntries = Array.isArray(data.expenseEntries)
     ? data.expenseEntries.map(raw => {
         const row = raw as Record<string, unknown>;
@@ -165,6 +176,7 @@ function mapShareDoc(token: string, data: Record<string, unknown>): HrSalaryShar
     workDayEntries,
     workShiftEntries,
     dayJoinEntries,
+    worklogEntries,
     expenseEntries,
     receiptEntries,
     overtimeEntries,
@@ -218,6 +230,7 @@ export type PublicSalaryShareUpdateInput = {
   workDayEntries: HrWorkDayEntry[];
   workShiftEntries: HrWorkShiftEntry[];
   dayJoinEntries: HrDayJoinEntry[];
+  worklogEntries: HrWorklogEntry[];
   expenseEntries: HrExpenseEntry[];
   receiptEntries: HrSalaryReceiptEntry[];
   overtimeEntries: HrOvertimeEntry[];
@@ -307,6 +320,7 @@ export async function upsertSalaryShare(
       workDayEntries: cleaned.workDayEntries,
       workShiftEntries: cleaned.workShiftEntries,
       dayJoinEntries: cleaned.dayJoinEntries,
+      worklogEntries: input.worklogEntries ?? [],
       expenseEntries: input.expenseEntries ?? [],
       receiptEntries: input.receiptEntries ?? [],
       overtimeEntries: input.overtimeEntries,

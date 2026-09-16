@@ -7,6 +7,7 @@ import type {
   HrSalaryProject,
   HrSalaryReceiptEntry,
   HrWorkDayEntry,
+  HrWorklogEntry,
   HrWorkShiftEntry,
 } from './hr-salary';
 
@@ -36,6 +37,7 @@ export type HrSalaryShareRecord = {
   workShiftEntries: HrWorkShiftEntry[];
   dayJoinEntries: HrDayJoinEntry[];
   overtimeEntries: HrOvertimeEntry[];
+  worklogEntries: HrWorklogEntry[];
   expenseEntries: HrExpenseEntry[];
   receiptEntries: HrSalaryReceiptEntry[];
   holidays: HrSalaryShareHoliday[];
@@ -57,6 +59,7 @@ export type HrSalaryShareInput = {
   workShiftEntries: HrWorkShiftEntry[];
   dayJoinEntries: HrDayJoinEntry[];
   overtimeEntries: HrOvertimeEntry[];
+  worklogEntries: HrWorklogEntry[];
   expenseEntries: HrExpenseEntry[];
   receiptEntries: HrSalaryReceiptEntry[];
   holidays: HrSalaryShareHoliday[];

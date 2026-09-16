@@ -8,6 +8,7 @@ import {
   createOvertimeEntry,
   createSalaryProject,
   createSalaryReceiptEntry,
+  createWorklogEntry,
   createWorkShiftEntry,
   workProjectIdForDate,
 } from '../../lib/hrSalary';
@@ -28,6 +29,7 @@ import type {
   HrSalaryReceiptEntry,
   HrSalaryReceiptKind,
   HrWorkDayEntry,
+  HrWorklogEntry,
   HrWorkShiftEntry,
 } from '../../types/hr-salary';
 
@@ -42,6 +44,7 @@ type DraftState = {
   workShiftEntries: HrWorkShiftEntry[];
   dayJoinEntries: HrDayJoinEntry[];
   overtimeEntries: HrOvertimeEntry[];
+  worklogEntries: HrWorklogEntry[];
   expenseEntries: HrExpenseEntry[];
   receiptEntries: HrSalaryReceiptEntry[];
 };
@@ -61,6 +64,7 @@ function draftFromShare(share: HrSalaryShareRecord): DraftState {
     workShiftEntries: (share.workShiftEntries ?? []).map(e => ({ ...e })),
     dayJoinEntries: (share.dayJoinEntries ?? []).map(e => ({ ...e })),
     overtimeEntries: share.overtimeEntries.map(e => ({ ...e })),
+    worklogEntries: (share.worklogEntries ?? []).map(e => ({ ...e })),
     expenseEntries: (share.expenseEntries ?? []).map(e => ({ ...e })),
     receiptEntries: (share.receiptEntries ?? []).map(e => ({ ...e })),
   };
@@ -156,6 +160,7 @@ export const HrSalaryPublicSharePage: React.FC = () => {
         workDayEntries: current.workDayEntries,
         workShiftEntries: current.workShiftEntries,
         dayJoinEntries: current.dayJoinEntries,
+        worklogEntries: current.worklogEntries,
         expenseEntries: current.expenseEntries,
         receiptEntries: current.receiptEntries,
         overtimeEntries: current.overtimeEntries,
@@ -256,6 +261,7 @@ export const HrSalaryPublicSharePage: React.FC = () => {
         workDayEntries: draft.workDayEntries,
         workShiftEntries: draft.workShiftEntries,
         dayJoinEntries: draft.dayJoinEntries,
+        worklogEntries: draft.worklogEntries,
         expenseEntries: draft.expenseEntries,
         receiptEntries: draft.receiptEntries,
         overtimeEntries: draft.overtimeEntries,
@@ -424,6 +430,26 @@ export const HrSalaryPublicSharePage: React.FC = () => {
           overtimeEntries: draft.overtimeEntries.filter(e => e.id !== entryId),
         });
       },
+      onAddWorklog: (date: string) => {
+        patchDraft({
+          worklogEntries: [...draft.worklogEntries, createWorklogEntry(date)],
+        });
+      },
+      onPatchWorklog: (
+        entryId: string,
+        patch: Partial<Pick<HrWorklogEntry, 'text'>>,
+      ) => {
+        patchDraft({
+          worklogEntries: draft.worklogEntries.map(entry => (
+            entry.id === entryId ? { ...entry, ...patch } : entry
+          )),
+        });
+      },
+      onRemoveWorklog: (entryId: string) => {
+        patchDraft({
+          worklogEntries: draft.worklogEntries.filter(e => e.id !== entryId),
+        });
+      },
       onAddExpense: (date: string) => {
         patchDraft({
           expenseEntries: [...draft.expenseEntries, createExpenseEntry(date)],
@@ -548,6 +574,7 @@ export const HrSalaryPublicSharePage: React.FC = () => {
           workDayEntries={display.workDayEntries}
           workShiftEntries={display.workShiftEntries}
           dayJoinEntries={display.dayJoinEntries ?? []}
+          worklogEntries={display.worklogEntries ?? []}
           expenseEntries={display.expenseEntries ?? []}
           receiptEntries={display.receiptEntries ?? []}
           overtimeEntries={display.overtimeEntries}

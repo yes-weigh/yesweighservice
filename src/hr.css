@@ -2382,6 +2382,46 @@
   color: var(--sal-text-2, #8b92a5);
 }
 
+.hr-salary__worklog-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.45rem;
+}
+
+.hr-salary__worklog-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 0.4rem;
+  align-items: start;
+}
+
+.hr-salary__worklog-row label {
+  min-width: 0;
+}
+
+.hr-salary__worklog-input {
+  width: 100%;
+  min-height: 2.7rem;
+  resize: vertical;
+  line-height: 1.4;
+}
+
+.hr-salary__worklog-text {
+  margin: 0;
+  padding: 0.45rem 0.55rem;
+  border-radius: 8px;
+  background: rgba(15, 23, 42, 0.35);
+  border: 1px solid rgba(148, 163, 184, 0.12);
+  color: var(--sal-text, #f0f2f5);
+  font-size: 0.82rem;
+  line-height: 1.4;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
 .hr-salary__day-extras {
   display: flex;
   flex-direction: column;
@@ -2692,6 +2732,53 @@
   padding: 1.1px 4.4px;
   border-radius: 11px;
   z-index: 1;
+}
+
+.hr-salary__day-log-badge,
+.hr-salary__legend-log-badge {
+  display: inline-block;
+  width: 11px;
+  height: 13px;
+  border-radius: 2.5px;
+  background: #e8edf4;
+  box-shadow: 0 0 0 1px rgba(15, 23, 42, 0.28);
+  flex-shrink: 0;
+}
+
+.hr-salary__day-log-badge {
+  position: absolute;
+  top: -3px;
+  left: -3px;
+  z-index: 1;
+}
+
+.hr-salary__legend-log-badge {
+  position: relative;
+  width: 12px;
+  height: 14px;
+}
+
+.hr-salary__day-log-badge::before,
+.hr-salary__day-log-badge::after,
+.hr-salary__legend-log-badge::before,
+.hr-salary__legend-log-badge::after {
+  content: '';
+  position: absolute;
+  left: 2px;
+  right: 2px;
+  height: 1.15px;
+  border-radius: 1px;
+  background: #64748b;
+}
+
+.hr-salary__day-log-badge::before,
+.hr-salary__legend-log-badge::before {
+  top: 3.2px;
+}
+
+.hr-salary__day-log-badge::after,
+.hr-salary__legend-log-badge::after {
+  top: 6.6px;
 }
 
 .hr-salary__day-tip {

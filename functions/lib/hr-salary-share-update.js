@@ -189,6 +189,19 @@ function normalizeHolidays(raw) {
     .filter(h => h.date);
 }
 
+function normalizeWorklogEntries(raw, key) {
+  if (!Array.isArray(raw)) return [];
+  return raw
+    .map(row => ({
+      id: String(row?.id ?? '').trim() || randomUUID(),
+      date: String(row?.date ?? '').trim(),
+      text: String(row?.text ?? '').trim().slice(0, 500),
+    }))
+    // Keep empty draft rows so "Add worklog" survives autosave before the user types.
+    .filter(e => e.date.startsWith(key))
+    .sort((a, b) => a.date.localeCompare(b.date) || a.id.localeCompare(b.id));
+}
+
 function normalizeExpenseEntries(raw, key) {
   if (!Array.isArray(raw)) return [];
   return raw
@@ -250,6 +263,7 @@ export async function updatePublicSalaryShare(payload = {}) {
   const projectIds = new Set(projects.map(p => p.id));
   const leaveEntries = normalizeLeave(payload.leaveEntries, key);
   const dayJoinEntries = normalizeDayJoinEntries(payload.dayJoinEntries, key);
+  const worklogEntries = normalizeWorklogEntries(payload.worklogEntries, key);
   const expenseEntries = normalizeExpenseEntries(payload.expenseEntries, key);
   const receiptEntries = normalizeSalaryReceiptEntries(payload.receiptEntries, key);
   const workShiftEntries = normalizeWorkShifts(payload.workShiftEntries, key, projectIds);
@@ -294,6 +308,7 @@ export async function updatePublicSalaryShare(payload = {}) {
     workDayEntries: workDayEntriesSaved,
     workShiftEntries: workShiftEntriesSaved,
     dayJoinEntries: dayJoinEntriesSaved,
+    worklogEntries,
     expenseEntries,
     receiptEntries,
     overtimeEntries,
@@ -328,6 +343,7 @@ export async function updatePublicSalaryShare(payload = {}) {
     workDayEntries: workDayEntriesSaved,
     workShiftEntries: workShiftEntriesSaved,
     dayJoinEntries: dayJoinEntriesSaved,
+    worklogEntries,
     expenseEntries,
     receiptEntries,
     overtimeEntries,
@@ -348,6 +364,7 @@ export async function updatePublicSalaryShare(payload = {}) {
     workDayEntries: workDayEntriesSaved,
     workShiftEntries: workShiftEntriesSaved,
     dayJoinEntries: dayJoinEntriesSaved,
+    worklogEntries,
     expenseEntries,
     receiptEntries,
     overtimeEntries,

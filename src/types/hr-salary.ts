@@ -64,6 +64,16 @@ export type HrLeaveEntry = {
   kind: HrLeaveKind;
 };
 
+/** Free-text worklog line on a calendar day. */
+export type HrWorklogEntry = {
+  id: string;
+  /** `yyyy-MM-dd` */
+  date: string;
+  text: string;
+};
+
+export const HR_WORKLOG_TEXT_MAX = 500;
+
 /** Out-of-pocket expense on a calendar day (reimbursable). */
 export type HrExpenseEntry = {
   id: string;
@@ -113,6 +123,7 @@ export type HrSalaryMonthRecord = {
   dayJoinEntries: HrDayJoinEntry[];
   /** Timed OT shifts (one or more per day). */
   overtimeEntries: HrOvertimeEntry[];
+  worklogEntries: HrWorklogEntry[];
   expenseEntries: HrExpenseEntry[];
   receiptEntries: HrSalaryReceiptEntry[];
   /** Unguessable token for `/s/salary/:token` public share page. */
@@ -133,6 +144,7 @@ export type HrSalaryMonthInput = {
   workShiftEntries: HrWorkShiftEntry[];
   dayJoinEntries: HrDayJoinEntry[];
   overtimeEntries: HrOvertimeEntry[];
+  worklogEntries: HrWorklogEntry[];
   expenseEntries: HrExpenseEntry[];
   receiptEntries: HrSalaryReceiptEntry[];
 };
