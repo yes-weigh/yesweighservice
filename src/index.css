@@ -8916,8 +8916,9 @@ body:has(.confirm-inline-bar) .confirm-inline-bar {
   margin: 0;
   padding: 0.35rem;
   list-style: none;
-  max-height: min(16rem, 50vh);
+  max-height: min(22rem, 70vh);
   overflow: auto;
+  overscroll-behavior: contain;
   border: 1px solid rgba(226, 232, 240, 0.95);
   border-radius: 12px;
   background: #fff;

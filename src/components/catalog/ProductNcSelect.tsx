@@ -37,19 +37,32 @@ export const ProductNcSelect: React.FC<ProductNcSelectProps> = ({
     const rect = trigger.getBoundingClientRect();
     const width = Math.max(rect.width, 180);
     const left = Math.min(rect.left, window.innerWidth - width - 8);
+    const gap = 6;
+    const edge = 8;
+    const optionH = 36;
+    const menuPad = 12;
+    const maxCap = Math.min(22 * 16, window.innerHeight * 0.7);
+    const needed = Math.min(options.length * optionH + menuPad, maxCap);
+    const spaceBelow = window.innerHeight - rect.bottom - gap - edge;
+    const spaceAbove = rect.top - gap - edge;
+    const openAbove = spaceBelow < needed && spaceAbove > spaceBelow;
+    const available = Math.max(0, openAbove ? spaceAbove : spaceBelow);
+    const maxHeight = Math.max(0, Math.min(maxCap, available || maxCap));
     setMenuStyle({
       position: 'fixed',
-      top: rect.bottom + 6,
-      left: Math.max(8, left),
+      top: openAbove ? 'auto' : rect.bottom + gap,
+      bottom: openAbove ? window.innerHeight - rect.top + gap : 'auto',
+      left: Math.max(edge, left),
       width,
-      zIndex: 600,
+      maxHeight,
+      zIndex: 1400,
     });
   };
 
   useLayoutEffect(() => {
     if (!open) return;
     updateMenuPosition();
-  }, [open]);
+  }, [open, options.length]);
 
   useEffect(() => {
     if (!open) return;
