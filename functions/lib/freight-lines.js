@@ -80,6 +80,40 @@ export function partnerIdForFreightSku(sku) {
   return SKU_TO_PARTNER[value] || null;
 }
 
+/** Exact Zoho Books/Inventory `cf_mode_of_transport` dropdown labels (invoice PDF). */
+export const PARTNER_TO_ZOHO_MODE_OF_TRANSPORT = {
+  st_courier: 'ST COURIER',
+  trackon_air: 'TRACKON AIR',
+  trackon_surface: 'TRACKON SURFACE',
+  delhivery: 'DELHIVERY',
+  bluedart_air: 'BLUE DART AIR',
+  bluedart_surface: 'BLUE DART SURFACE',
+  bluedart_domestic: 'BLUE DART DOMESTIC',
+  dtdc: 'DTDC',
+  ecosafe: 'ECO SAFE',
+  aps: 'ALLEPPEY PARCEL SERVICE L.L.P',
+  personal_collection: 'CUSTOMER PICKUP',
+};
+
+export function zohoModeOfTransportForPartner(partnerId) {
+  const key = String(partnerId ?? '').trim();
+  return PARTNER_TO_ZOHO_MODE_OF_TRANSPORT[key] || null;
+}
+
+/**
+ * Courier shown on the Zoho tax invoice next to Place of Supply / Sales person.
+ * Freight SKU on the SO wins. No freight line → CUSTOMER PICKUP.
+ */
+export function zohoModeOfTransportFromOrder({ lineItems, courierPartner } = {}) {
+  const sku = freightSkuFromInvoiceLines(lineItems);
+  const skuPartner = partnerIdForFreightSku(sku);
+  if (skuPartner) return zohoModeOfTransportForPartner(skuPartner);
+  if (sku === 'FRC') {
+    return zohoModeOfTransportForPartner(String(courierPartner ?? '').trim());
+  }
+  return zohoModeOfTransportForPartner('personal_collection');
+}
+
 export function freightOptionForSku(sku) {
   const value = String(sku ?? '').trim().toUpperCase();
   return FREIGHT_LINE_OPTIONS.find(option => String(option.sku).toUpperCase() === value) || null;

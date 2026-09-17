@@ -1241,6 +1241,7 @@ export async function verifySalesOrderPayment(uid, role, salesOrderId, secrets, 
         customerId: data.customerId,
         referenceNumber: data.referenceNumber,
         salespersonId,
+        courierPartner: data.yesOneCourierPartner || null,
       });
       invoiceId = inv.invoiceId;
       invoiceNumber = inv.invoiceNumber;

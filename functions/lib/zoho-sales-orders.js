@@ -8,7 +8,7 @@ import {
   classifyZohoHttpError,
 } from './zoho-api-usage.js';
 import { isSacHsn } from './sac-catalog.js';
-import { isFreightOrderLine } from './freight-lines.js';
+import { isFreightOrderLine, zohoModeOfTransportFromOrder } from './freight-lines.js';
 import { ZOHO_ADDRESS_LINE_MAX, fitZohoAddressLines } from './zoho-contact-fields.js';
 import { KNOWN_ZOHO_WAREHOUSE_IDS, loadZohoLocationIdsBySite } from './zoho-locations.js';
 
@@ -990,16 +990,55 @@ function shippingFieldsFromSalesOrder(so) {
   };
 }
 
+function invoiceModeOfTransportValue(inv) {
+  const fields = Array.isArray(inv?.custom_fields) ? inv.custom_fields : [];
+  const hit = fields.find((field) => {
+    const api = String(field?.api_name ?? '').trim().toLowerCase();
+    const label = String(field?.label ?? '').trim().toLowerCase();
+    return api === 'cf_mode_of_transport' || label === 'mode of transport';
+  });
+  return hit?.value != null ? String(hit.value).trim() : '';
+}
+
+function modeOfTransportCustomFields(inv, mode) {
+  const value = String(mode ?? '').trim();
+  if (!value) return {};
+  const existing = Array.isArray(inv?.custom_fields) ? inv.custom_fields : [];
+  const rest = existing
+    .filter((field) => {
+      const api = String(field?.api_name ?? '').trim().toLowerCase();
+      const label = String(field?.label ?? '').trim().toLowerCase();
+      return api !== 'cf_mode_of_transport' && label !== 'mode of transport';
+    })
+    .map((field) => {
+      const next = {};
+      if (field.customfield_id) next.customfield_id = field.customfield_id;
+      if (field.api_name) next.api_name = field.api_name;
+      if (field.value != null) next.value = field.value;
+      return next;
+    })
+    .filter((field) => field.customfield_id || field.api_name);
+  return {
+    custom_fields: [
+      ...rest,
+      { api_name: 'cf_mode_of_transport', value },
+    ],
+  };
+}
+
 /**
  * Create an invoice linked to an existing sales order.
  * Tries convert-from-SO first, then falls back to invoice with salesorder_id.
  * Always copies SO shipping onto the invoice (convert does not reliably inherit it).
+ * Sets Zoho `cf_mode_of_transport` from the SO freight line / pickup partner
+ * so the tax invoice shows it next to Place of Supply without a manual Zoho edit.
  */
 export async function createInvoiceFromSalesOrder(secrets, configuredOrgId, {
   salesOrderId,
   customerId,
   referenceNumber,
   salespersonId = null,
+  courierPartner = null,
 }) {
   const accessToken = await getAccessToken(secrets);
   const orgId = await resolveOrganizationId(accessToken, configuredOrgId);
@@ -1024,9 +1063,101 @@ export async function createInvoiceFromSalesOrder(secrets, configuredOrgId, {
     };
   };
 
+  const invoiceResult = (inv) => ({
+    invoiceId: String(inv.invoice_id),
+    invoiceNumber: inv.invoice_number ? String(inv.invoice_number) : null,
+  });
+
   let so = await loadSo();
+  const resolveModeOfTransport = () => zohoModeOfTransportFromOrder({
+    lineItems: so.line_items,
+    courierPartner,
+  });
+
+  const patchInvoiceExtras = async (inv) => {
+    const invoiceId = String(inv.invoice_id);
+    const modeOfTransport = resolveModeOfTransport();
+    const needsSalesperson = Boolean(spId && String(inv.salesperson_id || '').trim() !== spId);
+    const needsShipping = Object.keys(shippingFieldsFromSalesOrder(so)).length > 0;
+    const needsMode = Boolean(
+      modeOfTransport && invoiceModeOfTransportValue(inv) !== modeOfTransport,
+    );
+    if (!needsSalesperson && !needsShipping && !needsMode) {
+      return invoiceResult(inv);
+    }
+    const shippingFields = shippingFieldsFromSalesOrder(so);
+    const extrasBody = {
+      customer_id: inv.customer_id || so.customer_id,
+      date: inv.date || so.date || new Date().toISOString().slice(0, 10),
+      line_items: lineItemsForSalesOrderPut(inv, { keepGoodsWarehouse: true }),
+      ...(needsSalesperson ? { salesperson_id: spId } : {}),
+      ...(needsShipping ? shippingFields : {}),
+    };
+    const putInvoice = (body) => zohoJson(
+      accessToken,
+      orgId,
+      `/invoices/${encodeURIComponent(invoiceId)}`,
+      { method: 'PUT', body },
+    );
+    try {
+      await putInvoice({
+        ...extrasBody,
+        ...(needsMode ? modeOfTransportCustomFields(inv, modeOfTransport) : {}),
+      });
+    } catch (err) {
+      if (needsMode && (needsSalesperson || needsShipping)) {
+        try {
+          await putInvoice(extrasBody);
+        } catch (retryErr) {
+          console.warn(
+            'Could not set salesperson/shipping on invoice:',
+            retryErr?.message || retryErr,
+          );
+        }
+      } else if (!needsMode) {
+        console.warn(
+          'Could not set salesperson/shipping on invoice:',
+          err?.message || err,
+        );
+      }
+      if (needsMode) {
+        try {
+          await putInvoice({
+            ...extrasBody,
+            custom_fields: [{ label: 'Mode of Transport', value: modeOfTransport }],
+          });
+        } catch (modeErr) {
+          console.warn(
+            'Could not set mode of transport on invoice:',
+            modeErr?.message || modeErr,
+          );
+        }
+      }
+    }
+    return invoiceResult(inv);
+  };
+
+  const patchLinkedInvoice = async (linked) => {
+    if (!linked?.invoiceId) return linked;
+    try {
+      const payload = await zohoJson(
+        accessToken,
+        orgId,
+        `/invoices/${encodeURIComponent(linked.invoiceId)}`,
+      );
+      const inv = payload?.invoice;
+      if (inv?.invoice_id) return patchInvoiceExtras(inv);
+    } catch (err) {
+      console.warn(
+        `Could not load invoice ${linked.invoiceId} to set mode of transport:`,
+        err?.message || err,
+      );
+    }
+    return linked;
+  };
+
   const already = linkedInvoiceFromSo(so);
-  if (already) return already;
+  if (already) return patchLinkedInvoice(already);
 
   try {
     so = await ensureServiceWarehousesStripped(accessToken, orgId, so);
@@ -1042,43 +1173,10 @@ export async function createInvoiceFromSalesOrder(secrets, configuredOrgId, {
     await confirmSalesOrderRequest(accessToken, orgId, soId);
     so = await loadSo();
     const afterConfirm = linkedInvoiceFromSo(so);
-    if (afterConfirm) return afterConfirm;
+    if (afterConfirm) return patchLinkedInvoice(afterConfirm);
   }
 
   const shippingFields = shippingFieldsFromSalesOrder(so);
-
-  const patchConvertedInvoice = async (inv) => {
-    const invoiceId = String(inv.invoice_id);
-    const needsSalesperson = Boolean(spId && String(inv.salesperson_id || '').trim() !== spId);
-    const needsShipping = Object.keys(shippingFields).length > 0;
-    if (!needsSalesperson && !needsShipping) {
-      return {
-        invoiceId,
-        invoiceNumber: inv.invoice_number ? String(inv.invoice_number) : null,
-      };
-    }
-    try {
-      await zohoJson(accessToken, orgId, `/invoices/${encodeURIComponent(invoiceId)}`, {
-        method: 'PUT',
-        body: {
-          customer_id: inv.customer_id || so.customer_id,
-          date: inv.date || so.date || new Date().toISOString().slice(0, 10),
-          line_items: lineItemsForSalesOrderPut(inv, { keepGoodsWarehouse: true }),
-          ...(needsSalesperson ? { salesperson_id: spId } : {}),
-          ...(needsShipping ? shippingFields : {}),
-        },
-      });
-    } catch (err) {
-      console.warn(
-        'Could not set salesperson/shipping on converted invoice:',
-        err?.message || err,
-      );
-    }
-    return {
-      invoiceId,
-      invoiceNumber: inv.invoice_number ? String(inv.invoice_number) : null,
-    };
-  };
 
   // Prefer convert endpoint when available. Do not send `{}` — Zoho treats an
   // empty JSON body as unauthorized on some orgs.
@@ -1090,11 +1188,11 @@ export async function createInvoiceFromSalesOrder(secrets, configuredOrgId, {
       { method: 'POST' },
     );
     const inv = converted?.invoice;
-    if (inv?.invoice_id) return patchConvertedInvoice(inv);
+    if (inv?.invoice_id) return patchInvoiceExtras(inv);
   } catch (convertErr) {
     so = await loadSo().catch(() => so);
     const linked = linkedInvoiceFromSo(so);
-    if (linked) return linked;
+    if (linked) return patchLinkedInvoice(linked);
     console.warn(
       `Convert SO ${soId} to invoice failed, trying create:`,
       convertErr?.message || convertErr,
@@ -1143,18 +1241,13 @@ export async function createInvoiceFromSalesOrder(secrets, configuredOrgId, {
         body,
       });
       const inv = payload?.invoice;
-      if (inv?.invoice_id) {
-        return {
-          invoiceId: String(inv.invoice_id),
-          invoiceNumber: inv.invoice_number ? String(inv.invoice_number) : null,
-        };
-      }
+      if (inv?.invoice_id) return patchInvoiceExtras(inv);
       lastErr = new Error(payload?.message || 'Zoho did not return an invoice id.');
     } catch (err) {
       lastErr = err;
       so = await loadSo().catch(() => so);
       const linked = linkedInvoiceFromSo(so);
-      if (linked) return linked;
+      if (linked) return patchLinkedInvoice(linked);
       const invoiced = String(so?.invoiced_status || '').toLowerCase();
       if (invoiced === 'invoiced' || invoiced === 'partially_invoiced') {
         throw new Error(
