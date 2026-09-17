@@ -7,6 +7,7 @@ import {
   INCENTIVE_KAMS,
   INCENTIVE_MONTH_START,
   INCENTIVE_RATE,
+  INCENTIVE_RATE_REASON_MAX,
   applyIncentiveExclusions,
   applyIncentiveLineRateOverridesToLines,
   applyIncentiveRateOverrideDeltas,
@@ -38,6 +39,7 @@ import {
   setIncentiveLineExcluded,
   setIncentiveLineRateOverride,
   setIncentiveStaffTarget,
+  trimIncentiveRateReason,
   verifyIncentiveLineRateOverride,
   withRateCardIncentive,
   type IncentiveInvoiceLine,
@@ -158,6 +160,10 @@ function defaultApplicableDraft(line: IncentiveInvoiceLine): string {
   return rate > 0 ? String(rate) : '';
 }
 
+function defaultReasonDraft(line: IncentiveInvoiceLine): string {
+  return line.rateOverride?.reason ?? '';
+}
+
 function csvEscape(value: string): string {
   if (/[",\n]/.test(value)) return `"${value.replace(/"/g, '""')}"`;
   return value;
@@ -254,6 +260,7 @@ export const IncentiveReportTab: React.FC = () => {
   const [exclusionBusyKey, setExclusionBusyKey] = useState<string | null>(null);
   const [overrides, setOverrides] = useState<IncentiveLineRateOverride[]>([]);
   const [rateDrafts, setRateDrafts] = useState<Record<string, string>>({});
+  const [reasonDrafts, setReasonDrafts] = useState<Record<string, string>>({});
   const [rateBusyKey, setRateBusyKey] = useState<string | null>(null);
   const [targetsByKam, setTargetsByKam] = useState<Partial<Record<IncentiveKamId, number>>>({});
   const [targetDraft, setTargetDraft] = useState('');
@@ -608,8 +615,15 @@ export const IncentiveReportTab: React.FC = () => {
     const applicableRate = parseIncentiveTargetInput(
       rateDrafts[busyKey] ?? defaultApplicableDraft({ ...rawLine, rateOverride: previous }),
     );
+    const reason = trimIncentiveRateReason(
+      reasonDrafts[busyKey] ?? previous?.reason ?? '',
+    );
     if (applicableRate <= 0) {
       setError('Enter an applicable rate greater than zero.');
+      return;
+    }
+    if (!reason) {
+      setError('Add a reason for this rate update.');
       return;
     }
     const oldAmounts = previous
@@ -633,6 +647,7 @@ export const IncentiveReportTab: React.FC = () => {
         oldDiscountAmount: oldAmounts.discountAmount,
         uid: user?.uid,
         name: user?.displayName,
+        reason,
         markVerified: canVerifyRates,
         previous,
       });
@@ -643,8 +658,11 @@ export const IncentiveReportTab: React.FC = () => {
       setOverrides(next);
       setTableCache(`incentive-rate:${month}:${scopeKey}`, next);
       setRateDrafts(current => ({ ...current, [busyKey]: String(saved.applicableRate) }));
-    } catch {
-      setError('Could not save applicable rate. Used only for incentive — the invoice is unchanged.');
+      setReasonDrafts(current => ({ ...current, [busyKey]: saved.reason }));
+    } catch (err) {
+      setError(err instanceof Error && err.message === 'Add a reason for this rate update.'
+        ? err.message
+        : 'Could not save applicable rate. Used only for incentive — the invoice is unchanged.');
     } finally {
       setRateBusyKey(current => (current === busyKey ? null : current));
     }
@@ -656,6 +674,7 @@ export const IncentiveReportTab: React.FC = () => {
     overrides,
     rateBusyKey,
     rateDrafts,
+    reasonDrafts,
     scopeKey,
     user?.displayName,
     user?.uid,
@@ -705,6 +724,11 @@ export const IncentiveReportTab: React.FC = () => {
     try {
       await clearIncentiveLineRateOverride(row.id, lineKey);
       setRateDrafts(current => {
+        const copy = { ...current };
+        delete copy[busyKey];
+        return copy;
+      });
+      setReasonDrafts(current => {
         const copy = { ...current };
         delete copy[busyKey];
         return copy;
@@ -1025,11 +1049,15 @@ export const IncentiveReportTab: React.FC = () => {
                                 const pending = Boolean(override && incentiveLineRateOverridePending(override));
                                 const draftKey = lineDraftKey(row.id, lineKey);
                                 const draft = rateDrafts[draftKey] ?? defaultApplicableDraft(line);
+                                const reasonDraft = reasonDrafts[draftKey] ?? defaultReasonDraft(line);
                                 const rateBusy = rateBusyKey === draftKey;
                                 const draftRate = parseIncentiveTargetInput(draft);
-                                const dirty = override
+                                const rateDirty = override
                                   ? Math.abs(draftRate - override.applicableRate) > 0.005
                                   : Math.abs(draftRate - (line.listRate > 0 ? line.listRate : line.rate)) > 0.005;
+                                const reasonDirty = trimIncentiveRateReason(reasonDraft)
+                                  !== trimIncentiveRateReason(override?.reason ?? '');
+                                const dirty = rateDirty || reasonDirty;
                                 const earlier = Math.max(0, (override?.edits.length ?? 0) - 1);
                                 return (
                                 <div
@@ -1109,6 +1137,29 @@ export const IncentiveReportTab: React.FC = () => {
                                           />
                                         </label>
                                       ) : null}
+                                      {canEditRates ? (
+                                        <label className="incentive-report__reason-field">
+                                          <span>Reason</span>
+                                          <input
+                                            className="incentive-report__reason-input"
+                                            value={reasonDraft}
+                                            disabled={rateBusy}
+                                            maxLength={INCENTIVE_RATE_REASON_MAX}
+                                            placeholder="Slab at invoicing, catalog change…"
+                                            aria-label={`Reason for applicable rate on ${line.name}`}
+                                            onChange={e => {
+                                              const value = e.target.value;
+                                              setReasonDrafts(current => ({ ...current, [draftKey]: value }));
+                                            }}
+                                            onKeyDown={e => {
+                                              if (e.key === 'Enter') {
+                                                e.preventDefault();
+                                                void saveLineApplicableRate(row, index);
+                                              }
+                                            }}
+                                          />
+                                        </label>
+                                      ) : null}
                                       {canEditRates && dirty ? (
                                         <button
                                           type="button"
@@ -1152,6 +1203,11 @@ export const IncentiveReportTab: React.FC = () => {
                                         >
                                           Clear
                                         </button>
+                                      ) : null}
+                                      {override?.reason ? (
+                                        <p className="incentive-report__override-reason">
+                                          {override.reason}
+                                        </p>
                                       ) : null}
                                     </div>
                                   ) : null}

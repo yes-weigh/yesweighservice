@@ -790,6 +790,52 @@ button.incentive-report__adjust-col:focus-visible {
   letter-spacing: 0.02em;
 }
 
+.incentive-report__reason-field {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 0.32rem;
+  flex: 1 1 12rem;
+  min-width: 10rem;
+  color: #fbbf24;
+  font-size: 0.68rem;
+  font-weight: 750;
+  letter-spacing: 0.02em;
+}
+
+.incentive-report__reason-input {
+  flex: 1 1 auto;
+  min-width: 0;
+  width: 100%;
+  margin: 0;
+  padding: 0 0 0.04rem;
+  border: 0;
+  border-bottom: 1px dashed color-mix(in srgb, #fbbf24 60%, transparent);
+  outline: 0;
+  background: transparent;
+  color: #fff;
+  font: inherit;
+  font-size: 0.74rem;
+  font-weight: 650;
+}
+
+.incentive-report__reason-input::placeholder {
+  color: #64748b;
+  font-weight: 550;
+}
+
+.incentive-report__reason-input:focus {
+  color: #fbbf24;
+}
+
+.incentive-report__override-reason {
+  flex: 1 1 100%;
+  margin: 0;
+  color: #fde68a;
+  font-size: 0.7rem;
+  font-weight: 600;
+  line-height: 1.35;
+}
+
 .incentive-report__rate-input {
   width: 5.6rem;
   margin: 0;

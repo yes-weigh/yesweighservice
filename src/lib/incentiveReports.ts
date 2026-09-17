@@ -140,6 +140,7 @@ export type IncentiveLineRateOverrideEdit = {
   byUid: string | null;
   byName: string | null;
   applicableRate: number;
+  reason: string;
 };
 
 /** Incentive-only applicable rate. Does not change the Zoho invoice. */
@@ -157,6 +158,7 @@ export type IncentiveLineRateOverride = {
   oldDiscountAmount: number;
   hikeAmount: number;
   discountAmount: number;
+  reason: string;
   updatedByUid: string | null;
   updatedByName: string | null;
   updatedAt: string | null;
@@ -165,6 +167,12 @@ export type IncentiveLineRateOverride = {
   verifiedAt: string | null;
   edits: IncentiveLineRateOverrideEdit[];
 };
+
+export const INCENTIVE_RATE_REASON_MAX = 200;
+
+export function trimIncentiveRateReason(raw: string | null | undefined): string {
+  return String(raw ?? '').replace(/\s+/g, ' ').trim().slice(0, INCENTIVE_RATE_REASON_MAX);
+}
 
 export type IncentiveInvoiceLine = {
   name: string;
@@ -1122,6 +1130,7 @@ function mapIncentiveLineRateOverrideEdits(raw: unknown): IncentiveLineRateOverr
       byUid: row.byUid == null ? null : String(row.byUid),
       byName: row.byName == null ? null : String(row.byName),
       applicableRate,
+      reason: trimIncentiveRateReason(row.reason == null ? '' : String(row.reason)),
     }];
   }).slice(-20);
 }
@@ -1149,6 +1158,7 @@ function mapIncentiveLineRateOverride(
     oldDiscountAmount: round2(Math.max(0, Number(data.oldDiscountAmount) || 0)),
     hikeAmount: round2(Math.max(0, Number(data.hikeAmount) || 0)),
     discountAmount: round2(Math.max(0, Number(data.discountAmount) || 0)),
+    reason: trimIncentiveRateReason(data.reason == null ? '' : String(data.reason)),
     updatedByUid: data.updatedByUid == null ? null : String(data.updatedByUid),
     updatedByName: data.updatedByName == null ? null : String(data.updatedByName),
     updatedAt: firestoreDateIso(data.updatedAt),
@@ -1309,6 +1319,7 @@ export async function setIncentiveLineRateOverride(input: {
   oldDiscountAmount: number;
   uid?: string | null;
   name?: string | null;
+  reason?: string | null;
   markVerified?: boolean;
   previous?: IncentiveLineRateOverride | null;
 }): Promise<IncentiveLineRateOverride> {
@@ -1316,8 +1327,12 @@ export async function setIncentiveLineRateOverride(input: {
   const month = input.month.trim();
   const lineKey = input.lineKey.trim();
   const applicableRate = round2(input.applicableRate);
+  const reason = trimIncentiveRateReason(input.reason);
   if (!invoiceId || !month || !lineKey || applicableRate <= 0) {
     throw new Error('Applicable rate is required.');
+  }
+  if (!reason) {
+    throw new Error('Add a reason for this rate update.');
   }
   const id = incentiveLineRateOverrideDocId(invoiceId, lineKey);
   const now = new Date().toISOString();
@@ -1327,7 +1342,7 @@ export async function setIncentiveLineRateOverride(input: {
   const previousEdits = input.previous?.edits ?? [];
   const edits = [
     ...previousEdits,
-    { at: now, byUid: actorUid, byName: actorName, applicableRate },
+    { at: now, byUid: actorUid, byName: actorName, applicableRate, reason },
   ].slice(-20);
   const verified = Boolean(input.markVerified);
   const override: IncentiveLineRateOverride = {
@@ -1344,6 +1359,7 @@ export async function setIncentiveLineRateOverride(input: {
     oldDiscountAmount: round2(Math.max(0, input.oldDiscountAmount)),
     hikeAmount: amounts.hikeAmount,
     discountAmount: amounts.discountAmount,
+    reason,
     updatedByUid: actorUid,
     updatedByName: actorName,
     updatedAt: now,
