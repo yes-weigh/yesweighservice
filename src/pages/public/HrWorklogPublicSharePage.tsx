@@ -34,8 +34,8 @@ function groupWorklogsByDate(
     byDate.set(entry.date, list);
   }
   return [...byDate.entries()]
-    .sort(([a], [b]) => a.localeCompare(b))
-    .map(([date, notes]) => ({ date, notes }));
+    .sort(([a], [b]) => b.localeCompare(a))
+    .map(([date, notes]) => ({ date, notes: notes.slice().reverse() }));
 }
 
 export const HrWorklogPublicSharePage: React.FC = () => {
