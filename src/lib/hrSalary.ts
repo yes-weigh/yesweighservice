@@ -70,6 +70,8 @@ export type HrSalaryStaffRow = {
   receiptEntries: HrSalaryReceiptEntry[];
   /** Reused when copying a public share link for this staff+period. */
   publicShareToken: string | null;
+  /** Reused when copying a worklog-only public link for this staff+period. */
+  publicWorklogShareToken: string | null;
   calc: HrSalaryCalc;
 };
 
@@ -1755,6 +1757,10 @@ function mapSalaryDoc(id: string, data: Record<string, unknown>): HrSalaryMonthR
     publicShareToken: data.publicShareToken != null && String(data.publicShareToken).trim()
       ? String(data.publicShareToken).trim()
       : null,
+    publicWorklogShareToken: data.publicWorklogShareToken != null
+      && String(data.publicWorklogShareToken).trim()
+      ? String(data.publicWorklogShareToken).trim()
+      : null,
     updatedAt: String(data.updatedAt ?? ''),
     updatedByUid: data.updatedByUid != null ? String(data.updatedByUid) : null,
   };
@@ -1914,6 +1920,7 @@ export async function buildSalaryCalculationRows(
         expenseEntries,
         receiptEntries,
         publicShareToken: saved?.publicShareToken ?? null,
+        publicWorklogShareToken: saved?.publicWorklogShareToken ?? null,
         calc: computeSalaryCalc(
           monthlySalary,
           otPerDaySalary,

@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Camera, Link2, RefreshCw, Search, Trash2, UserPlus } from 'lucide-react';
+import { Camera, Link2, NotebookPen, RefreshCw, Search, Trash2, UserPlus } from 'lucide-react';
 import { toPng } from 'html-to-image';
 import { DayAttendanceSheet } from '../../components/hr/DayAttendanceSheet';
 import { ExpenseSettlementCard } from '../../components/hr/ExpenseSettlementCard';
@@ -46,7 +46,10 @@ import {
   createSalaryShareToken,
   salarySharePublicUrl,
   saveSalaryMonthShareToken,
+  saveSalaryMonthWorklogShareToken,
   upsertSalaryShare,
+  upsertWorklogShare,
+  worklogSharePublicUrl,
 } from '../../lib/hrSalaryShares';
 import { isLocalhostDev } from '../../lib/isLocalhost';
 import { canEditHrSalary, canViewHrSalary } from '../../lib/staffAccess';
@@ -178,8 +181,11 @@ export const HrSalaryCalculationPage: React.FC<Props> = ({ basePath: _basePath }
   const [addPayrollError, setAddPayrollError] = useState('');
   const [capturingExpand, setCapturingExpand] = useState(false);
   const [shareTokens, setShareTokens] = useState<Record<string, string>>({});
+  const [worklogShareTokens, setWorklogShareTokens] = useState<Record<string, string>>({});
   const [copyingShareUid, setCopyingShareUid] = useState<string | null>(null);
   const [copiedShareUid, setCopiedShareUid] = useState<string | null>(null);
+  const [copyingWorklogUid, setCopyingWorklogUid] = useState<string | null>(null);
+  const [copiedWorklogUid, setCopiedWorklogUid] = useState<string | null>(null);
   const [detailTab, setDetailTab] = useState<HrSalaryDetailTab>('calendar');
   const autosaveTimers = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map());
   const expandCaptureRef = useRef<HTMLDivElement | null>(null);
@@ -187,6 +193,7 @@ export const HrSalaryCalculationPage: React.FC<Props> = ({ basePath: _basePath }
   const periodRef = useRef(period);
   const holidaysRef = useRef(holidays);
   const shareTokensRef = useRef(shareTokens);
+  const worklogShareTokensRef = useRef(worklogShareTokens);
   const rowsRef = useRef(rows);
   const skipAutosaveRef = useRef(false);
 
@@ -194,6 +201,7 @@ export const HrSalaryCalculationPage: React.FC<Props> = ({ basePath: _basePath }
   periodRef.current = period;
   holidaysRef.current = holidays;
   shareTokensRef.current = shareTokens;
+  worklogShareTokensRef.current = worklogShareTokens;
   rowsRef.current = rows;
 
   const monthValue = salaryPeriodKey(period);
@@ -212,6 +220,11 @@ export const HrSalaryCalculationPage: React.FC<Props> = ({ basePath: _basePath }
         nextRows
           .filter(r => r.publicShareToken)
           .map(r => [r.staffUid, r.publicShareToken as string]),
+      ));
+      setWorklogShareTokens(Object.fromEntries(
+        nextRows
+          .filter(r => r.publicWorklogShareToken)
+          .map(r => [r.staffUid, r.publicWorklogShareToken as string]),
       ));
       setSelectedDate(null);
     } catch (err) {
@@ -312,6 +325,24 @@ export const HrSalaryCalculationPage: React.FC<Props> = ({ basePath: _basePath }
           user.uid,
         ).catch(err => {
           console.warn('Could not refresh public salary share:', err);
+        });
+      }
+      const worklogShareToken = worklogShareTokensRef.current[uid]
+        || rowsRef.current.find(r => r.staffUid === uid)?.publicWorklogShareToken
+        || null;
+      if (worklogShareToken) {
+        const row = rowsRef.current.find(r => r.staffUid === uid);
+        await upsertWorklogShare(
+          {
+            token: worklogShareToken,
+            uid,
+            displayName: row?.displayName || 'Staff',
+            period: periodNow,
+            worklogEntries,
+          },
+          user.uid,
+        ).catch(err => {
+          console.warn('Could not refresh public worklog share:', err);
         });
       }
       const calc = computeSalaryCalc(
@@ -814,6 +845,45 @@ export const HrSalaryCalculationPage: React.FC<Props> = ({ basePath: _basePath }
     }
   };
 
+  const copyWorklogShareLink = async (row: HrSalaryStaffRow) => {
+    if (!user || copyingWorklogUid) return;
+    const draft = drafts[row.staffUid] ?? emptyDraft(row);
+    setCopyingWorklogUid(row.staffUid);
+    try {
+      const token = worklogShareTokens[row.staffUid]
+        || row.publicWorklogShareToken
+        || createSalaryShareToken();
+      const url = worklogSharePublicUrl(token);
+      await upsertWorklogShare(
+        {
+          token,
+          uid: row.staffUid,
+          displayName: row.displayName,
+          period,
+          worklogEntries: draft.worklogEntries,
+        },
+        user.uid,
+      );
+      if (!worklogShareTokens[row.staffUid] && !row.publicWorklogShareToken) {
+        await saveSalaryMonthWorklogShareToken(row.staffUid, period, token);
+      }
+      setWorklogShareTokens(prev => ({ ...prev, [row.staffUid]: token }));
+      setRows(prev => prev.map(r => (
+        r.staffUid === row.staffUid ? { ...r, publicWorklogShareToken: token } : r
+      )));
+      await copyTextToClipboard(url);
+      setCopiedWorklogUid(row.staffUid);
+      window.setTimeout(() => {
+        setCopiedWorklogUid(prev => (prev === row.staffUid ? null : prev));
+      }, 2000);
+    } catch (err) {
+      console.error(err);
+      window.alert(err instanceof Error ? err.message : 'Could not copy worklog link.');
+    } finally {
+      setCopyingWorklogUid(null);
+    }
+  };
+
   const captureExpandedView = async (displayName: string) => {
     const el = expandCaptureRef.current;
     if (!el || capturingExpand) return;
@@ -1301,30 +1371,43 @@ export const HrSalaryCalculationPage: React.FC<Props> = ({ basePath: _basePath }
                                   {calc.payableDays} days worked
                                 </p>
                               </div>
-                              <button
-                                type="button"
-                                className="hr-salary__capture-btn"
-                                data-capture-ignore="1"
-                                disabled={copyingShareUid === row.staffUid}
-                                onClick={() => { void copyPublicShareLink(row); }}
-                              >
-                                <Link2 size={15} aria-hidden />
-                                {copyingShareUid === row.staffUid
-                                  ? 'Copying…'
-                                  : copiedShareUid === row.staffUid
-                                    ? 'Link copied'
-                                    : 'Copy public link'}
-                              </button>
-                              <button
-                                type="button"
-                                className="hr-salary__capture-btn"
-                                data-capture-ignore="1"
-                                disabled={capturingExpand}
-                                onClick={() => { void captureExpandedView(row.displayName); }}
-                              >
-                                <Camera size={15} aria-hidden />
-                                {capturingExpand ? 'Capturing…' : 'Capture'}
-                              </button>
+                              <div className="hr-salary__dash-actions" data-capture-ignore="1">
+                                <button
+                                  type="button"
+                                  className="hr-salary__capture-btn"
+                                  disabled={copyingShareUid === row.staffUid}
+                                  onClick={() => { void copyPublicShareLink(row); }}
+                                >
+                                  <Link2 size={15} aria-hidden />
+                                  {copyingShareUid === row.staffUid
+                                    ? 'Copying…'
+                                    : copiedShareUid === row.staffUid
+                                      ? 'Link copied'
+                                      : 'Copy public link'}
+                                </button>
+                                <button
+                                  type="button"
+                                  className="hr-salary__capture-btn"
+                                  disabled={copyingWorklogUid === row.staffUid}
+                                  onClick={() => { void copyWorklogShareLink(row); }}
+                                >
+                                  <NotebookPen size={15} aria-hidden />
+                                  {copyingWorklogUid === row.staffUid
+                                    ? 'Copying…'
+                                    : copiedWorklogUid === row.staffUid
+                                      ? 'Worklog link copied'
+                                      : 'Copy worklog link'}
+                                </button>
+                                <button
+                                  type="button"
+                                  className="hr-salary__capture-btn"
+                                  disabled={capturingExpand}
+                                  onClick={() => { void captureExpandedView(row.displayName); }}
+                                >
+                                  <Camera size={15} aria-hidden />
+                                  {capturingExpand ? 'Capturing…' : 'Capture'}
+                                </button>
+                              </div>
                             </div>
                           </header>
 

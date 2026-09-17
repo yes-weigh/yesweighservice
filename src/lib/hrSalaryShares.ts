@@ -2,7 +2,12 @@ import { doc, getDoc, onSnapshot, setDoc, updateDoc } from 'firebase/firestore';
 import { getFunctions, httpsCallable } from 'firebase/functions';
 import { PUBLIC_APP_ORIGIN } from '../constants/brand';
 import { app, db } from '../firebase';
-import type { HrSalaryShareInput, HrSalaryShareRecord } from '../types/hr-salary-share';
+import type {
+  HrSalaryShareInput,
+  HrSalaryShareRecord,
+  HrWorklogShareInput,
+  HrWorklogShareRecord,
+} from '../types/hr-salary-share';
 import type {
   HrDayJoinEntry,
   HrExpenseEntry,
@@ -41,6 +46,30 @@ export function salarySharePublicPath(token: string): string {
 /** Always use the public app origin so copied links work for anyone. */
 export function salarySharePublicUrl(token: string): string {
   return `${PUBLIC_APP_ORIGIN.replace(/\/$/, '')}${salarySharePublicPath(token)}`;
+}
+
+export function worklogSharePublicPath(token: string): string {
+  return `/s/worklog/${token}`;
+}
+
+/** Always use the public app origin so copied worklog links work for anyone. */
+export function worklogSharePublicUrl(token: string): string {
+  return `${PUBLIC_APP_ORIGIN.replace(/\/$/, '')}${worklogSharePublicPath(token)}`;
+}
+
+function filledWorklogEntries(entries: HrWorklogEntry[]): HrWorklogEntry[] {
+  return entries
+    .map(entry => ({
+      id: String(entry.id ?? ''),
+      date: String(entry.date ?? ''),
+      text: String(entry.text ?? '').trim().slice(0, HR_WORKLOG_TEXT_MAX),
+    }))
+    .filter(e => e.id && e.date && e.text)
+    .sort((a, b) => {
+      const byDate = a.date.localeCompare(b.date);
+      if (byDate !== 0) return byDate;
+      return a.id.localeCompare(b.id);
+    });
 }
 
 function mapShareDoc(token: string, data: Record<string, unknown>): HrSalaryShareRecord | null {
@@ -159,6 +188,8 @@ function mapShareDoc(token: string, data: Record<string, unknown>): HrSalaryShar
         };
       }).filter(h => h.date)
     : [];
+
+  if (String(data.kind ?? '') === 'worklog') return null;
 
   return {
     token,
@@ -338,14 +369,14 @@ export async function upsertSalaryShare(
   return input.token;
 }
 
-/** Persist share token on the private salary-month doc for reuse. */
-export async function saveSalaryMonthShareToken(
+async function saveSalaryMonthTokenField(
   uid: string,
   period: HrSalaryPeriod,
   token: string,
+  field: 'publicShareToken' | 'publicWorklogShareToken',
 ): Promise<void> {
   await updateDoc(doc(db, MONTH_COLLECTION, salaryMonthDocId(uid, period)), {
-    publicShareToken: token,
+    [field]: token,
   }).catch(async () => {
     // Month doc may not exist yet — create a minimal merge.
     await setDoc(
@@ -355,10 +386,114 @@ export async function saveSalaryMonthShareToken(
         year: period.year,
         month: period.month,
         period: salaryPeriodKey(period),
-        publicShareToken: token,
+        [field]: token,
         updatedAt: new Date().toISOString(),
       },
       { merge: true },
     );
   });
+}
+
+/** Persist share token on the private salary-month doc for reuse. */
+export async function saveSalaryMonthShareToken(
+  uid: string,
+  period: HrSalaryPeriod,
+  token: string,
+): Promise<void> {
+  await saveSalaryMonthTokenField(uid, period, token, 'publicShareToken');
+}
+
+/** Persist worklog-only share token on the private salary-month doc for reuse. */
+export async function saveSalaryMonthWorklogShareToken(
+  uid: string,
+  period: HrSalaryPeriod,
+  token: string,
+): Promise<void> {
+  await saveSalaryMonthTokenField(uid, period, token, 'publicWorklogShareToken');
+}
+
+function mapWorklogShareDoc(
+  token: string,
+  data: Record<string, unknown>,
+): HrWorklogShareRecord | null {
+  if (String(data.kind ?? '') !== 'worklog') return null;
+  const uid = String(data.uid ?? '');
+  const year = Number(data.year) || 0;
+  const month = Number(data.month) || 0;
+  if (!uid || !year || !month) return null;
+  return {
+    token,
+    sourceDocId: String(data.sourceDocId ?? ''),
+    uid,
+    displayName: String(data.displayName ?? 'Staff'),
+    year,
+    month,
+    period: String(data.period ?? salaryPeriodKey({ year, month })),
+    worklogEntries: filledWorklogEntries(
+      Array.isArray(data.worklogEntries) ? data.worklogEntries as HrWorklogEntry[] : [],
+    ),
+    createdAt: String(data.createdAt ?? ''),
+    updatedAt: String(data.updatedAt ?? ''),
+    createdByUid: data.createdByUid != null ? String(data.createdByUid) : null,
+  };
+}
+
+/** Live subscription to a public worklog-only share (token doc). */
+export function subscribeWorklogShare(
+  token: string,
+  onNext: (share: HrWorklogShareRecord | null) => void,
+  onError?: (err: Error) => void,
+): () => void {
+  const cleaned = token.trim();
+  if (!cleaned) {
+    onNext(null);
+    return () => {};
+  }
+  return onSnapshot(
+    doc(db, SHARE_COLLECTION, cleaned),
+    snap => {
+      if (!snap.exists()) {
+        onNext(null);
+        return;
+      }
+      onNext(mapWorklogShareDoc(snap.id, snap.data() as Record<string, unknown>));
+    },
+    err => {
+      onError?.(err instanceof Error ? err : new Error(String(err)));
+    },
+  );
+}
+
+/** Create or refresh a worklog-only public share snapshot; returns the token. */
+export async function upsertWorklogShare(
+  input: HrWorklogShareInput,
+  createdByUid: string,
+): Promise<string> {
+  const period = input.period;
+  const sourceDocId = salaryMonthDocId(input.uid, period);
+  const now = new Date().toISOString();
+  const ref = doc(db, SHARE_COLLECTION, input.token);
+  const existing = await getDoc(ref);
+  await setDoc(
+    ref,
+    {
+      kind: 'worklog',
+      sourceDocId,
+      uid: input.uid,
+      displayName: input.displayName.trim() || 'Staff',
+      year: period.year,
+      month: period.month,
+      period: salaryPeriodKey(period),
+      worklogEntries: filledWorklogEntries(input.worklogEntries ?? []),
+      updatedAt: now,
+      createdAt: existing.exists()
+        ? String((existing.data() as Record<string, unknown>).createdAt ?? now)
+        : now,
+      createdByUid: existing.exists()
+        ? ((existing.data() as Record<string, unknown>).createdByUid ?? createdByUid)
+        : createdByUid,
+    },
+    { merge: true },
+  );
+  return input.token;
 }

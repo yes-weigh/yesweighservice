@@ -128,6 +128,8 @@ export type HrSalaryMonthRecord = {
   receiptEntries: HrSalaryReceiptEntry[];
   /** Unguessable token for `/s/salary/:token` public share page. */
   publicShareToken: string | null;
+  /** Unguessable token for `/s/worklog/:token` public worklog-only page. */
+  publicWorklogShareToken: string | null;
   updatedAt: string;
   updatedByUid: string | null;
 };

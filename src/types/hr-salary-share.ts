@@ -64,3 +64,26 @@ export type HrSalaryShareInput = {
   receiptEntries: HrSalaryReceiptEntry[];
   holidays: HrSalaryShareHoliday[];
 };
+
+/** Public, unguessable snapshot of one staff month of worklogs only (no pay). */
+export type HrWorklogShareRecord = {
+  token: string;
+  sourceDocId: string;
+  uid: string;
+  displayName: string;
+  year: number;
+  month: number;
+  period: string;
+  worklogEntries: HrWorklogEntry[];
+  createdAt: string;
+  updatedAt: string;
+  createdByUid: string | null;
+};
+
+export type HrWorklogShareInput = {
+  token: string;
+  uid: string;
+  displayName: string;
+  period: HrSalaryPeriod;
+  worklogEntries: HrWorklogEntry[];
+};

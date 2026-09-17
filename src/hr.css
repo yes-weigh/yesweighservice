@@ -857,7 +857,8 @@
   overflow: visible;
 }
 
-.hr-salary__expand.is-capturing .hr-salary__capture-btn {
+.hr-salary__expand.is-capturing .hr-salary__capture-btn,
+.hr-salary__expand.is-capturing .hr-salary__dash-actions {
   display: none !important;
 }
 
@@ -959,9 +960,18 @@
 
 .hr-salary__dash-header-right {
   display: flex;
+  flex-direction: column;
   align-items: flex-end;
-  gap: 1rem;
+  gap: 0.7rem;
   margin-left: auto;
+}
+
+.hr-salary__dash-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.45rem;
+  align-items: center;
+  justify-content: flex-end;
 }
 
 .hr-salary__dash-header-totals {
@@ -2230,7 +2240,12 @@
   .hr-salary__dash-header-right {
     margin-left: 0;
     width: 100%;
-    justify-content: space-between;
+    align-items: flex-start;
+  }
+
+  .hr-salary__dash-actions {
+    width: 100%;
+    justify-content: flex-start;
   }
 }
 
@@ -3008,6 +3023,240 @@
 .hr-salary-public__state p {
   margin: 0;
   max-width: 28rem;
+}
+
+.hr-worklog-public {
+  min-height: 100vh;
+  background: #13151b;
+  color: #f0f2f5;
+  padding: 1.5rem 1rem 3rem;
+  box-sizing: border-box;
+}
+
+.hr-worklog-public__shell {
+  width: 100%;
+  max-width: 52rem;
+  margin: 0 auto;
+  display: flex;
+  flex-direction: column;
+  gap: 1.25rem;
+}
+
+.hr-worklog-public__header {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 1rem;
+  flex-wrap: wrap;
+  padding-bottom: 1rem;
+  border-bottom: 1px solid rgba(148, 163, 184, 0.14);
+}
+
+.hr-worklog-public__kicker {
+  margin: 0 0 0.3rem;
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: #2dd4bf;
+}
+
+.hr-worklog-public__header h1 {
+  margin: 0;
+  font-size: 1.7rem;
+  font-weight: 650;
+  letter-spacing: -0.4px;
+}
+
+.hr-worklog-public__period {
+  margin: 0.2rem 0 0;
+  color: #8b92a5;
+  font-size: 0.95rem;
+}
+
+.hr-worklog-public__stats {
+  display: flex;
+  gap: 0.7rem;
+}
+
+.hr-worklog-public__stats div {
+  min-width: 4.6rem;
+  padding: 0.55rem 0.75rem;
+  border-radius: 12px;
+  border: 1px solid rgba(148, 163, 184, 0.16);
+  background: rgba(26, 29, 39, 0.9);
+  text-align: right;
+}
+
+.hr-worklog-public__stats strong {
+  display: block;
+  font-size: 1.2rem;
+  font-weight: 700;
+  color: #f0f2f5;
+  line-height: 1.1;
+}
+
+.hr-worklog-public__stats span {
+  font-size: 0.72rem;
+  color: #8b92a5;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.hr-worklog-public__cal {
+  padding: 0.9rem 1rem 1rem;
+  border-radius: 14px;
+  border: 1px solid rgba(148, 163, 184, 0.14);
+  background: #1a1d27;
+}
+
+.hr-worklog-public__cal-weekdays,
+.hr-worklog-public__cal-days {
+  display: grid;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+  gap: 0.3rem;
+}
+
+.hr-worklog-public__cal-weekdays {
+  margin-bottom: 0.4rem;
+}
+
+.hr-worklog-public__cal-weekdays span {
+  text-align: center;
+  font-size: 0.68rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: #6b7287;
+}
+
+.hr-worklog-public__cal-pad {
+  min-height: 2.15rem;
+}
+
+.hr-worklog-public__cal-day {
+  appearance: none;
+  min-height: 2.15rem;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  background: transparent;
+  color: #6b7287;
+  font-size: 0.82rem;
+  font-weight: 600;
+  cursor: default;
+}
+
+.hr-worklog-public__cal-day.has-notes {
+  cursor: pointer;
+  color: #f0f2f5;
+  background: rgba(45, 212, 191, 0.12);
+  border-color: rgba(45, 212, 191, 0.28);
+}
+
+.hr-worklog-public__cal-day.has-notes:hover {
+  background: rgba(45, 212, 191, 0.2);
+}
+
+.hr-worklog-public__cal-day.is-selected {
+  background: #2dd4bf;
+  border-color: #2dd4bf;
+  color: #0f172a;
+}
+
+.hr-worklog-public__empty {
+  padding: 2.4rem 1.2rem;
+  text-align: center;
+  border-radius: 14px;
+  border: 1px dashed rgba(148, 163, 184, 0.22);
+  color: #8b92a5;
+}
+
+.hr-worklog-public__empty h2 {
+  margin: 0 0 0.35rem;
+  color: #f0f2f5;
+  font-size: 1.1rem;
+}
+
+.hr-worklog-public__empty p {
+  margin: 0;
+}
+
+.hr-worklog-public__timeline {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.9rem;
+}
+
+.hr-worklog-public__day {
+  scroll-margin-top: 1rem;
+  padding: 1rem 1.1rem 1.05rem;
+  border-radius: 14px;
+  border: 1px solid rgba(148, 163, 184, 0.14);
+  background: #1a1d27;
+}
+
+.hr-worklog-public__day.is-focused {
+  border-color: rgba(45, 212, 191, 0.45);
+  box-shadow: 0 0 0 1px rgba(45, 212, 191, 0.18);
+}
+
+.hr-worklog-public__day-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.75rem;
+  margin-bottom: 0.7rem;
+}
+
+.hr-worklog-public__day-head h2 {
+  margin: 0;
+  font-size: 0.98rem;
+  font-weight: 650;
+}
+
+.hr-worklog-public__day-head span {
+  font-size: 0.75rem;
+  color: #8b92a5;
+}
+
+.hr-worklog-public__day ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.hr-worklog-public__day p {
+  margin: 0;
+  padding: 0.7rem 0.8rem;
+  border-radius: 10px;
+  background: rgba(15, 23, 42, 0.45);
+  border: 1px solid rgba(148, 163, 184, 0.1);
+  color: #e8ecf3;
+  font-size: 0.92rem;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+@media (max-width: 640px) {
+  .hr-worklog-public__header {
+    align-items: flex-start;
+  }
+
+  .hr-worklog-public__stats {
+    width: 100%;
+  }
+
+  .hr-worklog-public__stats div {
+    flex: 1;
+    text-align: left;
+  }
 }
 
 .hr-salary__math {
