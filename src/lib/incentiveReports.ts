@@ -19,6 +19,8 @@ import {
   type AdminFirestoreInvoice,
 } from './admin-invoices';
 import { canonicalSalespersonName } from './dealerKamDisplay';
+import type { User } from '../types';
+import { normalizeZohoSalespersonLinks } from './zohoSalespersonStaff';
 import {
   bundledGatcFeeFromLines,
   fetchGatcReportForInvoice,
@@ -326,50 +328,42 @@ function expectedCatalogRate(
   return priced.chargeRate > 0 ? priced.chargeRate : listRate;
 }
 
-function withExpectedCatalogRates(
+/** Keep the SO snapshot. Never replace catalogRate with today's list/slab. */
+function withFrozenCatalogRates(
   changes: PriceChangeLike[],
-  catalog: Map<string, CatalogPriceMeta>,
-  levels: PriceLevel[],
-  dealerId: string | null,
-  directorsClubQty: number,
   qtyForChange?: (change: PriceChangeLike) => number,
 ): PriceChangeLike[] {
   return changes.map(change => {
-    const lineQty = qtyForChange?.(change);
-    const expected = expectedCatalogRate(
-      change,
-      catalog,
-      levels,
-      dealerId,
-      directorsClubQty,
-      lineQty,
-    );
-    const quantity = lineQty && lineQty > 0
-      ? lineQty
-      : Math.max(1, Number(change.quantity) || 0);
-    if (expected <= 0) return { ...change, quantity };
-    return { ...change, catalogRate: expected, quantity };
+    const storedQty = Math.max(0, Number(change.quantity) || 0);
+    const lineQty = qtyForChange?.(change) ?? 0;
+    const quantity = Math.max(1, storedQty, lineQty);
+    return { ...change, quantity };
   });
 }
 
-function lineQtyForPriceChange(
-  change: PriceChangeLike,
-  lines: Array<Record<string, unknown>>,
-): number {
-  const changeItem = String(change.itemId ?? change.productId ?? '').trim();
-  const changeSku = String(change.sku ?? '').trim().toLowerCase();
-  const changeName = String(change.name ?? '').trim();
-  const match = lines.find(line => {
-    const itemId = String(line.itemId ?? '').trim();
-    const sku = String(line.sku ?? '').trim().toLowerCase();
-    const name = String(line.name ?? '').trim();
-    if (changeItem && itemId && changeItem === itemId) return true;
-    if (changeSku && sku && changeSku === sku) return true;
-    return Boolean(changeName && name && changeName === name);
+function lineAdjustNone(
+  listRate: number,
+  qty: number,
+): Pick<IncentiveInvoiceLine, 'priceAdjust' | 'unitDiscount' | 'unitHike' | 'listRate' | 'adjustQty'> {
+  return {
+    priceAdjust: null,
+    unitDiscount: 0,
+    unitHike: 0,
+    listRate: Math.max(0, listRate),
+    adjustQty: qty,
+  };
+}
+
+function billedRateMatchesPublishedSlab(
+  levels: PriceLevel[],
+  line: Pick<IncentiveInvoiceLine, 'itemId' | 'sku' | 'rate'>,
+  charged = Number(line.rate) || 0,
+): boolean {
+  return charged > 0 && isPublishedQtySlabRate(levels, {
+    productId: line.itemId,
+    sku: line.sku,
+    rate: charged,
   });
-  const lineQty = Number(match?.quantity ?? match?.qty) || 0;
-  if (lineQty > 0) return lineQty;
-  return Math.max(0, Number(change.quantity) || 0);
 }
 
 function directorsClubQtyFromLines(
@@ -528,15 +522,23 @@ function changeMatchesLine(
 function lineAdjustFromSoChanges(
   line: Pick<IncentiveInvoiceLine, 'itemId' | 'sku' | 'name' | 'rate' | 'qty'>,
   changes: PriceChangeLike[],
+  levels: PriceLevel[],
 ): Pick<IncentiveInvoiceLine, 'priceAdjust' | 'unitDiscount' | 'unitHike' | 'adjustQty' | 'listRate'> | null {
+  let matchedSoLine = false;
   let best: Pick<IncentiveInvoiceLine, 'priceAdjust' | 'unitDiscount' | 'unitHike' | 'adjustQty' | 'listRate'> | null = null;
   let bestAbs = 0;
   for (const change of changes) {
     if (!changeMatchesLine(change, line)) continue;
-    const catalog = Number(change.catalogRate) || 0;
+    matchedSoLine = true;
     const charged = Number(change.rate) || Number(line.rate) || 0;
+    if (billedRateMatchesPublishedSlab(levels, line, charged)) {
+      return lineAdjustNone(charged, line.qty);
+    }
+    if (!isManualUserPriceChange(change)) {
+      return lineAdjustNone(charged || Number(change.catalogRate) || 0, line.qty);
+    }
+    const catalog = Number(change.catalogRate) || 0;
     if (catalog <= 0 || charged <= 0) continue;
-    const changeQty = Math.max(1, Number(change.quantity) || Number(line.qty) || 1);
     const delta = round2(charged - catalog);
     const abs = Math.abs(delta);
     if (abs < 0.005 || abs <= bestAbs) continue;
@@ -546,18 +548,20 @@ function lineAdjustFromSoChanges(
         priceAdjust: 'discount',
         unitDiscount: round2(-delta),
         unitHike: 0,
-        adjustQty: changeQty,
+        adjustQty: line.qty,
         listRate: catalog,
       }
       : {
         priceAdjust: 'hike',
         unitDiscount: 0,
         unitHike: delta,
-        adjustQty: changeQty,
+        adjustQty: line.qty,
         listRate: catalog,
       };
   }
-  return best;
+  if (best) return best;
+  if (matchedSoLine) return lineAdjustNone(Number(line.rate) || 0, line.qty);
+  return null;
 }
 
 function lineAdjustFromRateCard(
@@ -567,22 +571,38 @@ function lineAdjustFromRateCard(
   dealerId: string | null,
   clubQty: number,
   changes: PriceChangeLike[],
+  soFound: boolean,
 ): Pick<IncentiveInvoiceLine, 'priceAdjust' | 'unitDiscount' | 'unitHike' | 'listRate' | 'adjustQty'> {
+  const charged = Number(line.rate) || 0;
+  if (billedRateMatchesPublishedSlab(levels, line, charged)) {
+    return lineAdjustNone(charged, line.qty);
+  }
+
+  const fromSo = lineAdjustFromSoChanges(line, changes, levels);
+  if (fromSo) return fromSo;
+  // YesOne SO with no price-change row → billed at list/level at order time.
+  if (soFound) return lineAdjustNone(charged, line.qty);
+
+  const slabQty = Math.max(
+    line.qty,
+    ...changes
+      .filter(change => changeMatchesLine(change, line))
+      .map(change => Math.max(0, Number(change.quantity) || 0)),
+  );
   const expected = expectedCatalogRate(
     {
       productId: line.itemId,
       itemId: line.itemId,
       sku: line.sku,
       name: line.name,
-      quantity: line.qty,
+      quantity: slabQty,
     },
     catalog,
     levels,
     dealerId,
     clubQty,
-    line.qty,
+    slabQty,
   );
-  const charged = Number(line.rate) || 0;
   if (expected > 0 && charged > 0) {
     const delta = round2(charged - expected);
     if (delta < -0.005) {
@@ -604,15 +624,7 @@ function lineAdjustFromRateCard(
       };
     }
   }
-  const fromSo = lineAdjustFromSoChanges(line, changes);
-  if (fromSo) return fromSo;
-  return {
-    priceAdjust: null,
-    unitDiscount: 0,
-    unitHike: 0,
-    listRate: expected,
-    adjustQty: line.qty,
-  };
+  return lineAdjustNone(expected || charged, line.qty);
 }
 
 export function applyLineAdjustsToRow(
@@ -668,6 +680,62 @@ export function matchIncentiveKam(
     if (salespersonId && kam.salespersonIds.includes(salespersonId)) return true;
     return kam.nameTokens.some(token => name.includes(token));
   }) ?? null;
+}
+
+/** Super admins may switch KAMs. Sales staff only see their own. */
+export function canBrowseAllIncentiveKams(
+  user: Pick<User, 'role'> | null | undefined,
+): boolean {
+  return user?.role === 'super_admin';
+}
+
+type IncentiveStaffIdentity = {
+  displayName?: string | null;
+  zohoSalespersonId?: string | null;
+  zohoSalespersonName?: string | null;
+  zohoSalespersonIds?: string[] | null;
+  zohoSalespersonLinks?: Array<{ id: string; name: string | null }> | null;
+};
+
+/** Incentive KAMs linked to this staff via Zoho salesperson id or name. */
+export function incentiveKamsForUser(
+  user: IncentiveStaffIdentity | null | undefined,
+): IncentiveKamOption[] {
+  if (!user) return [];
+  const matched = new Set<IncentiveKamId>();
+  const consider = (
+    salespersonId: string | null | undefined,
+    salespersonName: string | null | undefined,
+  ) => {
+    const kam = matchIncentiveKam({ salespersonId, salespersonName });
+    if (kam) matched.add(kam.id);
+  };
+
+  consider(user.zohoSalespersonId, user.zohoSalespersonName);
+  consider(null, user.displayName);
+  for (const link of normalizeZohoSalespersonLinks(user)) {
+    consider(link.id, link.name);
+  }
+
+  return INCENTIVE_KAMS.filter(kam => matched.has(kam.id));
+}
+
+/**
+ * Firestore salesperson filter for the incentive report.
+ * `null` = org-wide (super admin). `[]` = no linked KAM (show nothing).
+ */
+export function incentiveReportSalespersonIds(
+  user: IncentiveStaffIdentity & Pick<User, 'role'> | null | undefined,
+): string[] | null {
+  if (canBrowseAllIncentiveKams(user)) return null;
+  const ids = new Set<string>();
+  for (const kam of incentiveKamsForUser(user)) {
+    for (const id of kam.salespersonIds) ids.add(id);
+  }
+  for (const link of normalizeZohoSalespersonLinks(user ?? {})) {
+    if (link.id) ids.add(link.id);
+  }
+  return [...ids];
 }
 
 function categoryAmount(
@@ -1120,16 +1188,10 @@ export async function fetchIncentiveInvoiceLines(
     ]);
     const clubQty = directorsClubQtyFromLines([
       ...soExtras.changes,
+      ...soExtras.lines,
       ...invoiceLines,
     ]);
-    const priceChanges = withExpectedCatalogRates(
-      soExtras.changes,
-      catalog,
-      priceLevels.levels,
-      cid,
-      clubQty,
-      change => lineQtyForPriceChange(change, invoiceLines),
-    );
+    const priceChanges = withFrozenCatalogRates(soExtras.changes);
     const gatcLines = gatcReport?.lineItems?.length
       ? gatcReport.lineItems
       : soExtras.gatcLines;
@@ -1198,6 +1260,7 @@ export async function fetchIncentiveInvoiceLines(
           cid,
           clubQty,
           priceChanges,
+          soExtras.found,
         );
         return {
           name,
@@ -1218,10 +1281,23 @@ export async function fetchIncentiveInvoiceLines(
 async function loadSalesOrderLineContext(
   invoiceId: string,
   salesOrderId?: string,
-): Promise<{ changes: PriceChangeLike[]; gatcLines: GatcReportLineItem[] }> {
-  const empty = { changes: [] as PriceChangeLike[], gatcLines: [] as GatcReportLineItem[] };
+): Promise<{
+  found: boolean;
+  changes: PriceChangeLike[];
+  lines: Array<Record<string, unknown>>;
+  gatcLines: GatcReportLineItem[];
+}> {
+  const empty = {
+    found: false,
+    changes: [] as PriceChangeLike[],
+    lines: [] as Array<Record<string, unknown>>,
+    gatcLines: [] as GatcReportLineItem[],
+  };
   const fromSnap = (data: Record<string, unknown> | undefined) => ({
+    found: true,
     changes: Array.isArray(data?.yesOnePriceChanges) ? data.yesOnePriceChanges : [],
+    lines: (Array.isArray(data?.lineItems) ? data.lineItems : [])
+      .filter((line): line is Record<string, unknown> => Boolean(line) && typeof line === 'object'),
     gatcLines: mapYesOneGatcLines(data?.yesOneGatcLines),
   });
   if (salesOrderId) {
@@ -1237,73 +1313,189 @@ async function loadSalesOrderLineContext(
   return fromSnap(found.docs[0].data());
 }
 
+type IncentiveSoLookup = {
+  invoiceId: string;
+  customerId: string;
+  salesOrderId?: string | null;
+  salesOrderNumber?: string | null;
+  itemQuantity?: number | null;
+};
+
+type SalesOrderBundle = {
+  id: string;
+  zohoInvoiceId: string;
+  salesOrderNumber: string;
+  customerId: string;
+  changes: PriceChangeLike[];
+  lines: Array<Record<string, unknown>>;
+  gatcFee: number;
+  soQty: number;
+};
+
+function soPricedQty(lines: Array<Record<string, unknown>>): number {
+  let qty = 0;
+  for (const line of lines) {
+    const sku = line.sku != null ? String(line.sku) : null;
+    const name = String(line.name ?? '');
+    if (isFreightInvoiceLineItem({ sku, name }) || isGatcFeeInvoiceLineItem({ sku, name })) continue;
+    qty += Math.max(0, Number(line.quantity ?? line.qty) || 0);
+  }
+  return qty;
+}
+
+function bundleFromSalesOrderDoc(
+  soId: string,
+  data: Record<string, unknown>,
+  fallbackCustomerId = '',
+): SalesOrderBundle {
+  const lines = (Array.isArray(data.lineItems) ? data.lineItems : [])
+    .filter((line): line is Record<string, unknown> => Boolean(line) && typeof line === 'object');
+  return {
+    id: soId,
+    zohoInvoiceId: String(data.zohoInvoiceId ?? '').trim(),
+    salesOrderNumber: String(data.salesOrderNumber ?? '').trim(),
+    customerId: String(data.customerId ?? fallbackCustomerId).trim(),
+    changes: Array.isArray(data.yesOnePriceChanges) ? data.yesOnePriceChanges : [],
+    lines,
+    gatcFee: bundledGatcFeeFromLines(mapYesOneGatcLines(data.yesOneGatcLines)),
+    soQty: soPricedQty(lines),
+  };
+}
+
+function salesOrderMatchesInvoice(so: SalesOrderBundle, invoice: IncentiveSoLookup): boolean {
+  if (so.zohoInvoiceId && so.zohoInvoiceId === invoice.invoiceId) return true;
+  if (invoice.salesOrderId && invoice.salesOrderId === so.id) return true;
+  const soNumber = so.salesOrderNumber;
+  const invNumber = String(invoice.salesOrderNumber ?? '').trim();
+  return Boolean(soNumber && invNumber && soNumber === invNumber);
+}
+
+function scaleSalesOrderExtras(
+  extras: Omit<SalesOrderExtras, 'gatcFee'>,
+  invoiceQty: number | null | undefined,
+  soQty: number,
+): Omit<SalesOrderExtras, 'gatcFee'> {
+  if (soQty <= 0 || invoiceQty == null || invoiceQty <= 0 || invoiceQty >= soQty) return extras;
+  const factor = invoiceQty / soQty;
+  return {
+    ...extras,
+    hikeAmount: round2(extras.hikeAmount * factor),
+    discountAmount: round2(extras.discountAmount * factor),
+    discountedSales: round2(extras.discountedSales * factor),
+  };
+}
+
+async function loadSalesOrderDocsByIds(ids: string[]): Promise<SalesOrderBundle[]> {
+  const unique = [...new Set(ids.map(id => id.trim()).filter(Boolean))];
+  const bundles: SalesOrderBundle[] = [];
+  for (let i = 0; i < unique.length; i += 10) {
+    const chunk = unique.slice(i, i + 10);
+    const snap = await getDocs(query(
+      collection(db, 'salesOrders'),
+      where(documentId(), 'in', chunk),
+    ));
+    for (const row of snap.docs) {
+      bundles.push(bundleFromSalesOrderDoc(row.id, row.data() as Record<string, unknown>));
+    }
+  }
+  return bundles;
+}
+
+async function loadSalesOrderDocsByNumbers(numbers: string[]): Promise<SalesOrderBundle[]> {
+  const unique = [...new Set(numbers.map(value => value.trim()).filter(Boolean))];
+  const bundles: SalesOrderBundle[] = [];
+  for (let i = 0; i < unique.length; i += 10) {
+    const chunk = unique.slice(i, i + 10);
+    const snap = await getDocs(query(
+      collection(db, 'salesOrders'),
+      where('salesOrderNumber', 'in', chunk),
+    ));
+    for (const row of snap.docs) {
+      bundles.push(bundleFromSalesOrderDoc(row.id, row.data() as Record<string, unknown>));
+    }
+  }
+  return bundles;
+}
+
 async function loadSalesOrderExtras(
-  invoices: Array<{ invoiceId: string; customerId: string }>,
+  invoices: IncentiveSoLookup[],
   levels: PriceLevel[],
 ): Promise<Map<string, SalesOrderExtras>> {
-  const pending: Array<{
-    invoiceId: string;
-    customerId: string;
-    changes: PriceChangeLike[];
-    lines: Array<Record<string, unknown>>;
-    gatcFee: number;
-  }> = [];
-  const customerByInvoice = new Map(
-    invoices.map(row => [row.invoiceId.trim(), row.customerId.trim()]),
-  );
-  const ids = [...new Set(invoices.map(row => row.invoiceId.trim()).filter(Boolean))];
-  for (let i = 0; i < ids.length; i += 10) {
-    const chunk = ids.slice(i, i + 10);
+  const bundlesById = new Map<string, SalesOrderBundle>();
+  const remember = (bundle: SalesOrderBundle) => {
+    if (!bundlesById.has(bundle.id)) bundlesById.set(bundle.id, bundle);
+  };
+
+  const invoiceIds = [...new Set(invoices.map(row => row.invoiceId.trim()).filter(Boolean))];
+  for (let i = 0; i < invoiceIds.length; i += 10) {
+    const chunk = invoiceIds.slice(i, i + 10);
     const snap = await getDocs(query(
       collection(db, 'salesOrders'),
       where('zohoInvoiceId', 'in', chunk),
     ));
     for (const row of snap.docs) {
-      const invoiceId = String(row.data()?.zohoInvoiceId ?? '').trim();
-      if (!invoiceId) continue;
-      const data = row.data();
-      const lines = (Array.isArray(data?.lineItems) ? data.lineItems : [])
-        .filter((line): line is Record<string, unknown> => Boolean(line) && typeof line === 'object');
-      pending.push({
-        invoiceId,
-        customerId: customerByInvoice.get(invoiceId)
-          || String(data.customerId ?? '').trim(),
-        changes: Array.isArray(data?.yesOnePriceChanges) ? data.yesOnePriceChanges : [],
-        lines,
-        gatcFee: bundledGatcFeeFromLines(mapYesOneGatcLines(data?.yesOneGatcLines)),
-      });
+      remember(bundleFromSalesOrderDoc(row.id, row.data() as Record<string, unknown>));
     }
   }
-  const catalog = await loadCatalogPriceMeta([
-    ...pending.flatMap(row => row.changes),
-    ...pending.flatMap(row => row.lines.map(line => ({
-      productId: line.productId,
-      itemId: line.itemId ?? line.item_id,
-      sku: line.sku,
-    }))),
-  ]);
+
+  const missing = invoices.filter(invoice => (
+    ![...bundlesById.values()].some(so => salesOrderMatchesInvoice(so, invoice))
+  ));
+  const missingSoIds = missing
+    .map(row => String(row.salesOrderId ?? '').trim())
+    .filter(Boolean);
+  if (missingSoIds.length) {
+    for (const bundle of await loadSalesOrderDocsByIds(missingSoIds)) remember(bundle);
+  }
+
+  const stillMissing = invoices.filter(invoice => (
+    ![...bundlesById.values()].some(so => salesOrderMatchesInvoice(so, invoice))
+  ));
+  const missingNumbers = stillMissing
+    .map(row => String(row.salesOrderNumber ?? '').trim())
+    .filter(Boolean);
+  if (missingNumbers.length) {
+    try {
+      for (const bundle of await loadSalesOrderDocsByNumbers(missingNumbers)) remember(bundle);
+    } catch {
+      // salesOrderNumber lookup is best-effort (index / field may be missing).
+    }
+  }
+
+  const extrasBySoId = new Map<string, Omit<SalesOrderExtras, 'gatcFee'> & { gatcFee: number; soQty: number }>();
+  for (const so of bundlesById.values()) {
+    extrasBySoId.set(so.id, {
+      ...summarizePriceAdjusts(withFrozenCatalogRates(so.changes), levels),
+      gatcFee: so.gatcFee,
+      soQty: so.soQty,
+    });
+  }
+
   const map = new Map<string, SalesOrderExtras>();
-  for (const row of pending) {
-    const clubQty = directorsClubQtyFromLines([...row.changes, ...row.lines]);
-    map.set(row.invoiceId, {
-      ...summarizePriceAdjusts(withExpectedCatalogRates(
-        row.changes,
-        catalog,
-        levels,
-        row.customerId || null,
-        clubQty,
-        change => lineQtyForPriceChange(change, row.lines),
-      ), levels),
-      gatcFee: row.gatcFee,
+  for (const invoice of invoices) {
+    const so = [...bundlesById.values()].find(bundle => salesOrderMatchesInvoice(bundle, invoice));
+    if (!so) continue;
+    const extras = extrasBySoId.get(so.id);
+    if (!extras) continue;
+    const scaled = scaleSalesOrderExtras(extras, invoice.itemQuantity, extras.soQty);
+    map.set(invoice.invoiceId, {
+      ...scaled,
+      gatcFee: extras.gatcFee,
     });
   }
   return map;
 }
 
-export async function listIncentiveInvoices(yearMonth: string): Promise<{
+export async function listIncentiveInvoices(
+  yearMonth: string,
+  salespersonIds?: string[] | null,
+): Promise<{
   rows: IncentiveInvoiceRow[];
   truncated: boolean;
 }> {
+  if (salespersonIds != null && salespersonIds.length === 0) {
+    return { rows: [], truncated: false };
+  }
   const { dateStart, dateEnd } = incentiveMonthBounds(yearMonth);
   const [{ rows, truncated }, priceLevels, gatcReports] = await Promise.all([
     fetchAllAdminInvoicesInRange({
@@ -1313,6 +1505,7 @@ export async function listIncentiveInvoices(yearMonth: string): Promise<{
       sort: 'latest',
       skipDerivedOverlays: true,
       maxRows: 4000,
+      salespersonIds,
     }),
     loadPriceLevels().catch(() => ({ levels: [] as PriceLevel[] })),
     listGatcReportsInDateRange({ dateStart, dateEnd, maxRows: 2000 }).catch(() => []),
@@ -1328,7 +1521,13 @@ export async function listIncentiveInvoices(yearMonth: string): Promise<{
     .map(row => toIncentiveRow(row, directorDealerIds, gatcFeeByInvoice.get(row.id) ?? 0))
     .filter((row): row is IncentiveInvoiceRow => Boolean(row));
   const extras = await loadSalesOrderExtras(
-    mapped.map(row => ({ invoiceId: row.id, customerId: row.customerId })),
+    rows.map(row => ({
+      invoiceId: row.id,
+      customerId: row.customerId,
+      salesOrderId: row.salesOrderId,
+      salesOrderNumber: row.salesOrderNumber,
+      itemQuantity: row.itemQuantity,
+    })),
     priceLevels.levels,
   );
   return {

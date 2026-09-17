@@ -8,6 +8,9 @@ import {
   INCENTIVE_MONTH_START,
   INCENTIVE_RATE,
   applyIncentiveExclusions,
+  canBrowseAllIncentiveKams,
+  incentiveKamsForUser,
+  incentiveReportSalespersonIds,
   applyLineAdjustsToRow,
   clearIncentiveLineExcluded,
   fetchIncentiveInvoiceLines,
@@ -174,6 +177,22 @@ function exportIncentiveCsv(
 export const IncentiveReportTab: React.FC = () => {
   const { user } = useAuth();
   const canExcludeLines = canSuperAdminWrite(user);
+  const browseAllKams = canBrowseAllIncentiveKams(user);
+  const allowedKams = useMemo(
+    () => (browseAllKams ? INCENTIVE_KAMS : incentiveKamsForUser(user)),
+    [browseAllKams, user],
+  );
+  const allowedKamIds = useMemo(
+    () => new Set(allowedKams.map(opt => opt.id)),
+    [allowedKams],
+  );
+  const salespersonIds = useMemo(
+    () => incentiveReportSalespersonIds(user),
+    [user],
+  );
+  const scopeKey = browseAllKams
+    ? 'all'
+    : (allowedKams.map(opt => opt.id).join(',') || 'none');
   const monthOptions = useMemo(
     () => buildMonthOptions(INCENTIVE_MONTH_START, currentYearMonth()),
     [],
@@ -185,7 +204,7 @@ export const IncentiveReportTab: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [month, setMonth] = useState(defaultMonth);
-  const [kam, setKam] = useState<IncentiveKamId>('biju');
+  const [kam, setKam] = useState<IncentiveKamId>(allowedKams[0]?.id ?? 'biju');
   const [adjustFilter, setAdjustFilter] = useState<AdjustFilter>('');
   const [page, setPage] = useState(1);
   const [expandedId, setExpandedId] = useState<string | null>(null);
@@ -200,19 +219,24 @@ export const IncentiveReportTab: React.FC = () => {
   const canEditTarget = canExcludeLines;
 
   const loadMonth = useCallback(async (yearMonth: string) => {
-    const cacheKey = `incentive:${yearMonth}`;
+    const cacheKey = `incentive-v2:${yearMonth}:${scopeKey}`;
+    const keepOwnKam = (source: IncentiveInvoiceRow[]) => (
+      browseAllKams
+        ? source
+        : source.filter(row => row.kamId != null && allowedKamIds.has(row.kamId))
+    );
     const cached = peekTableCache<{ rows: IncentiveInvoiceRow[]; truncated: boolean }>(cacheKey)
       ?? await hydrateTableCache<{ rows: IncentiveInvoiceRow[]; truncated: boolean }>(cacheKey);
     if (cached) {
-      setRows(cached.rows.map(row => withRateCardIncentive(row)));
+      setRows(keepOwnKam(cached.rows.map(row => withRateCardIncentive(row))));
       setTruncated(cached.truncated);
       setLoading(false);
     } else {
       setLoading(true);
     }
     setError('');
-    const exclusionKey = `incentive-excl:${yearMonth}`;
-    const targetKey = `incentive-target:${yearMonth}`;
+    const exclusionKey = `incentive-excl:${yearMonth}:${scopeKey}`;
+    const targetKey = `incentive-target:${yearMonth}:${scopeKey}`;
     const localExclusions = peekTableCache<IncentiveLineExclusion[]>(exclusionKey)
       ?? await hydrateTableCache<IncentiveLineExclusion[]>(exclusionKey)
       ?? [];
@@ -220,24 +244,34 @@ export const IncentiveReportTab: React.FC = () => {
     const cachedTargets = peekTableCache<Partial<Record<IncentiveKamId, number>>>(targetKey)
       ?? await hydrateTableCache<Partial<Record<IncentiveKamId, number>>>(targetKey)
       ?? {};
-    if (Object.keys(cachedTargets).length) setTargetsByKam(cachedTargets);
+    if (Object.keys(cachedTargets).length) {
+      const scopedTargets = browseAllKams
+        ? cachedTargets
+        : Object.fromEntries(
+          Object.entries(cachedTargets).filter(([id]) => allowedKamIds.has(id as IncentiveKamId)),
+        ) as Partial<Record<IncentiveKamId, number>>;
+      setTargetsByKam(scopedTargets);
+    }
     try {
       const [result, monthExclusions, monthTargets] = await Promise.all([
-        listIncentiveInvoices(yearMonth),
+        listIncentiveInvoices(yearMonth, salespersonIds),
         listIncentiveLineExclusions(yearMonth).catch(() => [] as IncentiveLineExclusion[]),
         listIncentiveStaffTargets(yearMonth).catch(() => []),
       ]);
       const merged = mergeIncentiveExclusions(localExclusions, monthExclusions);
       const nextTargets: Partial<Record<IncentiveKamId, number>> = {};
-      for (const item of monthTargets) nextTargets[item.kamId] = item.target;
-      setRows(result.rows);
+      for (const item of monthTargets) {
+        if (browseAllKams || allowedKamIds.has(item.kamId)) nextTargets[item.kamId] = item.target;
+      }
+      const scopedRows = keepOwnKam(result.rows);
+      setRows(scopedRows);
       setTruncated(result.truncated);
       setExclusions(merged);
       setTargetsByKam(nextTargets);
-      setTableCache(cacheKey, result);
+      setTableCache(cacheKey, { rows: scopedRows, truncated: result.truncated });
       setTableCache(exclusionKey, merged);
       setTableCache(targetKey, nextTargets);
-      void persistIncentiveSnapshots(yearMonth, result.rows);
+      void persistIncentiveSnapshots(yearMonth, scopedRows);
     } catch (err) {
       if (!cached) {
         setError(err instanceof Error ? err.message : 'Could not load incentive report.');
@@ -248,7 +282,12 @@ export const IncentiveReportTab: React.FC = () => {
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [allowedKamIds, browseAllKams, salespersonIds, scopeKey]);
+
+  useEffect(() => {
+    if (allowedKams.length === 0) return;
+    if (!allowedKams.some(opt => opt.id === kam)) setKam(allowedKams[0].id);
+  }, [allowedKams, kam]);
 
   useEffect(() => {
     void loadMonth(month);
@@ -282,7 +321,7 @@ export const IncentiveReportTab: React.FC = () => {
               ? applyLineAdjustsToRow(row, lines)
               : row
           ));
-          setTableCache(`incentive:${month}`, { rows: next, truncated });
+          setTableCache(`incentive-v2:${month}:${scopeKey}`, { rows: next, truncated });
           const updated = next.find(row => row.id === report.id);
           if (updated) void persistIncentiveSnapshots(month, [updated]);
           return next;
@@ -295,7 +334,7 @@ export const IncentiveReportTab: React.FC = () => {
     return () => {
       cancelled = true;
     };
-  }, [expandedId, rows, linesByInvoice, month, truncated]);
+  }, [expandedId, rows, linesByInvoice, month, truncated, scopeKey]);
 
   const rowsWithLineAdjust = useMemo(() => (
     rows.map(row => {
@@ -399,7 +438,10 @@ export const IncentiveReportTab: React.FC = () => {
   }, [kamRows, kamSource, exclusions, savedTarget, kam]);
 
   const monthLabel = monthOptions.find(opt => opt.value === month)?.label || month;
-  const kamLabel = INCENTIVE_KAMS.find(opt => opt.id === kam)?.label || 'Biju';
+  const kamLabel = allowedKams.find(opt => opt.id === kam)?.label
+    || INCENTIVE_KAMS.find(opt => opt.id === kam)?.label
+    || 'Sales staff';
+  const canPickKam = browseAllKams || allowedKams.length > 1;
 
   const handleExport = useCallback(() => {
     exportIncentiveCsv(listed, monthLabel, kamLabel, {
@@ -424,7 +466,7 @@ export const IncentiveReportTab: React.FC = () => {
         target: next,
         uid: user?.uid,
       });
-      setTableCache(`incentive-target:${month}`, { ...previous, [kam]: next });
+      setTableCache(`incentive-target:${month}:${scopeKey}`, { ...previous, [kam]: next });
     } catch {
       setTargetsByKam(previous);
       setTargetDraft(savedTarget > 0 ? String(savedTarget) : '');
@@ -432,7 +474,7 @@ export const IncentiveReportTab: React.FC = () => {
     } finally {
       setTargetSaving(false);
     }
-  }, [kam, month, savedTarget, targetsByKam, user?.uid]);
+  }, [kam, month, savedTarget, targetsByKam, user?.uid, scopeKey]);
 
   const toggleLineExclusion = useCallback(async (
     row: IncentiveInvoiceRow,
@@ -456,7 +498,7 @@ export const IncentiveReportTab: React.FC = () => {
         ...amounts,
       }];
     setExclusions(next);
-    setTableCache(`incentive-excl:${month}`, next);
+    setTableCache(`incentive-excl:${month}:${scopeKey}`, next);
     try {
       if (already) {
         await clearIncentiveLineExcluded(row.id, lineKey);
@@ -474,7 +516,7 @@ export const IncentiveReportTab: React.FC = () => {
     } finally {
       setExclusionBusyKey(current => (current === busyKey ? null : current));
     }
-  }, [canExcludeLines, excludedKeys, exclusionBusyKey, exclusions, month, user?.uid]);
+  }, [canExcludeLines, excludedKeys, exclusionBusyKey, exclusions, month, user?.uid, scopeKey]);
 
   return (
     <section className="gatc-report incentive-report">
@@ -637,17 +679,21 @@ export const IncentiveReportTab: React.FC = () => {
                   ))}
                 </select>
               </label>
-              <label className="gatc-report__kam">
-                <select
-                  value={kam}
-                  onChange={e => setKam(e.target.value as IncentiveKamId)}
-                  aria-label="Salesperson"
-                >
-                  {INCENTIVE_KAMS.map(opt => (
-                    <option key={opt.id} value={opt.id}>{opt.label}</option>
-                  ))}
-                </select>
-              </label>
+              {canPickKam ? (
+                <label className="gatc-report__kam">
+                  <select
+                    value={kam}
+                    onChange={e => setKam(e.target.value as IncentiveKamId)}
+                    aria-label="Salesperson"
+                  >
+                    {allowedKams.map(opt => (
+                      <option key={opt.id} value={opt.id}>{opt.label}</option>
+                    ))}
+                  </select>
+                </label>
+              ) : allowedKams.length === 1 ? (
+                <span className="gatc-report__kam gatc-report__kam--locked">{kamLabel}</span>
+              ) : null}
             </div>
             <button
               type="button"
@@ -664,16 +710,20 @@ export const IncentiveReportTab: React.FC = () => {
             <div className="gatc-report__empty">
               <FileText size={28} aria-hidden />
               <strong>
-                {kamRows.length === 0
+                {!browseAllKams && allowedKams.length === 0
+                  ? 'No sales incentive linked to your account'
+                  : kamRows.length === 0
                   ? 'No invoices this month'
                   : adjustFilter === 'upsales'
                     ? 'No upsales this month'
                     : 'No down sales this month'}
               </strong>
               <p>
-                {kamRows.length === 0
-                  ? 'Try another month or salesperson.'
-                  : 'Tap the box again to show all invoices.'}
+                {!browseAllKams && allowedKams.length === 0
+                  ? 'Your Zoho salesperson is not linked to this login.'
+                  : kamRows.length === 0
+                    ? (canPickKam ? 'Try another month or salesperson.' : 'Try another month.')
+                    : 'Tap the box again to show all invoices.'}
               </p>
             </div>
           ) : (

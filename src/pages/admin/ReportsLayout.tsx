@@ -4,6 +4,8 @@ import { Outlet, useLocation, useNavigate } from 'react-router-dom';
 import { BadgeCheck, BarChart3, Check, ChevronDown, Percent, Radio, RefreshCw } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import { useCatalogPageHeader, useTopBarAction } from '../../context/PageHeaderContext';
+import { canBrowseAllIncentiveKams, incentiveKamsForUser } from '../../lib/incentiveReports';
+import { isSalesKamStaff } from '../../lib/staffAccess';
 import { pushRcSoldToYesGatc } from '../../lib/yesgatcRecords';
 
 type ReportsLayoutProps = {
@@ -170,35 +172,44 @@ function RcSoldSyncButton() {
 }
 
 export const ReportsLayout: React.FC<ReportsLayoutProps> = ({ basePath }) => {
+  const { user } = useAuth();
   const location = useLocation();
   const navigate = useNavigate();
+  const showIncentiveReport = canBrowseAllIncentiveKams(user)
+    || isSalesKamStaff(user)
+    || incentiveKamsForUser(user).length > 0;
 
-  const tabs = useMemo<ReportTab[]>(() => [
-    {
-      id: 'gatc-report',
-      label: 'GATC report',
-      path: `${basePath}/reports/gatc-report`,
-      icon: <BadgeCheck size={16} />,
-    },
-    {
-      id: 'rc-ov-report',
-      label: 'RC OV report',
-      path: `${basePath}/reports/rc-ov-report`,
-      icon: <Radio size={16} />,
-    },
-    {
-      id: 'incentive-report',
-      label: 'Incentive report',
-      path: `${basePath}/reports/incentive-report`,
-      icon: <Percent size={16} />,
-    },
-    {
+  const tabs = useMemo<ReportTab[]>(() => {
+    const next: ReportTab[] = [
+      {
+        id: 'gatc-report',
+        label: 'GATC report',
+        path: `${basePath}/reports/gatc-report`,
+        icon: <BadgeCheck size={16} />,
+      },
+      {
+        id: 'rc-ov-report',
+        label: 'RC OV report',
+        path: `${basePath}/reports/rc-ov-report`,
+        icon: <Radio size={16} />,
+      },
+    ];
+    if (showIncentiveReport) {
+      next.push({
+        id: 'incentive-report',
+        label: 'Incentive report',
+        path: `${basePath}/reports/incentive-report`,
+        icon: <Percent size={16} />,
+      });
+    }
+    next.push({
       id: 'audit-report',
       label: 'Audit report',
       path: `${basePath}/reports/audit-report`,
       icon: <BarChart3 size={16} />,
-    },
-  ], [basePath]);
+    });
+    return next;
+  }, [basePath, showIncentiveReport]);
 
   const active = tabs.find(tab => (
     location.pathname === tab.path || location.pathname.startsWith(`${tab.path}/`)
@@ -210,8 +221,15 @@ export const ReportsLayout: React.FC<ReportsLayoutProps> = ({ basePath }) => {
       || location.pathname === `${basePath}/reports/`
     ) {
       navigate(`${basePath}/reports/gatc-report`, { replace: true });
+      return;
     }
-  }, [basePath, location.pathname, navigate]);
+    if (
+      !showIncentiveReport
+      && location.pathname.startsWith(`${basePath}/reports/incentive-report`)
+    ) {
+      navigate(`${basePath}/reports/gatc-report`, { replace: true });
+    }
+  }, [basePath, location.pathname, navigate, showIncentiveReport]);
 
   useCatalogPageHeader({ title: 'Reports' });
 

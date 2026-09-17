@@ -1038,6 +1038,13 @@ button.incentive-report__adjust-col:focus-visible {
   color: #e2e8f0;
 }
 
+.gatc-report__kam--locked {
+  color: #fb923c;
+  font-size: 0.875rem;
+  font-weight: 600;
+  padding: 0.15rem 0;
+}
+
 .gatc-report__refresh-btn {
   display: inline-flex;
   align-items: center;

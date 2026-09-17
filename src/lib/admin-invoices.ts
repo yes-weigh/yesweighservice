@@ -127,6 +127,9 @@ export interface AdminFirestoreInvoice {
     trackingNo?: string | null;
     partnerId?: string | null;
   } | null;
+  /** Present on invoice summaries when synced from the Zoho invoice. */
+  salesOrderId?: string | null;
+  salesOrderNumber?: string | null;
 }
 
 function pickupMarkedAt(value: unknown): string | null {
@@ -274,6 +277,8 @@ export function mapAdminInvoiceDoc(
     district: data.district ? String(data.district) : null,
     billingState: data.billingState ? String(data.billingState) : null,
     logistics: mapInvoiceListLogistics(data.logistics),
+    salesOrderId: data.salesOrderId ? String(data.salesOrderId) : null,
+    salesOrderNumber: data.salesOrderNumber ? String(data.salesOrderNumber) : null,
   };
 }
 
