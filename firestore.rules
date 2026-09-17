@@ -624,6 +624,12 @@ service cloud.firestore {
       allow create, update, delete: if isFullSuperAdmin();
     }
 
+    // Incentive-only applicable-rate appends. Staff/admin; does not change Zoho invoices.
+    match /incentiveLineRateOverrides/{overrideId} {
+      allow read: if isOpsUser();
+      allow create, update, delete: if isFullSuperAdmin() || isStaff();
+    }
+
     // Monthly sales target per KAM. Incentive = max(0, rate-card sales − target) × 3.5%.
     match /incentiveTargets/{targetId} {
       allow read: if isOpsUser();

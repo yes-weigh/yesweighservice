@@ -135,6 +135,37 @@ export type IncentiveInvoiceRow = {
   hikeAmount: number;
 };
 
+export type IncentiveLineRateOverrideEdit = {
+  at: string;
+  byUid: string | null;
+  byName: string | null;
+  applicableRate: number;
+};
+
+/** Incentive-only applicable rate. Does not change the Zoho invoice. */
+export type IncentiveLineRateOverride = {
+  id: string;
+  invoiceId: string;
+  month: string;
+  lineKey: string;
+  lineName: string;
+  billedRate: number;
+  applicableRate: number;
+  systemListRate: number;
+  qty: number;
+  oldHikeAmount: number;
+  oldDiscountAmount: number;
+  hikeAmount: number;
+  discountAmount: number;
+  updatedByUid: string | null;
+  updatedByName: string | null;
+  updatedAt: string | null;
+  verifiedByUid: string | null;
+  verifiedByName: string | null;
+  verifiedAt: string | null;
+  edits: IncentiveLineRateOverrideEdit[];
+};
+
 export type IncentiveInvoiceLine = {
   name: string;
   sku: string | null;
@@ -148,6 +179,7 @@ export type IncentiveInvoiceLine = {
   unitHike: number;
   listRate: number;
   adjustQty: number;
+  rateOverride?: IncentiveLineRateOverride | null;
 };
 
 export type IncentiveLineExclusion = {
@@ -634,6 +666,15 @@ export function applyLineAdjustsToRow(
   const fromLines = incentiveAdjustFromLines(lines);
   const hasHike = lines.some(line => line.priceAdjust === 'hike');
   const hasDiscount = lines.some(line => line.priceAdjust === 'discount');
+  const hasOverride = lines.some(line => Boolean(line.rateOverride));
+  if (hasOverride) {
+    return withRateCardIncentive({
+      ...row,
+      hikeAmount: fromLines.hikeAmount,
+      discountAmount: fromLines.discountAmount,
+      priceAdjust: fromLines.priceAdjust,
+    });
+  }
   return withRateCardIncentive({
     ...row,
     hikeAmount: hasHike ? fromLines.hikeAmount : row.hikeAmount,
@@ -1044,6 +1085,307 @@ export async function clearIncentiveLineExcluded(
 ): Promise<void> {
   const id = incentiveLineExclusionDocId(invoiceId.trim(), lineKey.trim());
   await deleteDoc(doc(db, 'incentiveLineExclusions', id));
+}
+
+function incentiveLineRateOverrideDocId(invoiceId: string, lineKey: string): string {
+  return `${invoiceId}__${lineKey.replace(/[/#[\]]/g, '_')}`;
+}
+
+function firestoreDateIso(value: unknown): string | null {
+  if (value == null || value === '') return null;
+  if (typeof value === 'string') {
+    const parsed = Date.parse(value);
+    return Number.isFinite(parsed) ? new Date(parsed).toISOString() : value;
+  }
+  if (typeof value === 'object' && value !== null && 'toDate' in value) {
+    try {
+      const date = (value as { toDate: () => Date }).toDate();
+      return date instanceof Date && !Number.isNaN(date.getTime())
+        ? date.toISOString()
+        : null;
+    } catch {
+      return null;
+    }
+  }
+  return null;
+}
+
+function mapIncentiveLineRateOverrideEdits(raw: unknown): IncentiveLineRateOverrideEdit[] {
+  if (!Array.isArray(raw)) return [];
+  return raw.flatMap(item => {
+    if (!item || typeof item !== 'object') return [];
+    const row = item as Record<string, unknown>;
+    const applicableRate = round2(Number(row.applicableRate) || 0);
+    if (applicableRate <= 0) return [];
+    return [{
+      at: firestoreDateIso(row.at) || new Date().toISOString(),
+      byUid: row.byUid == null ? null : String(row.byUid),
+      byName: row.byName == null ? null : String(row.byName),
+      applicableRate,
+    }];
+  }).slice(-20);
+}
+
+function mapIncentiveLineRateOverride(
+  id: string,
+  data: Record<string, unknown>,
+  month: string,
+): IncentiveLineRateOverride | null {
+  const invoiceId = String(data.invoiceId ?? '').trim();
+  const lineKey = String(data.lineKey ?? '').trim();
+  const applicableRate = round2(Number(data.applicableRate) || 0);
+  if (!invoiceId || !lineKey || applicableRate <= 0) return null;
+  return {
+    id,
+    invoiceId,
+    month: String(data.month ?? month).trim() || month,
+    lineKey,
+    lineName: String(data.lineName ?? '').trim(),
+    billedRate: round2(Number(data.billedRate) || 0),
+    applicableRate,
+    systemListRate: round2(Number(data.systemListRate) || 0),
+    qty: Math.max(0, round2(Number(data.qty) || 0)),
+    oldHikeAmount: round2(Math.max(0, Number(data.oldHikeAmount) || 0)),
+    oldDiscountAmount: round2(Math.max(0, Number(data.oldDiscountAmount) || 0)),
+    hikeAmount: round2(Math.max(0, Number(data.hikeAmount) || 0)),
+    discountAmount: round2(Math.max(0, Number(data.discountAmount) || 0)),
+    updatedByUid: data.updatedByUid == null ? null : String(data.updatedByUid),
+    updatedByName: data.updatedByName == null ? null : String(data.updatedByName),
+    updatedAt: firestoreDateIso(data.updatedAt),
+    verifiedByUid: data.verifiedByUid == null ? null : String(data.verifiedByUid),
+    verifiedByName: data.verifiedByName == null ? null : String(data.verifiedByName),
+    verifiedAt: firestoreDateIso(data.verifiedAt),
+    edits: mapIncentiveLineRateOverrideEdits(data.edits),
+  };
+}
+
+export function incentiveAmountsFromApplicableRate(
+  billedRate: number,
+  applicableRate: number,
+  qty: number,
+): { hikeAmount: number; discountAmount: number } {
+  const units = Math.max(0, round2(qty));
+  const billed = round2(billedRate);
+  const applicable = round2(applicableRate);
+  const delta = round2(billed - applicable);
+  if (units <= 0 || applicable <= 0) return { hikeAmount: 0, discountAmount: 0 };
+  if (delta > 0.005) return { hikeAmount: round2(delta * units), discountAmount: 0 };
+  if (delta < -0.005) return { hikeAmount: 0, discountAmount: round2(-delta * units) };
+  return { hikeAmount: 0, discountAmount: 0 };
+}
+
+export function lineAdjustFromApplicableRate(
+  billedRate: number,
+  applicableRate: number,
+  qty: number,
+): Pick<IncentiveInvoiceLine, 'priceAdjust' | 'unitDiscount' | 'unitHike' | 'listRate' | 'adjustQty'> {
+  const charged = round2(billedRate);
+  const expected = round2(applicableRate);
+  const units = Math.max(0, round2(qty));
+  if (expected > 0 && charged > 0) {
+    const delta = round2(charged - expected);
+    if (delta < -0.005) {
+      return {
+        priceAdjust: 'discount',
+        unitDiscount: round2(-delta),
+        unitHike: 0,
+        listRate: expected,
+        adjustQty: units,
+      };
+    }
+    if (delta > 0.005) {
+      return {
+        priceAdjust: 'hike',
+        unitDiscount: 0,
+        unitHike: delta,
+        listRate: expected,
+        adjustQty: units,
+      };
+    }
+  }
+  return {
+    priceAdjust: null,
+    unitDiscount: 0,
+    unitHike: 0,
+    listRate: expected || charged,
+    adjustQty: units,
+  };
+}
+
+export function applyIncentiveLineRateOverride(
+  line: IncentiveInvoiceLine,
+  override: IncentiveLineRateOverride | undefined,
+): IncentiveInvoiceLine {
+  if (!override) return { ...line, rateOverride: null };
+  return {
+    ...line,
+    ...lineAdjustFromApplicableRate(line.rate, override.applicableRate, line.qty),
+    rateOverride: override,
+  };
+}
+
+export function applyIncentiveLineRateOverridesToLines(
+  lines: IncentiveInvoiceLine[],
+  invoiceId: string,
+  overrides: IncentiveLineRateOverride[],
+): IncentiveInvoiceLine[] {
+  if (!overrides.length) {
+    return lines.map(line => (line.rateOverride ? { ...line, rateOverride: null } : line));
+  }
+  const byKey = new Map<string, IncentiveLineRateOverride>();
+  for (const item of overrides) {
+    if (item.invoiceId === invoiceId) byKey.set(item.lineKey, item);
+  }
+  if (!byKey.size) {
+    return lines.map(line => (line.rateOverride ? { ...line, rateOverride: null } : line));
+  }
+  return lines.map((line, index) => (
+    applyIncentiveLineRateOverride(line, byKey.get(incentiveLineKey(line, index)))
+  ));
+}
+
+export function applyIncentiveRateOverrideDeltas(
+  row: IncentiveInvoiceRow,
+  overrides: IncentiveLineRateOverride[],
+): IncentiveInvoiceRow {
+  const list = overrides.filter(item => item.invoiceId === row.id);
+  if (!list.length) return row;
+  let hikeAmount = row.hikeAmount;
+  let discountAmount = row.discountAmount;
+  for (const item of list) {
+    hikeAmount = round2(hikeAmount - item.oldHikeAmount + item.hikeAmount);
+    discountAmount = round2(discountAmount - item.oldDiscountAmount + item.discountAmount);
+  }
+  hikeAmount = Math.max(0, hikeAmount);
+  discountAmount = Math.max(0, discountAmount);
+  return withRateCardIncentive({
+    ...row,
+    hikeAmount,
+    discountAmount,
+    priceAdjust: priceAdjustFromAmounts(discountAmount, hikeAmount),
+  });
+}
+
+export function incentiveLineRateOverridePending(
+  override: Pick<IncentiveLineRateOverride, 'verifiedAt'>,
+): boolean {
+  return !override.verifiedAt;
+}
+
+export function invoiceIncentiveRateOverrideKind(
+  invoiceId: string,
+  overrides: IncentiveLineRateOverride[],
+): 'pending' | 'verified' | null {
+  const list = overrides.filter(item => item.invoiceId === invoiceId);
+  if (!list.length) return null;
+  return list.some(incentiveLineRateOverridePending) ? 'pending' : 'verified';
+}
+
+export async function listIncentiveLineRateOverrides(
+  yearMonth: string,
+): Promise<IncentiveLineRateOverride[]> {
+  const month = yearMonth.trim();
+  if (!month) return [];
+  const snap = await getDocs(query(
+    collection(db, 'incentiveLineRateOverrides'),
+    where('month', '==', month),
+  ));
+  return snap.docs.flatMap(row => {
+    const mapped = mapIncentiveLineRateOverride(row.id, row.data() as Record<string, unknown>, month);
+    return mapped ? [mapped] : [];
+  });
+}
+
+export async function setIncentiveLineRateOverride(input: {
+  invoiceId: string;
+  month: string;
+  lineKey: string;
+  lineName: string;
+  billedRate: number;
+  applicableRate: number;
+  systemListRate: number;
+  qty: number;
+  oldHikeAmount: number;
+  oldDiscountAmount: number;
+  uid?: string | null;
+  name?: string | null;
+  markVerified?: boolean;
+  previous?: IncentiveLineRateOverride | null;
+}): Promise<IncentiveLineRateOverride> {
+  const invoiceId = input.invoiceId.trim();
+  const month = input.month.trim();
+  const lineKey = input.lineKey.trim();
+  const applicableRate = round2(input.applicableRate);
+  if (!invoiceId || !month || !lineKey || applicableRate <= 0) {
+    throw new Error('Applicable rate is required.');
+  }
+  const id = incentiveLineRateOverrideDocId(invoiceId, lineKey);
+  const now = new Date().toISOString();
+  const amounts = incentiveAmountsFromApplicableRate(input.billedRate, applicableRate, input.qty);
+  const actorUid = input.uid || null;
+  const actorName = (input.name || '').trim() || null;
+  const previousEdits = input.previous?.edits ?? [];
+  const edits = [
+    ...previousEdits,
+    { at: now, byUid: actorUid, byName: actorName, applicableRate },
+  ].slice(-20);
+  const verified = Boolean(input.markVerified);
+  const override: IncentiveLineRateOverride = {
+    id,
+    invoiceId,
+    month,
+    lineKey,
+    lineName: input.lineName.trim(),
+    billedRate: round2(input.billedRate),
+    applicableRate,
+    systemListRate: round2(Math.max(0, input.systemListRate)),
+    qty: Math.max(0, round2(input.qty)),
+    oldHikeAmount: round2(Math.max(0, input.oldHikeAmount)),
+    oldDiscountAmount: round2(Math.max(0, input.oldDiscountAmount)),
+    hikeAmount: amounts.hikeAmount,
+    discountAmount: amounts.discountAmount,
+    updatedByUid: actorUid,
+    updatedByName: actorName,
+    updatedAt: now,
+    verifiedByUid: verified ? actorUid : null,
+    verifiedByName: verified ? actorName : null,
+    verifiedAt: verified ? now : null,
+    edits,
+  };
+  await setDoc(doc(db, 'incentiveLineRateOverrides', id), {
+    ...override,
+    savedAt: serverTimestamp(),
+  });
+  return override;
+}
+
+export async function verifyIncentiveLineRateOverride(input: {
+  override: IncentiveLineRateOverride;
+  uid?: string | null;
+  name?: string | null;
+}): Promise<IncentiveLineRateOverride> {
+  const now = new Date().toISOString();
+  const actorUid = input.uid || null;
+  const actorName = (input.name || '').trim() || null;
+  const override: IncentiveLineRateOverride = {
+    ...input.override,
+    verifiedByUid: actorUid,
+    verifiedByName: actorName,
+    verifiedAt: now,
+  };
+  await setDoc(doc(db, 'incentiveLineRateOverrides', override.id), {
+    ...override,
+    savedAt: serverTimestamp(),
+  });
+  return override;
+}
+
+export async function clearIncentiveLineRateOverride(
+  invoiceId: string,
+  lineKey: string,
+): Promise<void> {
+  const id = incentiveLineRateOverrideDocId(invoiceId.trim(), lineKey.trim());
+  await deleteDoc(doc(db, 'incentiveLineRateOverrides', id));
 }
 
 export async function listIncentiveStaffTargets(

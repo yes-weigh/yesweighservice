@@ -8,41 +8,50 @@ import {
   INCENTIVE_MONTH_START,
   INCENTIVE_RATE,
   applyIncentiveExclusions,
+  applyIncentiveLineRateOverridesToLines,
+  applyIncentiveRateOverrideDeltas,
   canBrowseAllIncentiveKams,
   incentiveKamsForUser,
   incentiveReportSalespersonIds,
   applyLineAdjustsToRow,
   clearIncentiveLineExcluded,
+  clearIncentiveLineRateOverride,
   fetchIncentiveInvoiceLines,
   incentiveExcludedAdjustTotals,
   incentiveForRow,
   incentiveLineAdjustAmounts,
   incentiveLineHasAdjust,
   incentiveLineKey,
+  incentiveLineRateOverridePending,
   incentiveOnSurplus,
+  invoiceIncentiveRateOverrideKind,
   incentiveRowNote,
   incentiveRowTone,
   incentiveSurplus,
   listIncentiveInvoices,
   listIncentiveLineExclusions,
+  listIncentiveLineRateOverrides,
   listIncentiveStaffTargets,
   parseIncentiveTargetInput,
   persistIncentiveSnapshots,
   rateCardSalesForRow,
   setIncentiveLineExcluded,
+  setIncentiveLineRateOverride,
   setIncentiveStaffTarget,
+  verifyIncentiveLineRateOverride,
   withRateCardIncentive,
   type IncentiveInvoiceLine,
   type IncentiveInvoiceRow,
   type IncentiveKamId,
   type IncentiveLineExclusion,
+  type IncentiveLineRateOverride,
 } from '../../../lib/incentiveReports';
 import { canSuperAdminWrite } from '../../../lib/staffAccess';
 import { hydrateTableCache, peekTableCache, setTableCache } from '../../../lib/tableDisplayCache';
 
 const PAGE_SIZE = 25;
 
-type AdjustFilter = '' | 'upsales' | 'down';
+type AdjustFilter = '' | 'upsales' | 'down' | 'updates';
 
 function currentYearMonth(): string {
   const now = new Date();
@@ -120,6 +129,35 @@ function mergeIncentiveExclusions(
   return [...byKey.values()];
 }
 
+function mergeIncentiveRateOverrides(
+  local: IncentiveLineRateOverride[],
+  remote: IncentiveLineRateOverride[],
+): IncentiveLineRateOverride[] {
+  const byKey = new Map<string, IncentiveLineRateOverride>();
+  for (const item of [...remote, ...local]) {
+    byKey.set(`${item.invoiceId}|${item.lineKey}`, item);
+  }
+  return [...byKey.values()];
+}
+
+function formatOverrideWhen(iso: string | null | undefined): string {
+  if (!iso) return '';
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) return '';
+  return date.toLocaleDateString('en-GB', { day: 'numeric', month: 'short' });
+}
+
+function lineDraftKey(invoiceId: string, lineKey: string): string {
+  return `${invoiceId}|${lineKey}`;
+}
+
+function defaultApplicableDraft(line: IncentiveInvoiceLine): string {
+  const override = line.rateOverride;
+  const rate = override?.applicableRate
+    || (line.listRate > 0 ? line.listRate : line.rate);
+  return rate > 0 ? String(rate) : '';
+}
+
 function csvEscape(value: string): string {
   if (/[",\n]/.test(value)) return `"${value.replace(/"/g, '""')}"`;
   return value;
@@ -177,6 +215,8 @@ function exportIncentiveCsv(
 export const IncentiveReportTab: React.FC = () => {
   const { user } = useAuth();
   const canExcludeLines = canSuperAdminWrite(user);
+  const canEditRates = canSuperAdminWrite(user) || user?.role === 'staff';
+  const canVerifyRates = canSuperAdminWrite(user);
   const browseAllKams = canBrowseAllIncentiveKams(user);
   const allowedKams = useMemo(
     () => (browseAllKams ? INCENTIVE_KAMS : incentiveKamsForUser(user)),
@@ -212,6 +252,9 @@ export const IncentiveReportTab: React.FC = () => {
   const [linesLoadingId, setLinesLoadingId] = useState<string | null>(null);
   const [exclusions, setExclusions] = useState<IncentiveLineExclusion[]>([]);
   const [exclusionBusyKey, setExclusionBusyKey] = useState<string | null>(null);
+  const [overrides, setOverrides] = useState<IncentiveLineRateOverride[]>([]);
+  const [rateDrafts, setRateDrafts] = useState<Record<string, string>>({});
+  const [rateBusyKey, setRateBusyKey] = useState<string | null>(null);
   const [targetsByKam, setTargetsByKam] = useState<Partial<Record<IncentiveKamId, number>>>({});
   const [targetDraft, setTargetDraft] = useState('');
   const [targetFocused, setTargetFocused] = useState(false);
@@ -236,11 +279,16 @@ export const IncentiveReportTab: React.FC = () => {
     }
     setError('');
     const exclusionKey = `incentive-excl:${yearMonth}:${scopeKey}`;
+    const overrideKey = `incentive-rate:${yearMonth}:${scopeKey}`;
     const targetKey = `incentive-target:${yearMonth}:${scopeKey}`;
     const localExclusions = peekTableCache<IncentiveLineExclusion[]>(exclusionKey)
       ?? await hydrateTableCache<IncentiveLineExclusion[]>(exclusionKey)
       ?? [];
     if (localExclusions.length) setExclusions(localExclusions);
+    const localOverrides = peekTableCache<IncentiveLineRateOverride[]>(overrideKey)
+      ?? await hydrateTableCache<IncentiveLineRateOverride[]>(overrideKey)
+      ?? [];
+    if (localOverrides.length) setOverrides(localOverrides);
     const cachedTargets = peekTableCache<Partial<Record<IncentiveKamId, number>>>(targetKey)
       ?? await hydrateTableCache<Partial<Record<IncentiveKamId, number>>>(targetKey)
       ?? {};
@@ -253,12 +301,14 @@ export const IncentiveReportTab: React.FC = () => {
       setTargetsByKam(scopedTargets);
     }
     try {
-      const [result, monthExclusions, monthTargets] = await Promise.all([
+      const [result, monthExclusions, monthOverrides, monthTargets] = await Promise.all([
         listIncentiveInvoices(yearMonth, salespersonIds),
         listIncentiveLineExclusions(yearMonth).catch(() => [] as IncentiveLineExclusion[]),
+        listIncentiveLineRateOverrides(yearMonth).catch(() => [] as IncentiveLineRateOverride[]),
         listIncentiveStaffTargets(yearMonth).catch(() => []),
       ]);
       const merged = mergeIncentiveExclusions(localExclusions, monthExclusions);
+      const mergedOverrides = mergeIncentiveRateOverrides(localOverrides, monthOverrides);
       const nextTargets: Partial<Record<IncentiveKamId, number>> = {};
       for (const item of monthTargets) {
         if (browseAllKams || allowedKamIds.has(item.kamId)) nextTargets[item.kamId] = item.target;
@@ -267,9 +317,11 @@ export const IncentiveReportTab: React.FC = () => {
       setRows(scopedRows);
       setTruncated(result.truncated);
       setExclusions(merged);
+      setOverrides(mergedOverrides);
       setTargetsByKam(nextTargets);
       setTableCache(cacheKey, { rows: scopedRows, truncated: result.truncated });
       setTableCache(exclusionKey, merged);
+      setTableCache(overrideKey, mergedOverrides);
       setTableCache(targetKey, nextTargets);
       void persistIncentiveSnapshots(yearMonth, scopedRows);
     } catch (err) {
@@ -278,6 +330,7 @@ export const IncentiveReportTab: React.FC = () => {
         setRows([]);
         setTruncated(false);
         setExclusions([]);
+        setOverrides([]);
       }
     } finally {
       setLoading(false);
@@ -336,13 +389,21 @@ export const IncentiveReportTab: React.FC = () => {
     };
   }, [expandedId, rows, linesByInvoice, month, truncated, scopeKey]);
 
+  const adjustedLinesByInvoice = useMemo(() => {
+    const next: Record<string, IncentiveInvoiceLine[]> = {};
+    for (const [invoiceId, lines] of Object.entries(linesByInvoice)) {
+      next[invoiceId] = applyIncentiveLineRateOverridesToLines(lines, invoiceId, overrides);
+    }
+    return next;
+  }, [linesByInvoice, overrides]);
+
   const rowsWithLineAdjust = useMemo(() => (
     rows.map(row => {
-      const lines = linesByInvoice[row.id];
-      if (!lines?.length) return row;
-      return applyLineAdjustsToRow(row, lines);
+      const lines = adjustedLinesByInvoice[row.id];
+      if (lines?.length) return applyLineAdjustsToRow(row, lines);
+      return applyIncentiveRateOverrideDeltas(row, overrides);
     })
-  ), [rows, linesByInvoice]);
+  ), [adjustedLinesByInvoice, overrides, rows]);
 
   const displayRows = useMemo(
     () => applyIncentiveExclusions(rowsWithLineAdjust, exclusions),
@@ -362,11 +423,26 @@ export const IncentiveReportTab: React.FC = () => {
     [displayRows, kam],
   );
 
+  const kamOverrideInvoiceIds = useMemo(() => {
+    const ids = new Set(kamRows.map(row => row.id));
+    return new Set(overrides.filter(item => ids.has(item.invoiceId)).map(item => item.invoiceId));
+  }, [kamRows, overrides]);
+
+  const pendingOverrideCount = useMemo(() => {
+    const ids = kamOverrideInvoiceIds;
+    return overrides.filter(item => (
+      ids.has(item.invoiceId) && incentiveLineRateOverridePending(item)
+    )).length;
+  }, [kamOverrideInvoiceIds, overrides]);
+
   const listed = useMemo(() => {
     if (adjustFilter === 'upsales') return kamRows.filter(row => row.hikeAmount > 0);
     if (adjustFilter === 'down') return kamRows.filter(row => row.discountAmount > 0);
+    if (adjustFilter === 'updates') {
+      return kamRows.filter(row => kamOverrideInvoiceIds.has(row.id));
+    }
     return kamRows;
-  }, [kamRows, adjustFilter]);
+  }, [adjustFilter, kamOverrideInvoiceIds, kamRows]);
 
   const totalPages = Math.max(1, Math.ceil(listed.length / PAGE_SIZE));
   const pageRows = useMemo(() => {
@@ -517,6 +593,130 @@ export const IncentiveReportTab: React.FC = () => {
       setExclusionBusyKey(current => (current === busyKey ? null : current));
     }
   }, [canExcludeLines, excludedKeys, exclusionBusyKey, exclusions, month, user?.uid, scopeKey]);
+
+  const saveLineApplicableRate = useCallback(async (
+    row: IncentiveInvoiceRow,
+    index: number,
+  ) => {
+    if (!canEditRates) return;
+    const rawLine = linesByInvoice[row.id]?.[index];
+    if (!rawLine) return;
+    const lineKey = incentiveLineKey(rawLine, index);
+    const busyKey = lineDraftKey(row.id, lineKey);
+    if (rateBusyKey) return;
+    const previous = overrides.find(item => item.invoiceId === row.id && item.lineKey === lineKey) ?? null;
+    const applicableRate = parseIncentiveTargetInput(
+      rateDrafts[busyKey] ?? defaultApplicableDraft({ ...rawLine, rateOverride: previous }),
+    );
+    if (applicableRate <= 0) {
+      setError('Enter an applicable rate greater than zero.');
+      return;
+    }
+    const oldAmounts = previous
+      ? { hikeAmount: previous.oldHikeAmount, discountAmount: previous.oldDiscountAmount }
+      : incentiveLineAdjustAmounts(rawLine, row);
+    const systemListRate = previous?.systemListRate
+      || (rawLine.listRate > 0 ? rawLine.listRate : rawLine.rate);
+    setRateBusyKey(busyKey);
+    setError('');
+    try {
+      const saved = await setIncentiveLineRateOverride({
+        invoiceId: row.id,
+        month,
+        lineKey,
+        lineName: rawLine.name,
+        billedRate: rawLine.rate,
+        applicableRate,
+        systemListRate,
+        qty: rawLine.qty,
+        oldHikeAmount: oldAmounts.hikeAmount,
+        oldDiscountAmount: oldAmounts.discountAmount,
+        uid: user?.uid,
+        name: user?.displayName,
+        markVerified: canVerifyRates,
+        previous,
+      });
+      const next = [
+        ...overrides.filter(item => !(item.invoiceId === row.id && item.lineKey === lineKey)),
+        saved,
+      ];
+      setOverrides(next);
+      setTableCache(`incentive-rate:${month}:${scopeKey}`, next);
+      setRateDrafts(current => ({ ...current, [busyKey]: String(saved.applicableRate) }));
+    } catch {
+      setError('Could not save applicable rate. Used only for incentive — the invoice is unchanged.');
+    } finally {
+      setRateBusyKey(current => (current === busyKey ? null : current));
+    }
+  }, [
+    canEditRates,
+    canVerifyRates,
+    linesByInvoice,
+    month,
+    overrides,
+    rateBusyKey,
+    rateDrafts,
+    scopeKey,
+    user?.displayName,
+    user?.uid,
+  ]);
+
+  const verifyLineApplicableRate = useCallback(async (
+    row: IncentiveInvoiceRow,
+    lineKey: string,
+  ) => {
+    if (!canVerifyRates) return;
+    const previous = overrides.find(item => item.invoiceId === row.id && item.lineKey === lineKey);
+    if (!previous || !incentiveLineRateOverridePending(previous)) return;
+    const busyKey = lineDraftKey(row.id, lineKey);
+    if (rateBusyKey) return;
+    setRateBusyKey(busyKey);
+    setError('');
+    try {
+      const saved = await verifyIncentiveLineRateOverride({
+        override: previous,
+        uid: user?.uid,
+        name: user?.displayName,
+      });
+      const next = overrides.map(item => (item.id === saved.id ? saved : item));
+      setOverrides(next);
+      setTableCache(`incentive-rate:${month}:${scopeKey}`, next);
+    } catch {
+      setError('Could not verify this rate update.');
+    } finally {
+      setRateBusyKey(current => (current === busyKey ? null : current));
+    }
+  }, [canVerifyRates, month, overrides, rateBusyKey, scopeKey, user?.displayName, user?.uid]);
+
+  const clearLineApplicableRate = useCallback(async (
+    row: IncentiveInvoiceRow,
+    lineKey: string,
+  ) => {
+    if (!canEditRates) return;
+    const busyKey = lineDraftKey(row.id, lineKey);
+    if (rateBusyKey) return;
+    const previous = overrides.find(item => item.invoiceId === row.id && item.lineKey === lineKey);
+    if (!previous) return;
+    setRateBusyKey(busyKey);
+    setError('');
+    const next = overrides.filter(item => item.id !== previous.id);
+    setOverrides(next);
+    setTableCache(`incentive-rate:${month}:${scopeKey}`, next);
+    try {
+      await clearIncentiveLineRateOverride(row.id, lineKey);
+      setRateDrafts(current => {
+        const copy = { ...current };
+        delete copy[busyKey];
+        return copy;
+      });
+    } catch {
+      setOverrides(overrides);
+      setTableCache(`incentive-rate:${month}:${scopeKey}`, overrides);
+      setError('Could not clear this rate update.');
+    } finally {
+      setRateBusyKey(current => (current === busyKey ? null : current));
+    }
+  }, [canEditRates, month, overrides, rateBusyKey, scopeKey]);
 
   return (
     <section className="gatc-report incentive-report">
@@ -694,6 +894,17 @@ export const IncentiveReportTab: React.FC = () => {
               ) : allowedKams.length === 1 ? (
                 <span className="gatc-report__kam gatc-report__kam--locked">{kamLabel}</span>
               ) : null}
+              {kamOverrideInvoiceIds.size > 0 ? (
+                <button
+                  type="button"
+                  className={`incentive-report__updates-filter${adjustFilter === 'updates' ? ' is-active' : ''}${pendingOverrideCount > 0 ? ' is-pending' : ''}`}
+                  aria-pressed={adjustFilter === 'updates'}
+                  onClick={() => setAdjustFilter(current => (current === 'updates' ? '' : 'updates'))}
+                >
+                  Updates
+                  <strong>{pendingOverrideCount > 0 ? pendingOverrideCount : kamOverrideInvoiceIds.size}</strong>
+                </button>
+              ) : null}
             </div>
             <button
               type="button"
@@ -716,6 +927,8 @@ export const IncentiveReportTab: React.FC = () => {
                   ? 'No invoices this month'
                   : adjustFilter === 'upsales'
                     ? 'No upsales this month'
+                    : adjustFilter === 'updates'
+                      ? 'No staff rate updates this month'
                     : 'No down sales this month'}
               </strong>
               <p>
@@ -731,7 +944,8 @@ export const IncentiveReportTab: React.FC = () => {
               <div className="gatc-report__list" aria-label="Incentive invoices">
                 {pageRows.map(row => {
                   const open = expandedId === row.id;
-                  const lines = linesByInvoice[row.id];
+                  const rawLines = linesByInvoice[row.id];
+                  const lines = adjustedLinesByInvoice[row.id];
                   const subtotal = (lines ?? []).reduce((sum, line) => sum + line.total, 0);
                   const lineHikeTotal = (lines ?? []).reduce((sum, line) => (
                     line.priceAdjust === 'hike'
@@ -745,10 +959,16 @@ export const IncentiveReportTab: React.FC = () => {
                   ), 0);
                   const tone = incentiveRowTone(row);
                   const note = incentiveRowNote(row);
+                  const overrideKind = invoiceIncentiveRateOverrideKind(row.id, overrides);
                   return (
                     <article
                       key={row.id}
-                      className={`gatc-report__row${open ? ' is-open' : ''}`}
+                      className={[
+                        'gatc-report__row',
+                        open ? 'is-open' : '',
+                        overrideKind === 'pending' ? 'is-rate-pending' : '',
+                        overrideKind === 'verified' ? 'is-rate-verified' : '',
+                      ].filter(Boolean).join(' ')}
                     >
                       <button
                         type="button"
@@ -763,6 +983,11 @@ export const IncentiveReportTab: React.FC = () => {
                           <span className="gatc-report__row-inv">
                             {row.invoiceNumber}
                             <em>{formatInvoiceDate(row.date)}</em>
+                            {overrideKind ? (
+                              <span className={`incentive-report__row-flag is-${overrideKind}`}>
+                                {overrideKind === 'pending' ? 'Staff update' : 'Verified rate'}
+                              </span>
+                            ) : null}
                           </span>
                           <span className={[
                             'gatc-report__row-amt',
@@ -784,7 +1009,7 @@ export const IncentiveReportTab: React.FC = () => {
                       </button>
                       {open ? (
                         <div className="incentive-report__detail">
-                          {linesLoadingId === row.id && !lines ? (
+                          {linesLoadingId === row.id && !rawLines ? (
                             <p className="incentive-report__detail-empty">Loading items…</p>
                           ) : !lines?.length ? (
                             <p className="incentive-report__detail-empty">No item lines on this invoice.</p>
@@ -796,6 +1021,16 @@ export const IncentiveReportTab: React.FC = () => {
                                 const canToggle = canExcludeLines && incentiveLineHasAdjust(line);
                                 const busy = exclusionBusyKey === `${row.id}|${lineKey}`;
                                 const adjustNote = formatLineAdjustNote(line);
+                                const override = line.rateOverride ?? null;
+                                const pending = Boolean(override && incentiveLineRateOverridePending(override));
+                                const draftKey = lineDraftKey(row.id, lineKey);
+                                const draft = rateDrafts[draftKey] ?? defaultApplicableDraft(line);
+                                const rateBusy = rateBusyKey === draftKey;
+                                const draftRate = parseIncentiveTargetInput(draft);
+                                const dirty = override
+                                  ? Math.abs(draftRate - override.applicableRate) > 0.005
+                                  : Math.abs(draftRate - (line.listRate > 0 ? line.listRate : line.rate)) > 0.005;
+                                const earlier = Math.max(0, (override?.edits.length ?? 0) - 1);
                                 return (
                                 <div
                                   key={lineKey}
@@ -804,6 +1039,8 @@ export const IncentiveReportTab: React.FC = () => {
                                     line.priceAdjust === 'discount' ? 'is-discounted' : '',
                                     line.priceAdjust === 'hike' ? 'is-hiked' : '',
                                     excluded ? 'is-excluded' : '',
+                                    override ? 'is-rate-override' : '',
+                                    pending ? 'is-rate-override-pending' : '',
                                   ].filter(Boolean).join(' ')}
                                 >
                                   <div className="incentive-report__item-main">
@@ -818,8 +1055,16 @@ export const IncentiveReportTab: React.FC = () => {
                                   <div className="incentive-report__item-meta">
                                     <span>{line.sku || '—'}</span>
                                     <span>({formatCurrencyWhole(line.rate)})</span>
-                                    {line.listRate > 0 && Math.abs(line.listRate - line.rate) > 0.005 ? (
+                                    {override ? (
+                                      <span>applicable {formatCurrencyWhole(override.applicableRate)}</span>
+                                    ) : line.listRate > 0 && Math.abs(line.listRate - line.rate) > 0.005 ? (
                                       <span>list {formatCurrencyWhole(line.listRate)}</span>
+                                    ) : null}
+                                    {override && override.systemListRate > 0
+                                      && Math.abs(override.systemListRate - override.applicableRate) > 0.005 ? (
+                                      <span className="incentive-report__was-list">
+                                        was {formatCurrencyWhole(override.systemListRate)}
+                                      </span>
                                     ) : null}
                                     {adjustNote ? (
                                       <span className="incentive-report__item-note">
@@ -840,6 +1085,76 @@ export const IncentiveReportTab: React.FC = () => {
                                       <span className="incentive-report__exclude-flag">Excluded</span>
                                     ) : null}
                                   </div>
+                                  {canEditRates || override ? (
+                                    <div className="incentive-report__item-rate">
+                                      {canEditRates ? (
+                                        <label className="incentive-report__rate-field">
+                                          <span>Applicable</span>
+                                          <input
+                                            className="incentive-report__rate-input"
+                                            inputMode="decimal"
+                                            value={draft}
+                                            disabled={rateBusy}
+                                            aria-label={`Applicable rate for ${line.name}`}
+                                            onChange={e => {
+                                              const value = e.target.value;
+                                              setRateDrafts(current => ({ ...current, [draftKey]: value }));
+                                            }}
+                                            onKeyDown={e => {
+                                              if (e.key === 'Enter') {
+                                                e.preventDefault();
+                                                void saveLineApplicableRate(row, index);
+                                              }
+                                            }}
+                                          />
+                                        </label>
+                                      ) : null}
+                                      {canEditRates && dirty ? (
+                                        <button
+                                          type="button"
+                                          className="incentive-report__rate-save"
+                                          disabled={rateBusy || draftRate <= 0}
+                                          onClick={() => { void saveLineApplicableRate(row, index); }}
+                                        >
+                                          {override ? 'Update' : 'Save'}
+                                        </button>
+                                      ) : null}
+                                      {override ? (
+                                        <span className={`incentive-report__override-flag${pending ? ' is-pending' : ' is-verified'}`}>
+                                          {pending ? 'Staff update' : 'Verified'}
+                                          {override.updatedByName ? ` · ${override.updatedByName}` : ''}
+                                          {formatOverrideWhen(override.updatedAt)
+                                            ? ` · ${formatOverrideWhen(override.updatedAt)}`
+                                            : ''}
+                                          {earlier > 0 ? ` · +${earlier} earlier` : ''}
+                                        </span>
+                                      ) : (
+                                        <span className="incentive-report__rate-hint">
+                                          Incentive only
+                                        </span>
+                                      )}
+                                      {canVerifyRates && pending ? (
+                                        <button
+                                          type="button"
+                                          className="incentive-report__rate-verify"
+                                          disabled={rateBusy}
+                                          onClick={() => { void verifyLineApplicableRate(row, lineKey); }}
+                                        >
+                                          Verify
+                                        </button>
+                                      ) : null}
+                                      {canEditRates && override ? (
+                                        <button
+                                          type="button"
+                                          className="incentive-report__rate-clear"
+                                          disabled={rateBusy}
+                                          onClick={() => { void clearLineApplicableRate(row, lineKey); }}
+                                        >
+                                          Clear
+                                        </button>
+                                      ) : null}
+                                    </div>
+                                  ) : null}
                                 </div>
                                 );
                               })}
