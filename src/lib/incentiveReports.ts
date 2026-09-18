@@ -839,10 +839,10 @@ export function directorDealerIdSet(levels: Array<Pick<PriceLevel, 'name' | 'dea
 }
 
 export function incentiveRateForInvoice(
-  kamId: IncentiveKamId | null,
-  dealerIsDirector: boolean,
+  _kamId: IncentiveKamId | null,
+  _dealerIsDirector: boolean,
 ): number {
-  if (kamId === 'shibin' && dealerIsDirector) return INCENTIVE_DIRECTOR_RATE;
+  // All KAMs including spare incharge (Shibin): flat 3.5%. No director 2% slab.
   return INCENTIVE_RATE;
 }
 

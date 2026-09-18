@@ -3,7 +3,6 @@ import { BadgePercent, ChartNoAxesColumnIncreasing, FileText, Upload } from 'luc
 import { useAuth } from '../../../context/AuthContext';
 import { formatCurrencyWhole } from '../../../lib/catalog';
 import {
-  INCENTIVE_DIRECTOR_RATE,
   INCENTIVE_KAMS,
   INCENTIVE_MONTH_START,
   INCENTIVE_RATE,
@@ -482,34 +481,20 @@ export const IncentiveReportTab: React.FC = () => {
     const invoiceCount = kamRows.length;
     const totalSales = kamRows.reduce((sum, row) => sum + row.sales, 0);
     const rateCardSales = kamRows.reduce((sum, row) => sum + rateCardSalesForRow(row), 0);
-    const standardRateCardSales = kamRows.reduce((sum, row) => (
-      row.rate === INCENTIVE_DIRECTOR_RATE
-        ? sum
-        : sum + rateCardSalesForRow(row)
-    ), 0);
-    const directorRateCardSales = kamRows.reduce((sum, row) => (
-      row.rate === INCENTIVE_DIRECTOR_RATE
-        ? sum + rateCardSalesForRow(row)
-        : sum
-    ), 0);
     const target = savedTarget;
     const surplus = incentiveSurplus(rateCardSales, target);
-    const incentiveStandard = incentiveOnSurplus(standardRateCardSales, target, INCENTIVE_RATE);
-    const incentiveDirector = incentiveOnSurplus(
-      directorRateCardSales,
-      0,
-      INCENTIVE_DIRECTOR_RATE,
-    );
-    const rateCardIncentive = kam === 'shibin'
-      ? incentiveStandard + incentiveDirector
-      : incentiveOnSurplus(rateCardSales, target, INCENTIVE_RATE);
+    // Spare incharge (Shibin): 3.5% of rate-card sales only — no 2% / no 30% upsale share.
+    const includeUpsaleShare = kam !== 'shibin';
+    const rateCardIncentive = incentiveOnSurplus(rateCardSales, target, INCENTIVE_RATE);
     const excludedAdjust = incentiveExcludedAdjustTotals(kamSource, exclusions);
     const rawUpsales = kamSource.reduce((sum, row) => sum + row.hikeAmount, 0);
     const rawDownSale = kamSource.reduce((sum, row) => sum + row.discountAmount, 0);
     const upsales = Math.max(0, rawUpsales - excludedAdjust.hikeAmount);
     const downSale = Math.max(0, rawDownSale - excludedAdjust.discountAmount);
     const netAdjust = upsales - downSale;
-    const kamShare = Math.round(netAdjust * INCENTIVE_UPSALE_SHARE_RATE * 100) / 100;
+    const kamShare = includeUpsaleShare
+      ? Math.round(netAdjust * INCENTIVE_UPSALE_SHARE_RATE * 100) / 100
+      : 0;
     const totalIncentive = Math.round((rateCardIncentive + kamShare) * 100) / 100;
     return {
       invoiceCount,
@@ -519,12 +504,11 @@ export const IncentiveReportTab: React.FC = () => {
       surplus,
       rateCardIncentive,
       totalIncentive,
-      incentiveStandard,
-      incentiveDirector,
       upsales,
       downSale,
       netAdjust,
       kamShare,
+      includeUpsaleShare,
     };
   }, [kamRows, kamSource, exclusions, savedTarget, kam]);
 
@@ -796,44 +780,31 @@ export const IncentiveReportTab: React.FC = () => {
                 </strong>
               </div>
             </article>
-            <article className={`incentive-report__kpi incentive-report__kpi--fee${kam === 'shibin' || Math.abs(kpis.kamShare) > 0.005 ? ' is-split' : ''}`}>
+            <article className={`incentive-report__kpi incentive-report__kpi--fee${kpis.includeUpsaleShare && Math.abs(kpis.kamShare) > 0.005 ? ' is-split' : ''}`}>
               <BadgePercent className="incentive-report__kpi-icon" size={18} strokeWidth={2} aria-hidden />
               <div className="incentive-report__kpi-copy">
                 <span className="incentive-report__kpi-label">
-                  Total incentive
+                  {kpis.includeUpsaleShare
+                    ? 'Total incentive'
+                    : `Incentives (${(INCENTIVE_RATE * 100).toFixed(1)}% rate card)`}
                 </span>
-                {kam === 'shibin' || Math.abs(kpis.kamShare) > 0.005 ? (
+                {kpis.includeUpsaleShare && Math.abs(kpis.kamShare) > 0.005 ? (
                   <dl className="incentive-report__kpi-split">
                     <div>
                       <dt>Total</dt>
                       <dd>{formatCurrencyWhole(kpis.totalIncentive)}</dd>
                     </div>
-                    {kam === 'shibin' ? (
-                      <>
-                        <div>
-                          <dt>3.5%</dt>
-                          <dd className="is-standard">{formatCurrencyWhole(kpis.incentiveStandard)}</dd>
-                        </div>
-                        <div>
-                          <dt>2%</dt>
-                          <dd className="is-director">{formatCurrencyWhole(kpis.incentiveDirector)}</dd>
-                        </div>
-                      </>
-                    ) : (
-                      <div>
-                        <dt>Rate card</dt>
-                        <dd className="is-standard">{formatCurrencyWhole(kpis.rateCardIncentive)}</dd>
-                      </div>
-                    )}
-                    {Math.abs(kpis.kamShare) > 0.005 ? (
-                      <div>
-                        <dt>{(INCENTIVE_UPSALE_SHARE_RATE * 100).toFixed(0)}% net</dt>
-                        <dd className={kpis.kamShare < 0 ? 'is-director' : 'is-upsale'}>
-                          {kpis.kamShare < 0 ? '−' : '+'}
-                          {formatCurrencyWhole(Math.abs(kpis.kamShare))}
-                        </dd>
-                      </div>
-                    ) : null}
+                    <div>
+                      <dt>Rate card</dt>
+                      <dd className="is-standard">{formatCurrencyWhole(kpis.rateCardIncentive)}</dd>
+                    </div>
+                    <div>
+                      <dt>{(INCENTIVE_UPSALE_SHARE_RATE * 100).toFixed(0)}% net</dt>
+                      <dd className={kpis.kamShare < 0 ? 'is-director' : 'is-upsale'}>
+                        {kpis.kamShare < 0 ? '−' : '+'}
+                        {formatCurrencyWhole(Math.abs(kpis.kamShare))}
+                      </dd>
+                    </div>
                   </dl>
                 ) : (
                   <strong className="incentive-report__kpi-value">
@@ -885,24 +856,35 @@ export const IncentiveReportTab: React.FC = () => {
               {(INCENTIVE_RATE * 100).toFixed(1)}%
             </span>
             <span className="incentive-report__formula-op" aria-hidden>=</span>
-            <div className={`incentive-report__formula-term is-base${kpis.surplus < 0 ? ' is-short' : ''}`}>
-              <span className="incentive-report__formula-label">
-                {kpis.surplus < 0 ? 'Below target' : 'Rate card'}
-              </span>
-              <strong>{formatCurrencyWhole(kpis.rateCardIncentive)}</strong>
-            </div>
-            <span className="incentive-report__formula-op" aria-hidden>+</span>
-            <div className={`incentive-report__formula-term is-upsale${kpis.kamShare < 0 ? ' is-short' : ''}`}>
-              <span className="incentive-report__formula-label">
-                {(INCENTIVE_UPSALE_SHARE_RATE * 100).toFixed(0)}% net upsale
-              </span>
-              <strong>{formatCurrencyWhole(kpis.kamShare)}</strong>
-            </div>
-            <span className="incentive-report__formula-op" aria-hidden>=</span>
-            <div className={`incentive-report__formula-term is-result${kpis.totalIncentive < 0 ? ' is-short' : ''}`}>
-              <span className="incentive-report__formula-label">Total incentive</span>
-              <strong>{formatCurrencyWhole(kpis.totalIncentive)}</strong>
-            </div>
+            {kpis.includeUpsaleShare ? (
+              <>
+                <div className={`incentive-report__formula-term is-base${kpis.surplus < 0 ? ' is-short' : ''}`}>
+                  <span className="incentive-report__formula-label">
+                    {kpis.surplus < 0 ? 'Below target' : 'Rate card'}
+                  </span>
+                  <strong>{formatCurrencyWhole(kpis.rateCardIncentive)}</strong>
+                </div>
+                <span className="incentive-report__formula-op" aria-hidden>+</span>
+                <div className={`incentive-report__formula-term is-upsale${kpis.kamShare < 0 ? ' is-short' : ''}`}>
+                  <span className="incentive-report__formula-label">
+                    {(INCENTIVE_UPSALE_SHARE_RATE * 100).toFixed(0)}% net upsale
+                  </span>
+                  <strong>{formatCurrencyWhole(kpis.kamShare)}</strong>
+                </div>
+                <span className="incentive-report__formula-op" aria-hidden>=</span>
+                <div className={`incentive-report__formula-term is-result${kpis.totalIncentive < 0 ? ' is-short' : ''}`}>
+                  <span className="incentive-report__formula-label">Total incentive</span>
+                  <strong>{formatCurrencyWhole(kpis.totalIncentive)}</strong>
+                </div>
+              </>
+            ) : (
+              <div className={`incentive-report__formula-term is-result${kpis.surplus < 0 ? ' is-short' : ''}`}>
+                <span className="incentive-report__formula-label">
+                  {kpis.surplus < 0 ? 'Below target' : 'Incentive'}
+                </span>
+                <strong>{formatCurrencyWhole(kpis.totalIncentive)}</strong>
+              </div>
+            )}
           </div>
 
           <div className="incentive-report__adjust" aria-label="Upsales and down sale">
@@ -928,15 +910,26 @@ export const IncentiveReportTab: React.FC = () => {
                 {formatCurrencyWhole(kpis.downSale)}
               </strong>
             </button>
-            <div className="incentive-report__adjust-col is-net">
-              <strong className="incentive-report__adjust-value">
-                {formatCurrencyWhole(kpis.kamShare)}
-              </strong>
-              <span className="incentive-report__adjust-kam">
-                {(INCENTIVE_UPSALE_SHARE_RATE * 100).toFixed(0)}% of{' '}
-                {formatCurrencyWhole(kpis.netAdjust)} · in total
-              </span>
-            </div>
+            {kpis.includeUpsaleShare ? (
+              <div className="incentive-report__adjust-col is-net">
+                <strong className="incentive-report__adjust-value">
+                  {formatCurrencyWhole(kpis.kamShare)}
+                </strong>
+                <span className="incentive-report__adjust-kam">
+                  {(INCENTIVE_UPSALE_SHARE_RATE * 100).toFixed(0)}% of{' '}
+                  {formatCurrencyWhole(kpis.netAdjust)} · in total
+                </span>
+              </div>
+            ) : (
+              <div className="incentive-report__adjust-col is-net">
+                <strong className="incentive-report__adjust-value">
+                  {formatCurrencyWhole(kpis.netAdjust)}
+                </strong>
+                <span className="incentive-report__adjust-kam">
+                  Info only · not in incentive
+                </span>
+              </div>
+            )}
           </div>
 
           <div className="gatc-report__filters">
