@@ -51,6 +51,8 @@ import type { PriceLevel } from '../types/priceLevels';
 
 export const INCENTIVE_RATE = 0.035;
 export const INCENTIVE_DIRECTOR_RATE = 0.02;
+/** Staff share of net upsale / down-sale adjust, added on top of rate-card incentive. */
+export const INCENTIVE_UPSALE_SHARE_RATE = 0.3;
 export const INCENTIVE_MONTH_START = '2026-04';
 
 export type IncentiveKamId =
