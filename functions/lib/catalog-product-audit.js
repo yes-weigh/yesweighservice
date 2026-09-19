@@ -740,10 +740,29 @@ export async function recordCatalogProductAudit(
   const trigger = options.trigger ?? 'manual';
   const editor = options.editor ?? {};
 
-  const accessToken = await getAccessToken(secrets);
-  const organizationId = await resolveOrganizationId(accessToken, configuredOrgId);
-  const zohoDetail = await fetchProductDetail(accessToken, organizationId, id);
-  const liveZohoQty = Number(zohoDetail.stock ?? 0);
+  const db = getFirestore();
+  const productRef = db.collection(PRODUCTS_COLLECTION).doc(id);
+  const productSnap = await productRef.get();
+  const existingSnapshot = productSnap.exists
+    ? (productSnap.data()?.auditSnapshot ?? null)
+    : null;
+  const cachedZohoQty = Number(productSnap.exists ? (productSnap.data()?.stock ?? 0) : 0);
+
+  // Physical counts must not depend on a live Zoho item GET. Zoho often
+  // answers "You are not authorized to perform this operation" even when
+  // locations already saved in Firestore.
+  let liveZohoQty = cachedZohoQty;
+  try {
+    const accessToken = await getAccessToken(secrets);
+    const organizationId = await resolveOrganizationId(accessToken, configuredOrgId);
+    const zohoDetail = await fetchProductDetail(accessToken, organizationId, id);
+    liveZohoQty = Number(zohoDetail.stock ?? 0);
+  } catch (err) {
+    console.warn(
+      'recordCatalogProductAudit: Zoho stock fetch failed, using cached catalog stock:',
+      err?.message ?? err,
+    );
+  }
 
   const [items, cochinData] = await Promise.all([
     listYesStoreItemsByCatalogProduct(id),
@@ -764,9 +783,6 @@ export async function recordCatalogProductAudit(
       : (sourceGoodsReceiptId && incomingZohoQty > 0 ? incomingZohoQty : null));
   const inboundAlreadyInZoho = options.inboundAlreadyInZoho === true;
   const auditedAt = resolveAuditedAt(options.auditedAt, options.allowBackdate === true);
-
-  const db = getFirestore();
-  const productRef = db.collection(PRODUCTS_COLLECTION).doc(id);
 
   let resolvedCycleId = options.auditCycleId
     ? String(options.auditCycleId).trim() || null
@@ -795,11 +811,6 @@ export async function recordCatalogProductAudit(
     }
     resolvedCycleId = openCycleId;
   }
-
-  const productSnap = await productRef.get();
-  const existingSnapshot = productSnap.exists
-    ? (productSnap.data()?.auditSnapshot ?? null)
-    : null;
 
   const existingSourceDocs = sourceGoodsReceiptId
     ? await findLogsForGoodsReceipt(productRef, sourceGoodsReceiptId)

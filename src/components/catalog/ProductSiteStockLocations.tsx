@@ -28,7 +28,7 @@ import {
   saveCatalogSiteInventory,
 } from '../../lib/catalogSiteInventory/data';
 import { getOpenAuditCycle } from '../../lib/auditCycles/data';
-import { recordCatalogProductAudit } from '../../lib/catalogProductAudit/data';
+import { recordCatalogProductAuditAfterCount } from '../../lib/catalogProductAudit/data';
 import type { AuditCycleDoc } from '../../types/audit-cycle';
 import type { CatalogProduct, CatalogProductDetail } from '../../types/catalog';
 import {
@@ -466,9 +466,14 @@ function HeadOfficeLocationSection({
       }
 
       const nextItems = await listItemsByCatalogProduct(product.id);
-      await recordCatalogProductAudit(product.id, 'warehouse_count', openCycle.id);
+      const { warning } = await recordCatalogProductAuditAfterCount(
+        product.id,
+        'warehouse_count',
+        openCycle.id,
+      );
       onSaved(nextItems);
       setEditing(false);
+      if (warning) setError(warning);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Could not save store room stock.');
     } finally {
@@ -507,10 +512,15 @@ function HeadOfficeLocationSection({
         updatedByUid: editorUid,
         updatedByName: editorName,
       });
-      await recordCatalogProductAudit(product.id, 'warehouse_count', openCycle.id);
+      const { warning } = await recordCatalogProductAuditAfterCount(
+        product.id,
+        'warehouse_count',
+        openCycle.id,
+      );
       onSaved([]);
       onZeroStockSaved(saved);
       setEditing(false);
+      if (warning) setError(warning);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Could not mark as no stock.');
     } finally {
@@ -885,9 +895,14 @@ function CochinLocationSection({
         updatedByUid: editorUid,
         updatedByName: editorName,
       });
-      await recordCatalogProductAudit(product.id, 'cochin_inventory', openCycle.id);
+      const { warning } = await recordCatalogProductAuditAfterCount(
+        product.id,
+        'cochin_inventory',
+        openCycle.id,
+      );
       onSaved(saved);
       setEditing(false);
+      if (warning) setError(warning);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Could not save Cochin stock.');
     } finally {
@@ -923,9 +938,14 @@ function CochinLocationSection({
         updatedByUid: editorUid,
         updatedByName: editorName,
       });
-      await recordCatalogProductAudit(product.id, 'cochin_inventory', openCycle.id);
+      const { warning } = await recordCatalogProductAuditAfterCount(
+        product.id,
+        'cochin_inventory',
+        openCycle.id,
+      );
       onSaved(saved);
       setEditing(false);
+      if (warning) setError(warning);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Could not mark as no stock.');
     } finally {

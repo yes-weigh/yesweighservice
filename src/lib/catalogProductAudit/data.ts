@@ -124,6 +124,29 @@ export async function recordCatalogProductAudit(
   return result.data;
 }
 
+/** After locations are already written — never fail the count if Zoho is down. */
+export async function recordCatalogProductAuditAfterCount(
+  catalogProductId: string,
+  trigger: CatalogProductAuditTrigger,
+  auditCycleId?: string | null,
+  options?: RecordCatalogProductAuditOptions,
+): Promise<{ warning: string | null }> {
+  try {
+    await recordCatalogProductAudit(catalogProductId, trigger, auditCycleId, options);
+    return { warning: null };
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err ?? '');
+    if (/not authorized|access denied|rate limit|quota|too many requests|blocked for some time/i.test(message)) {
+      return {
+        warning: 'Locations saved. Audited stock used the last known Zoho quantity because Zoho is unavailable.',
+      };
+    }
+    return {
+      warning: message.trim() || 'Locations saved. Could not refresh audited stock.',
+    };
+  }
+}
+
 /** Record a product audit after a linked yesStore bin count changes. */
 export async function recordCatalogProductAuditForYesStoreItem(
   itemId: string,
