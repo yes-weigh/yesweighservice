@@ -16,7 +16,7 @@ export const DEFAULT_DEALER_PRICE_LEVEL_NAME = 'Dealers';
  * Each SKU still uses its own slab ₹ rates; clubbed qty picks the tier.
  * Mirror of src/lib/priceLevels.ts — keep in sync.
  */
-export const DIRECTORS_QTY_CLUB_SKUS = ['Q9LBL', 'Q10LBL', 'ECS5W', 'ECS4W'];
+export const DIRECTORS_QTY_CLUB_SKUS = ['Q9LBL', 'ECS5W'];
 
 const DIRECTORS_QTY_CLUB_SKU_SET = new Set(
   DIRECTORS_QTY_CLUB_SKUS.map(sku => String(sku).toUpperCase()),

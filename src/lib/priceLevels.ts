@@ -31,7 +31,7 @@ export {
  * Directors level: these SKUs share quantity for slab-tier selection.
  * Each SKU still uses its own slab ₹ rates; clubbed qty picks the tier.
  */
-export const DIRECTORS_QTY_CLUB_SKUS = ['Q9LBL', 'Q10LBL', 'ECS5W', 'ECS4W'] as const;
+export const DIRECTORS_QTY_CLUB_SKUS = ['Q9LBL', 'ECS5W'] as const;
 
 const DIRECTORS_QTY_CLUB_SKU_SET = new Set(
   DIRECTORS_QTY_CLUB_SKUS.map(sku => sku.toUpperCase()),
