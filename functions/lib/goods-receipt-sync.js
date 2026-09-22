@@ -25,6 +25,7 @@ import {
 import { extractWebhookEvent } from './invoice-sync.js';
 import { ackZohoWebhookFailure, ackIfDailyQuotaBlocked } from './zoho-webhook-guard.js';
 import { applyPurchaseOrderSerialsOnGoodsReceipt } from './purchase-order-serials.js';
+import { KNOWN_ZOHO_WAREHOUSE_IDS } from './zoho-locations.js';
 
 const COLLECTION = 'goodsReceipts';
 const META_DOC = 'goodsReceiptMeta/orgSync';
@@ -163,10 +164,25 @@ async function fetchBillsListPage(accessToken, orgId, page, options = {}) {
   url.searchParams.set('organization_id', orgId);
   url.searchParams.set('page', String(page));
   url.searchParams.set('per_page', '200');
-  // Nightly/org pull only discovers drafts. Open/paid bills stay if already mirrored.
-  url.searchParams.set('status', options.status ?? 'draft');
+  if (!options.unfiltered) {
+    // Nightly/org pull only discovers unopened bills. Open/paid stay if already mirrored.
+    // Books UI "Draft" includes API `draft` and `pending` (approval). filter_by matches the UI.
+    url.searchParams.set('status', options.status ?? 'draft');
+    url.searchParams.set('filter_by', options.filterBy ?? 'Status.Draft');
+  }
   url.searchParams.set('sort_column', options.sortColumn ?? 'last_modified_time');
   url.searchParams.set('sort_order', options.sortOrder ?? 'D');
+  if (options.billNumber) url.searchParams.set('bill_number', String(options.billNumber).trim());
+  if (options.billNumberContains) {
+    url.searchParams.set('bill_number_contains', String(options.billNumberContains).trim());
+  }
+  if (options.referenceNumber) {
+    url.searchParams.set('reference_number', String(options.referenceNumber).trim());
+  }
+  if (options.searchText) url.searchParams.set('search_text', String(options.searchText).trim());
+  if (options.locationId) url.searchParams.set('location_id', String(options.locationId).trim());
+  if (options.branchId) url.searchParams.set('branch_id', String(options.branchId).trim());
+  if (options.warehouseId) url.searchParams.set('warehouse_id', String(options.warehouseId).trim());
 
   const res = await fetch(url.toString(), { headers: authHeaders(accessToken, orgId) });
   await recordZohoApiResponse(res, { operation: `bills/list?page=${page}`, source: 'goods-receipt-sync' });
@@ -187,18 +203,147 @@ async function fetchBillRaw(accessToken, orgId, billId) {
   return payload?.bill ?? null;
 }
 
-function isDraftBillStatus(status) {
-  return String(status ?? '').trim().toLowerCase() === 'draft';
+async function collectBillsMatching(accessToken, orgId, listOptions) {
+  const found = [];
+  let page = 1;
+  let hasMore = true;
+  while (hasMore && page <= 5) {
+    const list = await zohoCallWithRetry(
+      () => fetchBillsListPage(accessToken, orgId, page, listOptions),
+      `bills search page ${page}`,
+    );
+    found.push(...(list.bills || []));
+    hasMore = Boolean(list.hasMore);
+    page += 1;
+  }
+  return found;
+}
+
+function knownBillListLocationIds() {
+  return [...new Set([
+    ...KNOWN_ZOHO_WAREHOUSE_IDS.cochin,
+    ...KNOWN_ZOHO_WAREHOUSE_IDS.head_office,
+  ].filter(Boolean))];
+}
+
+/** Default /bills list is org-head-office scoped. Merge Cochin + HO warehouse/branch lists. */
+async function mergeLocationDraftBills(accessToken, orgId, existing = []) {
+  const byId = new Map();
+  for (const row of existing) {
+    const id = String(row?.bill_id ?? '').trim();
+    if (id) byId.set(id, row);
+  }
+  const before = byId.size;
+  for (const locationId of knownBillListLocationIds()) {
+    for (const extra of [
+      { locationId },
+      { branchId: locationId },
+      { warehouseId: locationId },
+    ]) {
+      const listed = await collectBillsMatching(accessToken, orgId, { ...LIST_SORT, ...extra });
+      for (const row of listed) {
+        const id = String(row?.bill_id ?? '').trim();
+        if (id) byId.set(id, row);
+      }
+    }
+  }
+  if (byId.size !== before) {
+    console.log(
+      `Goods receipt draft list expanded ${before} → ${byId.size} after Cochin/HO location merge.`,
+    );
+  }
+  return [...byId.values()];
+}
+
+/**
+ * Pull specific Zoho bills into goodsReceipts (manual recover / webhook miss).
+ * Searches without status filter so Draft + Pending + Open all match.
+ */
+export async function pullGoodsReceiptsByQuery(secrets, orgId, options = {}) {
+  const accessToken = await getAccessToken(secrets);
+  const organizationId = await resolveOrganizationId(accessToken, orgId);
+  const billNumbers = [...new Set((options.billNumbers || []).map(v => String(v).trim()).filter(Boolean))];
+  const referenceNumbers = [...new Set((options.referenceNumbers || []).map(v => String(v).trim()).filter(Boolean))];
+  const searchTexts = [...new Set((options.searchTexts || []).map(v => String(v).trim()).filter(Boolean))];
+
+  const queries = [
+    ...billNumbers.map(billNumber => ({ unfiltered: true, billNumber })),
+    ...billNumbers.map(billNumber => ({ unfiltered: true, billNumberContains: billNumber })),
+    ...referenceNumbers.map(referenceNumber => ({ unfiltered: true, referenceNumber })),
+    ...searchTexts.map(searchText => ({ unfiltered: true, searchText })),
+  ];
+  if (!queries.length) {
+    throw new Error('billNumbers, referenceNumbers, or searchTexts is required.');
+  }
+
+  const byId = new Map();
+  for (const query of queries) {
+    const listed = await collectBillsMatching(accessToken, organizationId, query);
+    for (const row of listed) {
+      const id = String(row?.bill_id ?? '').trim();
+      if (id) byId.set(id, row);
+    }
+  }
+
+  const pulled = [];
+  const dropped = [];
+  const failed = [];
+  for (const [id, summary] of byId) {
+    try {
+      const raw = await zohoCallWithRetry(
+        () => fetchBillRaw(accessToken, organizationId, id),
+        `bill ${id}`,
+      );
+      if (!raw) {
+        failed.push({ id, billNumber: summary.bill_number || null, error: 'not_found' });
+        continue;
+      }
+      const result = await upsertGoodsReceiptFromRaw(raw);
+      const row = {
+        id,
+        billNumber: String(raw.bill_number || summary.bill_number || ''),
+        status: String(raw.status || ''),
+        vendorName: raw.vendor_name || null,
+        referenceNumber: raw.reference_number || null,
+        dropReason: result.dropReason || null,
+      };
+      if (result.dropped) dropped.push(row);
+      else pulled.push(row);
+    } catch (err) {
+      failed.push({
+        id,
+        billNumber: summary.bill_number || null,
+        error: err?.message || String(err),
+      });
+    }
+  }
+
+  console.log(
+    `Manual goods receipt pull: listed=${byId.size} pulled=${pulled.length} `
+    + `dropped=${dropped.length} failed=${failed.length}.`,
+  );
+  return {
+    listed: byId.size,
+    pulled,
+    dropped,
+    failed,
+  };
 }
 
 function normalizeBillStatus(status) {
   return String(status ?? '').trim().toLowerCase().replace(/\s+/g, '_');
 }
 
+/** Unopened in Zoho: Draft UI includes `pending` (awaiting approval). */
+function isDraftBillStatus(status) {
+  const key = normalizeBillStatus(status);
+  return key === 'draft' || key === 'pending' || key === 'pending_approval' || key === '';
+}
+
 /** Bills ops has already received — keep on the goods-receipt mirror. */
 function isKeptBillStatus(status) {
   const key = normalizeBillStatus(status);
-  return key === 'draft'
+  return isDraftBillStatus(key)
     || key === 'open'
     || key === 'paid'
     || key === 'partially_paid'
@@ -598,11 +743,15 @@ async function upsertGoodsReceiptFromRaw(raw) {
     mapped.purchaseOrderNumber = existing.purchaseOrderNumber;
   }
 
-  // New bills: drafts only. Already-mirrored bills stay after ops opens them in Zoho.
+  // New bills: unopened only (draft / pending). Already-mirrored stay after ops opens them.
   if (!isDraftBillStatus(mapped.status)) {
     if (!existing || !isKeptBillStatus(mapped.status)) {
+      console.warn(
+        `Goods receipt drop ${mapped.id} ${mapped.billNumber || ''} `
+        + `status=${mapped.status} (not unopened, not already mirrored).`,
+      );
       await removeGoodsReceiptDoc(mapped.id);
-      return { id: mapped.id, goodsReceiptCategory: null, dropped: true };
+      return { id: mapped.id, goodsReceiptCategory: null, dropped: true, dropReason: 'status' };
     }
   }
 
@@ -615,8 +764,12 @@ async function upsertGoodsReceiptFromRaw(raw) {
   const goodsReceiptCategory = categoryBreakdown.categories[0]
     ?? classifyInvoiceFromLineItems(mapped.lineItems, catalog);
   if (isSoftwareOnlyInvoiceCategories(categoryBreakdown.categories, goodsReceiptCategory)) {
+    console.warn(
+      `Goods receipt drop ${mapped.id} ${mapped.billNumber || ''} software-only `
+      + `(${(categoryBreakdown.categories || []).join(',')}).`,
+    );
     await removeGoodsReceiptDoc(mapped.id);
-    return { id: mapped.id, goodsReceiptCategory, dropped: true };
+    return { id: mapped.id, goodsReceiptCategory, dropped: true, dropReason: 'software' };
   }
   const now = Timestamp.now();
   const doc = {
@@ -747,8 +900,11 @@ export async function countOrgGoodsReceiptsInRange(secrets, orgId) {
       () => fetchBillsListPage(accessToken, organizationId, page, LIST_SORT),
       `bills count list page ${page}`,
     );
-    totalInRange += list.bills.length;
-    pulledCount += await batchHasStoredDetail(list.bills);
+    const bills = page === 1
+      ? await mergeLocationDraftBills(accessToken, organizationId, list.bills)
+      : list.bills;
+    totalInRange += bills.length;
+    pulledCount += await batchHasStoredDetail(bills);
     hasMore = list.hasMore;
     page += 1;
     if (hasMore) await sleep(LIST_PAGE_DELAY_MS);
@@ -898,8 +1054,11 @@ export async function syncOrgGoodsReceiptsToFirestore(secrets, orgId, options = 
       }
 
       try {
-        await upsertGoodsReceiptFromRaw(fullRaw);
+        const upserted = await upsertGoodsReceiptFromRaw(fullRaw);
         await sleep(DETAIL_PULL_DELAY_MS);
+        if (upserted?.dropped) {
+          return { synced: 0, unchanged: 0, failed: 0, skipped: 1, newlyPulled: 0, rateLimited: false };
+        }
         return { synced: 1, unchanged: 0, failed: 0, skipped: 0, newlyPulled: 1, rateLimited: false };
       } catch (err) {
         console.warn('Org goods receipt sync item failed:', err?.message ?? err);
@@ -920,6 +1079,12 @@ export async function syncOrgGoodsReceiptsToFirestore(secrets, orgId, options = 
           `bills list page ${page}`,
         );
         trackZohoCall();
+        if (page === 1) {
+          list = {
+            ...list,
+            bills: await mergeLocationDraftBills(accessToken, organizationId, list.bills),
+          };
+        }
       } catch (err) {
         if (err?.code === 'RATE_LIMITED') {
           rateLimited = true;
@@ -1203,23 +1368,46 @@ function normalizeWebhookBody(body) {
   return next;
 }
 
+function firstZohoId(value) {
+  const id = String(value ?? '').trim();
+  if (!id) return null;
+  // Zoho bill_id is numeric. Ignore bill numbers like YM2608009.
+  if (!/^\d{6,}$/.test(id)) return null;
+  return id;
+}
+
+function billIdFromObject(value) {
+  if (!value || typeof value !== 'object') return null;
+  return firstZohoId(value.bill_id)
+    || firstZohoId(value.billId)
+    || firstZohoId(value.entity_id)
+    || firstZohoId(value.entityId);
+}
+
 export function extractBillIdFromWebhook(body, query = {}) {
   const normalized = normalizeWebhookBody(body);
+  const nestedBill = normalized.bill
+    || normalized.data?.bill
+    || normalized.payload?.bill
+    || (Array.isArray(normalized.bills) ? normalized.bills[0] : null)
+    || (Array.isArray(normalized.data?.bills) ? normalized.data.bills[0] : null);
   const candidates = [
     query.bill_id,
     query.billId,
-    query.id,
+    query.entity_id,
+    (String(query.id ?? '') !== String(query.organization_id ?? '') ? query.id : null),
     normalized.bill_id,
     normalized.billId,
-    normalized.bill?.bill_id,
-    normalized.bill?.billId,
+    normalized.entity_id,
+    nestedBill,
     normalized.data?.bill_id,
     normalized.payload?.bill_id,
   ];
   for (const value of candidates) {
-    if (value != null && String(value).trim()) return String(value).trim();
+    const id = typeof value === 'object' ? billIdFromObject(value) : firstZohoId(value);
+    if (id) return id;
   }
-  return null;
+  return billIdFromObject(normalized);
 }
 
 export async function deleteGoodsReceiptFromFirestore(billId) {
@@ -1258,7 +1446,7 @@ export async function markGoodsReceiptReceived(secrets, orgId, {
 
   const existingReceivedAt = isoFromUnknown(data.opsReceivedAt);
   const currentStatus = normalizeBillStatus(data.status);
-  const stillDraft = currentStatus === 'draft' || !currentStatus;
+  const stillDraft = isDraftBillStatus(currentStatus);
 
   const accessToken = await getAccessToken(secrets);
   const organizationId = await resolveOrganizationId(accessToken, orgId);
@@ -1374,17 +1562,34 @@ export async function markGoodsReceiptReceived(secrets, orgId, {
 /**
  * Zoho Purchase Bill webhook — create/edit/delete mirror in Firestore.
  */
+function webhookDebugKeys(body, query) {
+  const bodyKeys = body && typeof body === 'object' ? Object.keys(body).slice(0, 24) : [];
+  const queryKeys = query && typeof query === 'object' ? Object.keys(query).slice(0, 16) : [];
+  return `bodyKeys=${bodyKeys.join(',') || '-'} queryKeys=${queryKeys.join(',') || '-'}`;
+}
+
 export async function handleZohoGoodsReceiptWebhook(secrets, orgId, req) {
   const body = normalizeWebhookBody(req.body ?? {});
-  const billId = extractBillIdFromWebhook(body, req.query ?? {});
+  const query = req.query ?? {};
+  const billId = extractBillIdFromWebhook(body, query);
   if (!billId) {
-    return { ok: false, status: 400, message: 'Missing bill_id' };
+    // 400 makes Zoho retry 5× then disable the Bills webhook. ACK and log instead.
+    console.warn(
+      `Zoho goodsreceipt webhook missing bill_id. ${webhookDebugKeys(body, query)}`,
+    );
+    return {
+      ok: true,
+      status: 200,
+      action: 'ignored',
+      reason: 'missing_bill_id',
+    };
   }
 
-  const queryAction = String(req.query?.action ?? '').trim().toLowerCase();
+  const queryAction = String(query.action ?? '').trim().toLowerCase();
   const event = queryAction || extractWebhookEvent(body);
   if (event.includes('delete')) {
     await deleteGoodsReceiptFromFirestore(billId);
+    console.log(`Zoho goodsreceipt webhook deleted ${billId}`);
     return { ok: true, status: 200, action: 'deleted', billId };
   }
 
@@ -1392,10 +1597,15 @@ export async function handleZohoGoodsReceiptWebhook(secrets, orgId, req) {
     const blocked = await ackIfDailyQuotaBlocked('goodsreceipt', billId);
     if (blocked) return blocked;
     const result = await mirrorGoodsReceiptFromZoho(secrets, orgId, billId);
+    console.log(
+      `Zoho goodsreceipt webhook ${result?.dropped ? 'dropped' : 'synced'} ${billId}`
+      + (result?.dropReason ? ` reason=${result.dropReason}` : '')
+      + (result?.goodsReceiptCategory ? ` category=${result.goodsReceiptCategory}` : ''),
+    );
     return {
       ok: true,
       status: 200,
-      action: 'synced',
+      action: result?.dropped ? 'dropped' : 'synced',
       billId,
       result,
     };

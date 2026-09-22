@@ -12,12 +12,16 @@ import { classifyInvoiceLineItem, isSoftwareOnlyInvoiceCategories } from './invo
  * @returns {Promise<Record<string, number>>}
  */
 export async function scheduledInboundQtyByProductId() {
-  const snap = await getFirestore()
-    .collection('goodsReceipts')
-    .where('status', '==', 'draft')
-    .get();
+  const db = getFirestore();
+  const [draftSnap, pendingSnap] = await Promise.all([
+    db.collection('goodsReceipts').where('status', '==', 'draft').get(),
+    db.collection('goodsReceipts').where('status', '==', 'pending').get(),
+  ]);
   const map = {};
-  for (const doc of snap.docs) {
+  const seen = new Set();
+  for (const doc of [...draftSnap.docs, ...pendingSnap.docs]) {
+    if (seen.has(doc.id)) continue;
+    seen.add(doc.id);
     const data = doc.data() || {};
     if (data.opsReceivedAt) continue;
     if (isSoftwareOnlyInvoiceCategories(data.categories, data.goodsReceiptCategory)) continue;

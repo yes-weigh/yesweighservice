@@ -161,6 +161,7 @@ import {
   ensureGoodsReceiptPdf,
   handleZohoGoodsReceiptWebhook,
   markGoodsReceiptReceived,
+  pullGoodsReceiptsByQuery,
 } from './lib/goods-receipt-sync.js';
 import {
   syncOrgSalesOrdersToFirestore,
@@ -445,6 +446,13 @@ async function dispatchZohoWebhook(req, res, kind, handler) {
   }
   try {
     const result = await handler();
+    const id = result?.billId || result?.invoiceId || result?.purchaseOrderId
+      || result?.salesOrderId || result?.itemId || result?.contactId || '';
+    console.log(
+      `Zoho ${kind} webhook ${result?.action || 'ok'}`
+      + (id ? ` ${id}` : '')
+      + (result?.reason ? ` reason=${result.reason}` : ''),
+    );
     res.status(result.status ?? 200).json(result);
   } catch (err) {
     const ack = await ackZohoWebhookFailure(kind, '', err);
@@ -3121,6 +3129,47 @@ export const syncZohoGoodsReceiptsScheduled = onSchedule(
       }
     } catch (err) {
       console.error('Scheduled org goods receipt sync failed:', err?.message ?? err);
+    }
+  },
+);
+
+/** Manual purchase bills → goodsReceipts. Staff / super admin. */
+export const syncZohoGoodsReceipts = onCall(
+  {
+    region: 'asia-south1',
+    secrets: [zohoClientId, zohoClientSecret, zohoRefreshToken],
+    timeoutSeconds: 540,
+    memory: '1GiB',
+  },
+  async request => {
+    await requireActiveUser(request.auth?.uid, SYNC_ROLES);
+    const billNumbers = Array.isArray(request.data?.billNumbers)
+      ? request.data.billNumbers
+      : [];
+    const referenceNumbers = Array.isArray(request.data?.referenceNumbers)
+      ? request.data.referenceNumbers
+      : [];
+    const searchTexts = Array.isArray(request.data?.searchTexts)
+      ? request.data.searchTexts
+      : [];
+    const targeted = billNumbers.length || referenceNumbers.length || searchTexts.length;
+    try {
+      if (targeted) {
+        return await pullGoodsReceiptsByQuery(
+          zohoSecrets(),
+          zohoOrganizationId.value(),
+          { billNumbers, referenceNumbers, searchTexts },
+        );
+      }
+      return await syncOrgGoodsReceiptsToFirestore(
+        zohoSecrets(),
+        zohoOrganizationId.value(),
+        { source: 'manual' },
+      );
+    } catch (err) {
+      throwIfZohoQuota(err);
+      console.error('syncZohoGoodsReceipts failed:', err);
+      throw new HttpsError('internal', err?.message ?? 'Goods receipt sync failed.');
     }
   },
 );

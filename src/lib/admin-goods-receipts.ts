@@ -409,7 +409,7 @@ export function goodsReceiptLocationLabel(
 /** Zoho draft → Scheduled; open/paid after receive → Received. */
 export function goodsReceiptStatusLabel(status: string): string {
   const key = String(status ?? '').trim().toLowerCase().replace(/\s+/g, '_');
-  if (key === 'draft') return 'Scheduled';
+  if (key === 'draft' || key === 'pending' || key === 'pending_approval') return 'Scheduled';
   if (isReceivedBillStatus(key)) return 'Received';
   if (!key) return '—';
   return key.replace(/_/g, ' ').replace(/\b\w/g, ch => ch.toUpperCase());
