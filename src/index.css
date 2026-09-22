@@ -46627,6 +46627,11 @@ button.invoice-detail-top__card {
   color: var(--accent-primary-light);
 }
 
+.support-chat__row--own .support-chat__sender {
+  margin: 0 0.55rem 0.2rem 0;
+  text-align: right;
+}
+
 .support-chat__bubble {
   position: relative;
   padding: 0.42rem 0.55rem 0.3rem;
@@ -47113,10 +47118,6 @@ button.invoice-detail-top__card {
 
 .support-chat__receipt--read {
   color: #53bdeb;
-}
-
-.support-chat__bubble--other .support-chat__receipt {
-  display: none;
 }
 
 .support-chat__meta time {

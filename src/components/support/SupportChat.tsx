@@ -58,7 +58,8 @@ type ThreadItem =
       kind: 'message';
       key: string;
       message: SupportMessage;
-      isOwn: boolean;
+      isStaffSide: boolean;
+      isMine: boolean;
       showAuthor: boolean;
       uploadState?: {
         progress: number | null;
@@ -67,6 +68,11 @@ type ThreadItem =
         onRetry?: () => void;
       };
     };
+
+/** Dealer / dealer staff = client (left). Anyone else = our staff (right). */
+function isSupportClientAuthor(role: string): boolean {
+  return role === 'dealer' || role === 'dealer_staff';
+}
 
 function roleLabel(role: string): string {
   if (role === 'staff' || role === 'super_admin') return FIRM_NAME_SHORT;
@@ -149,12 +155,13 @@ function buildThreadItems(
       lastAuthor = '';
     }
 
-    const isOwn = message.authorUid === currentUid;
+    const isStaffSide = !isSupportClientAuthor(message.authorRole);
+    const isMine = Boolean(currentUid) && message.authorUid === currentUid;
     const author = message.authorUid;
     const expanded = entry ? [message] : expandMessageForDisplay(message);
 
     expanded.forEach((part, index) => {
-      const showAuthor = !isOwn && index === 0 && author !== lastAuthor;
+      const showAuthor = !isMine && index === 0 && author !== lastAuthor;
       if (index === 0) lastAuthor = author;
 
       const uploadState = entry && index === 0
@@ -170,7 +177,8 @@ function buildThreadItems(
         kind: 'message',
         key: entry ? `out-${entry.clientId}` : part.id,
         message: part,
-        isOwn,
+        isStaffSide,
+        isMine,
         showAuthor,
         uploadState,
       });
@@ -204,19 +212,19 @@ function isAudioAttachment(att: SupportMessage['attachments'][number]): boolean 
 
 function MessageMetaFooter({
   message,
-  isOwn,
+  isMine,
   isUploading,
   uploadFailed,
 }: {
   message: SupportMessage;
-  isOwn: boolean;
+  isMine: boolean;
   isUploading: boolean;
   uploadFailed: boolean;
 }) {
   return (
     <footer className="support-chat__meta">
       <time dateTime={message.createdAt}>{formatChatTime(message.createdAt)}</time>
-      {isOwn && (
+      {isMine && (
         isUploading ? (
           <span className="support-chat__receipt support-chat__receipt--pending" aria-label="Sending" title="Sending">
             <Clock size={13} strokeWidth={2.5} />
@@ -235,13 +243,15 @@ function MessageMetaFooter({
 
 function MessageBubble({
   message,
-  isOwn,
+  isStaffSide,
+  isMine,
   showAuthor,
   onMediaLayout,
   uploadState,
 }: {
   message: SupportMessage;
-  isOwn: boolean;
+  isStaffSide: boolean;
+  isMine: boolean;
   showAuthor: boolean;
   onMediaLayout?: () => void;
   uploadState?: {
@@ -258,10 +268,10 @@ function MessageBubble({
   const audioOnly = mediaOnly && message.attachments.every(isAudioAttachment);
   const isUploading = Boolean(uploadState && !uploadState.failed && uploadState.progress !== 100);
   const uploadFailed = Boolean(uploadState?.failed);
-  const voiceAvatarLabel = isOwn ? authorInitials(displayAuthor(message)) : authorInitials(author);
+  const voiceAvatarLabel = authorInitials(author);
   const voiceMessageTime = formatChatTime(message.createdAt);
 
-  const voiceReceipt = isOwn ? (
+  const voiceReceipt = isMine ? (
     isUploading ? (
       <span className="support-chat__receipt support-chat__receipt--pending" aria-label="Sending" title="Sending">
         <Clock size={13} strokeWidth={2.5} />
@@ -279,7 +289,7 @@ function MessageBubble({
     const note = (
       <SupportChatVoiceNote
         src={att.url}
-        isOwn={isOwn}
+        isOwn={isStaffSide}
         avatarLabel={voiceAvatarLabel}
         messageTime={voiceMessageTime}
         receipt={voiceReceipt}
@@ -310,28 +320,28 @@ function MessageBubble({
 
   return (
     <div
-      className={`support-chat__row ${isOwn ? 'support-chat__row--own' : 'support-chat__row--other'}${uploadFailed ? ' support-chat__row--failed' : ''}`}
+      className={`support-chat__row ${isStaffSide ? 'support-chat__row--own' : 'support-chat__row--other'}${uploadFailed ? ' support-chat__row--failed' : ''}`}
     >
-      {!isOwn && (
+      {!isStaffSide && (
         <div className="support-chat__avatar" aria-hidden>
           {showAuthor ? authorInitials(author) : ''}
         </div>
       )}
 
       <div className="support-chat__bubble-wrap">
-        {!isOwn && showAuthor && (
+        {showAuthor && (
           <span className="support-chat__sender">{author}</span>
         )}
 
         {audioOnly ? (
           <div
-            className={`support-chat__bubble support-chat__bubble--voice ${isOwn ? 'support-chat__bubble--own' : 'support-chat__bubble--other'}`}
+            className={`support-chat__bubble support-chat__bubble--voice ${isStaffSide ? 'support-chat__bubble--own' : 'support-chat__bubble--other'}`}
           >
             {message.attachments.map(att => renderVoiceNote(att))}
           </div>
         ) : (
         <div
-          className={`support-chat__bubble ${isOwn ? 'support-chat__bubble--own' : 'support-chat__bubble--other'}${mediaOnly ? ' support-chat__bubble--media-only' : ''}`}
+          className={`support-chat__bubble ${isStaffSide ? 'support-chat__bubble--own' : 'support-chat__bubble--other'}${mediaOnly ? ' support-chat__bubble--media-only' : ''}`}
         >
           {hasAttachments && (
             <div className="support-chat__attachments">
@@ -388,7 +398,7 @@ function MessageBubble({
                       mimeType={att.mimeType}
                       size={att.size}
                       url={att.url}
-                      isOwn={isOwn}
+                      isOwn={isStaffSide}
                       onLayout={onMediaLayout}
                     />
                   ) : (
@@ -444,7 +454,7 @@ function MessageBubble({
 
           <MessageMetaFooter
             message={message}
-            isOwn={isOwn}
+            isMine={isMine}
             isUploading={isUploading}
             uploadFailed={uploadFailed}
           />
@@ -858,7 +868,8 @@ export const SupportChat: React.FC<SupportChatProps> = ({ request, readOnly }) =
                   <MessageBubble
                     key={item.key}
                     message={item.message}
-                    isOwn={item.isOwn}
+                    isStaffSide={item.isStaffSide}
+                    isMine={item.isMine}
                     showAuthor={item.showAuthor}
                     onMediaLayout={handleMediaLayout}
                     uploadState={item.uploadState}
