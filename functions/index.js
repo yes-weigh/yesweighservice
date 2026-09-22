@@ -16,6 +16,7 @@ import {
   syncCatalogToFirestore,
   readCatalogFromFirestore,
   patchProductPackageInfo,
+  patchProductPackageNotRequired,
   readPackageInfo,
   saveCategoryOrder,
   saveCategoryProductOrder,
@@ -721,6 +722,12 @@ export const getCatalogProductDetail = onCall(
       const spareGroupId = String(cachedData.spareGroupId ?? '').trim();
       if (spareGroupId) {
         detail.spareGroupId = spareGroupId;
+      }
+      if (cachedData.packageNotRequired === true) {
+        detail.packageNotRequired = true;
+        if (cachedData.packageNotRequiredReason === 'spare') {
+          detail.packageNotRequiredReason = 'spare';
+        }
       }
       if (Array.isArray(cachedData.gatcStampingPriceIds)) {
         detail.gatcStampingPriceIds = [
@@ -1614,6 +1621,14 @@ export const updateCatalogProductPackageInfo = onCall(
       : null;
 
     try {
+      if (request.data?.notRequired === true) {
+        const saved = await patchProductPackageNotRequired(
+          productId,
+          'spare',
+          { uid: uid ?? null, displayName },
+        );
+        return { ok: true, packageNotRequired: true, overlay: saved };
+      }
       const saved = await patchProductPackageInfo(
         productId,
         {

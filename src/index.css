@@ -40829,6 +40829,12 @@ button.invoice-detail-top__card {
   font-weight: 800;
 }
 
+.goods-receipt-receive__package-spare {
+  color: #fde68a;
+  font-size: 0.8125rem;
+  font-weight: 800;
+}
+
 .goods-receipt-receive__package-chevron {
   flex-shrink: 0;
   color: #94a3b8;
@@ -40848,6 +40854,47 @@ button.invoice-detail-top__card {
   color: #fbbf24;
   font-weight: 650;
   font-size: 0.75rem;
+}
+
+.goods-receipt-receive__package-spare-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.55rem 0.75rem;
+  margin: 0 0 0.65rem;
+}
+
+.goods-receipt-receive__package-spare-row .goods-receipt-receive__package-hint {
+  margin: 0;
+  flex: 1 1 12rem;
+}
+
+.goods-receipt-receive__mark-spare {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  margin: 0;
+  padding: 0.42rem 0.72rem;
+  border-radius: 10px;
+  border: 1px solid rgba(251, 191, 36, 0.42);
+  background: rgba(251, 191, 36, 0.1);
+  color: #fde68a;
+  font: inherit;
+  font-size: 0.75rem;
+  font-weight: 750;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.goods-receipt-receive__mark-spare:hover:not(:disabled) {
+  background: rgba(251, 191, 36, 0.18);
+  border-color: rgba(251, 191, 36, 0.7);
+}
+
+.goods-receipt-receive__mark-spare:disabled {
+  opacity: 0.55;
+  cursor: wait;
 }
 
 .goods-receipt-detail .invoice-detail-item-list {

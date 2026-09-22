@@ -57,6 +57,12 @@ export interface CatalogProduct {
   warehouses?: CatalogWarehouse[];
   /** Firestore-only packaging details (master carton + single box). */
   packageInfo?: CatalogPackageInfo | null;
+  /**
+   * Spare parts skip carton L × B × H on goods receipt.
+   * Firestore only — set from Package → Mark as spare.
+   */
+  packageNotRequired?: boolean;
+  packageNotRequiredReason?: 'spare' | null;
   /** Latest recorded inventory audit snapshot (Firestore only). */
   auditSnapshot?: CatalogProductAuditSnapshot | null;
   /** Display order within category — Firestore only (not synced to Zoho). */

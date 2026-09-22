@@ -925,6 +925,19 @@ export async function patchProductOverlays(productId, input) {
 
 function preserveFirestoreOnlyProductFlags(existing, doc) {
   if (!existing) return;
+  if (existing.packageNotRequired === true) {
+    doc.packageNotRequired = true;
+    if (existing.packageNotRequiredReason) {
+      doc.packageNotRequiredReason = existing.packageNotRequiredReason;
+    }
+    if (existing.packageNotRequiredAt) doc.packageNotRequiredAt = existing.packageNotRequiredAt;
+    if (existing.packageNotRequiredByUid) {
+      doc.packageNotRequiredByUid = existing.packageNotRequiredByUid;
+    }
+    if (existing.packageNotRequiredByName) {
+      doc.packageNotRequiredByName = existing.packageNotRequiredByName;
+    }
+  }
   if (existing.hiddenFromCatalog === true) {
     doc.hiddenFromCatalog = true;
     if (existing.hiddenFromCatalogAt) doc.hiddenFromCatalogAt = existing.hiddenFromCatalogAt;
@@ -1141,6 +1154,22 @@ export async function patchProductPackageInfo(productId, input, editor = {}) {
     updatedByUid: editor.uid ?? null,
     updatedByName: editor.displayName ?? null,
   };
+}
+
+/** Firestore-only — spare parts skip carton dimensions on goods receipt. */
+export async function patchProductPackageNotRequired(productId, reason, editor = {}) {
+  const id = String(productId ?? '').trim();
+  if (!id) throw new Error('productId is required.');
+  const now = new Date().toISOString();
+  const payload = {
+    packageNotRequired: true,
+    packageNotRequiredReason: String(reason ?? 'spare').trim() || 'spare',
+    packageNotRequiredAt: now,
+    packageNotRequiredByUid: editor.uid ?? null,
+    packageNotRequiredByName: editor.displayName ?? null,
+  };
+  await getFirestore().collection(PRODUCTS_COLLECTION).doc(id).set(payload, { merge: true });
+  return payload;
 }
 
 const ALLOWED_IMAGE_TYPES = new Set(['image/jpeg', 'image/png', 'image/webp', 'image/gif']);

@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useOutletContext } from 'react-router-dom';
-import { AlertCircle, Check, ChevronDown, Eye, EyeOff, Package, PackageCheck, Plus, X } from 'lucide-react';
+import { AlertCircle, Check, ChevronDown, Eye, EyeOff, Package, PackageCheck, Plus, Wrench, X } from 'lucide-react';
 import { GoodsReceiptReceivedDialog } from '../../components/admin/GoodsReceiptReceivedDialog';
 import { PoLineSerialFields } from '../../components/admin/PoLineSerialFields';
 import { DocumentLineItemSpec } from '../../components/invoices/DocumentLineItemSpec';
@@ -21,7 +21,10 @@ import {
 } from '../../lib/admin-goods-receipts';
 import {
   catalogProductHasCompleteSingleBoxPackageInfo,
+  catalogProductPackageNotRequired,
+  expectsCatalogPackageInfo,
   isCatalogSparePartProduct,
+  markCatalogProductPackageAsSpare,
   resolveCatalogProductsForLineItems,
 } from '../../lib/catalog';
 import { formatInvoiceDate, formatInvoiceDateTime, invoiceErrorMessage, moveFreightLinesToEnd } from '../../lib/invoices';
@@ -251,6 +254,7 @@ export const AdminGoodsReceiptDocumentPage: React.FC = () => {
   const [loadingZones, setLoadingZones] = useState(true);
   const [catalogById, setCatalogById] = useState<Record<string, CatalogProduct>>({});
   const [expandedPackageIds, setExpandedPackageIds] = useState<Set<string>>(() => new Set());
+  const [markingSpareProductId, setMarkingSpareProductId] = useState<string | null>(null);
 
   const canHideItems = isFullSuperAdmin(user);
   const canBackdateReceived = isFullSuperAdmin(user);
@@ -430,8 +434,10 @@ export const AdminGoodsReceiptDocumentPage: React.FC = () => {
       if (isFreightProductId(line.itemId) || isFreightSku(line.sku)) continue;
       const product = resolveCatalogForLine(line, catalogById);
       if (!product) continue;
-      // Uncategorized products may skip package info.
-      if (!product.categoryId?.trim()) continue;
+      if (goodsReceipt.goodsReceiptCategory === 'spare' || goodsReceipt.inventorySite === 'head_office') {
+        continue;
+      }
+      if (!expectsCatalogPackageInfo(product)) continue;
       if (catalogProductHasCompleteSingleBoxPackageInfo(product)) continue;
       if (seen.has(product.id)) continue;
       seen.add(product.id);
@@ -462,6 +468,24 @@ export const AdminGoodsReceiptDocumentPage: React.FC = () => {
       const existing = prev[productId];
       if (!existing) return prev;
       return { ...prev, [productId]: { ...existing, packageInfo: info } };
+    });
+  };
+
+  const applyPackageNotRequired = (productId: string) => {
+    setCatalogById(prev => {
+      const patch = (product: CatalogProduct | undefined) => (
+        product
+          ? { ...product, packageNotRequired: true, packageNotRequiredReason: 'spare' as const }
+          : product
+      );
+      const next = { ...prev };
+      let changed = false;
+      for (const [key, product] of Object.entries(prev)) {
+        if (product.id !== productId && key !== productId) continue;
+        next[key] = patch(product) ?? product;
+        changed = true;
+      }
+      return changed ? next : prev;
     });
   };
 
@@ -596,6 +620,20 @@ export const AdminGoodsReceiptDocumentPage: React.FC = () => {
   const zohoStillDraft = !isReceivedBillStatus(goodsReceipt.status);
   const receiveLocked = alreadyReceived || isReceivedBillStatus(goodsReceipt.status);
   const needsZohoOpen = alreadyReceived && zohoStillDraft;
+
+  const handleMarkPackageAsSpare = async (productId: string) => {
+    if (receiveLocked) return;
+    setMarkingSpareProductId(productId);
+    setSaveError('');
+    try {
+      await markCatalogProductPackageAsSpare(productId);
+      applyPackageNotRequired(productId);
+    } catch (err) {
+      setSaveError(invoiceErrorMessage(err));
+    } finally {
+      setMarkingSpareProductId(null);
+    }
+  };
 
   const persistReceiveCheck = async (mode: 'draft' | 'post', auditedAt?: string | null) => {
     if (!user?.uid) {
@@ -825,11 +863,30 @@ export const AdminGoodsReceiptDocumentPage: React.FC = () => {
               const isFreight = isFreightProductId(item.itemId)
                 || isFreightSku(item.sku);
               const showPackageInfo = Boolean(catalogProduct && !isFreight);
-              const packageRequired = Boolean(catalogProduct?.categoryId?.trim());
+              const packageMarkedSpare = catalogProductPackageNotRequired(catalogProduct)
+                || Boolean(catalogProduct && !expectsCatalogPackageInfo(catalogProduct));
+              const packageRequired = Boolean(
+                catalogProduct
+                && expectsCatalogPackageInfo(catalogProduct)
+                && goodsReceipt.goodsReceiptCategory !== 'spare'
+                && goodsReceipt.inventorySite !== 'head_office',
+              );
               const packageComplete = catalogProduct
                 ? catalogProductHasCompleteSingleBoxPackageInfo(catalogProduct)
                 : true;
-              const packageMissing = showPackageInfo && packageRequired && !packageComplete;
+              const packageStatus: 'ok' | 'spare' | 'missing' = !showPackageInfo || packageComplete
+                ? 'ok'
+                : (!packageRequired || packageMarkedSpare)
+                  ? 'spare'
+                  : 'missing';
+              const packageMissing = packageStatus === 'missing';
+              const showMarkAsSpare = Boolean(
+                showPackageInfo
+                && catalogProduct
+                && !packageComplete
+                && !catalogProductPackageNotRequired(catalogProduct)
+                && !receiveLocked,
+              );
               const postedLocations = draft.locations.filter(locationDraftHasValue);
 
               return (
@@ -928,11 +985,13 @@ export const AdminGoodsReceiptDocumentPage: React.FC = () => {
                         >
                           <span className="goods-receipt-receive__label">Package</span>
                           <span className="goods-receipt-receive__package-status">
-                            {packageMissing ? (
+                            {packageStatus === 'missing' ? (
                               <span className="goods-receipt-receive__package-alarm">
                                 <PackageInfoIcon size={16} title="Package info missing" />
                                 Missing
                               </span>
+                            ) : packageStatus === 'spare' ? (
+                              <span className="goods-receipt-receive__package-spare">Spare</span>
                             ) : (
                               <span className="goods-receipt-receive__package-ok">OK</span>
                             )}
@@ -964,13 +1023,41 @@ export const AdminGoodsReceiptDocumentPage: React.FC = () => {
 
                     {showPackageInfo && catalogProduct && expandedPackageIds.has(item.id) && (
                       <div className="goods-receipt-receive__package is-open">
-                        <ProductPackageInfo
-                          product={catalogProduct}
-                          packageInfo={catalogProduct.packageInfo}
-                          canEdit={!receiveLocked}
-                          defaultEditing={packageMissing && !receiveLocked}
-                          onPackageInfoChange={info => onPackageInfoSaved(catalogProduct.id, info)}
-                        />
+                        {showMarkAsSpare ? (
+                          <div
+                            className="goods-receipt-receive__package-spare-row"
+                            onPointerDown={event => event.stopPropagation()}
+                          >
+                            <p className="goods-receipt-receive__package-hint">
+                              Spare items do not need carton dimensions.
+                            </p>
+                            <button
+                              type="button"
+                              className="goods-receipt-receive__mark-spare"
+                              disabled={saving || markingSpareProductId === catalogProduct.id}
+                              onClick={() => void handleMarkPackageAsSpare(catalogProduct.id)}
+                            >
+                              <Wrench size={14} aria-hidden />
+                              {markingSpareProductId === catalogProduct.id
+                                ? 'Marking…'
+                                : 'Mark as spare'}
+                            </button>
+                          </div>
+                        ) : null}
+                        {packageStatus === 'spare' && !showMarkAsSpare ? (
+                          <p className="goods-receipt-receive__package-hint">
+                            Spare — goods received does not need package info.
+                          </p>
+                        ) : null}
+                        {!catalogProductPackageNotRequired(catalogProduct) ? (
+                          <ProductPackageInfo
+                            product={catalogProduct}
+                            packageInfo={catalogProduct.packageInfo}
+                            canEdit={!receiveLocked}
+                            defaultEditing={packageMissing && !receiveLocked}
+                            onPackageInfoChange={info => onPackageInfoSaved(catalogProduct.id, info)}
+                          />
+                        ) : null}
                       </div>
                     )}
 

@@ -45,6 +45,11 @@ export const ZOHO_BACKED_CATALOG_PRODUCT_FIELDS = [
 
 export const FIRESTORE_ONLY_CATALOG_PRODUCT_FIELDS = [
   'packageInfo',
+  'packageNotRequired',
+  'packageNotRequiredReason',
+  'packageNotRequiredAt',
+  'packageNotRequiredByUid',
+  'packageNotRequiredByName',
   'modelNumber',
   'approvalNumber',
   'spareGroupId',

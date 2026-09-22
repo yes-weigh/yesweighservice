@@ -230,12 +230,14 @@ export {
 
 /**
  * Package dimensions are only expected for finished shop products.
- * Uncategorized, generic spare parts, and software keys skip the missing-package flag.
+ * Uncategorized, generic spare parts, software keys, and items marked
+ * as spare skip the missing-package flag.
  */
 export function expectsCatalogPackageInfo(
-  product: Pick<CatalogProduct, 'categoryId' | 'categoryName'>,
+  product: Pick<CatalogProduct, 'categoryId' | 'categoryName' | 'packageNotRequired'>,
   categories: CatalogCategory[] = [],
 ): boolean {
+  if (catalogProductPackageNotRequired(product)) return false;
   if (!hasCatalogCategory(product)) return false;
   if (isHiddenCatalogProduct(product, categories)) return false;
   if (isCatalogSparePartProduct(product, categories)) return false;
@@ -381,6 +383,13 @@ export function catalogProductHasCompleteSingleBoxPackageInfo(
   ));
 }
 
+/** Spare-marked items skip carton dimensions on goods receipt. */
+export function catalogProductPackageNotRequired(
+  product: Pick<CatalogProduct, 'packageNotRequired'> | null | undefined,
+): boolean {
+  return product?.packageNotRequired === true;
+}
+
 export const PACKAGE_INFO_FILTERS = [
   { key: 'hasPackaging', label: 'Has packaging' },
   { key: 'missingPackaging', label: 'Missing packaging' },
@@ -389,10 +398,13 @@ export const PACKAGE_INFO_FILTERS = [
 export type PackageInfoFilter = typeof PACKAGE_INFO_FILTERS[number]['key'];
 
 export function matchesPackageInfoFilters(
-  product: Pick<CatalogProduct, 'packageInfo'>,
+  product: Pick<CatalogProduct, 'packageInfo' | 'packageNotRequired'>,
   filters: ReadonlySet<PackageInfoFilter>,
 ): boolean {
   if (filters.size === 0) return true;
+  if (catalogProductPackageNotRequired(product)) {
+    return filters.has('hasPackaging') && filters.has('missingPackaging');
+  }
   const hasPackaging = catalogProductHasSingleBoxPackageInfo(product);
   return (
     (filters.has('hasPackaging') && hasPackaging)
@@ -911,6 +923,10 @@ function mapProduct(data: Record<string, unknown>): CatalogProduct {
     syncedAt,
     ...(warehouses?.length ? { warehouses } : {}),
     ...(packageInfo ? { packageInfo } : {}),
+    ...(data.packageNotRequired === true ? { packageNotRequired: true } : {}),
+    ...(data.packageNotRequiredReason === 'spare'
+      ? { packageNotRequiredReason: 'spare' as const }
+      : {}),
     ...(auditSnapshot ? { auditSnapshot } : {}),
     displayOrder: Number.isFinite(Number(data.displayOrder))
       ? Number(data.displayOrder)
@@ -2435,6 +2451,20 @@ export async function updateCatalogProductPackageInfo(
     });
     clearCatalogCache();
     return result.data.packageInfo;
+  } catch (err) {
+    throw new Error(catalogErrorMessage(err));
+  }
+}
+
+/** Firestore only — spare parts skip carton dimensions on goods receipt. */
+export async function markCatalogProductPackageAsSpare(productId: string): Promise<void> {
+  const callable = httpsCallable<
+    { productId: string; notRequired: true },
+    { ok: boolean }
+  >(functions, 'updateCatalogProductPackageInfo');
+  try {
+    await callable({ productId, notRequired: true });
+    clearCatalogCache();
   } catch (err) {
     throw new Error(catalogErrorMessage(err));
   }
