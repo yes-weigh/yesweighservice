@@ -320,11 +320,20 @@ function allotmentIsBound(row) {
   return productTokens(row).length > 0;
 }
 
+function nameTokens(value) {
+  return [value?.productName, value?.name]
+    .map(compactProductToken)
+    .filter(token => token.length >= 8);
+}
+
 function allotmentMatchesProduct(row, filter = {}) {
   const want = productTokens(filter);
   const have = productTokens(row);
   if (!want.length || !have.length) return false;
-  return want.some(token => have.includes(token));
+  if (want.some(token => have.includes(token))) return true;
+  const wantNames = nameTokens(filter);
+  const haveNames = nameTokens(row);
+  return wantNames.some(left => haveNames.some(right => left.includes(right) || right.includes(left)));
 }
 
 export function productHasDedicatedAllotment(allotments, filter = {}, series = NON_GATC_SERIES) {
@@ -388,18 +397,11 @@ export function expandSerialAllotmentPool(allotments, filter = {}, series = NON_
   return uniqueSerialPool(out);
 }
 
-function gatcLotCompatibleWithLineSeries(rowSeries, lineSeries) {
-  if (str(lineSeries) === GATC_50KG_SERIES) {
-    return rowSeries === GATC_50KG_SERIES || rowSeries === NON_GATC_SERIES;
-  }
-  return rowSeries === GATC_SL_SERIES || rowSeries === NON_GATC_SERIES;
-}
-
 export function productHasGatcPickerLots(allotments, filter = {}, series) {
+  void series;
   return (Array.isArray(allotments) ? allotments : []).some(row => (
     allotmentIsBound(row)
     && allotmentMatchesProduct(row, filter)
-    && gatcLotCompatibleWithLineSeries(str(row?.series), series)
   ));
 }
 
@@ -410,14 +412,15 @@ export function productHasGatcPickerLots(allotments, filter = {}, series) {
  */
 export function expandGatcPickerPool(allotments, filter = {}, series) {
   const rows = Array.isArray(allotments) ? allotments : [];
+  // A product's own lot is that scale's serials, including GR lots saved as non_gatc.
+  // Series (50 kg vs SL) only splits the shared unbound sticker tank.
   const productLots = rows.filter(row => (
     allotmentIsBound(row)
     && allotmentMatchesProduct(row, filter)
-    && gatcLotCompatibleWithLineSeries(str(row?.series), series)
   ));
   const source = productLots.length
     ? productLots
-    : rows.filter(row => str(row?.series) === str(series));
+    : rows.filter(row => str(row?.series) === str(series) && !allotmentIsBound(row));
   const out = [];
   for (const row of source) {
     out.push(...expandAllotmentRange(row));

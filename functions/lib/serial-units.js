@@ -146,7 +146,10 @@ function unitMatchesProduct(data, { productId = '', sku = '', productName = '' }
   const want = [productId, sku, productName].map(compactProductToken).filter(Boolean);
   const have = [data?.productId, data?.sku, data?.productName].map(compactProductToken).filter(Boolean);
   if (!want.length || !have.length) return false;
-  return want.some(token => have.includes(token));
+  if (want.some(token => have.includes(token))) return true;
+  const left = compactProductToken(productName);
+  const right = compactProductToken(data?.productName);
+  return left.length >= 8 && right.length >= 8 && (left.includes(right) || right.includes(left));
 }
 
 export async function listAvailableSerialUnits({
