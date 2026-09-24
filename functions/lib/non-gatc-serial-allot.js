@@ -25,7 +25,7 @@ export const NON_GATC_SERIES = 'non_gatc';
 export const GATC_50KG_SERIES = 'gatc_50kg';
 export const GATC_SL_SERIES = 'gatc_sl';
 
-/** Factory GATC stickers held for Interweighing. Not a product lot and not the 50 kg tank. */
+/** Factory GATC stickers held for Interweighing. Used on 50 kg and other stamped lines. */
 export const IWP_GATC_UNUSED_RANGES = [
   { from: 'Y10315', to: 'Y11000' },
   { from: 'YZ01420', to: 'YZ01500' },
@@ -414,8 +414,7 @@ export function productHasGatcPickerLots(allotments, filter = {}, series) {
 /**
  * GATC invoice picker.
  * Product with its own lot (often saved as non_gatc from GR) → that range.
- * Non-50 kg lines also get the factory Y / YZ sticker tank.
- * Else shared 50 kg / SL printed series, plus that same factory tank.
+ * 50 kg and other stamped lines also get the factory Y / YZ sticker tank.
  */
 export function expandGatcPickerPool(allotments, filter = {}, series) {
   const rows = Array.isArray(allotments) ? allotments : [];
@@ -432,10 +431,8 @@ export function expandGatcPickerPool(allotments, filter = {}, series) {
   for (const row of source) {
     out.push(...expandAllotmentRange(row));
   }
-  if (str(series) === GATC_SL_SERIES) {
-    for (const range of IWP_GATC_UNUSED_RANGES) {
-      out.push(...expandAllotmentRange(range));
-    }
+  for (const range of IWP_GATC_UNUSED_RANGES) {
+    out.push(...expandAllotmentRange(range));
   }
   return uniqueSerialPool(out);
 }
