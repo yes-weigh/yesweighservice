@@ -530,19 +530,22 @@ async function createSegmentSalesOrders({
     // Keep warehouses[] on mapped lines so Zoho only gets warehouse_id on stocked goods.
     // Software / SAC / freight / empty-warehouse lines are rejected as
     // "You are not authorized to perform this operation" if warehouse_id is sent.
-    // Prefer the live Zoho warehouse id for Cochin / Head Office — catalog ids go stale.
+    // Item warehouse rows are the ids Zoho has enabled for that SKU.
+    // A stale Head Office / Cochin fallback is refused as "not authorized".
     const needsZohoWarehouse = segment !== 'software'
       && bucket.lines.some(line => lineAllowsWarehouse(line));
     let locationId = null;
+    let lineWarehouseId = null;
     if (needsZohoWarehouse) {
+      for (const line of bucket.lines) {
+        if (!lineAllowsWarehouse(line)) continue;
+        lineWarehouseId = warehouseIdFromLineWarehouses(site, line.warehouses);
+        if (lineWarehouseId) break;
+      }
       try {
         locationId = await resolveZohoLocationIdForSite(site, secrets, orgId);
       } catch (err) {
-        for (const line of bucket.lines) {
-          if (!lineAllowsWarehouse(line)) continue;
-          locationId = warehouseIdFromLineWarehouses(site, line.warehouses);
-          if (locationId) break;
-        }
+        locationId = lineWarehouseId;
         if (!locationId) {
           throw new HttpsError(
             'failed-precondition',
@@ -550,6 +553,7 @@ async function createSegmentSalesOrders({
           );
         }
       }
+      if (lineWarehouseId) locationId = lineWarehouseId;
     }
 
     const bucketLabel = segmentSiteLabel(segment, site);

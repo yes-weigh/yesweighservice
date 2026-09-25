@@ -521,24 +521,39 @@ export async function createSalesOrderFromDealerOrder(secrets, configuredOrgId, 
       alternateWarehouseIds = liveIds.filter(id => id !== warehouseId);
     } else if (liveIds.length) {
       if (warehouseId) {
-        console.warn('Zoho sales order warehouse id is not a live Cochin/HO warehouse; using live ids', {
+        // Keep the caller's warehouse (item-enabled Head Office / Cochin).
+        // Replacing it with Cochin sends a warehouse the SKU is not enabled at.
+        console.warn('Zoho sales order warehouse id is not in the live Cochin/HO pair; trying both', {
           requested: warehouseId,
           cochin: bySite.cochin,
           headOffice: bySite.head_office,
         });
+        alternateWarehouseIds = liveIds.filter(id => id !== warehouseId);
+      } else {
+        warehouseId = bySite.head_office || bySite.cochin || liveIds[0];
+        alternateWarehouseIds = liveIds.filter(id => id !== warehouseId);
       }
-      warehouseId = liveIds.includes(bySite.cochin) ? bySite.cochin : liveIds[0];
-      alternateWarehouseIds = liveIds.filter(id => id !== warehouseId);
     }
   } catch (err) {
     console.warn('Could not load live Zoho warehouses for sales order create:', err?.message || err);
   }
-  if (!alternateWarehouseIds.length) {
-    alternateWarehouseIds = [
-      ...KNOWN_ZOHO_WAREHOUSE_IDS.cochin,
-      ...KNOWN_ZOHO_WAREHOUSE_IDS.head_office,
-    ].filter(id => id && id !== warehouseId);
+  const lineWarehouseIds = [];
+  for (const line of Array.isArray(order.lines) ? order.lines : []) {
+    for (const row of Array.isArray(line?.warehouses) ? line.warehouses : []) {
+      const name = String(row?.warehouseName ?? row?.warehouse_name ?? '').trim().toLowerCase();
+      const cochinOrHeadOffice = name === 'cochin' || name.includes('cochin')
+        || name === 'head office' || (name.includes('head') && name.includes('office'));
+      if (!cochinOrHeadOffice) continue;
+      const id = String(row?.warehouseId ?? row?.warehouse_id ?? '').trim();
+      if (id) lineWarehouseIds.push(id);
+    }
   }
+  alternateWarehouseIds = [
+    ...alternateWarehouseIds,
+    ...lineWarehouseIds,
+    ...KNOWN_ZOHO_WAREHOUSE_IDS.cochin,
+    ...KNOWN_ZOHO_WAREHOUSE_IDS.head_office,
+  ].filter((id, index, all) => id && id !== warehouseId && all.indexOf(id) === index);
   const lineItems = lineItemsFromOrder(order, warehouseId);
   if (!lineItems.length) {
     throw new Error('Order has no valid Zoho line items.');

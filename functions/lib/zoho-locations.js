@@ -19,8 +19,9 @@ const ZOHO_BOOKS_API_BASE = 'https://www.zohoapis.in/books/v3';
  * Used only when /settings/warehouses is forbidden for the connected user.
  */
 export const KNOWN_ZOHO_WAREHOUSE_IDS = {
-  cochin: ['99381000000098082', '99381000005077018'],
-  head_office: ['99381000003083031'],
+  // Current ids first. Older ids are refused as "not authorized".
+  cochin: ['99381000005077018', '99381000000098082'],
+  head_office: ['99381000005078426', '99381000003083031'],
 };
 
 /** @type {{ at: number, bySite: Record<string, string> } | null} */
