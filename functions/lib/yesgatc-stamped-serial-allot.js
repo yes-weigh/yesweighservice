@@ -10,6 +10,7 @@ import {
   GATC_50KG_SERIES,
   GATC_SL_SERIES,
   isIwpGatcUnusedSerial,
+  isXSeriesSerial,
   productHasGatcPickerLots,
   invoiceLineHasGatcTag,
   isVoidInvoiceStatus,
@@ -350,8 +351,12 @@ export async function listUnlinkedIwpGatcCertificates(maxOrOpts = 2000) {
   }
   const sorted = [...certRows, ...extras]
     .sort((a, b) => String(a.serialNumber).localeCompare(String(b.serialNumber), 'en', { numeric: true }));
-  const pinned = sorted.filter(row => isIwpGatcUnusedSerial(row.serialNumber));
-  const rest = sorted.filter(row => !isIwpGatcUnusedSerial(row.serialNumber));
+  const pinned = sorted.filter(row => (
+    isIwpGatcUnusedSerial(row.serialNumber) || isXSeriesSerial(row.serialNumber)
+  ));
+  const rest = sorted.filter(row => (
+    !isIwpGatcUnusedSerial(row.serialNumber) && !isXSeriesSerial(row.serialNumber)
+  ));
   return [...pinned, ...rest].slice(0, Math.max(cap, pinned.length));
 }
 

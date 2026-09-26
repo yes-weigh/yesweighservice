@@ -326,6 +326,25 @@ function allotmentIsBound(row) {
   return productTokens(row).length > 0;
 }
 
+function allotmentSkuBound(row) {
+  return [row?.productId, row?.itemId, row?.sku].some(token => compactProductToken(token));
+}
+
+function serialPrefix(serial) {
+  const parsed = parseSerialToken(serial);
+  return parsed ? parsed.prefix.toUpperCase() : '';
+}
+
+/** X01371-style stickers. Shared settings lots, not a product SKU bank. */
+export function isXSeriesSerial(serial) {
+  return serialPrefix(serial) === 'X';
+}
+
+function isSharedXStampingLot(row) {
+  if (serialPrefix(row?.from) !== 'X' && serialPrefix(row?.to) !== 'X') return false;
+  return !allotmentSkuBound(row);
+}
+
 function nameTokens(value) {
   return [value?.productName, value?.name]
     .map(compactProductToken)
@@ -427,8 +446,14 @@ export function expandGatcPickerPool(allotments, filter = {}, series) {
   const source = productLots.length
     ? productLots
     : rows.filter(row => str(row?.series) === str(series) && !allotmentIsBound(row));
+  const seenRows = new Set(source);
   const out = [];
   for (const row of source) {
+    out.push(...expandAllotmentRange(row));
+  }
+  // X lots are often saved as non_gatc with no SKU. A product's own lot must not hide them.
+  for (const row of rows) {
+    if (seenRows.has(row) || !isSharedXStampingLot(row)) continue;
     out.push(...expandAllotmentRange(row));
   }
   for (const range of IWP_GATC_UNUSED_RANGES) {
