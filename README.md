@@ -123,7 +123,7 @@ If function deploy fails with `cloudscheduler.jobs.update`, a **project owner** 
 
 - Project: `yesweigh-service`
 - Console: https://console.firebase.google.com/project/yesweigh-service/overview
-- GitHub: https://github.com/yes-weigh/yesweighservice
+- GitHub: https://github.com/advtyesweigh/yesweighservice
 
 ## Business flow
 
